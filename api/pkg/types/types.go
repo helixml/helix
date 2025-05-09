@@ -27,8 +27,10 @@ type Interaction struct {
 	// to get down to what actually matters
 	Mode SessionMode `json:"mode"`
 	// the ID of the runner that processed this interaction
-	Runner         string         `json:"runner"`          // e.g. 0
-	Message        string         `json:"message"`         // e.g. Prove pythagoras
+	Runner string `json:"runner"` // e.g. 0
+	// Deprecated: Use Content instead
+	Message        string         `json:"message"`         // e.g. Prove pythagoras (last text message from the user)
+	Content        MessageContent `json:"content"`         // Original content received from the API. This will include the Message and any images.
 	ResponseFormat ResponseFormat `json:"response_format"` // e.g. json
 
 	DisplayMessage string            `json:"display_message"` // if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context)
@@ -270,12 +272,49 @@ func (s *SessionChatRequest) Message() (string, bool) {
 	if len(s.Messages) == 0 {
 		return "", false
 	}
-	if len(s.Messages[0].Content.Parts) == 0 {
+	// Assuming we are interested in the first message in the request
+	msg := s.Messages[0]
+	// Ensure msg and msg.Content are not nil, and Parts is not empty
+	if msg == nil || len(msg.Content.Parts) == 0 {
+		// If msg.Content could be nil (e.g. if Message.Content was *MessageContent),
+		// an additional check `msg.Content == nil` would be needed.
+		// Given `Content MessageContent`, it won't be nil itself, but its fields might be zero-valued.
 		return "", false
 	}
 
-	message, ok := s.Messages[0].Content.Parts[0].(string)
-	return message, ok
+	for _, part := range msg.Content.Parts {
+		if part == nil {
+			continue
+		}
+		// Case 1: Part is a simple string
+		if text, ok := part.(string); ok {
+			return text, true
+		}
+
+		// Case 2 & 3: Part is an object (which json.Unmarshal turns into map[string]interface{} for `any`)
+		if partMap, ok := part.(map[string]interface{}); ok {
+			// Check for {"type": "text", "text": "..."}
+			if typeVal, typeOk := partMap["type"].(string); typeOk && typeVal == "text" {
+				if textVal, textOk := partMap["text"].(string); textOk {
+					return textVal, true
+				}
+			}
+			// If partMap["type"] is "image_url", this function skips it as it's looking for the first text message.
+		}
+	}
+
+	return "", true // No text found, but we found a part
+}
+
+func (s *SessionChatRequest) MessageContent() MessageContent {
+	if len(s.Messages) == 0 {
+		return MessageContent{
+			ContentType: "text",
+			Parts:       []any{""},
+		}
+	}
+
+	return s.Messages[0].Content
 }
 
 // the user wants to create a Lora or RAG source
@@ -313,7 +352,7 @@ const (
 )
 
 type MessageContent struct {
-	ContentType MessageContentType `json:"content_type"` // text, image, multimodal_text
+	ContentType MessageContentType `json:"content_type"` // text, image_url, multimodal_text
 	// Parts is a list of strings or objects. For example for text, it's a list of strings, for
 	// multi-modal it can be an object:
 	// "parts": [
@@ -1645,4 +1684,22 @@ type UserAppAccessResponse struct {
 	CanRead  bool `json:"can_read"`
 	CanWrite bool `json:"can_write"`
 	IsAdmin  bool `json:"is_admin"`
+}
+
+// TextPart represents a text content part for explicit typing if needed elsewhere.
+type TextPart struct {
+	Type string `json:"type"` // Expected to be "text"
+	Text string `json:"text"`
+}
+
+// ImageURLData represents the data for an image URL.
+type ImageURLData struct {
+	URL    string `json:"url"`
+	Detail string `json:"detail,omitempty"` // e.g., "auto", "low", "high"
+}
+
+// ImageURLPart represents an image URL content part for explicit typing if needed elsewhere.
+type ImageURLPart struct {
+	Type     string       `json:"type"` // Expected to be "image_url"
+	ImageURL ImageURLData `json:"image_url"`
 }
