@@ -21,7 +21,7 @@ controlplane:
   haystack:
     enabled: true
     # Option 1: Direct DSN specification
-    pgvectorDsn: "postgresql://postgres:pgvector@my-helix-controlplane-pgvector:5432/postgres"
+    # pgvectorDsn: "postgresql://postgres:pgvector@my-helix-controlplane-pgvector:5432/postgres"
     # Or: Option 2: Reference DSN from existing secret
     # existingSecret: "helix-pgvector-creds"
     # existingSecretDsnKey: "dsn"  # defaults to "dsn" if not specified
@@ -52,23 +52,23 @@ controlplane:
 
   # Provider configurations (examples of the three fixed global provider names)
   # You can also add dynamic providers at runtime through the Dashboard
-  providers:
-    vllm:
-      baseUrl: "http://vllm-gte.default.svc.cluster.local/v1"
-      apiKey: "EMPTY"
-    openai:
-      baseUrl: "http://vllm-llama.default.svc.cluster.local/v1"
-      apiKey: "EMPTY"
+  # providers:
+  #   vllm:
+  #     baseUrl: "http://vllm-gte.default.svc.cluster.local/v1"
+  #     apiKey: "EMPTY"
+  #   openai:
+  #     baseUrl: "http://vllm-llama.default.svc.cluster.local/v1"
+  #     apiKey: "EMPTY"
 
 # Environment variables that will be added to the configmap
 envVariables:
   LOG_LEVEL: debug
   APP_URL: http://localhost:8080
-  # Database
-  POSTGRES_HOST: my-helix-controlplane-postgresql
-  POSTGRES_USER: helix
-  POSTGRES_PASSWORD: oh-hallo-insecure-password
-  POSTGRES_DATABASE: helix
+  # NOTE: If uncommenting, then set Values.postgresql.enabled to false  
+  # POSTGRES_HOST: my-helix-controlplane-postgresql
+  # POSTGRES_USER: helix
+  # POSTGRES_PASSWORD: oh-hallo-insecure-password
+  # POSTGRES_DATABASE: helix
   # Runners
   RUNNER_TOKEN: oh-hallo-insecure-token
   # Keycloak location
@@ -83,11 +83,16 @@ envVariables:
   # ids that are admins or the word "all" if you want to allow all users to be admins
   ADMIN_USER_IDS: "all"
 
-# Environment variables driven from secrets that will be set in the main pod
+# Environment variables driven from secrets that will be set in the main pod.
 secretEnvVariables:
+  # Get your License key from https://deploy.helix.ml/licenses
+  # Create the license secret with:
+  #
+  #   kubectl create secret generic helix-license --from-literal=license="<base64 encoded secret contents here>"
+  # 
   LICENSE_KEY: 
-    secretName: foo
-    secretKey: bar
+    secretName: helix-license
+    secretKey: license
     
 tika:
   enabled: false
@@ -125,3 +130,12 @@ pgvector:
 persistence: # for api filestore
   enabled: true
   size: 8Gi
+
+# To enable ingress, set the following values:
+# ingress:
+#   enabled: false  
+#   hosts:
+#     - host: helix.acme.com
+#       paths:
+#         - path: /
+#           pathType: ImplementationSpecific
