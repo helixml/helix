@@ -69,9 +69,11 @@ export const InteractionContainer: FC<{
           )
         }
         <Cell>
-          <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-            { name }
-          </Typography>
+          {align !== 'right' && (
+            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+              { name }
+            </Typography>
+          )}
         </Cell>
         <Cell grow />
         <Cell>
