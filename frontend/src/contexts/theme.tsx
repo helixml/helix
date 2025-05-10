@@ -21,6 +21,9 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
           main: themeConfig.secondary,
         },
         mode: mode,
+        background: {
+          default: '#23272f',
+        },
       },
       typography: {
         fontFamily: "Assistant, Helvetica, Arial, sans-serif",
