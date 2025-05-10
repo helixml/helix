@@ -1756,7 +1756,6 @@ const Session: FC = () => {
           <Box
             sx={{
               flexShrink: 0, // Prevent shrinking
-              borderTop: theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder,
               bgcolor: theme.palette.background.default,
             }}
           >
@@ -1876,7 +1875,8 @@ const Session: FC = () => {
                     </Box>
                     {/* --- End of new input area --- */}
                   </Cell>
-                  {isBigScreen && (
+                  {/* Temporary disabled feedback buttons, will be moved to interaction list */}
+                  {/* {isBigScreen && (
                     <Cell sx={{ display: 'flex', alignItems: 'center', ml: 2 }}>
                       <Button
                         onClick={() => {
@@ -1897,7 +1897,7 @@ const Session: FC = () => {
                         {session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon />}
                       </Button>
                     </Cell>
-                  )}
+                  )} */}
                 </Row>
 
                 {!isBigScreen && (
