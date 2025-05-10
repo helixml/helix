@@ -1255,7 +1255,16 @@ const Session: FC = () => {
     const hasMoreAbove = visibleBlocks.length > 0 && visibleBlocks[0].startIndex > 0
     
     return (
-      <Container maxWidth="lg" sx={{ py: 2, pb: 20 }}>
+      <Box
+        sx={{
+          width: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          py: 2,
+          pb: 10,
+        }}
+      >
         {hasMoreAbove && (
           <div
             id="virtual-space-above"
@@ -1275,58 +1284,74 @@ const Session: FC = () => {
             )}
           </div>
         )}
-        {visibleBlocks.map(block => {
-          const key = getBlockKey(block.startIndex, block.endIndex)
+        <Box
+          sx={{
+            width: '100%',
+            maxWidth: 700,
+            mx: 'auto',
+            px: { xs: 1, sm: 2, md: 0 },
+            
+            borderRadius: 4,
+            boxShadow: 2,
+            minHeight: '60vh',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+          }}
+        >
+          {visibleBlocks.map(block => {
+            const key = getBlockKey(block.startIndex, block.endIndex)
 
-          if (block.isGhost) {
+            if (block.isGhost) {
+              return (
+                <div
+                  key={key}
+                  style={{ height: block.height || 0 }}
+                />
+              )
+            }
+
+            const blockInteractions = memoizedInteractions.slice(block.startIndex, block.endIndex)
+
             return (
               <div
                 key={key}
-                style={{ height: block.height || 0 }}
-              />
+                id={`block-${key}`}
+                ref={el => blockRefs.current[key] = el}
+              >
+                {blockInteractions.map((interaction, index) => {
+                  const absoluteIndex = block.startIndex + index
+                  const isLastInteraction = absoluteIndex === memoizedInteractions.length - 1
+                  const isOwner = account.user?.id === sessionData.owner
+
+                  return (
+                    <MemoizedInteraction
+                      key={interaction.id}
+                      serverConfig={account.serverConfig}
+                      interaction={interaction}
+                      session={sessionData}
+                      highlightAllFiles={highlightAllFiles}
+                      retryFinetuneErrors={retryFinetuneErrors}
+                      onReloadSession={safeReloadSession}
+                      onClone={onClone}
+                      onAddDocuments={isLastInteraction ? onAddDocuments : undefined}
+                      onFilterDocument={appID ? onHandleFilterDocument : undefined}                    
+                      isLastInteraction={isLastInteraction}
+                      isOwner={isOwner}
+                      isAdmin={account.admin}
+                      scrollToBottom={scrollToBottom}
+                      appID={appID}
+                      onHandleFilterDocument={onHandleFilterDocument}
+                      session_id={sessionData.id}
+                      hasSubscription={account.userConfig.stripe_subscription_active || false}
+                    />
+                  )
+                })}
+              </div>
             )
-          }
-
-          const blockInteractions = memoizedInteractions.slice(block.startIndex, block.endIndex)
-
-          return (
-            <div
-              key={key}
-              id={`block-${key}`}
-              ref={el => blockRefs.current[key] = el}
-            >
-              {blockInteractions.map((interaction, index) => {
-                const absoluteIndex = block.startIndex + index
-                const isLastInteraction = absoluteIndex === memoizedInteractions.length - 1
-                const isOwner = account.user?.id === sessionData.owner
-
-                return (
-                  <MemoizedInteraction
-                    key={interaction.id}
-                    serverConfig={account.serverConfig}
-                    interaction={interaction}
-                    session={sessionData}
-                    highlightAllFiles={highlightAllFiles}
-                    retryFinetuneErrors={retryFinetuneErrors}
-                    onReloadSession={safeReloadSession}
-                    onClone={onClone}
-                    onAddDocuments={isLastInteraction ? onAddDocuments : undefined}
-                    onFilterDocument={appID ? onHandleFilterDocument : undefined}                    
-                    isLastInteraction={isLastInteraction}
-                    isOwner={isOwner}
-                    isAdmin={account.admin}
-                    scrollToBottom={scrollToBottom}
-                    appID={appID}
-                    onHandleFilterDocument={onHandleFilterDocument}
-                    session_id={sessionData.id}
-                    hasSubscription={account.userConfig.stripe_subscription_active || false}
-                  />
-                )
-              })}
-            </div>
-          )
-        })}
-      </Container>
+          })}
+        </Box>
+      </Box>
     )
   }, [
     sessionData,
