@@ -116,7 +116,7 @@ const InputField: FC<InputFieldProps> = React.memo(({
         fullWidth
         inputRef={inputRef}
         autoFocus={true}
-        label={label + " (shift+enter to add a newline)"}
+        label={label + ""}
         value={localValue}
         disabled={disabled}
         onChange={handleInputChange}
