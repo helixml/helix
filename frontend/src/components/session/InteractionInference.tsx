@@ -24,7 +24,26 @@ import {
   IServerConfig,
 } from '../../types'
 
-const GeneratedImage = styled('img')({})
+const GeneratedImage = styled('img')({
+  cursor: 'pointer',
+  transition: 'transform 0.2s ease-in-out',
+  '&:hover': {
+    transform: 'scale(1.05)',
+  },
+})
+
+const ImagePreview = styled('img')({
+  height: '150px',
+  width: '150px',
+  objectFit: 'cover',
+  border: '1px solid #000000',
+  borderRadius: '4px',
+  cursor: 'pointer',
+  transition: 'transform 0.2s ease-in-out',
+  '&:hover': {
+    transform: 'scale(1.05)',
+  },
+})
 
 export const InteractionInference: FC<{
   imageURLs?: string[],
@@ -50,19 +69,44 @@ export const InteractionInference: FC<{
     const account = useAccount()
     const router = useRouter()
     const [viewingError, setViewingError] = useState(false)
+    const [selectedImage, setSelectedImage] = useState<string | null>(null)
+
     if (!serverConfig || !serverConfig.filestore_prefix) return null
 
     const getFileURL = (url: string) => {
       if (!url) return ''
       if (!serverConfig) return ''
+      if (url.startsWith('data:')) return url
       return `${serverConfig.filestore_prefix}/${url}?redirect_urls=true`
     }
 
-    // Add less detailed logging since processing is moved to Markdown component
-    // console.debug(`InteractionInference: Processing message for session ${session.id}`);
-
     return (
       <>
+        {
+          serverConfig?.filestore_prefix && imageURLs
+            .filter(file => {
+              return account.token ? true : false
+            })
+            .map((imageURL: string) => {
+              const useURL = getFileURL(imageURL)
+              return (
+                <Box
+                  sx={{
+                    mb: 2,
+                    display: 'flex',
+                    gap: 1,
+                  }}
+                  key={useURL}
+                >
+                  <ImagePreview
+                    src={useURL}
+                    onClick={() => setSelectedImage(useURL)}
+                    alt="Preview"
+                  />
+                </Box>
+              )
+            })
+        }
         {
           message && (
             <Box sx={{ my: 0.5 }}>
@@ -143,40 +187,6 @@ export const InteractionInference: FC<{
           )
         }
         {
-          serverConfig?.filestore_prefix && imageURLs
-            .filter(file => {
-              return account.token ? true : false
-            })
-            .map((imageURL: string) => {
-              const useURL = getFileURL(imageURL)
-              return (
-                <Box
-                  sx={{
-                    mt: 2,
-                    maxWidth: '600px',
-                  }}
-                  key={useURL}
-                >
-                  <Link
-                    href={useURL}
-                    target="_blank"
-                  >
-                    <GeneratedImage
-                      sx={{
-                        maxHeight: '600px',
-                        width: '100%',
-                        border: '1px solid #000000',
-                        filter: 'drop-shadow(5px 5px 10px rgba(0, 0, 0, 0.5))',
-                      }}
-                      src={useURL}
-                    />
-                  </Link>
-                </Box>
-              )
-
-            })
-        }
-        {
           viewingError && (
             <TerminalWindow
               open
@@ -186,6 +196,35 @@ export const InteractionInference: FC<{
                 setViewingError(false)
               }}
             />
+          )
+        }
+        {
+          selectedImage && (
+            <Box
+              sx={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                bgcolor: 'rgba(0, 0, 0, 0.8)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 9999,
+              }}
+              onClick={() => setSelectedImage(null)}
+            >
+              <GeneratedImage
+                src={selectedImage}
+                sx={{
+                  maxHeight: '90vh',
+                  maxWidth: '90vw',
+                  objectFit: 'contain',
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </Box>
           )
         }
       </>

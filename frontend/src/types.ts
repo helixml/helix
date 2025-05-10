@@ -1,4 +1,4 @@
-import { TypesUserAppAccessResponse, TypesAssistantConfig } from './api/api'
+import { TypesUserAppAccessResponse, TypesAssistantConfig, TypesMessageContent } from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
 // SYSTEM means the system prompt, NOT an assistant message (as it previously
@@ -179,6 +179,7 @@ export interface IInteraction {
   mode: ISessionMode,
   runner: string,
   message: string,
+  content: TypesMessageContent,
   display_message: string,
   progress: number,
   files: string[],
