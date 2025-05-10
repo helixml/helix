@@ -1748,7 +1748,7 @@ const Session: FC = () => {
                       disabled={session.data?.mode == SESSION_MODE_FINETUNE}
                       label={
                         session.data?.type == SESSION_TYPE_TEXT ?
-                          session.data.parent_app ? `Chat with ${apps.app?.config.helix.name}...` : 'Chat with Helix...' :
+                          session.data.parent_app ? `Chat with ${apps.app?.config.helix.name}...` : 'Ask anything...' :
                           'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
                       }
                       isBigScreen={isBigScreen}

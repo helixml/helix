@@ -80,7 +80,7 @@ const InferenceTextField: FC<{
           fullWidth
           inputRef={textFieldRef}
           autoFocus
-          label={isBigScreen ? `${usePromptLabel} (shift+enter to add a newline)` : ''}
+          label={isBigScreen ? `${usePromptLabel}` : ''}
           value={value}
           disabled={disabled}
           onChange={handleInputChange}
