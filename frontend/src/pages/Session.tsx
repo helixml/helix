@@ -1187,15 +1187,6 @@ const Session: FC = () => {
     session.data?.interactions?.map(i => `${i.id}:${i.state}:${i.finished}`).join(',')
   ]);
 
-  // Modify the container styles
-  const containerStyles = useMemo(() => ({
-    flexGrow: 1,
-    overflowY: isStreaming ? 'hidden' : 'auto',
-    transition: 'overflow-y 0.3s ease',
-    paddingRight: '8px',
-    ...lightTheme.scrollbar,
-  }), [lightTheme.scrollbar, isStreaming])
-
   // Function to add blocks above when scrolling up
   const addBlocksAbove = useCallback(() => {
     if (!session.data?.interactions) return
@@ -1784,7 +1775,7 @@ const Session: FC = () => {
                           value={inputValue}
                           onChange={e => setInputValue(e.target.value)}
                           onKeyDown={handleKeyDown as any}
-                          rows={2}
+                          rows={1}
                           style={{
                             width: '100%',
                             backgroundColor: 'transparent',
