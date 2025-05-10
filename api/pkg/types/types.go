@@ -66,6 +66,57 @@ type Interaction struct {
 	Usage Usage `json:"usage"`
 }
 
+func (i *Interaction) GetMessageMultiContentPart() []openai.ChatMessagePart {
+	parts := []openai.ChatMessagePart{}
+
+	// If content is empty, return one slice with text message
+	if len(i.Content.Parts) == 0 {
+		return []openai.ChatMessagePart{
+			{Type: "text", Text: i.Message},
+		}
+	}
+
+	for _, part := range i.Content.Parts {
+		switch p := part.(type) {
+		case string:
+			parts = append(parts, openai.ChatMessagePart{Type: "text", Text: p})
+		case TextPart:
+			parts = append(parts, openai.ChatMessagePart{Type: "text", Text: p.Text})
+		case ImageURLPart:
+			parts = append(parts, openai.ChatMessagePart{Type: "image_url", ImageURL: &openai.ChatMessageImageURL{
+				URL:    p.ImageURL.URL,
+				Detail: openai.ImageURLDetail(p.ImageURL.Detail),
+			}})
+		case map[string]interface{}:
+			if typeVal, typeOk := p["type"].(string); typeOk {
+				switch typeVal {
+				case "text":
+					if textVal, textOk := p["text"].(string); textOk {
+						parts = append(parts, openai.ChatMessagePart{Type: "text", Text: textVal})
+					}
+				case "image_url":
+					if imageURLVal, imageURLOk := p["image_url"].(map[string]interface{}); imageURLOk {
+						if urlVal, urlOk := imageURLVal["url"].(string); urlOk {
+							detail := "auto"
+							if detailVal, detailOk := imageURLVal["detail"].(string); detailOk {
+								detail = detailVal
+							}
+							parts = append(parts, openai.ChatMessagePart{
+								Type: "image_url",
+								ImageURL: &openai.ChatMessageImageURL{
+									URL:    urlVal,
+									Detail: openai.ImageURLDetail(detail),
+								},
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+	return parts
+}
+
 type ResponseFormatType string
 
 const (
