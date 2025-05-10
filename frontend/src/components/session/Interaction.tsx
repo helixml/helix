@@ -117,6 +117,15 @@ export const Interaction: FC<InteractionProps> = ({
             displayMessage = interaction.status || ''
           }
         }
+        // Check for images in content
+        if (interaction?.content?.parts) {
+          interaction.content.parts.forEach(part => {
+            if (typeof part === 'object' && part !== null && 'type' in part && part.type === 'image_url' && 'image_url' in part && part.image_url?.url) {
+              imageURLs.push(part.image_url.url)
+            }
+          })
+        }
+
       } else if (session.type == SESSION_TYPE_IMAGE) {
         if (interaction?.creator == SESSION_CREATOR_USER) {
           displayMessage = useMessageText || ''
