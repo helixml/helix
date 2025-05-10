@@ -69,6 +69,17 @@ spec:
               value: http://{{ include "helix-controlplane.fullname" . }}-tika:9998/tika 
             - name: RAG_CRAWLER_LAUNCHER_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-chrome:7317
+            # Postgres configuration
+            {{- if .Values.postgresql.enabled }}
+            - name: POSTGRES_HOST
+              value: {{ .Release.Name }}-postgresql
+            - name: POSTGRES_USER
+              value: {{ .Values.postgresql.auth.username }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.postgresql.auth.password }}
+            - name: POSTGRES_DATABASE
+              value: {{ .Values.postgresql.auth.database }}
+            {{- end }}
             {{- if .Values.controlplane.rag }}
             {{- with (default "" .Values.controlplane.rag.defaultProvider) }}
             - name: RAG_DEFAULT_PROVIDER
@@ -244,6 +255,9 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.controlplane.haystack.existingSecret }}
                   key: {{ .Values.controlplane.haystack.existingSecretDsnKey | default "dsn" }}
+            {{- else }}
+            - name: PGVECTOR_DSN
+              value: "postgresql://{{ .Values.pgvector.user }}:{{ .Values.pgvector.password }}@{{ include "helix-controlplane.fullname" . }}-pgvector:5432/{{ .Values.pgvector.database }}"
             {{- end }}
             {{- end }}
             {{- with .Values.controlplane.haystack.env }}
