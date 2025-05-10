@@ -13,6 +13,8 @@ import ThumbUpOnIcon from '@mui/icons-material/ThumbUp'
 import ThumbUpOffIcon from '@mui/icons-material/ThumbUpOffAlt'
 import ThumbDownOnIcon from '@mui/icons-material/ThumbDownAlt'
 import ThumbDownOffIcon from '@mui/icons-material/ThumbDownOffAlt'
+import AttachFileIcon from '@mui/icons-material/AttachFile'
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
 
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
@@ -41,6 +43,7 @@ import Tooltip from '@mui/material/Tooltip'
 import IconButton from '@mui/material/IconButton'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import LoadingSpinner from '../components/widgets/LoadingSpinner'
 
 import {
   ICloneInteractionMode,
@@ -113,7 +116,7 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
                 !props.interaction.finished && 
                 props.interaction.state !== INTERACTION_STATE_EDITING &&
                 props.interaction.state !== INTERACTION_STATE_COMPLETE &&
-                props.interaction.state !== INTERACTION_STATE_ERROR;
+                props.interaction.state !== INTERACTION_STATE_ERROR
 
   return (
     <Interaction
@@ -454,7 +457,24 @@ const Session: FC = () => {
 
   const isOwner = account.user?.id == session.data?.owner
   const sessionID = router.params.session_id
-  const textFieldRef = useRef<HTMLTextAreaElement>()
+  const textFieldRef = useRef<HTMLTextAreaElement>(null)
+
+  // --- Add image upload state/refs for new input area ---
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
+  const [selectedImageName, setSelectedImageName] = useState<string | null>(null)
+
+  const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setSelectedImage(reader.result as string)
+        setSelectedImageName(file.name)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
 
   const containerRef = useRef<HTMLDivElement>(null)
   const observerRef = useRef<IntersectionObserver | null>(null)
@@ -850,6 +870,8 @@ const Session: FC = () => {
       
       newSession = await NewInference({
         message: prompt,
+        image: selectedImage || undefined, // Optional field
+        image_filename: selectedImageName || undefined, // Optional field
         appId: appID,
         assistantId: assistantID || undefined,
         ragSourceId: ragSourceID,
@@ -1742,24 +1764,117 @@ const Session: FC = () => {
               <Box sx={{ py: 2 }}>
                 <Row>
                   <Cell flexGrow={1}>
-                    <InputField
-                      initialValue={inputValue}
-                      onSubmit={onSend}
-                      disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-                      label={
-                        session.data?.type == SESSION_TYPE_TEXT ?
-                          session.data.parent_app ? `Chat with ${apps.app?.config.helix.name}...` : 'Ask anything...' :
-                          'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
-                      }
-                      isBigScreen={isBigScreen}
-                      activeAssistantAvatar={activeAssistantAvatar}
-                      themeConfig={themeConfig}
-                      theme={theme}
-                      loading={loading}
-                      inputRef={textFieldRef}
-                      appID={appID}
-                      onInsertText={handleInsertText}
-                    />
+                    {/* --- Start of new input area --- */}
+                    <Box
+                      sx={{
+                        width: { xs: '100%', sm: '80%', md: '70%', lg: '60%' },
+                        margin: '0 auto',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        borderRadius: '12px',
+                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                        p: 2,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 1,
+                      }}
+                    >
+                      {/* Top row: textarea */}
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                        <textarea
+                          ref={textFieldRef as React.RefObject<HTMLTextAreaElement>}
+                          value={inputValue}
+                          onChange={e => setInputValue(e.target.value)}
+                          onKeyDown={handleKeyDown as any}
+                          rows={2}
+                          style={{
+                            width: '100%',
+                            backgroundColor: 'transparent',
+                            border: 'none',
+                            color: '#fff',
+                            opacity: 0.7,
+                            resize: 'none',
+                            outline: 'none',
+                            fontFamily: 'inherit',
+                            fontSize: 'inherit',
+                          }}
+                          placeholder={
+                            session.data?.type == SESSION_TYPE_TEXT
+                              ? session.data.parent_app
+                                ? `Chat with ${apps.app?.config.helix.name}...`
+                                : 'Ask anything...'
+                              : 'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
+                          }
+                          disabled={session.data?.mode == SESSION_MODE_FINETUNE}
+                        />
+                      </Box>
+                      {/* Bottom row: attachment icon, image name, send button */}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Tooltip title="Attach Image" placement="top">
+                            <Box
+                              sx={{
+                                width: 32,
+                                height: 32,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                border: '2px solid rgba(255, 255, 255, 0.7)',
+                                borderRadius: '50%',
+                                '&:hover': {
+                                  borderColor: 'rgba(255, 255, 255, 0.9)',
+                                  '& svg': { color: 'rgba(255, 255, 255, 0.9)' }
+                                }
+                              }}
+                              onClick={() => {
+                                if (imageInputRef.current) imageInputRef.current.click();
+                              }}
+                            >
+                              <AttachFileIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                            </Box>
+                          </Tooltip>
+                          {selectedImageName && (
+                            <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.8rem', ml: 0.5, maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {selectedImageName}
+                            </Typography>
+                          )}
+                          <input
+                            type="file"
+                            ref={imageInputRef}
+                            style={{ display: 'none' }}
+                            accept="image/*"
+                            onChange={handleImageFileChange}
+                          />
+                        </Box>
+                        <Tooltip title="Send Prompt" placement="top">
+                          <Box
+                            onClick={() => onSend(inputValue)}
+                            sx={{
+                              width: 32,
+                              height: 32,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: loading ? 'default' : 'pointer',
+                              border: '1px solid rgba(255, 255, 255, 0.7)',
+                              borderRadius: '8px',
+                              opacity: loading ? 0.5 : 1,
+                              '&:hover': loading ? {} : {
+                                borderColor: 'rgba(255, 255, 255, 0.9)',
+                                '& svg': { color: 'rgba(255, 255, 255, 0.9)' }
+                              }
+                            }}
+                          >
+                            {loading ? (
+                              <LoadingSpinner />
+                            ) : (
+                              <ArrowUpwardIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                            )}
+                          </Box>
+                        </Tooltip>
+                      </Box>
+                    </Box>
+                    {/* --- End of new input area --- */}
                   </Cell>
                   {isBigScreen && (
                     <Cell sx={{ display: 'flex', alignItems: 'center', ml: 2 }}>
