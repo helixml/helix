@@ -9,7 +9,7 @@ import Cell from '../widgets/Cell'
 import {
   COLORS,
 }  from '../../config'
-
+import { useTheme } from '@mui/material/styles'
 export const InteractionContainer: FC<{
   name: string,
   badge?: string,
@@ -27,13 +27,15 @@ export const InteractionContainer: FC<{
   align = 'left',
   border = false,
 }) => {
+  const theme = useTheme()
+
   return (
     <Box
       sx={{
         px: 2,
         py: 0.5,
         borderRadius: 4,
-        backgroundColor: background ? '#23272f' : 'transparent',
+        backgroundColor: background ? theme.palette.background.default : 'transparent',
         border: border ? '1px solid #33373a' : 'none',
         maxWidth: '700px',
         ml: align === 'left' ? 0 : 'auto',

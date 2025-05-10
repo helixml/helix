@@ -1727,8 +1727,7 @@ const Session: FC = () => {
           {/* Fixed bottom section */}
           <Box
             sx={{
-              flexShrink: 0, // Prevent shrinking
-              bgcolor: theme.palette.background.default,
+              flexShrink: 0, // Prevent shrinking              
             }}
           >
             <Container maxWidth="lg">
@@ -1747,6 +1746,7 @@ const Session: FC = () => {
                         display: 'flex',
                         flexDirection: 'column',
                         gap: 1,
+                        bgcolor: theme.palette.background.default,
                       }}
                     >
                       {/* Top row: textarea */}
