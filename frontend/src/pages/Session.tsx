@@ -96,7 +96,6 @@ interface MemoizedInteractionProps {
   onReloadSession: () => Promise<any>;
   onClone: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>;
   onAddDocuments?: () => void;
-  onRestart?: () => void;
   onFilterDocument?: (docId: string) => void;
   headerButtons?: React.ReactNode;
   children?: React.ReactNode;
@@ -129,7 +128,6 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
       onReloadSession={props.onReloadSession}
       onClone={props.onClone}
       onAddDocuments={props.onAddDocuments}
-      onRestart={props.onRestart}
       onFilterDocument={props.onFilterDocument}
       headerButtons={props.headerButtons}
     >
@@ -484,7 +482,6 @@ const Session: FC = () => {
   const [showCloneWindow, setShowCloneWindow] = useState(false)
   const [showCloneAllWindow, setShowCloneAllWindow] = useState(false)
   const [showLoginWindow, setShowLoginWindow] = useState(false)
-  const [restartWindowOpen, setRestartWindowOpen] = useState(false)
   const [shareInstructions, setShareInstructions] = useState<IShareSessionInstructions>()
   const [inputValue, setInputValue] = useState('')
   const [feedbackValue, setFeedbackValue] = useState('')
@@ -910,10 +907,6 @@ const Session: FC = () => {
     safeReloadSession,
   ])
 
-  const onRestart = useCallback(() => {
-    setRestartWindowOpen(true)
-  }, [])
-
   const checkOwnership = useCallback((instructions: IShareSessionInstructions): boolean => {
     if (!session.data) return false
     setShareInstructions(instructions)
@@ -937,28 +930,7 @@ const Session: FC = () => {
     account.onLogin()
   }, [
     shareInstructions,
-  ])
-
-  const onRestartConfirm = useCallback(async () => {
-    if (!session.data) return
-    // Save current scroll position
-    saveScrollPosition()
-    
-    const newSession = await api.put<undefined, ISession>(`/api/v1/sessions/${session.data.id}/restart`, undefined, undefined, {
-      loading: true,
-    })
-    if (!newSession) return
-    
-    await safeReloadSession().then(() => {
-      setRestartWindowOpen(false)
-      snackbar.success('Session restarted...')
-    })
-  }, [
-    account.user,
-    session.data,
-    saveScrollPosition,
-    restoreScrollPosition,
-  ])
+  ])  
 
   const onUpdateSessionConfig = useCallback(async (data: Partial<ISessionConfig>, snackbarMessage?: string) => {
     if (!session.data) return
@@ -1339,22 +1311,7 @@ const Session: FC = () => {
                     onReloadSession={safeReloadSession}
                     onClone={onClone}
                     onAddDocuments={isLastInteraction ? onAddDocuments : undefined}
-                    onRestart={isLastInteraction ? onRestart : undefined}
-                    onFilterDocument={appID ? onHandleFilterDocument : undefined}
-                    headerButtons={isLastInteraction ? (
-                      <Tooltip title="Restart Session">
-                        <IconButton onClick={onRestart} sx={{ mb: '0.5rem' }}>
-                          <RefreshIcon
-                            sx={{
-                              color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                              '&:hover': {
-                                color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
-                              },
-                            }}
-                          />
-                        </IconButton>
-                      </Tooltip>
-                    ) : undefined}
+                    onFilterDocument={appID ? onHandleFilterDocument : undefined}                    
                     isLastInteraction={isLastInteraction}
                     isOwner={isOwner}
                     isAdmin={account.admin}
@@ -1384,7 +1341,6 @@ const Session: FC = () => {
     safeReloadSession,
     onClone,
     onAddDocuments,
-    onRestart,
     theme.palette.mode,
     themeConfig.lightIcon,
     themeConfig.darkIcon,
@@ -2006,17 +1962,7 @@ const Session: FC = () => {
           }}
         />
       )}
-
-      {restartWindowOpen && (
-        <SimpleConfirmWindow
-          title="Restart Session"
-          message="Are you sure you want to restart this session?"
-          confirmTitle="Restart"
-          onCancel={() => setRestartWindowOpen(false)}
-          onSubmit={onRestartConfirm}
-        />
-      )}
-
+    
       {showLoginWindow && (
         <Window
           open
