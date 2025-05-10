@@ -16,12 +16,16 @@ export const InteractionContainer: FC<{
   background?: boolean,
   buttons?: React.ReactNode,
   children?: React.ReactNode,
+  align?: 'left' | 'right',
+  border?: boolean,
 }> = ({
   name,
   badge,
   background = false,
   buttons,
   children,
+  align = 'left',
+  border = false,
 }) => {
   return (
     <Box
@@ -29,7 +33,12 @@ export const InteractionContainer: FC<{
         px: 2,
         py: 0.5,
         borderRadius: 4,
-        backgroundColor: background ? 'rgba(255, 255, 255, 0.05)' : 'transparent',
+        backgroundColor: background ? '#23272f' : 'transparent',
+        border: border ? '1px solid #33373a' : 'none',
+        maxWidth: '700px',
+        ml: align === 'left' ? 0 : 'auto',
+        mr: align === 'right' ? 0 : 'auto',
+        boxShadow: border ? '0 1px 2px rgba(0,0,0,0.03)' : 'none',
       }}
     >
       <Row>

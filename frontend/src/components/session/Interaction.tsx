@@ -148,6 +148,7 @@ export const Interaction: FC<InteractionProps> = ({
   const { displayMessage, imageURLs, isLoading } = displayData
 
   const isAssistant = interaction?.creator == SESSION_CREATOR_ASSISTANT
+  const isUser = interaction?.creator == SESSION_CREATOR_USER
   const useName = isAssistant ? 'Helix' : account.user?.name || 'User'
   const useBadge = isAssistant ? 'AI' : ''
   
@@ -156,17 +157,26 @@ export const Interaction: FC<InteractionProps> = ({
 
   if (!serverConfig || !serverConfig.filestore_prefix) return null
 
+  // ChatGPT-like: user messages right-aligned, bordered, with background; assistant left-aligned, no background/border
+  const containerAlignment = isUser ? 'right' : 'left';
+  const containerBorder = isUser;
+  const containerBackground = isUser; // Only user messages get the background
+
   return (
     <Box
       sx={{
         mb: 0.5,
+        display: 'flex',
+        justifyContent: isUser ? 'flex-end' : 'flex-start',
       }}
     >
       <InteractionContainer
         name={useName}
         badge={useBadge}
         buttons={headerButtons}
-        background={isAssistant}
+        background={containerBackground}
+        align={containerAlignment}
+        border={containerBorder}
       >
         {
           showFinetuning && (
