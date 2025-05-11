@@ -11,6 +11,10 @@ import ClickLink from '../widgets/ClickLink'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 import Markdown from './Markdown'
+import IconButton from '@mui/material/IconButton'
+import Tooltip from '@mui/material/Tooltip'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import CheckIcon from '@mui/icons-material/Check'
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
@@ -109,15 +113,28 @@ export const InteractionInference: FC<{
         }
         {
           message && (
-            <Box sx={{ my: 0.5 }}>
-              <Markdown
-                text={message}
-                session={session}
-                getFileURL={getFileURL}
-                showBlinker={false}
-                isStreaming={false}
-                onFilterDocument={onFilterDocument}
-              />
+            <Box
+              sx={{
+                my: 0.5,
+                display: 'flex',
+                alignItems: 'flex-start',
+                position: 'relative',
+                ':hover .copy-btn': { opacity: 1 },
+              }}
+            >
+              {isFromAssistant && (
+                <CopyButtonWithCheck text={message} />
+              )}
+              <Box sx={{ flex: 1 }}>
+                <Markdown
+                  text={message}
+                  session={session}
+                  getFileURL={getFileURL}
+                  showBlinker={false}
+                  isStreaming={false}
+                  onFilterDocument={onFilterDocument}
+                />
+              </Box>
             </Box>
           )
         }
@@ -230,5 +247,46 @@ export const InteractionInference: FC<{
       </>
     )
   }
+
+const CopyButtonWithCheck: FC<{ text: string }> = ({ text }) => {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      // Optionally handle error
+    }
+  }
+  return (
+    <Tooltip title={copied ? 'Copied!' : 'Copy'} placement="top">
+      <IconButton
+        onClick={handleCopy}
+        size="small"
+        className="copy-btn"
+        sx={theme => ({
+          mt: 0.5,
+          mr: 1,
+          opacity: 0,
+          transition: 'opacity 0.2s',
+          position: 'absolute',
+          left: -36,
+          top: 14,
+          padding: '2px',
+          background: 'none',
+          color: theme.palette.mode === 'light' ? '#222' : '#bbb',
+          '&:hover': {
+            background: 'none',
+            color: theme.palette.mode === 'light' ? '#000' : '#fff',
+          },
+        })}
+        aria-label="copy"
+      >
+        {copied ? <CheckIcon sx={{ fontSize: 18 }} /> : <ContentCopyIcon sx={{ fontSize: 18 }} />}
+      </IconButton>
+    </Tooltip>
+  )
+}
 
 export default InteractionInference
