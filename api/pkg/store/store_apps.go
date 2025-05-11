@@ -282,7 +282,7 @@ func setAppDefaults(apps ...*types.App) {
 			}
 
 			if assistant.ReasoningEffort == "" {
-				assistant.ReasoningEffort = "medium"
+				assistant.ReasoningEffort = types.ReasoningEffortNone
 			}
 
 			if assistant.Temperature == 0 {
