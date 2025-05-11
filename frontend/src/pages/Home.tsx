@@ -7,6 +7,13 @@ import AddIcon from '@mui/icons-material/Add'
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
 import Tooltip from '@mui/material/Tooltip'
 import Avatar from '@mui/material/Avatar'
+import AttachFileIcon from '@mui/icons-material/AttachFile'
+import ImageIcon from '@mui/icons-material/Image'
+import DescriptionIcon from '@mui/icons-material/Description'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
 
 import Page from '../components/system/Page'
 import Row from '../components/widgets/Row'
@@ -61,6 +68,10 @@ const Home: FC = () => {
   const [currentProvider, setCurrentProvider] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const [attachmentMenuAnchorEl, setAttachmentMenuAnchorEl] = useState<null | HTMLElement>(null)
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
+  const [selectedImageName, setSelectedImageName] = useState<string | null>(null)
 
   // Check for serialized page state on mount
   useEffect(() => {
@@ -100,11 +111,15 @@ const Home: FC = () => {
         message: currentPrompt,
         provider: currentProvider,
         modelName: currentModel,
-        orgId,
+        image: selectedImage || undefined, // Optional field
+        image_filename: selectedImageName || undefined, // Optional field
+        orgId,        
       })
       if (!session) return
       await sessions.loadSessions()
       setLoading(false)
+      setSelectedImage(null)
+      setSelectedImageName(null)
       account.orgNavigate('session', { session_id: session.id })
     } catch (error) {
       console.error('Error in submitPrompt:', error)
@@ -122,6 +137,43 @@ const Home: FC = () => {
       e.preventDefault()
       submitPrompt()
     }
+  }
+
+  const handleAttachmentMenuOpen = (event: MouseEvent<HTMLElement>) => {
+    setAttachmentMenuAnchorEl(event.currentTarget)
+  }
+
+  const handleAttachmentMenuClose = () => {
+    setAttachmentMenuAnchorEl(null)
+  }
+
+  const handleImageUploadClick = () => {
+    if (imageInputRef.current) {
+      imageInputRef.current.click()
+    }
+    handleAttachmentMenuClose()
+  }
+
+  const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setSelectedImage(reader.result as string)
+        setSelectedImageName(file.name)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleDocumentUpload = () => {
+    router.navigate('new', {
+      model: currentModel,
+      type: currentType,
+      mode: SESSION_MODE_FINETUNE,
+      rag: true,
+    })
+    handleAttachmentMenuClose()
   }
 
   return (
@@ -263,36 +315,68 @@ const Home: FC = () => {
                         />
                         {/* Plus button - Only show if not in Image mode */}
                         {currentType !== 'image' && (
-                          <Tooltip title="Add Documents" placement="top">
-                            <Box 
-                              sx={{ 
-                                width: 32, 
-                                height: 32,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                cursor: 'pointer',
-                                border: '2px solid rgba(255, 255, 255, 0.7)',
-                                borderRadius: '50%',
-                                '&:hover': {
-                                  borderColor: 'rgba(255, 255, 255, 0.9)',
-                                  '& svg': {
-                                    color: 'rgba(255, 255, 255, 0.9)'
+                          <>
+                            <Tooltip title="Attach Files" placement="top">
+                              <Box
+                                sx={{
+                                  width: 32,
+                                  height: 32,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer',
+                                  border: '2px solid rgba(255, 255, 255, 0.7)',
+                                  borderRadius: '50%',
+                                  '&:hover': {
+                                    borderColor: 'rgba(255, 255, 255, 0.9)',
+                                    '& svg': {
+                                      color: 'rgba(255, 255, 255, 0.9)'
+                                    }
                                   }
-                                }
-                              }}
-                              onClick={() => {
-                                router.navigate('new', {
-                                  model: currentModel,
-                                  type: currentType,
-                                  mode: SESSION_MODE_FINETUNE,
-                                  rag: true,
-                                })
+                                }}
+                                onClick={handleAttachmentMenuOpen}
+                              >
+                                <AttachFileIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                              </Box>
+                            </Tooltip>
+                            {selectedImageName && (
+                              <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.8rem', ml: 0.5, maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {selectedImageName}
+                              </Typography>
+                            )}
+                            <Menu
+                              anchorEl={attachmentMenuAnchorEl}
+                              open={Boolean(attachmentMenuAnchorEl)}
+                              onClose={handleAttachmentMenuClose}
+                              PaperProps={{
+                                style: {
+                                  backgroundColor: 'rgba(40, 40, 40, 0.9)',
+                                  color: 'white',
+                                  borderRadius: '8px',
+                                },
                               }}
                             >
-                              <AddIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
-                            </Box>
-                          </Tooltip>
+                              <MenuItem onClick={handleImageUploadClick}>
+                                <ListItemIcon>
+                                  <ImageIcon fontSize="small" sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                                </ListItemIcon>
+                                <ListItemText primary="Upload image" />
+                              </MenuItem>
+                              <MenuItem onClick={handleDocumentUpload}>
+                                <ListItemIcon>
+                                  <DescriptionIcon fontSize="small" sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                                </ListItemIcon>
+                                <ListItemText primary="Upload documents (.pdf, .docx, .md)" />
+                              </MenuItem>
+                            </Menu>
+                            <input
+                              type="file"
+                              ref={imageInputRef}
+                              style={{ display: 'none' }}
+                              accept="image/*"
+                              onChange={handleImageFileChange}
+                            />
+                          </>
                         )}
                       </Box>
 

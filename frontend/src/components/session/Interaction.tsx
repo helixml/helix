@@ -4,15 +4,12 @@ import InteractionFinetune from './InteractionFinetune'
 import InteractionInference from './InteractionInference'
 import Box from '@mui/material/Box'
 
-import useTheme from '@mui/material/styles/useTheme'
-import useThemeConfig from '../../hooks/useThemeConfig'
 import useAccount from '../../hooks/useAccount'
 
 import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
   SESSION_MODE_INFERENCE,
-  SESSION_MODE_FINETUNE,
   SESSION_CREATOR_ASSISTANT,
   SESSION_CREATOR_USER,
   ISession,
@@ -117,6 +114,15 @@ export const Interaction: FC<InteractionProps> = ({
             displayMessage = interaction.status || ''
           }
         }
+        // Check for images in content
+        if (interaction?.content?.parts) {
+          interaction.content.parts.forEach(part => {
+            if (typeof part === 'object' && part !== null && 'type' in part && part.type === 'image_url' && 'image_url' in part && part.image_url?.url) {
+              imageURLs.push(part.image_url.url)
+            }
+          })
+        }
+
       } else if (session.type == SESSION_TYPE_IMAGE) {
         if (interaction?.creator == SESSION_CREATOR_USER) {
           displayMessage = useMessageText || ''
@@ -137,27 +143,32 @@ export const Interaction: FC<InteractionProps> = ({
   }, [interaction, session])
 
   const { displayMessage, imageURLs, isLoading } = displayData
-
-  const isAssistant = interaction?.creator == SESSION_CREATOR_ASSISTANT
-  const useName = isAssistant ? 'Helix' : account.user?.name || 'User'
-  const useBadge = isAssistant ? 'AI' : ''
   
+  const isUser = interaction?.creator == SESSION_CREATOR_USER
+
   // Determine if this interaction is live (streaming)
   const isLive = interaction?.creator == SESSION_CREATOR_ASSISTANT && !interaction.finished;
 
   if (!serverConfig || !serverConfig.filestore_prefix) return null
 
+  // ChatGPT-like: user messages right-aligned, bordered, with background; assistant left-aligned, no background/border
+  const containerAlignment = isUser ? 'right' : 'left';
+  const containerBorder = isUser;
+  const containerBackground = isUser; // Only user messages get the background
+
   return (
     <Box
       sx={{
         mb: 0.5,
+        display: 'flex',
+        justifyContent: isUser ? 'flex-end' : 'flex-start',
       }}
     >
-      <InteractionContainer
-        name={useName}
-        badge={useBadge}
+      <InteractionContainer        
         buttons={headerButtons}
-        background={isAssistant}
+        background={containerBackground}
+        align={containerAlignment}
+        border={containerBorder}
       >
         {
           showFinetuning && (
