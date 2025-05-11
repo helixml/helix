@@ -13,6 +13,7 @@ import { ISession } from '../../types'
 // Import the escapeRegExp helper from session.ts
 import { escapeRegExp } from '../../utils/session'
 import DOMPurify from 'dompurify'
+import styled from 'styled-components'
 
 // Import the new Citation component
 import Citation, { Excerpt } from './Citation'
@@ -60,6 +61,82 @@ const fadeIn = keyframes`
   100% { opacity: 1; transform: translateX(0); }
 `
 
+// Create a pulse animation for tool orbs
+const pulse = keyframes`
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+`
+
+// Styled components for tool orbs
+const InlineOrbContainer = styled.span`
+  display: inline-flex;
+  align-items: center;
+  margin: 0 5px;
+  vertical-align: middle;
+`
+
+const OrbWrapper = styled.span`
+  position: relative;
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  margin: 0 2px;
+`
+
+const orbColors = {
+  'tool_call': '#FFBF00', // Gold for tool calls
+  'tool_result': '#00FF00', // Green for tool results
+  'default': '#0000FF' // Blue for unknown types
+}
+
+const Orb = styled.span<{ $isPulsating: boolean; $type: string }>`
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, ${props => orbColors[props.$type] || orbColors.default}, #000);
+  box-shadow: 0 0 6px ${props => orbColors[props.$type] || orbColors.default};
+  cursor: pointer;
+  display: inline-block;
+  animation: ${props => props.$isPulsating ? pulse : 'none'} 2s infinite;
+`
+
+const OrbTooltip = styled.span`
+  position: absolute;
+  top: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+  z-index: 1000;
+
+  ${OrbWrapper}:hover & {
+    opacity: 1;
+  }
+`
+
+const ToolText = styled.span`
+  margin-left: 5px;
+  font-size: 0.9em;
+  font-family: monospace;
+`
+
 export interface MessageProcessorOptions {
   session: ISession;
   getFileURL: (filename: string) => string;
@@ -85,6 +162,16 @@ export interface CitationData {
   isStreaming?: boolean;
 }
 
+export interface ToolData {
+  tools: {
+    type: 'tool_call' | 'tool_result';
+    name: string;
+    content: string;
+    id: string; // To match calls with results
+    isPulsating: boolean;
+  }[];
+}
+
 /**
  * Central message processor that handles all text formatting
  * Including document links, citations, thinking tags and blinkers
@@ -93,14 +180,20 @@ export class MessageProcessor {
   private message: string;
   private options: MessageProcessorOptions;
   private citationData: CitationData | null = null;
+  private toolData: ToolData | null = null;
+  private toolCallCounter: number = 0;
 
   constructor(message: string, options: MessageProcessorOptions) {
     this.message = message;
     this.options = options;
+    this.toolData = { tools: [] };
   }
 
   process(): string {
     let processedMessage = this.message;
+
+    // Process tool calls and results
+    processedMessage = this.processToolTags(processedMessage);
 
     // Process XML citations
     processedMessage = this.processXmlCitations(processedMessage);
@@ -134,6 +227,74 @@ export class MessageProcessor {
       processedMessage = this.addCitationData(processedMessage);
     }
 
+    // Add tool data as a special marker if present
+    if (this.toolData && this.toolData.tools.length > 0) {
+      processedMessage = this.addToolData(processedMessage);
+    }
+
+    return processedMessage;
+  }
+
+  private processToolTags(message: string): string {
+    // Look for tool call tags
+    const toolCallRegex = /<tool_call\s+name="([^"]+)"><input>([\s\S]*?)<\/input><\/tool_call>/g;
+    let processedMessage = message;
+    let toolCallMatches;
+    
+    // Process all tool call tags
+    while ((toolCallMatches = toolCallRegex.exec(message)) !== null) {
+      const fullMatch = toolCallMatches[0];
+      const toolName = toolCallMatches[1];
+      const toolInput = toolCallMatches[2];
+      const toolId = `tool-${++this.toolCallCounter}`;
+      
+      // Add tool call data
+      if (this.toolData) {
+        this.toolData.tools.push({
+          type: 'tool_call',
+          name: toolName,
+          content: toolInput,
+          id: toolId,
+          isPulsating: this.options.isStreaming // Pulsating if we're still streaming
+        });
+      }
+      
+      // Replace with a marker
+      processedMessage = processedMessage.replace(
+        fullMatch, 
+        `__TOOL_${toolId}__`
+      );
+    }
+    
+    // Look for tool result tags
+    const toolResultRegex = /<tool_result\s+name="([^"]+)"><output>([\s\S]*?)<\/output><\/tool_result>/g;
+    let toolResultMatches;
+    
+    // Process all tool result tags
+    while ((toolResultMatches = toolResultRegex.exec(message)) !== null) {
+      const fullMatch = toolResultMatches[0];
+      const toolName = toolResultMatches[1];
+      const toolOutput = toolResultMatches[2];
+      const toolId = `result-${this.toolCallCounter}`;
+      
+      // Add tool result data
+      if (this.toolData) {
+        this.toolData.tools.push({
+          type: 'tool_result',
+          name: toolName,
+          content: toolOutput,
+          id: toolId,
+          isPulsating: false // Results don't pulsate
+        });
+      }
+      
+      // Replace with a marker
+      processedMessage = processedMessage.replace(
+        fullMatch, 
+        `__TOOL_${toolId}__`
+      );
+    }
+    
     return processedMessage;
   }
 
@@ -507,8 +668,18 @@ ${content}
     return message + `__CITATION_DATA__${citationJson}__CITATION_DATA__`;
   }
 
+  private addToolData(message: string): string {
+    // Add tool data as a special marker that can be picked up by React component
+    const toolJson = JSON.stringify(this.toolData);
+    return message + `__TOOL_DATA__${toolJson}__TOOL_DATA__`;
+  }
+
   getCitationData(): CitationData | null {
     return this.citationData;
+  }
+
+  getToolData(): ToolData | null {
+    return this.toolData;
   }
 
   private validateCitationsAgainstRagResults(): void {
@@ -651,6 +822,29 @@ ${content}
   }
 }
 
+// Tool Orb component for displaying inline tool icons
+interface ToolOrbProps {
+  type: 'tool_call' | 'tool_result';
+  name: string;
+  content: string;
+  isPulsating: boolean;
+}
+
+const ToolOrb: FC<ToolOrbProps> = ({ type, name, content, isPulsating }) => {
+  return (
+    <InlineOrbContainer>
+      <OrbWrapper>
+        <Orb $isPulsating={isPulsating} $type={type} />
+        <OrbTooltip>
+          <strong>{type === 'tool_call' ? 'Tool Call' : 'Tool Result'}:</strong> {name}<br />
+          {content.length > 100 ? `${content.substring(0, 100)}...` : content}
+        </OrbTooltip>
+      </OrbWrapper>
+      <ToolText>{type === 'tool_call' ? `${name}` : `↩ ${name}`}</ToolText>
+    </InlineOrbContainer>
+  );
+};
+
 export interface InteractionMarkdownProps {
   text: string;
   session: ISession;
@@ -672,11 +866,81 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   const theme = useTheme()
   const [processedContent, setProcessedContent] = useState<string>('');
   const [citationData, setCitationData] = useState<{ excerpts: Excerpt[], isStreaming: boolean } | null>(null);
+  const [toolData, setToolData] = useState<ToolData | null>(null);
+
+  // Additional function to replace tool markers with actual tool orbs
+  const replaceToolMarkers = useCallback((content: string, toolData: ToolData): ReactElement[] => {
+    if (!toolData || !toolData.tools || toolData.tools.length === 0) {
+      return [<React.Fragment key="content">{content}</React.Fragment>];
+    }
+
+    const parts = content.split(/(__TOOL_tool-\d+__|__TOOL_result-\d+__)/);
+    return parts.map((part, index) => {
+      const toolMatch = part.match(/__TOOL_(tool|result)-(\d+)__/);
+      if (toolMatch) {
+        const toolType = toolMatch[1] === 'tool' ? 'tool_call' : 'tool_result';
+        const toolNumber = parseInt(toolMatch[2]);
+        
+        // Find the corresponding tool data
+        const tool = toolData.tools.find(t => 
+          (toolType === 'tool_call' && t.id === `tool-${toolNumber}`) || 
+          (toolType === 'tool_result' && t.id === `result-${toolNumber}`)
+        );
+        
+        if (tool) {
+          return (
+            <ToolOrb 
+              key={`tool-${index}`}
+              type={tool.type} 
+              name={tool.name} 
+              content={tool.content}
+              isPulsating={tool.isPulsating}
+            />
+          );
+        }
+      }
+      
+      // For text content parts, render with Markdown
+      if (part.trim()) {
+        return (
+          <Markdown
+            key={`md-${index}`}
+            children={part}
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeRaw]}
+            className="interactionMessage"
+            components={{
+              code(props) {
+                const { children, className, node, ...rest } = props
+                const match = /language-(\w+)/.exec(className || '')
+                return match ? (
+                  <SyntaxHighlighter
+                    {...rest}
+                    PreTag="div"
+                    children={String(children).replace(/\n$/, '')}
+                    language={match[1]}
+                    style={oneDark}
+                  />
+                ) : (
+                  <code {...rest} className={className}>
+                    {children}
+                  </code>
+                )
+              }
+            }}
+          />
+        );
+      }
+      
+      return null;
+    }).filter(Boolean);
+  }, []);
 
   useEffect(() => {
     if (!text) {
       setProcessedContent('');
       setCitationData(null);
+      setToolData(null);
       return;
     }
 
@@ -709,9 +973,28 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
       } else {
         setCitationData(null);
       }
+
+      // Extract tool data if present
+      const toolPattern = /__TOOL_DATA__([\s\S]*?)__TOOL_DATA__/;
+      const toolDataMatch = content.match(toolPattern);
+      if (toolDataMatch) {
+        try {
+          const toolDataJson = toolDataMatch[1];
+          const data = JSON.parse(toolDataJson);
+          setToolData(data);
+          // Replace using the same pattern
+          content = content.replace(/__TOOL_DATA__([\s\S]*?)__TOOL_DATA__/, '');
+        } catch (error) {
+          console.error('Error parsing tool data:', error);
+          setToolData(null);
+        }
+      } else {
+        setToolData(null);
+      }
     } else {
       content = processBasicContent(text);
       setCitationData(null);
+      setToolData(null);
     }
 
     setProcessedContent(content);
@@ -770,31 +1053,37 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
             ragResults={session?.config?.session_rag_results || []}
           />
         )}
-        <Markdown
-          children={processedContent}
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeRaw]}
-          className="interactionMessage"
-          components={{
-            code(props) {
-              const { children, className, node, ...rest } = props
-              const match = /language-(\w+)/.exec(className || '')
-              return match ? (
-                <SyntaxHighlighter
-                  {...rest}
-                  PreTag="div"
-                  children={String(children).replace(/\n$/, '')}
-                  language={match[1]}
-                  style={oneDark}
-                />
-              ) : (
-                <code {...rest} className={className}>
-                  {children}
-                </code>
-              )
-            }
-          }}
-        />
+        
+        {/* Render markdown with tool orbs if needed */}
+        {toolData && toolData.tools && toolData.tools.length > 0 ? (
+          replaceToolMarkers(processedContent, toolData)
+        ) : (
+          <Markdown
+            children={processedContent}
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeRaw]}
+            className="interactionMessage"
+            components={{
+              code(props) {
+                const { children, className, node, ...rest } = props
+                const match = /language-(\w+)/.exec(className || '')
+                return match ? (
+                  <SyntaxHighlighter
+                    {...rest}
+                    PreTag="div"
+                    children={String(children).replace(/\n$/, '')}
+                    language={match[1]}
+                    style={oneDark}
+                  />
+                ) : (
+                  <code {...rest} className={className}>
+                    {children}
+                  </code>
+                )
+              }
+            }}
+          />
+        )}
       </Box>
     </>
   );
