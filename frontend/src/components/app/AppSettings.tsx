@@ -639,6 +639,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                 onChange={(e) => handleAdvancedChangeWithDebounce('reasoningEffort', e.target.value)}
                 disabled={readOnly}
             >
+              <MenuItem value="none">None</MenuItem>
               <MenuItem value="low">Low</MenuItem>
               <MenuItem value="medium">Medium</MenuItem>
               <MenuItem value="high">High</MenuItem>
