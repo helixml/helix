@@ -13,6 +13,8 @@ import ThumbUpOnIcon from '@mui/icons-material/ThumbUp'
 import ThumbUpOffIcon from '@mui/icons-material/ThumbUpOffAlt'
 import ThumbDownOnIcon from '@mui/icons-material/ThumbDownAlt'
 import ThumbDownOffIcon from '@mui/icons-material/ThumbDownOffAlt'
+import AttachFileIcon from '@mui/icons-material/AttachFile'
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
 
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
@@ -20,9 +22,7 @@ import Disclaimer from '../components/widgets/Disclaimer'
 import SessionToolbar from '../components/session/SessionToolbar'
 import ShareSessionWindow from '../components/session/ShareSessionWindow'
 import AddFilesWindow from '../components/session/AddFilesWindow'
-import InputField from '../components/session/InputField'
 
-import SimpleConfirmWindow from '../components/widgets/SimpleConfirmWindow'
 import Window from '../components/widgets/Window'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
@@ -39,8 +39,8 @@ import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
 import Tooltip from '@mui/material/Tooltip'
 import IconButton from '@mui/material/IconButton'
-import RefreshIcon from '@mui/icons-material/Refresh'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import LoadingSpinner from '../components/widgets/LoadingSpinner'
 
 import {
   ICloneInteractionMode,
@@ -93,7 +93,6 @@ interface MemoizedInteractionProps {
   onReloadSession: () => Promise<any>;
   onClone: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>;
   onAddDocuments?: () => void;
-  onRestart?: () => void;
   onFilterDocument?: (docId: string) => void;
   headerButtons?: React.ReactNode;
   children?: React.ReactNode;
@@ -113,7 +112,7 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
                 !props.interaction.finished && 
                 props.interaction.state !== INTERACTION_STATE_EDITING &&
                 props.interaction.state !== INTERACTION_STATE_COMPLETE &&
-                props.interaction.state !== INTERACTION_STATE_ERROR;
+                props.interaction.state !== INTERACTION_STATE_ERROR
 
   return (
     <Interaction
@@ -126,7 +125,6 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
       onReloadSession={props.onReloadSession}
       onClone={props.onClone}
       onAddDocuments={props.onAddDocuments}
-      onRestart={props.onRestart}
       onFilterDocument={props.onFilterDocument}
       headerButtons={props.headerButtons}
     >
@@ -454,7 +452,24 @@ const Session: FC = () => {
 
   const isOwner = account.user?.id == session.data?.owner
   const sessionID = router.params.session_id
-  const textFieldRef = useRef<HTMLTextAreaElement>()
+  const textFieldRef = useRef<HTMLTextAreaElement>(null)
+
+  // --- Add image upload state/refs for new input area ---
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
+  const [selectedImageName, setSelectedImageName] = useState<string | null>(null)
+
+  const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setSelectedImage(reader.result as string)
+        setSelectedImageName(file.name)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
 
   const containerRef = useRef<HTMLDivElement>(null)
   const observerRef = useRef<IntersectionObserver | null>(null)
@@ -464,7 +479,6 @@ const Session: FC = () => {
   const [showCloneWindow, setShowCloneWindow] = useState(false)
   const [showCloneAllWindow, setShowCloneAllWindow] = useState(false)
   const [showLoginWindow, setShowLoginWindow] = useState(false)
-  const [restartWindowOpen, setRestartWindowOpen] = useState(false)
   const [shareInstructions, setShareInstructions] = useState<IShareSessionInstructions>()
   const [inputValue, setInputValue] = useState('')
   const [feedbackValue, setFeedbackValue] = useState('')
@@ -850,6 +864,8 @@ const Session: FC = () => {
       
       newSession = await NewInference({
         message: prompt,
+        image: selectedImage || undefined, // Optional field
+        image_filename: selectedImageName || undefined, // Optional field
         appId: appID,
         assistantId: assistantID || undefined,
         ragSourceId: ragSourceID,
@@ -888,10 +904,6 @@ const Session: FC = () => {
     safeReloadSession,
   ])
 
-  const onRestart = useCallback(() => {
-    setRestartWindowOpen(true)
-  }, [])
-
   const checkOwnership = useCallback((instructions: IShareSessionInstructions): boolean => {
     if (!session.data) return false
     setShareInstructions(instructions)
@@ -915,28 +927,7 @@ const Session: FC = () => {
     account.onLogin()
   }, [
     shareInstructions,
-  ])
-
-  const onRestartConfirm = useCallback(async () => {
-    if (!session.data) return
-    // Save current scroll position
-    saveScrollPosition()
-    
-    const newSession = await api.put<undefined, ISession>(`/api/v1/sessions/${session.data.id}/restart`, undefined, undefined, {
-      loading: true,
-    })
-    if (!newSession) return
-    
-    await safeReloadSession().then(() => {
-      setRestartWindowOpen(false)
-      snackbar.success('Session restarted...')
-    })
-  }, [
-    account.user,
-    session.data,
-    saveScrollPosition,
-    restoreScrollPosition,
-  ])
+  ])  
 
   const onUpdateSessionConfig = useCallback(async (data: Partial<ISessionConfig>, snackbarMessage?: string) => {
     if (!session.data) return
@@ -1165,15 +1156,6 @@ const Session: FC = () => {
     session.data?.interactions?.map(i => `${i.id}:${i.state}:${i.finished}`).join(',')
   ]);
 
-  // Modify the container styles
-  const containerStyles = useMemo(() => ({
-    flexGrow: 1,
-    overflowY: isStreaming ? 'hidden' : 'auto',
-    transition: 'overflow-y 0.3s ease',
-    paddingRight: '8px',
-    ...lightTheme.scrollbar,
-  }), [lightTheme.scrollbar, isStreaming])
-
   // Function to add blocks above when scrolling up
   const addBlocksAbove = useCallback(() => {
     if (!session.data?.interactions) return
@@ -1270,7 +1252,16 @@ const Session: FC = () => {
     const hasMoreAbove = visibleBlocks.length > 0 && visibleBlocks[0].startIndex > 0
     
     return (
-      <Container maxWidth="lg" sx={{ py: 2, pb: 20 }}>
+      <Box
+        sx={{
+          width: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          py: 2,
+          pb: 10,
+        }}
+      >
         {hasMoreAbove && (
           <div
             id="virtual-space-above"
@@ -1290,73 +1281,74 @@ const Session: FC = () => {
             )}
           </div>
         )}
-        {visibleBlocks.map(block => {
-          const key = getBlockKey(block.startIndex, block.endIndex)
+        <Box
+          sx={{
+            width: '100%',
+            maxWidth: 700,
+            mx: 'auto',
+            px: { xs: 1, sm: 2, md: 0 },
+            
+            borderRadius: 4,
+            boxShadow: 2,
+            minHeight: '60vh',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+          }}
+        >
+          {visibleBlocks.map(block => {
+            const key = getBlockKey(block.startIndex, block.endIndex)
 
-          if (block.isGhost) {
+            if (block.isGhost) {
+              return (
+                <div
+                  key={key}
+                  style={{ height: block.height || 0 }}
+                />
+              )
+            }
+
+            const blockInteractions = memoizedInteractions.slice(block.startIndex, block.endIndex)
+
             return (
               <div
                 key={key}
-                style={{ height: block.height || 0 }}
-              />
+                id={`block-${key}`}
+                ref={el => blockRefs.current[key] = el}
+              >
+                {blockInteractions.map((interaction, index) => {
+                  const absoluteIndex = block.startIndex + index
+                  const isLastInteraction = absoluteIndex === memoizedInteractions.length - 1
+                  const isOwner = account.user?.id === sessionData.owner
+
+                  return (
+                    <MemoizedInteraction
+                      key={interaction.id}
+                      serverConfig={account.serverConfig}
+                      interaction={interaction}
+                      session={sessionData}
+                      highlightAllFiles={highlightAllFiles}
+                      retryFinetuneErrors={retryFinetuneErrors}
+                      onReloadSession={safeReloadSession}
+                      onClone={onClone}
+                      onAddDocuments={isLastInteraction ? onAddDocuments : undefined}
+                      onFilterDocument={appID ? onHandleFilterDocument : undefined}                    
+                      isLastInteraction={isLastInteraction}
+                      isOwner={isOwner}
+                      isAdmin={account.admin}
+                      scrollToBottom={scrollToBottom}
+                      appID={appID}
+                      onHandleFilterDocument={onHandleFilterDocument}
+                      session_id={sessionData.id}
+                      hasSubscription={account.userConfig.stripe_subscription_active || false}
+                    />
+                  )
+                })}
+              </div>
             )
-          }
-
-          const blockInteractions = memoizedInteractions.slice(block.startIndex, block.endIndex)
-
-          return (
-            <div
-              key={key}
-              id={`block-${key}`}
-              ref={el => blockRefs.current[key] = el}
-            >
-              {blockInteractions.map((interaction, index) => {
-                const absoluteIndex = block.startIndex + index
-                const isLastInteraction = absoluteIndex === memoizedInteractions.length - 1
-                const isOwner = account.user?.id === sessionData.owner
-
-                return (
-                  <MemoizedInteraction
-                    key={interaction.id}
-                    serverConfig={account.serverConfig}
-                    interaction={interaction}
-                    session={sessionData}
-                    highlightAllFiles={highlightAllFiles}
-                    retryFinetuneErrors={retryFinetuneErrors}
-                    onReloadSession={safeReloadSession}
-                    onClone={onClone}
-                    onAddDocuments={isLastInteraction ? onAddDocuments : undefined}
-                    onRestart={isLastInteraction ? onRestart : undefined}
-                    onFilterDocument={appID ? onHandleFilterDocument : undefined}
-                    headerButtons={isLastInteraction ? (
-                      <Tooltip title="Restart Session">
-                        <IconButton onClick={onRestart} sx={{ mb: '0.5rem' }}>
-                          <RefreshIcon
-                            sx={{
-                              color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                              '&:hover': {
-                                color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
-                              },
-                            }}
-                          />
-                        </IconButton>
-                      </Tooltip>
-                    ) : undefined}
-                    isLastInteraction={isLastInteraction}
-                    isOwner={isOwner}
-                    isAdmin={account.admin}
-                    scrollToBottom={scrollToBottom}
-                    appID={appID}
-                    onHandleFilterDocument={onHandleFilterDocument}
-                    session_id={sessionData.id}
-                    hasSubscription={account.userConfig.stripe_subscription_active || false}
-                  />
-                )
-              })}
-            </div>
-          )
-        })}
-      </Container>
+          })}
+        </Box>
+      </Box>
     )
   }, [
     sessionData,
@@ -1371,7 +1363,6 @@ const Session: FC = () => {
     safeReloadSession,
     onClone,
     onAddDocuments,
-    onRestart,
     theme.palette.mode,
     themeConfig.lightIcon,
     themeConfig.darkIcon,
@@ -1626,82 +1617,6 @@ const Session: FC = () => {
             </Box>
           )}
 
-          {appID && apps.app && (
-            <Box
-              sx={{
-                width: '100%',
-                position: 'relative',
-                backgroundImage: `url(${appID && apps.app.config.helix.image || '/img/app-editor-swirl.webp'})`,
-                backgroundPosition: 'top',
-                backgroundRepeat: 'no-repeat',
-                backgroundSize: appID && apps.app.config.helix.image ? 'cover' : 'auto',
-                p: 1,
-              }}
-            >
-              {appID && apps.app.config.helix.image && (
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    zIndex: 1,
-                  }}
-                />
-              )}
-              <Box
-                sx={{
-                  position: 'relative',
-                  zIndex: 2,
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  py: 1,
-                  px: 2,
-                }}
-              >
-                <IconButton
-                  onClick={handleBackToCreate}
-                  size="small"
-                  sx={{
-                    color: 'white',
-                    mr: 1,
-                  }}
-                >
-                  <ArrowBackIcon />
-                </IconButton>
-                {activeAssistantAvatar && (
-                  <Avatar
-                    src={activeAssistantAvatar}
-                    sx={{
-                      width: '32px',
-                      height: '32px',
-                      mr: 1,
-                      border: '1px solid #fff',
-                    }}
-                  />
-                )}
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <Typography variant="subtitle1" sx={{ color: 'white' }}>
-                    {activeAssistantName}
-                  </Typography>
-                  <Typography 
-                    variant="caption" 
-                    sx={{ 
-                      color: 'rgba(255, 255, 255, 0.7)',
-                      display: { xs: 'none', sm: 'block' },
-                      textAlign: 'center'
-                    }}
-                  >
-                    {activeAssistantDescription}
-                  </Typography>
-                </Box>
-              </Box>
-            </Box>
-          )}
         </Box>
 
         {/* Main scrollable content area */}
@@ -1733,35 +1648,128 @@ const Session: FC = () => {
           {/* Fixed bottom section */}
           <Box
             sx={{
-              flexShrink: 0, // Prevent shrinking
-              borderTop: theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder,
-              bgcolor: theme.palette.background.default,
+              flexShrink: 0, // Prevent shrinking              
             }}
           >
             <Container maxWidth="lg">
               <Box sx={{ py: 2 }}>
                 <Row>
                   <Cell flexGrow={1}>
-                    <InputField
-                      initialValue={inputValue}
-                      onSubmit={onSend}
-                      disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-                      label={
-                        session.data?.type == SESSION_TYPE_TEXT ?
-                          session.data.parent_app ? `Chat with ${apps.app?.config.helix.name}...` : 'Chat with Helix...' :
-                          'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
-                      }
-                      isBigScreen={isBigScreen}
-                      activeAssistantAvatar={activeAssistantAvatar}
-                      themeConfig={themeConfig}
-                      theme={theme}
-                      loading={loading}
-                      inputRef={textFieldRef}
-                      appID={appID}
-                      onInsertText={handleInsertText}
-                    />
+                    {/* --- Start of new input area --- */}
+                    <Box
+                      sx={{
+                        width: { xs: '100%', sm: '80%', md: '70%', lg: '60%' },
+                        margin: '0 auto',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        borderRadius: '12px',
+                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                        p: 2,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 1,
+                        bgcolor: theme.palette.background.default,
+                      }}
+                    >
+                      {/* Top row: textarea */}
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                        <textarea
+                          ref={textFieldRef as React.RefObject<HTMLTextAreaElement>}
+                          value={inputValue}
+                          onChange={e => setInputValue(e.target.value)}
+                          onKeyDown={handleKeyDown as any}
+                          rows={1}
+                          style={{
+                            width: '100%',
+                            backgroundColor: 'transparent',
+                            border: 'none',
+                            color: '#fff',
+                            opacity: 0.7,
+                            resize: 'none',
+                            outline: 'none',
+                            fontFamily: 'inherit',
+                            fontSize: 'inherit',
+                          }}
+                          placeholder={
+                            session.data?.type == SESSION_TYPE_TEXT
+                              ? session.data.parent_app
+                                ? `Chat with ${apps.app?.config.helix.name}...`
+                                : 'Ask anything...'
+                              : 'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
+                          }
+                          disabled={session.data?.mode == SESSION_MODE_FINETUNE}
+                        />
+                      </Box>
+                      {/* Bottom row: attachment icon, image name, send button */}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Tooltip title="Attach Image" placement="top">
+                            <Box
+                              sx={{
+                                width: 32,
+                                height: 32,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                border: '2px solid rgba(255, 255, 255, 0.7)',
+                                borderRadius: '50%',
+                                '&:hover': {
+                                  borderColor: 'rgba(255, 255, 255, 0.9)',
+                                  '& svg': { color: 'rgba(255, 255, 255, 0.9)' }
+                                }
+                              }}
+                              onClick={() => {
+                                if (imageInputRef.current) imageInputRef.current.click();
+                              }}
+                            >
+                              <AttachFileIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                            </Box>
+                          </Tooltip>
+                          {selectedImageName && (
+                            <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.8rem', ml: 0.5, maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {selectedImageName}
+                            </Typography>
+                          )}
+                          <input
+                            type="file"
+                            ref={imageInputRef}
+                            style={{ display: 'none' }}
+                            accept="image/*"
+                            onChange={handleImageFileChange}
+                          />
+                        </Box>
+                        <Tooltip title="Send Prompt" placement="top">
+                          <Box
+                            onClick={() => onSend(inputValue)}
+                            sx={{
+                              width: 32,
+                              height: 32,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: loading ? 'default' : 'pointer',
+                              border: '1px solid rgba(255, 255, 255, 0.7)',
+                              borderRadius: '8px',
+                              opacity: loading ? 0.5 : 1,
+                              '&:hover': loading ? {} : {
+                                borderColor: 'rgba(255, 255, 255, 0.9)',
+                                '& svg': { color: 'rgba(255, 255, 255, 0.9)' }
+                              }
+                            }}
+                          >
+                            {loading ? (
+                              <LoadingSpinner />
+                            ) : (
+                              <ArrowUpwardIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                            )}
+                          </Box>
+                        </Tooltip>
+                      </Box>
+                    </Box>
+                    {/* --- End of new input area --- */}
                   </Cell>
-                  {isBigScreen && (
+                  {/* Temporary disabled feedback buttons, will be moved to interaction list */}
+                  {/* {isBigScreen && (
                     <Cell sx={{ display: 'flex', alignItems: 'center', ml: 2 }}>
                       <Button
                         onClick={() => {
@@ -1782,7 +1790,7 @@ const Session: FC = () => {
                         {session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon />}
                       </Button>
                     </Cell>
-                  )}
+                  )} */}
                 </Row>
 
                 {!isBigScreen && (
@@ -1900,17 +1908,7 @@ const Session: FC = () => {
           }}
         />
       )}
-
-      {restartWindowOpen && (
-        <SimpleConfirmWindow
-          title="Restart Session"
-          message="Are you sure you want to restart this session?"
-          confirmTitle="Restart"
-          onCancel={() => setRestartWindowOpen(false)}
-          onSubmit={onRestartConfirm}
-        />
-      )}
-
+    
       {showLoginWindow && (
         <Window
           open

@@ -101,7 +101,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [frequencyPenalty, setFrequencyPenalty] = useState(app.frequency_penalty || 0)
   const [maxTokens, setMaxTokens] = useState(app.max_tokens || 2000)
   const [presencePenalty, setPresencePenalty] = useState(app.presence_penalty || 0)
-  const [reasoningEffort, setReasoningEffort] = useState(app.reasoning_effort || 'medium')
+  const [reasoningEffort, setReasoningEffort] = useState(app.reasoning_effort || 'none')
   const [temperature, setTemperature] = useState(app.temperature || DEFAULT_VALUES.temperature)
   const [topP, setTopP] = useState(app.top_p || 1)
   
@@ -639,6 +639,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                 onChange={(e) => handleAdvancedChangeWithDebounce('reasoningEffort', e.target.value)}
                 disabled={readOnly}
             >
+              <MenuItem value="none">None</MenuItem>
               <MenuItem value="low">Low</MenuItem>
               <MenuItem value="medium">Medium</MenuItem>
               <MenuItem value="high">High</MenuItem>

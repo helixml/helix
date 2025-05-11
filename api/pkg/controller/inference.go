@@ -119,7 +119,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		req.MaxTokens = assistant.MaxTokens
 	}
 
-	if assistant.ReasoningEffort != "" {
+	if assistant.ReasoningEffort != "" && assistant.ReasoningEffort != types.ReasoningEffortNone {
 		req.ReasoningEffort = assistant.ReasoningEffort
 	}
 
@@ -230,7 +230,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		req.MaxTokens = assistant.MaxTokens
 	}
 
-	if assistant.ReasoningEffort != "" {
+	if assistant.ReasoningEffort != "" && assistant.ReasoningEffort != types.ReasoningEffortNone {
 		req.ReasoningEffort = assistant.ReasoningEffort
 	}
 

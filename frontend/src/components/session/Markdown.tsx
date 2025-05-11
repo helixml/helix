@@ -16,6 +16,9 @@ import DOMPurify from 'dompurify'
 
 // Import the new Citation component
 import Citation, { Excerpt } from './Citation'
+import IconButton from '@mui/material/IconButton'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import Tooltip from '@mui/material/Tooltip'
 
 const SyntaxHighlighter = SyntaxHighlighterTS as any
 
@@ -660,6 +663,53 @@ export interface InteractionMarkdownProps {
   onFilterDocument?: (docId: string) => void;
 }
 
+// Add this new component for the code block with copy button
+const CodeBlockWithCopy: FC<{ children: string; language?: string }> = ({ children, language }) => {
+  const [copied, setCopied] = useState(false);
+  const theme = useTheme();
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(children);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+    }
+  };
+
+  return (
+    <Box sx={{ position: 'relative' }}>
+      <Box sx={{ position: 'absolute', right: 8, top: 8, zIndex: 1 }}>
+        <Tooltip title={copied ? "Copied!" : "Copy code"}>
+          <IconButton
+            onClick={handleCopy}
+            size="small"
+            sx={{
+              backgroundColor: theme.palette.mode === 'light' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+              '&:hover': {
+                backgroundColor: theme.palette.mode === 'light' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
+              },
+              '& .MuiSvgIcon-root': {
+                color: theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255, 255, 255, 0.6)',
+              },
+            }}
+          >
+            <ContentCopyIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
+      <SyntaxHighlighter
+        language={language}
+        style={oneDark}
+        PreTag="div"
+      >
+        {String(children).replace(/\n$/, '')}
+      </SyntaxHighlighter>
+    </Box>
+  );
+};
+
 // Main component
 const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   text,
@@ -722,10 +772,10 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
       <Box
         sx={{
           '& pre': {
-            // backgroundColor: theme.palette.mode === 'light' ? '#f0f0f0' : '#1e1e1e',
             padding: '1em',
             borderRadius: '4px',
             overflowX: 'auto',
+            position: 'relative',
           },
           '& code': {
             backgroundColor: 'transparent',
@@ -761,7 +811,6 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           display: 'flow-root',
         }}
       >
-        {/* Render Citation component if we have data */}
         {citationData && citationData.excerpts && citationData.excerpts.length > 0 && (
           <Citation
             excerpts={citationData.excerpts}
@@ -780,13 +829,9 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
               const { children, className, node, ...rest } = props
               const match = /language-(\w+)/.exec(className || '')
               return match ? (
-                <SyntaxHighlighter
-                  {...rest}
-                  PreTag="div"
-                  children={String(children).replace(/\n$/, '')}
-                  language={match[1]}
-                  style={oneDark}
-                />
+                <CodeBlockWithCopy language={match[1]}>
+                  {String(children).replace(/\n$/, '')}
+                </CodeBlockWithCopy>
               ) : (
                 <code {...rest} className={className}>
                   {children}
