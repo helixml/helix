@@ -88,6 +88,7 @@ const Create: FC = () => {
   const [focusInput, setFocusInput] = useState(false)
   const [loading, setLoading] = useState(false)
   const [isLoadingApp, setIsLoadingApp] = useState(false)
+  const [attachedImages, setAttachedImages] = useState<File[]>([])
 
   const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
@@ -168,6 +169,7 @@ const Create: FC = () => {
         modelName: useModel,
         loraDir: '',
         orgId,
+        attachedImages: attachedImages,
       });
 
       if (!session) return
@@ -372,9 +374,11 @@ const Create: FC = () => {
               />
             )
           )}
-          promptLabel={activeAssistant ? `Chat with ${activeAssistantName || ''}` : undefined}
+          promptLabel={activeAssistant ? `Chat with ${apps.app?.config.helix.name || ''}` : undefined}
           onUpdate={inputs.setInputValue}
           onInference={onInference}
+          attachedImages={attachedImages}
+          onAttachedImagesChange={setAttachedImages}
         />
       </Box>
       <Box sx={{ mb: 1 }}>

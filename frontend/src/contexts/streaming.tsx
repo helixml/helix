@@ -17,6 +17,7 @@ interface NewInferenceParams {
   loraDir?: string;
   sessionId?: string;
   orgId?: string;
+  attachedImages?: File[];
 }
 
 interface StreamingContextType {
@@ -211,6 +212,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     orgId = '',
     image = undefined,
     image_filename = undefined,
+    attachedImages = [],
   }: NewInferenceParams): Promise<ISession> => {
     // Clear both buffer and history for new sessions
     messageBufferRef.current.delete(sessionId);
@@ -231,35 +233,45 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
     // Add text part if message is provided
     if (message) {
-        currentContentParts.push({
-            type: 'text',
-            text: message,
-        });
+      currentContentParts.push({
+        type: 'text',
+        text: message,
+      });
     }
 
-    if (image && image_filename) { // Ensure image data and filename are present
+    // Handle attached images
+    if (attachedImages && attachedImages.length > 0) {
+      for (const file of attachedImages) {
+        const reader = new FileReader();
+        const imageData = await new Promise<string>((resolve) => {
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+        
+        currentContentParts.push({
+          type: 'image_url',
+          image_url: {
+            url: imageData,
+          },
+        });
+      }
+      determinedContentType = "multimodal_text";
+    } else if (image && image_filename) {
       currentContentParts.push({
         type: 'image_url',
         image_url: {
-          url: image, // image is the base64 data URI
+          url: image,
         },
       });
-      // If an image is present, the content type is multimodal.
-      // Using "multimodal_text" based on Go struct comments; adjust if backend expects a different value.
       determinedContentType = "multimodal_text";
     } else if (!message) {
-      // Handle case where neither message nor image is provided, if necessary.
-      // For now, this might result in empty currentContentParts.
-      // Consider throwing an error or ensuring UI prevents this state.
       console.warn("NewInference called with no message and no image.");
     }
-    // If only a message (no image), determinedContentType remains "text".
-
 
     // This is the payload for Message.Content, matching the Go types.MessageContent struct
     const messagePayloadContent = {
-        content_type: determinedContentType,
-        parts: currentContentParts,
+      content_type: determinedContentType,
+      parts: currentContentParts,
     };
 
     // Assign the constructed content to the message
