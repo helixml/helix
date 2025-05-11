@@ -28,7 +28,7 @@ type Interaction struct {
 	Mode SessionMode `json:"mode"`
 	// the ID of the runner that processed this interaction
 	Runner string `json:"runner"` // e.g. 0
-	// Deprecated: Use Content instead
+	// TODO: remove and keep only content
 	Message        string         `json:"message"`         // e.g. Prove pythagoras (last text message from the user)
 	Content        MessageContent `json:"content"`         // Original content received from the API. This will include the Message and any images.
 	ResponseFormat ResponseFormat `json:"response_format"` // e.g. json
