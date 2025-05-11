@@ -1132,6 +1132,8 @@ type AssistantConfig struct {
 	} `json:"tests,omitempty" yaml:"tests,omitempty"`
 }
 
+const ReasoningEffortNone = "none" // Don't set
+
 // Add this new type
 type TestStep struct {
 	Prompt         string `json:"prompt" yaml:"prompt"`
