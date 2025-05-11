@@ -93,18 +93,20 @@ const OrbWrapper = styled.span`
   margin: 0 2px;
 `
 
-const orbColors = {
-  'tool_call': '#FFBF00', // Gold for tool calls
-  'tool_result': '#00FF00', // Green for tool results
-  'default': '#0000FF' // Blue for unknown types
-}
+type OrbType = 'tool_call' | 'tool_result' | 'default';
 
-const Orb = styled.span<{ $isPulsating: boolean; $type: string }>`
+const orbColors: Record<OrbType, string> = {
+  tool_call: '#FFBF00', // Gold for tool calls
+  tool_result: '#00FF00', // Green for tool results
+  default: '#0000FF' // Blue for unknown types
+};
+
+const Orb = styled.span<{ $isPulsating: boolean; $type: OrbType }>`
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%, ${props => orbColors[props.$type] || orbColors.default}, #000);
-  box-shadow: 0 0 6px ${props => orbColors[props.$type] || orbColors.default};
+  background: radial-gradient(circle at 30% 30%, ${props => orbColors[props.$type] ?? orbColors.default}, #000);
+  box-shadow: 0 0 6px ${props => orbColors[props.$type] ?? orbColors.default};
   cursor: pointer;
   display: inline-block;
   animation: ${props => props.$isPulsating ? pulse : 'none'} 2s infinite;
@@ -112,19 +114,26 @@ const Orb = styled.span<{ $isPulsating: boolean; $type: string }>`
 
 const OrbTooltip = styled.span`
   position: absolute;
-  top: -30px;
-  left: 50%;
-  transform: translateX(-50%);
-  background-color: rgba(0, 0, 0, 0.8);
+  top: 50%;
+  left: 100%;
+  transform: translateY(-50%) translateX(12px); /* small gap to the right */
+  background-color: rgba(0, 0, 0, 0.9);
   color: white;
-  padding: 5px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  white-space: nowrap;
+  padding: 7px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  max-width: 1024px;
+  min-width: 800px;
+  max-width: 90vw;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  box-sizing: border-box;
   opacity: 0;
   transition: opacity 0.3s;
   pointer-events: none;
   z-index: 1000;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.25);
 
   ${OrbWrapper}:hover & {
     opacity: 1;
@@ -266,35 +275,68 @@ export class MessageProcessor {
       );
     }
     
-    // Look for tool result tags
+    // Look for tool result tags (fully closed)
     const toolResultRegex = /<tool_result\s+name="([^"]+)"><output>([\s\S]*?)<\/output><\/tool_result>/g;
     let toolResultMatches;
-    
-    // Process all tool result tags
+
+    // Track which tool result IDs we've seen, to avoid double-inserting
+    const seenToolResultIds = new Set<string>();
+
+    // Process all fully closed tool result tags
     while ((toolResultMatches = toolResultRegex.exec(message)) !== null) {
       const fullMatch = toolResultMatches[0];
       const toolName = toolResultMatches[1];
       const toolOutput = toolResultMatches[2];
       const toolId = `result-${this.toolCallCounter}`;
-      
-      // Add tool result data
+      seenToolResultIds.add(toolId);
+
+      // Add tool result data (finalized)
       if (this.toolData) {
         this.toolData.tools.push({
           type: 'tool_result',
           name: toolName,
           content: toolOutput,
           id: toolId,
-          isPulsating: false // Results don't pulsate
+          isPulsating: false
         });
       }
-      
-      // Replace with a marker
       processedMessage = processedMessage.replace(
-        fullMatch, 
+        fullMatch,
         `__TOOL_${toolId}__`
       );
     }
-    
+
+    // If streaming, look for partial tool result tags
+    if (this.options.isStreaming) {
+      // Regex for partial (not fully closed) tool_result tags
+      // Matches: <tool_result name="..."><output>... (no closing tags)
+      const partialToolResultRegex = /<tool_result\s+name="([^"]+)"><output>([\s\S]*?)(?=<\/output><\/tool_result>|$)/g;
+      let partialMatch;
+      while ((partialMatch = partialToolResultRegex.exec(message)) !== null) {
+        const fullMatch = partialMatch[0];
+        const toolName = partialMatch[1];
+        const toolOutput = partialMatch[2];
+        const toolId = `result-${this.toolCallCounter}`;
+        // Only add if not already seen as finalized
+        if (!seenToolResultIds.has(toolId)) {
+          if (this.toolData) {
+            this.toolData.tools.push({
+              type: 'tool_result',
+              name: toolName,
+              content: toolOutput,
+              id: toolId,
+              isPulsating: true // Streaming: show pulsating orb
+            });
+          }
+          processedMessage = processedMessage.replace(
+            fullMatch,
+            `__TOOL_${toolId}__`
+          );
+          seenToolResultIds.add(toolId);
+        }
+      }
+    }
+
     return processedMessage;
   }
 
@@ -837,7 +879,7 @@ const ToolOrb: FC<ToolOrbProps> = ({ type, name, content, isPulsating }) => {
         <Orb $isPulsating={isPulsating} $type={type} />
         <OrbTooltip>
           <strong>{type === 'tool_call' ? 'Tool Call' : 'Tool Result'}:</strong> {name}<br />
-          {content.length > 100 ? `${content.substring(0, 100)}...` : content}
+          {content}
         </OrbTooltip>
       </OrbWrapper>
       <ToolText>{type === 'tool_call' ? `${name}` : `↩ ${name}`}</ToolText>
@@ -875,18 +917,17 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
     }
 
     const parts = content.split(/(__TOOL_tool-\d+__|__TOOL_result-\d+__)/);
+    // Filter out nulls to satisfy ReactElement[]
     return parts.map((part, index) => {
       const toolMatch = part.match(/__TOOL_(tool|result)-(\d+)__/);
       if (toolMatch) {
         const toolType = toolMatch[1] === 'tool' ? 'tool_call' : 'tool_result';
         const toolNumber = parseInt(toolMatch[2]);
-        
         // Find the corresponding tool data
         const tool = toolData.tools.find(t => 
           (toolType === 'tool_call' && t.id === `tool-${toolNumber}`) || 
           (toolType === 'tool_result' && t.id === `result-${toolNumber}`)
         );
-        
         if (tool) {
           return (
             <ToolOrb 
@@ -899,7 +940,6 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           );
         }
       }
-      
       // For text content parts, render with Markdown
       if (part.trim()) {
         return (
@@ -933,7 +973,7 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
       }
       
       return null;
-    }).filter(Boolean);
+    }).filter((el): el is React.ReactElement => el !== null);
   }, []);
 
   useEffect(() => {
