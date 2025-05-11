@@ -32,6 +32,8 @@ const InferenceTextField: FC<{
   onUpdate: (value: string) => void,
   onInference: () => void,
   appId: string,
+  attachedImages?: File[],
+  onAttachedImagesChange?: (files: File[]) => void,
 }> = ({
   type,
   value,
@@ -43,6 +45,8 @@ const InferenceTextField: FC<{
   onUpdate,
   onInference,
   appId,
+  attachedImages = [],
+  onAttachedImagesChange,
 }) => {
     const lightTheme = useLightTheme()
     const theme = useTheme()
@@ -73,6 +77,9 @@ const InferenceTextField: FC<{
         reader.onloadend = () => {
           setSelectedImage(reader.result as string)
           setSelectedImageName(file.name)
+          if (onAttachedImagesChange) {
+            onAttachedImagesChange([...attachedImages, file])
+          }
         }
         reader.readAsDataURL(file)
       }
