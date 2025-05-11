@@ -6,21 +6,14 @@ import Button from '@mui/material/Button'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 
-import {
-  COLORS,
-}  from '../../config'
 import { useTheme } from '@mui/material/styles'
-export const InteractionContainer: FC<{
-  name: string,
-  badge?: string,
+export const InteractionContainer: FC<{    
   background?: boolean,
   buttons?: React.ReactNode,
   children?: React.ReactNode,
   align?: 'left' | 'right',
   border?: boolean,
 }> = ({
-  name,
-  badge,
   background = false,
   buttons,
   children,
@@ -44,39 +37,6 @@ export const InteractionContainer: FC<{
       }}
     >
       <Row>
-        {
-          badge && (
-            <Cell
-              sx={{
-                mr: 1,
-              }}
-            >
-              <Button
-                variant="contained"
-                color="primary"
-                size="small"
-                sx={{
-                  textTransform: 'none',
-                  bgcolor: COLORS['AI_BADGE'],
-                  color: 'black',
-                  fontWeight: 800,
-                  padding: '2px 8px',
-                  minWidth: 'auto',
-                  height: 'auto'
-                }}
-              >
-                { badge }
-              </Button>
-            </Cell>
-          )
-        }
-        <Cell>
-          {align !== 'right' && (
-            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-              { name }
-            </Typography>
-          )}
-        </Cell>
         <Cell grow />
         <Cell>
           {buttons}

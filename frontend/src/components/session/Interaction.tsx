@@ -4,15 +4,12 @@ import InteractionFinetune from './InteractionFinetune'
 import InteractionInference from './InteractionInference'
 import Box from '@mui/material/Box'
 
-import useTheme from '@mui/material/styles/useTheme'
-import useThemeConfig from '../../hooks/useThemeConfig'
 import useAccount from '../../hooks/useAccount'
 
 import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
   SESSION_MODE_INFERENCE,
-  SESSION_MODE_FINETUNE,
   SESSION_CREATOR_ASSISTANT,
   SESSION_CREATOR_USER,
   ISession,
@@ -146,12 +143,9 @@ export const Interaction: FC<InteractionProps> = ({
   }, [interaction, session])
 
   const { displayMessage, imageURLs, isLoading } = displayData
-
-  const isAssistant = interaction?.creator == SESSION_CREATOR_ASSISTANT
-  const isUser = interaction?.creator == SESSION_CREATOR_USER
-  const useName = isAssistant ? 'Helix' : account.user?.name || 'User'
-  const useBadge = isAssistant ? 'AI' : ''
   
+  const isUser = interaction?.creator == SESSION_CREATOR_USER
+
   // Determine if this interaction is live (streaming)
   const isLive = interaction?.creator == SESSION_CREATOR_ASSISTANT && !interaction.finished;
 
@@ -170,9 +164,7 @@ export const Interaction: FC<InteractionProps> = ({
         justifyContent: isUser ? 'flex-end' : 'flex-start',
       }}
     >
-      <InteractionContainer
-        name={useName}
-        badge={useBadge}
+      <InteractionContainer        
         buttons={headerButtons}
         background={containerBackground}
         align={containerAlignment}
