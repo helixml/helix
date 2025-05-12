@@ -16,7 +16,7 @@ const CopyButtonWithCheck: FC<{ text: string, alwaysVisible?: boolean }> = ({ te
     }
   }
   return (
-    <Tooltip title={copied ? 'Copied!' : 'Copy'} placement="top">
+    <Tooltip title={copied ? 'Copied!' : 'Copy'} placement="bottom">
       <IconButton
         onClick={handleCopy}
         size="small"
