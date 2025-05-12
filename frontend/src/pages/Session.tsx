@@ -53,6 +53,7 @@ import {
   INTERACTION_STATE_COMPLETE,
   INTERACTION_STATE_ERROR,
   IShareSessionInstructions,
+  SESSION_CREATOR_ASSISTANT,
 } from '../types'
 
 import { TypesMessageContentType, TypesMessage } from '../api/api'
@@ -106,7 +107,7 @@ interface MemoizedInteractionProps {
   onHandleFilterDocument?: (docId: string) => void;
   session_id: string;
   hasSubscription: boolean;
-  onRegenerate?: () => void;
+  onRegenerate?: (interactionID: string, message: string) => void;
 }
 
 // Create a memoized version of the Interaction component
@@ -909,11 +910,13 @@ const Session: FC = () => {
     safeReloadSession,
   ])
 
-  const onRegenerate = useCallback(async () => {
+  const onRegenerate = useCallback(async (interactionID: string, message: string) => {
     if (!session.data) return
     if (!checkOwnership({
       inferencePrompt: '',
     })) return
+
+    console.log("onRegenerate", { interactionID, message })
 
     let newSession: ISession | null = null
 
@@ -922,16 +925,40 @@ const Session: FC = () => {
       const appID = session.data.parent_app || ''
       const ragSourceID = session.data.config.rag_source_data_entity_id || ''
 
-      // Convert interactions to messages, excluding the last system message
+      // Find the interaction index
+      const interactionIndex = session.data.interactions.findIndex(i => i.id === interactionID)
+      if (interactionIndex === -1) {
+        console.error('Interaction not found:', interactionID)
+        return
+      }
+
+      // Get the interaction to determine if it's from user or assistant
+      const targetInteraction = session.data.interactions[interactionIndex]
+      const isAssistantMessage = targetInteraction.creator === SESSION_CREATOR_ASSISTANT
+
+      // Convert interactions to messages based on the type of message being regenerated
       const messages: TypesMessage[] = session.data.interactions
-        .slice(0, -1) // Remove last interaction
-        .map(interaction => ({
-          role: interaction.creator as any, // TODO: Fix type mapping between ISessionCreator and TypesCreatorType
-          content: {
-            content_type: 'text' as TypesMessageContentType,
-            parts: [interaction.message]
+        .slice(0, isAssistantMessage ? interactionIndex : interactionIndex + 1) // Remove everything after the target interaction
+        .map(interaction => {
+          // If this is the user message being edited, use the new message
+          if (!isAssistantMessage && interaction.id === interactionID) {
+            return {
+              role: interaction.creator as any,
+              content: {
+                content_type: 'text' as TypesMessageContentType,
+                parts: [message] // Use the new message
+              }
+            }
           }
-        }))
+          // Otherwise use the original message
+          return {
+            role: interaction.creator as any,
+            content: {
+              content_type: 'text' as TypesMessageContentType,
+              parts: [interaction.message]
+            }
+          }
+        })
 
       // Scroll to bottom immediately after submitting to show progress
       scrollToBottom()
