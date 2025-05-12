@@ -9,7 +9,7 @@ interface NewInferenceParams {
   regenerate?: boolean;
   type: ISessionType;
   message: string;
-  messages: TypesMessage[];
+  messages?: TypesMessage[];
   image?: string;
   image_filename?: string;
   appId?: string;
