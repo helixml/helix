@@ -107,8 +107,10 @@ const Home: FC = () => {
     }
     try {
       const session = await NewInference({
+        regenerate: false,
         type: currentType,
         message: currentPrompt,
+        messages: [],
         provider: currentProvider,
         modelName: currentModel,
         image: selectedImage || undefined, // Optional field
