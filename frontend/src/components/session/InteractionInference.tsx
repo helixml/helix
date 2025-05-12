@@ -16,6 +16,8 @@ import Tooltip from '@mui/material/Tooltip'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import EditIcon from '@mui/icons-material/Edit'
+import TextField from '@mui/material/TextField'
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
@@ -62,6 +64,11 @@ export const InteractionInference: FC<{
   isFromAssistant?: boolean,
   onFilterDocument?: (docId: string) => void,
   onRegenerate?: (interactionID: string, message: string) => void,
+  isEditing?: boolean,
+  editedMessage?: string,
+  setEditedMessage?: (msg: string) => void,
+  handleCancel?: () => void,
+  handleSave?: () => void,
 }> = ({
   imageURLs = [],
   message,
@@ -73,11 +80,23 @@ export const InteractionInference: FC<{
   isFromAssistant: isFromAssistant,
   onFilterDocument,
   onRegenerate,
+  isEditing: externalIsEditing,
+  editedMessage: externalEditedMessage,
+  setEditedMessage: externalSetEditedMessage,
+  handleCancel: externalHandleCancel,
+  handleSave: externalHandleSave,
 }) => {
     const account = useAccount()
     const router = useRouter()
     const [viewingError, setViewingError] = useState(false)
     const [selectedImage, setSelectedImage] = useState<string | null>(null)
+    const [internalIsEditing, setInternalIsEditing] = useState(false)
+    const [internalEditedMessage, setInternalEditedMessage] = useState(message || '')
+    const isEditing = externalIsEditing !== undefined ? externalIsEditing : internalIsEditing
+    const editedMessage = externalEditedMessage !== undefined ? externalEditedMessage : internalEditedMessage
+    const setEditedMessage = externalSetEditedMessage || setInternalEditedMessage
+    const handleCancel = externalHandleCancel || (() => { setInternalEditedMessage(message || ''); setInternalIsEditing(false) })
+    const handleSave = externalHandleSave || (() => { if (onRegenerate && internalEditedMessage !== message) { onRegenerate(interaction.id, internalEditedMessage) } setInternalIsEditing(false) })
 
     if (!serverConfig || !serverConfig.filestore_prefix) return null
     if (!interaction) return null
@@ -124,45 +143,78 @@ export const InteractionInference: FC<{
                 display: 'flex',
                 alignItems: 'flex-start',
                 position: 'relative',
-                ':hover .copy-btn': { opacity: 1 },
+                flexDirection: 'column',
+                gap: 0.5,
               }}
             >
-              {isFromAssistant && (
-                <CopyButtonWithCheck text={message} />
-              )}
-              <Box sx={{ flex: 1 }}>
-                <Markdown
-                  text={message}
-                  session={session}
-                  getFileURL={getFileURL}
-                  showBlinker={false}
-                  isStreaming={false}
-                  onFilterDocument={onFilterDocument}
-                />
-                {isFromAssistant && (
-                  <Box sx={{ display: 'flex', justifyContent: 'left', alignItems: 'center', mt: 1, gap: 1 }}>
-                    <Tooltip title="Regenerate">
-                      <IconButton
-                        onClick={() => onRegenerate(interaction.id, message || '')}
+              <Box sx={{ width: '100%' }}>
+                {isEditing ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <TextField
+                      multiline
+                      fullWidth
+                      value={editedMessage}
+                      onChange={(e) => setEditedMessage(e.target.value)}
+                      sx={{
+                        '& .MuiInputBase-root': {
+                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                          borderRadius: 1,
+                        },
+                      }}
+                    />
+                    <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                      <Button
                         size="small"
-                        className="regenerate-btn"
-                        sx={                          
-                          theme => ({
-                          mt: 0.5,
-                          color: theme.palette.mode === 'light' ? '#888' : '#bbb',
-                          '&:hover': {
-                            color: theme.palette.mode === 'light' ? '#000' : '#fff',
-                          },
-                        })}
-                        aria-label="regenerate"
+                        onClick={handleCancel}
+                        sx={{ textTransform: 'none' }}
                       >
-                        <RefreshIcon sx={{ fontSize: 20 }} />
-                      </IconButton>
-                    </Tooltip>
-                    <CopyButtonWithCheck text={message || ''} alwaysVisible />
+                        Cancel
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        onClick={handleSave}
+                        sx={{ textTransform: 'none' }}
+                      >
+                        Save
+                      </Button>
+                    </Box>
                   </Box>
+                ) : (
+                  <>
+                    <Markdown
+                      text={message}
+                      session={session}
+                      getFileURL={getFileURL}
+                      showBlinker={false}
+                      isStreaming={false}
+                      onFilterDocument={onFilterDocument}
+                    />
+                    {isFromAssistant && (
+                      <Box sx={{ display: 'flex', justifyContent: 'left', alignItems: 'center', mt: 1, gap: 1 }}>
+                        <Tooltip title="Regenerate">
+                          <IconButton
+                            onClick={() => onRegenerate(interaction.id, message || '')}
+                            size="small"
+                            className="regenerate-btn"
+                            sx={theme => ({
+                              mt: 0.5,
+                              color: theme.palette.mode === 'light' ? '#888' : '#bbb',
+                              '&:hover': {
+                                color: theme.palette.mode === 'light' ? '#000' : '#fff',
+                              },
+                            })}
+                            aria-label="regenerate"
+                          >
+                            <RefreshIcon sx={{ fontSize: 20 }} />
+                          </IconButton>
+                        </Tooltip>
+                        <CopyButtonWithCheck text={message || ''} alwaysVisible />
+                      </Box>
+                    )}
+                  </>
                 )}
-              </Box>
+              </Box>              
             </Box>
           )
         }
