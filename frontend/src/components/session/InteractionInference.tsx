@@ -27,6 +27,7 @@ import {
 import {
   ISession,
   IServerConfig,
+  IInteraction,
 } from '../../types'
 
 const GeneratedImage = styled('img')({
@@ -55,16 +56,18 @@ export const InteractionInference: FC<{
   message?: string,
   error?: string,
   serverConfig?: IServerConfig,
+  interaction: IInteraction,
   session: ISession,
   upgrade?: boolean,
   isFromAssistant?: boolean,
   onFilterDocument?: (docId: string) => void,
-  onRegenerate?: () => void,
+  onRegenerate?: (interactionID: string, message: string) => void,
 }> = ({
   imageURLs = [],
   message,
   error,
   serverConfig,
+  interaction,
   session,  
   upgrade,
   isFromAssistant: isFromAssistant,
@@ -77,6 +80,7 @@ export const InteractionInference: FC<{
     const [selectedImage, setSelectedImage] = useState<string | null>(null)
 
     if (!serverConfig || !serverConfig.filestore_prefix) return null
+    if (!interaction) return null
 
     const getFileURL = (url: string) => {
       if (!url) return ''
@@ -113,7 +117,7 @@ export const InteractionInference: FC<{
             })
         }
         {
-          message && (
+          message && onRegenerate && (
             <Box
               sx={{
                 my: 0.5,
@@ -139,7 +143,7 @@ export const InteractionInference: FC<{
                   <Box sx={{ display: 'flex', justifyContent: 'left', alignItems: 'center', mt: 1, gap: 1 }}>
                     <Tooltip title="Regenerate">
                       <IconButton
-                        onClick={onRegenerate}
+                        onClick={() => onRegenerate(interaction.id, message || '')}
                         size="small"
                         className="regenerate-btn"
                         sx={                          
@@ -194,7 +198,7 @@ export const InteractionInference: FC<{
                       color="secondary"
                       size="small"
                       endIcon={<ReplayIcon />}
-                      onClick={onRegenerate}
+                      onClick={() => onRegenerate(interaction.id, message || '')}
                     >
                       Retry
                     </Button>

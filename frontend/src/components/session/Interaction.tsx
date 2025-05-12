@@ -76,7 +76,7 @@ interface InteractionProps {
   onReloadSession?: () => void,
   onClone?: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>,
   onAddDocuments?: () => void,
-  onRegenerate?: () => void,
+  onRegenerate?: (interactionID: string, message: string) => void,
   children?: React.ReactNode,
   onFilterDocument?: (docId: string) => void,
 }
@@ -192,6 +192,7 @@ export const Interaction: FC<InteractionProps> = ({
           <InteractionInference
             serverConfig={serverConfig}
             session={session}
+            interaction={interaction}
             imageURLs={imageURLs}
             message={displayMessage}
             error={interaction?.error}            
