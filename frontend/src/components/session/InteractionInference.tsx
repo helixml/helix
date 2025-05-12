@@ -1,9 +1,7 @@
-import React, { FC, useState } from 'react'
+import { FC, useState } from 'react'
 import { styled } from '@mui/system'
-import Typography from '@mui/material/Typography'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
-import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
 import ReplayIcon from '@mui/icons-material/Replay'
 import TerminalWindow from '../widgets/TerminalWindow'
@@ -13,8 +11,9 @@ import Cell from '../widgets/Cell'
 import Markdown from './Markdown'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'
-import CheckIcon from '@mui/icons-material/Check'
+import RefreshIcon from '@mui/icons-material/Refresh'
+import TextField from '@mui/material/TextField'
+import CopyButtonWithCheck from './CopyButtonWithCheck'
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
@@ -26,6 +25,7 @@ import {
 import {
   ISession,
   IServerConfig,
+  IInteraction,
 } from '../../types'
 
 const GeneratedImage = styled('img')({
@@ -54,28 +54,50 @@ export const InteractionInference: FC<{
   message?: string,
   error?: string,
   serverConfig?: IServerConfig,
+  interaction: IInteraction,
   session: ISession,
-  onRestart?: () => void,
   upgrade?: boolean,
   isFromAssistant?: boolean,
   onFilterDocument?: (docId: string) => void,
+  onRegenerate?: (interactionID: string, message: string) => void,
+  isEditing?: boolean,
+  editedMessage?: string,
+  setEditedMessage?: (msg: string) => void,
+  handleCancel?: () => void,
+  handleSave?: () => void,
+  isLastInteraction?: boolean,
 }> = ({
   imageURLs = [],
   message,
   error,
   serverConfig,
-  session,
-  onRestart,
+  interaction,
+  session,  
   upgrade,
   isFromAssistant: isFromAssistant,
   onFilterDocument,
+  onRegenerate,
+  isEditing: externalIsEditing,
+  editedMessage: externalEditedMessage,
+  setEditedMessage: externalSetEditedMessage,
+  handleCancel: externalHandleCancel,
+  handleSave: externalHandleSave,
+  isLastInteraction,
 }) => {
     const account = useAccount()
     const router = useRouter()
     const [viewingError, setViewingError] = useState(false)
     const [selectedImage, setSelectedImage] = useState<string | null>(null)
+    const [internalIsEditing, setInternalIsEditing] = useState(false)
+    const [internalEditedMessage, setInternalEditedMessage] = useState(message || '')
+    const isEditing = externalIsEditing !== undefined ? externalIsEditing : internalIsEditing
+    const editedMessage = externalEditedMessage !== undefined ? externalEditedMessage : internalEditedMessage
+    const setEditedMessage = externalSetEditedMessage || setInternalEditedMessage
+    const handleCancel = externalHandleCancel || (() => { setInternalEditedMessage(message || ''); setInternalIsEditing(false) })
+    const handleSave = externalHandleSave || (() => { if (onRegenerate && internalEditedMessage !== message) { onRegenerate(interaction.id, internalEditedMessage) } setInternalIsEditing(false) })
 
     if (!serverConfig || !serverConfig.filestore_prefix) return null
+    if (!interaction) return null
 
     const getFileURL = (url: string) => {
       if (!url) return ''
@@ -112,29 +134,104 @@ export const InteractionInference: FC<{
             })
         }
         {
-          message && (
+          message && onRegenerate && (
             <Box
               sx={{
                 my: 0.5,
                 display: 'flex',
                 alignItems: 'flex-start',
                 position: 'relative',
-                ':hover .copy-btn': { opacity: 1 },
+                flexDirection: 'column',
+                gap: 0.5,
               }}
             >
-              {isFromAssistant && (
-                <CopyButtonWithCheck text={message} />
-              )}
-              <Box sx={{ flex: 1 }}>
-                <Markdown
-                  text={message}
-                  session={session}
-                  getFileURL={getFileURL}
-                  showBlinker={false}
-                  isStreaming={false}
-                  onFilterDocument={onFilterDocument}
-                />
-              </Box>
+              <Box sx={{ width: '100%' }}>
+                {isEditing ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <TextField
+                      multiline
+                      fullWidth
+                      value={editedMessage}
+                      onChange={(e) => setEditedMessage(e.target.value)}
+                      sx={{
+                        '& .MuiInputBase-root': {
+                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                          borderRadius: 1,
+                        },
+                      }}
+                    />
+                    <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                      <Button
+                        size="small"
+                        onClick={handleCancel}
+                        sx={{ textTransform: 'none' }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        onClick={handleSave}
+                        sx={{ textTransform: 'none' }}
+                      >
+                        Save
+                      </Button>
+                    </Box>
+                  </Box>
+                ) : (
+                  <>
+                    <Box sx={{ 
+                      position: 'relative',
+                      '&:hover .action-buttons': {
+                        opacity: 1
+                      }
+                    }}>
+                      <Markdown
+                        text={message}
+                        session={session}
+                        getFileURL={getFileURL}
+                        showBlinker={false}
+                        isStreaming={false}
+                        onFilterDocument={onFilterDocument}
+                      />
+                      {isFromAssistant && (
+                        <Box 
+                          className="action-buttons"
+                          sx={{ 
+                            display: 'flex', 
+                            justifyContent: 'left', 
+                            alignItems: 'center', 
+                            mt: 1, 
+                            gap: 1,
+                            opacity: isLastInteraction ? 1 : 0,
+                            transition: 'opacity 0.2s ease-in-out',
+                            position: 'relative'
+                          }}
+                        >
+                          <Tooltip title="Regenerate">
+                            <IconButton
+                              onClick={() => onRegenerate(interaction.id, message || '')}
+                              size="small"
+                              className="regenerate-btn"
+                              sx={theme => ({
+                                mt: 0.5,
+                                color: theme.palette.mode === 'light' ? '#888' : '#bbb',
+                                '&:hover': {
+                                  color: theme.palette.mode === 'light' ? '#000' : '#fff',
+                                },
+                              })}
+                              aria-label="regenerate"
+                            >
+                              <RefreshIcon sx={{ fontSize: 20 }} />
+                            </IconButton>
+                          </Tooltip>
+                          <CopyButtonWithCheck text={message || ''} alwaysVisible={isLastInteraction} />
+                        </Box>
+                      )}
+                    </Box>
+                  </>
+                )}
+              </Box>              
             </Box>
           )
         }
@@ -159,7 +256,7 @@ export const InteractionInference: FC<{
                 </Alert>
               </Cell>
               {
-                !upgrade && onRestart && (
+                !upgrade && onRegenerate && (
                   <Cell
                     sx={{
                       ml: 2,
@@ -170,7 +267,7 @@ export const InteractionInference: FC<{
                       color="secondary"
                       size="small"
                       endIcon={<ReplayIcon />}
-                      onClick={onRestart}
+                      onClick={() => onRegenerate(interaction.id, message || '')}
                     >
                       Retry
                     </Button>
@@ -247,46 +344,5 @@ export const InteractionInference: FC<{
       </>
     )
   }
-
-const CopyButtonWithCheck: FC<{ text: string }> = ({ text }) => {
-  const [copied, setCopied] = useState(false)
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch (err) {
-      // Optionally handle error
-    }
-  }
-  return (
-    <Tooltip title={copied ? 'Copied!' : 'Copy'} placement="top">
-      <IconButton
-        onClick={handleCopy}
-        size="small"
-        className="copy-btn"
-        sx={theme => ({
-          mt: 0.5,
-          mr: 1,
-          opacity: 0,
-          transition: 'opacity 0.2s',
-          position: 'absolute',
-          left: -36,
-          top: 14,
-          padding: '2px',
-          background: 'none',
-          color: theme.palette.mode === 'light' ? '#222' : '#bbb',
-          '&:hover': {
-            background: 'none',
-            color: theme.palette.mode === 'light' ? '#000' : '#fff',
-          },
-        })}
-        aria-label="copy"
-      >
-        {copied ? <CheckIcon sx={{ fontSize: 18 }} /> : <ContentCopyIcon sx={{ fontSize: 18 }} />}
-      </IconButton>
-    </Tooltip>
-  )
-}
 
 export default InteractionInference

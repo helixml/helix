@@ -53,7 +53,10 @@ import {
   INTERACTION_STATE_COMPLETE,
   INTERACTION_STATE_ERROR,
   IShareSessionInstructions,
+  SESSION_CREATOR_ASSISTANT,
 } from '../types'
+
+import { TypesMessageContentType, TypesMessage } from '../api/api'
 
 import {
   getAssistantInteraction,
@@ -104,6 +107,7 @@ interface MemoizedInteractionProps {
   onHandleFilterDocument?: (docId: string) => void;
   session_id: string;
   hasSubscription: boolean;
+  onRegenerate?: (interactionID: string, message: string) => void;
 }
 
 // Create a memoized version of the Interaction component
@@ -127,6 +131,8 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
       onAddDocuments={props.onAddDocuments}
       onFilterDocument={props.onFilterDocument}
       headerButtons={props.headerButtons}
+      onRegenerate={props.onRegenerate}
+      isLastInteraction={props.isLastInteraction}
     >
       {isLive && (props.isOwner || props.isAdmin) && (
         <InteractionLiveStream
@@ -864,6 +870,7 @@ const Session: FC = () => {
       
       newSession = await NewInference({
         message: prompt,
+        messages: [],
         image: selectedImage || undefined, // Optional field
         image_filename: selectedImageName || undefined, // Optional field
         appId: appID,
@@ -902,6 +909,101 @@ const Session: FC = () => {
     NewInference,
     scrollToBottom,
     safeReloadSession,
+  ])
+
+  const onRegenerate = useCallback(async (interactionID: string, message: string) => {
+    if (!session.data) return
+    if (!checkOwnership({
+      inferencePrompt: '',
+    })) return
+
+    console.log("onRegenerate", { interactionID, message })
+
+    let newSession: ISession | null = null
+
+    if (session.data.mode === 'inference' && session.data.type === 'text') {
+      // Get the appID from session.data.parent_app instead of URL params
+      const appID = session.data.parent_app || ''
+      const ragSourceID = session.data.config.rag_source_data_entity_id || ''
+
+      // Find the interaction index
+      const interactionIndex = session.data.interactions.findIndex(i => i.id === interactionID)
+      if (interactionIndex === -1) {
+        console.error('Interaction not found:', interactionID)
+        return
+      }
+
+      // Get the interaction to determine if it's from user or assistant
+      const targetInteraction = session.data.interactions[interactionIndex]
+      const isAssistantMessage = targetInteraction.creator === SESSION_CREATOR_ASSISTANT
+
+      // Convert interactions to messages based on the type of message being regenerated
+      const messages: TypesMessage[] = session.data.interactions
+        .slice(0, isAssistantMessage ? interactionIndex : interactionIndex + 1) // Remove everything after the target interaction
+        .map(interaction => {
+          // If this is the user message being edited, use the new message
+          if (!isAssistantMessage && interaction.id === interactionID) {
+            return {
+              role: interaction.creator as any,
+              content: {
+                content_type: 'text' as TypesMessageContentType,
+                parts: [message] // Use the new message
+              }
+            }
+          }
+          // Otherwise use the original message
+          return {
+            role: interaction.creator as any,
+            content: {
+              content_type: 'text' as TypesMessageContentType,
+              parts: [interaction.message]
+            }
+          }
+        })
+
+      // Scroll to bottom immediately after submitting to show progress
+      scrollToBottom()
+      
+      newSession = await NewInference({
+        regenerate: true,
+        message: '', // Empty message since we're using the history
+        messages: messages,
+        appId: appID,
+        assistantId: assistantID || undefined,
+        ragSourceId: ragSourceID,
+        modelName: session.data.model_name,
+        loraDir: session.data.lora_dir,
+        sessionId: session.data.id,
+        type: session.data.type,
+      })
+    } else {
+      const formData = new FormData()
+      formData.set('input', '') // Empty input since we're using history
+      formData.set('model_name', session.data.model_name)
+
+      // Scroll to bottom immediately after submitting to show progress
+      scrollToBottom()
+      
+      newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
+    }
+
+    if (!newSession) return
+    
+    // After reloading the session, force scroll to bottom by passing true
+    await safeReloadSession(true)
+    
+    // Give the DOM time to update, then scroll to bottom again
+    setTimeout(() => {
+      scrollToBottom()
+    }, 100)
+
+  }, [
+    session.data,
+    session.reload,
+    NewInference,
+    scrollToBottom,
+    safeReloadSession,
+    assistantID,
   ])
 
   const checkOwnership = useCallback((instructions: IShareSessionInstructions): boolean => {
@@ -1341,6 +1443,7 @@ const Session: FC = () => {
                       onHandleFilterDocument={onHandleFilterDocument}
                       session_id={sessionData.id}
                       hasSubscription={account.userConfig.stripe_subscription_active || false}
+                      onRegenerate={onRegenerate}
                     />
                   )
                 })}

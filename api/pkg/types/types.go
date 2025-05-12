@@ -316,14 +316,16 @@ type SessionChatRequest struct {
 	Model          string      `json:"model"`    // The model to use
 	RAGSourceID    string      `json:"rag_source_id"`
 	// the fine tuned data entity we produced from this session
-	LoraID string `json:"lora_id"`
+	LoraID     string `json:"lora_id"`
+	Regenerate bool   `json:"regenerate"` // If true, we will regenerate the response for the last message
 }
 
 func (s *SessionChatRequest) Message() (string, bool) {
 	if len(s.Messages) == 0 {
 		return "", false
 	}
-	msg := s.Messages[0]
+
+	msg := s.Messages[len(s.Messages)-1]
 	if msg == nil || len(msg.Content.Parts) == 0 {
 		return "", false
 	}
@@ -366,7 +368,7 @@ func (s *SessionChatRequest) MessageContent() MessageContent {
 		}
 	}
 
-	return s.Messages[0].Content
+	return s.Messages[len(s.Messages)-1].Content
 }
 
 // the user wants to create a Lora or RAG source
