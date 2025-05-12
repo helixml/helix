@@ -132,10 +132,9 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		return
 	}
 
-	// If more than 1, also not allowed just yet for simplification
+	// If more than one message - session regeneration
 	if len(startReq.Messages) > 1 {
-		http.Error(rw, "only 1 message is allowed for now", http.StatusBadRequest)
-		return
+		log.Info().Msg("session regeneration requested")
 	}
 
 	// For finetunes, legacy route

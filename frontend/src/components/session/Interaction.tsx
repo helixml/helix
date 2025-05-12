@@ -57,7 +57,7 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
     prevProps.onReloadSession !== nextProps.onReloadSession ||
     prevProps.onClone !== nextProps.onClone ||
     prevProps.onAddDocuments !== nextProps.onAddDocuments ||
-    prevProps.onRestart !== nextProps.onRestart ||
+    prevProps.onRegenerate !== nextProps.onRegenerate ||
     prevProps.onFilterDocument !== nextProps.onFilterDocument) {
     return false
   }
@@ -76,7 +76,7 @@ interface InteractionProps {
   onReloadSession?: () => void,
   onClone?: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>,
   onAddDocuments?: () => void,
-  onRestart?: () => void,
+  onRegenerate?: () => void,
   children?: React.ReactNode,
   onFilterDocument?: (docId: string) => void,
 }
@@ -92,7 +92,7 @@ export const Interaction: FC<InteractionProps> = ({
   onReloadSession,
   onClone,
   onAddDocuments,
-  onRestart,
+  onRegenerate,
   children,
   onFilterDocument,
 }) => {
@@ -194,11 +194,11 @@ export const Interaction: FC<InteractionProps> = ({
             session={session}
             imageURLs={imageURLs}
             message={displayMessage}
-            error={interaction?.error}
-            onRestart={onRestart}
+            error={interaction?.error}            
             upgrade={interaction.data_prep_limited}
             isFromAssistant={interaction?.creator == SESSION_CREATOR_ASSISTANT}
             onFilterDocument={onFilterDocument}
+            onRegenerate={onRegenerate}
           />
         )}
         

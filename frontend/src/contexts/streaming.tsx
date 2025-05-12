@@ -3,10 +3,13 @@ import ReconnectingWebSocket from 'reconnecting-websocket';
 import { ISession, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, IInteraction, ISessionChatRequest, SESSION_TYPE_TEXT, ISessionType } from '../types';
 import useAccount from '../hooks/useAccount';
 import useSessions from '../hooks/useSessions';
+import { TypesCreatorType, TypesMessage } from '../api/api';
 
 interface NewInferenceParams {
+  regenerate?: boolean;
   type: ISessionType;
   message: string;
+  messages: TypesMessage[];
   image?: string;
   image_filename?: string;
   appId?: string;
@@ -200,8 +203,10 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   }, [account.token, currentSessionId, handleWebsocketEvent]);
 
   const NewInference = async ({
+    regenerate = false,
     type,
     message,
+    messages,
     appId = '',
     assistantId = '',
     ragSourceId = '',
@@ -276,6 +281,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
     // Assign the constructed content to the message
     const sessionChatRequest: ISessionChatRequest = {
+      regenerate: regenerate,
       type, // This is ISessionType (e.g. text, image) for the overall session/request
       stream: true,
       app_id: appId,
@@ -288,11 +294,16 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       session_id: sessionId,
       messages: [
         {
-          role: 'user',
+          role: TypesCreatorType.CreatorTypeUser,
           content: messagePayloadContent as any, // Use the correctly structured object, cast to any to bypass TS type mismatch
         },
       ],
     };
+
+    // If messages are supplied in the request, overwrite the default user message
+    if (messages && messages.length > 0) {
+      sessionChatRequest.messages = messages;
+    }
 
     try {
       const response = await fetch('/api/v1/sessions/chat', {
