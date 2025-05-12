@@ -56,7 +56,6 @@ export const InteractionInference: FC<{
   error?: string,
   serverConfig?: IServerConfig,
   session: ISession,
-  onRestart?: () => void,
   upgrade?: boolean,
   isFromAssistant?: boolean,
   onFilterDocument?: (docId: string) => void,
@@ -66,8 +65,7 @@ export const InteractionInference: FC<{
   message,
   error,
   serverConfig,
-  session,
-  onRestart,
+  session,  
   upgrade,
   isFromAssistant: isFromAssistant,
   onFilterDocument,
@@ -185,7 +183,7 @@ export const InteractionInference: FC<{
                 </Alert>
               </Cell>
               {
-                !upgrade && onRestart && (
+                !upgrade && onRegenerate && (
                   <Cell
                     sx={{
                       ml: 2,
@@ -196,7 +194,7 @@ export const InteractionInference: FC<{
                       color="secondary"
                       size="small"
                       endIcon={<ReplayIcon />}
-                      onClick={onRestart}
+                      onClick={onRegenerate}
                     >
                       Retry
                     </Button>
