@@ -15,6 +15,7 @@ import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
+import RefreshIcon from '@mui/icons-material/Refresh'
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
@@ -59,6 +60,7 @@ export const InteractionInference: FC<{
   upgrade?: boolean,
   isFromAssistant?: boolean,
   onFilterDocument?: (docId: string) => void,
+  onRegenerate?: () => void,
 }> = ({
   imageURLs = [],
   message,
@@ -69,6 +71,7 @@ export const InteractionInference: FC<{
   upgrade,
   isFromAssistant: isFromAssistant,
   onFilterDocument,
+  onRegenerate,
 }) => {
     const account = useAccount()
     const router = useRouter()
@@ -134,6 +137,29 @@ export const InteractionInference: FC<{
                   isStreaming={false}
                   onFilterDocument={onFilterDocument}
                 />
+                {isFromAssistant && (
+                  <Box sx={{ display: 'flex', justifyContent: 'left', alignItems: 'center', mt: 1, gap: 1 }}>
+                    <Tooltip title="Regenerate">
+                      <IconButton
+                        onClick={onRegenerate}
+                        size="small"
+                        className="regenerate-btn"
+                        sx={                          
+                          theme => ({
+                          mt: 0.5,
+                          color: theme.palette.mode === 'light' ? '#888' : '#bbb',
+                          '&:hover': {
+                            color: theme.palette.mode === 'light' ? '#000' : '#fff',
+                          },
+                        })}
+                        aria-label="regenerate"
+                      >
+                        <RefreshIcon sx={{ fontSize: 20 }} />
+                      </IconButton>
+                    </Tooltip>
+                    <CopyButtonWithCheck text={message || ''} alwaysVisible />
+                  </Box>
+                )}
               </Box>
             </Box>
           )
@@ -248,7 +274,7 @@ export const InteractionInference: FC<{
     )
   }
 
-const CopyButtonWithCheck: FC<{ text: string }> = ({ text }) => {
+const CopyButtonWithCheck: FC<{ text: string, alwaysVisible?: boolean }> = ({ text, alwaysVisible }) => {
   const [copied, setCopied] = useState(false)
   const handleCopy = async () => {
     try {
@@ -268,11 +294,11 @@ const CopyButtonWithCheck: FC<{ text: string }> = ({ text }) => {
         sx={theme => ({
           mt: 0.5,
           mr: 1,
-          opacity: 0,
+          opacity: alwaysVisible ? 1 : 0,
           transition: 'opacity 0.2s',
-          position: 'absolute',
-          left: -36,
-          top: 14,
+          position: alwaysVisible ? 'static' : 'absolute',
+          left: alwaysVisible ? undefined : -36,
+          top: alwaysVisible ? undefined : 14,
           padding: '2px',
           background: 'none',
           color: theme.palette.mode === 'light' ? '#222' : '#bbb',
