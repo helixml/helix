@@ -70,6 +70,7 @@ export const InteractionInference: FC<{
   setEditedMessage?: (msg: string) => void,
   handleCancel?: () => void,
   handleSave?: () => void,
+  isLastInteraction?: boolean,
 }> = ({
   imageURLs = [],
   message,
@@ -86,6 +87,7 @@ export const InteractionInference: FC<{
   setEditedMessage: externalSetEditedMessage,
   handleCancel: externalHandleCancel,
   handleSave: externalHandleSave,
+  isLastInteraction,
 }) => {
     const account = useAccount()
     const router = useRouter()
@@ -183,36 +185,54 @@ export const InteractionInference: FC<{
                   </Box>
                 ) : (
                   <>
-                    <Markdown
-                      text={message}
-                      session={session}
-                      getFileURL={getFileURL}
-                      showBlinker={false}
-                      isStreaming={false}
-                      onFilterDocument={onFilterDocument}
-                    />
-                    {isFromAssistant && (
-                      <Box sx={{ display: 'flex', justifyContent: 'left', alignItems: 'center', mt: 1, gap: 1 }}>
-                        <Tooltip title="Regenerate">
-                          <IconButton
-                            onClick={() => onRegenerate(interaction.id, message || '')}
-                            size="small"
-                            className="regenerate-btn"
-                            sx={theme => ({
-                              mt: 0.5,
-                              color: theme.palette.mode === 'light' ? '#888' : '#bbb',
-                              '&:hover': {
-                                color: theme.palette.mode === 'light' ? '#000' : '#fff',
-                              },
-                            })}
-                            aria-label="regenerate"
-                          >
-                            <RefreshIcon sx={{ fontSize: 20 }} />
-                          </IconButton>
-                        </Tooltip>
-                        <CopyButtonWithCheck text={message || ''} alwaysVisible />
-                      </Box>
-                    )}
+                    <Box sx={{ 
+                      position: 'relative',
+                      '&:hover .action-buttons': {
+                        opacity: 1
+                      }
+                    }}>
+                      <Markdown
+                        text={message}
+                        session={session}
+                        getFileURL={getFileURL}
+                        showBlinker={false}
+                        isStreaming={false}
+                        onFilterDocument={onFilterDocument}
+                      />
+                      {isFromAssistant && (
+                        <Box 
+                          className="action-buttons"
+                          sx={{ 
+                            display: 'flex', 
+                            justifyContent: 'left', 
+                            alignItems: 'center', 
+                            mt: 1, 
+                            gap: 1,
+                            opacity: isLastInteraction ? 1 : 0,
+                            transition: 'opacity 0.2s ease-in-out',
+                          }}
+                        >
+                          <Tooltip title="Regenerate">
+                            <IconButton
+                              onClick={() => onRegenerate(interaction.id, message || '')}
+                              size="small"
+                              className="regenerate-btn"
+                              sx={theme => ({
+                                mt: 0.5,
+                                color: theme.palette.mode === 'light' ? '#888' : '#bbb',
+                                '&:hover': {
+                                  color: theme.palette.mode === 'light' ? '#000' : '#fff',
+                                },
+                              })}
+                              aria-label="regenerate"
+                            >
+                              <RefreshIcon sx={{ fontSize: 20 }} />
+                            </IconButton>
+                          </Tooltip>
+                          <CopyButtonWithCheck text={message || ''} alwaysVisible={isLastInteraction} />
+                        </Box>
+                      )}
+                    </Box>
                   </>
                 )}
               </Box>              

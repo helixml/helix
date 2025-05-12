@@ -83,6 +83,7 @@ interface InteractionProps {
   onRegenerate?: (interactionID: string, message: string) => void,
   children?: React.ReactNode,
   onFilterDocument?: (docId: string) => void,
+  isLastInteraction?: boolean,
 }
 
 export const Interaction: FC<InteractionProps> = ({
@@ -99,6 +100,7 @@ export const Interaction: FC<InteractionProps> = ({
   onRegenerate,
   children,
   onFilterDocument,
+  isLastInteraction,
 }) => {
   const account = useAccount()
 
@@ -226,6 +228,7 @@ export const Interaction: FC<InteractionProps> = ({
             setEditedMessage={setEditedMessage}
             handleCancel={handleCancel}
             handleSave={handleSave}
+            isLastInteraction={isLastInteraction}
           />
         )}
       </InteractionContainer>
