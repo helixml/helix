@@ -6,6 +6,7 @@ import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import EditIcon from '@mui/icons-material/Edit'
+import CopyButtonWithCheck from './CopyButtonWithCheck'
 
 import useAccount from '../../hooks/useAccount'
 
@@ -227,7 +228,8 @@ export const Interaction: FC<InteractionProps> = ({
       </InteractionContainer>
       {/* Edit button floating below and right-aligned, only for user messages, not editing, and message present */}
       {isUser && !isEditing && displayMessage && (
-        <Box sx={{ width: '100%', display: 'flex', justifyContent: 'flex-end', mt: 0.5 }}>
+        <Box sx={{ width: '100%', display: 'flex', justifyContent: 'flex-end', mt: 0.5, gap: 0.5 }}>
+          <CopyButtonWithCheck text={displayMessage} alwaysVisible />
           <Tooltip title="Edit">
             <IconButton
               onClick={handleEditClick}
