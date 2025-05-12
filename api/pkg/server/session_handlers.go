@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/model"
@@ -367,6 +366,107 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	}
 }
 
+// appendOrOverwrite appends the new message to the session or overwrites the existing messages
+//   - If only a single message is provided, it will be appended to the session
+//   - If multiple messages are provided, it will overwrite the existing messages from the beginning of the session,
+//     this allows user to regenerate responses from any point in the session conversation. If user overwrites
+//     the message in the middle of the conversation, all messages after it will be removed.
+//   - If multiple messages are provided, the last message is always from the user. This allows to always correctly regenerate
+//     the response
+func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*types.Session, error) {
+	if len(req.Messages) == 0 {
+		return session, fmt.Errorf("no messages provided")
+	}
+
+	if len(req.Messages) == 1 {
+		// If regenerate is true, remove all existing interactions
+		if req.Regenerate {
+			session.Interactions = []*types.Interaction{}
+		}
+
+		// Append the message
+		message, _ := req.Message()
+		messageContent := req.MessageContent()
+		session.Interactions = append(session.Interactions,
+			&types.Interaction{
+				ID:        system.GenerateUUID(),
+				Created:   time.Now(),
+				Updated:   time.Now(),
+				Scheduled: time.Now(),
+				Completed: time.Now(),
+				Mode:      types.SessionModeInference,
+				Creator:   types.CreatorTypeUser,
+				State:     types.InteractionStateComplete,
+				Finished:  true,
+				Message:   message,
+				Content:   messageContent,
+			},
+			&types.Interaction{
+				ID:       system.GenerateUUID(),
+				Created:  time.Now(),
+				Updated:  time.Now(),
+				Creator:  types.CreatorTypeAssistant,
+				Mode:     types.SessionModeInference,
+				Message:  "",
+				State:    types.InteractionStateWaiting,
+				Finished: false,
+				Metadata: map[string]string{},
+			},
+		)
+		return session, nil
+	}
+
+	// Multiple messages, we are in "regenerate" mode
+
+	// Last message must be from the user
+	if req.Messages[len(req.Messages)-1].Role != types.CreatorTypeUser {
+		return session, fmt.Errorf("last message must be from the user")
+	}
+
+	// More than one message is provided, find the index of the message to overwrite
+	messagesProvided := len(req.Messages)
+
+	// Cut existing interactions to this index
+	session.Interactions = session.Interactions[:messagesProvided-1]
+
+	message, ok := req.Message()
+	if !ok {
+		return session, fmt.Errorf("invalid message")
+	}
+
+	messageContent := req.MessageContent()
+
+	// Append the new message
+	session.Interactions = append(session.Interactions,
+		&types.Interaction{
+			ID:        system.GenerateUUID(),
+			Created:   time.Now(),
+			Updated:   time.Now(),
+			Scheduled: time.Now(),
+			Completed: time.Now(),
+			Mode:      types.SessionModeInference,
+			Creator:   types.CreatorTypeUser,
+			State:     types.InteractionStateComplete,
+			Finished:  true,
+			Message:   message,
+			Content:   messageContent,
+		},
+		&types.Interaction{
+			ID:       system.GenerateUUID(),
+			Created:  time.Now(),
+			Updated:  time.Now(),
+			Creator:  types.CreatorTypeAssistant,
+			Mode:     types.SessionModeInference,
+			Message:  "",
+			State:    types.InteractionStateWaiting,
+			Finished: false,
+			Metadata: map[string]string{},
+		},
+	)
+
+	return session, nil
+}
+
 // limitInteractions returns the interactions except the last one, limited by the limit.
 // If limit is 3 but there are 10 interactions, last one will be excluded and only the next 3 before it
 // will be returned.
@@ -378,82 +478,6 @@ func limitInteractions(interactions []*types.Interaction, limit int) []*types.In
 		return interactions[startIdx : len(interactions)-1]
 	}
 	return interactions[:len(interactions)-1]
-}
-
-func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *http.Request) {
-	ctx := req.Context()
-	user := getRequestUser(req)
-	sessionID := mux.Vars(req)["id"]
-	session, err := s.Store.GetSession(ctx, sessionID)
-	if err != nil {
-		http.Error(rw, fmt.Sprintf("failed to get session %s, error: %s", sessionID, err), http.StatusInternalServerError)
-		return
-	}
-
-	modelName, err := model.ProcessModelName(s.Cfg.Inference.Provider, session.ModelName, types.SessionModeInference, types.SessionTypeText, false, false)
-	if err != nil {
-		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	if modelName != session.ModelName {
-		session.ModelName = modelName
-	}
-
-	// Restart the previous interaction
-	if len(session.Interactions) > 0 {
-		lastInteraction := session.Interactions[len(session.Interactions)-1]
-		lastInteraction.State = types.InteractionStateWaiting
-		lastInteraction.Completed = time.Time{}
-		lastInteraction.Finished = false
-		lastInteraction.Error = ""
-		lastInteraction.Message = ""
-	}
-
-	// Update the session
-	err = s.Controller.WriteSession(req.Context(), session)
-	if err != nil {
-		http.Error(rw, "failed to write session: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Convert interactions (except the last one) to messages
-	var (
-		chatCompletionRequest = openai.ChatCompletionRequest{
-			Model: modelName,
-		}
-
-		options = &controller.ChatCompletionOptions{
-			AppID:       session.ParentApp,
-			AssistantID: session.Metadata.AssistantID,
-			RAGSourceID: session.Metadata.RAGSourceID,
-			QueryParams: session.Metadata.AppQueryParams,
-		}
-	)
-	for _, interaction := range session.Interactions[:len(session.Interactions)-1] {
-		chatCompletionRequest.Messages = append(chatCompletionRequest.Messages, openai.ChatCompletionMessage{
-			Role:    string(interaction.Creator),
-			Content: interaction.Message,
-		})
-	}
-
-	ctx = oai.SetContextAppID(ctx, session.ParentApp)
-
-	ownerID := user.ID
-	if user.TokenType == types.TokenTypeRunner {
-		ownerID = oai.RunnerID
-	}
-
-	// Set required context values
-	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
-		OwnerID:       ownerID,
-		SessionID:     session.ID,
-		InteractionID: session.Interactions[len(session.Interactions)-1].ID,
-	})
-
-	err = s.handleStreamingSession(ctx, user, session, chatCompletionRequest, options, rw)
-	if err != nil {
-		log.Err(err).Msg("error handling blocking session")
-	}
 }
 
 const titleGenPrompt = `Generate a concise 3-5 word title for the given user input. Follow these rules strictly:
