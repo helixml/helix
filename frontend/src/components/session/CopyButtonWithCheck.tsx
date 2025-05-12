@@ -24,11 +24,6 @@ const CopyButtonWithCheck: FC<{ text: string, alwaysVisible?: boolean }> = ({ te
         sx={theme => ({
           mt: 0.5,
           mr: 1,
-          opacity: alwaysVisible ? 1 : 0,
-          transition: 'opacity 0.2s',
-          position: alwaysVisible ? 'static' : 'absolute',
-          left: alwaysVisible ? undefined : -36,
-          top: alwaysVisible ? undefined : 14,
           padding: '2px',
           background: 'none',
           color: theme.palette.mode === 'light' ? '#222' : '#bbb',
