@@ -150,6 +150,7 @@ export const Interaction: FC<InteractionProps> = ({
   
   const [isEditing, setIsEditing] = React.useState(false)
   const [editedMessage, setEditedMessage] = React.useState(displayMessage || '')
+  const [isHovering, setIsHovering] = React.useState(false)
 
   const isUser = interaction?.creator == SESSION_CREATOR_USER
   const isLive = interaction?.creator == SESSION_CREATOR_ASSISTANT && !interaction.finished;
@@ -181,6 +182,8 @@ export const Interaction: FC<InteractionProps> = ({
         flexDirection: 'column',
         alignItems: isUser ? 'flex-end' : 'flex-start',
       }}
+      onMouseEnter={() => setIsHovering(true)}
+      onMouseLeave={() => setIsHovering(false)}
     >
       <InteractionContainer        
         buttons={headerButtons}
@@ -228,8 +231,18 @@ export const Interaction: FC<InteractionProps> = ({
       </InteractionContainer>
       {/* Edit button floating below and right-aligned, only for user messages, not editing, and message present */}
       {isUser && !isEditing && displayMessage && (
-        <Box sx={{ width: '100%', display: 'flex', justifyContent: 'flex-end', mt: 0.5, gap: 0.5 }}>
-          <CopyButtonWithCheck text={displayMessage} alwaysVisible />
+        <Box 
+          sx={{ 
+            width: '100%', 
+            display: 'flex', 
+            justifyContent: 'flex-end', 
+            mt: 0.5, 
+            gap: 0.5,
+            opacity: isHovering ? 1 : 0,
+            transition: 'opacity 0.2s ease-in-out'
+          }}
+        >
+          <CopyButtonWithCheck text={displayMessage} alwaysVisible={isHovering} />
           <Tooltip title="Edit">
             <IconButton
               onClick={handleEditClick}
