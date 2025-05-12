@@ -132,6 +132,7 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
       onFilterDocument={props.onFilterDocument}
       headerButtons={props.headerButtons}
       onRegenerate={props.onRegenerate}
+      isLastInteraction={props.isLastInteraction}
     >
       {isLive && (props.isOwner || props.isAdmin) && (
         <InteractionLiveStream
