@@ -170,8 +170,6 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		return
 	}
 
-	messageContent := startReq.MessageContent()
-
 	var (
 		session    *types.Session
 		newSession bool
@@ -245,32 +243,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			Msg("new session: set session ID in context for document tracking")
 	}
 
-	session.Interactions = append(session.Interactions,
-		&types.Interaction{
-			ID:        system.GenerateUUID(),
-			Created:   time.Now(),
-			Updated:   time.Now(),
-			Scheduled: time.Now(),
-			Completed: time.Now(),
-			Mode:      types.SessionModeInference,
-			Creator:   types.CreatorTypeUser,
-			State:     types.InteractionStateComplete,
-			Finished:  true,
-			Message:   message,
-			Content:   messageContent,
-		},
-		&types.Interaction{
-			ID:       system.GenerateUUID(),
-			Created:  time.Now(),
-			Updated:  time.Now(),
-			Creator:  types.CreatorTypeAssistant,
-			Mode:     types.SessionModeInference,
-			Message:  "",
-			State:    types.InteractionStateWaiting,
-			Finished: false,
-			Metadata: map[string]string{},
-		},
-	)
+	session, err = appendOrOverwrite(session, &startReq)
+	if err != nil {
+		http.Error(rw, "failed to process session messages: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Write the initial session that has the user prompt and also the placeholder interaction
 	// for the system response which will be updated later once the response is received
