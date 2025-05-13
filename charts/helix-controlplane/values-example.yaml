@@ -25,8 +25,8 @@ controlplane:
     # Or: Option 2: Reference DSN from existing secret
     # existingSecret: "helix-pgvector-creds"
     # existingSecretDsnKey: "dsn"  # defaults to "dsn" if not specified
-    embeddingsModel: "Alibaba-NLP/gte-Qwen2-7B-instruct"
-    embeddingsDim: "3584"
+    embeddingsModel: "MrLight/dse-qwen2-2b-mrl-v1"
+    embeddingsDim: "1536"
     chunkSize: "1000"
     chunkOverlap: "50"
     chunkUnit: "word"
@@ -39,16 +39,16 @@ controlplane:
     # Valid values: vllm (for haystack which uses external GPU-accelerated
     # embeddings, typesense does its own embeddings so leave this unset for
     # typesense)
-    embeddingsProvider: "vllm"
+    embeddingsProvider: "helix"
 
   # Inference configuration
   inference:
     # Valid values: openai, togetherai, helix, vllm
-    defaultProvider: "openai"
+    defaultProvider: "helix"
 
   fineTuning:
     # Valid values: openai, togetherai, helix
-    defaultProvider: "openai"
+    defaultProvider: "helix"
 
   # Provider configurations (examples of the three fixed global provider names)
   # You can also add dynamic providers at runtime through the Dashboard
