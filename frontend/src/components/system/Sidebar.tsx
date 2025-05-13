@@ -41,6 +41,9 @@ import useApi from '../../hooks/useApi'
 import { AccountContext } from '../../contexts/account'
 import SlideMenuContainer, { triggerMenuChange } from './SlideMenuContainer'
 
+import { PlusCircleIcon, ArrowLeftIcon, ArrowRightIcon, ChevronDownIcon } from "@heroicons/react/24/outline";
+import { Cog6ToothIcon, BanknotesIcon, CodeBracketIcon, QuestionMarkCircleIcon, QueueListIcon, FolderIcon, Squares2X2Icon, NewspaperIcon, EllipsisVerticalIcon, ChatBubbleLeftEllipsisIcon, AdjustmentsHorizontalIcon, PhotoIcon } from "@heroicons/react/20/solid";
+
 import {
   SESSION_MODE_FINETUNE,
 } from '../../types'
@@ -484,8 +487,39 @@ const SidebarContent: React.FC<{
             >
               Help & Support
             </Typography>
-            <Box
+
+{/* ------------------------------------------------- */}
+
+                <button 
+                    className="flex 
+                    flex-row 
+                    w-full
+                    items-center
+                    justify-between 
+                    gap-3 
+                    p-3 
+                    pe-4 
+                    text-xs
+                    leading-none
+                    transition-colors 
+                    ease-linear 
+                    duration-200 
+                    cursor-pointer
+                    focus:bg-neutral-500">
+                        <span className="flex flex-row items-center gap-3">
+                            <img 
+                                className="h-6 w-6 rounded-full"
+                                src="/img/avatars/1@2x.png" 
+                                alt="" />
+                            <span className="font-bold overflow-hidden text-clip text-nowrap">Robert terwilliger</span>
+                        </span>
+                        <EllipsisVerticalIcon className="size-4" />
+                </button>
+
+
+            {/* <Box
               sx={{
+                border: '1px solid green',
                 display: 'flex',
                 flexDirection: 'row',
                 width: '100%',
@@ -654,7 +688,8 @@ const SidebarContent: React.FC<{
                   </>
                 )
               }
-            </Box>
+            </Box> */}
+{/* ------------------------------------------------- */}
           </Box>
         </Box>
       </Box>
