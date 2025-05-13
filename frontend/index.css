@@ -1,0 +1,42 @@
+@import "tailwindcss";
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+@theme {
+    --font-sans: "IBM Plex Sans", sans-serif;
+    --font-mono: "Hack", monospace;
+    --text-xl: 1.375rem;
+    --text-3xl: 1.75rem;
+    --text-4xl: 2.125rem;
+    --text-5xl: 2.25rem;
+    --color-*: initial;
+    --color-neutral-100: rgba(255, 255, 255, 1);
+    --color-neutral-200: rgba(224, 224, 241, 1);
+    --color-neutral-300: rgba(178, 178, 209, 1);
+    --color-neutral-400: rgba(93, 93, 123, 1);
+    --color-neutral-500: rgba(47, 47, 71, 1);
+    --color-neutral-600: rgba(26, 26, 47, 1);
+    --color-neutral-700: rgba(16, 16, 30, 1);
+    --color-neutral-800: rgba(7, 7, 20, 1);
+    --color-neutral-900: rgba(0, 0, 0, 1);
+    --color-magenta-100: rgba(252, 222, 245, 1);
+    --color-magenta-900: rgba(154, 12, 149, 1);
+    --color-magenta: rgba(239, 46, 198, 1);
+    --color-yellow-100: rgba(251, 226, 134, 1);
+    --color-yellow: rgba(252, 219, 5, 1);
+    --color-red-100: rgba(240, 190, 176, 1);
+    --color-red: rgba(252, 54, 0, 1);
+    --color-green-100: rgba(180, 253, 192, 1);
+    --color-green: rgba(59, 249, 89, 1);
+    --color-teal-100: rgba(213, 244, 250, 1);
+    --color-teal-900: rgba(23, 131, 154, 1);
+    --color-teal: rgba(0, 213, 255, 1);
+}
+  
+/* Import base layers below */
+@import "./styles/common.css" layer(base);
+
+/* Import components below */
+/* @import "./components/buttons.css" layer(components); */
+
+/* Import utilities below */
+/* @import "./utl/gradients.css" layer(utilities); */
