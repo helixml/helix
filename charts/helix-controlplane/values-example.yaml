@@ -84,15 +84,16 @@ envVariables:
   ADMIN_USER_IDS: "all"
 
 # Environment variables driven from secrets that will be set in the main pod.
-secretEnvVariables:
-  # Get your License key from https://deploy.helix.ml/licenses
-  # Create the license secret with:
-  #
-  #   kubectl create secret generic helix-license --from-literal=license="<base64 encoded secret contents here>"
-  # 
-  LICENSE_KEY: 
-    secretName: helix-license
-    secretKey: license
+# Uncomment to provide license key via kubernetes. It can also be provided via the UI by an admin user.
+# secretEnvVariables:
+#   # Get your License key from https://deploy.helix.ml/licenses
+#   # Create the license secret with:
+#   #
+#   #   kubectl create secret generic helix-license --from-literal=license="<base64 encoded secret contents here>"
+#   # 
+#   LICENSE_KEY: 
+#     secretName: helix-license
+#     secretKey: license
     
 tika:
   enabled: false
