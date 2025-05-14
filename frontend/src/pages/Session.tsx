@@ -1857,41 +1857,42 @@ const Session: FC = () => {
                             onChange={handleImageFileChange}
                           />
                         </Box>
-                        <AdvancedModelPicker
-                          selectedProvider={session.data.provider}
-                          selectedModelId={session.data.model_name}
-                          onSelectModel={handleModelChange}
-                          currentType="text"
-                          displayMode="short"
-                        />
-
-                        
-                        <Tooltip title="Send Prompt" placement="top">
-                          <Box
-                            onClick={() => onSend(inputValue)}
-                            sx={{
-                              width: 32,
-                              height: 32,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              cursor: loading ? 'default' : 'pointer',
-                              border: '1px solid rgba(255, 255, 255, 0.7)',
-                              borderRadius: '8px',
-                              opacity: loading ? 0.5 : 1,
-                              '&:hover': loading ? {} : {
-                                borderColor: 'rgba(255, 255, 255, 0.9)',
-                                '& svg': { color: 'rgba(255, 255, 255, 0.9)' }
-                              }
-                            }}
-                          >
-                            {loading ? (
-                              <LoadingSpinner />
-                            ) : (
-                              <ArrowUpwardIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
-                            )}
-                          </Box>
-                        </Tooltip>
+                        {/* THIS IS THE NEW WRAPPING BOX FOR RIGHT SIDE ITEMS */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <AdvancedModelPicker
+                            selectedProvider={session.data.provider}
+                            selectedModelId={session.data.model_name}
+                            onSelectModel={handleModelChange}
+                            currentType="text"
+                            displayMode="short"
+                          />
+                          <Tooltip title="Send Prompt" placement="top">
+                            <Box
+                              onClick={() => onSend(inputValue)}
+                              sx={{
+                                width: 32,
+                                height: 32,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: loading ? 'default' : 'pointer',
+                                border: '1px solid rgba(255, 255, 255, 0.7)',
+                                borderRadius: '8px',
+                                opacity: loading ? 0.5 : 1,
+                                '&:hover': loading ? {} : {
+                                  borderColor: 'rgba(255, 255, 255, 0.9)',
+                                  '& svg': { color: 'rgba(255, 255, 255, 0.9)' }
+                                }
+                              }}
+                            >
+                              {loading ? (
+                                <LoadingSpinner />
+                              ) : (
+                                <ArrowUpwardIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                              )}
+                            </Box>
+                          </Tooltip>
+                        </Box>
                       </Box>
                     </Box>
                     {/* --- End of new input area --- */}
