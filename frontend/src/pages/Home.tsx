@@ -602,7 +602,7 @@ const Home: FC = () => {
               fontSize: '0.8rem',
             }}
           >
-            Open source models can make mistakes. Check facts, dates and events.
+            LLMs can make mistakes. Check facts, dates and events.
           </Typography>
         </Box>
       </Box>

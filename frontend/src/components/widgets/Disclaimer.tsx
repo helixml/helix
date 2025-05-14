@@ -14,7 +14,7 @@ const Disclaimer: FC<{
 
   return (
     <Typography variant="body2" color="text.secondary" align="center">
-      {'Open source models can make mistakes. Check facts, dates and events. '}
+      {'LLMs can make mistakes. Check facts, dates and events. '}
       <Link color="inherit" href={ themeConfig.url }>
         { themeConfig.company }
       </Link>{' '}
