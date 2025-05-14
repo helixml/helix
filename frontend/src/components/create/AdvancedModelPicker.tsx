@@ -223,7 +223,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
 
   return (
     <>
-      <Tooltip title={displayModelName} placement="bottom-start">
+      <Tooltip title={displayModelName} placement="top-start">
         <Button
           variant="text"
           onClick={handleOpenDialog}

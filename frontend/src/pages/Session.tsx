@@ -1598,18 +1598,7 @@ const Session: FC = () => {
   }, [session.data, appID, apps])
 
   const activeAssistant = appID && apps.app && assistantID ? getAssistant(apps.app, assistantID) : null
-  const activeAssistantAvatar = appID && activeAssistant && apps.app && assistantID ? getAssistantAvatar(apps.app, assistantID) : ''
-  const activeAssistantName = appID && activeAssistant && apps.app && assistantID ? getAssistantName(apps.app, assistantID) : ''
-  const activeAssistantDescription = appID && activeAssistant && apps.app && assistantID ? getAssistantDescription(apps.app, assistantID) : ''
-
-  const handleBackToCreate = () => {
-    if (apps.app) {
-      account.orgNavigate('new', { app_id: apps.app.id })
-    } else {
-      account.orgNavigate('new')
-    }
-  }
-
+ 
   // Reset scroll tracking when session changes
   useEffect(() => {
     lastLoadScrollPositionRef.current = 0
