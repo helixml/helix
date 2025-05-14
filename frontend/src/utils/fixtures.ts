@@ -75,6 +75,7 @@ export const generateFixtureSession = (numInteractions: number = 300): ISession 
     },
     mode: SESSION_MODE_INFERENCE,
     type: SESSION_TYPE_TEXT,
+    provider: 'fixture-provider',
     model_name: 'fixture-model',
     lora_dir: '',
     interactions,

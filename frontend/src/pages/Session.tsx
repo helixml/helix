@@ -38,8 +38,6 @@ import useLoading from '../hooks/useLoading'
 import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
 import Tooltip from '@mui/material/Tooltip'
-import IconButton from '@mui/material/IconButton'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 
 import {
@@ -70,6 +68,7 @@ import useApps from '../hooks/useApps'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
 import { generateFixtureSession } from '../utils/fixtures'
+import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -508,6 +507,19 @@ const Session: FC = () => {
   // Add ref to store current scroll position
   const scrollPositionRef = useRef<number>(0)
 
+  // Callback to handle model changes from AdvancedModelPicker
+  const handleModelChange = useCallback((provider: string, modelName: string) => {
+    if (session.data) {
+      // It's important to create a new session object to trigger re-renders
+      // if other components depend on the session.data object reference.
+      session.setData({
+        ...session.data,
+        provider: provider,
+        model_name: modelName,
+      });
+    }
+  }, [session]);
+
   // Function to save scroll position
   const saveScrollPosition = useCallback((shouldPreserveBottom = false) => {
     if (!containerRef.current) return;
@@ -876,6 +888,7 @@ const Session: FC = () => {
         appId: appID,
         assistantId: assistantID || undefined,
         ragSourceId: ragSourceID,
+        provider: session.data.provider,
         modelName: session.data.model_name,
         loraDir: session.data.lora_dir,
         sessionId: session.data.id,
@@ -971,6 +984,7 @@ const Session: FC = () => {
         appId: appID,
         assistantId: assistantID || undefined,
         ragSourceId: ragSourceID,
+        provider: session.data.provider,
         modelName: session.data.model_name,
         loraDir: session.data.lora_dir,
         sessionId: session.data.id,
@@ -1582,18 +1596,7 @@ const Session: FC = () => {
   }, [session.data, appID, apps])
 
   const activeAssistant = appID && apps.app && assistantID ? getAssistant(apps.app, assistantID) : null
-  const activeAssistantAvatar = appID && activeAssistant && apps.app && assistantID ? getAssistantAvatar(apps.app, assistantID) : ''
-  const activeAssistantName = appID && activeAssistant && apps.app && assistantID ? getAssistantName(apps.app, assistantID) : ''
-  const activeAssistantDescription = appID && activeAssistant && apps.app && assistantID ? getAssistantDescription(apps.app, assistantID) : ''
-
-  const handleBackToCreate = () => {
-    if (apps.app) {
-      account.orgNavigate('new', { app_id: apps.app.id })
-    } else {
-      account.orgNavigate('new')
-    }
-  }
-
+ 
   // Reset scroll tracking when session changes
   useEffect(() => {
     lastLoadScrollPositionRef.current = 0
@@ -1841,32 +1844,44 @@ const Session: FC = () => {
                             onChange={handleImageFileChange}
                           />
                         </Box>
-                        <Tooltip title="Send Prompt" placement="top">
-                          <Box
-                            onClick={() => onSend(inputValue)}
-                            sx={{
-                              width: 32,
-                              height: 32,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              cursor: loading ? 'default' : 'pointer',
-                              border: '1px solid rgba(255, 255, 255, 0.7)',
-                              borderRadius: '8px',
-                              opacity: loading ? 0.5 : 1,
-                              '&:hover': loading ? {} : {
-                                borderColor: 'rgba(255, 255, 255, 0.9)',
-                                '& svg': { color: 'rgba(255, 255, 255, 0.9)' }
-                              }
-                            }}
-                          >
-                            {loading ? (
-                              <LoadingSpinner />
-                            ) : (
-                              <ArrowUpwardIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
-                            )}
-                          </Box>
-                        </Tooltip>
+                        {/* THIS IS THE NEW WRAPPING BOX FOR RIGHT SIDE ITEMS */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <AdvancedModelPicker
+                            selectedProvider={session.data.provider}
+                            selectedModelId={session.data.model_name}
+                            onSelectModel={handleModelChange}
+                            currentType="text"
+                            displayMode="short"
+                            buttonVariant="text"
+                            disabled={!!appID}
+                          />
+                          <Tooltip title="Send Prompt" placement="top">
+                            <Box
+                              onClick={() => onSend(inputValue)}
+                              sx={{
+                                width: 32,
+                                height: 32,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: loading ? 'default' : 'pointer',
+                                border: '1px solid rgba(255, 255, 255, 0.7)',
+                                borderRadius: '8px',
+                                opacity: loading ? 0.5 : 1,
+                                '&:hover': loading ? {} : {
+                                  borderColor: 'rgba(255, 255, 255, 0.9)',
+                                  '& svg': { color: 'rgba(255, 255, 255, 0.9)' }
+                                }
+                              }}
+                            >
+                              {loading ? (
+                                <LoadingSpinner />
+                              ) : (
+                                <ArrowUpwardIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                              )}
+                            </Box>
+                          </Tooltip>
+                        </Box>
                       </Box>
                     </Box>
                     {/* --- End of new input area --- */}
