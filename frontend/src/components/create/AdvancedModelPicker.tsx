@@ -18,6 +18,8 @@ import {
   ButtonProps,
   Tooltip,
   Chip,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
@@ -124,6 +126,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
 }) => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showOnlyEnabled, setShowOnlyEnabled] = useState(true);
   
   // Fetch providers and models
   const { data: providers, isLoading: isLoadingProviders } = useListProviders(true);  
@@ -192,8 +195,14 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   const filteredModels = useMemo(() => {
     // For text type, we need to use chat models
     const effectiveType = currentType === "text" ? "chat" : currentType;
-    return fuzzySearch(searchQuery, allModels, effectiveType);
-  }, [searchQuery, allModels, currentType]);
+    let models = fuzzySearch(searchQuery, allModels, effectiveType);
+
+    if (showOnlyEnabled) {
+      models = models.filter(model => model.enabled);
+    }
+
+    return models;
+  }, [searchQuery, allModels, currentType, showOnlyEnabled]);
 
   const handleOpenDialog = () => {
     setSearchQuery('');
@@ -294,7 +303,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
             placeholder="Search models..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            sx={{ mb: 2 }}
+            sx={{ mb: 1 }}
             autoFocus
             InputProps={{
               startAdornment: (
@@ -309,6 +318,22 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
               ) : null,
             }}
           />
+
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+            <Tooltip title="Show only enabled models" placement="left">
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={showOnlyEnabled}
+                    onChange={(e) => setShowOnlyEnabled(e.target.checked)}
+                    size="small"
+                  />
+                }
+                label={<Typography variant="caption">Enabled models only</Typography>}
+                sx={{ mr: 0 }}
+              />
+            </Tooltip>
+          </Box>
 
           <List sx={{ 
             overflow: 'auto',
@@ -430,7 +455,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
              {!isLoading && filteredModels.length === 0 && !searchQuery && (
               <Box sx={{ p: 2, textAlign: 'center' }}>
                 <Typography color="text.secondary">
-                  No chat models available or still loading.
+                  No {showOnlyEnabled ? 'enabled ' : ''}chat models available or still loading.
                 </Typography>
               </Box>
             )}
