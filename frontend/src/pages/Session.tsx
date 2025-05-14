@@ -70,6 +70,7 @@ import useApps from '../hooks/useApps'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
 import { generateFixtureSession } from '../utils/fixtures'
+import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -508,6 +509,19 @@ const Session: FC = () => {
   // Add ref to store current scroll position
   const scrollPositionRef = useRef<number>(0)
 
+  // Callback to handle model changes from AdvancedModelPicker
+  const handleModelChange = useCallback((provider: string, modelName: string) => {
+    if (session.data) {
+      // It's important to create a new session object to trigger re-renders
+      // if other components depend on the session.data object reference.
+      session.setData({
+        ...session.data,
+        provider: provider,
+        model_name: modelName,
+      });
+    }
+  }, [session]);
+
   // Function to save scroll position
   const saveScrollPosition = useCallback((shouldPreserveBottom = false) => {
     if (!containerRef.current) return;
@@ -876,6 +890,7 @@ const Session: FC = () => {
         appId: appID,
         assistantId: assistantID || undefined,
         ragSourceId: ragSourceID,
+        provider: session.data.provider,
         modelName: session.data.model_name,
         loraDir: session.data.lora_dir,
         sessionId: session.data.id,
@@ -971,6 +986,7 @@ const Session: FC = () => {
         appId: appID,
         assistantId: assistantID || undefined,
         ragSourceId: ragSourceID,
+        provider: session.data.provider,
         modelName: session.data.model_name,
         loraDir: session.data.lora_dir,
         sessionId: session.data.id,
@@ -1841,6 +1857,15 @@ const Session: FC = () => {
                             onChange={handleImageFileChange}
                           />
                         </Box>
+                        <AdvancedModelPicker
+                          selectedProvider={session.data.provider}
+                          selectedModelId={session.data.model_name}
+                          onSelectModel={handleModelChange}
+                          currentType="text"
+                          displayMode="short"
+                        />
+
+                        
                         <Tooltip title="Send Prompt" placement="top">
                           <Box
                             onClick={() => onSend(inputValue)}
