@@ -1855,6 +1855,7 @@ const Session: FC = () => {
                             currentType="text"
                             displayMode="short"
                             buttonVariant="text"
+                            disabled={!!appID}
                           />
                           <Tooltip title="Send Prompt" placement="top">
                             <Box
