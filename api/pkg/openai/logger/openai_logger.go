@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
+	"github.com/tiktoken-go/tokenizer"
 
 	"github.com/helixml/helix/api/pkg/config"
 	oai "github.com/helixml/helix/api/pkg/openai"
@@ -29,20 +30,27 @@ type LogStore interface {
 var _ oai.Client = &LoggingMiddleware{}
 
 type LoggingMiddleware struct {
-	cfg       *config.ServerConfig
-	client    oai.Client
-	logStores []LogStore
-	wg        sync.WaitGroup
-	provider  types.Provider
+	cfg          *config.ServerConfig
+	client       oai.Client
+	logStores    []LogStore
+	wg           sync.WaitGroup
+	provider     types.Provider
+	defaultCodec tokenizer.Codec
 }
 
 func Wrap(cfg *config.ServerConfig, provider types.Provider, client oai.Client, logStores ...LogStore) *LoggingMiddleware {
+	enc, err := tokenizer.Get(tokenizer.Cl100kBase)
+	if err != nil {
+		panic("failed to initialize tokenizer")
+	}
+
 	return &LoggingMiddleware{
-		cfg:       cfg,
-		logStores: logStores,
-		client:    client,
-		wg:        sync.WaitGroup{},
-		provider:  provider,
+		cfg:          cfg,
+		logStores:    logStores,
+		client:       client,
+		wg:           sync.WaitGroup{},
+		provider:     provider,
+		defaultCodec: enc,
 	}
 }
 
@@ -204,6 +212,14 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		log.Debug().Msg("failed to get app_id")
 	}
 
+	if resp.Usage.PromptTokens == 0 && resp.Usage.CompletionTokens == 0 {
+		// Compute the token usage
+		promptTokens, completionTokens, totalTokens := m.computeTokenUsage(req, resp)
+		resp.Usage.PromptTokens = promptTokens
+		resp.Usage.CompletionTokens = completionTokens
+		resp.Usage.TotalTokens = totalTokens
+	}
+
 	log.Debug().
 		Str("owner_id", vals.OwnerID).
 		Str("app_id", appID).
@@ -240,6 +256,83 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 			log.Error().Err(err).Msg("failed to log LLM call")
 		}
 	}
+}
+
+// computeTokenUsage - computes the token usage for the request and response if the original response doesn't contain it (openai models, some ollama models, etc.)
+// This function is intended to be used as a fallback and provides an estimate.
+func (m *LoggingMiddleware) computeTokenUsage(req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse) (int, int, int) {
+	// Try to get accurate tokenizer
+	codec, err := tokenizer.ForModel(tokenizer.Model(req.Model))
+	if err != nil {
+		log.Debug().Err(err).Str("model", req.Model).Msg("failed to get tokenizer for model, using default codec")
+		codec = m.defaultCodec
+	}
+
+	// Compute prompt tokens
+	promptTokens, err := computeRequestTokens(codec, req)
+	if err != nil {
+		log.Debug().Err(err).Str("model", req.Model).Msg("failed to count tokens for prompt in computeTokenUsage")
+		return 0, 0, 0
+	}
+
+	// Compute completion tokens
+	completionTokens, err := computeCompletionTokens(codec, resp)
+	if err != nil {
+		log.Debug().Err(err).Str("model", req.Model).Msg("failed to count tokens for completion in computeTokenUsage")
+		return 0, 0, 0
+	}
+
+	totalTokens := promptTokens + completionTokens
+	return promptTokens, completionTokens, totalTokens
+}
+
+func computeRequestTokens(codec tokenizer.Codec, req *openai.ChatCompletionRequest) (int, error) {
+	var content string
+	for _, message := range req.Messages {
+		content += message.Content
+		// Note: For some models or complex scenarios, newlines or other separators between messages
+		// might be necessary for accurate token counting. This simple concatenation is a common baseline.
+	}
+
+	ids, _, err := codec.Encode(content)
+	if err != nil {
+		return 0, fmt.Errorf("failed to encode request content for token count: %w", err)
+	}
+	return len(ids), nil
+}
+
+func computeCompletionTokens(codec tokenizer.Codec, resp *openai.ChatCompletionResponse) (int, error) {
+	// Compute completion tokens
+	var completionTokens int
+
+	if resp != nil && len(resp.Choices) > 0 {
+		var contentToEncode string
+		choice := resp.Choices[0] // Assuming always at least one choice if len > 0
+
+		if choice.Message.Content != "" {
+			contentToEncode = choice.Message.Content
+		} else if choice.Message.FunctionCall != nil {
+			fc := choice.Message.FunctionCall
+			// Basic approximation for function call tokenization: "name arguments"
+			if fc.Arguments != "" {
+				contentToEncode = fc.Name + " " + fc.Arguments
+			} else {
+				contentToEncode = fc.Name
+			}
+		}
+
+		if contentToEncode != "" {
+			ids, _, errEncCompletion := codec.Encode(contentToEncode)
+			if errEncCompletion != nil {
+				log.Debug().Err(errEncCompletion).Msg("failed to count tokens for completion content in computeTokenUsage")
+				// completionTokens remains 0
+			} else {
+				completionTokens = len(ids)
+			}
+		}
+	}
+
+	return completionTokens, nil
 }
 
 // TODO: We should actually log the embedding request and response to the llm_calls table
