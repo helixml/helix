@@ -41,6 +41,7 @@ interface AdvancedModelPickerProps {
   currentType: string; // Model type (chat, image, etc)
   displayMode?: 'full' | 'short'; // Controls how the model name is displayed
   buttonVariant?: 'text' | 'outlined' | 'contained'; // New prop for button variant
+  disabled?: boolean; // New prop to disable the picker
 }
 
 const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint }> = ({ provider }) => {
@@ -123,6 +124,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   currentType,
   displayMode = 'full',
   buttonVariant = 'outlined', // Default to outlined
+  disabled = false, // Default to false
 }) => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -191,6 +193,12 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
     return friendlyName || "Select Model";
   }, [selectedModelId, allModels]);
   
+  // Determine tooltip title based on disabled state
+  const tooltipTitle = useMemo(() => {
+    if (disabled) return "Model is controlled by the App";
+    return displayModelName;
+  }, [disabled, displayModelName]);
+
   // Filter models based on search query and current type
   const filteredModels = useMemo(() => {
     // For text type, we need to use chat models
@@ -223,46 +231,54 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
 
   return (
     <>
-      <Tooltip title={displayModelName} placement="top-start">
-        <Button
-          variant="text"
-          onClick={handleOpenDialog}
-          endIcon={<ArrowDropDownIcon />}
-          sx={{
-            borderRadius: '8px',
-            color: 'text.primary',
-            textTransform: 'none',
-            fontSize: '0.875rem',
-            padding: '4px 8px',
-            height: '32px',
-            minWidth: 'auto',
-            maxWidth: '200px',
-            display: 'flex',
-            alignItems: 'center',
-            border: buttonVariant === 'outlined' ? '1px solid #fff' : 'none', // Conditional border
-            '&:hover': {
-              backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
-            },
-            ...buttonProps?.sx,
-          }}
-          {...buttonProps}
-        >
-          <Typography 
-            variant="caption" 
-            component="span"
-            sx={{ 
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              display: 'inline-block',
-              lineHeight: 1.2,
-              verticalAlign: 'middle',
+      <Tooltip title={tooltipTitle} placement="top-start">
+        {/* Wrap button in a span if disabled to allow tooltip to show */}
+        <span style={{ display: 'inline-block', cursor: disabled ? 'not-allowed' : 'pointer' }}>
+          <Button
+            variant="text"
+            onClick={handleOpenDialog}
+            disabled={disabled} // Disable button if picker is disabled
+            endIcon={<ArrowDropDownIcon />}
+            sx={{
+              borderRadius: '8px',
+              color: 'text.primary',
+              textTransform: 'none',
               fontSize: '0.875rem',
+              padding: '4px 8px',
+              height: '32px',
+              minWidth: 'auto',
+              maxWidth: '200px',
+              display: 'flex',
+              alignItems: 'center',
+              border: buttonVariant === 'outlined' ? '1px solid #fff' : 'none',
+              '&:hover': {
+                backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
+              },
+              // More explicit styling for disabled state if needed
+              ...(disabled && {
+                opacity: 0.5, // Example: reduce opacity when disabled
+                pointerEvents: 'none', // Ensure no interaction
+              }),
             }}
+            {...buttonProps}
           >
-            {getShortModelName(displayModelName, displayMode)}
-          </Typography>
-        </Button>
+            <Typography 
+              variant="caption" 
+              component="span"
+              sx={{ 
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                display: 'inline-block',
+                lineHeight: 1.2,
+                verticalAlign: 'middle',
+                fontSize: '0.875rem',
+              }}
+            >
+              {getShortModelName(displayModelName, displayMode)}
+            </Typography>
+          </Button>
+        </span>
       </Tooltip>
 
       <Dialog 
