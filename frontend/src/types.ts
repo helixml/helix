@@ -234,6 +234,7 @@ export interface ISession {
   mode: ISessionMode,
   type: ISessionType,
   model_name: string,
+  provider: string,
   lora_dir: string,
   interactions: IInteraction[],
   owner: string,

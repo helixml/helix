@@ -211,7 +211,6 @@ export const SessionToolbar: FC<{
           </Box>
           <Typography variant="caption" sx={{ color: 'gray' }}>
             Created on {new Date(session.created).toLocaleDateString()} {/* Adjust date formatting as needed */}
-            | Model: {session.model_name}
             {app && (
               <>
                 &nbsp;| App: <Link 
