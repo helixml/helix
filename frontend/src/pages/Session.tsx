@@ -1865,6 +1865,7 @@ const Session: FC = () => {
                             onSelectModel={handleModelChange}
                             currentType="text"
                             displayMode="short"
+                            buttonVariant="text"
                           />
                           <Tooltip title="Send Prompt" placement="top">
                             <Box

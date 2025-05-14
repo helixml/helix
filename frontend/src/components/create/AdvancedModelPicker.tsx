@@ -38,6 +38,7 @@ interface AdvancedModelPickerProps {
   buttonProps?: ButtonProps;
   currentType: string; // Model type (chat, image, etc)
   displayMode?: 'full' | 'short'; // Controls how the model name is displayed
+  buttonVariant?: 'text' | 'outlined' | 'contained'; // New prop for button variant
 }
 
 const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint }> = ({ provider }) => {
@@ -119,6 +120,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   buttonProps,
   currentType,
   displayMode = 'full',
+  buttonVariant = 'outlined', // Default to outlined
 }) => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -228,7 +230,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
             maxWidth: '200px',
             display: 'flex',
             alignItems: 'center',
-            border: '1px solid #fff',
+            border: buttonVariant === 'outlined' ? '1px solid #fff' : 'none', // Conditional border
             '&:hover': {
               backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
             },
