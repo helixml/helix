@@ -36,7 +36,6 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          shareProcessNamespace: {{ .Values.runner.shareProcessNamespace }}
           args:
             - --api-host
             - {{ .Values.runner.host }}
@@ -44,9 +43,6 @@ spec:
             - {{ .Values.runner.token }}
             - --runner-id
             - "$(POD_NAME)"
-            - --memory
-            - {{ .Values.runner.memory }}
-            - --allow-multiple-copies
           env:
             - name: POD_NAME
               valueFrom:
