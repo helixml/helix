@@ -38,8 +38,6 @@ import useLoading from '../hooks/useLoading'
 import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
 import Tooltip from '@mui/material/Tooltip'
-import IconButton from '@mui/material/IconButton'
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 
 import {
