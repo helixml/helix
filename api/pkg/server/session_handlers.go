@@ -193,7 +193,13 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		// If the provider is not set, use the provider from the session
 		if startReq.Provider == "" {
 			startReq.Provider = types.Provider(session.Provider)
+		} else {
+			// Update provider for the session
+			session.Provider = string(startReq.Provider)
 		}
+
+		// Updating session model and provider
+		session.ModelName = startReq.Model
 
 		// Set the session ID in the context to enable document ID tracking
 		ctx = oai.SetContextSessionID(ctx, session.ID)
