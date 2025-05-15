@@ -3,10 +3,15 @@ import ReconnectingWebSocket from 'reconnecting-websocket';
 import { ISession, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, IInteraction, ISessionChatRequest, SESSION_TYPE_TEXT, ISessionType } from '../types';
 import useAccount from '../hooks/useAccount';
 import useSessions from '../hooks/useSessions';
+import { TypesCreatorType, TypesMessage } from '../api/api';
 
 interface NewInferenceParams {
+  regenerate?: boolean;
   type: ISessionType;
   message: string;
+  messages?: TypesMessage[];
+  image?: string;
+  image_filename?: string;
   appId?: string;
   assistantId?: string;
   ragSourceId?: string;
@@ -15,6 +20,7 @@ interface NewInferenceParams {
   loraDir?: string;
   sessionId?: string;
   orgId?: string;
+  attachedImages?: File[];
 }
 
 interface StreamingContextType {
@@ -197,8 +203,10 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   }, [account.token, currentSessionId, handleWebsocketEvent]);
 
   const NewInference = async ({
+    regenerate = false,
     type,
     message,
+    messages,
     appId = '',
     assistantId = '',
     ragSourceId = '',
@@ -207,6 +215,9 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     loraDir = '',
     sessionId = '',
     orgId = '',
+    image = undefined,
+    image_filename = undefined,
+    attachedImages = [],
   }: NewInferenceParams): Promise<ISession> => {
     // Clear both buffer and history for new sessions
     messageBufferRef.current.delete(sessionId);
@@ -221,8 +232,57 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       return newMap;
     });
 
+    // Construct the content parts first
+    const currentContentParts: any[] = [];
+    let determinedContentType: string = "text"; // Default for MessageContent.content_type
+
+    // Add text part if message is provided
+    if (message) {
+      currentContentParts.push({
+        type: 'text',
+        text: message,
+      });
+    }
+
+    // Handle attached images
+    if (attachedImages && attachedImages.length > 0) {
+      for (const file of attachedImages) {
+        const reader = new FileReader();
+        const imageData = await new Promise<string>((resolve) => {
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+        
+        currentContentParts.push({
+          type: 'image_url',
+          image_url: {
+            url: imageData,
+          },
+        });
+      }
+      determinedContentType = "multimodal_text";
+    } else if (image && image_filename) {
+      currentContentParts.push({
+        type: 'image_url',
+        image_url: {
+          url: image,
+        },
+      });
+      determinedContentType = "multimodal_text";
+    } else if (!message) {
+      console.warn("NewInference called with no message and no image.");
+    }
+
+    // This is the payload for Message.Content, matching the Go types.MessageContent struct
+    const messagePayloadContent = {
+      content_type: determinedContentType,
+      parts: currentContentParts,
+    };
+
+    // Assign the constructed content to the message
     const sessionChatRequest: ISessionChatRequest = {
-      type,
+      regenerate: regenerate,
+      type, // This is ISessionType (e.g. text, image) for the overall session/request
       stream: true,
       app_id: appId,
       organization_id: orgId,
@@ -232,14 +292,18 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       model: modelName,
       lora_dir: loraDir,
       session_id: sessionId,
-      messages: [{
-        role: 'user',
-        content: {
-          content_type: 'text',
-          parts: [message]
+      messages: [
+        {
+          role: TypesCreatorType.CreatorTypeUser,
+          content: messagePayloadContent as any, // Use the correctly structured object, cast to any to bypass TS type mismatch
         },
-      }]
+      ],
     };
+
+    // If messages are supplied in the request, overwrite the default user message
+    if (messages && messages.length > 0) {
+      sessionChatRequest.messages = messages;
+    }
 
     try {
       const response = await fetch('/api/v1/sessions/chat', {

@@ -211,7 +211,6 @@ export const SessionToolbar: FC<{
           </Box>
           <Typography variant="caption" sx={{ color: 'gray' }}>
             Created on {new Date(session.created).toLocaleDateString()} {/* Adjust date formatting as needed */}
-            | Model: {session.model_name}
             {app && (
               <>
                 &nbsp;| App: <Link 
@@ -236,36 +235,6 @@ export const SessionToolbar: FC<{
             )}
           </Typography>
         </Box>
-      </Cell>
-      <Cell>
-        {session.type === 'image' && (
-          <Chip
-            label="Image"
-            size="small"
-            sx={{
-              bgcolor: '#3bf959', // Green background for image session
-              color: 'black',
-              mr: 2,
-              borderRadius: 1,
-              fontSize: "medium",
-              fontWeight: 800,
-            }}
-          />
-        )}
-        {session.type === 'text' && (
-          <Chip
-            label="Text"
-            size="small"
-            sx={{
-              bgcolor: '#ffff00', // Yellow background for text session
-              color: 'black',
-              mr: 2,
-              borderRadius: 1,
-              fontSize: "medium",
-              fontWeight: 800,
-            }}
-          />
-        )}
       </Cell>
       {
         isBigScreen ? (

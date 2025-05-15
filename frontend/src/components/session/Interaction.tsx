@@ -3,16 +3,17 @@ import InteractionContainer from './InteractionContainer'
 import InteractionFinetune from './InteractionFinetune'
 import InteractionInference from './InteractionInference'
 import Box from '@mui/material/Box'
+import IconButton from '@mui/material/IconButton'
+import Tooltip from '@mui/material/Tooltip'
+import EditIcon from '@mui/icons-material/Edit'
+import CopyButtonWithCheck from './CopyButtonWithCheck'
 
-import useTheme from '@mui/material/styles/useTheme'
-import useThemeConfig from '../../hooks/useThemeConfig'
 import useAccount from '../../hooks/useAccount'
 
 import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
   SESSION_MODE_INFERENCE,
-  SESSION_MODE_FINETUNE,
   SESSION_CREATOR_ASSISTANT,
   SESSION_CREATOR_USER,
   ISession,
@@ -60,7 +61,7 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
     prevProps.onReloadSession !== nextProps.onReloadSession ||
     prevProps.onClone !== nextProps.onClone ||
     prevProps.onAddDocuments !== nextProps.onAddDocuments ||
-    prevProps.onRestart !== nextProps.onRestart ||
+    prevProps.onRegenerate !== nextProps.onRegenerate ||
     prevProps.onFilterDocument !== nextProps.onFilterDocument) {
     return false
   }
@@ -79,9 +80,10 @@ interface InteractionProps {
   onReloadSession?: () => void,
   onClone?: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>,
   onAddDocuments?: () => void,
-  onRestart?: () => void,
+  onRegenerate?: (interactionID: string, message: string) => void,
   children?: React.ReactNode,
   onFilterDocument?: (docId: string) => void,
+  isLastInteraction?: boolean,
 }
 
 export const Interaction: FC<InteractionProps> = ({
@@ -95,9 +97,10 @@ export const Interaction: FC<InteractionProps> = ({
   onReloadSession,
   onClone,
   onAddDocuments,
-  onRestart,
+  onRegenerate,
   children,
   onFilterDocument,
+  isLastInteraction,
 }) => {
   const account = useAccount()
 
@@ -117,6 +120,15 @@ export const Interaction: FC<InteractionProps> = ({
             displayMessage = interaction.status || ''
           }
         }
+        // Check for images in content
+        if (interaction?.content?.parts) {
+          interaction.content.parts.forEach(part => {
+            if (typeof part === 'object' && part !== null && 'type' in part && part.type === 'image_url' && 'image_url' in part && part.image_url?.url) {
+              imageURLs.push(part.image_url.url)
+            }
+          })
+        }
+
       } else if (session.type == SESSION_TYPE_IMAGE) {
         if (interaction?.creator == SESSION_CREATOR_USER) {
           displayMessage = useMessageText || ''
@@ -137,27 +149,49 @@ export const Interaction: FC<InteractionProps> = ({
   }, [interaction, session])
 
   const { displayMessage, imageURLs, isLoading } = displayData
-
-  const isAssistant = interaction?.creator == SESSION_CREATOR_ASSISTANT
-  const useName = isAssistant ? 'Helix' : account.user?.name || 'User'
-  const useBadge = isAssistant ? 'AI' : ''
   
-  // Determine if this interaction is live (streaming)
+  const [isEditing, setIsEditing] = React.useState(false)
+  const [editedMessage, setEditedMessage] = React.useState(displayMessage || '')
+  const [isHovering, setIsHovering] = React.useState(false)
+
+  const isUser = interaction?.creator == SESSION_CREATOR_USER
   const isLive = interaction?.creator == SESSION_CREATOR_ASSISTANT && !interaction.finished;
 
   if (!serverConfig || !serverConfig.filestore_prefix) return null
+
+  const handleEditClick = () => setIsEditing(true)
+  const handleCancel = () => {
+    setEditedMessage(displayMessage || '')
+    setIsEditing(false)
+  }
+  const handleSave = () => {
+    if (onRegenerate && editedMessage !== displayMessage) {
+      onRegenerate(interaction.id, editedMessage)
+    }
+    setIsEditing(false)
+  }
+
+  // ChatGPT-like: user messages right-aligned, bordered, with background; assistant left-aligned, no background/border
+  const containerAlignment = isUser ? 'right' : 'left';
+  const containerBorder = isUser;
+  const containerBackground = isUser; // Only user messages get the background
 
   return (
     <Box
       sx={{
         mb: 0.5,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: isUser ? 'flex-end' : 'flex-start',
       }}
+      onMouseEnter={() => setIsHovering(true)}
+      onMouseLeave={() => setIsHovering(false)}
     >
-      <InteractionContainer
-        name={useName}
-        badge={useBadge}
+      <InteractionContainer        
         buttons={headerButtons}
-        background={isAssistant}
+        background={containerBackground}
+        align={containerAlignment}
+        border={containerBorder}
       >
         {
           showFinetuning && (
@@ -181,17 +215,54 @@ export const Interaction: FC<InteractionProps> = ({
           <InteractionInference
             serverConfig={serverConfig}
             session={session}
+            interaction={interaction}
             imageURLs={imageURLs}
             message={displayMessage}
-            error={interaction?.error}
-            onRestart={onRestart}
+            error={interaction?.error}            
             upgrade={interaction.data_prep_limited}
             isFromAssistant={interaction?.creator == SESSION_CREATOR_ASSISTANT}
             onFilterDocument={onFilterDocument}
+            onRegenerate={onRegenerate}
+            isEditing={isEditing}
+            editedMessage={editedMessage}
+            setEditedMessage={setEditedMessage}
+            handleCancel={handleCancel}
+            handleSave={handleSave}
+            isLastInteraction={isLastInteraction}
           />
         )}
-        
       </InteractionContainer>
+      {/* Edit button floating below and right-aligned, only for user messages, not editing, and message present */}
+      {isUser && !isEditing && displayMessage && (
+        <Box 
+          sx={{ 
+            width: '100%', 
+            display: 'flex', 
+            justifyContent: 'flex-end', 
+            mt: 0.5, 
+            gap: 0.5,
+            opacity: isHovering ? 1 : 0,
+            transition: 'opacity 0.2s ease-in-out'
+          }}
+        >
+          <CopyButtonWithCheck text={displayMessage} alwaysVisible={isHovering} />
+          <Tooltip title="Edit">
+            <IconButton
+              onClick={handleEditClick}
+              size="small"
+              sx={theme => ({
+                color: theme.palette.mode === 'light' ? '#888' : '#bbb',
+                '&:hover': {
+                  color: theme.palette.mode === 'light' ? '#000' : '#fff',
+                },
+              })}
+              aria-label="edit"
+            >
+              <EditIcon sx={{ fontSize: 20 }} />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      )}
     </Box>
   )
 }

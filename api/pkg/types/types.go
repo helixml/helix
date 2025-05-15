@@ -27,8 +27,10 @@ type Interaction struct {
 	// to get down to what actually matters
 	Mode SessionMode `json:"mode"`
 	// the ID of the runner that processed this interaction
-	Runner         string         `json:"runner"`          // e.g. 0
-	Message        string         `json:"message"`         // e.g. Prove pythagoras
+	Runner string `json:"runner"` // e.g. 0
+	// TODO: remove and keep only content
+	Message        string         `json:"message"`         // e.g. Prove pythagoras (last text message from the user)
+	Content        MessageContent `json:"content"`         // Original content received from the API. This will include the Message and any images.
 	ResponseFormat ResponseFormat `json:"response_format"` // e.g. json
 
 	DisplayMessage string            `json:"display_message"` // if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context)
@@ -62,6 +64,57 @@ type Interaction struct {
 	ToolCallID string `json:"tool_call_id,omitempty"`
 
 	Usage Usage `json:"usage"`
+}
+
+func (i *Interaction) GetMessageMultiContentPart() []openai.ChatMessagePart {
+	parts := []openai.ChatMessagePart{}
+
+	// If content is empty, return one slice with text message
+	if len(i.Content.Parts) == 0 {
+		return []openai.ChatMessagePart{
+			{Type: "text", Text: i.Message},
+		}
+	}
+
+	for _, part := range i.Content.Parts {
+		switch p := part.(type) {
+		case string:
+			parts = append(parts, openai.ChatMessagePart{Type: "text", Text: p})
+		case TextPart:
+			parts = append(parts, openai.ChatMessagePart{Type: "text", Text: p.Text})
+		case ImageURLPart:
+			parts = append(parts, openai.ChatMessagePart{Type: "image_url", ImageURL: &openai.ChatMessageImageURL{
+				URL:    p.ImageURL.URL,
+				Detail: openai.ImageURLDetail(p.ImageURL.Detail),
+			}})
+		case map[string]interface{}:
+			if typeVal, typeOk := p["type"].(string); typeOk {
+				switch typeVal {
+				case "text":
+					if textVal, textOk := p["text"].(string); textOk {
+						parts = append(parts, openai.ChatMessagePart{Type: "text", Text: textVal})
+					}
+				case "image_url":
+					if imageURLVal, imageURLOk := p["image_url"].(map[string]interface{}); imageURLOk {
+						if urlVal, urlOk := imageURLVal["url"].(string); urlOk {
+							detail := "auto"
+							if detailVal, detailOk := imageURLVal["detail"].(string); detailOk {
+								detail = detailVal
+							}
+							parts = append(parts, openai.ChatMessagePart{
+								Type: "image_url",
+								ImageURL: &openai.ChatMessageImageURL{
+									URL:    urlVal,
+									Detail: openai.ImageURLDetail(detail),
+								},
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+	return parts
 }
 
 type ResponseFormatType string
@@ -263,19 +316,59 @@ type SessionChatRequest struct {
 	Model          string      `json:"model"`    // The model to use
 	RAGSourceID    string      `json:"rag_source_id"`
 	// the fine tuned data entity we produced from this session
-	LoraID string `json:"lora_id"`
+	LoraID     string `json:"lora_id"`
+	Regenerate bool   `json:"regenerate"` // If true, we will regenerate the response for the last message
 }
 
 func (s *SessionChatRequest) Message() (string, bool) {
 	if len(s.Messages) == 0 {
 		return "", false
 	}
-	if len(s.Messages[0].Content.Parts) == 0 {
+
+	msg := s.Messages[len(s.Messages)-1]
+	if msg == nil || len(msg.Content.Parts) == 0 {
 		return "", false
 	}
 
-	message, ok := s.Messages[0].Content.Parts[0].(string)
-	return message, ok
+	for _, part := range msg.Content.Parts {
+		if part == nil {
+			continue
+		}
+
+		switch p := part.(type) {
+		case string: // Case 1: Part is a simple string
+			return p, true
+		case TextPart: // Handle TextPart struct directly
+			return p.Text, true
+		// Note: ImageURLPart struct doesn't need explicit handling here if we are only looking for text.
+		// It will fall through the default case of the switch, and the loop will continue.
+		case map[string]interface{}: // Case 2: Part is a generic map (e.g., from JSON unmarshal)
+			// Check for {"type": "text", "text": "..."}
+			if typeVal, typeOk := p["type"].(string); typeOk && typeVal == "text" {
+				if textVal, textOk := p["text"].(string); textOk {
+					return textVal, true
+				}
+			}
+			// If partMap["type"] is "image_url" or another non-text type,
+			// this map is skipped, and the loop continues to the next part.
+		}
+	}
+
+	// If the loop completes, it means no text part was found.
+	// The original code returned `"", true` if parts existed but no text was found.
+	// This is consistent with Test_SessionChatRequest_ImageURL expecting "", true.
+	return "", true
+}
+
+func (s *SessionChatRequest) MessageContent() MessageContent {
+	if len(s.Messages) == 0 {
+		return MessageContent{
+			ContentType: "text",
+			Parts:       []any{""},
+		}
+	}
+
+	return s.Messages[len(s.Messages)-1].Content
 }
 
 // the user wants to create a Lora or RAG source
@@ -313,7 +406,7 @@ const (
 )
 
 type MessageContent struct {
-	ContentType MessageContentType `json:"content_type"` // text, image, multimodal_text
+	ContentType MessageContentType `json:"content_type"` // text, image_url, multimodal_text
 	// Parts is a list of strings or objects. For example for text, it's a list of strings, for
 	// multi-modal it can be an object:
 	// "parts": [
@@ -1041,6 +1134,8 @@ type AssistantConfig struct {
 	} `json:"tests,omitempty" yaml:"tests,omitempty"`
 }
 
+const ReasoningEffortNone = "none" // Don't set
+
 // Add this new type
 type TestStep struct {
 	Prompt         string `json:"prompt" yaml:"prompt"`
@@ -1645,4 +1740,22 @@ type UserAppAccessResponse struct {
 	CanRead  bool `json:"can_read"`
 	CanWrite bool `json:"can_write"`
 	IsAdmin  bool `json:"is_admin"`
+}
+
+// TextPart represents a text content part for explicit typing if needed elsewhere.
+type TextPart struct {
+	Type string `json:"type"` // Expected to be "text"
+	Text string `json:"text"`
+}
+
+// ImageURLData represents the data for an image URL.
+type ImageURLData struct {
+	URL    string `json:"url"`
+	Detail string `json:"detail,omitempty"` // e.g., "auto", "low", "high"
+}
+
+// ImageURLPart represents an image URL content part for explicit typing if needed elsewhere.
+type ImageURLPart struct {
+	Type     string       `json:"type"` // Expected to be "image_url"
+	ImageURL ImageURLData `json:"image_url"`
 }

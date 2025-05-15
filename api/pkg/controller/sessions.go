@@ -733,6 +733,10 @@ func (c *Controller) WriteSession(ctx context.Context, session *types.Session) e
 		existingRagCount := 0
 		newRagCount := 0
 
+		// Update model and provider from the new session
+		existingSession.ModelName = session.ModelName
+		existingSession.Provider = session.Provider
+
 		if existingSession.Metadata.SessionRAGResults != nil {
 			existingRagCount = len(existingSession.Metadata.SessionRAGResults)
 		}

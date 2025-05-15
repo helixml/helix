@@ -1,4 +1,5 @@
 import { ISession, IInteraction, SESSION_CREATOR_USER, SESSION_CREATOR_ASSISTANT, SESSION_TYPE_TEXT, SESSION_MODE_INFERENCE, INTERACTION_STATE_COMPLETE } from '../types'
+import { TypesMessageContent, TypesMessageContentType } from '../api/api'
 
 const loremIpsum = `Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.`
 
@@ -14,6 +15,10 @@ export const generateFixtureInteraction = (index: number, isUser: boolean): IInt
     mode: SESSION_MODE_INFERENCE,
     runner: 'fixture-runner',
     message: `${baseMessage} (Interaction ${index})`,
+    content: {
+      content_type: TypesMessageContentType.MessageContentTypeText,
+      parts: [`${baseMessage} (Interaction ${index})`]
+    },
     display_message: `${baseMessage} (Interaction ${index})`,
     progress: 100,
     files: [],
@@ -70,6 +75,7 @@ export const generateFixtureSession = (numInteractions: number = 300): ISession 
     },
     mode: SESSION_MODE_INFERENCE,
     type: SESSION_TYPE_TEXT,
+    provider: 'fixture-provider',
     model_name: 'fixture-model',
     lora_dir: '',
     interactions,

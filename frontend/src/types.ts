@@ -1,4 +1,4 @@
-import { TypesUserAppAccessResponse, TypesAssistantConfig } from './api/api'
+import { TypesUserAppAccessResponse, TypesAssistantConfig, TypesMessage, TypesMessageContent } from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
 // SYSTEM means the system prompt, NOT an assistant message (as it previously
@@ -179,6 +179,7 @@ export interface IInteraction {
   mode: ISessionMode,
   runner: string,
   message: string,
+  content: TypesMessageContent,
   display_message: string,
   progress: number,
   files: string[],
@@ -233,6 +234,7 @@ export interface ISession {
   mode: ISessionMode,
   type: ISessionType,
   model_name: string,
+  provider: string,
   lora_dir: string,
   interactions: IInteraction[],
   owner: string,
@@ -865,6 +867,21 @@ export interface ISessionLearnRequestRAGSettings {
   disable_chunking: boolean,
 }
 
+export type IMessageContentPartText = {
+  type: 'text';
+  text: string;
+};
+
+export type IMessageContentPartImage = {
+  type: 'image_url';
+  image_url: {
+    url: string; // base64 data URI
+    // detail?: 'low' | 'high' | 'auto'; // Optional: for image detail control
+  };
+};
+
+export type IMessageContentPart = IMessageContentPartText | IMessageContentPartImage;
+
 export interface ISessionLearnRequest {
   type: ISessionType,
   data_entity_id: string,
@@ -873,18 +890,14 @@ export interface ISessionLearnRequest {
   rag_settings: ISessionLearnRequestRAGSettings,
 }
 
-export interface IMessageContent {
-  content_type: string,
-  parts: any[],
-}
-
-export type IMessageRole = 'user' | 'system' | 'assistant'
-export interface IMessage {
-  role: IMessageRole,
-  content: IMessageContent,
-}
+// export type IMessageRole = 'user' | 'system' | 'assistant'
+// export interface IMessage {
+//   role: IMessageRole,
+//   content: IMessageContentPart[],
+// }
 
 export interface ISessionChatRequest {
+  regenerate?: boolean,
   app_id?: string,
   organization_id?: string,
   assistant_id?: string,
@@ -894,7 +907,7 @@ export interface ISessionChatRequest {
   type?: ISessionType,
   lora_dir?: string,
   system?: string,
-  messages?: IMessage[],
+  messages?: TypesMessage[],
   tools?: string[],
   provider?: string,
   model?: string,

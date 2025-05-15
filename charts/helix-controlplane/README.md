@@ -45,20 +45,25 @@ Both pods should turn 1/1 running.
 
 ## Setup Helix
 
+Get your License key from https://deploy.helix.ml/licenses. And create a secret with it:
+
+```bash
+kubectl create secret generic helix-license --from-literal=license="<base64 encoded secret contents here>"
+```
+
 Copy the values-example.yaml to values-your-env.yaml and update the values as needed. Then run the following command (just with your own file):
 
 ```bash
+export LATEST_RELEASE=$(curl -s https://get.helixml.tech/latest.txt)
+
 helm upgrade --install helix \
   ./helix-controlplane \
   -f helix-controlplane/values.yaml \
-  -f helix-controlplane/values-example.yaml
+  -f helix-controlplane/values-example.yaml \
+  --set image.tag="${LATEST_RELEASE}"
 ```
 
 Use port-forward to access the service.
-
-## Ingress
-
-When configuring ingress, adjust both global.serverUrl to your domain name and keycloak's frontend URL to the same domain name. This is important for the redirects to work.
 
 ## Connecting runners
 

@@ -750,19 +750,6 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFolder(_ http.ResponseWriter
 	return &finalFolder, nil
 }
 
-func (apiServer *HelixAPIServer) restartSession(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	session, err := apiServer.sessionLoader(req, true)
-	if err != nil {
-		return nil, err
-	}
-	// If it is a text inference session, then restart using the "new" openai controllers
-	if session.Metadata.OriginalMode != types.SessionModeFinetune && session.Type == types.SessionTypeText && session.Mode == types.SessionModeInference {
-		apiServer.restartChatSessionHandler(res, req)
-		return session, nil
-	}
-	return system.DefaultController(apiServer.Controller.RestartSession(req.Context(), session))
-}
-
 func (apiServer *HelixAPIServer) retryTextFinetune(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
 	session, err := apiServer.sessionLoader(req, true)
 	if err != nil {
