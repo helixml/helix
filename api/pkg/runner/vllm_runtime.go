@@ -535,6 +535,8 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 	// Set only the specific environment variables needed
 	// This is more secure than inheriting all parent environment variables
 	env := []string{
+		// dockerfile installs vllm in the axolotl virtualenv
+		"PYTHONPATH=/workspace/axolotl/src:/root/miniconda3/envs/py3.11/lib/python3.11/site-packages",
 		// System paths - often needed by Python to find libraries
 		fmt.Sprintf("PATH=%s", os.Getenv("PATH")),
 		fmt.Sprintf("HOME=%s", os.Getenv("HOME")),
