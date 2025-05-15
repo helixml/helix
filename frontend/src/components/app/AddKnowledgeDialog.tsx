@@ -139,7 +139,7 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
             fullWidth
             multiline
             rows={6}
-            label="Text Content"
+            label="Your raw text such as markdown, html, etc."
             value={plainText}
             onChange={(e) => {
               setPlainText(e.target.value);
@@ -165,16 +165,22 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
         />
 
       </DialogContent>
-      <DialogActions>
-        <Button onClick={handleClose} disabled={isLoading}>Cancel</Button>
-        <Button
-          onClick={handleSubmit}
-          variant="contained"
-          disabled={isLoading}
-          startIcon={isLoading ? <CircularProgress size={20} /> : null}
-        >
-          {isLoading ? 'Adding...' : 'Add'}
-        </Button>
+      <DialogActions sx={{ display: 'flex', justifyContent: 'space-between' }}>
+        <div>
+          <Button sx={{ ml:2 }} onClick={handleClose} disabled={isLoading}>Cancel</Button>
+        </div>
+        <div>
+          <Button
+            sx={{ mr:2 }}
+            onClick={handleSubmit}
+            variant="outlined"
+            color="secondary"
+            disabled={isLoading}
+            startIcon={isLoading ? <CircularProgress size={20} /> : null}
+          >
+            {isLoading ? 'Adding...' : 'Add'}
+          </Button>
+        </div>
       </DialogActions>
     </Dialog>
   );
