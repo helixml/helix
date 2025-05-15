@@ -55,7 +55,7 @@ var listCmd = &cobra.Command{
 			var sourceStr string
 
 			switch {
-			case k.Source.Content != nil:
+			case k.Source.Text != nil:
 				sourceStr = "plain_content"
 			case k.Source.Web != nil:
 				sourceStr = "web"

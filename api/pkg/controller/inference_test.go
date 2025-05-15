@@ -176,7 +176,7 @@ func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge() {
 		ID:    "knowledge_id",
 		AppID: "app_id",
 		Source: types.KnowledgeSource{
-			Content: &plainTextKnowledge,
+			Text: &plainTextKnowledge,
 		},
 	}
 
@@ -263,7 +263,7 @@ func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge_MultiContent() {
 		ID:    "knowledge_id",
 		AppID: "app_id",
 		Source: types.KnowledgeSource{
-			Content: &plainTextKnowledge,
+			Text: &plainTextKnowledge,
 		},
 	}
 
@@ -273,8 +273,7 @@ func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge_MultiContent() {
 	}).Return(knowledge, nil)
 
 	suite.openAiClient.EXPECT().CreateChatCompletion(suite.ctx, gomock.Any()).DoAndReturn(
-		func(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
-
+		func(_ context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
 			suite.Require().Equal(string(req.Messages[0].MultiContent[1].Type), "text")
 			assert.Contains(suite.T(), req.Messages[0].MultiContent[1].Text, "plain text knowledge here")
 
