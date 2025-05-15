@@ -81,7 +81,7 @@ services:
       # Socket configuration for haystack communication
       - HELIX_EMBEDDINGS_SOCKET=/socket/embeddings.sock
       - RAG_HAYSTACK_ENABLED=true
-      - RAG_DEFAULT_PROVIDER=haystack
+      - RAG_DEFAULT_PROVIDER=${RAG_DEFAULT_PROVIDER:-haystack}
       # URL in the compose stack (rather than localhost in the pod which is default for k8s)
       - RAG_HAYSTACK_URL=http://haystack:8000
       - RAG_PGVECTOR_PROVIDER=helix
