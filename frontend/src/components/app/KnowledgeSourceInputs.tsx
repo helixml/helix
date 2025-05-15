@@ -208,32 +208,34 @@ const KnowledgeSourceInputs: FC<KnowledgeSourceInputsProps> = ({
               disabled={disabled}
             />
             <Tooltip title="If enabled, Helix will attempt to first extract content from the webpage. This is recommended for all documentation websites. If you are missing content, try disabling this.">
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={readability}
-                    onChange={(e) => {
-                      setReadability(e.target.checked);
-                      // For switches, we update immediately since they don't have blur events
-                      updateKnowledge(knowledge.id, {
-                        source: {
-                          web: {
-                            ...knowledge.source.web,
-                            crawler: {
-                              enabled: true,
-                              ...knowledge.source.web?.crawler,
-                              readability: e.target.checked
+              <span>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={readability}
+                      onChange={(e) => {
+                        setReadability(e.target.checked);
+                        // For switches, we update immediately since they don't have blur events
+                        updateKnowledge(knowledge.id, {
+                          source: {
+                            web: {
+                              ...knowledge.source.web,
+                              crawler: {
+                                enabled: true,
+                                ...knowledge.source.web?.crawler,
+                                readability: e.target.checked
+                              }
                             }
                           }
-                        }
-                      });
-                    }}
-                    disabled={disabled}
-                  />
-                }
-                label="Filter out headers, footers, etc."
-                sx={{ mb: 2 }}
-              />
+                        });
+                      }}
+                      disabled={disabled}
+                    />
+                  }
+                  label="Filter out headers, footers, etc."
+                  sx={{ mb: 2 }}
+                />
+              </span>
             </Tooltip>
           </Box>
         </>

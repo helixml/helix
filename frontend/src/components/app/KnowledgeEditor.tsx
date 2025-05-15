@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react';
+import React, { FC, useState, useEffect } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
@@ -62,6 +62,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
   const [urlDialogOpen, setUrlDialogOpen] = useState(false);
   const [selectedKnowledge, setSelectedKnowledge] = useState<IKnowledgeSource | undefined>();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [textContent, setTextContent] = useState<{[key: string]: string}>({});
 
   const snackbar = useSnackbar()
   const account = useAccount()
@@ -70,6 +71,23 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
     saveKnowledgeToApp,
     onSaveApp,
   })
+  
+  // Initialize textContent from knowledge sources that have text
+  useEffect(() => {
+    const newTextContent = { ...textContent };
+    let hasChanges = false;
+    
+    knowledgeHelpers.knowledge.forEach(knowledge => {
+      if (knowledge.source.text && textContent[knowledge.id] === undefined) {
+        newTextContent[knowledge.id] = knowledge.source.text;
+        hasChanges = true;
+      }
+    });
+    
+    if (hasChanges) {
+      setTextContent(newTextContent);
+    }
+  }, [knowledgeHelpers.knowledge]);
     
   const getSourcePreview = (source: IKnowledgeSource): string => {
     // Check if it's a text source
@@ -142,10 +160,14 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
   const renderSourceInput = (knowledge: IKnowledgeSource) => {
     // Special handling for text source
     if (knowledge.source.text) {
+      const currentText = textContent[knowledge.id] !== undefined 
+        ? textContent[knowledge.id] 
+        : knowledge.source.text || '';
+        
       return (
         <Box sx={{ width: '100%', mt: 2 }}>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            Text Content
+            Knowledge Contents
           </Typography>
           <Box
             component="textarea"
@@ -160,12 +182,16 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
               fontFamily: 'monospace',
               resize: 'vertical',
             }}
-            value={knowledge.source.text}
-            onChange={(e) => knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
+            value={currentText}
+            onChange={(e) => setTextContent(prev => ({
+              ...prev,
+              [knowledge.id]: e.target.value
+            }))}
+            onBlur={() => knowledgeHelpers.updateSingleKnowledge(knowledge.id, {
               ...knowledge,
               source: {
                 ...knowledge.source,
-                text: e.target.value
+                text: textContent[knowledge.id] || ''
               }
             })}
             disabled={disabled}
@@ -542,59 +568,67 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
               </Box>
               {knowledge.source.web && !isTextSource && (
                 <Tooltip title="View crawled URLs">
-                  <IconButton
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedKnowledge(serverKnowledge);
-                      setUrlDialogOpen(true);
-                    }}
-                    disabled={disabled || !knowledge}
-                    sx={{ mr: 1 }}
-                  >
-                    <LinkIcon />
-                  </IconButton>
+                  <span>
+                    <IconButton
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedKnowledge(serverKnowledge);
+                        setUrlDialogOpen(true);
+                      }}
+                      disabled={disabled || !knowledge}
+                      sx={{ mr: 1 }}
+                    >
+                      <LinkIcon />
+                    </IconButton>
+                  </span>
                 </Tooltip>
               )}
               {!isTextSource && (
                 <Tooltip title="Refresh knowledge and reindex data">
-                  <IconButton
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      knowledgeHelpers.handleRefreshKnowledge(knowledge.id)
-                    }}
-                    disabled={disabled}
-                    sx={{ mr: 1 }}
-                  >
-                    <RefreshIcon />
-                  </IconButton>
+                  <span>
+                    <IconButton
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        knowledgeHelpers.handleRefreshKnowledge(knowledge.id)
+                      }}
+                      disabled={disabled}
+                      sx={{ mr: 1 }}
+                    >
+                      <RefreshIcon />
+                    </IconButton>
+                  </span>
                 </Tooltip>
               )}
               {serverKnowledge && serverKnowledge.state === 'preparing' && !isTextSource && (
                 <Tooltip title="Complete preparation and start indexing">
-                  <IconButton
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      knowledgeHelpers.handleCompleteKnowledgePreparation(knowledge.id)
-                    }}
-                    disabled={disabled}
-                    sx={{ mr: 1 }}
-                    color="warning"
-                  >
-                    <PlayArrowIcon />
-                  </IconButton>
+                  <span>
+                    <IconButton
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        knowledgeHelpers.handleCompleteKnowledgePreparation(knowledge.id)
+                      }}
+                      disabled={disabled}
+                      sx={{ mr: 1 }}
+                      color="warning"
+                    >
+                      <PlayArrowIcon />
+                    </IconButton>
+                  </span>
                 </Tooltip>
               )}
               <Tooltip title="Delete this knowledge source">
-                <IconButton
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    knowledgeHelpers.handleDeleteSource(knowledge.id)
-                  }}
-                  disabled={disabled}
-                  sx={{ mr: 1 }}
-                >
-                  <DeleteIcon />
-                </IconButton>
+                <span>
+                  <IconButton
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      knowledgeHelpers.handleDeleteSource(knowledge.id)
+                    }}
+                    disabled={disabled}
+                    sx={{ mr: 1 }}
+                  >
+                    <DeleteIcon />
+                  </IconButton>
+                </span>
               </Tooltip>
             </AccordionSummary>
             <AccordionDetails>
