@@ -211,6 +211,111 @@ func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge() {
 	}, resp)
 }
 
+func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge_MultiContent() {
+	req := openai.ChatCompletionRequest{
+		Model: openai.GPT4TurboPreview,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role: openai.ChatMessageRoleUser,
+				MultiContent: []openai.ChatMessagePart{
+					{
+						Type: openai.ChatMessagePartTypeImageURL,
+						ImageURL: &openai.ChatMessageImageURL{
+							URL: "http://example.com/image.jpg",
+						},
+					},
+					{
+						Type: openai.ChatMessagePartTypeText,
+						Text: "Initial user message",
+					},
+				},
+			},
+		},
+	}
+
+	app := &types.App{
+		ID:     "app_id",
+		Global: true,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						ID: "0",
+						Knowledge: []*types.AssistantKnowledge{
+							{
+								Name: "knowledge_name",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	suite.store.EXPECT().GetAppWithTools(suite.ctx, "app_id").Return(app, nil)
+	suite.store.EXPECT().ListSecrets(gomock.Any(), &store.ListSecretsQuery{
+		Owner: suite.user.ID,
+	}).Return([]*types.Secret{}, nil)
+
+	plainTextKnowledge := "plain text knowledge here"
+
+	knowledge := &types.Knowledge{
+		ID:    "knowledge_id",
+		AppID: "app_id",
+		Source: types.KnowledgeSource{
+			Content: &plainTextKnowledge,
+		},
+	}
+
+	suite.store.EXPECT().LookupKnowledge(suite.ctx, &store.LookupKnowledgeQuery{
+		Name:  "knowledge_name",
+		AppID: "app_id",
+	}).Return(knowledge, nil)
+
+	suite.openAiClient.EXPECT().CreateChatCompletion(suite.ctx, gomock.Any()).DoAndReturn(
+		func(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+
+			suite.Require().Equal(string(req.Messages[0].MultiContent[1].Type), "text")
+			assert.Contains(suite.T(), req.Messages[0].MultiContent[1].Text, "plain text knowledge here")
+
+			return openai.ChatCompletionResponse{
+				Choices: []openai.ChatCompletionChoice{
+					{
+						Message: openai.ChatCompletionMessage{
+							MultiContent: []openai.ChatMessagePart{
+								{
+									Type: openai.ChatMessagePartTypeText,
+									Text: "Hello",
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		},
+	)
+
+	resp, _, err := suite.controller.ChatCompletion(suite.ctx, suite.user, req, &ChatCompletionOptions{
+		AppID:       "app_id",
+		AssistantID: "0",
+	})
+	suite.NoError(err)
+	suite.Equal(&openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{
+					MultiContent: []openai.ChatMessagePart{
+						{
+							Type: openai.ChatMessagePartTypeText,
+							Text: "Hello",
+						},
+					},
+				},
+			},
+		},
+	}, resp)
+}
+
 func (suite *ControllerSuite) Test_EvaluateSecrets() {
 	app := &types.App{
 		ID:     "app_id",
