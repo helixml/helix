@@ -204,10 +204,30 @@ export const useKnowledge = ({
 
   const validateSources = () => {
     const newErrors: Record<string, string[]> = {};
-    knowledge.forEach((source, index) => {      
-      if ((!source.source.web?.urls || source.source.web.urls.length === 0) && !source.source.filestore?.path) {
-        newErrors[`${index}`] = ["At least one URL or a filestore path must be specified."];
+    knowledge.forEach((source, index) => {
+      // For text knowledge, no validation needed
+      if (source.source.text) {
+        return;
       }
+      
+      // For web knowledge, we need URLs
+      if (source.source.web) {
+        if (!source.source.web.urls || source.source.web.urls.length === 0) {
+          newErrors[`${index}`] = ["At least one URL must be specified for web knowledge sources."];
+        }
+        return;
+      }
+      
+      // For filestore knowledge, we need path specified
+      if (source.source.filestore) {
+        if (!source.source.filestore.path) {
+          newErrors[`${index}`] = ["A directory path must be specified for file knowledge sources."];
+        }
+        return;
+      }
+      
+      // If none of the above types are specified
+      newErrors[`${index}`] = ["Knowledge source type is not properly configured."];
     });
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
