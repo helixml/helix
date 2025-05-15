@@ -102,29 +102,13 @@ class HaystackImageService:
         self, for_documents: bool = True
     ) -> Union[MultimodalDocumentEmbedder, MultimodalTextEmbedder]:
         """Get the appropriate embedder based on configuration"""
-        if settings.VISION_EMBEDDINGS_SOCKET:
-            logger.info(
-                f"Using UNIX socket for vision embeddings: {settings.VISION_EMBEDDINGS_SOCKET}"
-            )
-            if for_documents:
-                return UnixSocketOpenAIDocumentEmbedder(
-                    socket_path=settings.VISION_EMBEDDINGS_SOCKET,
-                    model=settings.VISION_EMBEDDINGS_MODEL,
-                    batch_size=1,
-                )
-            else:
-                return UnixSocketOpenAITextEmbedder(
-                    socket_path=settings.VISION_EMBEDDINGS_SOCKET,
-                    model=settings.VISION_EMBEDDINGS_MODEL,
-                )
-
-        logger.info(f"Using API for vision embeddings: {settings.VISION_BASE_URL}")
         return (
             MultimodalDocumentEmbedder if for_documents else MultimodalTextEmbedder
         )(
             api_key=settings.VISION_API_KEY,
             api_base_url=settings.VISION_BASE_URL,
             model=settings.VISION_EMBEDDINGS_MODEL,
+            socket_path=settings.VISION_EMBEDDINGS_SOCKET,
         )
 
     def _format_filters(

@@ -3,14 +3,13 @@ import io
 import logging
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
-
 import requests
+from requests_unixsocket import Session
 from haystack import Document, component
 from openai.types.create_embedding_response import CreateEmbeddingResponse
 from PIL import Image
 
 logger = logging.getLogger(__name__)
-
 
 @component
 class MultimodalTextEmbedder:
@@ -29,6 +28,7 @@ class MultimodalTextEmbedder:
         encoding_format: str = "float",
         user_prompt: str = "What is shown in this image?",
         text_prefix: str = "Query: ",
+        socket_path: str = None,
     ):
         """
         Initialize the MultimodalEmbedder.
@@ -40,6 +40,7 @@ class MultimodalTextEmbedder:
             encoding_format: Format for encoding the embeddings (e.g., "float").
             user_prompt: Text prompt to use for image embedding.
             text_prefix: Prefix to add to text queries.
+            socket_path: Optional Unix socket path to use for requests.
         """
         self.api_key = api_key
         self.model = model
@@ -47,6 +48,7 @@ class MultimodalTextEmbedder:
         self.encoding_format = encoding_format
         self.user_prompt = user_prompt
         self.text_prefix = text_prefix
+        self.socket_path = socket_path
 
         # Create placeholder image once during initialization
         buffer = io.BytesIO()
@@ -77,6 +79,7 @@ class MultimodalTextEmbedder:
                 ],
             }
         ]
+        print("FISH: building request")
 
         return {
             "model": self.model,
@@ -92,8 +95,18 @@ class MultimodalTextEmbedder:
             raise ValueError("Either text or image_path must be provided")
 
         request_payload = self._build_request(text, image_path)
-        response = requests.post(
-            f"{self.api_base_url}/embeddings",
+        print("FISH: api_base_url", self.api_base_url)
+
+        # Use Unix socket if provided, otherwise use regular HTTP
+        if self.socket_path:
+            session = Session()
+            url = f"http+unix://{self.socket_path.replace('/', '%2F')}/v1/embeddings"
+        else:
+            session = requests.Session()
+            url = f"{self.api_base_url}/embeddings"
+
+        response = session.post(
+            url,
             headers={"Authorization": f"Bearer {self.api_key}"},
             json=request_payload,
         )
@@ -136,6 +149,7 @@ class MultimodalDocumentEmbedder(MultimodalTextEmbedder):
             List of Document objects with embeddings added to their metadata.
         """
         processed_documents = []
+        print("FISH: called run")
 
         for doc in documents:
             # Create a deep copy to avoid modifying the original document
