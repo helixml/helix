@@ -8,7 +8,11 @@ const CopyButtonWithCheck: FC<{ text: string, alwaysVisible?: boolean }> = ({ te
   const [copied, setCopied] = useState(false)
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(text)
+      // If 'text' contains citation data, it will have <excerpts> tags. We need to
+      // only copy the text up to the first <excerpts> tag.
+      const textToCopy = sanitizeTextForCopy(text)
+
+      await navigator.clipboard.writeText(textToCopy)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch (err) {
@@ -40,4 +44,25 @@ const CopyButtonWithCheck: FC<{ text: string, alwaysVisible?: boolean }> = ({ te
   )
 }
 
-export default CopyButtonWithCheck 
+export default CopyButtonWithCheck
+
+const sanitizeTextForCopy = (text: string) => {
+  // Remove citation data
+  text = removeCitationData(text)
+  // Remove document IDs
+  text = removeDocumentIds(text)
+
+  return text
+}
+
+const removeCitationData = (text: string) => {
+  // If 'text' contains citation data, it will have <excerpts> tags. We need to
+  // only copy the text up to the first <excerpts> tag.
+  const excerptsIndex = text.indexOf('<excerpts>')
+  return excerptsIndex !== -1 ? text.substring(0, excerptsIndex) : text
+}
+
+const removeDocumentIds = (text: string) => {
+  // Remove all [DOC_ID:<id>] entries
+  return text.replace(/\[DOC_ID:[^\]]*\]/g, '')
+}

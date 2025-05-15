@@ -92,7 +92,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
   const getSourcePreview = (source: IKnowledgeSource): string => {
     // Check if it's a text source
     if (source.source.text) {
-      return 'Text';
+      return source.name;
     }
     
     // Prioritize using the source name if available
