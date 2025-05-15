@@ -95,9 +95,9 @@ func (q *Query) getDocuments(ctx context.Context, prompt string, knowledges []*t
 		switch {
 		// If the knowledge is a content, add it to the background knowledge
 		// without anything else (no database to search in)
-		case knowledge.Source.Content != nil:
+		case knowledge.Source.Text != nil:
 			documents = append(documents, schema.Document{
-				PageContent: *knowledge.Source.Content,
+				PageContent: *knowledge.Source.Text,
 			})
 
 		default:

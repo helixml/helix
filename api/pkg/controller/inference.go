@@ -848,10 +848,10 @@ func (c *Controller) evaluateKnowledge(
 		switch {
 		// If the knowledge is a content, add it to the background knowledge
 		// without anything else (no database to search in)
-		case knowledge.Source.Content != nil:
+		case knowledge.Source.Text != nil:
 			backgroundKnowledge = append(backgroundKnowledge, &prompts.BackgroundKnowledge{
 				Description: knowledge.Description,
-				Content:     *knowledge.Source.Content,
+				Content:     *knowledge.Source.Text,
 			})
 
 			usedKnowledge = knowledge
