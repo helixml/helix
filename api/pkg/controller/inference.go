@@ -848,10 +848,10 @@ func (c *Controller) evaluateKnowledge(
 		switch {
 		// If the knowledge is a content, add it to the background knowledge
 		// without anything else (no database to search in)
-		case knowledge.Source.Content != nil:
+		case knowledge.Source.Text != nil:
 			backgroundKnowledge = append(backgroundKnowledge, &prompts.BackgroundKnowledge{
 				Description: knowledge.Description,
-				Content:     *knowledge.Source.Content,
+				Content:     *knowledge.Source.Text,
 			})
 
 			usedKnowledge = knowledge
@@ -1102,7 +1102,19 @@ func buildTextChatCompletionMessage(req *openai.ChatCompletionRequest, ragResult
 	}
 
 	lastCompletionMessage := req.Messages[len(req.Messages)-1]
-	lastCompletionMessage.Content = extended
+
+	// Check if last completion message has multi-content, if yes, find the index for TEXT type message and overwrite it with the extended content.
+	// Otherwise, set the content to the extended content
+	if len(lastCompletionMessage.MultiContent) > 0 {
+		for i, part := range lastCompletionMessage.MultiContent {
+			if part.Type == openai.ChatMessagePartTypeText {
+				lastCompletionMessage.MultiContent[i].Text = extended
+				break
+			}
+		}
+	} else {
+		lastCompletionMessage.Content = extended
+	}
 
 	return lastCompletionMessage, nil
 }

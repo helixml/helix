@@ -115,7 +115,7 @@ func (r *Reconciler) index(ctx context.Context) error {
 
 func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, version string) error {
 	// If source is plain text, nothing to do
-	if k.Source.Content != nil {
+	if k.Source.Text != nil {
 		k.State = types.KnowledgeStateReady
 		k.Version = version
 		_, err := r.store.UpdateKnowledge(ctx, k)
