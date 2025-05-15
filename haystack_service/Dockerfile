@@ -11,11 +11,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+COPY pyproject.toml uv.lock .python-version ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=.python-version,target=.python-version \
-    uv sync --frozen --no-install-project --no-dev
+    uv sync --frozen --no-dev
 
 # Create directory for NLTK data
 RUN mkdir -p /usr/share/nltk_data
@@ -44,21 +42,26 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-
 # Set environment settings
 WORKDIR /app
 ENV NLTK_DATA=/usr/share/nltk_data
 ENV HAYSTACK_TELEMETRY_ENABLED=False
+
+# Copy the diffusers build environment including Python and dependencies
+COPY --from=uv /uv /bin/uv
+COPY --from=diffusers-build-env /usr/share/nltk_data /usr/share/nltk_data
+COPY --from=diffusers-build-env /app/.venv /app/.venv
+COPY pyproject.toml uv.lock .python-version ./
+
+# Install the project and its dependencies
+RUN uv pip install -e .
 
 # Expose port
 EXPOSE 8000
 
 # Run the service
 ENTRYPOINT ["uv", "run", "--frozen", "--no-dev"]
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"] 
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
-# Copy the diffusers build environment including Python
-COPY --from=uv /uv /bin/uv
-COPY --from=diffusers-build-env /usr/share/nltk_data /usr/share/nltk_data
-COPY --from=diffusers-build-env /app/.venv /app/.venv
-ADD . /app
+# Copy the application code last to leverage Docker layer caching
+COPY . /app

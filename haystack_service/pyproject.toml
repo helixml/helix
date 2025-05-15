@@ -14,6 +14,7 @@ dependencies = [
     "pydantic>=2.10.6",
     "pymupdf>=1.25.4",
     "python-multipart>=0.0.20",
+    "requests-unixsocket>=0.4.1",
     "unstructured-fileconverter-haystack>=0.4.2",
     "unstructured[all-docs]>=0.17.2",
     "uvicorn>=0.34.0",
