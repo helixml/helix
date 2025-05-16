@@ -18,6 +18,7 @@ import {
   ISession,
   IUserAppAccessState,
 } from '../types'
+import { TypesCreatorType, TypesMessage } from '../api/api';
 import {
   removeEmptyValues,
 } from '../utils/data'
@@ -551,9 +552,26 @@ export const useApp = (appId: string) => {
       const messageToSend = inputValue;
 
       setInputValue('')
+
+      const messagePayloadContent = {
+        content_type: "text",
+        parts: [
+          {
+            type: "text",
+            text: messageToSend,
+          }
+        ],
+      };
+  
       
       const newSessionData = await NewInference({
-        message: messageToSend,
+        message: '',
+        messages: [
+          {
+            role: TypesCreatorType.CreatorTypeUser,
+            content: messagePayloadContent as any,
+          }
+        ],
         appId: app.id,
         type: SESSION_TYPE_TEXT,
         modelName: app.config.helix.assistants?.[0]?.model || account.models[0]?.id || '',

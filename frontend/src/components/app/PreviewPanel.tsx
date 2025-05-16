@@ -326,11 +326,18 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
                   if (!session) return null;
                   return (
                     <Interaction
-                      key={i}
+                      key={interaction.id}
                       serverConfig={serverConfig}
                       interaction={interaction}
                       session={session}
+                      onRegenerate={function (interactionID: string, message: string): void {
+                        // Setting the same message will trigger the same interaction
+                        setInputValue(message);
+                        onInference()
+                        return
+                      }}
                       onFilterDocument={onHandleFilterDocument}
+                      isLastInteraction={isLastInteraction}
                     >
                       {
                         isLive && (
