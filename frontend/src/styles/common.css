@@ -1,0 +1,40 @@
+html {
+    font-optical-sizing: auto;
+    font-weight: <weight>;
+    font-style: normal;
+    font-variation-settings: "wdth" 100;
+}
+
+/******************************************
+Common utls
+*******************************************/
+
+.border-divide {
+    @apply
+        border-solid
+        border-neutral-500
+}
+
+/******************************************
+Scrollbar control
+*******************************************/
+
+.scrollbar {
+    &::-webkit-scrollbar {
+      @apply
+      h-2
+    }
+    &::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    &::-webkit-scrollbar-thumb {
+      @apply
+      bg-magenta-900
+      rounded-sm;
+    }
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-violet) transparent;
+    &:where([data-theme=dark], [data-theme=dark] *) {
+      scrollbar-color: var(--color-magenta-900) transparent;
+    }
+  }
