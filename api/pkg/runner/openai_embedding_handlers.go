@@ -144,8 +144,13 @@ func (s *HelixRunnerAPIServer) createEmbedding(rw http.ResponseWriter, r *http.R
 			Msg("📥 Raw embedding request received")
 	}
 
+	// Try to parse request as flexible embedding request first
 	var embeddingRequest openai.EmbeddingRequest
-	err = json.Unmarshal(body, &embeddingRequest)
+	var flexibleRequest types.FlexibleEmbeddingRequest
+	var isFlexible bool
+
+	// First try to unmarshal as FlexibleEmbeddingRequest
+	err = json.Unmarshal(body, &flexibleRequest)
 	if err != nil {
 		log.Error().
 			Str("component", "runner").
@@ -154,18 +159,56 @@ func (s *HelixRunnerAPIServer) createEmbedding(rw http.ResponseWriter, r *http.R
 			Str("error_type", "json_unmarshal_error").
 			Str("error_message", err.Error()).
 			Str("raw_body", string(body)).
-			Msg("❌ Error unmarshalling embedding request")
+			Msg("❌ Error unmarshalling flexible embedding request")
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	// Check if this is a Chat Embeddings API request
+	if len(flexibleRequest.Messages) > 0 {
+		isFlexible = true
+		log.Info().
+			Str("component", "runner").
+			Str("operation", "embedding").
+			Str("slot_id", slotUUID.String()).
+			Str("model", flexibleRequest.Model).
+			Int("message_count", len(flexibleRequest.Messages)).
+			Msg("📥 Chat Embeddings API request detected")
+	} else {
+		// Fall back to standard embedding request
+		err = json.Unmarshal(body, &embeddingRequest)
+		if err != nil {
+			log.Error().
+				Str("component", "runner").
+				Str("operation", "embedding").
+				Str("slot_id", slotUUID.String()).
+				Str("error_type", "json_unmarshal_error").
+				Str("error_message", err.Error()).
+				Str("raw_body", string(body)).
+				Msg("❌ Error unmarshalling standard embedding request")
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
 	// Log the embedding request details with comprehensive information
 	reqInfo := map[string]interface{}{
-		"model":           string(embeddingRequest.Model),
-		"encoding_format": string(embeddingRequest.EncodingFormat),
-		"dimensions":      embeddingRequest.Dimensions,
-		"endpoint":        fmt.Sprintf("/v1/slots/%s/v1/embedding", slotUUID.String()),
-		"method":          "POST",
+		"is_flexible": isFlexible,
+		"endpoint":    fmt.Sprintf("/v1/slots/%s/v1/embedding", slotUUID.String()),
+		"method":      "POST",
+	}
+
+	if isFlexible {
+		reqInfo["model"] = flexibleRequest.Model
+		reqInfo["encoding_format"] = flexibleRequest.EncodingFormat
+		reqInfo["dimensions"] = flexibleRequest.Dimensions
+		if len(flexibleRequest.Messages) > 0 {
+			reqInfo["message_count"] = len(flexibleRequest.Messages)
+		}
+	} else {
+		reqInfo["model"] = string(embeddingRequest.Model)
+		reqInfo["encoding_format"] = string(embeddingRequest.EncodingFormat)
+		reqInfo["dimensions"] = embeddingRequest.Dimensions
 	}
 
 	reqInfoJSON, _ := json.Marshal(reqInfo)
@@ -193,20 +236,39 @@ func (s *HelixRunnerAPIServer) createEmbedding(rw http.ResponseWriter, r *http.R
 		return
 	}
 
-	if embeddingRequest.Model == "" {
-		embeddingRequest.Model = openai.EmbeddingModel(slot.Model)
-	}
-	if embeddingRequest.Model != openai.EmbeddingModel(slot.Model) {
-		log.Warn().
-			Str("component", "runner").
-			Str("operation", "embedding").
-			Str("slot_id", slotUUID.String()).
-			Str("expected_model", slot.Model).
-			Str("requested_model", string(embeddingRequest.Model)).
-			Str("error_type", "model_mismatch").
-			Msg("❌ Model mismatch for embedding request")
-		http.Error(rw, fmt.Sprintf("model mismatch, expecting %s", slot.Model), http.StatusBadRequest)
-		return
+	// Model validation based on whether we have a standard or flexible request
+	if isFlexible {
+		if flexibleRequest.Model == "" {
+			flexibleRequest.Model = slot.Model
+		}
+		if flexibleRequest.Model != slot.Model {
+			log.Warn().
+				Str("component", "runner").
+				Str("operation", "embedding").
+				Str("slot_id", slotUUID.String()).
+				Str("expected_model", slot.Model).
+				Str("requested_model", flexibleRequest.Model).
+				Str("error_type", "model_mismatch").
+				Msg("❌ Model mismatch for flexible embedding request")
+			http.Error(rw, fmt.Sprintf("model mismatch, expecting %s", slot.Model), http.StatusBadRequest)
+			return
+		}
+	} else {
+		if embeddingRequest.Model == "" {
+			embeddingRequest.Model = openai.EmbeddingModel(slot.Model)
+		}
+		if embeddingRequest.Model != openai.EmbeddingModel(slot.Model) {
+			log.Warn().
+				Str("component", "runner").
+				Str("operation", "embedding").
+				Str("slot_id", slotUUID.String()).
+				Str("expected_model", slot.Model).
+				Str("requested_model", string(embeddingRequest.Model)).
+				Str("error_type", "model_mismatch").
+				Msg("❌ Model mismatch for embedding request")
+			http.Error(rw, fmt.Sprintf("model mismatch, expecting %s", slot.Model), http.StatusBadRequest)
+			return
+		}
 	}
 
 	ownerID := s.runnerOptions.ID
@@ -309,7 +371,7 @@ func (s *HelixRunnerAPIServer) createEmbedding(rw http.ResponseWriter, r *http.R
 			Str("component", "runner").
 			Str("operation", "embedding").
 			Str("slot_id", slotUUID.String()).
-			Str("model", string(embeddingRequest.Model)).
+			Str("model", slot.Model).
 			Str("vllm_endpoint", vllmEndpoint).
 			Str("error_type", "client_creation_error").
 			Str("error_message", err.Error()).
@@ -326,8 +388,135 @@ func (s *HelixRunnerAPIServer) createEmbedding(rw http.ResponseWriter, r *http.R
 		Str("vllm_endpoint", vllmEndpoint).
 		Msg("Sending embedding request to VLLM")
 
-	// Add detailed verbose logging of the exact request being sent to VLLM
-	requestJSON, err := json.MarshalIndent(embeddingRequest, "", "  ")
+	// Start processing based on request type
+	var resp openai.EmbeddingResponse
+	var startTime time.Time
+	var durationMs int64
+	var requestJSON []byte
+
+	if isFlexible {
+		// Log the flexible request
+		requestJSON, err = json.MarshalIndent(flexibleRequest, "", "  ")
+		if err == nil {
+			log.Info().
+				Str("component", "runner").
+				Str("operation", "embedding").
+				Str("slot_id", slotUUID.String()).
+				Str("model", slot.Model).
+				Str("full_request", string(requestJSON)).
+				Msg("🔍 FULL FLEXIBLE EMBEDDING REQUEST BEING SENT TO VLLM")
+		}
+
+		// For now, we need to modify the request if it uses the Chat Embeddings API format
+		// We'll either convert it to the standard format if possible, or forward it directly
+		if len(flexibleRequest.Messages) > 0 {
+			log.Info().
+				Str("component", "runner").
+				Str("operation", "embedding").
+				Str("slot_id", slotUUID.String()).
+				Str("model", slot.Model).
+				Int("message_count", len(flexibleRequest.Messages)).
+				Msg("⚠️ Chat Embeddings API request format detected")
+
+			// Send the raw request to VLLM as is
+			startTime = time.Now()
+			requestBodyBytes, _ := json.Marshal(flexibleRequest)
+
+			// Create a new HTTP request
+			req, httpErr := http.NewRequestWithContext(ctx, "POST", vllmEndpoint+"/embeddings", bytes.NewBuffer(requestBodyBytes))
+			if httpErr != nil {
+				log.Error().
+					Str("component", "runner").
+					Str("operation", "embedding").
+					Str("slot_id", slotUUID.String()).
+					Str("error", httpErr.Error()).
+					Msg("❌ Failed to create HTTP request for chat embeddings")
+				http.Error(rw, httpErr.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			// Set headers
+			req.Header.Set("Content-Type", "application/json")
+
+			// Send the request
+			httpResp, httpErr := httpClient.Do(req)
+			durationMs = time.Since(startTime).Milliseconds()
+
+			if httpErr != nil {
+				log.Error().
+					Str("component", "runner").
+					Str("operation", "embedding").
+					Str("slot_id", slotUUID.String()).
+					Str("error", httpErr.Error()).
+					Int64("duration_ms", durationMs).
+					Msg("❌ Failed to send HTTP request for chat embeddings")
+				http.Error(rw, httpErr.Error(), http.StatusInternalServerError)
+				return
+			}
+			defer httpResp.Body.Close()
+
+			// Read the response
+			respBody, readErr := io.ReadAll(httpResp.Body)
+			if readErr != nil {
+				log.Error().
+					Str("component", "runner").
+					Str("operation", "embedding").
+					Str("slot_id", slotUUID.String()).
+					Str("error", readErr.Error()).
+					Int64("duration_ms", durationMs).
+					Msg("❌ Failed to read HTTP response for chat embeddings")
+				http.Error(rw, readErr.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			// Check if the response is an error
+			if httpResp.StatusCode != http.StatusOK {
+				log.Error().
+					Str("component", "runner").
+					Str("operation", "embedding").
+					Str("slot_id", slotUUID.String()).
+					Int("status_code", httpResp.StatusCode).
+					Str("response", string(respBody)).
+					Int64("duration_ms", durationMs).
+					Msg("❌ VLLM returned error for chat embeddings")
+				http.Error(rw, string(respBody), httpResp.StatusCode)
+				return
+			}
+
+			// Pass through the raw response
+			rw.Header().Set("Content-Type", "application/json")
+			rw.WriteHeader(http.StatusOK)
+			_, writeErr := rw.Write(respBody)
+			if writeErr != nil {
+				log.Error().
+					Str("component", "runner").
+					Str("operation", "embedding").
+					Str("slot_id", slotUUID.String()).
+					Str("error", writeErr.Error()).
+					Msg("❌ Failed to write response for chat embeddings")
+			}
+			return
+		} else {
+			// Standard embedding with Input field
+			log.Info().
+				Str("component", "runner").
+				Str("operation", "embedding").
+				Str("slot_id", slotUUID.String()).
+				Str("model", slot.Model).
+				Msg("Converting flexible embedding request to standard format")
+
+			// Convert to standard OpenAI embedding request
+			embeddingRequest = openai.EmbeddingRequest{
+				Model:          openai.EmbeddingModel(flexibleRequest.Model),
+				Input:          flexibleRequest.Input,
+				EncodingFormat: openai.EmbeddingEncodingFormat(flexibleRequest.EncodingFormat),
+				Dimensions:     flexibleRequest.Dimensions,
+			}
+		}
+	}
+
+	// At this point, we're using the standard OpenAI embedding format
+	requestJSON, err = json.MarshalIndent(embeddingRequest, "", "  ")
 	if err == nil {
 		log.Info().
 			Str("component", "runner").
@@ -376,9 +565,9 @@ func (s *HelixRunnerAPIServer) createEmbedding(rw http.ResponseWriter, r *http.R
 			Msg("❌ Failed to marshal embedding request for logging")
 	}
 
-	startTime := time.Now()
-	resp, err := openAIClient.CreateEmbeddings(ctx, embeddingRequest)
-	durationMs := time.Since(startTime).Milliseconds()
+	startTime = time.Now()
+	resp, err = openAIClient.CreateEmbeddings(ctx, embeddingRequest)
+	durationMs = time.Since(startTime).Milliseconds()
 
 	// Log the raw response body if we captured it
 	if rawResponseBody != "" {

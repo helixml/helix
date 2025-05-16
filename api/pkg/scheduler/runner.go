@@ -244,7 +244,56 @@ func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerL
 	headers := map[string]string{}
 	headers[pubsub.HelixNatsReplyHeader] = pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID)
 
-	embeddingRequestBytes, err := json.Marshal(req.EmbeddingRequest)
+	var embeddingRequestBytes []byte
+	var err error
+	var embeddingType string
+	var inputType string
+	var inputSize int
+
+	// Check for flexible embedding request
+	if req.FlexibleEmbeddingRequest != nil {
+		embeddingType = "flexible"
+		embeddingRequestBytes, err = json.Marshal(req.FlexibleEmbeddingRequest)
+
+		if err == nil {
+			// Determine input type and size for flexible requests
+			if req.FlexibleEmbeddingRequest.Input != nil {
+				switch v := req.FlexibleEmbeddingRequest.Input.(type) {
+				case string:
+					inputType = "string"
+					inputSize = len(v)
+				case []string:
+					inputType = "[]string"
+					inputSize = len(v)
+				case [][]int:
+					inputType = "[][]int"
+					inputSize = len(v)
+				}
+			} else if len(req.FlexibleEmbeddingRequest.Messages) > 0 {
+				inputType = "messages"
+				inputSize = len(req.FlexibleEmbeddingRequest.Messages)
+			}
+		}
+	} else {
+		embeddingType = "standard"
+		embeddingRequestBytes, err = json.Marshal(req.EmbeddingRequest)
+
+		if err == nil {
+			// Determine input type and size for standard requests
+			switch v := req.EmbeddingRequest.Input.(type) {
+			case string:
+				inputType = "string"
+				inputSize = len(v)
+			case []string:
+				inputType = "[]string"
+				inputSize = len(v)
+			case [][]int:
+				inputType = "[][]int"
+				inputSize = len(v)
+			}
+		}
+	}
+
 	if err != nil {
 		log.Error().
 			Str("component", "scheduler").
@@ -252,6 +301,7 @@ func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerL
 			Str("request_id", req.RequestID).
 			Str("runner_id", slot.RunnerID).
 			Str("slot_id", slot.ID.String()).
+			Str("embedding_type", embeddingType).
 			Err(err).
 			Msg("❌ Failed to marshal embedding request to JSON")
 		return err
@@ -264,41 +314,37 @@ func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerL
 		prettyRequest.Write(embeddingRequestBytes)
 	}
 
-	// Log the embedding request details
-	var embReq openai.EmbeddingRequest
-	if err := json.Unmarshal(embeddingRequestBytes, &embReq); err == nil {
-		// Calculate input size properly based on type
-		inputSize := 0
-		inputType := "unknown"
+	// Log the embedding request details with embedding type
+	requestModel := ""
+	encodingFormat := ""
+	dimensions := 0
 
-		switch v := embReq.Input.(type) {
-		case string:
-			inputSize = len(v)
-			inputType = "string"
-		case []string:
-			inputType = "[]string"
-			inputSize = len(v)
-		case [][]int:
-			inputType = "[][]int"
-			inputSize = len(v)
-		}
-
-		// Enhanced logging with detailed request info
-		log.Info().
-			Str("component", "scheduler").
-			Str("operation", "embedding").
-			Str("request_id", req.RequestID).
-			Str("runner_id", slot.RunnerID).
-			Str("slot_id", slot.ID.String()).
-			Str("model", string(embReq.Model)).
-			Str("encoding_format", string(embReq.EncodingFormat)).
-			Str("input_type", inputType).
-			Int("input_size", inputSize).
-			Int("dimensions", embReq.Dimensions).
-			Str("request_json", prettyRequest.String()).
-			Str("endpoint", fmt.Sprintf("/api/v1/slots/%s/v1/embedding", slot.ID)).
-			Msg("🔢 Embedding request submitted to runner")
+	if req.FlexibleEmbeddingRequest != nil {
+		requestModel = req.FlexibleEmbeddingRequest.Model
+		encodingFormat = req.FlexibleEmbeddingRequest.EncodingFormat
+		dimensions = req.FlexibleEmbeddingRequest.Dimensions
+	} else {
+		requestModel = string(req.EmbeddingRequest.Model)
+		encodingFormat = string(req.EmbeddingRequest.EncodingFormat)
+		dimensions = req.EmbeddingRequest.Dimensions
 	}
+
+	// Enhanced logging with detailed request info
+	log.Info().
+		Str("component", "scheduler").
+		Str("operation", "embedding").
+		Str("embedding_type", embeddingType).
+		Str("request_id", req.RequestID).
+		Str("runner_id", slot.RunnerID).
+		Str("slot_id", slot.ID.String()).
+		Str("model", requestModel).
+		Str("encoding_format", encodingFormat).
+		Str("input_type", inputType).
+		Int("input_size", inputSize).
+		Int("dimensions", dimensions).
+		Str("request_json", prettyRequest.String()).
+		Str("endpoint", fmt.Sprintf("/api/v1/slots/%s/v1/embedding", slot.ID)).
+		Msg("🔢 Embedding request submitted to runner")
 
 	natsReq := types.RunnerNatsReplyRequest{
 		RequestID:     req.RequestID,
