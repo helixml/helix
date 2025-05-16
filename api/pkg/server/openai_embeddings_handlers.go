@@ -5,7 +5,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"strings"
 
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/types"
@@ -48,11 +47,29 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	var flexEmbeddingRequest types.FlexibleEmbeddingRequest
 	var embeddingRequest openai.EmbeddingRequest
-	if err := json.Unmarshal(body, &embeddingRequest); err != nil {
-		log.Error().Err(err).Msg("error unmarshalling body")
+	var isFlexible bool
+
+	// First try to parse as flexible embedding request
+	err = json.Unmarshal(body, &flexEmbeddingRequest)
+	if err != nil {
+		log.Error().Err(err).Msg("error unmarshalling flexible embedding request")
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	// If Messages field is set, this is a Chat Embeddings API request
+	if len(flexEmbeddingRequest.Messages) > 0 {
+		isFlexible = true
+	} else {
+		// Otherwise, try to parse as standard OpenAI embedding request
+		err = json.Unmarshal(body, &embeddingRequest)
+		if err != nil {
+			log.Error().Err(err).Msg("error unmarshalling standard embedding request")
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 
 	client, err := s.providerManager.GetClient(r.Context(), &manager.GetClientRequest{
@@ -64,91 +81,54 @@ func (s *HelixAPIServer) createEmbeddings(rw http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Create a clean request without unsupported parameters
-	cleanRequest := openai.EmbeddingRequest{
-		Model:          embeddingRequest.Model,
-		Input:          embeddingRequest.Input,
-		EncodingFormat: "float",
-		// Explicitly omit dimensions
-	}
+	if isFlexible {
+		log.Debug().Msg("Processing flexible embedding request with Chat Embeddings API format")
 
-	resp, err := client.CreateEmbeddings(r.Context(), cleanRequest)
-	if err != nil {
-		if strings.Contains(err.Error(), "context cancelled") {
-			// Client already gone
+		// Create flexible embeddings with the OpenAI-compatible client
+		// For now, we'll convert the request to the standard format
+		// In the future, we'll need to extend the client interface to support flexible embeddings
+		log.Warn().Msg("Chat Embeddings API format detected but not fully implemented, falling back to standard embedding")
+
+		// Convert flexible request to standard OpenAI format if possible
+		if flexEmbeddingRequest.Input != nil {
+			embeddingRequest = openai.EmbeddingRequest{
+				Model:          openai.EmbeddingModel(flexEmbeddingRequest.Model),
+				Input:          flexEmbeddingRequest.Input,
+				EncodingFormat: openai.EmbeddingEncodingFormat(flexEmbeddingRequest.EncodingFormat),
+				Dimensions:     flexEmbeddingRequest.Dimensions,
+			}
+
+			resp, err := client.CreateEmbeddings(r.Context(), embeddingRequest)
+			if err != nil {
+				log.Error().Err(err).Msg("error creating embeddings")
+				http.Error(rw, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			writeResponse(rw, resp, http.StatusOK)
+		} else {
+			// Cannot handle Chat Embeddings API format yet
+			log.Error().Msg("Chat Embeddings API with messages detected but not supported by this endpoint")
+			http.Error(rw, "Chat Embeddings API with messages not supported", http.StatusBadRequest)
+		}
+		return
+	} else {
+		// Create a clean request without unsupported parameters
+		cleanRequest := openai.EmbeddingRequest{
+			Model:          embeddingRequest.Model,
+			Input:          embeddingRequest.Input,
+			EncodingFormat: "float",
+			// Explicitly omit dimensions
+		}
+
+		resp, err := client.CreateEmbeddings(r.Context(), cleanRequest)
+		if err != nil {
+			log.Error().Err(err).Msg("error creating embeddings")
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		// Better logging with more specific error information
-		errLogger := log.Error().
-			Err(err).
-			Str("model", string(embeddingRequest.Model)).
-			Str("provider", s.Cfg.RAG.PGVector.Provider)
-
-		var statusCode int
-		var errorMessage string
-
-		if apiErr, ok := err.(*openai.APIError); ok {
-			statusCode = apiErr.HTTPStatusCode
-			errorMessage = apiErr.Message
-
-			// Add detailed API error information
-			errLogger = errLogger.
-				Int("status_code", apiErr.HTTPStatusCode).
-				Str("type", apiErr.Type)
-
-			if apiErr.Code != nil {
-				errLogger = errLogger.Interface("code", apiErr.Code)
-			}
-			if apiErr.Param != nil {
-				errLogger = errLogger.Str("param", *apiErr.Param)
-			}
-
-			// Special handling for common error cases
-			if apiErr.HTTPStatusCode == 400 && strings.Contains(strings.ToLower(apiErr.Message), "model not found") {
-				errorMessage = "The requested embedding model is not found. It may not be loaded or available in this installation."
-				errLogger.Msg("Embedding model not found")
-			} else if apiErr.HTTPStatusCode == 404 {
-				errorMessage = "The requested embedding model is not available. Check if the model is properly configured."
-				errLogger.Msg("Embedding model not available")
-			} else if apiErr.HTTPStatusCode == 500 {
-				errorMessage = "The embedding service encountered a server error. The model may have failed to load."
-				errLogger.Msg("Embedding server error")
-			} else {
-				errLogger.Msg("vllm api error details")
-			}
-		} else {
-			// Generic error handling
-			statusCode = http.StatusInternalServerError
-			errorMessage = err.Error()
-
-			if strings.Contains(strings.ToLower(err.Error()), "no such file") ||
-				strings.Contains(strings.ToLower(err.Error()), "not found") {
-				errorMessage = "The requested embedding model is not found or not properly configured."
-				errLogger.Msg("Embedding model file not found")
-			} else {
-				errLogger.Msg("error creating embeddings")
-			}
-		}
-
-		// Provide a more specific error response to the client
-		http.Error(rw, errorMessage, statusCode)
+		writeResponse(rw, resp, http.StatusOK)
 		return
 	}
-
-	// Check if we got an empty response
-	if len(resp.Data) == 0 {
-		errMsg := "empty embedding response from model"
-		log.Error().
-			Str("model", string(embeddingRequest.Model)).
-			Str("provider", s.Cfg.RAG.PGVector.Provider).
-			Str("error", errMsg).
-			Msg("embedding service returned empty data array")
-		http.Error(rw, errMsg, http.StatusInternalServerError)
-		return
-	}
-
-	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(rw).Encode(resp)
 }
