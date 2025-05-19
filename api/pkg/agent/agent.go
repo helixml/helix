@@ -12,7 +12,7 @@ import (
 	"sync"
 
 	"github.com/helixml/helix/api/pkg/agent/prompts"
-	"github.com/openai/openai-go/packages/param"
+	"github.com/tmc/langchaingo/jsonschema"
 
 	// "github.com/openai/openai-go"
 	// "github.com/openai/openai-go/packages/param"
@@ -111,13 +111,11 @@ func (a *Agent) StopTool() openai.Tool {
 	return openai.Tool{
 		Function: &openai.FunctionDefinition{
 			Name: "stop",
-			Description: param.Opt[string]{
-				Value: `Request a stop after tool execution when one of the below is true
+			Description: `Request a stop after tool execution when one of the below is true
 1. You have answer for user request
 2. You have completed the task
 3. You don't know what to do next with the given tools or information`,
-			},
-			Parameters: openai.FunctionParameters{
+			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"callSummarizer": map[string]interface{}{
@@ -132,14 +130,14 @@ func (a *Agent) StopTool() openai.Tool {
 }
 
 // TODO - we probably need to have a custom made description for the tool that uses skill.description
-func (a *Agent) ConvertSkillsToTools() []openai.ChatCompletionToolParam {
-	tools := []openai.ChatCompletionToolParam{}
+func (a *Agent) ConvertSkillsToTools() []openai.Tool {
+	tools := []openai.Tool{}
 	for _, skill := range a.skills {
-		tools = append(tools, openai.ChatCompletionToolParam{
-			Function: openai.FunctionDefinitionParam{
+		tools = append(tools, openai.Tool{
+			Function: &openai.FunctionDefinition{
 				Name:        skill.Name,
-				Description: param.Opt[string]{Value: skill.Description},
-				Parameters:  openai.FunctionParameters{},
+				Description: skill.Description,
+				Parameters:  jsonschema.Definition{},
 			},
 		})
 	}
@@ -147,7 +145,7 @@ func (a *Agent) ConvertSkillsToTools() []openai.ChatCompletionToolParam {
 }
 
 // decideNextAction gets the initial response from the LLM that decides whether to use skills or stop execution
-func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *MessageList, memoryBlock *MemoryBlock) (*openai.ChatCompletion, error) {
+func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *MessageList, memoryBlock *MemoryBlock) (*openai.ChatCompletionResponse, error) {
 	skillFunctions := make([]string, len(a.skills))
 	for i, skill := range a.skills {
 		skillFunctions[i] = skill.Name
@@ -166,15 +164,15 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 
 	clonedMessages.AddFirst(systemPrompt)
 
-	tools := []openai.ChatCompletionToolParam{}
+	tools := []openai.Tool{}
 	if len(a.ConvertSkillsToTools()) > 0 {
-		tools = append([]openai.ChatCompletionToolParam{a.StopTool()}, a.ConvertSkillsToTools()...)
+		tools = append([]openai.Tool{a.StopTool()}, a.ConvertSkillsToTools()...)
 	}
 	// TODO make it strict to call the tool when the openai sdk supports passing the option 'required'
-	params := openai.ChatCompletionNewParams{
+	params := openai.ChatCompletionRequest{
 		Messages:   clonedMessages.All(),
 		Model:      llm.GenerationModel,
-		ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.Opt[string]{Value: "auto"}},
+		ToolChoice: "auto",
 		Tools:      tools,
 	}
 
@@ -186,14 +184,14 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 
 	if len(completion.Choices) == 0 {
 		a.logger.Error("No completion choices")
-		return completion, fmt.Errorf("no completion choices")
+		return &completion, fmt.Errorf("no completion choices")
 	}
 
 	// Check for duplicate skills in tool calls
 	if len(completion.Choices[0].Message.ToolCalls) > 1 {
 		// Create a map to track seen skill names
 		seenSkills := make(map[string]bool)
-		var uniqueToolCalls []openai.ChatCompletionMessageToolCall
+		var uniqueToolCalls []openai.ToolCall
 
 		// Keep only the first occurrence of each skill
 		for _, toolCall := range completion.Choices[0].Message.ToolCalls {
@@ -212,7 +210,7 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 		}
 	}
 
-	return completion, nil
+	return &completion, nil
 }
 
 // handleLLMError handles errors from LLM API calls
@@ -230,7 +228,7 @@ func (a *Agent) handleLLMError(err error, outUserChannel chan Response) {
 }
 
 // sendThoughtsAboutSkills generates "thinking" messages to keep the user engaged while skills are processing
-func (a *Agent) sendThoughtsAboutSkills(ctx context.Context, llm *LLM, messageHistory *MessageList, toolsToCall []openai.ChatCompletionMessageToolCall, outUserChannel chan Response) {
+func (a *Agent) sendThoughtsAboutSkills(ctx context.Context, llm *LLM, messageHistory *MessageList, toolsToCall []openai.ToolCall, outUserChannel chan Response) {
 	if len(toolsToCall) == 0 {
 		return
 	}
@@ -270,14 +268,30 @@ func (a *Agent) sendThoughtsAboutSkills(ctx context.Context, llm *LLM, messageHi
 	}()
 
 	messageHistory.AddFirst(allSpecSystemPrompt)
-	stream := llm.NewStreaming(ctx, openai.ChatCompletionNewParams{
+	stream, err := llm.NewStreaming(ctx, openai.ChatCompletionRequest{
 		Messages: messageHistory.All(),
 		Model:    llm.SmallGenerationModel,
 	})
+	if err != nil {
+		a.logger.Error("Error creating streaming", "error", err)
+		return
+	}
+
 	defer stream.Close()
 
-	for stream.Next() {
-		chunk := stream.Current()
+	for {
+		chunk, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			a.logger.Error("Error streaming", "error", err)
+			return
+		}
+		if len(chunk.Choices) == 0 {
+			a.logger.Error("No choices in chunk", "chunk", chunk)
+			continue
+		}
 		if chunk.Choices[0].Delta.Content != "" {
 			outUserChannel <- Response{
 				Content: chunk.Choices[0].Delta.Content,
@@ -289,7 +303,7 @@ func (a *Agent) sendThoughtsAboutSkills(ctx context.Context, llm *LLM, messageHi
 }
 
 // sendThoughtsAboutSkills generates "thinking" messages to keep the user engaged while skills are processing
-func (a *Agent) sendThoughtsAboutTools(ctx context.Context, llm *LLM, messageHistory *MessageList, toolsToCall []openai.ChatCompletionMessageToolCall, outUserChannel chan Response) {
+func (a *Agent) sendThoughtsAboutTools(ctx context.Context, llm *LLM, messageHistory *MessageList, toolsToCall []openai.ToolCall, outUserChannel chan Response) {
 	if len(toolsToCall) == 0 {
 		return
 	}
@@ -324,14 +338,29 @@ func (a *Agent) sendThoughtsAboutTools(ctx context.Context, llm *LLM, messageHis
 	}
 	messageHistory.Add(AssistantMessage(assistantMessage))
 
-	stream := llm.NewStreaming(ctx, openai.ChatCompletionNewParams{
+	stream, err := llm.NewStreaming(ctx, openai.ChatCompletionRequest{
 		Messages: messageHistory.All(),
 		Model:    llm.SmallGenerationModel,
 	})
+	if err != nil {
+		a.logger.Error("Error creating streaming", "error", err)
+		return
+	}
 	defer stream.Close()
 
-	for stream.Next() {
-		chunk := stream.Current()
+	for {
+		chunk, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			a.logger.Error("Error streaming", "error", err)
+			return
+		}
+		if len(chunk.Choices) == 0 {
+			a.logger.Error("No choices in chunk", "chunk", chunk)
+			continue
+		}
 		if chunk.Choices[0].Delta.Content != "" {
 			outUserChannel <- Response{
 				Content: chunk.Choices[0].Delta.Content,
@@ -360,7 +389,7 @@ func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *
 	clonedMessages := messageHistory.Clone()
 	clonedMessages.AddFirst(systemPrompt)
 
-	params := openai.ChatCompletionNewParams{
+	params := openai.ChatCompletionRequest{
 		Messages: clonedMessages.All(),
 		Model:    llm.GenerationModel,
 	}
@@ -407,7 +436,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		}
 	}()
 
-	var finalSkillCallResults map[string]*openai.ChatCompletionToolMessageParam
+	var finalSkillCallResults map[string]*openai.ChatCompletionMessage
 	var hasStopTool bool
 	var callSummarizer bool
 
@@ -430,7 +459,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		}
 
 		// Separate stop tools from skill tools
-		skillToolCalls := []openai.ChatCompletionMessageToolCall{}
+		skillToolCalls := []openai.ToolCall{}
 		for _, toolCall := range completion.Choices[0].Message.ToolCalls {
 			if toolCall.Function.Name == "stop" {
 				hasStopTool = true
@@ -449,7 +478,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		}
 
 		// Execute all skill tools in the current response
-		skillCallResults := make(map[string]*openai.ChatCompletionToolMessageParam)
+		skillCallResults := make(map[string]*openai.ChatCompletionMessage)
 		var wg sync.WaitGroup
 		var mu sync.Mutex
 
@@ -486,7 +515,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		// Add the completion message to history, but filter out the stop tool call
 		messageToAdd := completion.Choices[0].Message
 		if messageToAdd.ToolCalls != nil {
-			filteredToolCalls := []openai.ChatCompletionMessageToolCall{}
+			filteredToolCalls := []openai.ToolCall{}
 			for _, toolCall := range messageToAdd.ToolCalls {
 				if toolCall.Function.Name != "stop" {
 					filteredToolCalls = append(filteredToolCalls, toolCall)
@@ -496,14 +525,14 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 			// we tinker with the tool calls to filter out one of the call.
 			if len(filteredToolCalls) > 0 {
 				messageToAdd.ToolCalls = filteredToolCalls
-				messageHistory.Add(messageToAdd.ToParam())
+				messageHistory.Add(&messageToAdd)
 			}
 		} else {
-			messageHistory.Add(messageToAdd.ToParam())
+			messageHistory.Add(&messageToAdd)
 		}
 		// Add tool results to message history
 		for _, result := range skillCallResults {
-			messageHistory.Add(openai.ChatCompletionMessageParamUnion{OfTool: result})
+			messageHistory.Add(result)
 		}
 
 		// Store results for final processing
@@ -540,13 +569,13 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		// If callSummarizer is false, return the final skill result directly
 		// Get the last skill result
 		// Get keys from the map
-		var lastResult *openai.ChatCompletionToolMessageParam
+		var lastResult *openai.ChatCompletionMessage
 		for _, result := range finalSkillCallResults {
 			lastResult = result
 		}
 
 		// Extract the text content using the existing GetMessageText function
-		contentString, err := GetMessageText(openai.ChatCompletionMessageParamUnion{OfTool: lastResult})
+		contentString, err := GetMessageText(lastResult)
 		if err != nil {
 			a.logger.Error("Error extracting content from tool result", "error", err)
 			outUserChannel <- Response{
