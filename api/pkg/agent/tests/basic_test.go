@@ -60,6 +60,7 @@ func (b *BestAppleFinder) StatusMessage() string {
 func (b *BestAppleFinder) OpenAI() []openai.Tool {
 	return []openai.Tool{
 		{
+			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        b.toolName,
 				Description: b.description,
