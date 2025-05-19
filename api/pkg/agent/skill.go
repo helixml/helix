@@ -7,7 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/openai/openai-go"
+	// "github.com/openai/openai-go"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 // Skill holds a set of tools and a domain-specific prompt/description.
@@ -18,8 +19,8 @@ type Skill struct {
 	Tools        []Tool
 }
 
-func (s *Skill) GetTools() []openai.ChatCompletionToolParam {
-	tools := []openai.ChatCompletionToolParam{}
+func (s *Skill) GetTools() []openai.Tool {
+	tools := []openai.Tool{}
 	for _, tool := range s.Tools {
 		tools = append(tools, tool.OpenAI()...)
 	}
@@ -43,13 +44,19 @@ func (s *Skill) Spec() string {
 	for _, toolParam := range s.GetTools() {
 		// Extract tool information from the function definition
 		toolName := toolParam.Function.Name
-		toolDescription := toolParam.Function.Description.Value
+		toolDescription := toolParam.Function.Description
 
 		toolsDescription.WriteString(fmt.Sprintf("Tool: %s\n", toolName))
 		toolsDescription.WriteString(fmt.Sprintf("Description: %s\n", toolDescription))
 
-		// Get parameters information if available
-		params := toolParam.Function.Parameters
+		// Get parameters information if available, cast to map[string]interface{}
+		paramsAny := toolParam.Function.Parameters
+
+		// Convert paramsAny to map[string]interface{}
+		params, ok := paramsAny.(map[string]interface{})
+		if !ok {
+			continue
+		}
 
 		// Extract properties and required fields from parameters
 		if properties, ok := params["properties"].(map[string]interface{}); ok {

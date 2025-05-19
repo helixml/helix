@@ -5,7 +5,7 @@ package agent
 import (
 	"context"
 
-	"github.com/openai/openai-go"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 type Tool interface {
@@ -13,6 +13,6 @@ type Tool interface {
 	Name() string
 	StatusMessage() string // not using now - but we will - soon
 	Description() string
-	OpenAI() []openai.ChatCompletionToolParam
+	OpenAI() []openai.Tool
 	Execute(ctx context.Context, meta Meta, args map[string]interface{}) (string, error)
 }
