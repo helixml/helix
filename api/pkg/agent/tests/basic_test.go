@@ -6,8 +6,9 @@ import (
 	"testing"
 
 	agentpod "github.com/helixml/helix/api/pkg/agent"
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/packages/param"
+	helix_openai "github.com/helixml/helix/api/pkg/openai"
+
+	openai "github.com/sashabaranov/go-openai"
 )
 
 // MockMemory implements the Memory interface for testing
@@ -56,13 +57,13 @@ func (b *BestAppleFinder) StatusMessage() string {
 	return "Finding the best apple"
 }
 
-func (b *BestAppleFinder) OpenAI() []openai.ChatCompletionToolParam {
-	return []openai.ChatCompletionToolParam{
+func (b *BestAppleFinder) OpenAI() []openai.Tool {
+	return []openai.Tool{
 		{
-			Function: openai.FunctionDefinitionParam{
+			Function: &openai.FunctionDefinition{
 				Name:        b.toolName,
-				Description: param.Opt[string]{Value: b.description},
-				Parameters: openai.FunctionParameters{
+				Description: b.description,
+				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"user_query": map[string]interface{}{
@@ -150,9 +151,10 @@ func TestSimpleConversation(t *testing.T) {
 		t.Fatal("Failed to load config:", err)
 	}
 
+	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
+
 	llm := agentpod.NewLLM(
-		config.OpenAIAPIKey,
-		config.BaseURL,
+		client,
 		config.ReasoningModel,
 		config.GenerationModel,
 		config.SmallReasoningModel,
@@ -206,9 +208,10 @@ func TestConversationWithSkills(t *testing.T) {
 		t.Fatal("Failed to load config:", err)
 	}
 
+	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
+
 	llm := agentpod.NewLLM(
-		config.OpenAIAPIKey,
-		config.BaseURL,
+		client,
 		config.ReasoningModel,
 		config.GenerationModel,
 		config.SmallReasoningModel,
@@ -293,9 +296,10 @@ func TestConversationWithHistory(t *testing.T) {
 		t.Fatal("Failed to load config:", err)
 	}
 
+	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
+
 	llm := agentpod.NewLLM(
-		config.OpenAIAPIKey,
-		config.BaseURL,
+		client,
 		config.ReasoningModel,
 		config.GenerationModel,
 		config.SmallReasoningModel,
@@ -360,9 +364,10 @@ func TestMemoryRetrieval(t *testing.T) {
 		t.Fatal("Failed to load config:", err)
 	}
 
+	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
+
 	llm := agentpod.NewLLM(
-		config.OpenAIAPIKey,
-		config.BaseURL,
+		client,
 		config.ReasoningModel,
 		config.GenerationModel,
 		config.SmallReasoningModel,

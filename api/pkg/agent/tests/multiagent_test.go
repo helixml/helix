@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	agentpod "github.com/helixml/helix/api/pkg/agent"
+	helix_openai "github.com/helixml/helix/api/pkg/openai"
 
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/packages/param"
+	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,13 +67,13 @@ func (r *RestaurantTool) StatusMessage() string {
 	return "Finding the perfect restaurant for you"
 }
 
-func (r *RestaurantTool) OpenAI() []openai.ChatCompletionToolParam {
-	return []openai.ChatCompletionToolParam{
+func (r *RestaurantTool) OpenAI() []openai.Tool {
+	return []openai.Tool{
 		{
-			Function: openai.FunctionDefinitionParam{
+			Function: &openai.FunctionDefinition{
 				Name:        r.toolName,
-				Description: param.Opt[string]{Value: r.description},
-				Parameters: openai.FunctionParameters{
+				Description: r.description,
+				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"location": map[string]interface{}{
@@ -141,13 +141,13 @@ func (c *CuisineTool) StatusMessage() string {
 	return "Finding the perfect dishes for you"
 }
 
-func (c *CuisineTool) OpenAI() []openai.ChatCompletionToolParam {
-	return []openai.ChatCompletionToolParam{
+func (c *CuisineTool) OpenAI() []openai.Tool {
+	return []openai.Tool{
 		{
-			Function: openai.FunctionDefinitionParam{
+			Function: &openai.FunctionDefinition{
 				Name:        c.toolName,
-				Description: param.Opt[string]{Value: c.description},
-				Parameters: openai.FunctionParameters{
+				Description: c.description,
+				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"restaurant": map[string]interface{}{
@@ -193,11 +193,12 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 	config, err := LoadConfig()
 	require.NoError(t, err)
 
+	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
+
 	require.NotEmpty(t, config.OpenAIAPIKey, "OpenAI API Key is not set")
 
 	llm := agentpod.NewLLM(
-		config.OpenAIAPIKey,
-		config.BaseURL,
+		client,
 		config.ReasoningModel,
 		config.GenerationModel,
 		config.SmallReasoningModel,
