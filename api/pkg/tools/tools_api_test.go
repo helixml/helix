@@ -1,7 +1,9 @@
 package tools
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -243,6 +245,53 @@ func (suite *ActionTestSuite) Test_prepareRequest_Path() {
 	suite.Equal("https://example.com/pets/99944", req.URL.String())
 	suite.Equal("GET", req.Method)
 	suite.Equal("1234567890", req.Header.Get("X-Api-Key"))
+}
+
+type Pet struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Tag         string `json:"tag"`
+}
+
+func (suite *ActionTestSuite) Test_prepareRequest_Body() {
+	tool := &types.Tool{
+		Name:        "managePetsApi",
+		Description: "pet store API that is used to manage pets",
+		ToolType:    types.ToolTypeAPI,
+		Config: types.ToolConfig{
+			API: &types.ToolAPIConfig{
+				URL:    "https://example.com",
+				Schema: petStoreAPISpec,
+				Headers: map[string]string{
+					"X-Api-Key": "1234567890",
+				},
+			},
+		},
+	}
+
+	params := map[string]string{
+		"name":        "doggie",
+		"description": "a brown dog",
+		"tag":         "dog",
+	}
+
+	req, err := suite.strategy.prepareRequest(suite.ctx, tool, "createPets", params)
+	suite.NoError(err)
+
+	suite.Equal("https://example.com/pets", req.URL.String())
+	suite.Equal("POST", req.Method)
+	suite.Equal("1234567890", req.Header.Get("X-Api-Key"))
+
+	body, err := io.ReadAll(req.Body)
+	suite.NoError(err)
+
+	var pet Pet
+	err = json.Unmarshal(body, &pet)
+	suite.NoError(err)
+
+	suite.Equal("doggie", pet.Name)
+	suite.Equal("a brown dog", pet.Description)
+	suite.Equal("dog", pet.Tag)
 }
 
 func (suite *ActionTestSuite) Test_prepareRequest_Path_ProvidedQuery() {
