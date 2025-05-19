@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -28,19 +29,25 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 
 	// Based on the operationId get the path and method
 	var path, method string
-	var hasRequestBody bool
+	var requestBodySchema *openapi3.SchemaRef
 
 	queryParams := make(map[string]bool)
 	pathParams := make(map[string]bool)
 
 	for p, pathItem := range schema.Paths.Map() {
-		for m, operation := range pathItem.Operations() {
-			if operation.OperationID == action {
+		for m, op := range pathItem.Operations() {
+			if op.OperationID == action {
 				path = p
 				method = m
-				hasRequestBody = operation.RequestBody != nil
 
-				for _, param := range operation.Parameters {
+				// Get request body schema if it exists
+				if op.RequestBody != nil && op.RequestBody.Value != nil {
+					if content, ok := op.RequestBody.Value.Content["application/json"]; ok {
+						requestBodySchema = content.Schema
+					}
+				}
+
+				for _, param := range op.Parameters {
 					switch param.Value.In {
 					case "query":
 						queryParams[param.Value.Name] = true
@@ -60,9 +67,41 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 
 	// Prepare request
 	var body io.Reader
-	if hasRequestBody {
-		// Create JSON body from parameters
-		jsonBody, err := json.Marshal(params)
+	if requestBodySchema != nil {
+		// Create a map to hold the body parameters
+		bodyParams := make(map[string]interface{})
+
+		// Extract body parameters from the schema
+		if requestBodySchema.Value != nil {
+			for propName, propSchema := range requestBodySchema.Value.Properties {
+				if value, exists := params[propName]; exists {
+					// Convert the string value to the appropriate type based on the schema
+					if len(propSchema.Value.Type.Slice()) > 0 {
+						switch propSchema.Value.Type.Slice()[0] {
+						case "integer":
+							if intVal, err := strconv.Atoi(value); err == nil {
+								bodyParams[propName] = intVal
+							}
+						case "number":
+							if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
+								bodyParams[propName] = floatVal
+							}
+						case "boolean":
+							if boolVal, err := strconv.ParseBool(value); err == nil {
+								bodyParams[propName] = boolVal
+							}
+						default:
+							bodyParams[propName] = value
+						}
+					} else {
+						bodyParams[propName] = value
+					}
+				}
+			}
+		}
+
+		// Marshal the body parameters to JSON
+		jsonBody, err := json.Marshal(bodyParams)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal request body: %w", err)
 		}
@@ -150,7 +189,7 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		Interface("query_params", queryParams).
 		Interface("path_params", pathParams).
 		Interface("headers", tool.Config.API.Headers).
-		Bool("has_request_body", hasRequestBody).
+		Bool("has_request_body", requestBodySchema != nil).
 		Msg("API request details")
 
 	// Log authorization header if present (for debugging purposes only)
