@@ -290,8 +290,9 @@ func (suite *ActionTestSuite) Test_prepareRequest_Body() {
 	suite.NoError(err)
 
 	suite.Equal("doggie", pet.Name)
-	suite.Equal("a brown dog", pet.Description)
 	suite.Equal("dog", pet.Tag)
+
+	suite.Equal("", pet.Description, "while we do set this, we don't have it in the API schema hence it should not be visible")
 }
 
 func (suite *ActionTestSuite) Test_prepareRequest_Path_ProvidedQuery() {

@@ -91,10 +91,10 @@ func (suite *ActionTestSuite) TestAction_RunAPIActionWithParameters_createPet() 
 		suite.NoError(err)
 		defer r.Body.Close()
 
-		assert.Contains(suite.T(), string(body), "doggie")
-		assert.Contains(suite.T(), string(body), "a brown dog")
+		assert.Contains(suite.T(), string(body), "fluffy")
+		assert.Contains(suite.T(), string(body), "dog")
 
-		fmt.Fprintln(w, "{\"id\": 99944, \"name\": \"doggie\", \"tag\": \"dog\", \"description\": \"a brown dog\"}")
+		fmt.Fprintln(w, "{\"id\": 99944, \"name\": \"fluffy\", \"tag\": \"dog\", \"description\": \"a brown dog\"}")
 
 		called = true
 	}))
@@ -136,8 +136,8 @@ func (suite *ActionTestSuite) TestAction_RunAPIActionWithParameters_createPet() 
 		Tool:   managePetsAPI,
 		Action: "createPets",
 		Parameters: map[string]string{
-			"name":        "doggie",
-			"description": "a brown dog",
+			"name": "fluffy",
+			"tag":  "dog",
 		},
 	})
 	suite.NoError(err)
