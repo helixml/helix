@@ -9,6 +9,7 @@ import (
 	helix_openai "github.com/helixml/helix/api/pkg/openai"
 
 	openai "github.com/sashabaranov/go-openai"
+	"github.com/sashabaranov/go-openai/jsonschema"
 )
 
 // MockMemory implements the Memory interface for testing
@@ -64,15 +65,15 @@ func (b *BestAppleFinder) OpenAI() []openai.Tool {
 			Function: &openai.FunctionDefinition{
 				Name:        b.toolName,
 				Description: b.description,
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"user_query": map[string]interface{}{
-							"type":        "string",
-							"description": "Query from the user",
+				Parameters: jsonschema.Definition{
+					Type: jsonschema.Object,
+					Properties: map[string]jsonschema.Definition{
+						"user_query": {
+							Type:        jsonschema.String,
+							Description: "Query from the user",
 						},
 					},
-					"required": []string{"user_query"},
+					Required: []string{"user_query"},
 				},
 			},
 		},

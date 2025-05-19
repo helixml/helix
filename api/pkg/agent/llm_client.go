@@ -3,9 +3,6 @@ package agent
 import (
 	"context"
 
-	"github.com/invopop/jsonschema"
-	// "github.com/openai/openai-go"
-
 	helix_openai "github.com/helixml/helix/api/pkg/openai"
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -24,15 +21,7 @@ type LLM struct {
 }
 
 func NewLLM(client helix_openai.Client, reasoningModel string, generationModel string, smallReasoningModel string, smallGenerationModel string) *LLM {
-	// var client openai.Client
-	// if baseURL != "" {
-	// 	client = openai.NewClient(option.WithBaseURL(baseURL), option.WithAPIKey(apiKey))
-	// } else {
-	// 	client = openai.NewClient(option.WithAPIKey(apiKey))
-	// }
 	return &LLM{
-		// APIKey:               apiKey,
-		// BaseURL:              baseURL,
 		ReasoningModel:       reasoningModel,
 		GenerationModel:      generationModel,
 		SmallReasoningModel:  smallReasoningModel,
@@ -48,14 +37,4 @@ func (c *LLM) New(ctx context.Context, params openai.ChatCompletionRequest) (ope
 
 func (c *LLM) NewStreaming(ctx context.Context, params openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
 	return c.client.CreateChatCompletionStream(ctx, params)
-}
-
-func GenerateSchema[T any]() interface{} {
-	reflector := jsonschema.Reflector{
-		AllowAdditionalProperties: false,
-		DoNotReference:            true,
-	}
-	var v T
-	schema := reflector.Reflect(v)
-	return schema
 }
