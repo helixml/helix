@@ -35,11 +35,13 @@ require (
 	github.com/gptscript-ai/gptscript v0.9.5
 	github.com/hashicorp/go-retryablehttp v0.7.7
 	github.com/inhies/go-bytesize v0.0.0-20220417184213-4913239db9cf
+	github.com/invopop/jsonschema v0.13.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/joho/godotenv v1.5.1
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/lib/pq v1.10.9
 	github.com/mark3labs/mcp-go v0.13.0
+	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/mendableai/firecrawl-go v0.0.0-20240815202540-ebd79458547a
 	github.com/nats-io/nats-server/v2 v2.10.14
 	github.com/nats-io/nats.go v1.38.0
@@ -47,6 +49,7 @@ require (
 	github.com/oklog/ulid/v2 v2.1.0
 	github.com/olekukonko/tablewriter v0.0.6-0.20230925090304-df64c4bbad77
 	github.com/ollama/ollama v0.5.7
+	github.com/openai/openai-go v0.1.0-beta.10
 	github.com/pgvector/pgvector-go v0.2.3
 	github.com/puzpuzpuz/xsync/v3 v3.4.1
 	github.com/robfig/cron/v3 v3.0.2-0.20210106135023-bc59245fe10e
@@ -58,6 +61,7 @@ require (
 	github.com/stripe/stripe-go/v76 v76.8.0
 	github.com/swaggo/swag v1.16.3
 	github.com/theckman/yacspin v0.13.12
+	github.com/tiktoken-go/tokenizer v0.6.2
 	github.com/tmc/langchaingo v0.1.12
 	github.com/typesense/typesense-go/v2 v2.0.0
 	go.uber.org/mock v0.4.0
@@ -78,10 +82,13 @@ require (
 )
 
 require (
+	github.com/bahlo/generic-list-go v0.2.0 // indirect
+	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.0.5 // indirect
 	github.com/pquerna/cachecontrol v0.2.0 // indirect
-	github.com/tiktoken-go/tokenizer v0.6.2 // indirect
+	github.com/tidwall/sjson v1.2.5 // indirect
+	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 )
 
 require (
