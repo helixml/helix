@@ -109,6 +109,7 @@ func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages
 
 func (a *Agent) StopTool() openai.Tool {
 	return openai.Tool{
+		Type: openai.ToolTypeFunction,
 		Function: &openai.FunctionDefinition{
 			Name: "stop",
 			Description: `Request a stop after tool execution when one of the below is true
@@ -134,6 +135,7 @@ func (a *Agent) ConvertSkillsToTools() []openai.Tool {
 	tools := []openai.Tool{}
 	for _, skill := range a.skills {
 		tools = append(tools, openai.Tool{
+			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        skill.Name,
 				Description: skill.Description,
