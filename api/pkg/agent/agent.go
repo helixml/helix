@@ -139,7 +139,10 @@ func (a *Agent) ConvertSkillsToTools() []openai.Tool {
 			Function: &openai.FunctionDefinition{
 				Name:        skill.Name,
 				Description: skill.Description,
-				Parameters:  jsonschema.Definition{},
+				Parameters: jsonschema.Definition{
+					Type:     jsonschema.Object,
+					Required: []string{""},
+				},
 			},
 		})
 	}
@@ -170,6 +173,7 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 	if len(a.ConvertSkillsToTools()) > 0 {
 		tools = append([]openai.Tool{a.StopTool()}, a.ConvertSkillsToTools()...)
 	}
+
 	// TODO make it strict to call the tool when the openai sdk supports passing the option 'required'
 	params := openai.ChatCompletionRequest{
 		Messages:   clonedMessages.All(),
