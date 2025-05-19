@@ -8,7 +8,8 @@ import (
 	"sync"
 
 	"github.com/helixml/helix/api/pkg/agent/prompts"
-	// "github.com/openai/openai-go"
+
+	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -28,7 +29,7 @@ func MessageWhenToolErrorWithRetry(errorString string, toolCallID string) *opena
 }
 
 func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistory *MessageList, llm *LLM, outChan chan Response, memoryBlock *MemoryBlock, skill *Skill, skillToolCallID string, isConversational bool) (*openai.ChatCompletionMessage, error) {
-	a.logger.Info("Running skill", "skill", skill.Name)
+	log.Info().Str("skill", skill.Name).Msg("Running skill")
 
 	promptData := prompts.SkillContextRunnerPromptData{
 		MainAgentSystemPrompt: a.prompt,
@@ -37,7 +38,7 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 	}
 	systemPrompt, err := prompts.SkillContextRunnerPrompt(promptData)
 	if err != nil {
-		a.logger.Error("Error getting system prompt", "error", err)
+		log.Error().Err(err).Msg("Error getting system prompt")
 		return nil, err
 	}
 	messageHistory.AddFirst(systemPrompt)
@@ -56,7 +57,7 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 			Model:           modelToUse,
 			ReasoningEffort: "high",
 		}
-		a.logger.Info("Running skill", "skill", skill.Name, "tools", skill.Tools)
+		log.Info().Str("skill", skill.Name).Interface("tools", skill.Tools).Msg("Running skill")
 		if len(skill.GetTools()) > 0 {
 			params.Tools = skill.GetTools()
 		}
@@ -67,7 +68,7 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 
 		completion, err := llm.New(ctx, params)
 		if err != nil {
-			a.logger.Error("Error calling LLM while running skill", "error", err)
+			log.Error().Err(err).Msg("Error calling LLM while running skill")
 			return MessageWhenToolErrorWithRetry("Network error", skillToolCallID), err
 		}
 		messageHistory.Add(&completion.Choices[0].Message)
@@ -75,7 +76,7 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 		// Check if both tool call and content are non-empty
 		bothToolCallAndContent := completion.Choices[0].Message.ToolCalls != nil && completion.Choices[0].Message.Content != ""
 		if bothToolCallAndContent {
-			a.logger.Error("Expectation is that tool call and content shouldn't both be non-empty", "message", completion.Choices[0].Message)
+			log.Error().Interface("message", completion.Choices[0].Message).Msg("Expectation is that tool call and content shouldn't both be non-empty")
 		}
 
 		// if there is no tool call, break
@@ -106,7 +107,7 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 
 				tool, err := skill.GetTool(toolCall.Function.Name)
 				if err != nil {
-					a.logger.Error("Error getting tool", "error", err)
+					log.Error().Err(err).Msg("Error getting tool")
 					resultChan <- struct {
 						toolCall *openai.ToolCall
 						output   string
@@ -122,11 +123,11 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 					}
 				}
 
-				a.logger.Info("Tool", "tool", tool.Name(), "arguments", toolCall.Function.Arguments)
+				log.Info().Str("tool", tool.Name()).Str("arguments", toolCall.Function.Arguments).Msg("Tool")
 				arguments := map[string]interface{}{}
 				err = json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments)
 				if err != nil {
-					a.logger.Error("Error unmarshalling tool arguments", "error", err)
+					log.Error().Err(err).Msg("Error unmarshalling tool arguments")
 					resultChan <- struct {
 						toolCall *openai.ToolCall
 						output   string
@@ -153,7 +154,7 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 		// Process results as they come in
 		for result := range resultChan {
 			if result.err != nil {
-				a.logger.Error("Error executing tool", "error", result.err)
+				log.Error().Err(result.err).Msg("Error executing tool")
 				switch {
 				case errors.As(result.err, &ignErr):
 					messageHistory.Add(MessageWhenToolError(result.toolCall.ID))
@@ -189,7 +190,7 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 			ToolCallID: skillToolCallID,
 		}, nil
 	} else {
-		a.logger.Error("Unexpected message type in SkillContextRunner result", "type", fmt.Sprintf("%T", lastMessage))
+		log.Error().Str("type", fmt.Sprintf("%T", lastMessage)).Msg("Unexpected message type in SkillContextRunner result")
 		return &openai.ChatCompletionMessage{
 			Role:       openai.ChatMessageRoleTool,
 			Content:    "Error: The skill execution did not produce a valid response",
