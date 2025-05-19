@@ -4,15 +4,19 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"sync"
 
 	"github.com/helixml/helix/api/pkg/agent/prompts"
-
-	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/packages/param"
+
+	// "github.com/openai/openai-go"
+	// "github.com/openai/openai-go/packages/param"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 var ignErr *IgnorableError
@@ -64,21 +68,31 @@ func (a *Agent) GetSkill(name string) (*Skill, error) {
 // summarizeMultipleToolResults summarizes results when multiple tools were called
 func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages *MessageList, llm *LLM) (string, error) {
 	clonedMessages.AddFirst("Craft a helpful answer to user's question based on the tool call results. Be concise and to the point.")
-	params := openai.ChatCompletionNewParams{
+	params := openai.ChatCompletionRequest{
 		Messages: clonedMessages.All(),
 		Model:    llm.GenerationModel,
-		StreamOptions: openai.ChatCompletionStreamOptionsParam{
-			IncludeUsage: param.Opt[bool]{Value: true},
+		StreamOptions: &openai.StreamOptions{
+			IncludeUsage: true,
 		},
 	}
 
-	stream := llm.NewStreaming(ctx, params)
+	stream, err := llm.NewStreaming(ctx, params)
+	if err != nil {
+		return "", err
+	}
 	defer stream.Close()
 
 	var fullResponse strings.Builder
 
-	for stream.Next() {
-		chunk := stream.Current()
+	for {
+		chunk, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			a.logger.Error("Error streaming", "error", err)
+			return "", err
+		}
 
 		if len(chunk.Choices) == 0 {
 			a.logger.Error("No choices in chunk", "chunk", chunk)
@@ -90,20 +104,15 @@ func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages
 		}
 	}
 
-	if stream.Err() != nil {
-		a.logger.Error("Error streaming", "error", stream.Err())
-		return "", stream.Err()
-	}
-
 	return fullResponse.String(), nil
 }
 
-func (a *Agent) StopTool() openai.ChatCompletionToolParam {
-	return openai.ChatCompletionToolParam{
-		Function: openai.FunctionDefinitionParam{
+func (a *Agent) StopTool() openai.Tool {
+	return openai.Tool{
+		Function: &openai.FunctionDefinition{
 			Name: "stop",
 			Description: param.Opt[string]{
-				Value: `Request a stop after tool execution when one of the belwo is true
+				Value: `Request a stop after tool execution when one of the below is true
 1. You have answer for user request
 2. You have completed the task
 3. You don't know what to do next with the given tools or information`,

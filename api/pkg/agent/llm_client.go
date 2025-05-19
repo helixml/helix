@@ -4,9 +4,10 @@ import (
 	"context"
 
 	"github.com/invopop/jsonschema"
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
-	"github.com/openai/openai-go/packages/ssestream"
+	// "github.com/openai/openai-go"
+
+	helix_openai "github.com/helixml/helix/api/pkg/openai"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 // Define a custom type for context keys
@@ -19,19 +20,19 @@ type LLM struct {
 	GenerationModel      string
 	SmallReasoningModel  string
 	SmallGenerationModel string
-	client               openai.Client
+	client               helix_openai.Client
 }
 
-func NewLLM(apiKey string, baseURL string, reasoningModel string, generationModel string, smallReasoningModel string, smallGenerationModel string) *LLM {
-	var client openai.Client
-	if baseURL != "" {
-		client = openai.NewClient(option.WithBaseURL(baseURL), option.WithAPIKey(apiKey))
-	} else {
-		client = openai.NewClient(option.WithAPIKey(apiKey))
-	}
+func NewLLM(client helix_openai.Client, reasoningModel string, generationModel string, smallReasoningModel string, smallGenerationModel string) *LLM {
+	// var client openai.Client
+	// if baseURL != "" {
+	// 	client = openai.NewClient(option.WithBaseURL(baseURL), option.WithAPIKey(apiKey))
+	// } else {
+	// 	client = openai.NewClient(option.WithAPIKey(apiKey))
+	// }
 	return &LLM{
-		APIKey:               apiKey,
-		BaseURL:              baseURL,
+		// APIKey:               apiKey,
+		// BaseURL:              baseURL,
 		ReasoningModel:       reasoningModel,
 		GenerationModel:      generationModel,
 		SmallReasoningModel:  smallReasoningModel,
@@ -41,14 +42,12 @@ func NewLLM(apiKey string, baseURL string, reasoningModel string, generationMode
 }
 
 // TODO failures like too long, non-processable etc from the LLM needs to be handled
-func (c *LLM) New(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
-
-	return c.client.Chat.Completions.New(ctx, params)
+func (c *LLM) New(ctx context.Context, params openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+	return c.client.CreateChatCompletion(ctx, params)
 }
 
-func (c *LLM) NewStreaming(ctx context.Context, params openai.ChatCompletionNewParams) *ssestream.Stream[openai.ChatCompletionChunk] {
-
-	return c.client.Chat.Completions.NewStreaming(ctx, params)
+func (c *LLM) NewStreaming(ctx context.Context, params openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+	return c.client.CreateChatCompletionStream(ctx, params)
 }
 
 func GenerateSchema[T any]() interface{} {
