@@ -729,5 +729,10 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	return &types.RunAPIActionResponse{Response: string(body)}, nil
+	// If body is empty but status code is 200, return the status text
+	if len(body) == 0 && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return &types.RunAPIActionResponse{Response: "OK"}, nil
+	}
+
+	return &types.RunAPIActionResponse{Response: string(body), Error: resp.Status}, nil
 }

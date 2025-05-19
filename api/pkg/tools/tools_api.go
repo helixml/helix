@@ -146,7 +146,7 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 			Str("auth_header_prefix", authHeader[:7]+"...").
 			Msg("API request has Authorization header")
 	} else {
-		log.Warn().
+		log.Info().
 			Interface("all_headers", req.Header).
 			Interface("tool_headers", tool.Config.API.Headers).
 			Msg("No Authorization header found for API request")
