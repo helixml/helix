@@ -1,10 +1,12 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
 	"strings"
 
@@ -26,6 +28,7 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 
 	// Based on the operationId get the path and method
 	var path, method string
+	var hasRequestBody bool
 
 	queryParams := make(map[string]bool)
 	pathParams := make(map[string]bool)
@@ -35,9 +38,9 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 			if operation.OperationID == action {
 				path = p
 				method = m
+				hasRequestBody = operation.RequestBody != nil
 
 				for _, param := range operation.Parameters {
-
 					switch param.Value.In {
 					case "query":
 						queryParams[param.Value.Name] = true
@@ -56,7 +59,17 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 	}
 
 	// Prepare request
-	req, err := http.NewRequestWithContext(ctx, method, tool.Config.API.URL+path, nil)
+	var body io.Reader
+	if hasRequestBody {
+		// Create JSON body from parameters
+		jsonBody, err := json.Marshal(params)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		body = bytes.NewReader(jsonBody)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, tool.Config.API.URL+path, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -137,6 +150,7 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		Interface("query_params", queryParams).
 		Interface("path_params", pathParams).
 		Interface("headers", tool.Config.API.Headers).
+		Bool("has_request_body", hasRequestBody).
 		Msg("API request details")
 
 	// Log authorization header if present (for debugging purposes only)
