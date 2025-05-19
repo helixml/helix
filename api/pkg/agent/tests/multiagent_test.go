@@ -246,9 +246,9 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 
 	// Create session with restaurant agent
 	restaurantSession := agentpod.NewSession(context.Background(), llm, mem, restaurantAgent, storage, agentpod.Meta{
-		CustomerID: orgID,
-		SessionID:  sessionID,
-		Extra:      map[string]string{"user_id": userID, "domain": "test"},
+		UserID:    orgID,
+		SessionID: sessionID,
+		Extra:     map[string]string{"user_id": userID, "domain": "test"},
 	})
 
 	restaurantSession.In(prompt)

@@ -174,9 +174,9 @@ func TestSimpleConversation(t *testing.T) {
 	userID := GenerateNewTestID()
 
 	convSession := agentpod.NewSession(context.Background(), llm, mem, ai, storage, agentpod.Meta{
-		CustomerID: orgID,
-		SessionID:  sessionID,
-		Extra:      map[string]string{"user_id": userID},
+		UserID:    orgID,
+		SessionID: sessionID,
+		Extra:     map[string]string{"user_id": userID},
 	})
 	convSession.In("test confirmed")
 
@@ -243,9 +243,9 @@ func TestConversationWithSkills(t *testing.T) {
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 	convSession := agentpod.NewSession(context.Background(), llm, mem, agent, storage, agentpod.Meta{
-		CustomerID: orgID,
-		SessionID:  sessionID,
-		Extra:      map[string]string{"user_id": userID},
+		UserID:    orgID,
+		SessionID: sessionID,
+		Extra:     map[string]string{"user_id": userID},
 	})
 
 	convSession.In("Which apple is the best?")
@@ -320,9 +320,9 @@ func TestConversationWithHistory(t *testing.T) {
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 	convSession := agentpod.NewSession(context.Background(), llm, mem, ai, storage, agentpod.Meta{
-		CustomerID: orgID,
-		SessionID:  sessionID,
-		Extra:      map[string]string{"user_id": userID},
+		UserID:    orgID,
+		SessionID: sessionID,
+		Extra:     map[string]string{"user_id": userID},
 	})
 
 	convSession.In("is it a fruit or a vegetable? Answer in one word without extra punctuation.")
@@ -392,9 +392,9 @@ func TestMemoryRetrieval(t *testing.T) {
 	userID := GenerateNewTestID()
 
 	convSession := agentpod.NewSession(context.Background(), llm, mem, ai, storage, agentpod.Meta{
-		CustomerID: orgID,
-		SessionID:  sessionID,
-		Extra:      map[string]string{"user_id": userID},
+		UserID:    orgID,
+		SessionID: sessionID,
+		Extra:     map[string]string{"user_id": userID},
 	})
 
 	convSession.In("Which country am I from?")

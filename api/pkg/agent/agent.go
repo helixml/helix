@@ -319,7 +319,7 @@ func (a *Agent) sendThoughtsAboutTools(ctx context.Context, llm *LLM, messageHis
 	defer func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Error().Interface("error", r).Msg("Panic when sending end response")
+				log.Error().Any("error", r).Msg("Panic when sending end response")
 			}
 		}()
 		outUserChannel <- Response{
@@ -354,7 +354,7 @@ func (a *Agent) sendThoughtsAboutTools(ctx context.Context, llm *LLM, messageHis
 			return
 		}
 		if len(chunk.Choices) == 0 {
-			log.Error().Interface("chunk", chunk).Msg("No choices in chunk")
+			log.Error().Any("chunk", chunk).Msg("No choices in chunk")
 			continue
 		}
 		if chunk.Choices[0].Delta.Content != "" {

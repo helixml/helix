@@ -9,9 +9,9 @@ import (
 )
 
 type Meta struct {
-	CustomerID string
-	SessionID  string
-	Extra      map[string]string
+	UserID    string
+	SessionID string
+	Extra     map[string]string
 }
 
 // Session holds ephemeral conversation data & references to global resources.
@@ -37,7 +37,7 @@ type Session struct {
 // NewSession constructs a session with references to shared LLM & memory, but isolated state.
 func NewSession(ctx context.Context, llm *LLM, mem Memory, ag *Agent, storage Storage, meta Meta) *Session {
 	ctx, cancel := context.WithCancel(ctx)
-	ctx = context.WithValue(ctx, ContextKey("customerID"), meta.CustomerID)
+	ctx = context.WithValue(ctx, ContextKey("userID"), meta.UserID)
 	ctx = context.WithValue(ctx, ContextKey("sessionID"), meta.SessionID)
 	ctx = context.WithValue(ctx, ContextKey("extra"), meta.Extra)
 	s := &Session{
