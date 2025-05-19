@@ -7,16 +7,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"strings"
 	"sync"
 
 	"github.com/helixml/helix/api/pkg/agent/prompts"
-	"github.com/tmc/langchaingo/jsonschema"
 
-	// "github.com/openai/openai-go"
-	// "github.com/openai/openai-go/packages/param"
+	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
+
+	// "github.com/sashabaranov/go-openai/jsonschema"
+	"github.com/tmc/langchaingo/jsonschema"
 )
 
 var ignErr *IgnorableError
@@ -26,7 +26,6 @@ var retErr *RetryableError
 type Agent struct {
 	prompt string
 	skills []Skill
-	logger *slog.Logger
 }
 
 // NewAgent creates an Agent by adding the prompt as a DeveloperMessage.
@@ -44,16 +43,7 @@ func NewAgent(prompt string, skills []Skill) *Agent {
 	return &Agent{
 		prompt: prompt,
 		skills: skills,
-		logger: slog.Default(),
 	}
-}
-
-func (a *Agent) GetLogger() *slog.Logger {
-	return a.logger
-}
-
-func (a *Agent) SetLogger(logger *slog.Logger) {
-	a.logger = logger
 }
 
 func (a *Agent) GetSkill(name string) (*Skill, error) {
@@ -90,12 +80,12 @@ func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages
 			break
 		}
 		if err != nil {
-			a.logger.Error("Error streaming", "error", err)
+			log.Error().Err(err).Msg("Error streaming")
 			return "", err
 		}
 
 		if len(chunk.Choices) == 0 {
-			a.logger.Error("No choices in chunk", "chunk", chunk)
+			log.Debug().Any("chunk", chunk).Msg("No choices in chunk")
 			continue
 		}
 
@@ -140,8 +130,9 @@ func (a *Agent) ConvertSkillsToTools() []openai.Tool {
 				Name:        skill.Name,
 				Description: skill.Description,
 				Parameters: jsonschema.Definition{
-					Type:     jsonschema.Object,
-					Required: []string{""},
+					Type:       jsonschema.Object,
+					Required:   []string{""},
+					Properties: map[string]jsonschema.Definition{},
 				},
 			},
 		})
@@ -163,7 +154,7 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 	}
 	systemPrompt, err := prompts.SkillSelectionPrompt(systemPromptData)
 	if err != nil {
-		a.logger.Error("Error getting system prompt", "error", err)
+		log.Error().Err(err).Msg("Error getting system prompt")
 		return nil, err
 	}
 
@@ -184,12 +175,12 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 
 	completion, err := llm.New(ctx, params)
 	if err != nil {
-		a.logger.Error("Error getting initial response", "error", err, "params", params)
+		log.Error().Err(err).Interface("params", params).Msg("Error getting initial response")
 		return nil, err
 	}
 
 	if len(completion.Choices) == 0 {
-		a.logger.Error("No completion choices")
+		log.Error().Msg("No completion choices")
 		return &completion, fmt.Errorf("no completion choices")
 	}
 
@@ -206,7 +197,7 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 				seenSkills[skillName] = true
 				uniqueToolCalls = append(uniqueToolCalls, toolCall)
 			} else {
-				a.logger.Warn("Removing duplicate skill from completion", "skill", skillName)
+				log.Warn().Str("skill", skillName).Msg("Removing duplicate skill from completion")
 			}
 		}
 
@@ -222,9 +213,9 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 // handleLLMError handles errors from LLM API calls
 func (a *Agent) handleLLMError(err error, outUserChannel chan Response) {
 	content := "Error occurred!"
-	a.logger.Error("Error streaming", "error", err)
+	log.Error().Err(err).Msg("Error streaming")
 	if strings.Contains(err.Error(), "ContentPolicyViolationError") {
-		a.logger.Error("Content policy violation!", "error", err)
+		log.Error().Err(err).Msg("Content policy violation!")
 		content = "Content policy violation! If this was a mistake, please reach out to the support. Consecutive violations may result in a temporary/permanent ban."
 	}
 	outUserChannel <- Response{
@@ -252,7 +243,7 @@ func (a *Agent) sendThoughtsAboutSkills(ctx context.Context, llm *LLM, messageHi
 	for _, tool := range toolsToCall {
 		skill, err := a.GetSkill(tool.Function.Name)
 		if err != nil {
-			a.logger.Error("Error getting skill", "error", err)
+			log.Error().Err(err).Msg("Error getting skill")
 			continue
 		}
 		allSpecSystemPrompt += fmt.Sprintf("\n%s\n", skill.Spec())
@@ -265,7 +256,7 @@ func (a *Agent) sendThoughtsAboutSkills(ctx context.Context, llm *LLM, messageHi
 	defer func() {
 		defer func() {
 			if r := recover(); r != nil {
-				a.logger.Error("Panic when sending end response", "error", r)
+				log.Error().Interface("error", r).Msg("Panic when sending end response")
 			}
 		}()
 		outUserChannel <- Response{
@@ -279,7 +270,7 @@ func (a *Agent) sendThoughtsAboutSkills(ctx context.Context, llm *LLM, messageHi
 		Model:    llm.SmallGenerationModel,
 	})
 	if err != nil {
-		a.logger.Error("Error creating streaming", "error", err)
+		log.Error().Err(err).Msg("Error creating streaming")
 		return
 	}
 
@@ -291,11 +282,11 @@ func (a *Agent) sendThoughtsAboutSkills(ctx context.Context, llm *LLM, messageHi
 			break
 		}
 		if err != nil {
-			a.logger.Error("Error streaming", "error", err)
+			log.Error().Err(err).Msg("Error streaming")
 			return
 		}
 		if len(chunk.Choices) == 0 {
-			a.logger.Error("No choices in chunk", "chunk", chunk)
+			log.Error().Interface("chunk", chunk).Msg("No choices in chunk")
 			continue
 		}
 		if chunk.Choices[0].Delta.Content != "" {
@@ -305,10 +296,9 @@ func (a *Agent) sendThoughtsAboutSkills(ctx context.Context, llm *LLM, messageHi
 			}
 		}
 	}
-
 }
 
-// sendThoughtsAboutSkills generates "thinking" messages to keep the user engaged while skills are processing
+// sendThoughtsAboutTools generates "thinking" messages to keep the user engaged while skills are processing
 func (a *Agent) sendThoughtsAboutTools(ctx context.Context, llm *LLM, messageHistory *MessageList, toolsToCall []openai.ToolCall, outUserChannel chan Response) {
 	if len(toolsToCall) == 0 {
 		return
@@ -329,7 +319,7 @@ func (a *Agent) sendThoughtsAboutTools(ctx context.Context, llm *LLM, messageHis
 	defer func() {
 		defer func() {
 			if r := recover(); r != nil {
-				a.logger.Error("Panic when sending end response", "error", r)
+				log.Error().Interface("error", r).Msg("Panic when sending end response")
 			}
 		}()
 		outUserChannel <- Response{
@@ -349,7 +339,7 @@ func (a *Agent) sendThoughtsAboutTools(ctx context.Context, llm *LLM, messageHis
 		Model:    llm.SmallGenerationModel,
 	})
 	if err != nil {
-		a.logger.Error("Error creating streaming", "error", err)
+		log.Error().Err(err).Msg("Error creating streaming")
 		return
 	}
 	defer stream.Close()
@@ -360,11 +350,11 @@ func (a *Agent) sendThoughtsAboutTools(ctx context.Context, llm *LLM, messageHis
 			break
 		}
 		if err != nil {
-			a.logger.Error("Error streaming", "error", err)
+			log.Error().Err(err).Msg("Error streaming")
 			return
 		}
 		if len(chunk.Choices) == 0 {
-			a.logger.Error("No choices in chunk", "chunk", chunk)
+			log.Error().Interface("chunk", chunk).Msg("No choices in chunk")
 			continue
 		}
 		if chunk.Choices[0].Delta.Content != "" {
@@ -374,7 +364,6 @@ func (a *Agent) sendThoughtsAboutTools(ctx context.Context, llm *LLM, messageHis
 			}
 		}
 	}
-
 }
 
 // runWithoutSkills handles the case when no skills are available by directly calling the LLM
@@ -386,7 +375,7 @@ func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *
 	}
 	systemPrompt, err := prompts.NoSkillsPrompt(systemPromptData)
 	if err != nil {
-		a.logger.Error("Error getting system prompt", "error", err)
+		log.Error().Err(err).Msg("Error getting system prompt")
 		a.handleLLMError(err, outUserChannel)
 		return
 	}
@@ -407,7 +396,7 @@ func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *
 	}
 
 	if len(completion.Choices) == 0 {
-		a.logger.Error("No completion choices")
+		log.Error().Msg("No completion choices")
 		a.handleLLMError(fmt.Errorf("no completion choices"), outUserChannel)
 		return
 	}
@@ -421,10 +410,6 @@ func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *
 // Run processes a user message through the LLM, executes any requested skills. It returns only after the agent is done.
 // The intermediary messages are sent to the outUserChannel.
 func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *MessageList, memoryBlock *MemoryBlock, outUserChannel chan Response, isConversational bool) {
-	if a.logger == nil {
-		panic("logger is not set")
-	}
-
 	// Create a cancel function from the context
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -432,7 +417,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 	defer func() {
 		defer func() {
 			if r := recover(); r != nil {
-				a.logger.Error("Panic when sending end response", "error", r)
+				log.Error().Interface("error", r).Msg("Panic when sending end response")
 			}
 		}()
 		// Cancel the context to stop any in-flight requests
@@ -472,7 +457,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 				// Parse the callSummarizer parameter from the stop tool
 				var args map[string]interface{}
 				if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
-					a.logger.Error("Error parsing stop tool arguments", "error", err)
+					log.Error().Err(err).Msg("Error parsing stop tool arguments")
 				} else {
 					if val, ok := args["callSummarizer"].(bool); ok {
 						callSummarizer = val
@@ -496,7 +481,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		for _, tool := range skillToolCalls {
 			skill, err := a.GetSkill(tool.Function.Name)
 			if err != nil {
-				a.logger.Error("Error getting skill", "error", err)
+				log.Error().Err(err).Msg("Error getting skill")
 				continue
 			}
 
@@ -506,7 +491,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 				// Clone the messages again so all goroutines get different message history
 				result, err := a.SkillContextRunner(ctx, meta, messageHistory.Clone(), llm, outUserChannel, memoryBlock, skill, tool.ID, isConversational)
 				if err != nil {
-					a.logger.Error("Error running skill", "error", err)
+					log.Error().Err(err).Msg("Error running skill")
 					return
 				}
 
@@ -583,7 +568,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		// Extract the text content using the existing GetMessageText function
 		contentString, err := GetMessageText(lastResult)
 		if err != nil {
-			a.logger.Error("Error extracting content from tool result", "error", err)
+			log.Error().Err(err).Msg("Error extracting content from tool result")
 			outUserChannel <- Response{
 				Content: "Error processing the result.",
 				Type:    ResponseTypeError,
@@ -598,7 +583,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		return
 	} else {
 		// If there are no skill results, we return an error
-		a.logger.Warn("No skill results available to return")
+		log.Warn().Msg("No skill results available to return")
 		outUserChannel <- Response{
 			Content: "I encountered an error while processing the results.",
 			Type:    ResponseTypeError,

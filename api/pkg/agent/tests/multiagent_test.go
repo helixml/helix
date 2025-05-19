@@ -9,6 +9,7 @@ import (
 	helix_openai "github.com/helixml/helix/api/pkg/openai"
 
 	openai "github.com/sashabaranov/go-openai"
+	"github.com/sashabaranov/go-openai/jsonschema"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,7 +30,7 @@ var _ agentpod.Tool = &RestaurantTool{}
 
 func NewRestaurantTool() *RestaurantTool {
 	return &RestaurantTool{
-		toolName:    "RestaurantDatabase",
+		toolName:    "RestaurantExpert",
 		description: "Provides information about restaurants in a specific location",
 		restaurants: map[string]Restaurant{
 			"Pasta Paradise": {
@@ -70,22 +71,23 @@ func (r *RestaurantTool) StatusMessage() string {
 func (r *RestaurantTool) OpenAI() []openai.Tool {
 	return []openai.Tool{
 		{
+			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        r.toolName,
 				Description: r.description,
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"location": map[string]interface{}{
-							"type":        "string",
-							"description": "User's location",
+				Parameters: jsonschema.Definition{
+					Type: jsonschema.Object,
+					Properties: map[string]jsonschema.Definition{
+						"location": {
+							Type:        jsonschema.String,
+							Description: "User's location",
 						},
-						"cuisine": map[string]interface{}{
-							"type":        "string",
-							"description": "Preferred cuisine",
+						"cuisine": {
+							Type:        jsonschema.String,
+							Description: "Preferred cuisine",
 						},
 					},
-					"required": []string{"location", "cuisine"},
+					Required: []string{"location", "cuisine"},
 				},
 			},
 		},
@@ -115,7 +117,7 @@ var _ agentpod.Tool = &CuisineTool{}
 
 func NewCuisineTool() *CuisineTool {
 	return &CuisineTool{
-		toolName:    "CuisineDatabase",
+		toolName:    "CuisineExpert",
 		description: "Database of all the available dishes in all the restaurants",
 		dishes: map[string][]string{
 			"Pasta Paradise": {"Carbonara", "Lasagna", "Risotto"},
@@ -144,18 +146,19 @@ func (c *CuisineTool) StatusMessage() string {
 func (c *CuisineTool) OpenAI() []openai.Tool {
 	return []openai.Tool{
 		{
+			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        c.toolName,
 				Description: c.description,
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"restaurant": map[string]interface{}{
-							"type":        "string",
-							"description": "Restaurant name",
+				Parameters: jsonschema.Definition{
+					Type: jsonschema.Object,
+					Properties: map[string]jsonschema.Definition{
+						"restaurant": {
+							Type:        jsonschema.String,
+							Description: "Restaurant name",
 						},
 					},
-					"required": []string{"restaurant"},
+					Required: []string{"restaurant"},
 				},
 			},
 		},
@@ -194,6 +197,8 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 	require.NoError(t, err)
 
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
+
+	t.Logf("testing restaurant recommendation with prompt: %s", prompt)
 
 	require.NotEmpty(t, config.OpenAIAPIKey, "OpenAI API Key is not set")
 
@@ -250,6 +255,7 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 	var response string
 	for {
 		out := restaurantSession.Out()
+
 		if out.Type == agentpod.ResponseTypePartialText {
 			response += out.Content
 		}
@@ -257,6 +263,8 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 			break
 		}
 	}
+
+	t.Logf("agent response: %s", response)
 
 	// Verify restaurant recommendation
 	if !strings.Contains(strings.ToLower(response), "pasta paradise") {
