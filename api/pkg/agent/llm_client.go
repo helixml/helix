@@ -7,7 +7,6 @@ import (
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/ssestream"
-	"github.com/openai/openai-go/responses"
 )
 
 // Define a custom type for context keys
@@ -100,11 +99,11 @@ func (c *LLM) NewStreaming(ctx context.Context, params openai.ChatCompletionNewP
 }
 
 // NewResponse creates a new response using OpenAI's Response API
-func (c *LLM) NewResponse(ctx context.Context, params responses.ResponseNewParams) (*responses.Response, error) {
-	opts := []option.RequestOption{}
-	// opts = optsWithIds(ctx, opts, true)
-	return c.client.Responses.New(ctx, params, opts...)
-}
+// func (c *LLM) NewResponse(ctx context.Context, params responses.ResponseNewParams) (*responses.Response, error) {
+// 	opts := []option.RequestOption{}
+// 	// opts = optsWithIds(ctx, opts, true)
+// 	return c.client.Responses.New(ctx, params, opts...)
+// }
 
 func GenerateSchema[T any]() interface{} {
 	reflector := jsonschema.Reflector{
