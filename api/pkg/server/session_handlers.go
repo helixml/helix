@@ -205,12 +205,6 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		// Updating session model and provider
 		session.ModelName = startReq.Model
 
-		// Set the session ID in the context to enable document ID tracking
-		ctx = oai.SetContextSessionID(ctx, session.ID)
-		log.Debug().
-			Str("session_id", session.ID).
-			Str("app_id", startReq.AppID).
-			Msg("existing session: set session ID in context for document tracking")
 	} else {
 		// Create session
 		newSession = true

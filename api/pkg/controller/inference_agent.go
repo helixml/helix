@@ -144,7 +144,7 @@ func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (
 		}
 	}
 
-	session := agent.NewSession(context.Background(), llm, mem, helixAgent, messageHistory, agent.Meta{
+	session := agent.NewSession(ctx, llm, mem, helixAgent, messageHistory, agent.Meta{
 		UserID:    req.User.ID,
 		SessionID: vals.SessionID,
 		Extra:     map[string]string{},
