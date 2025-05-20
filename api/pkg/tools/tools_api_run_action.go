@@ -734,5 +734,5 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 		return &types.RunAPIActionResponse{Response: "OK"}, nil
 	}
 
-	return &types.RunAPIActionResponse{Response: string(body), Error: resp.Status}, nil
+	return &types.RunAPIActionResponse{Response: string(body)}, nil
 }
