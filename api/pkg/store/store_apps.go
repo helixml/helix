@@ -127,6 +127,7 @@ func ConvertAPIToTool(api types.AssistantAPI) (*types.Tool, error) {
 				Query:                   api.Query,
 				OAuthProvider:           api.OAuthProvider,
 				OAuthScopes:             api.OAuthScopes,
+				SystemPrompt:            api.SystemPrompt,
 				RequestPrepTemplate:     api.RequestPrepTemplate,
 				ResponseSuccessTemplate: api.ResponseSuccessTemplate,
 				ResponseErrorTemplate:   api.ResponseErrorTemplate,
