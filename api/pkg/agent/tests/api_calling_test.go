@@ -19,7 +19,6 @@ import (
 	"github.com/kelseyhightower/envconfig"
 	"go.uber.org/mock/gomock"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -106,10 +105,15 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 			require.NoError(t, err)
 			defer r.Body.Close()
 
+			// Decode pet
+			var pet Pet
+			err = json.Unmarshal(body, &pet)
+			require.NoError(t, err)
+
 			t.Logf("request body: %s", string(body))
 
-			assert.Contains(t, string(body), `"name": "Lizzie"`)
-			assert.Contains(t, string(body), `"tag": "cat"`)
+			require.Equal(t, "Lizzie", pet.Name, "unexpected pet request body: %s", string(body))
+			require.Equal(t, "cat", pet.Tag, "unexpected pet request body: %s", string(body))
 
 			// Add the pet to the list
 			pets = append(pets, Pet{ID: 3, Name: "Lizzie", Tag: "cat"})
