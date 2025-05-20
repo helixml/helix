@@ -3,6 +3,7 @@ package skill
 import (
 	"testing"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/stretchr/testify/assert"
@@ -77,6 +78,20 @@ func TestInitializeApiCallingSkill(t *testing.T) {
 		// Check description and type
 		assert.Equal(t, "How many items to return at one time (max 100)", limitProperty.Description)
 		assert.Equal(t, jsonschema.String, limitProperty.Type)
+	})
+
+	t.Run("CreatePetsParameters", func(t *testing.T) {
+		openAiSpec := skill.Tools[1].OpenAI()
+
+		parameters := openAiSpec[0].Function.Parameters.(jsonschema.Definition)
+
+		spew.Dump(parameters)
+
+		petProperty, ok := parameters.Properties["pet"]
+		require.True(t, ok)
+
+		assert.Equal(t, "The pet to create", petProperty.Description)
+		assert.Equal(t, jsonschema.Object, petProperty.Type)
 	})
 }
 
