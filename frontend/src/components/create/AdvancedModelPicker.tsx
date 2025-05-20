@@ -195,7 +195,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   
   // Determine tooltip title based on disabled state
   const tooltipTitle = useMemo(() => {
-    if (disabled) return "Model is controlled by the App";
+    if (disabled) return "Model selection is disabled";
     return displayModelName;
   }, [disabled, displayModelName]);
 
