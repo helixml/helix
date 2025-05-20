@@ -19,6 +19,8 @@ export interface GithubComHelixmlHelixApiPkgTypesTool {
   global?: boolean;
   id?: string;
   name?: string;
+  /** E.g. As a restaurant expert, you provide personalized restaurant recommendations */
+  system_prompt?: string;
   tool_type?: GithubComHelixmlHelixApiPkgTypesToolType;
 }
 
@@ -513,6 +515,8 @@ export interface TypesAssistantAPI {
 }
 
 export interface TypesAssistantConfig {
+  /** AgentMode triggers the use of the agent loop */
+  agent_mode?: string;
   apis?: TypesAssistantAPI[];
   avatar?: string;
   /**
@@ -528,6 +532,7 @@ export interface TypesAssistantConfig {
    * 2 - less repetitive
    */
   frequency_penalty?: number;
+  generation_model?: string;
   gptscripts?: TypesAssistantGPTScript[];
   id?: string;
   image?: string;
@@ -551,6 +556,9 @@ export interface TypesAssistantConfig {
   rag_source_id?: string;
   /** Controls effort on reasoning for reasoning models. It can be set to "low", "medium", or "high". */
   reasoning_effort?: string;
+  reasoning_model?: string;
+  small_generation_model?: string;
+  small_reasoning_model?: string;
   system_prompt?: string;
   /**
    * Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic.
@@ -572,7 +580,6 @@ export interface TypesAssistantConfig {
    * 2 - more creative
    */
   top_p?: number;
-  type?: TypesSessionType;
   zapier?: TypesAssistantZapier[];
 }
 
@@ -741,6 +748,8 @@ export interface TypesGptScriptResponse {
 
 export interface TypesInteraction {
   completed?: string;
+  /** Original content received from the API. This will include the Message and any images. */
+  content?: TypesMessageContent;
   created?: string;
   /** e.g. User */
   creator?: TypesCreatorType;
@@ -761,7 +770,7 @@ export interface TypesInteraction {
   id?: string;
   /** we hoist this from files so a single interaction knows that it "Created a finetune file" */
   lora_dir?: string;
-  /** e.g. Prove pythagoras */
+  /** TODO: remove and keep only content */
   message?: string;
   /** different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend */
   metadata?: Record<string, string>;
@@ -988,7 +997,7 @@ export interface TypesMessage {
 }
 
 export interface TypesMessageContent {
-  /** text, image, multimodal_text */
+  /** text, image_url, multimodal_text */
   content_type?: TypesMessageContentType;
   /**
    * Parts is a list of strings or objects. For example for text, it's a list of strings, for
@@ -1267,7 +1276,7 @@ export interface TypesRule {
 
 export interface TypesRunAPIActionRequest {
   action?: string;
-  parameters?: Record<string, string>;
+  parameters?: Record<string, any>;
 }
 
 export interface TypesRunAPIActionResponse {
@@ -1377,6 +1386,8 @@ export interface TypesSessionChatRequest {
   /** The provider to use */
   provider?: TypesProvider;
   rag_source_id?: string;
+  /** If true, we will regenerate the response for the last message */
+  regenerate?: boolean;
   /** If empty, we will start a new session */
   session_id?: string;
   /** If true, we will stream the response */
