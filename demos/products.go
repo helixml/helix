@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 )
 
@@ -36,6 +37,7 @@ type PurchaseQuery struct {
 type Receipt struct {
 	ProductID     string `json:"product_id"`
 	CustomerEmail string `json:"customer_email"`
+	ReceiptID     string `json:"receipt_id"`
 }
 
 var ProductData = []Product{
@@ -116,9 +118,10 @@ func bookProduct(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Printf("purchaseProduct --------------------------------------\n")
 	spew.Dump(query)
-	if err := json.NewEncoder(w).Encode(PurchaseQuery{
+	if err := json.NewEncoder(w).Encode(Receipt{
 		ProductID:     query.ProductID,
 		CustomerEmail: query.CustomerEmail,
+		ReceiptID:     "receipt-" + uuid.New().String(), // Always generate a new receipt ID
 	}); err != nil {
 		log.Error().Msgf("failed streaming purchased products: %v", err)
 	}
