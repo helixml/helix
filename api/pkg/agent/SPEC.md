@@ -9,15 +9,46 @@ The framework is heavily inspired by and built upon OpenAI's [model spec](https:
 Here's a simple example of AgentPod initialization and usage:
 
 ```go
-// initialization
-agent := agent.NewAgent(AgentMainPrompt, []agent.Skill{
-    skills.KeywordResearchSkill(keywordsPlace),
+// Get the tool with name and description
+petStoreTool := &types.Tool{
+    Name:         "petstore",
+    Description:  "pet store API that is used to get details for the specified pet's ID",
+    SystemPrompt: "You are an expert in the pet store, managing it through the API. You can use it to get information about pets or add new ones.",
+    ToolType:     types.ToolTypeAPI,
+    Config: types.ToolConfig{
+        API: &types.ToolAPIConfig{
+            URL:    ts.URL,
+            Schema: petStoreAPISpec,
+            Actions: []*types.ToolAPIAction{
+                {
+                    Name:        "listPets",
+                    Description: "List all pets",
+                    Method:      "GET",
+                    Path:        "/pets",
+                },
+                {
+                    Name:        "createPets",
+                    Description: "Create a pet record",
+                    Method:      "POST",
+                    Path:        "/pets",
+                },
+            },
+        },
+    },
+}
+
+// Initialize a skill. Each API tool is a skill that has multiple actions inside.
+petStoreSkill := skill.NewAPICallingSkill(planner, petStoreTool)
+
+// Prepare the agent
+myAgent := agent.NewAgent(AgentMainPrompt, []agent.Skill{
+    petStoreSkill,
 })
 memory := agent.NewMem0()
 storage := agent.NewPostgresql()
 llm := agent.NewLLM(
-    cfg.AI.KeywordsAIAPIKey, 
-    cfg.AI.KeywordsAIBaseURL,
+    cfg.AI.OpenAIAPIKey, 
+    cfg.AI.BaseURL,
     "o1",  // reasoning model
     "gpt-4o",  // generation model
     "o1-mini",  // small reasoning model
@@ -30,7 +61,7 @@ meta := agent.Meta{
     Extra: map[string]string{"user_id": userID},
 }
 
-session := agentpod.NewSession(ctx, llm, memory, agent, storage, meta)
+session := agent.NewSession(ctx, llm, memory, myAgent, storage, meta)
 session.In("Hey there")
 msg := session.Out()
 ```
