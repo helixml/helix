@@ -32,9 +32,14 @@ func NewLLM(client helix_openai.Client, reasoningModel string, generationModel s
 
 // TODO failures like too long, non-processable etc from the LLM needs to be handled
 func (c *LLM) New(ctx context.Context, params openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+	// fmt.Println("XXX New LLM call")
+	// spew.Dump(params)
+
 	return c.client.CreateChatCompletion(ctx, params)
 }
 
 func (c *LLM) NewStreaming(ctx context.Context, params openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+	// fmt.Println("XXX NewStreaming")
+	// spew.Dump(params)
 	return c.client.CreateChatCompletionStream(ctx, params)
 }

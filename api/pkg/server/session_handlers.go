@@ -121,6 +121,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 				startReq.Model = assistant.Model
 			}
 
+			if assistant.Provider != "" {
+				startReq.Provider = types.Provider(assistant.Provider)
+			}
+
 			if assistant.ContextLimit > 0 {
 				messageContextLimit = assistant.ContextLimit
 			}
@@ -646,6 +650,12 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	// Call the LLM
 	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
+		log.Error().
+			Str("app_id", options.AppID).
+			Str("session_id", session.ID).
+			Err(err).
+			Msg("error running controller chat completion stream")
+
 		// Update the session with the response
 		session.Interactions[len(session.Interactions)-1].Error = err.Error()
 		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
@@ -678,7 +688,12 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 			break
 		}
 		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			log.Error().
+				Str("app_id", options.AppID).
+				Str("session_id", session.ID).
+				Any("response", response).
+				Err(err).
+				Msg("error receiving stream")
 			return err
 		}
 
