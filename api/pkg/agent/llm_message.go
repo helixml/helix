@@ -84,6 +84,7 @@ func (ml *MessageList) PrintMessages() {
 	for _, msg := range ml.Messages {
 		role := msg.Role
 		content := msg.Content
+		multiContent := msg.MultiContent
 
 		// Print tool calls if they exist
 		if len(msg.ToolCalls) > 0 {
@@ -94,6 +95,6 @@ func (ml *MessageList) PrintMessages() {
 			}
 		}
 
-		fmt.Printf("Role: %s\nContent: %s\n\n", role, content)
+		fmt.Printf("Role: %s\nContent: %s\nMultiContent: %v\n\n", role, content, multiContent)
 	}
 }
