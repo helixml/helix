@@ -183,7 +183,7 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SinglePara
 	suite.Equal(resp["petId"], "55443")
 }
 
-func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem() {
+func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SingleItem() {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		suite.Equal("/pets/55443", r.URL.Path)
 		suite.Equal("GET", r.Method)
