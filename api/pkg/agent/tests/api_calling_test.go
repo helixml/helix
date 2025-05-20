@@ -48,7 +48,7 @@ type Pet struct {
 	Tag  string `json:"tag"`
 }
 
-func TestMultiAgentPetStoreManagement(t *testing.T) {
+func TestMultiAPICallingPetStoreManagement(t *testing.T) {
 	prompt := "check if pet with name Lizzie is in the store system, if not add her to the system. She's a cat"
 	testPetStoreManagement(t, prompt)
 }
