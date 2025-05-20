@@ -69,6 +69,22 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
 	}
 
+	if assistant.AgentMode {
+		log.Info().Msg("running in agent mode")
+
+		resp, err := c.runAgent(ctx, &runAgentRequest{
+			Client:    client,
+			Assistant: assistant,
+			User:      user,
+			Request:   req,
+			Options:   opts,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to run agent: %w", err)
+		}
+		return resp, &req, nil
+	}
+
 	if len(assistant.Tools) > 0 {
 		// Check whether the app is configured for the call,
 		// if yes, execute the tools and return the response
@@ -178,6 +194,22 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to add OAuth tokens: %w", err)
+	}
+
+	if assistant.AgentMode {
+		log.Info().Msg("running in agent mode")
+
+		resp, err := c.runAgentStream(ctx, &runAgentRequest{
+			Client:    client,
+			Assistant: assistant,
+			User:      user,
+			Request:   req,
+			Options:   opts,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to run agent: %w", err)
+		}
+		return resp, &req, nil
 	}
 
 	if len(assistant.Tools) > 0 {
