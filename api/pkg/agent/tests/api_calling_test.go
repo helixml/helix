@@ -55,6 +55,7 @@ func TestMultiAgentPetStoreManagement(t *testing.T) {
 }
 
 func testPetStoreManagement(t *testing.T, prompt string) {
+	t.Helper()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -138,7 +139,7 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 
 	// Create mock memory with user preferences
 	mem := &MockMemory{
-		RetrieveFn: getUserPreferencesMemory,
+		RetrieveFn: getEmptyPreferencesMemory,
 	}
 
 	petStoreTool := &types.Tool{
