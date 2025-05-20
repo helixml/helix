@@ -14,8 +14,6 @@ import (
 
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
-
-	// "github.com/sashabaranov/go-openai/jsonschema"
 	"github.com/tmc/langchaingo/jsonschema"
 )
 
