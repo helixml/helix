@@ -21,7 +21,7 @@ type runAgentRequest struct {
 	Options   *ChatCompletionOptions
 }
 
-func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*openai.ChatCompletionResponse, error) {
+func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent.Session, error) {
 	vals, ok := oai.GetContextValues(ctx)
 	if !ok {
 		vals = &oai.ContextValues{}
@@ -77,11 +77,18 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*opena
 	// Get user message, could be in the part or content
 	session.In(getLastMessage(req.Request))
 
+	return session, nil
+}
+
+func (c *Controller) runAgentBlocking(ctx context.Context, req *runAgentRequest) (*openai.ChatCompletionResponse, error) {
+	session, err := c.runAgent(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
 	var response string
 	for {
 		out := session.Out()
-
-		fmt.Println("XXX OUT", out)
 
 		if out.Type == agent.ResponseTypePartialText {
 			response += out.Content
@@ -89,6 +96,11 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*opena
 		if out.Type == agent.ResponseTypeEnd {
 			break
 		}
+	}
+
+	vals, ok := oai.GetContextValues(ctx)
+	if !ok {
+		vals = &oai.ContextValues{}
 	}
 
 	return &openai.ChatCompletionResponse{
@@ -106,52 +118,10 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*opena
 }
 
 func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (*openai.ChatCompletionStream, error) {
-	vals, ok := oai.GetContextValues(ctx)
-	if !ok {
-		vals = &oai.ContextValues{}
+	session, err := c.runAgent(ctx, req)
+	if err != nil {
+		return nil, err
 	}
-
-	log.Info().
-		Str("session_id", vals.SessionID).
-		Str("user_id", req.User.ID).
-		Str("interaction_id", vals.InteractionID).
-		Msg("Running agent")
-
-	mem := agent.NewDefaultMemory()
-
-	llm := agent.NewLLM(
-		req.Client,
-		req.Assistant.ReasoningModel,
-		req.Assistant.GenerationModel,
-		req.Assistant.SmallReasoningModel,
-		req.Assistant.SmallGenerationModel,
-	)
-
-	helixAgent := agent.NewAgent(
-		req.Assistant.SystemPrompt,
-		[]agent.Skill{},
-	)
-
-	messageHistory := agent.NewMessageList()
-
-	// Add request messages except the last user message
-	for _, message := range req.Request.Messages[:len(req.Request.Messages)-1] {
-		switch message.Role {
-		case openai.ChatMessageRoleUser:
-			messageHistory.Add(agent.UserMessage(message.Content))
-		case openai.ChatMessageRoleSystem, openai.ChatMessageRoleAssistant:
-			messageHistory.Add(agent.AssistantMessage(message.Content))
-		}
-	}
-
-	session := agent.NewSession(ctx, llm, mem, helixAgent, messageHistory, agent.Meta{
-		UserID:    req.User.ID,
-		SessionID: vals.SessionID,
-		Extra:     map[string]string{},
-	})
-
-	// Get user message, could be in the part or content
-	session.In(getLastMessage(req.Request))
 
 	stream, writer, err := transport.NewOpenAIStreamingAdapter(req.Request)
 	if err != nil {

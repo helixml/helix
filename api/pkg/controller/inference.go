@@ -72,7 +72,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	if assistant.AgentMode {
 		log.Info().Msg("running in agent mode")
 
-		resp, err := c.runAgent(ctx, &runAgentRequest{
+		resp, err := c.runAgentBlocking(ctx, &runAgentRequest{
 			Client:    client,
 			Assistant: assistant,
 			User:      user,
