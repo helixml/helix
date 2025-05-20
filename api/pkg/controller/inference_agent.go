@@ -6,9 +6,11 @@ import (
 	"time"
 
 	agent "github.com/helixml/helix/api/pkg/agent"
+	"github.com/helixml/helix/api/pkg/agent/skill"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/transport"
 	"github.com/helixml/helix/api/pkg/types"
+
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -51,9 +53,18 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		log.Error().Err(err).Msg("failed to render system prompt")
 	}
 
+	var skills []agent.Skill
+
+	// Get API skills
+	for _, assistantTool := range req.Assistant.Tools {
+		if assistantTool.ToolType == types.ToolTypeAPI {
+			skills = append(skills, skill.NewAPICallingSkill(c.ToolsPlanner, assistantTool))
+		}
+	}
+
 	helixAgent := agent.NewAgent(
 		enriched,
-		[]agent.Skill{},
+		skills,
 	)
 
 	messageHistory := agent.NewMessageList()

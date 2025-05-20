@@ -33,9 +33,11 @@ func NewAgent(prompt string, skills []Skill) *Agent {
 	// Validate that all skills have both Description and SystemPrompt set
 	for _, skill := range skills {
 		if skill.Description == "" {
+			// TODO: return error
 			panic(fmt.Sprintf("skill '%s' is missing a Description", skill.Name))
 		}
 		if skill.SystemPrompt == "" {
+			// TODO: return error
 			panic(fmt.Sprintf("skill '%s' is missing a SystemPrompt", skill.Name))
 		}
 	}

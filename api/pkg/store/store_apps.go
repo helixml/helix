@@ -116,9 +116,10 @@ func GetActionsFromSchema(spec string) ([]*types.ToolAPIAction, error) {
 // ConvertAPIToTool converts an AssistantAPI to a Tool
 func ConvertAPIToTool(api types.AssistantAPI) (*types.Tool, error) {
 	t := &types.Tool{
-		Name:        api.Name,
-		Description: api.Description,
-		ToolType:    types.ToolTypeAPI,
+		Name:         api.Name,
+		Description:  api.Description,
+		SystemPrompt: api.SystemPrompt,
+		ToolType:     types.ToolTypeAPI,
 		Config: types.ToolConfig{
 			API: &types.ToolAPIConfig{
 				URL:                     api.URL,

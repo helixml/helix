@@ -32,9 +32,3 @@ func GetMessageText(message *openai.ChatCompletionMessage) (string, error) {
 
 	return "", fmt.Errorf("unsupported message type")
 }
-
-// CompileConversationHistory builds the message history for the LLM request
-// now it fetches the last 5 messages but in the future, we'lll do smart things here like old message summarization etc
-// func CompileConversationHistory(meta Meta, storage Storage) (*MessageList, error) {
-// 	return storage.GetConversations(meta, 5, 0)
-// }
