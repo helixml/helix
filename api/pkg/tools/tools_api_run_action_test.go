@@ -135,7 +135,7 @@ func (suite *ActionTestSuite) TestAction_RunAPIActionWithParameters_createPet() 
 	resp, err := suite.strategy.RunAPIActionWithParameters(suite.ctx, &types.RunAPIActionRequest{
 		Tool:   managePetsAPI,
 		Action: "createPets",
-		Parameters: map[string]string{
+		Parameters: map[string]interface{}{
 			"name": "fluffy",
 			"tag":  "dog",
 		},
