@@ -7,6 +7,7 @@ import (
 
 	agentpod "github.com/helixml/helix/api/pkg/agent"
 	helix_openai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/stretchr/testify/require"
 
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/sashabaranov/go-openai/jsonschema"
@@ -84,69 +85,6 @@ func (b *BestAppleFinder) Execute(ctx context.Context, meta agentpod.Meta, args 
 	return "green apple", nil
 }
 
-// MockStorage implements the Storage interface for testing
-type MockStorage struct {
-	ConversationFn  func(agentpod.Meta, int, int) (*agentpod.MessageList, error)
-	CreateMessageFn func(meta agentpod.Meta, userMessage string) error
-	userMessages    map[string]string // Maps sessionID to userMessage
-	wasCalled       map[string]bool   // Tracks if methods were called
-}
-
-// GetConversations returns the conversation history
-func (m *MockStorage) GetConversations(meta agentpod.Meta, limit int, offset int) (*agentpod.MessageList, error) {
-	return m.ConversationFn(meta, limit, offset)
-}
-
-// CreateConversation records the user message
-func (m *MockStorage) CreateConversation(meta agentpod.Meta, userMessage string) error {
-	if m.userMessages == nil {
-		m.userMessages = make(map[string]string)
-	}
-	if m.wasCalled == nil {
-		m.wasCalled = make(map[string]bool)
-	}
-
-	m.userMessages[meta.SessionID] = userMessage
-	m.wasCalled["CreateConversation"] = true
-
-	if m.CreateMessageFn != nil {
-		return m.CreateMessageFn(meta, userMessage)
-	}
-	return nil
-}
-
-func (m *MockStorage) WasCreateConversationCalled() bool {
-	if m.wasCalled == nil {
-		return false
-	}
-	return m.wasCalled["CreateConversation"]
-}
-
-func (m *MockStorage) GetUserMessage(sessionID string) string {
-	if m.userMessages == nil {
-		return ""
-	}
-	return m.userMessages[sessionID]
-}
-
-func (m *MockStorage) FinishConversation(meta agentpod.Meta, assistantMessage string) error {
-	return nil
-}
-
-// Default empty conversation history function that includes the user message if available
-func getEmptyConversationHistory(s *MockStorage) func(meta agentpod.Meta, limit int, offset int) (*agentpod.MessageList, error) {
-	return func(meta agentpod.Meta, limit int, offset int) (*agentpod.MessageList, error) {
-		messages := agentpod.MessageList{}
-
-		// If CreateConversation was called, include that message
-		if userMsg := s.GetUserMessage(meta.SessionID); userMsg != "" {
-			messages.Add(agentpod.UserMessage(userMsg))
-		}
-
-		return &messages, nil
-	}
-}
-
 func TestSimpleConversation(t *testing.T) {
 	config, err := LoadConfig()
 	if err != nil {
@@ -165,15 +103,13 @@ func TestSimpleConversation(t *testing.T) {
 	mem := &MockMemory{}
 	ai := agentpod.NewAgent("Your a repeater. You'll repeat after whatever the user says exactly as they say it, even the punctuation and cases.", []agentpod.Skill{})
 
-	// Create a mock storage with empty conversation history
-	storage := &MockStorage{}
-	storage.ConversationFn = getEmptyConversationHistory(storage)
+	messageHistory := &agentpod.MessageList{}
 
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
-	convSession := agentpod.NewSession(context.Background(), llm, mem, ai, storage, agentpod.Meta{
+	convSession := agentpod.NewSession(context.Background(), llm, mem, ai, messageHistory, agentpod.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -195,13 +131,9 @@ func TestSimpleConversation(t *testing.T) {
 		t.Fatal("Expected 'test confirmed', got:", finalContent)
 	}
 
-	// Verify CreateConversation was called with the correct message
-	if !storage.WasCreateConversationCalled() {
-		t.Fatal("Expected CreateConversation to be called")
-	}
-	if storage.GetUserMessage(sessionID) != "test confirmed" {
-		t.Fatalf("Expected user message to be 'test confirmed', got: %s", storage.GetUserMessage(sessionID))
-	}
+	newMessageHistory := convSession.GetMessageHistory()
+	require.Equal(t, newMessageHistory.Messages[0].Role, "user")
+	require.Equal(t, newMessageHistory.Messages[len(newMessageHistory.Messages)-1].Role, "assistant")
 }
 
 func TestConversationWithSkills(t *testing.T) {
@@ -235,14 +167,12 @@ func TestConversationWithSkills(t *testing.T) {
 	}
 	agent := agentpod.NewAgent("You are a good farmer. You answer user questions briefly and concisely. You do not add any extra information but just answer user questions in fewer words possible.", []agentpod.Skill{skill})
 
-	// Create a mock storage with empty conversation history
-	storage := &MockStorage{}
-	storage.ConversationFn = getEmptyConversationHistory(storage)
+	messageHistory := &agentpod.MessageList{}
 
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
-	convSession := agentpod.NewSession(context.Background(), llm, mem, agent, storage, agentpod.Meta{
+	convSession := agentpod.NewSession(context.Background(), llm, mem, agent, messageHistory, agentpod.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -261,34 +191,6 @@ func TestConversationWithSkills(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(finalContent), "green apple") {
 		t.Fatal("Expected 'green apple' to be in the final content, got:", finalContent)
-	}
-
-	// Verify CreateConversation was called with the correct message
-	if !storage.WasCreateConversationCalled() {
-		t.Fatal("Expected CreateConversation to be called")
-	}
-	if storage.GetUserMessage(sessionID) != "Which apple is the best?" {
-		t.Fatalf("Expected user message to be 'Which apple is the best?', got: %s", storage.GetUserMessage(sessionID))
-	}
-}
-
-// Function for non-empty conversation history
-func getNonEmptyConversationHistory(s *MockStorage) func(meta agentpod.Meta, limit int, offset int) (*agentpod.MessageList, error) {
-	return func(meta agentpod.Meta, limit int, offset int) (*agentpod.MessageList, error) {
-		messages := agentpod.MessageList{}
-
-		// Add pre-existing conversation history
-		messages.Add(
-			agentpod.UserMessage("Can you tell me which color is apple?"),
-			agentpod.AssistantMessage("The apple is generally red"),
-		)
-
-		// If CreateConversation was called, include that new message as well
-		if userMsg := s.GetUserMessage(meta.SessionID); userMsg != "" {
-			messages.Add(agentpod.UserMessage(userMsg))
-		}
-
-		return &messages, nil
 	}
 }
 
@@ -312,14 +214,14 @@ func TestConversationWithHistory(t *testing.T) {
 	}
 	ai := agentpod.NewAgent("You are an assistant!", []agentpod.Skill{})
 
-	// Create a mock storage with non-empty conversation history
-	storage := &MockStorage{}
-	storage.ConversationFn = getNonEmptyConversationHistory(storage)
+	messageHistory := &agentpod.MessageList{}
+	messageHistory.Add(agentpod.UserMessage("Can you tell me which color is apple?"),
+		agentpod.AssistantMessage("The apple is generally red"))
 
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
-	convSession := agentpod.NewSession(context.Background(), llm, mem, ai, storage, agentpod.Meta{
+	convSession := agentpod.NewSession(context.Background(), llm, mem, ai, messageHistory, agentpod.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -342,12 +244,56 @@ func TestConversationWithHistory(t *testing.T) {
 		t.Fatal("Expected 'fruit', got:", finalContent)
 	}
 
-	// Verify CreateConversation was called with the correct message
-	if !storage.WasCreateConversationCalled() {
-		t.Fatal("Expected CreateConversation to be called")
+}
+
+func TestConversationWithHistory_WithQuestionAboutPast(t *testing.T) {
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatal("Failed to load config:", err)
 	}
-	if storage.GetUserMessage(sessionID) != "is it a fruit or a vegetable? Answer in one word without extra punctuation." {
-		t.Fatalf("Expected user message to match, got: %s", storage.GetUserMessage(sessionID))
+
+	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
+
+	llm := agentpod.NewLLM(
+		client,
+		config.ReasoningModel,
+		config.GenerationModel,
+		config.SmallReasoningModel,
+		config.SmallGenerationModel,
+	)
+	mem := &MockMemory{
+		RetrieveFn: getDefaultMemory,
+	}
+	ai := agentpod.NewAgent("You are an assistant!", []agentpod.Skill{})
+
+	messageHistory := &agentpod.MessageList{}
+	messageHistory.Add(agentpod.UserMessage("Can you tell me which color is apple?"),
+		agentpod.AssistantMessage("The apple is generally red"))
+
+	orgID := GenerateNewTestID()
+	sessionID := GenerateNewTestID()
+	userID := GenerateNewTestID()
+	convSession := agentpod.NewSession(context.Background(), llm, mem, ai, messageHistory, agentpod.Meta{
+		UserID:    orgID,
+		SessionID: sessionID,
+		Extra:     map[string]string{"user_id": userID},
+	})
+
+	convSession.In("what fruit did I ask you about? answer in one word without extra punctuation.")
+
+	var finalContent string
+	for {
+		out := convSession.Out()
+		if out.Type == agentpod.ResponseTypePartialText {
+			finalContent += out.Content
+		}
+		if out.Type == agentpod.ResponseTypeEnd {
+			break
+		}
+	}
+
+	if strings.ToLower(finalContent) != "apple" {
+		t.Fatal("Expected 'apple', got:", finalContent)
 	}
 }
 
@@ -383,15 +329,12 @@ func TestMemoryRetrieval(t *testing.T) {
 
 	ai := agentpod.NewAgent("You are a helpful assistant. Answer questions based on the user's information.", []agentpod.Skill{})
 
-	// Create a mock storage with empty conversation history
-	storage := &MockStorage{}
-	storage.ConversationFn = getEmptyConversationHistory(storage)
-
+	messageHistory := &agentpod.MessageList{}
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
-	convSession := agentpod.NewSession(context.Background(), llm, mem, ai, storage, agentpod.Meta{
+	convSession := agentpod.NewSession(context.Background(), llm, mem, ai, messageHistory, agentpod.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -412,13 +355,5 @@ func TestMemoryRetrieval(t *testing.T) {
 
 	if !strings.Contains(strings.ToLower(finalContent), "united kingdom") {
 		t.Fatal("Expected response to contain 'United Kingdom', got:", finalContent)
-	}
-
-	// Verify CreateConversation was called with the correct message
-	if !storage.WasCreateConversationCalled() {
-		t.Fatal("Expected CreateConversation to be called")
-	}
-	if storage.GetUserMessage(sessionID) != "Which country am I from?" {
-		t.Fatalf("Expected user message to be 'Which country am I from?', got: %s", storage.GetUserMessage(sessionID))
 	}
 }

@@ -237,15 +237,18 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 	)
 
 	// Create a mock storage with empty conversation history
-	storage := &MockStorage{}
-	storage.ConversationFn = getEmptyConversationHistory(storage)
+	// storage := &MockStorage{}
+	// storage.ConversationFn = getEmptyConversationHistory(storage)
+
+	messageHistory := &agentpod.MessageList{}
+	// messageHistory.Add(agentpod.UserMessage(prompt))
 
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
 	// Create session with restaurant agent
-	restaurantSession := agentpod.NewSession(context.Background(), llm, mem, restaurantAgent, storage, agentpod.Meta{
+	restaurantSession := agentpod.NewSession(context.Background(), llm, mem, restaurantAgent, messageHistory, agentpod.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID, "domain": "test"},
@@ -284,13 +287,21 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 		t.Fatal("Expected at least one of the dishes to be in the cuisine recommendation, got:", response)
 	}
 
+	newMessageHistory := restaurantSession.GetMessageHistory()
+
+	t.Logf("message history: %v", newMessageHistory)
+
+	// Should have first message and last assistant message
+	require.Equal(t, newMessageHistory.Messages[0].Role, "user")
+	require.Equal(t, newMessageHistory.Messages[len(newMessageHistory.Messages)-1].Role, "assistant")
+
 	// Verify CreateConversation was called with the correct messages
-	if !storage.WasCreateConversationCalled() {
-		t.Fatal("Expected CreateConversation to be called")
-	}
-	if storage.GetUserMessage(sessionID) != prompt {
-		t.Fatalf("Expected user message to match, got: %s", storage.GetUserMessage(sessionID))
-	}
+	// if !storage.WasCreateConversationCalled() {
+	// 	t.Fatal("Expected CreateConversation to be called")
+	// }
+	// if storage.GetUserMessage(sessionID) != prompt {
+	// 	t.Fatalf("Expected user message to match, got: %s", storage.GetUserMessage(sessionID))
+	// }
 }
 
 func TestMultiAgentRestaurantRecommendationWithSummarizer(t *testing.T) {

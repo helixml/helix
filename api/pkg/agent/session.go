@@ -23,10 +23,10 @@ type Session struct {
 	inUserChannel  chan string
 	outUserChannel chan Response
 
-	llm     *LLM
-	memory  Memory
-	agent   *Agent
-	storage Storage
+	llm            *LLM
+	memory         Memory
+	agent          *Agent
+	messageHistory *MessageList
 
 	meta Meta
 
@@ -35,7 +35,7 @@ type Session struct {
 }
 
 // NewSession constructs a session with references to shared LLM & memory, but isolated state.
-func NewSession(ctx context.Context, llm *LLM, mem Memory, ag *Agent, storage Storage, meta Meta) *Session {
+func NewSession(ctx context.Context, llm *LLM, mem Memory, ag *Agent, messageHistory *MessageList, meta Meta) *Session {
 	ctx, cancel := context.WithCancel(ctx)
 	ctx = context.WithValue(ctx, ContextKey("userID"), meta.UserID)
 	ctx = context.WithValue(ctx, ContextKey("sessionID"), meta.SessionID)
@@ -48,10 +48,10 @@ func NewSession(ctx context.Context, llm *LLM, mem Memory, ag *Agent, storage St
 		inUserChannel:  make(chan string),
 		outUserChannel: make(chan Response),
 
-		llm:     llm,
-		memory:  mem,
-		agent:   ag,
-		storage: storage,
+		llm:            llm,
+		memory:         mem,
+		agent:          ag,
+		messageHistory: messageHistory,
 
 		meta: meta,
 
@@ -87,6 +87,10 @@ func (s *Session) Close() {
 	})
 }
 
+func (s *Session) GetMessageHistory() *MessageList {
+	return s.messageHistory
+}
+
 // run is the main loop for the session. It listens for user messages and process here. Although
 // we don't support now, the idea is that session should support interactive mode which is why
 // the input channel exists. Session should hold the control of how to route the messages to whichever agents
@@ -105,17 +109,21 @@ func (s *Session) run() {
 			s.outUserChannel <- Response{Type: ResponseTypeEnd}
 			return
 		}
-		err := s.storage.CreateConversation(s.meta, userMessage)
-		if err != nil {
-			s.logger.Error("Error creating conversation", "error", err)
-		}
+
+		// Append user message to message history
+		s.messageHistory.Add(UserMessage(userMessage))
+
+		// err := s.storage.GetConversations(s.meta, userMessage)
+		// if err != nil {
+		// 	s.logger.Error("Error creating conversation", "error", err)
+		// }
 
 		// Prepare session message history and validate state
-		messageHistory, err := CompileConversationHistory(s.meta, s.storage)
-		if err != nil {
-			s.logger.Error("Error compiling conversation history", "error", err)
-			return
-		}
+		// messageHistory, err := CompileConversationHistory(s.meta, s.storage)
+		// if err != nil {
+		// 	s.logger.Error("Error compiling conversation history", "error", err)
+		// 	return
+		// }
 
 		memoryBlock, err := s.memory.Retrieve(&s.meta)
 		if err != nil {
@@ -134,7 +142,7 @@ func (s *Session) run() {
 		// Ensure channel is closed when we're done with it
 		defer close(internalChannel)
 
-		go s.agent.Run(s.ctx, s.meta, s.llm, messageHistory, memoryBlock, internalChannel, s.isConversational)
+		go s.agent.Run(s.ctx, s.meta, s.llm, s.messageHistory, memoryBlock, internalChannel, s.isConversational)
 
 		for response := range internalChannel {
 			s.outUserChannel <- response
@@ -147,10 +155,11 @@ func (s *Session) run() {
 		}
 
 		// Finish the conversation in the store with the fully aggregated response
-		err = s.storage.FinishConversation(s.meta, aggregatedResponse)
-		if err != nil {
-			s.logger.Error("Error finishing conversation", "error", err)
-		}
+		// err = s.storage.FinishConversation(s.meta, aggregatedResponse)
+		// if err != nil {
+		// 	s.logger.Error("Error finishing conversation", "error", err)
+		// }
+		s.messageHistory.Add(AssistantMessage(aggregatedResponse))
 
 		// Run method is done, send the final message
 		s.outUserChannel <- Response{
