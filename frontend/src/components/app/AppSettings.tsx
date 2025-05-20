@@ -277,7 +277,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       avatar,
       image,
       global: field === 'global' ? value : global,
-      agent_mode: agent_mode,
+      agent_mode: field === 'agent_mode' ? value : agent_mode,
       model,
       provider,
       context_limit: contextLimit,
