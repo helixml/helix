@@ -86,7 +86,7 @@ const AppSettings: FC<AppSettingsProps> = ({
     window.history.replaceState({}, '', `${window.location.pathname}?${params}`)
   }, [showAdvanced])
 
-  // Local state for form values
+  // State for form fields
   const [name, setName] = useState(app.name || '')
   const [description, setDescription] = useState(app.description || '')
   const [system_prompt, setSystemPrompt] = useState(app.system_prompt || '')
@@ -95,6 +95,13 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [global, setGlobal] = useState(app.global || false)
   const [model, setModel] = useState(app.model || '')
   const [provider, setProvider] = useState(app.provider || '')
+
+  // Agent mode settings
+  const [agent_mode, setAgentMode] = useState(app.agent_mode || false)
+  const [reasoning_model, setReasoningModel] = useState(app.reasoning_model || '')
+  const [generation_model, setGenerationModel] = useState(app.generation_model || '')
+  const [small_reasoning_model, setSmallReasoningModel] = useState(app.small_reasoning_model || '')
+  const [small_generation_model, setSmallGenerationModel] = useState(app.small_generation_model || '')
   
   // Advanced settings state
   const [contextLimit, setContextLimit] = useState(app.context_limit || 0)
@@ -124,6 +131,11 @@ const AppSettings: FC<AppSettingsProps> = ({
       setImage(app.image || '')
       setGlobal(app.global || false)
       setModel(app.model || '')
+      setAgentMode(app.agent_mode || false)
+      setReasoningModel(app.reasoning_model || '')
+      setGenerationModel(app.generation_model || '')
+      setSmallReasoningModel(app.small_reasoning_model || '')
+      setSmallGenerationModel(app.small_generation_model || '')
       setProvider(app.provider || '')
       setContextLimit(app.context_limit || 0)
       setFrequencyPenalty(app.frequency_penalty || 0)
@@ -223,6 +235,11 @@ const AppSettings: FC<AppSettingsProps> = ({
       image,
       global,
       model,
+      agent_mode,
+      reasoning_model,
+      generation_model,
+      small_reasoning_model,
+      small_generation_model,
       provider,
       context_limit: field === 'contextLimit' ? value as number : contextLimit,
       frequency_penalty: field === 'frequencyPenalty' ? value as number : frequencyPenalty,
@@ -244,9 +261,11 @@ const AppSettings: FC<AppSettingsProps> = ({
   }
 
   // Handle checkbox changes - these update immediately since they're not typing events
-  const handleCheckboxChange = (field: 'global', value: boolean) => {
+  const handleCheckboxChange = (field: 'global' | 'agent_mode', value: boolean) => {
     if (field === 'global') {
       setGlobal(value)
+    } else if (field === 'agent_mode') {
+      setAgentMode(value)
     }
     
     // Create updated state and call onUpdate immediately for checkboxes
@@ -258,6 +277,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       avatar,
       image,
       global: field === 'global' ? value : global,
+      agent_mode: agent_mode,
       model,
       provider,
       context_limit: contextLimit,
@@ -442,6 +462,119 @@ const AppSettings: FC<AppSettingsProps> = ({
           rows={4}
           helperText="What does this app do? How does it behave? What should it avoid doing?"
         />           
+      </Box>
+
+      <Box sx={{ mb: 3 }}>
+        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
+          <Box>
+            {/* <Typography variant="h6" gutterBottom>
+              Agent Mode
+            </Typography> */}
+            <Typography variant="body2" color="text.secondary">
+              Use a more sophisticated reasoning process with separate models for different tasks.
+            </Typography>
+          </Box>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={agent_mode}
+                onChange={(e) => handleCheckboxChange('agent_mode', e.target.checked)}
+                disabled={readOnly}
+              />
+            }
+            label="Agent Mode"
+          />
+        </Stack>
+
+        {agent_mode && (
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle1" sx={{ mb: 2 }}>Agent Configuration</Typography>
+            
+            <Box sx={{ mb: 3 }}>
+              <Typography gutterBottom>Main Reasoning and Planning Model</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                The model used for reasoning and planning tasks.
+              </Typography>
+              <AdvancedModelPicker
+                selectedProvider={provider}
+                selectedModelId={reasoning_model}
+                onSelectModel={(provider, model) => {
+                  setReasoningModel(model);
+                  const updatedApp: IAppFlatState = {
+                    ...app,
+                    reasoning_model: model,
+                  };
+                  onUpdate(updatedApp);
+                }}
+                currentType="text"
+                displayMode="short"
+              />
+            </Box>
+
+            <Box sx={{ mb: 3 }}>
+              <Typography gutterBottom>Generation Model</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                The model used for generating responses. Recommended to use gpt-4o level models.
+              </Typography>
+              <AdvancedModelPicker
+                selectedProvider={provider}
+                selectedModelId={generation_model}
+                onSelectModel={(provider, model) => {
+                  setGenerationModel(model);
+                  const updatedApp: IAppFlatState = {
+                    ...app,
+                    generation_model: model,
+                  };
+                  onUpdate(updatedApp);
+                }}
+                currentType="text"
+                displayMode="short"
+              />
+            </Box>
+
+            <Box sx={{ mb: 3 }}>
+              <Typography gutterBottom>Small Reasoning Model</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                A smaller model used for quick reasoning tasks. Recommended to use o3-mini level models.
+              </Typography>
+              <AdvancedModelPicker
+                selectedProvider={provider}
+                selectedModelId={small_reasoning_model}
+                onSelectModel={(provider, model) => {
+                  setSmallReasoningModel(model);
+                  const updatedApp: IAppFlatState = {
+                    ...app,
+                    small_reasoning_model: model,
+                  };
+                  onUpdate(updatedApp);
+                }}
+                currentType="text"
+                displayMode="short"
+              />
+            </Box>
+
+            <Box sx={{ mb: 3 }}>
+              <Typography gutterBottom>Small Generation Model</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                A smaller model used for quick response generation. Recommended to use gpt-4o-mini level models.
+              </Typography>
+              <AdvancedModelPicker
+                selectedProvider={provider}
+                selectedModelId={small_generation_model}
+                onSelectModel={(provider, model) => {
+                  setSmallGenerationModel(model);
+                  const updatedApp: IAppFlatState = {
+                    ...app,
+                    small_generation_model: model,
+                  };
+                  onUpdate(updatedApp);
+                }}
+                currentType="text"
+                displayMode="short"
+              />
+            </Box>
+          </Box>
+        )}
       </Box>
 
       <Box sx={{ mb: 3 }}>
