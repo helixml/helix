@@ -28,7 +28,7 @@ type Client interface {
 	// Sessions
 	ListSessions(ctx context.Context, f *SessionFilter) (*types.SessionsList, error)
 
-	RunAPIAction(ctx context.Context, appID string, action string, parameters map[string]string) (*types.RunAPIActionResponse, error)
+	RunAPIAction(ctx context.Context, appID string, action string, parameters map[string]interface{}) (*types.RunAPIActionResponse, error)
 
 	ListKnowledge(ctx context.Context, f *KnowledgeFilter) ([]*types.Knowledge, error)
 	GetKnowledge(ctx context.Context, id string) (*types.Knowledge, error)

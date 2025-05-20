@@ -301,20 +301,10 @@ func (mcps *ModelContextProtocolServer) getAPIToolHandler(appID string, tool *ty
 			Str("action", action).
 			Msg("api tool handler")
 
-		params := make(map[string]string)
+		params := make(map[string]interface{})
 
 		for k, v := range request.Params.Arguments {
-			val, ok := v.(string)
-			if !ok {
-				log.Error().
-					Str("tool", tool.Name).
-					Str("action", action).
-					Str("param", k).
-					Any("value", v).
-					Msg("param is not a string")
-				continue
-			}
-			params[k] = val
+			params[k] = v
 		}
 
 		resp, err := mcps.apiClient.RunAPIAction(ctx, appID, action, params)
