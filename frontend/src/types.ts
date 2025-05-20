@@ -548,6 +548,7 @@ export interface IAssistantApi {
   request_prep_template?: string,
   response_success_template?: string,
   response_error_template?: string,
+  system_prompt?: string,
   oauth_provider?: string,
   oauth_scopes?: string[],
 }

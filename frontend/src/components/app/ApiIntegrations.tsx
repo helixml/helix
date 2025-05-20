@@ -69,6 +69,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   const [oauthScopes, setOAuthScopes] = useState<string[]>([]);
   const [configuredProviders, setConfiguredProviders] = useState<OAuthProvider[]>([]);
   const [actionableTemplate, setActionableTemplate] = useState(app.is_actionable_template || '');
+  
   const [actionableHistoryLength, setActionableHistoryLength] = useState(app.is_actionable_history_length || 0);
   const api = useApi();
 
@@ -109,6 +110,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
     const newTool: IAssistantApi = {
       name: '',
       description: '',
+      system_prompt: '',
       schema: '',
       url: '',
       headers: {},
@@ -123,6 +125,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
     if (!editingTool) return false;
     if (!editingTool.tool.name) return false;
     if (!editingTool.tool.description) return false;
+    if (!editingTool.tool.system_prompt) return false;
     if (!editingTool.tool.url) return false;
     if (!editingTool.tool.schema) return false;
     return true;
@@ -198,6 +201,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
       updateEditingTool({
         name: "CoinDesk API",
         description: "API for CoinDesk",
+        system_prompt: "You are an expert at using the CoinDesk API to get the latest prices",
         schema: coindeskSchema,
         url: "https://api.coindesk.com/v1"
       });
@@ -205,6 +209,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
       updateEditingTool({
         name: "Job Vacancies API",
         description: "API for job vacancies",
+        system_prompt: "You are an expert at using the Job Vacancies API to get the latest job vacancies",
         schema: jobVacanciesSchema,
         url: "https://demos.tryhelix.ai"
       });
@@ -212,6 +217,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
       updateEditingTool({
         name: "Exchange Rates API",
         description: "Get latest currency exchange rates",
+        system_prompt: "You are an expert at using the Exchange Rates API to get the latest currency exchange rates",
         schema: exchangeratesSchema,
         url: "https://open.er-api.com/v6"
       });
@@ -389,6 +395,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                   onChange={(e) => updateEditingTool({ name: e.target.value })}
                   label="Name"
                   fullWidth
+                  required
                   error={showErrors && !editingTool.tool.name}
                   helperText={showErrors && !editingTool.tool.name ? 'Please enter a name' : ''}
                   disabled={isReadOnly}
@@ -399,9 +406,23 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                   value={editingTool.tool.description}
                   onChange={(e) => updateEditingTool({ description: e.target.value })}
                   label="Description"
+                  required
                   fullWidth
                   error={showErrors && !editingTool.tool.description}
-                  helperText={showErrors && !editingTool.tool.description ? "Description is required" : ""}
+                  helperText="Description of the API, e.g. 'API for currency exchange rates, can be used to get the latest rates'"
+                  disabled={isReadOnly}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  value={editingTool.tool.system_prompt || ''}
+                  onChange={(e) => updateEditingTool({ system_prompt: e.target.value })}
+                  label="System Prompt"
+                  fullWidth
+                  required
+                  multiline
+                  rows={4}
+                  helperText="Instructions when using this API. E.g. 'You are an expert at using the currency exchange API to get the latest rates'"
                   disabled={isReadOnly}
                 />
               </Grid>
