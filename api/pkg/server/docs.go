@@ -3362,7 +3362,7 @@ const docTemplate = `{
             "properties": {
                 "agent_mode": {
                     "description": "AgentMode triggers the use of the agent loop",
-                    "type": "string"
+                    "type": "boolean"
                 },
                 "apis": {
                     "type": "array",
