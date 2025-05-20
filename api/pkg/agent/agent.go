@@ -306,7 +306,7 @@ func (a *Agent) sendThoughtsAboutTools(ctx context.Context, llm *LLM, messageHis
 	
 	Notes:
 	- Do not mention tools/functions in details (like what it is going to do technically like using SQL, Python API etc)
-	- You should mention about what you are assistant is trying to achieve by executing the functions.
+	- You should not mention about what you as an assistant is trying to achieve by executing the functions.
 	- You should not mention about the "assistant" at all. Only focus on what assistant has asked to do.
 	`
 
