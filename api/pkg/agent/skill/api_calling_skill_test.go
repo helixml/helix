@@ -6,6 +6,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tmc/langchaingo/jsonschema"
 )
 
 func TestInitializeApiCallingSkill(t *testing.T) {
@@ -50,13 +52,32 @@ func TestInitializeApiCallingSkill(t *testing.T) {
 	assert.Equal(t, petStoreTool.SystemPrompt, skill.SystemPrompt)
 
 	// We should have 3 tools
-	assert.Equal(t, 3, len(skill.Tools))
+	t.Run("ToolCount", func(t *testing.T) {
+		assert.Equal(t, 3, len(skill.Tools))
+	})
 
-	// Check the tool names
-	assert.Equal(t, "listPets", skill.Tools[0].Name())
-	assert.Equal(t, "createPets", skill.Tools[1].Name())
-	assert.Equal(t, "showPetById", skill.Tools[2].Name())
+	t.Run("ToolNamesAndDescriptions", func(t *testing.T) {
+		assert.Equal(t, "listPets", skill.Tools[0].Name())
+		assert.Equal(t, "createPets", skill.Tools[1].Name())
+		assert.Equal(t, "showPetById", skill.Tools[2].Name())
 
+		assert.Equal(t, "List all pets", skill.Tools[0].Description())
+		assert.Equal(t, "Create a pet record", skill.Tools[1].Description())
+		assert.Equal(t, "Info for a specific pet", skill.Tools[2].Description())
+	})
+
+	t.Run("ListPetsParameters", func(t *testing.T) {
+		openAiSpec := skill.Tools[0].OpenAI()
+
+		parameters := openAiSpec[0].Function.Parameters.(jsonschema.Definition)
+
+		limitProperty, ok := parameters.Properties["limit"]
+		require.True(t, ok)
+
+		// Check description and type
+		assert.Equal(t, "How many items to return at one time (max 100)", limitProperty.Description)
+		assert.Equal(t, jsonschema.String, limitProperty.Type)
+	})
 }
 
 const petStoreAPISpec = `openapi: "3.0.0"
