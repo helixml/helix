@@ -173,7 +173,7 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 		},
 	}
 
-	petStoreSkill := skill.NewApiCallingSkill(planner, petStoreTool)
+	petStoreSkill := skill.NewAPICallingSkill(planner, petStoreTool)
 
 	// var skills []agentpod.Skill
 

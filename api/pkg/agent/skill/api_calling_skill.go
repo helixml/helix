@@ -14,10 +14,10 @@ import (
 	"github.com/tmc/langchaingo/jsonschema"
 )
 
-// NewApiCallingSkill converts an API tool into a list of API calling tools for the
+// NewAPICallingSkill converts an API tool into a list of API calling tools for the
 // agent to use. It converts into a list of tools because the API tool can have multiple
 // actions (each API path is an action).
-func NewApiCallingSkill(planner tools.Planner, tool *types.Tool) agent.Skill {
+func NewAPICallingSkill(planner tools.Planner, tool *types.Tool) agent.Skill {
 	var skillTools []agent.Tool
 	for _, action := range tool.Config.API.Actions {
 		parameters, err := tools.GetParametersFromSchema(tool.Config.API.Schema, action.Name)
@@ -26,7 +26,7 @@ func NewApiCallingSkill(planner tools.Planner, tool *types.Tool) agent.Skill {
 			continue
 		}
 
-		skillTools = append(skillTools, &ApiCallingTool{
+		skillTools = append(skillTools, &APICallingTool{
 			toolName:    action.Name,        // Summary field of the API path
 			description: action.Description, // OpenAPI API path description
 			tool:        tool,
@@ -44,7 +44,7 @@ func NewApiCallingSkill(planner tools.Planner, tool *types.Tool) agent.Skill {
 	}
 }
 
-type ApiCallingTool struct {
+type APICallingTool struct {
 	toolName    string
 	description string
 	tool        *types.Tool
@@ -53,25 +53,25 @@ type ApiCallingTool struct {
 	planner     tools.Planner
 }
 
-var _ agentpod.Tool = &ApiCallingTool{}
+var _ agentpod.Tool = &APICallingTool{}
 
-func (t *ApiCallingTool) Name() string {
+func (t *APICallingTool) Name() string {
 	return t.toolName
 }
 
-func (t *ApiCallingTool) Description() string {
+func (t *APICallingTool) Description() string {
 	return t.description
 }
 
-func (t *ApiCallingTool) String() string {
+func (t *APICallingTool) String() string {
 	return t.toolName
 }
 
-func (t *ApiCallingTool) StatusMessage() string {
+func (t *APICallingTool) StatusMessage() string {
 	return "Calling the API"
 }
 
-func (t *ApiCallingTool) OpenAI() []openai.Tool {
+func (t *APICallingTool) OpenAI() []openai.Tool {
 	properties := map[string]jsonschema.Definition{}
 	required := []string{}
 
@@ -102,7 +102,7 @@ func (t *ApiCallingTool) OpenAI() []openai.Tool {
 	}
 }
 
-func (t *ApiCallingTool) Execute(ctx context.Context, meta agentpod.Meta, args map[string]interface{}) (string, error) {
+func (t *APICallingTool) Execute(ctx context.Context, meta agentpod.Meta, args map[string]interface{}) (string, error) {
 
 	params := make(map[string]string)
 
