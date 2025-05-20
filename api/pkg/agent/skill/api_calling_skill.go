@@ -27,6 +27,7 @@ func NewAPICallingSkill(planner tools.Planner, tool *types.Tool) agent.Skill {
 		}
 
 		skillTools = append(skillTools, &APICallingTool{
+			toolID:      tool.ID,
 			toolName:    action.Name,        // Summary field of the API path
 			description: action.Description, // OpenAPI API path description
 			tool:        tool,
@@ -45,6 +46,7 @@ func NewAPICallingSkill(planner tools.Planner, tool *types.Tool) agent.Skill {
 }
 
 type APICallingTool struct {
+	toolID      string
 	toolName    string
 	description string
 	tool        *types.Tool
@@ -103,6 +105,11 @@ func (t *APICallingTool) OpenAI() []openai.Tool {
 }
 
 func (t *APICallingTool) Execute(ctx context.Context, meta agentpod.Meta, args map[string]interface{}) (string, error) {
+
+	log.Info().
+		Str("tool_name", t.toolName).
+		Str("tool_id", t.toolID).
+		Any("args", args).Msg("Executing API calling tool")
 
 	params := make(map[string]string)
 
