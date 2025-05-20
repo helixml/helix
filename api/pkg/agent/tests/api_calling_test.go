@@ -180,31 +180,19 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 
 	petStoreSkill := skill.NewAPICallingSkill(planner, petStoreTool)
 
-	// var skills []agentpod.Skill
-
-	// for _, tool := range apiCallingTools {
-	// 	skills = append(skills, agentpod.Skill{
-	// 		Name:         tool.Name(),
-	// 		Description:  tool.Description(),
-	// 		SystemPrompt: fmt.Sprintf("You are an expert in the %s tool. You can use it to get information about pets.", tool.Name()),
-	// 		Tools:        []agentpod.Tool{tool},
-	// 	})
-	// }
 	restaurantAgent := agentpod.NewAgent(
 		petStoreMainPrompt,
 		[]agentpod.Skill{petStoreSkill},
 	)
 
-	// Create a mock storage with empty conversation history
-	storage := &MockStorage{}
-	storage.ConversationFn = getEmptyConversationHistory(storage)
+	messageHistory := &agentpod.MessageList{}
 
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
 	// Create session with restaurant agent
-	restaurantSession := agentpod.NewSession(context.Background(), llm, mem, restaurantAgent, storage, agentpod.Meta{
+	restaurantSession := agentpod.NewSession(context.Background(), llm, mem, restaurantAgent, messageHistory, agentpod.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID, "domain": "test"},
@@ -224,14 +212,6 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 	}
 
 	t.Logf("agent response: %s", response)
-
-	// Verify CreateConversation was called with the correct messages
-	if !storage.WasCreateConversationCalled() {
-		t.Fatal("Expected CreateConversation to be called")
-	}
-	if storage.GetUserMessage(sessionID) != prompt {
-		t.Fatalf("Expected user message to match, got: %s", storage.GetUserMessage(sessionID))
-	}
 
 	require.True(t, petsListCalled, "expected to call listPets")
 	require.True(t, petsCreateCalled, "expected to call createPets")
