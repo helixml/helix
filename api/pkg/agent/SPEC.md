@@ -10,12 +10,12 @@ Here's a simple example of AgentPod initialization and usage:
 
 ```go
 // initialization
-agent := agentpod.NewAgent(AgentMainPrompt, []agentpod.Skill{
+agent := agent.NewAgent(AgentMainPrompt, []agent.Skill{
     skills.KeywordResearchSkill(keywordsPlace),
 })
-memory := agentpod.NewMem0()
-storage := agentpod.NewPostgresql()
-llm := agentpod.NewLLM(
+memory := agent.NewMem0()
+storage := agent.NewPostgresql()
+llm := agent.NewLLM(
     cfg.AI.KeywordsAIAPIKey, 
     cfg.AI.KeywordsAIBaseURL,
     "o1",  // reasoning model
@@ -24,8 +24,8 @@ llm := agentpod.NewLLM(
     "gpt-4o-mini"  // small generation model
 )
 
-meta := agentpod.Meta{
-    CustomerID: orgID,
+meta := agent.Meta{
+    UserID: userID,
     SessionID: sessionID,
     Extra: map[string]string{"user_id": userID},
 }

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 
-	// "github.com/openai/openai-go"
 	openai "github.com/sashabaranov/go-openai"
 )
 
