@@ -44,7 +44,7 @@ func TestInitializeApiCallingSkill(t *testing.T) {
 		},
 	}
 
-	skill := NewApiCallingSkill(nil, petStoreTool)
+	skill := NewAPICallingSkill(nil, petStoreTool)
 	assert.NotNil(t, skill)
 
 	assert.Equal(t, petStoreTool.Name, skill.Name)
