@@ -142,9 +142,10 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 	}
 
 	petStoreTool := &types.Tool{
-		Name:        "petstore",
-		Description: "pet store API that is used to get details for the specified pet's ID",
-		ToolType:    types.ToolTypeAPI,
+		Name:         "petstore",
+		Description:  "pet store API that is used to get details for the specified pet's ID",
+		SystemPrompt: "You are an expert in the pet store, managing it through the API. You can use it to get information about pets or add new ones.",
+		ToolType:     types.ToolTypeAPI,
 		Config: types.ToolConfig{
 			API: &types.ToolAPIConfig{
 				URL:    ts.URL,
