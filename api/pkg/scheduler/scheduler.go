@@ -345,11 +345,11 @@ func (s *Scheduler) deleteRunnerSlots(runnerID string) {
 func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	// Get all runners
 	runnerIDs := s.controller.RunnerIDs()
-	log.Debug().Strs("runner_ids", runnerIDs).Msg("Starting slot reconciliation")
+	log.Trace().Strs("runner_ids", runnerIDs).Msg("Starting slot reconciliation")
 
 	// Ensure new slots are created and ready to take work
 	requiredSlots := s.queue.GetRequiredSlots()
-	log.Debug().Interface("required_slots", requiredSlots).Msg("Required slots for current workload")
+	log.Trace().Interface("required_slots", requiredSlots).Msg("Required slots for current workload")
 
 	// Track slot stats
 	existingSlotCount := 0
