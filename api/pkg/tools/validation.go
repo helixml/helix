@@ -96,6 +96,10 @@ func ValidateTool(tool *types.Tool, planner Planner, strict bool) error {
 			return system.NewHTTPError400("API schema is required for API tools")
 		}
 
+		if tool.Config.API.SystemPrompt == "" {
+			return system.NewHTTPError400("system prompt is required for API tools")
+		}
+
 		// If schema is base64 encoded, decode it
 		decoded, err := base64.StdEncoding.DecodeString(tool.Config.API.Schema)
 		if err == nil {
