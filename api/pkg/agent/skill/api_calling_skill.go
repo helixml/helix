@@ -1,9 +1,10 @@
-package tool
+package skill
 
 import (
 	"context"
 	"fmt"
 
+	"github.com/helixml/helix/api/pkg/agent"
 	agentpod "github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
@@ -13,11 +14,11 @@ import (
 	"github.com/tmc/langchaingo/jsonschema"
 )
 
-// NewApiCallingTool converts an API tool into a list of API calling tools for the
+// NewApiCallingSkill converts an API tool into a list of API calling tools for the
 // agent to use. It converts into a list of tools because the API tool can have multiple
 // actions (each API path is an action).
-func NewApiCallingTool(planner tools.Planner, tool *types.Tool) []*ApiCallingTool {
-	apiTools := []*ApiCallingTool{}
+func NewApiCallingSkill(planner tools.Planner, tool *types.Tool) agent.Skill {
+	var skillTools []agent.Tool
 	for _, action := range tool.Config.API.Actions {
 		parameters, err := tools.GetParametersFromSchema(tool.Config.API.Schema, action.Name)
 		if err != nil {
@@ -25,7 +26,7 @@ func NewApiCallingTool(planner tools.Planner, tool *types.Tool) []*ApiCallingToo
 			continue
 		}
 
-		apiTools = append(apiTools, &ApiCallingTool{
+		skillTools = append(skillTools, &ApiCallingTool{
 			toolName:    action.Name,        // Summary field of the API path
 			description: action.Description, // OpenAPI API path description
 			tool:        tool,
@@ -34,7 +35,13 @@ func NewApiCallingTool(planner tools.Planner, tool *types.Tool) []*ApiCallingToo
 			planner:     planner,
 		})
 	}
-	return apiTools
+
+	return agent.Skill{
+		Name:         tool.Name,
+		Description:  tool.Description,
+		SystemPrompt: tool.SystemPrompt,
+		Tools:        skillTools,
+	}
 }
 
 type ApiCallingTool struct {

@@ -3,14 +3,13 @@ package tests
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	agentpod "github.com/helixml/helix/api/pkg/agent"
-	"github.com/helixml/helix/api/pkg/agent/tool"
+	"github.com/helixml/helix/api/pkg/agent/skill"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	helix_openai "github.com/helixml/helix/api/pkg/openai"
@@ -174,21 +173,21 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 		},
 	}
 
-	apiCallingTools := tool.NewApiCallingTool(planner, petStoreTool)
+	petStoreSkill := skill.NewApiCallingSkill(planner, petStoreTool)
 
-	var skills []agentpod.Skill
+	// var skills []agentpod.Skill
 
-	for _, tool := range apiCallingTools {
-		skills = append(skills, agentpod.Skill{
-			Name:         tool.Name(),
-			Description:  tool.Description(),
-			SystemPrompt: fmt.Sprintf("You are an expert in the %s tool. You can use it to get information about pets.", tool.Name()),
-			Tools:        []agentpod.Tool{tool},
-		})
-	}
+	// for _, tool := range apiCallingTools {
+	// 	skills = append(skills, agentpod.Skill{
+	// 		Name:         tool.Name(),
+	// 		Description:  tool.Description(),
+	// 		SystemPrompt: fmt.Sprintf("You are an expert in the %s tool. You can use it to get information about pets.", tool.Name()),
+	// 		Tools:        []agentpod.Tool{tool},
+	// 	})
+	// }
 	restaurantAgent := agentpod.NewAgent(
 		petStoreMainPrompt,
-		skills,
+		[]agentpod.Skill{petStoreSkill},
 	)
 
 	// Create a mock storage with empty conversation history
