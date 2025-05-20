@@ -807,7 +807,7 @@ definitions:
     properties:
       agent_mode:
         description: AgentMode triggers the use of the agent loop
-        type: string
+        type: boolean
       apis:
         items:
           $ref: '#/definitions/types.AssistantAPI'

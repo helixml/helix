@@ -41,6 +41,12 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
       flatState.reasoning_effort = assistant.reasoning_effort
       flatState.temperature = assistant.temperature
       flatState.top_p = assistant.top_p
+
+      flatState.agent_mode = assistant.agent_mode
+      flatState.reasoning_model = assistant.reasoning_model
+      flatState.generation_model = assistant.generation_model
+      flatState.small_reasoning_model = assistant.small_reasoning_model
+      flatState.small_generation_model = assistant.small_generation_model
       
       flatState.knowledge = assistant.knowledge || []
       flatState.apiTools = assistant.apis || []

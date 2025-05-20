@@ -1079,7 +1079,7 @@ type AssistantConfig struct {
 	Model       string `json:"model,omitempty" yaml:"model,omitempty"`
 
 	// AgentMode triggers the use of the agent loop
-	AgentMode            string `json:"agent_mode,omitempty" yaml:"agent_mode,omitempty"`
+	AgentMode            bool   `json:"agent_mode"`
 	ReasoningModel       string `json:"reasoning_model"`
 	GenerationModel      string `json:"generation_model"`
 	SmallReasoningModel  string `json:"small_reasoning_model"`

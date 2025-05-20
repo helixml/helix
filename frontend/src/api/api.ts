@@ -516,7 +516,7 @@ export interface TypesAssistantAPI {
 
 export interface TypesAssistantConfig {
   /** AgentMode triggers the use of the agent loop */
-  agent_mode?: string;
+  agent_mode?: boolean;
   apis?: TypesAssistantAPI[];
   avatar?: string;
   /**
