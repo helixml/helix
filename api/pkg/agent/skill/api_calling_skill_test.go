@@ -3,7 +3,6 @@ package skill
 import (
 	"testing"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/stretchr/testify/assert"
@@ -77,7 +76,7 @@ func TestInitializeApiCallingSkill(t *testing.T) {
 
 		// Check description and type
 		assert.Equal(t, "How many items to return at one time (max 100)", limitProperty.Description)
-		assert.Equal(t, jsonschema.String, limitProperty.Type)
+		assert.Equal(t, jsonschema.Integer, limitProperty.Type)
 	})
 
 	t.Run("CreatePetsParameters", func(t *testing.T) {
@@ -85,13 +84,20 @@ func TestInitializeApiCallingSkill(t *testing.T) {
 
 		parameters := openAiSpec[0].Function.Parameters.(jsonschema.Definition)
 
-		spew.Dump(parameters)
-
-		petProperty, ok := parameters.Properties["pet"]
+		petProperty, ok := parameters.Properties["body"]
 		require.True(t, ok)
 
-		assert.Equal(t, "The pet to create", petProperty.Description)
-		assert.Equal(t, jsonschema.Object, petProperty.Type)
+		assert.Equal(t, "Request body", petProperty.Description)
+
+		assert.Equal(t, jsonschema.Integer, petProperty.Properties["id"].Type)
+		assert.Equal(t, jsonschema.String, petProperty.Properties["name"].Type)
+		assert.Equal(t, jsonschema.String, petProperty.Properties["tag"].Type)
+
+		// Check required fields
+		assert.Equal(t, []string{"id", "name"}, petProperty.Required)
+
+		// assert.Equal(t, "The name of the pet", petProperty.Description)
+		// assert.Equal(t, jsonschema.String, petProperty.Type)
 	})
 }
 

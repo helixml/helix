@@ -78,11 +78,86 @@ func (t *APICallingTool) OpenAI() []openai.Tool {
 	required := []string{}
 
 	for _, param := range t.parameters {
-		properties[param.Name] = jsonschema.Definition{
-			Type:        jsonschema.String,
+		// Create base property definition
+		property := jsonschema.Definition{
 			Description: param.Description,
-			// TODO: implement all types
 		}
+
+		// Handle different parameter types
+		switch param.Type {
+		case tools.ParameterTypeString:
+			property.Type = jsonschema.String
+		case tools.ParameterTypeInteger:
+			property.Type = jsonschema.Integer
+		case tools.ParameterTypeBoolean:
+			property.Type = jsonschema.Boolean
+		case tools.ParameterTypeArray:
+			property.Type = jsonschema.Array
+			if param.Schema != nil && param.Schema.Value != nil && param.Schema.Value.Items != nil {
+				// Handle array items type
+				itemType := param.Schema.Value.Items.Value.Type.Slice()[0]
+				switch itemType {
+				case "string":
+					property.Items = &jsonschema.Definition{Type: jsonschema.String}
+				case "integer":
+					property.Items = &jsonschema.Definition{Type: jsonschema.Integer}
+				case "boolean":
+					property.Items = &jsonschema.Definition{Type: jsonschema.Boolean}
+				case "object":
+					property.Items = &jsonschema.Definition{Type: jsonschema.Object}
+				}
+			}
+		case tools.ParameterTypeObject:
+			property.Type = jsonschema.Object
+			if param.Schema != nil && param.Schema.Value != nil {
+				// Handle object properties
+				objectProperties := make(map[string]jsonschema.Definition)
+				for propName, propSchema := range param.Schema.Value.Properties {
+					propDef := jsonschema.Definition{
+						Description: propSchema.Value.Description,
+					}
+
+					// Set property type
+					if len(propSchema.Value.Type.Slice()) > 0 {
+						switch propSchema.Value.Type.Slice()[0] {
+						case "string":
+							propDef.Type = jsonschema.String
+						case "integer":
+							propDef.Type = jsonschema.Integer
+						case "boolean":
+							propDef.Type = jsonschema.Boolean
+						case "array":
+							propDef.Type = jsonschema.Array
+							if propSchema.Value.Items != nil && propSchema.Value.Items.Value != nil {
+								itemType := propSchema.Value.Items.Value.Type.Slice()[0]
+								switch itemType {
+								case "string":
+									propDef.Items = &jsonschema.Definition{Type: jsonschema.String}
+								case "integer":
+									propDef.Items = &jsonschema.Definition{Type: jsonschema.Integer}
+								case "boolean":
+									propDef.Items = &jsonschema.Definition{Type: jsonschema.Boolean}
+								case "object":
+									propDef.Items = &jsonschema.Definition{Type: jsonschema.Object}
+								}
+							}
+						case "object":
+							propDef.Type = jsonschema.Object
+						}
+					}
+
+					objectProperties[propName] = propDef
+				}
+				property.Properties = objectProperties
+
+				// Add required fields if specified
+				if len(param.Schema.Value.Required) > 0 {
+					property.Required = param.Schema.Value.Required
+				}
+			}
+		}
+
+		properties[param.Name] = property
 		if param.Required {
 			required = append(required, param.Name)
 		}
