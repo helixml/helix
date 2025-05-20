@@ -2273,6 +2273,10 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "system_prompt": {
+                    "description": "E.g. As a restaurant expert, you provide personalized restaurant recommendations",
+                    "type": "string"
+                },
                 "tool_type": {
                     "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.ToolType"
                 }
@@ -3356,6 +3360,10 @@ const docTemplate = `{
         "types.AssistantConfig": {
             "type": "object",
             "properties": {
+                "agent_mode": {
+                    "description": "AgentMode triggers the use of the agent loop",
+                    "type": "string"
+                },
                 "apis": {
                     "type": "array",
                     "items": {
@@ -3375,6 +3383,9 @@ const docTemplate = `{
                 "frequency_penalty": {
                     "description": "How much to penalize new tokens based on their frequency in the text so far.\nIncreases the model's likelihood to talk about new topics\n0 - balanced\n2 - less repetitive",
                     "type": "number"
+                },
+                "generation_model": {
+                    "type": "string"
                 },
                 "gptscripts": {
                     "type": "array",
@@ -3428,6 +3439,15 @@ const docTemplate = `{
                     "description": "Controls effort on reasoning for reasoning models. It can be set to \"low\", \"medium\", or \"high\".",
                     "type": "string"
                 },
+                "reasoning_model": {
+                    "type": "string"
+                },
+                "small_generation_model": {
+                    "type": "string"
+                },
+                "small_reasoning_model": {
+                    "type": "string"
+                },
                 "system_prompt": {
                     "type": "string"
                 },
@@ -3461,9 +3481,6 @@ const docTemplate = `{
                 "top_p": {
                     "description": "An alternative to sampling with temperature, called nucleus sampling,\nwhere the model considers the results of the tokens with top_p probability mass.\nSo 0.1 means only the tokens comprising the top 10% probability mass are considered.\n0 - balanced\n2 - more creative",
                     "type": "number"
-                },
-                "type": {
-                    "$ref": "#/definitions/types.SessionType"
                 },
                 "zapier": {
                     "type": "array",
@@ -3834,6 +3851,14 @@ const docTemplate = `{
                 "completed": {
                     "type": "string"
                 },
+                "content": {
+                    "description": "Original content received from the API. This will include the Message and any images.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.MessageContent"
+                        }
+                    ]
+                },
                 "created": {
                     "type": "string"
                 },
@@ -3894,7 +3919,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "message": {
-                    "description": "e.g. Prove pythagoras",
+                    "description": "TODO: remove and keep only content",
                     "type": "string"
                 },
                 "metadata": {
@@ -4425,7 +4450,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "content_type": {
-                    "description": "text, image, multimodal_text",
+                    "description": "text, image_url, multimodal_text",
                     "allOf": [
                         {
                             "$ref": "#/definitions/types.MessageContentType"
@@ -5100,9 +5125,7 @@ const docTemplate = `{
                 },
                 "parameters": {
                     "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
+                    "additionalProperties": true
                 }
             }
         },
@@ -5347,6 +5370,10 @@ const docTemplate = `{
                 },
                 "rag_source_id": {
                     "type": "string"
+                },
+                "regenerate": {
+                    "description": "If true, we will regenerate the response for the last message",
+                    "type": "boolean"
                 },
                 "session_id": {
                     "description": "If empty, we will start a new session",

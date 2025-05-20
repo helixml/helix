@@ -954,7 +954,7 @@ type Tool struct {
 	ID           string     `json:"id" gorm:"primaryKey"`
 	Name         string     `json:"name"`
 	Description  string     `json:"description"`
-	SystemPrompt string     `json:"system_prompt"` // E.g. "As a restaurant expert, you provide personalized restaurant recommendations"
+	SystemPrompt string     `json:"system_prompt"` // E.g. As a restaurant expert, you provide personalized restaurant recommendations
 	ToolType     ToolType   `json:"tool_type"`
 	Global       bool       `json:"global"`
 	Config       ToolConfig `json:"config" gorm:"jsonb"`
@@ -1070,14 +1070,20 @@ type AssistantAPI struct {
 // apps are a collection of assistants
 // the APIs and GPTScripts are both processed into a single list of Tools
 type AssistantConfig struct {
-	ID          string      `json:"id,omitempty" yaml:"id,omitempty"`
-	Name        string      `json:"name,omitempty" yaml:"name,omitempty"`
-	Description string      `json:"description,omitempty" yaml:"description,omitempty"`
-	Avatar      string      `json:"avatar,omitempty" yaml:"avatar,omitempty"`
-	Image       string      `json:"image,omitempty" yaml:"image,omitempty"`
-	Provider    string      `json:"provider,omitempty" yaml:"provider,omitempty"`
-	Model       string      `json:"model,omitempty" yaml:"model,omitempty"`
-	Type        SessionType `json:"type,omitempty" yaml:"type,omitempty"`
+	ID          string `json:"id,omitempty" yaml:"id,omitempty"`
+	Name        string `json:"name,omitempty" yaml:"name,omitempty"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+	Avatar      string `json:"avatar,omitempty" yaml:"avatar,omitempty"`
+	Image       string `json:"image,omitempty" yaml:"image,omitempty"`
+	Provider    string `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Model       string `json:"model,omitempty" yaml:"model,omitempty"`
+
+	// AgentMode triggers the use of the agent loop
+	AgentMode            string `json:"agent_mode,omitempty" yaml:"agent_mode,omitempty"`
+	ReasoningModel       string `json:"reasoning_model"`
+	GenerationModel      string `json:"generation_model"`
+	SmallReasoningModel  string `json:"small_reasoning_model"`
+	SmallGenerationModel string `json:"small_generation_model"`
 
 	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 

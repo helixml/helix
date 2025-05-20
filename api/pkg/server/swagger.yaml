@@ -18,6 +18,10 @@ definitions:
         type: string
       name:
         type: string
+      system_prompt:
+        description: E.g. As a restaurant expert, you provide personalized restaurant
+          recommendations
+        type: string
       tool_type:
         $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.ToolType'
     type: object
@@ -801,6 +805,9 @@ definitions:
     type: object
   types.AssistantConfig:
     properties:
+      agent_mode:
+        description: AgentMode triggers the use of the agent loop
+        type: string
       apis:
         items:
           $ref: '#/definitions/types.AssistantAPI'
@@ -821,6 +828,8 @@ definitions:
           0 - balanced
           2 - less repetitive
         type: number
+      generation_model:
+        type: string
       gptscripts:
         items:
           $ref: '#/definitions/types.AssistantGPTScript'
@@ -862,6 +871,12 @@ definitions:
         description: Controls effort on reasoning for reasoning models. It can be
           set to "low", "medium", or "high".
         type: string
+      reasoning_model:
+        type: string
+      small_generation_model:
+        type: string
+      small_reasoning_model:
+        type: string
       system_prompt:
         type: string
       temperature:
@@ -894,8 +909,6 @@ definitions:
           0 - balanced
           2 - more creative
         type: number
-      type:
-        $ref: '#/definitions/types.SessionType'
       zapier:
         items:
           $ref: '#/definitions/types.AssistantZapier'
@@ -1152,6 +1165,11 @@ definitions:
     properties:
       completed:
         type: string
+      content:
+        allOf:
+        - $ref: '#/definitions/types.MessageContent'
+        description: Original content received from the API. This will include the
+          Message and any images.
       created:
         type: string
       creator:
@@ -1198,7 +1216,7 @@ definitions:
           "Created a finetune file"
         type: string
       message:
-        description: e.g. Prove pythagoras
+        description: 'TODO: remove and keep only content'
         type: string
       metadata:
         additionalProperties:
@@ -1575,7 +1593,7 @@ definitions:
       content_type:
         allOf:
         - $ref: '#/definitions/types.MessageContentType'
-        description: text, image, multimodal_text
+        description: text, image_url, multimodal_text
       parts:
         description: "Parts is a list of strings or objects. For example for text,
           it's a list of strings, for\nmulti-modal it can be an object:\n\"parts\":
@@ -2050,8 +2068,7 @@ definitions:
       action:
         type: string
       parameters:
-        additionalProperties:
-          type: string
+        additionalProperties: true
         type: object
     type: object
   types.RunAPIActionResponse:
@@ -2225,6 +2242,9 @@ definitions:
         description: The provider to use
       rag_source_id:
         type: string
+      regenerate:
+        description: If true, we will regenerate the response for the last message
+        type: boolean
       session_id:
         description: If empty, we will start a new session
         type: string
