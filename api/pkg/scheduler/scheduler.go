@@ -496,7 +496,7 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 		return true
 	})
 
-	log.Debug().
+	log.Trace().
 		Int("existing_slots", existingSlotCount).
 		Int("slots_to_create", slotsToCreate).
 		Int("duplicate_slots", duplicateSlotCount).
