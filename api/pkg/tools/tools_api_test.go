@@ -235,7 +235,7 @@ func (suite *ActionTestSuite) Test_prepareRequest_Path() {
 		},
 	}
 
-	params := map[string]string{
+	params := map[string]interface{}{
 		"petId": "99944",
 	}
 
@@ -269,7 +269,49 @@ func (suite *ActionTestSuite) Test_prepareRequest_Body() {
 		},
 	}
 
-	params := map[string]string{
+	params := map[string]interface{}{
+		"name":        "doggie",
+		"description": "a brown dog",
+		"tag":         "dog",
+	}
+
+	req, err := suite.strategy.prepareRequest(suite.ctx, tool, "createPets", params)
+	suite.NoError(err)
+
+	suite.Equal("https://example.com/pets", req.URL.String())
+	suite.Equal("POST", req.Method)
+	suite.Equal("1234567890", req.Header.Get("X-Api-Key"))
+
+	body, err := io.ReadAll(req.Body)
+	suite.NoError(err)
+
+	var pet Pet
+	err = json.Unmarshal(body, &pet)
+	suite.NoError(err)
+
+	suite.Equal("doggie", pet.Name)
+	suite.Equal("dog", pet.Tag)
+
+	suite.Equal("", pet.Description, "while we do set this, we don't have it in the API schema hence it should not be visible")
+}
+
+func (suite *ActionTestSuite) Test_prepareRequest_Body_Nested() {
+	tool := &types.Tool{
+		Name:        "managePetsApi",
+		Description: "pet store API that is used to manage pets",
+		ToolType:    types.ToolTypeAPI,
+		Config: types.ToolConfig{
+			API: &types.ToolAPIConfig{
+				URL:    "https://example.com",
+				Schema: petStoreAPISpec,
+				Headers: map[string]string{
+					"X-Api-Key": "1234567890",
+				},
+			},
+		},
+	}
+
+	params := map[string]interface{}{
 		"name":        "doggie",
 		"description": "a brown dog",
 		"tag":         "dog",
@@ -314,7 +356,7 @@ func (suite *ActionTestSuite) Test_prepareRequest_Path_ProvidedQuery() {
 		},
 	}
 
-	params := map[string]string{
+	params := map[string]interface{}{
 		"petId": "99944",
 	}
 
@@ -345,7 +387,7 @@ func (suite *ActionTestSuite) Test_prepareRequest_Query() {
 		},
 	}
 
-	params := map[string]string{
+	params := map[string]interface{}{
 		"q": "London",
 	}
 
@@ -732,5 +774,31 @@ func Test_GetParametersFromSchema(t *testing.T) {
 		require.Equal(t, "limit", params[0].Name)
 		require.Equal(t, "How many items to return at one time (max 100)", params[0].Description)
 		require.Equal(t, ParameterTypeInteger, params[0].Type)
+	})
+
+	t.Run("createPets", func(t *testing.T) {
+		params, err := GetParametersFromSchema(petStoreAPISpec, "createPets")
+		require.NoError(t, err)
+		require.Len(t, params, 1)
+		require.Equal(t, "body", params[0].Name)
+		require.Equal(t, ParameterTypeObject, params[0].Type)
+		require.True(t, params[0].Required)
+		require.NotNil(t, params[0].Schema)
+
+		// Verify schema properties
+		schema := params[0].Schema.Value
+		require.NotNil(t, schema)
+		require.Contains(t, schema.Required, "id")
+		require.Contains(t, schema.Required, "name")
+
+		// Verify schema properties
+		require.Contains(t, schema.Properties, "id")
+		require.Contains(t, schema.Properties, "name")
+		require.Contains(t, schema.Properties, "tag")
+
+		// Verify property types
+		require.Equal(t, "integer", schema.Properties["id"].Value.Type.Slice()[0])
+		require.Equal(t, "string", schema.Properties["name"].Value.Type.Slice()[0])
+		require.Equal(t, "string", schema.Properties["tag"].Value.Type.Slice()[0])
 	})
 }

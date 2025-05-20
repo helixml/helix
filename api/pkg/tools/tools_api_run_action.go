@@ -577,7 +577,7 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 
 	if req.Parameters == nil {
 		// Initialize empty parameters map, some API actions don't require parameters
-		req.Parameters = make(map[string]string)
+		req.Parameters = make(map[string]interface{})
 	}
 
 	log.Info().
