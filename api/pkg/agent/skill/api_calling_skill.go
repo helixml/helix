@@ -190,6 +190,11 @@ func (t *APICallingTool) Execute(ctx context.Context, meta agentpod.Meta, args m
 
 	// Convert the args to the correct types
 	for _, param := range t.parameters {
+		// For cases like "params={"candidate_name":"marcus","job_title":null}", skip the null values
+		if args[param.Name] == nil {
+			continue
+		}
+
 		params[param.Name] = args[param.Name]
 	}
 
