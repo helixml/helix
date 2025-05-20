@@ -186,11 +186,11 @@ func (t *APICallingTool) Execute(ctx context.Context, meta agentpod.Meta, args m
 		Str("tool_id", t.toolID).
 		Any("args", args).Msg("Executing API calling tool")
 
-	params := make(map[string]string)
+	params := make(map[string]interface{})
 
 	// Convert the args to the correct types
 	for _, param := range t.parameters {
-		params[param.Name] = fmt.Sprintf("%v", args[param.Name])
+		params[param.Name] = args[param.Name]
 	}
 
 	req := &types.RunAPIActionRequest{
