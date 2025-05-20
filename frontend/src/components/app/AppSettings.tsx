@@ -586,14 +586,15 @@ const AppSettings: FC<AppSettingsProps> = ({
               onSelectModel={handleModelChange}
               currentType="text"
               displayMode="short"
+              disabled={agent_mode}
             />
           </Box>
           <FormControlLabel
             control={
               <Switch
-                checked={showAdvanced}
+                checked={showAdvanced && !agent_mode}
                 onChange={(e) => setShowAdvanced(e.target.checked)}
-                disabled={readOnly}
+                disabled={readOnly || agent_mode}
               />
             }
             label="Advanced Model Settings"
@@ -601,7 +602,7 @@ const AppSettings: FC<AppSettingsProps> = ({
         </Stack>
       </Box>
 
-      {showAdvanced && (
+      {showAdvanced && !agent_mode && (
         <Box sx={{ mb: 3 }}>
           <Box sx={{ mb: 3 }}>
             <Stack direction="row" alignItems="center">
