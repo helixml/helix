@@ -996,6 +996,8 @@ type ToolAPIConfig struct {
 	Headers map[string]string `json:"headers" yaml:"headers"` // Headers (authentication, etc)
 	Query   map[string]string `json:"query" yaml:"query"`     // Query parameters that will be always set
 
+	SystemPrompt string `json:"system_prompt" yaml:"system_prompt"` // System prompt to guide the AI when using this API
+
 	RequestPrepTemplate     string `json:"request_prep_template" yaml:"request_prep_template"`         // Template for request preparation, leave empty for default
 	ResponseSuccessTemplate string `json:"response_success_template" yaml:"response_success_template"` // Template for successful response, leave empty for default
 	ResponseErrorTemplate   string `json:"response_error_template" yaml:"response_error_template"`     // Template for error response, leave empty for default
@@ -1057,6 +1059,8 @@ type AssistantAPI struct {
 	URL         string            `json:"url" yaml:"url"`
 	Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	Query       map[string]string `json:"query,omitempty" yaml:"query,omitempty"`
+
+	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 
 	RequestPrepTemplate     string `json:"request_prep_template,omitempty" yaml:"request_prep_template,omitempty"`
 	ResponseSuccessTemplate string `json:"response_success_template,omitempty" yaml:"response_success_template,omitempty"`
