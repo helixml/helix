@@ -9,6 +9,7 @@ import (
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/transport"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -26,6 +27,12 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*opena
 		vals = &oai.ContextValues{}
 	}
 
+	log.Info().
+		Str("session_id", vals.SessionID).
+		Str("user_id", req.User.ID).
+		Str("interaction_id", vals.InteractionID).
+		Msg("Running agent")
+
 	mem := agent.NewDefaultMemory()
 
 	llm := agent.NewLLM(
@@ -36,8 +43,16 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*opena
 		req.Assistant.SmallGenerationModel,
 	)
 
+	enriched, err := renderPrompt(req.Assistant.SystemPrompt, systemPromptValues{
+		LocalDate: time.Now().Format("2006-01-02"),
+		LocalTime: time.Now().Format("15:04:05"),
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("failed to render system prompt")
+	}
+
 	helixAgent := agent.NewAgent(
-		req.Assistant.SystemPrompt,
+		enriched,
 		[]agent.Skill{},
 	)
 
@@ -53,7 +68,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*opena
 		}
 	}
 
-	session := agent.NewSession(context.Background(), llm, mem, helixAgent, messageHistory, agent.Meta{
+	session := agent.NewSession(ctx, llm, mem, helixAgent, messageHistory, agent.Meta{
 		UserID:    req.User.ID,
 		SessionID: vals.SessionID,
 		Extra:     map[string]string{},
@@ -65,6 +80,8 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*opena
 	var response string
 	for {
 		out := session.Out()
+
+		fmt.Println("XXX OUT", out)
 
 		if out.Type == agent.ResponseTypePartialText {
 			response += out.Content
@@ -94,6 +111,12 @@ func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (
 		vals = &oai.ContextValues{}
 	}
 
+	log.Info().
+		Str("session_id", vals.SessionID).
+		Str("user_id", req.User.ID).
+		Str("interaction_id", vals.InteractionID).
+		Msg("Running agent")
+
 	mem := agent.NewDefaultMemory()
 
 	llm := agent.NewLLM(
@@ -111,8 +134,8 @@ func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (
 
 	messageHistory := agent.NewMessageList()
 
-	// Add request messages
-	for _, message := range req.Request.Messages {
+	// Add request messages except the last user message
+	for _, message := range req.Request.Messages[:len(req.Request.Messages)-1] {
 		switch message.Role {
 		case openai.ChatMessageRoleUser:
 			messageHistory.Add(agent.UserMessage(message.Content))
@@ -139,12 +162,35 @@ func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (
 		defer writer.Close()
 		for {
 			out := session.Out()
-			// Write the chunk to the writer
-			if out.Type == agent.ResponseTypePartialText {
-				_ = transport.WriteChunk(writer, []byte(out.Content))
-			}
-			if out.Type == agent.ResponseTypeEnd {
-				break
+
+			switch out.Type {
+			case agent.ResponseTypePartialText:
+				_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
+					Choices: []openai.ChatCompletionStreamChoice{
+						{
+							Delta: openai.ChatCompletionStreamChoiceDelta{Content: out.Content},
+						},
+					},
+				})
+
+			case agent.ResponseTypeError:
+				_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
+					Choices: []openai.ChatCompletionStreamChoice{
+						{
+							Delta: openai.ChatCompletionStreamChoiceDelta{Content: fmt.Sprintf("Agent error: %s", out.Content)},
+						},
+					},
+				})
+			case agent.ResponseTypeEnd:
+				// Write the final chunk with reason stop
+				_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
+					Choices: []openai.ChatCompletionStreamChoice{
+						{
+							FinishReason: openai.FinishReasonStop,
+						},
+					},
+				})
+				return
 			}
 		}
 	}()

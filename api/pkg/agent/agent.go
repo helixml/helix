@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 
+	pkg_errors "github.com/pkg/errors"
+
 	"github.com/helixml/helix/api/pkg/agent/prompts"
 
 	"github.com/rs/zerolog/log"
@@ -211,7 +213,7 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 // handleLLMError handles errors from LLM API calls
 func (a *Agent) handleLLMError(err error, outUserChannel chan Response) {
 	content := "Error occurred!"
-	log.Error().Err(err).Msg("Error streaming")
+	log.Error().Err(pkg_errors.WithStack(err)).Msg("Error streaming")
 	if strings.Contains(err.Error(), "ContentPolicyViolationError") {
 		log.Error().Err(err).Msg("Content policy violation!")
 		content = "Content policy violation! If this was a mistake, please reach out to the support. Consecutive violations may result in a temporary/permanent ban."

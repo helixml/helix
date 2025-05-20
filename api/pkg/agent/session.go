@@ -4,8 +4,9 @@ package agent
 
 import (
 	"context"
-	"log/slog"
 	"sync"
+
+	"github.com/rs/zerolog/log"
 )
 
 type Meta struct {
@@ -31,7 +32,6 @@ type Session struct {
 	meta Meta
 
 	isConversational bool
-	logger           *slog.Logger
 }
 
 // NewSession constructs a session with references to shared LLM & memory, but isolated state.
@@ -54,8 +54,6 @@ func NewSession(ctx context.Context, llm *LLM, mem Memory, ag *Agent, messageHis
 		messageHistory: messageHistory,
 
 		meta: meta,
-
-		logger: slog.Default(),
 
 		isConversational: true,
 	}
@@ -98,14 +96,17 @@ func (s *Session) GetMessageHistory() *MessageList {
 // TODO - handle refusal everywhere
 // TODO - handle other errors like network errors everywhere
 func (s *Session) run() {
-	s.logger.Info("Session started", "sessionID", s.meta.SessionID)
+	log.Info().Str("session_id", s.meta.SessionID).Msg("Session started")
+	defer log.Info().Str("session_id", s.meta.SessionID).Msg("Session ended")
+
 	defer s.Close()
 	select {
 	case <-s.ctx.Done():
+		log.Info().Str("session_id", s.meta.SessionID).Msg("Session ended (context done)")
 		s.outUserChannel <- Response{Type: ResponseTypeEnd}
 	case userMessage, ok := <-s.inUserChannel:
 		if !ok {
-			s.logger.Error("Session input channel closed")
+			log.Error().Msg("Session input channel closed")
 			s.outUserChannel <- Response{Type: ResponseTypeEnd}
 			return
 		}
@@ -113,21 +114,9 @@ func (s *Session) run() {
 		// Append user message to message history
 		s.messageHistory.Add(UserMessage(userMessage))
 
-		// err := s.storage.GetConversations(s.meta, userMessage)
-		// if err != nil {
-		// 	s.logger.Error("Error creating conversation", "error", err)
-		// }
-
-		// Prepare session message history and validate state
-		// messageHistory, err := CompileConversationHistory(s.meta, s.storage)
-		// if err != nil {
-		// 	s.logger.Error("Error compiling conversation history", "error", err)
-		// 	return
-		// }
-
 		memoryBlock, err := s.memory.Retrieve(&s.meta)
 		if err != nil {
-			s.logger.Error("Error getting user info", "error", err)
+			log.Error().Err(err).Msg("Error getting user info")
 			return
 		}
 
@@ -154,11 +143,6 @@ func (s *Session) run() {
 			}
 		}
 
-		// Finish the conversation in the store with the fully aggregated response
-		// err = s.storage.FinishConversation(s.meta, aggregatedResponse)
-		// if err != nil {
-		// 	s.logger.Error("Error finishing conversation", "error", err)
-		// }
 		s.messageHistory.Add(AssistantMessage(aggregatedResponse))
 
 		// Run method is done, send the final message
