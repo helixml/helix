@@ -6,6 +6,17 @@ import (
 	"strings"
 )
 
+type DefaultMemory struct {
+}
+
+func NewDefaultMemory() *DefaultMemory {
+	return &DefaultMemory{}
+}
+
+func (m *DefaultMemory) Retrieve(meta *Meta) (*MemoryBlock, error) {
+	return NewMemoryBlock(), nil
+}
+
 // ValueType represents the type of a memory value
 type ValueType int
 

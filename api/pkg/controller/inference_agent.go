@@ -2,10 +2,12 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	agent "github.com/helixml/helix/api/pkg/agent"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/openai/transport"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -84,4 +86,68 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*opena
 			},
 		},
 	}, nil
+}
+
+func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (*openai.ChatCompletionStream, error) {
+	vals, ok := oai.GetContextValues(ctx)
+	if !ok {
+		vals = &oai.ContextValues{}
+	}
+
+	mem := agent.NewDefaultMemory()
+
+	llm := agent.NewLLM(
+		req.Client,
+		req.Assistant.ReasoningModel,
+		req.Assistant.GenerationModel,
+		req.Assistant.SmallReasoningModel,
+		req.Assistant.SmallGenerationModel,
+	)
+
+	helixAgent := agent.NewAgent(
+		req.Assistant.SystemPrompt,
+		[]agent.Skill{},
+	)
+
+	messageHistory := agent.NewMessageList()
+
+	// Add request messages
+	for _, message := range req.Request.Messages {
+		switch message.Role {
+		case openai.ChatMessageRoleUser:
+			messageHistory.Add(agent.UserMessage(message.Content))
+		case openai.ChatMessageRoleSystem, openai.ChatMessageRoleAssistant:
+			messageHistory.Add(agent.AssistantMessage(message.Content))
+		}
+	}
+
+	session := agent.NewSession(context.Background(), llm, mem, helixAgent, messageHistory, agent.Meta{
+		UserID:    req.User.ID,
+		SessionID: vals.SessionID,
+		Extra:     map[string]string{},
+	})
+
+	// Get user message, could be in the part or content
+	session.In(getLastMessage(req.Request))
+
+	stream, writer, err := transport.NewOpenAIStreamingAdapter(req.Request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create openai streaming adapter: %w", err)
+	}
+
+	go func() {
+		defer writer.Close()
+		for {
+			out := session.Out()
+			// Write the chunk to the writer
+			if out.Type == agent.ResponseTypePartialText {
+				_ = transport.WriteChunk(writer, []byte(out.Content))
+			}
+			if out.Type == agent.ResponseTypeEnd {
+				break
+			}
+		}
+	}()
+
+	return stream, nil
 }
