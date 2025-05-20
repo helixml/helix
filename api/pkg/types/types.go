@@ -951,12 +951,13 @@ const (
 )
 
 type Tool struct {
-	ID          string     `json:"id" gorm:"primaryKey"`
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	ToolType    ToolType   `json:"tool_type"`
-	Global      bool       `json:"global"`
-	Config      ToolConfig `json:"config" gorm:"jsonb"`
+	ID           string     `json:"id" gorm:"primaryKey"`
+	Name         string     `json:"name"`
+	Description  string     `json:"description"`
+	SystemPrompt string     `json:"system_prompt"` // E.g. "As a restaurant expert, you provide personalized restaurant recommendations"
+	ToolType     ToolType   `json:"tool_type"`
+	Global       bool       `json:"global"`
+	Config       ToolConfig `json:"config" gorm:"jsonb"`
 }
 
 type ToolConfig struct {
