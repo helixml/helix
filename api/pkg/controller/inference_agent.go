@@ -21,65 +21,6 @@ type runAgentRequest struct {
 	Options   *ChatCompletionOptions
 }
 
-func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent.Session, error) {
-	vals, ok := oai.GetContextValues(ctx)
-	if !ok {
-		vals = &oai.ContextValues{}
-	}
-
-	log.Info().
-		Str("session_id", vals.SessionID).
-		Str("user_id", req.User.ID).
-		Str("interaction_id", vals.InteractionID).
-		Msg("Running agent")
-
-	mem := agent.NewDefaultMemory()
-
-	llm := agent.NewLLM(
-		req.Client,
-		req.Assistant.ReasoningModel,
-		req.Assistant.GenerationModel,
-		req.Assistant.SmallReasoningModel,
-		req.Assistant.SmallGenerationModel,
-	)
-
-	enriched, err := renderPrompt(req.Assistant.SystemPrompt, systemPromptValues{
-		LocalDate: time.Now().Format("2006-01-02"),
-		LocalTime: time.Now().Format("15:04:05"),
-	})
-	if err != nil {
-		log.Error().Err(err).Msg("failed to render system prompt")
-	}
-
-	helixAgent := agent.NewAgent(
-		enriched,
-		[]agent.Skill{},
-	)
-
-	messageHistory := agent.NewMessageList()
-
-	// Add request messages
-	for _, message := range req.Request.Messages {
-		switch message.Role {
-		case openai.ChatMessageRoleUser:
-			messageHistory.Add(agent.UserMessage(message.Content))
-		case openai.ChatMessageRoleSystem, openai.ChatMessageRoleAssistant:
-			messageHistory.Add(agent.AssistantMessage(message.Content))
-		}
-	}
-
-	session := agent.NewSession(ctx, llm, mem, helixAgent, messageHistory, agent.Meta{
-		UserID:    req.User.ID,
-		SessionID: vals.SessionID,
-		Extra:     map[string]string{},
-	})
-
-	// Get user message, could be in the part or content
-	session.In(getLastMessage(req.Request))
-
-	return session, nil
-}
-
 func (c *Controller) runAgentBlocking(ctx context.Context, req *runAgentRequest) (*openai.ChatCompletionResponse, error) {
 	session, err := c.runAgent(ctx, req)
 	if err != nil {
@@ -166,4 +107,63 @@ func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (
 	}()
 
 	return stream, nil
+}
+
+func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent.Session, error) {
+	vals, ok := oai.GetContextValues(ctx)
+	if !ok {
+		vals = &oai.ContextValues{}
+	}
+
+	log.Info().
+		Str("session_id", vals.SessionID).
+		Str("user_id", req.User.ID).
+		Str("interaction_id", vals.InteractionID).
+		Msg("Running agent")
+
+	mem := agent.NewDefaultMemory()
+
+	llm := agent.NewLLM(
+		req.Client,
+		req.Assistant.ReasoningModel,
+		req.Assistant.GenerationModel,
+		req.Assistant.SmallReasoningModel,
+		req.Assistant.SmallGenerationModel,
+	)
+
+	enriched, err := renderPrompt(req.Assistant.SystemPrompt, systemPromptValues{
+		LocalDate: time.Now().Format("2006-01-02"),
+		LocalTime: time.Now().Format("15:04:05"),
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("failed to render system prompt")
+	}
+
+	helixAgent := agent.NewAgent(
+		enriched,
+		[]agent.Skill{},
+	)
+
+	messageHistory := agent.NewMessageList()
+
+	// Add request messages
+	for _, message := range req.Request.Messages {
+		switch message.Role {
+		case openai.ChatMessageRoleUser:
+			messageHistory.Add(agent.UserMessage(message.Content))
+		case openai.ChatMessageRoleSystem, openai.ChatMessageRoleAssistant:
+			messageHistory.Add(agent.AssistantMessage(message.Content))
+		}
+	}
+
+	session := agent.NewSession(ctx, llm, mem, helixAgent, messageHistory, agent.Meta{
+		UserID:    req.User.ID,
+		SessionID: vals.SessionID,
+		Extra:     map[string]string{},
+	})
+
+	// Get user message, could be in the part or content
+	session.In(getLastMessage(req.Request))
+
+	return session, nil
 }
