@@ -68,6 +68,14 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		}
 	}
 
+	if len(history) == 0 {
+		log.Error().
+			Str("session_id", sessionID).
+			Str("interaction_id", interactionID).
+			Msg("no messages in the history, can't check for actionable or informative")
+		return nil, fmt.Errorf("no history to check if the user input is actionable or not")
+	}
+
 	if len(tools) == 0 {
 		return &IsActionableResponse{
 			NeedsTool:     "no",
