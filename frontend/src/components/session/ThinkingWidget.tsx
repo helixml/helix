@@ -170,14 +170,14 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
               left: 0,
               right: 0,
               top: 0,
-              height: '25%',
+              height: '35%',
               pointerEvents: 'none',
               zIndex: 3,
               background: theme =>
                 theme.palette.mode === 'light'
                   ? 'linear-gradient(to bottom, rgba(245,245,250,0.95) 70%, rgba(245,245,250,0.0) 100%)'
                   : 'linear-gradient(to bottom, rgba(30,32,40,0.95) 70%, rgba(30,32,40,0.0) 100%)',
-              backdropFilter: 'blur(6px)',
+              backdropFilter: 'blur(1px)',
             }}
           />
           <Box
@@ -186,14 +186,14 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
               left: 0,
               right: 0,
               bottom: 0,
-              height: '25%',
+              height: '35%',
               pointerEvents: 'none',
               zIndex: 3,
               background: theme =>
                 theme.palette.mode === 'light'
                   ? 'linear-gradient(to top, rgba(245,245,250,0.95) 70%, rgba(245,245,250,0.0) 100%)'
                   : 'linear-gradient(to top, rgba(30,32,40,0.95) 70%, rgba(30,32,40,0.0) 100%)',
-              backdropFilter: 'blur(6px)',
+              backdropFilter: 'blur(1px)',
             }}
           />
           <Box
@@ -210,7 +210,7 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
               variant="body1"
               sx={{
                 color: 'text.primary',
-                fontSize: 16,
+                fontSize: 10,
                 fontFamily: 'inherit',
                 whiteSpace: 'pre-line',
               }}
