@@ -71,11 +71,17 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 
 	// Add request messages except the last user message
 	for _, message := range req.Request.Messages[:len(req.Request.Messages)-1] {
+		messageText, err := types.GetMessageText(&message)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to get message text")
+			continue
+		}
+		// TODO: multi-content messages
 		switch message.Role {
 		case openai.ChatMessageRoleUser:
-			messageHistory.Add(agent.UserMessage(message.Content))
+			messageHistory.Add(agent.UserMessage(messageText))
 		case openai.ChatMessageRoleSystem, openai.ChatMessageRoleAssistant:
-			messageHistory.Add(agent.AssistantMessage(message.Content))
+			messageHistory.Add(agent.AssistantMessage(messageText))
 		}
 	}
 
