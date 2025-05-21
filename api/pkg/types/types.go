@@ -664,6 +664,7 @@ const (
 	StepInfoTypeWebSearch = "web_search"
 	StepInfoTypeRAG       = "rag"
 	StepInfoTypeToolUse   = "tool_use"
+	StepInfoTypeThinking  = "thinking"
 )
 
 type StepInfo struct {
