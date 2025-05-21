@@ -73,7 +73,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	for _, message := range req.Request.Messages[:len(req.Request.Messages)-1] {
 		messageText, err := types.GetMessageText(&message)
 		if err != nil {
-			log.Error().Err(err).Msg("failed to get message text")
+			log.Error().Any("request", req.Request).Err(err).Msg("failed to get message text")
 			continue
 		}
 		// TODO: multi-content messages
@@ -106,8 +106,6 @@ func (c *Controller) runAgentBlocking(ctx context.Context, req *runAgentRequest)
 	var response string
 	for {
 		out := session.Out()
-
-		fmt.Printf("XXX out: %+v\n", out)
 
 		if out.Type == agent.ResponseTypePartialText {
 			response += out.Content
@@ -152,9 +150,15 @@ func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (
 		for {
 			out := session.Out()
 
-			fmt.Printf("XXX out: %+v\n", out)
-
 			switch out.Type {
+			case agent.ResponseTypeThinkingStart, agent.ResponseTypeThinking, agent.ResponseTypeThinkingEnd:
+				if err := c.stepInfoEmitter.EmitStepInfo(ctx, &types.StepInfo{
+					Name:    "thinking",
+					Type:    types.StepInfoTypeThinking,
+					Message: out.Content,
+				}); err != nil {
+					log.Debug().Err(err).Msg("failed to emit thinking step info")
+				}
 			case agent.ResponseTypePartialText:
 				_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
 					Choices: []openai.ChatCompletionStreamChoice{
