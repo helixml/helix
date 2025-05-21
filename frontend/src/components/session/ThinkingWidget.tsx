@@ -16,7 +16,7 @@ function formatDuration(seconds: number) {
 
 const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStreaming }) => {
   const [elapsed, setElapsed] = useState(0);
-  const [open, setOpen] = useState(isStreaming);
+  const [open, setOpen] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const start = useRef<number>(
     typeof startTime === 'number'
@@ -27,7 +27,7 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
   );
 
   useEffect(() => {
-    setOpen(isStreaming);
+    // Do not auto-expand/collapse based on isStreaming
   }, [isStreaming]);
 
   useEffect(() => {
@@ -38,6 +38,14 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, []);
+
+  // Split text into lines for custom rendering
+  const lines = text.split('\n');
+  const totalLines = lines.length;
+  const visibleCount = 2;
+  const blurredCount = 3;
+  const startBlur = Math.max(0, totalLines - visibleCount - blurredCount);
+  const startVisible = Math.max(0, totalLines - visibleCount);
 
   if (!open && !isStreaming) {
     return (
@@ -110,47 +118,8 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
           {open ? 'Collapse details' : 'Expand for details'}
         </Typography>
       </Box>
-      {/* Blurred overlays only when streaming */}
-      {isStreaming && (
-        <>
-          {/* Blurred overlay top */}
-          <Box
-            sx={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              top: 0,
-              height: '32%',
-              pointerEvents: 'none',
-              zIndex: 1,
-              background: theme =>
-                theme.palette.mode === 'light'
-                  ? 'linear-gradient(to bottom, rgba(245,245,250,0.95) 60%, rgba(245,245,250,0.2) 100%)'
-                  : 'linear-gradient(to bottom, rgba(30,32,40,0.95) 60%, rgba(30,32,40,0.2) 100%)',
-              backdropFilter: 'blur(6px)',
-            }}
-          />
-          {/* Blurred overlay bottom */}
-          <Box
-            sx={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: '32%',
-              pointerEvents: 'none',
-              zIndex: 1,
-              background: theme =>
-                theme.palette.mode === 'light'
-                  ? 'linear-gradient(to top, rgba(245,245,250,0.95) 60%, rgba(245,245,250,0.2) 100%)'
-                  : 'linear-gradient(to top, rgba(30,32,40,0.95) 60%, rgba(30,32,40,0.2) 100%)',
-              backdropFilter: 'blur(6px)',
-            }}
-          />
-        </>
-      )}
-      {/* Main content, only show when expanded */}
-      {open && (
+      {/* Main content, show differently based on open state */}
+      {open ? (
         <Box
           sx={{
             position: 'relative',
@@ -172,6 +141,52 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
           >
             {text}
           </Typography>
+        </Box>
+      ) : (
+        <Box
+          sx={{
+            position: 'relative',
+            zIndex: 2,
+            py: 2,
+            minHeight: 60,
+          }}
+        >
+          {/* Blurred lines */}
+          {lines.slice(startBlur, startVisible).map((line, idx) => (
+            <Typography
+              key={`blurred-${idx}`}
+              variant="body1"
+              sx={{
+                color: 'text.primary',
+                px: { xs: 0, sm: 2 },
+                fontSize: 16,
+                fontFamily: 'inherit',
+                whiteSpace: 'pre-line',
+                filter: 'blur(4px)',
+                opacity: 0.7,
+                pointerEvents: 'none',
+                userSelect: 'none',
+              }}
+            >
+              {line}
+            </Typography>
+          ))}
+          {/* Fully visible lines */}
+          {lines.slice(startVisible).map((line, idx) => (
+            <Typography
+              key={`visible-${idx}`}
+              variant="body1"
+              sx={{
+                color: 'text.primary',
+                px: { xs: 0, sm: 2 },
+                fontSize: 16,
+                fontFamily: 'inherit',
+                whiteSpace: 'pre-line',
+              }}
+            >
+              {line}
+            </Typography>
+          ))}
         </Box>
       )}
     </Box>
