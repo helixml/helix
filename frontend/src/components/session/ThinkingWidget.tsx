@@ -25,6 +25,7 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
       ? startTime.getTime()
       : Date.now()
   );
+  const textContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     // Do not auto-expand/collapse based on isStreaming
@@ -38,6 +39,16 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, []);
+
+  // Auto-scroll to bottom in collapsed mode when text changes
+  useEffect(() => {
+    if (!open && textContainerRef.current) {
+      textContainerRef.current.scrollTo({
+        top: textContainerRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+  }, [text, open]);
 
   // Split text into lines for custom rendering
   const lines = text.split('\n');
@@ -148,45 +159,65 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
             position: 'relative',
             zIndex: 2,
             py: 2,
-            minHeight: 60,
+            height: 120,
+            overflow: 'hidden',
           }}
         >
-          {/* Blurred lines */}
-          {lines.slice(startBlur, startVisible).map((line, idx) => (
+          {/* Blurred gradient overlays */}
+          <Box
+            sx={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: 0,
+              height: '25%',
+              pointerEvents: 'none',
+              zIndex: 3,
+              background: theme =>
+                theme.palette.mode === 'light'
+                  ? 'linear-gradient(to bottom, rgba(245,245,250,0.95) 70%, rgba(245,245,250,0.0) 100%)'
+                  : 'linear-gradient(to bottom, rgba(30,32,40,0.95) 70%, rgba(30,32,40,0.0) 100%)',
+              backdropFilter: 'blur(6px)',
+            }}
+          />
+          <Box
+            sx={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: '25%',
+              pointerEvents: 'none',
+              zIndex: 3,
+              background: theme =>
+                theme.palette.mode === 'light'
+                  ? 'linear-gradient(to top, rgba(245,245,250,0.95) 70%, rgba(245,245,250,0.0) 100%)'
+                  : 'linear-gradient(to top, rgba(30,32,40,0.95) 70%, rgba(30,32,40,0.0) 100%)',
+              backdropFilter: 'blur(6px)',
+            }}
+          />
+          <Box
+            ref={textContainerRef}
+            sx={{
+              height: '100%',
+              overflowY: 'auto',
+              zIndex: 2,
+              position: 'relative',
+              px: { xs: 0, sm: 2 },
+            }}
+          >
             <Typography
-              key={`blurred-${idx}`}
               variant="body1"
               sx={{
                 color: 'text.primary',
-                px: { xs: 0, sm: 2 },
-                fontSize: 16,
-                fontFamily: 'inherit',
-                whiteSpace: 'pre-line',
-                filter: 'blur(4px)',
-                opacity: 0.7,
-                pointerEvents: 'none',
-                userSelect: 'none',
-              }}
-            >
-              {line}
-            </Typography>
-          ))}
-          {/* Fully visible lines */}
-          {lines.slice(startVisible).map((line, idx) => (
-            <Typography
-              key={`visible-${idx}`}
-              variant="body1"
-              sx={{
-                color: 'text.primary',
-                px: { xs: 0, sm: 2 },
                 fontSize: 16,
                 fontFamily: 'inherit',
                 whiteSpace: 'pre-line',
               }}
             >
-              {line}
+              {text}
             </Typography>
-          ))}
+          </Box>
         </Box>
       )}
     </Box>
