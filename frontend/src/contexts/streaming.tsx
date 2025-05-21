@@ -1,6 +1,6 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect, useRef } from 'react';
 import ReconnectingWebSocket from 'reconnecting-websocket';
-import { ISession, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, IInteraction, ISessionChatRequest, SESSION_TYPE_TEXT, ISessionType } from '../types';
+import { ISession, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WEBSOCKET_EVENT_TYPE_STEP_INFO, WORKER_TASK_RESPONSE_TYPE_PROGRESS, IInteraction, ISessionChatRequest, SESSION_TYPE_TEXT, ISessionType } from '../types';
 import useAccount from '../hooks/useAccount';
 import useSessions from '../hooks/useSessions';
 import { TypesCreatorType, TypesMessage } from '../api/api';
@@ -118,11 +118,31 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
     if (parsedData.type as string === "step_info") {
         const stepInfo = parsedData.step_info;
-        setStepInfos(prev => {
-            const currentSteps = prev.get(currentSessionId) || [];
-            const updatedSteps = [...currentSteps, stepInfo];
-            return new Map(prev).set(currentSessionId, updatedSteps);
-        });
+
+        // If step info is thinking, either update existing one or create new one
+        if (stepInfo?.type === "thinking") {          
+            setStepInfos(prev => {
+                const currentSteps = prev.get(currentSessionId) || [];
+                const hasThinkingStep = currentSteps.some(step => step.type === "thinking");
+                
+                let updatedSteps;
+                if (hasThinkingStep) {
+                    // Update existing thinking step
+                    updatedSteps = currentSteps.map(step => step.type === "thinking" ? stepInfo : step);
+                } else {
+                    // Add new thinking step
+                    updatedSteps = [...currentSteps, stepInfo];
+                }
+                
+                return new Map(prev).set(currentSessionId, updatedSteps);
+            });
+        } else {
+          setStepInfos(prev => {
+              const currentSteps = prev.get(currentSessionId) || [];
+              const updatedSteps = [...currentSteps, stepInfo];
+              return new Map(prev).set(currentSessionId, updatedSteps);
+          });
+        }        
     }
 
     if (parsedData.type === WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE && parsedData.worker_task_response) {
@@ -188,10 +208,16 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     const messageHandler = (event: MessageEvent<any>) => {
       const parsedData = JSON.parse(event.data) as IWebsocketEvent;
       if (parsedData.session_id !== currentSessionId) return;
+
+      handleWebsocketEvent(parsedData);
+
+      if (parsedData.step_info && parsedData.step_info.type === "thinking") {
+      // Don't reload on thinking info events as we will get a lot of them
+        return
+      }
       
       // Reload all sessions to refresh the name in the sidebar
       sessions.loadSessions()
-      handleWebsocketEvent(parsedData);
     };
 
     rws.addEventListener('message', messageHandler);

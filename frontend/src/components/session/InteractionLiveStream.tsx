@@ -225,6 +225,8 @@ export const InteractionLiveStream: FC<{
 
     const blinker = `<span class="blinker-class">┃</span>`
 
+    console.log(stepInfos)
+
     return (
       <>
         {showLoading && <LoadingSpinner />}

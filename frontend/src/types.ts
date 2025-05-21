@@ -1,4 +1,4 @@
-import { TypesUserAppAccessResponse, TypesAssistantConfig, TypesMessage, TypesMessageContent } from './api/api'
+import { TypesUserAppAccessResponse, TypesAssistantConfig, TypesStepInfo, TypesMessage, TypesMessageContent } from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
 // SYSTEM means the system prompt, NOT an assistant message (as it previously
@@ -26,10 +26,10 @@ export const INTERACTION_STATE_EDITING: IInteractionState = 'editing'
 export const INTERACTION_STATE_COMPLETE: IInteractionState = 'complete'
 export const INTERACTION_STATE_ERROR: IInteractionState = 'error'
 
-export type IWebSocketEventType = 'session_update' | 'worker_task_response'
+export type IWebSocketEventType = 'session_update' | 'worker_task_response' | 'step_info'
 export const WEBSOCKET_EVENT_TYPE_SESSION_UPDATE: IWebSocketEventType = 'session_update'
 export const WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE: IWebSocketEventType = 'worker_task_response'
-
+export const WEBSOCKET_EVENT_TYPE_STEP_INFO: IWebSocketEventType = 'step_info'
 export type IWorkerTaskResponseType = 'stream' | 'progress' | 'result'
 export const WORKER_TASK_RESPONSE_TYPE_STREAM: IWorkerTaskResponseType = 'stream'
 export const WORKER_TASK_RESPONSE_TYPE_PROGRESS: IWorkerTaskResponseType = 'progress'
@@ -264,7 +264,7 @@ export interface IWebsocketEvent {
   owner: string,
   session?: ISession,
   worker_task_response?: IWorkerTaskResponse,
-  step_info?: any,
+  step_info?: TypesStepInfo,
 }
 
 export interface IServerConfig {
