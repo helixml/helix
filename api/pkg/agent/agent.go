@@ -25,8 +25,9 @@ var retErr *RetryableError
 
 // Agent orchestrates calls to the LLM, uses Skills/Tools, and determines how to respond.
 type Agent struct {
-	prompt string
-	skills []Skill
+	prompt  string
+	skills  []Skill
+	emitter StepInfoEmitter // Send information about various steps
 }
 
 // NewAgent creates an Agent by adding the prompt as a DeveloperMessage.
@@ -236,7 +237,7 @@ func (a *Agent) sendThoughtsAboutSkills(ctx context.Context, llm *LLM, messageHi
 	allSpecSystemPrompt := `You have these tools available for you to use. But first you need to send a response to the user about what you are planning to do. Make sure to strategize in details.
 	
 	Notes:
-	- Do not mention about the tools or details about the tools like SQL, Python API etc. 
+	- Do not mention about the tools or details about the tools like API integrations, Python API etc. 
 	- You can mention about what you are trying to achieve by mentioning what these tools enable you to do. For example, if an SQL table enable you to get latest whether, you can say "I am getting whether data" instead of "I'll look at the SQL database for whether data".
 	- Make it very detailed.
 	- Strictly do not answer the question. You are just planning.
