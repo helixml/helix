@@ -151,14 +151,30 @@ func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (
 			out := session.Out()
 
 			switch out.Type {
-			case agent.ResponseTypeThinkingStart, agent.ResponseTypeThinking, agent.ResponseTypeThinkingEnd:
-				if err := c.stepInfoEmitter.EmitStepInfo(ctx, &types.StepInfo{
-					Name:    "thinking",
-					Type:    types.StepInfoTypeThinking,
-					Message: out.Content,
-				}); err != nil {
-					log.Debug().Err(err).Msg("failed to emit thinking step info")
-				}
+			case agent.ResponseTypeThinkingStart:
+				_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
+					Choices: []openai.ChatCompletionStreamChoice{
+						{
+							Delta: openai.ChatCompletionStreamChoiceDelta{Content: "<think>"},
+						},
+					},
+				})
+			case agent.ResponseTypeThinking:
+				_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
+					Choices: []openai.ChatCompletionStreamChoice{
+						{
+							Delta: openai.ChatCompletionStreamChoiceDelta{Content: out.Content},
+						},
+					},
+				})
+			case agent.ResponseTypeThinkingEnd:
+				_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
+					Choices: []openai.ChatCompletionStreamChoice{
+						{
+							Delta: openai.ChatCompletionStreamChoiceDelta{Content: "</think>"},
+						},
+					},
+				})
 			case agent.ResponseTypePartialText:
 				_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
 					Choices: []openai.ChatCompletionStreamChoice{
