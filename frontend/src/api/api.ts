@@ -511,6 +511,7 @@ export interface TypesAssistantAPI {
   response_error_template?: string;
   response_success_template?: string;
   schema?: string;
+  system_prompt?: string;
   url?: string;
 }
 
@@ -1510,6 +1511,12 @@ export enum TypesSessionType {
   SessionTypeImage = "image",
 }
 
+export interface TypesStepInfo {
+  message?: string;
+  name?: string;
+  type?: string;
+}
+
 export interface TypesTeam {
   created_at?: string;
   deleted_at?: GormDeletedAt;
@@ -1606,6 +1613,8 @@ export interface TypesToolAPIConfig {
   /** Template for successful response, leave empty for default */
   response_success_template?: string;
   schema?: string;
+  /** System prompt to guide the AI when using this API */
+  system_prompt?: string;
   /** Server override */
   url?: string;
 }
@@ -3066,6 +3075,21 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @name V1SessionsStepInfoDetail
+     * @request GET:/api/v1/sessions/{id}/step-info
+     * @secure
+     */
+    v1SessionsStepInfoDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesStepInfo[], any>({
+        path: `/api/v1/sessions/${id}/step-info`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 

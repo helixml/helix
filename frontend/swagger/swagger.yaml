@@ -800,6 +800,8 @@ definitions:
         type: string
       schema:
         type: string
+      system_prompt:
+        type: string
       url:
         type: string
     type: object
@@ -2450,6 +2452,15 @@ definitions:
     - SessionTypeNone
     - SessionTypeText
     - SessionTypeImage
+  types.StepInfo:
+    properties:
+      message:
+        type: string
+      name:
+        type: string
+      type:
+        type: string
+    type: object
   types.Team:
     properties:
       created_at:
@@ -2620,6 +2631,9 @@ definitions:
         description: Template for successful response, leave empty for default
         type: string
       schema:
+        type: string
+      system_prompt:
+        description: System prompt to guide the AI when using this API
         type: string
       url:
         description: Server override
@@ -4028,6 +4042,17 @@ paths:
       summary: Update an existing secret
       tags:
       - secrets
+  /api/v1/sessions/{id}/step-info:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.StepInfo'
+            type: array
+      security:
+      - BearerAuth: []
   /api/v1/sessions/chat:
     post:
       parameters:
