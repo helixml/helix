@@ -462,6 +462,7 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 	log.Info().
 		Str("user_id", user.ID).
 		Str("app_id", opts.AppID).
+		Int("message_count", len(req.Messages)).
 		Bool("has_oauth_tokens", len(opts.OAuthTokens) > 0).
 		Msg("Starting selectAndConfigureTool")
 
