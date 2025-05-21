@@ -27,6 +27,7 @@ Skill functions handle multiple queries and receive context externally, requirin
 
 - Remember not to pass any arguments to skill functions, as the context is managed externally.
 - Focus on understanding the interdependencies between skills to optimize the response process effectively.
+- Remember to use the "stop" tool when you are done with the task.
 
 <UserPreferences>
 - Don't be too chatty
