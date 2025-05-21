@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/types"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tmc/langchaingo/jsonschema"

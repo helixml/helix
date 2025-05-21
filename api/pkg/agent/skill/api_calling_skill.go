@@ -28,8 +28,8 @@ func NewAPICallingSkill(planner tools.Planner, tool *types.Tool) agent.Skill {
 
 		skillTools = append(skillTools, &APICallingTool{
 			toolID:      tool.ID,
-			toolName:    action.Name,        // Summary field of the API path
-			description: action.Description, // OpenAPI API path description
+			toolName:    agent.SanitizeToolName(action.Name), // Summary field of the API path
+			description: action.Description,                  // OpenAPI API path description
 			tool:        tool,
 			action:      action,
 			parameters:  parameters,
@@ -38,7 +38,7 @@ func NewAPICallingSkill(planner tools.Planner, tool *types.Tool) agent.Skill {
 	}
 
 	return agent.Skill{
-		Name:         tool.Name,
+		Name:         agent.SanitizeToolName(tool.Name),
 		Description:  tool.Description,
 		SystemPrompt: tool.SystemPrompt,
 		Tools:        skillTools,
@@ -58,7 +58,7 @@ type APICallingTool struct {
 var _ agentpod.Tool = &APICallingTool{}
 
 func (t *APICallingTool) Name() string {
-	return t.toolName
+	return agent.SanitizeToolName(t.toolName)
 }
 
 func (t *APICallingTool) Description() string {
@@ -66,7 +66,7 @@ func (t *APICallingTool) Description() string {
 }
 
 func (t *APICallingTool) String() string {
-	return t.toolName
+	return agent.SanitizeToolName(t.toolName)
 }
 
 func (t *APICallingTool) StatusMessage() string {
@@ -167,7 +167,7 @@ func (t *APICallingTool) OpenAI() []openai.Tool {
 		{
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
-				Name:        t.toolName,
+				Name:        agent.SanitizeToolName(t.toolName),
 				Description: t.description,
 				Parameters: jsonschema.Definition{
 					Type:       jsonschema.Object,
