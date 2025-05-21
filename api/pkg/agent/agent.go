@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 
 	pkg_errors "github.com/pkg/errors"
 
 	"github.com/helixml/helix/api/pkg/agent/prompts"
+	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
@@ -568,7 +570,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		}
 
 		// Extract the text content using the existing GetMessageText function
-		contentString, err := GetMessageText(lastResult)
+		contentString, err := types.GetMessageText(lastResult)
 		if err != nil {
 			log.Error().Err(err).Msg("Error extracting content from tool result")
 			outUserChannel <- Response{
@@ -591,4 +593,13 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 			Type:    ResponseTypeError,
 		}
 	}
+}
+
+var sanitizeToolNameRegex = regexp.MustCompile("[^a-zA-Z0-9]+")
+
+// OpenAI tool names can only contain alphanumeric characters and underscores, otherwise you will get an error:
+// Invalid 'tools[1].function.name': string does not match pattern. Expected a string that matches the pattern '^[a-zA-Z0-9_-]+$'.
+func SanitizeToolName(name string) string {
+	// Replace all non-alphanumeric characters with underscores
+	return sanitizeToolNameRegex.ReplaceAllString(name, "_")
 }
