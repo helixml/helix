@@ -19,6 +19,7 @@ import Citation, { Excerpt } from './Citation'
 import IconButton from '@mui/material/IconButton'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import Tooltip from '@mui/material/Tooltip'
+import ThinkingWidget from './ThinkingWidget'
 
 const SyntaxHighlighter = SyntaxHighlighterTS as any
 
@@ -394,7 +395,7 @@ export class MessageProcessor {
     }
 
     // Fix code block indentation
-    let processedMessage = message.replace(/^\s*```/gm, '```');
+    let processedMessage = message.replace(/^[ \t]*```/gm, '```');
 
     // Handle triple dash as think tag closing delimiter during streaming
     if (this.options.isStreaming) {
@@ -421,19 +422,15 @@ export class MessageProcessor {
       processedMessage += '\n</think>';
     }
 
-    // Replace closed think tags with styled divs
+    // Collect all <think>...</think> sections
+    const thinkSections: string[] = [];
     processedMessage = processedMessage.replace(
       /<think>([\s\S]*?)<\/think>/g,
       (_, content) => {
         const trimmedContent = content.trim();
-        if (!trimmedContent) return ''; // Skip empty think tags
-
-        // Closed thinking tags get a regular container with closed details
-        return `<div class="think-container"><details><summary class="think-header"><strong>Reasoning</strong></summary><div class="think-content">
-
-${trimmedContent}
-
-</div></details></div>`;
+        if (!trimmedContent) return '';
+        thinkSections.push(trimmedContent);
+        return '';
       }
     );
 
@@ -441,23 +438,22 @@ ${trimmedContent}
     if (isThinking && this.options.isStreaming) {
       // Find the last unclosed <think> tag
       const lastThinkTagMatch = processedMessage.match(/<think>([\s\S]*)$/);
-
       if (lastThinkTagMatch) {
         const content = lastThinkTagMatch[1].trim();
         if (content) {
-          // Replace the unclosed <think> tag with a container that has the "thinking" class
-          const replacement = `<div class="think-container thinking"><details open><summary class="think-header"><strong>Reasoning</strong></summary><div class="think-content">
-
-${content}
-
-</div></details></div>`;
-
+          thinkSections.push(content);
           processedMessage = processedMessage.replace(
             /<think>([\s\S]*)$/,
-            replacement
+            ''
           );
         }
       }
+    }
+
+    // If we found any think sections, insert a single marker with all joined by an empty line
+    if (thinkSections.length > 0) {
+      const joined = thinkSections.join('\n\n');
+      processedMessage = `__THINKING_WIDGET__${joined}__THINKING_WIDGET__` + processedMessage;
     }
 
     return processedMessage;
@@ -722,14 +718,15 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
   const theme = useTheme()
   const [processedContent, setProcessedContent] = useState<string>('');
   const [citationData, setCitationData] = useState<{ excerpts: Excerpt[], isStreaming: boolean } | null>(null);
+  const [thinkingWidgetContent, setThinkingWidgetContent] = useState<string | null>(null);
 
   useEffect(() => {
     if (!text) {
       setProcessedContent('');
       setCitationData(null);
+      setThinkingWidgetContent(null);
       return;
     }
-
     // Process the message content
     let content: string;
     if (session) {
@@ -741,7 +738,6 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
         onFilterDocument,
       });
       content = processor.process();
-
       // Extract citation data if present
       const citationPattern = /__CITATION_DATA__([\s\S]*?)__CITATION_DATA__/;
       const citationDataMatch = content.match(citationPattern);
@@ -750,7 +746,6 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           const citationDataJson = citationDataMatch[1];
           const data = JSON.parse(citationDataJson);
           setCitationData(data);
-          // Replace using the same pattern
           content = content.replace(/__CITATION_DATA__([\s\S]*?)__CITATION_DATA__/, '');
         } catch (error) {
           console.error('Error parsing citation data:', error);
@@ -759,11 +754,20 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
       } else {
         setCitationData(null);
       }
+      // Extract thinking widget content if present
+      const thinkingPattern = /__THINKING_WIDGET__([\s\S]*?)__THINKING_WIDGET__/;
+      const thinkingMatch = content.match(thinkingPattern);
+      if (thinkingMatch) {
+        setThinkingWidgetContent(thinkingMatch[1]);
+        content = content.replace(thinkingPattern, '');
+      } else {
+        setThinkingWidgetContent(null);
+      }
     } else {
       content = processBasicContent(text);
       setCitationData(null);
+      setThinkingWidgetContent(null);
     }
-
     setProcessedContent(content);
   }, [text, session, getFileURL, showBlinker, isStreaming, onFilterDocument]);
 
@@ -811,6 +815,9 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
           display: 'flow-root',
         }}
       >
+        {thinkingWidgetContent && (
+          <ThinkingWidget text={thinkingWidgetContent} isStreaming={isStreaming} />
+        )}
         {citationData && citationData.excerpts && citationData.excerpts.length > 0 && (
           <Citation
             excerpts={citationData.excerpts}
