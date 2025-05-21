@@ -11,11 +11,10 @@ import (
 	"strings"
 	"sync"
 
-	pkg_errors "github.com/pkg/errors"
-
 	"github.com/helixml/helix/api/pkg/agent/prompts"
 	"github.com/helixml/helix/api/pkg/types"
 
+	pkg_errors "github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/tmc/langchaingo/jsonschema"

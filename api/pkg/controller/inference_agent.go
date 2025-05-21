@@ -85,7 +85,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		}
 	}
 
-	session := agent.NewSession(ctx, llm, mem, helixAgent, messageHistory, agent.Meta{
+	session := agent.NewSession(ctx, c.stepInfoEmitter, llm, mem, helixAgent, messageHistory, agent.Meta{
 		UserID:    req.User.ID,
 		SessionID: vals.SessionID,
 		Extra:     map[string]string{},
@@ -106,6 +106,8 @@ func (c *Controller) runAgentBlocking(ctx context.Context, req *runAgentRequest)
 	var response string
 	for {
 		out := session.Out()
+
+		fmt.Printf("XXX out: %+v\n", out)
 
 		if out.Type == agent.ResponseTypePartialText {
 			response += out.Content
@@ -149,6 +151,8 @@ func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (
 		defer writer.Close()
 		for {
 			out := session.Out()
+
+			fmt.Printf("XXX out: %+v\n", out)
 
 			switch out.Type {
 			case agent.ResponseTypePartialText:
