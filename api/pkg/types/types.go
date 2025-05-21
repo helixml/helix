@@ -921,7 +921,7 @@ func GetMessageText(message *openai.ChatCompletionMessage) (string, error) {
 	}
 
 	if message.Content == "" {
-		return "", fmt.Errorf("message content is empty")
+		return "", fmt.Errorf("message %+v content is empty", message)
 	}
 
 	// For simple string content
@@ -929,7 +929,7 @@ func GetMessageText(message *openai.ChatCompletionMessage) (string, error) {
 		return message.Content, nil
 	}
 
-	return "", fmt.Errorf("unsupported message type")
+	return "", fmt.Errorf("unsupported message type %+v", message)
 }
 
 func HistoryFromInteractions(interactions []*Interaction) []*ToolHistoryMessage {
