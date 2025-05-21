@@ -292,15 +292,9 @@ If the user asks for information about Helix or installing Helix, refer them to 
 
 	var (
 		chatCompletionRequest = openai.ChatCompletionRequest{
-			Model: modelName,
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleSystem,
-					Content: startReq.SystemPrompt,
-				},
-			},
+			Model:    modelName,
+			Messages: []openai.ChatCompletionMessage{},
 		}
-
 		options = &controller.ChatCompletionOptions{
 			AppID:       startReq.AppID,
 			AssistantID: startReq.AssistantID,
@@ -317,6 +311,14 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			}(),
 		}
 	)
+
+	// Adding system prompt to the chat completion request if it's set
+	if startReq.SystemPrompt != "" {
+		chatCompletionRequest.Messages = append(chatCompletionRequest.Messages, openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: startReq.SystemPrompt,
+		})
+	}
 
 	// Convert interactions (except the last one) to messages
 	messagesToInclude := limitInteractions(session.Interactions, messageContextLimit)

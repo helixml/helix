@@ -2037,6 +2037,26 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/step-info": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.StepInfo"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/template-apps": {
             "get": {
                 "security": [
@@ -3350,6 +3370,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "schema": {
+                    "type": "string"
+                },
+                "system_prompt": {
                     "type": "string"
                 },
                 "url": {
@@ -5656,6 +5679,20 @@ const docTemplate = `{
                 "SessionTypeImage"
             ]
         },
+        "types.StepInfo": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
         "types.Team": {
             "type": "object",
             "properties": {
@@ -5893,6 +5930,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "schema": {
+                    "type": "string"
+                },
+                "system_prompt": {
+                    "description": "System prompt to guide the AI when using this API",
                     "type": "string"
                 },
                 "url": {
