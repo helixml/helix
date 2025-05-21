@@ -5,6 +5,8 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -884,9 +886,11 @@ func HistoryFromChatCompletionRequest(req openai.ChatCompletionRequest) []*ToolH
 
 	// Copy the messages from the request into history messages
 	for _, message := range req.Messages {
-		if message.Content == "" {
+		contentString, err := GetMessageText(&message)
+		if err != nil {
 			continue
 		}
+
 		if message.Role == openai.ChatMessageRoleSystem {
 			// it is a VERY bad idea to include >1 system message when talking to an LLM
 			// https://x.com/lmarsden/status/1826406206996693431
@@ -894,11 +898,37 @@ func HistoryFromChatCompletionRequest(req openai.ChatCompletionRequest) []*ToolH
 		}
 		history = append(history, &ToolHistoryMessage{
 			Role:    message.Role,
-			Content: message.Content,
+			Content: contentString,
 		})
 	}
 
 	return history
+}
+
+// GetMessageText extracts the plain text content from an OpenAI chat message
+// of any type (user, assistant, or developer message)
+func GetMessageText(message *openai.ChatCompletionMessage) (string, error) {
+	// For multi-content messages
+	if len(message.MultiContent) > 0 {
+		var builder strings.Builder
+		for _, part := range message.MultiContent {
+			if part.Type == "text" {
+				builder.WriteString(part.Text)
+			}
+		}
+		return builder.String(), nil
+	}
+
+	if message.Content == "" {
+		return "", fmt.Errorf("message content is empty")
+	}
+
+	// For simple string content
+	if message.Content != "" {
+		return message.Content, nil
+	}
+
+	return "", fmt.Errorf("unsupported message type")
 }
 
 func HistoryFromInteractions(interactions []*Interaction) []*ToolHistoryMessage {
