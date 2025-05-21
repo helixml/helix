@@ -166,10 +166,22 @@ func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompleti
 
 	// Append the chunk to the response
 	if len(chunk.Choices) > 0 {
+		// Role
+		if chunk.Choices[0].Delta.Role != "" {
+			resp.Choices[0].Message.Role = chunk.Choices[0].Delta.Role
+		}
+
+		// Content
 		resp.Choices[0].Message.Content += chunk.Choices[0].Delta.Content
 
+		// Function calls
 		if chunk.Choices[0].Delta.FunctionCall != nil {
 			resp.Choices[0].Message.FunctionCall = chunk.Choices[0].Delta.FunctionCall
+		}
+
+		// Tool calls
+		if len(chunk.Choices[0].Delta.ToolCalls) > 0 {
+			resp.Choices[0].Message.ToolCalls = append(resp.Choices[0].Message.ToolCalls, chunk.Choices[0].Delta.ToolCalls...)
 		}
 	}
 
