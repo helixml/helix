@@ -85,6 +85,59 @@ func (b *BestAppleFinder) Execute(ctx context.Context, meta agentpod.Meta, args 
 	return "green apple", nil
 }
 
+type CurrencyConverter struct {
+	toolName    string
+	description string
+}
+
+var _ agentpod.Tool = &CurrencyConverter{}
+
+func (b *CurrencyConverter) Name() string {
+	return b.toolName
+}
+
+func (b *CurrencyConverter) String() string {
+	return b.toolName
+}
+
+func (b *CurrencyConverter) Description() string {
+	return b.description
+}
+
+func (b *CurrencyConverter) StatusMessage() string {
+	return "Converting currency"
+}
+
+func (b *CurrencyConverter) OpenAI() []openai.Tool {
+	return []openai.Tool{
+		{
+			Type: openai.ToolTypeFunction,
+			Function: &openai.FunctionDefinition{
+				Name:        b.toolName,
+				Description: b.description,
+				Parameters: jsonschema.Definition{
+					Type: jsonschema.Object,
+					Properties: map[string]jsonschema.Definition{
+						"from_currency": {
+							Type:        jsonschema.String,
+							Description: "From currency",
+						},
+						"to_currency": {
+							Type:        jsonschema.String,
+							Description: "To currency",
+						},
+					},
+					Required: []string{"from_currency", "to_currency"},
+				},
+			},
+		},
+	}
+}
+
+func (b *CurrencyConverter) Execute(ctx context.Context, meta agentpod.Meta, args map[string]interface{}) (string, error) {
+	return "100 USD is 80 EUR", nil
+}
+
 func TestSimpleConversation(t *testing.T) {
 	config, err := LoadConfig()
 	if err != nil {
@@ -251,7 +304,75 @@ func TestConversationWithHistory(t *testing.T) {
 	if strings.ToLower(finalContent) != "fruit" {
 		t.Fatal("Expected 'fruit', got:", finalContent)
 	}
+}
 
+// TestConversationWithSkills_WithHistory_NoSkillsToBeUsed tests scenario where we have the history
+// but no need to call any skills
+func TestConversationWithSkills_WithHistory_NoSkillsToBeUsed(t *testing.T) {
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatal("Failed to load config:", err)
+	}
+
+	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
+
+	llm := agentpod.NewLLM(
+		client,
+		config.ReasoningModel,
+		config.GenerationModel,
+		config.SmallReasoningModel,
+		config.SmallGenerationModel,
+	)
+	mem := &MockMemory{
+		RetrieveFn: getDefaultMemory,
+	}
+	skill := agentpod.Skill{
+		Name:         "CurrencyConverter",
+		Description:  "You are an expert in currency conversion",
+		SystemPrompt: "As an currency expert, you provide detailed information about different currency conversion rates.",
+		Tools: []agentpod.Tool{
+			&CurrencyConverter{
+				toolName:    "CurrencyConverterAPI",
+				description: "Convert currency",
+			},
+		},
+	}
+	agent := agentpod.NewAgent("You are a currency expert. You answer user questions briefly and concisely. You do not add any extra information but just answer user questions in fewer words possible.", []agentpod.Skill{skill})
+
+	messageHistory := &agentpod.MessageList{}
+
+	messageHistory.Add(agentpod.UserMessage("how much 2000 usd is in euros?"))
+	messageHistory.Add(agentpod.AssistantMessage("Using the latest exchange rate, 1 USD is approximately 0.887477 EUR. Therefore, 2000 USD is about 2000 * 0.887477, which equals roughly 1774.95 EUR"))
+
+	orgID := GenerateNewTestID()
+	sessionID := GenerateNewTestID()
+	userID := GenerateNewTestID()
+
+	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
+
+	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, agent, messageHistory, agentpod.Meta{
+		UserID:    orgID,
+		SessionID: sessionID,
+		Extra:     map[string]string{"user_id": userID},
+	})
+
+	convSession.In("How much euros is that per year?")
+
+	var finalContent string
+	for {
+		out := convSession.Out()
+		if out.Type == agentpod.ResponseTypePartialText {
+			finalContent += out.Content
+		}
+		if out.Type == agentpod.ResponseTypeEnd {
+			break
+		}
+	}
+
+	// Should contain 1774.95 EUR * 12 months
+	if !strings.Contains(strings.ToLower(finalContent), "21299.4") {
+		t.Fatal("Expected '21299.4' to be in the final content, got:", finalContent)
+	}
 }
 
 func TestConversationWithHistory_WithQuestionAboutPast(t *testing.T) {

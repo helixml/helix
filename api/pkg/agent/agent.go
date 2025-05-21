@@ -235,7 +235,7 @@ func (a *Agent) sendThoughtsAboutSkills(ctx context.Context, llm *LLM, messageHi
 	}
 
 	allSpecSystemPrompt := `You have these tools available for you to use. But first you need to send a response to the user about what you are planning to do. Make sure to strategize in details.
-	
+
 	Notes:
 	- Do not mention about the tools or details about the tools like API integrations, Python API etc. 
 	- You can mention about what you are trying to achieve by mentioning what these tools enable you to do. For example, if an SQL table enable you to get latest whether, you can say "I am getting whether data" instead of "I'll look at the SQL database for whether data".
@@ -431,9 +431,12 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		}
 	}()
 
-	var finalSkillCallResults map[string]*openai.ChatCompletionMessage
-	var hasStopTool bool
-	var callSummarizer bool
+	var (
+		finalSkillCallResults map[string]*openai.ChatCompletionMessage
+		finalCompletion       *openai.ChatCompletionResponse
+		hasStopTool           bool
+		callSummarizer        bool
+	)
 
 	if len(a.skills) == 0 {
 		// If no skills are available, use the runWithoutSkills function
@@ -447,6 +450,8 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 			a.handleLLMError(err, outUserChannel)
 			return
 		}
+
+		finalCompletion = completion
 
 		// If no tool calls were requested, we're done
 		if completion.Choices[0].Message.ToolCalls == nil {
@@ -586,6 +591,15 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		}
 		return
 	} else {
+		// If we have the response in the finalCompletion, we return it
+		if finalCompletion != nil {
+			outUserChannel <- Response{
+				Content: finalCompletion.Choices[0].Message.Content,
+				Type:    ResponseTypePartialText,
+			}
+			return
+		}
+
 		// If there are no skill results, we return an error
 		log.Warn().Msg("No skill results available to return")
 		outUserChannel <- Response{
