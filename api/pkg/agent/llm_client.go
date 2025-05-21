@@ -2,7 +2,10 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
+	"github.com/davecgh/go-spew/spew"
 	helix_openai "github.com/helixml/helix/api/pkg/openai"
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -32,10 +35,19 @@ func NewLLM(client helix_openai.Client, reasoningModel string, generationModel s
 
 // TODO failures like too long, non-processable etc from the LLM needs to be handled
 func (c *LLM) New(ctx context.Context, params openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
-	// fmt.Println("XXX New LLM call")
-	// spew.Dump(params)
 
-	return c.client.CreateChatCompletion(ctx, params)
+	resp, err := c.client.CreateChatCompletion(ctx, params)
+	if err != nil {
+		// If we got bad request (400), then dump the request and response
+		if strings.Contains(err.Error(), "400") {
+			fmt.Println("==== FAILED LLM CALL ====")
+			spew.Dump(params)
+			fmt.Println("==== END LLM CALL ====")
+		}
+		return openai.ChatCompletionResponse{}, err
+	}
+
+	return resp, nil
 }
 
 func (c *LLM) NewStreaming(ctx context.Context, params openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {

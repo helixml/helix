@@ -24,18 +24,18 @@ type Session struct {
 	inUserChannel  chan string
 	outUserChannel chan Response
 
-	llm            *LLM
-	memory         Memory
-	agent          *Agent
-	messageHistory *MessageList
-
-	meta Meta
+	llm             *LLM
+	memory          Memory
+	agent           *Agent
+	messageHistory  *MessageList
+	stepInfoEmitter StepInfoEmitter
+	meta            Meta
 
 	isConversational bool
 }
 
 // NewSession constructs a session with references to shared LLM & memory, but isolated state.
-func NewSession(ctx context.Context, llm *LLM, mem Memory, ag *Agent, messageHistory *MessageList, meta Meta) *Session {
+func NewSession(ctx context.Context, stepInfoEmitter StepInfoEmitter, llm *LLM, mem Memory, ag *Agent, messageHistory *MessageList, meta Meta) *Session {
 	ctx, cancel := context.WithCancel(ctx)
 	ctx = context.WithValue(ctx, ContextKey("userID"), meta.UserID)
 	ctx = context.WithValue(ctx, ContextKey("sessionID"), meta.SessionID)
@@ -48,12 +48,12 @@ func NewSession(ctx context.Context, llm *LLM, mem Memory, ag *Agent, messageHis
 		inUserChannel:  make(chan string),
 		outUserChannel: make(chan Response),
 
-		llm:            llm,
-		memory:         mem,
-		agent:          ag,
-		messageHistory: messageHistory,
-
-		meta: meta,
+		llm:             llm,
+		memory:          mem,
+		agent:           ag,
+		messageHistory:  messageHistory,
+		stepInfoEmitter: stepInfoEmitter,
+		meta:            meta,
 
 		isConversational: true,
 	}

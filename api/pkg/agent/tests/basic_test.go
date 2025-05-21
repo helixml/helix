@@ -109,7 +109,9 @@ func TestSimpleConversation(t *testing.T) {
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
-	convSession := agentpod.NewSession(context.Background(), llm, mem, ai, messageHistory, agentpod.Meta{
+	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
+
+	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agentpod.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -172,7 +174,10 @@ func TestConversationWithSkills(t *testing.T) {
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
-	convSession := agentpod.NewSession(context.Background(), llm, mem, agent, messageHistory, agentpod.Meta{
+
+	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
+
+	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, agent, messageHistory, agentpod.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -221,7 +226,10 @@ func TestConversationWithHistory(t *testing.T) {
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
-	convSession := agentpod.NewSession(context.Background(), llm, mem, ai, messageHistory, agentpod.Meta{
+
+	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
+
+	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agentpod.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -273,7 +281,10 @@ func TestConversationWithHistory_WithQuestionAboutPast(t *testing.T) {
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
-	convSession := agentpod.NewSession(context.Background(), llm, mem, ai, messageHistory, agentpod.Meta{
+
+	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
+
+	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agentpod.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -334,7 +345,9 @@ func TestMemoryRetrieval(t *testing.T) {
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
-	convSession := agentpod.NewSession(context.Background(), llm, mem, ai, messageHistory, agentpod.Meta{
+	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
+
+	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agentpod.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
