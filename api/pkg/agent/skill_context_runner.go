@@ -141,10 +141,10 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 
 				// Instrument the output
 				_ = a.emitter.EmitStepInfo(ctx, &types.StepInfo{
-					Name:      tool.Name(),
-					Type:      types.StepInfoTypeToolUse,
-					Message:   output,
-					Arguments: arguments,
+					Name:    tool.Name(),
+					Type:    types.StepInfoTypeToolUse,
+					Message: output,
+					Details: types.StepInfoDetails{Arguments: arguments},
 				})
 
 				resultChan <- struct {

@@ -668,15 +668,42 @@ const (
 )
 
 type StepInfo struct {
-	ID            string                 `json:"id" gorm:"primaryKey"`
-	Created       time.Time              `json:"created"`
-	Updated       time.Time              `json:"updated"`
-	SessionID     string                 `json:"session_id"`
-	InteractionID string                 `json:"interaction_id"`
-	Name          string                 `json:"name"`
-	Type          StepInfoType           `json:"type"`
-	Message       string                 `json:"message"`
-	Arguments     map[string]interface{} `json:"arguments"` // That were used to call the tool
+	ID            string          `json:"id" gorm:"primaryKey"`
+	Created       time.Time       `json:"created"`
+	Updated       time.Time       `json:"updated"`
+	SessionID     string          `json:"session_id"`
+	InteractionID string          `json:"interaction_id"`
+	Name          string          `json:"name"`
+	Type          StepInfoType    `json:"type"`
+	Message       string          `json:"message"`
+	Details       StepInfoDetails `json:"details" gorm:"type:jsonb"` // That were used to call the tool
+}
+
+type StepInfoDetails struct {
+	Arguments map[string]interface{} `json:"arguments"`
+	// TODO: OAuth tokens supplied or not
+}
+
+func (t StepInfoDetails) Value() (driver.Value, error) {
+	j, err := json.Marshal(t)
+	return j, err
+}
+
+func (t *StepInfoDetails) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed")
+	}
+	var result StepInfoDetails
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (StepInfoDetails) GormDataType() string {
+	return "json"
 }
 
 // the context of a long running python process

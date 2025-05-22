@@ -2454,12 +2454,12 @@ definitions:
     - SessionTypeImage
   types.StepInfo:
     properties:
-      arguments:
-        additionalProperties: true
-        description: That were used to call the tool
-        type: object
       created:
         type: string
+      details:
+        allOf:
+        - $ref: '#/definitions/types.StepInfoDetails'
+        description: That were used to call the tool
       id:
         type: string
       interaction_id:
@@ -2474,6 +2474,12 @@ definitions:
         type: string
       updated:
         type: string
+    type: object
+  types.StepInfoDetails:
+    properties:
+      arguments:
+        additionalProperties: true
+        type: object
     type: object
   types.Team:
     properties:

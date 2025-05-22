@@ -1512,9 +1512,9 @@ export enum TypesSessionType {
 }
 
 export interface TypesStepInfo {
-  /** That were used to call the tool */
-  arguments?: Record<string, any>;
   created?: string;
+  /** That were used to call the tool */
+  details?: TypesStepInfoDetails;
   id?: string;
   interaction_id?: string;
   message?: string;
@@ -1522,6 +1522,10 @@ export interface TypesStepInfo {
   session_id?: string;
   type?: string;
   updated?: string;
+}
+
+export interface TypesStepInfoDetails {
+  arguments?: Record<string, any>;
 }
 
 export interface TypesTeam {
