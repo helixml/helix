@@ -5690,10 +5690,19 @@ const docTemplate = `{
                 "created": {
                     "type": "string"
                 },
+                "id": {
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
                 "message": {
                     "type": "string"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "session_id": {
                     "type": "string"
                 },
                 "type": {

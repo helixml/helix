@@ -99,7 +99,7 @@ func NewController(
 		},
 		schedulingDecisions: []*types.GlobalSchedulingDecision{},
 		scheduler:           options.Scheduler,
-		stepInfoEmitter:     agent.NewPubSubStepInfoEmitter(options.PubSub),
+		stepInfoEmitter:     agent.NewPubSubStepInfoEmitter(options.PubSub, options.Store),
 	}
 
 	// Default provider
