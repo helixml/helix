@@ -82,7 +82,7 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps }) => {
       <ToolContainer>
         {steps.map((step) => (
           <ToolWrapper key={step.id}>
-            <Tooltip title={step.name}>
+            <Tooltip title={`Tool: ${step.name}`}>
               <ToolIcon
                 size="small"
                 onClick={() => setSelectedStep(step)}
