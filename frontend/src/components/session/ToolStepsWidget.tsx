@@ -91,7 +91,7 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps }) => {
               </ToolIcon>
             </Tooltip>
             <ToolTooltip>
-              <strong>{step.name}</strong>
+              Tool: <strong>{step.name}</strong>
             </ToolTooltip>
           </ToolWrapper>
         ))}
@@ -102,12 +102,18 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps }) => {
         onClose={handleClose}
         maxWidth="md"
         fullWidth
+        PaperProps={{
+          sx: {
+            backgroundColor: '#23272f', // pleasant dark grey
+            color: '#f5f5f5', // light text for contrast
+          }
+        }}
       >
         {selectedStep && (
           <>
-            <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#23272f', color: '#f5f5f5' }}>
               <Typography variant="h6" component="div">
-                {selectedStep.name}
+                Tool name: {selectedStep.name}
               </Typography>
               <IconButton
                 aria-label="close"
@@ -117,13 +123,14 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps }) => {
                 <CloseIcon />
               </IconButton>
             </DialogTitle>
-            <DialogContent dividers>
+            <DialogContent dividers sx={{ backgroundColor: '#2c313a', color: '#f5f5f5' }}>
               <Box sx={{ mb: 2 }}>
                 <Typography variant="subtitle1" gutterBottom>
                   Arguments:
                 </Typography>
                 <pre style={{ 
-                  backgroundColor: '#f5f5f5', 
+                  backgroundColor: '#23272f', 
+                  color: '#f5f5f5',
                   padding: '10px', 
                   borderRadius: '4px',
                   overflow: 'auto'
@@ -136,7 +143,8 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps }) => {
                   Response:
                 </Typography>
                 <pre style={{ 
-                  backgroundColor: '#f5f5f5', 
+                  backgroundColor: '#23272f', 
+                  color: '#f5f5f5',
                   padding: '10px', 
                   borderRadius: '4px',
                   overflow: 'auto'
@@ -145,8 +153,8 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps }) => {
                 </pre>
               </Box>
             </DialogContent>
-            <DialogActions>
-              <Button onClick={handleClose}>Close</Button>
+            <DialogActions sx={{ backgroundColor: '#23272f' }}>
+              <Button onClick={handleClose} sx={{ color: '#f5f5f5' }}>Close</Button>
             </DialogActions>
           </>
         )}
