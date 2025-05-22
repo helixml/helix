@@ -26,7 +26,10 @@ func TestSkillValidation(t *testing.T) {
 		// Description intentionally missing
 		SystemPrompt: "Test system prompt",
 	}
-	_ = NewAgent("Test prompt", []Skill{skill})
+
+	stepInfoEmitter := NewLogStepInfoEmitter()
+
+	_ = NewAgent(stepInfoEmitter, "Test prompt", []Skill{skill})
 
 	// This line should not be reached due to the panic
 	t.Fatal("Test should have panicked before reaching this point")
@@ -53,7 +56,9 @@ func TestSkillValidationSystemPrompt(t *testing.T) {
 		Description: "Test description",
 		// SystemPrompt intentionally missing
 	}
-	_ = NewAgent("Test prompt", []Skill{skill})
+	stepInfoEmitter := NewLogStepInfoEmitter()
+
+	_ = NewAgent(stepInfoEmitter, "Test prompt", []Skill{skill})
 
 	// This line should not be reached due to the panic
 	t.Fatal("Test should have panicked before reaching this point")

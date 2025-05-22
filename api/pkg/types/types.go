@@ -668,9 +668,12 @@ const (
 )
 
 type StepInfo struct {
-	Name    string       `json:"name"`
-	Type    StepInfoType `json:"type"`
-	Message string       `json:"message"`
+	Created   time.Time              `json:"created"`
+	Updated   time.Time              `json:"updated"`
+	Name      string                 `json:"name"`
+	Type      StepInfoType           `json:"type"`
+	Message   string                 `json:"message"`
+	Arguments map[string]interface{} `json:"arguments"` // That were used to call the tool
 }
 
 // the context of a long running python process
