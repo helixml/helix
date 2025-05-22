@@ -109,7 +109,7 @@ interface MemoizedInteractionProps {
   session_id: string;
   hasSubscription: boolean;
   onRegenerate?: (interactionID: string, message: string) => void;
-  sessionSteps: any[];
+  sessionSteps: TypesStepInfo[];
 }
 
 // Create a memoized version of the Interaction component
@@ -136,6 +136,10 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
       onRegenerate={props.onRegenerate}
       isLastInteraction={props.isLastInteraction}
       sessionSteps={props.sessionSteps}
+      isOwner={props.isOwner}
+      isAdmin={props.isAdmin}
+      session_id={props.session_id}
+      hasSubscription={props.hasSubscription}
     >
       {isLive && (props.isOwner || props.isAdmin) && (
         <InteractionLiveStream
