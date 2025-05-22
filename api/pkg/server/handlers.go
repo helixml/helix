@@ -898,18 +898,6 @@ func (apiServer *HelixAPIServer) startSessionFinetune(_ http.ResponseWriter, req
 	return session, nil
 }
 
-// getSessionStepInfo godoc
-// @Summary Get session step info
-// @Description Get session step info
-// @Tags    session
-
-// @Success 200 {array} types.StepInfo
-// @Router /api/v1/sessions/{id}/step-info [get]
-// @Security BearerAuth
-func (apiServer *HelixAPIServer) getSessionStepInfo(_ http.ResponseWriter, req *http.Request) (*types.StepInfo, *system.HTTPError) {
-	return nil, system.NewHTTPError500("not implemented")
-}
-
 func (apiServer *HelixAPIServer) updateSessionMeta(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
 	_, httpError := apiServer.sessionLoader(req, true)
 	if httpError != nil {

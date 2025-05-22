@@ -5682,13 +5682,16 @@ const docTemplate = `{
         "types.StepInfo": {
             "type": "object",
             "properties": {
-                "arguments": {
-                    "description": "That were used to call the tool",
-                    "type": "object",
-                    "additionalProperties": true
-                },
                 "created": {
                     "type": "string"
+                },
+                "details": {
+                    "description": "That were used to call the tool",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.StepInfoDetails"
+                        }
+                    ]
                 },
                 "id": {
                     "type": "string"
@@ -5710,6 +5713,15 @@ const docTemplate = `{
                 },
                 "updated": {
                     "type": "string"
+                }
+            }
+        },
+        "types.StepInfoDetails": {
+            "type": "object",
+            "properties": {
+                "arguments": {
+                    "type": "object",
+                    "additionalProperties": true
                 }
             }
         },

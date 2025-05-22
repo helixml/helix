@@ -10,10 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/llm"
@@ -720,4 +722,36 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	session.Interactions[len(session.Interactions)-1].Finished = true
 
 	return s.Controller.WriteSession(ctx, session)
+}
+
+// getSessionStepInfo godoc
+// @Summary Get session step info
+// @Description Get session step info
+// @Tags    session
+
+// @Success 200 {array} types.StepInfo
+// @Router /api/v1/sessions/{id}/step-info [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getSessionStepInfo(_ http.ResponseWriter, req *http.Request) ([]*types.StepInfo, *system.HTTPError) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+	id := mux.Vars(req)["id"]
+
+	session, err := s.Store.GetSession(ctx, id)
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get session %s, error: %s", id, err))
+	}
+
+	if session.Owner != user.ID {
+		return nil, system.NewHTTPError403("you are not allowed to access this session")
+	}
+
+	stepInfos, err := s.Store.ListStepInfos(ctx, &store.ListStepInfosQuery{
+		SessionID: id,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get step infos for session %s, error: %s", id, err))
+	}
+
+	return stepInfos, nil
 }
