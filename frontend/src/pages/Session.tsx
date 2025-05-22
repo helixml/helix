@@ -1875,7 +1875,18 @@ const Session: FC = () => {
                               }}
                             >
                               {loading ? (
-                                <LoadingSpinner />
+                                <Box
+                                  sx={{
+                                    width: 20,
+                                    height: 20,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    overflow: 'hidden',
+                                  }}
+                                >
+                                  <LoadingSpinner />
+                                </Box>
                               ) : (
                                 <ArrowUpwardIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
                               )}
