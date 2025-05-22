@@ -67,7 +67,7 @@ export const InteractionInference: FC<{
   handleCancel?: () => void,
   handleSave?: () => void,
   isLastInteraction?: boolean,
-  toolSteps?: any[],
+  sessionSteps?: any[],
 }> = ({
   imageURLs = [],
   message,
@@ -85,7 +85,7 @@ export const InteractionInference: FC<{
   handleCancel: externalHandleCancel,
   handleSave: externalHandleSave,
   isLastInteraction,
-  toolSteps = [],
+  sessionSteps = [],
 }) => {
     const account = useAccount()
     const router = useRouter()
@@ -98,6 +98,19 @@ export const InteractionInference: FC<{
     const setEditedMessage = externalSetEditedMessage || setInternalEditedMessage
     const handleCancel = externalHandleCancel || (() => { setInternalEditedMessage(message || ''); setInternalIsEditing(false) })
     const handleSave = externalHandleSave || (() => { if (onRegenerate && internalEditedMessage !== message) { onRegenerate(interaction.id, internalEditedMessage) } setInternalIsEditing(false) })
+
+    // Filter tool steps for this interaction
+    const toolSteps = sessionSteps
+      .filter(step => step.interaction_id === interaction.id)
+      .map(step => ({
+        id: step.id || '',
+        name: step.name || '',
+        type: step.type || '',
+        message: step.message || '',
+        details: {
+          arguments: step.details?.arguments || {}
+        }
+      }))
 
     if (!serverConfig || !serverConfig.filestore_prefix) return null
     if (!interaction) return null
