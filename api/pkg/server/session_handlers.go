@@ -285,10 +285,17 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		ownerID = oai.RunnerID
 	}
 
+	lastInteraction, err := data.GetLastInteraction(session)
+	if err != nil {
+		log.Error().Err(err).Msg("error getting last interaction")
+		http.Error(rw, "error getting last interaction", http.StatusInternalServerError)
+		return
+	}
+
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
 		OwnerID:         ownerID,
 		SessionID:       session.ID,
-		InteractionID:   session.Interactions[0].ID,
+		InteractionID:   lastInteraction.ID,
 		OriginalRequest: body,
 	})
 
@@ -528,9 +535,6 @@ func (s *HelixAPIServer) generateSessionName(user *types.User, sessionID, provid
 
 	options := &controller.ChatCompletionOptions{
 		Provider: provider,
-		// AppID:       r.URL.Query().Get("app_id"),
-		// AssistantID: r.URL.Query().Get("assistant_id"),
-		// RAGSourceID: r.URL.Query().Get("rag_source_id"),
 	}
 
 	resp, _, err := s.Controller.ChatCompletion(ctx, user, req, options)
