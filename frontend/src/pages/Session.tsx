@@ -71,7 +71,6 @@ import useLightTheme from '../hooks/useLightTheme'
 import { generateFixtureSession } from '../utils/fixtures'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
-import ToolStepsWidget from '../components/session/ToolStepsWidget'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
