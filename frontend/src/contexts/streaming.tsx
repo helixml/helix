@@ -119,30 +119,11 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     if (parsedData.type as string === "step_info") {
         const stepInfo = parsedData.step_info;
 
-        // If step info is thinking, either update existing one or create new one
-        if (stepInfo?.type === "thinking") {          
-            setStepInfos(prev => {
-                const currentSteps = prev.get(currentSessionId) || [];
-                const hasThinkingStep = currentSteps.some(step => step.type === "thinking");
-                
-                let updatedSteps;
-                if (hasThinkingStep) {
-                    // Update existing thinking step
-                    updatedSteps = currentSteps.map(step => step.type === "thinking" ? stepInfo : step);
-                } else {
-                    // Add new thinking step
-                    updatedSteps = [...currentSteps, stepInfo];
-                }
-                
-                return new Map(prev).set(currentSessionId, updatedSteps);
-            });
-        } else {
-          setStepInfos(prev => {
-              const currentSteps = prev.get(currentSessionId) || [];
-              const updatedSteps = [...currentSteps, stepInfo];
-              return new Map(prev).set(currentSessionId, updatedSteps);
-          });
-        }        
+        setStepInfos(prev => {
+            const currentSteps = prev.get(currentSessionId) || [];
+            const updatedSteps = [...currentSteps, stepInfo];
+            return new Map(prev).set(currentSessionId, updatedSteps);
+        });
     }
 
     if (parsedData.type === WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE && parsedData.worker_task_response) {

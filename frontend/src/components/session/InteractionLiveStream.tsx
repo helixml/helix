@@ -223,10 +223,6 @@ export const InteractionLiveStream: FC<{
     
     if (!serverConfig || !serverConfig.filestore_prefix) return null
 
-    const blinker = `<span class="blinker-class">┃</span>`
-
-    console.log(stepInfos)
-
     return (
       <>
         {showLoading && <LoadingSpinner />}

@@ -668,12 +668,15 @@ const (
 )
 
 type StepInfo struct {
-	Created   time.Time              `json:"created"`
-	Updated   time.Time              `json:"updated"`
-	Name      string                 `json:"name"`
-	Type      StepInfoType           `json:"type"`
-	Message   string                 `json:"message"`
-	Arguments map[string]interface{} `json:"arguments"` // That were used to call the tool
+	ID            string                 `json:"id" gorm:"primaryKey"`
+	Created       time.Time              `json:"created"`
+	Updated       time.Time              `json:"updated"`
+	SessionID     string                 `json:"session_id"`
+	InteractionID string                 `json:"interaction_id"`
+	Name          string                 `json:"name"`
+	Type          StepInfoType           `json:"type"`
+	Message       string                 `json:"message"`
+	Arguments     map[string]interface{} `json:"arguments"` // That were used to call the tool
 }
 
 // the context of a long running python process

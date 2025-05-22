@@ -72,9 +72,10 @@ func (p *PubSubStepInfoEmitter) EmitStepInfo(ctx context.Context, info *types.St
 		return fmt.Errorf("failed to marshal step info: %w", err)
 	}
 
-	log.Trace().
+	log.Info().
 		Str("queue", queue).
 		Str("step_name", info.Name).
+		Str("step_type", string(info.Type)).
 		Str("step_message", info.Message).
 		Msg("emitting step info")
 

@@ -130,6 +130,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.OAuthRequestToken{},
 		&types.UsageMetric{},
 		&types.Model{},
+		&types.StepInfo{},
 	)
 	if err != nil {
 		return err
@@ -177,6 +178,10 @@ func (s *PostgresStore) autoMigrate() error {
 	}
 
 	if err := createFK(s.gdb, types.KnowledgeVersion{}, types.Knowledge{}, "knowledge_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.StepInfo{}, types.Session{}, "session_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
