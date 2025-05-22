@@ -52,9 +52,10 @@ import {
   INTERACTION_STATE_ERROR,
   IShareSessionInstructions,
   SESSION_CREATOR_ASSISTANT,
+  SESSION_CREATOR_USER,
 } from '../types'
 
-import { TypesMessageContentType, TypesMessage } from '../api/api'
+import { TypesMessageContentType, TypesMessage, TypesStepInfo } from '../api/api'
 
 import {
   getAssistantInteraction,
@@ -69,6 +70,8 @@ import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
 import { generateFixtureSession } from '../utils/fixtures'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
+import { useListSessionSteps } from '../services/sessionService'
+import ToolStepsWidget from '../components/session/ToolStepsWidget'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -107,6 +110,7 @@ interface MemoizedInteractionProps {
   session_id: string;
   hasSubscription: boolean;
   onRegenerate?: (interactionID: string, message: string) => void;
+  toolSteps: any[];
 }
 
 // Create a memoized version of the Interaction component
@@ -132,6 +136,7 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
       headerButtons={props.headerButtons}
       onRegenerate={props.onRegenerate}
       isLastInteraction={props.isLastInteraction}
+      toolSteps={props.toolSteps}
     >
       {isLive && (props.isOwner || props.isAdmin) && (
         <InteractionLiveStream
@@ -454,6 +459,9 @@ const Session: FC = () => {
   const apps = useApps()
   const isBigScreen = useMediaQuery(theme.breakpoints.up('md'))
   const lightTheme = useLightTheme()
+  const { data: sessionSteps } = useListSessionSteps(session.data?.id || '', {
+    enabled: !!session.data?.id
+  })
 
   const isOwner = account.user?.id == session.data?.owner
   const sessionID = router.params.session_id
@@ -1437,6 +1445,16 @@ const Session: FC = () => {
                   const isLastInteraction = absoluteIndex === memoizedInteractions.length - 1
                   const isOwner = account.user?.id === sessionData.owner
 
+                  // Find tool steps for the previous user message
+                  let toolSteps: TypesStepInfo[] = []
+                  if (
+                    interaction.creator === SESSION_CREATOR_ASSISTANT &&
+                    absoluteIndex > 0 &&
+                    memoizedInteractions[absoluteIndex - 1].creator === SESSION_CREATOR_USER
+                  ) {
+                    toolSteps = getToolStepsForUserInteraction(memoizedInteractions[absoluteIndex - 1].id)
+                  }
+
                   return (
                     <MemoizedInteraction
                       key={interaction.id}
@@ -1458,6 +1476,7 @@ const Session: FC = () => {
                       session_id={sessionData.id}
                       hasSubscription={account.userConfig.stripe_subscription_active || false}
                       onRegenerate={onRegenerate}
+                      toolSteps={toolSteps}
                     />
                   )
                 })}
@@ -1683,6 +1702,22 @@ const Session: FC = () => {
     session.data,
     safeReloadSession,
   ])
+
+  // Helper to get tool steps for a user interaction id
+  const getToolStepsForUserInteraction = (userInteractionId: string) => {
+    if (!sessionSteps?.data) return []
+    return sessionSteps.data
+      .filter((step: any) => step.interaction_id === userInteractionId)
+      .map((step: any) => ({
+        id: step.id || '',
+        name: step.name || '',
+        type: step.type || '',
+        message: step.message || '',
+        details: {
+          arguments: step.details?.arguments || {}
+        }
+      }))
+  }
 
   if (!session.data) return null
 

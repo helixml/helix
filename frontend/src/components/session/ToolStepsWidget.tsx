@@ -1,0 +1,158 @@
+import React, { FC, useState } from 'react'
+import { styled } from '@mui/material/styles'
+import Box from '@mui/material/Box'
+import IconButton from '@mui/material/IconButton'
+import Tooltip from '@mui/material/Tooltip'
+import Dialog from '@mui/material/Dialog'
+import DialogTitle from '@mui/material/DialogTitle'
+import DialogContent from '@mui/material/DialogContent'
+import DialogActions from '@mui/material/DialogActions'
+import Button from '@mui/material/Button'
+import Typography from '@mui/material/Typography'
+import SettingsIcon from '@mui/icons-material/Settings'
+import CloseIcon from '@mui/icons-material/Close'
+
+const ToolContainer = styled(Box)({
+  display: 'flex',
+  gap: '10px',
+  marginBottom: '15px',
+  paddingTop: '10px'
+})
+
+const ToolWrapper = styled(Box)({
+  position: 'relative',
+  width: '20px',
+  height: '20px'
+})
+
+const ToolIcon = styled(IconButton)({
+  width: '100%',
+  height: '100%',
+  padding: 0,
+  color: '#666',
+  '&:hover': {
+    color: '#000'
+  }
+})
+
+const ToolTooltip = styled(Box)(({ theme }) => ({
+  position: 'absolute',
+  top: '50%',
+  left: '100%',
+  transform: 'translateY(-50%)',
+  backgroundColor: 'rgba(0, 0, 0, 0.8)',
+  color: 'white',
+  padding: '5px 10px',
+  borderRadius: '4px',
+  fontSize: '12px',
+  whiteSpace: 'nowrap',
+  opacity: 0,
+  transition: 'opacity 0.3s',
+  pointerEvents: 'none',
+  zIndex: 1000,
+  marginLeft: '10px',
+  [`${ToolWrapper}:hover &`]: {
+    opacity: 1
+  }
+}))
+
+interface ToolStep {
+  id: string
+  name: string
+  type: string
+  message: string
+  details: {
+    arguments: Record<string, any>
+  }
+}
+
+interface ToolStepsWidgetProps {
+  steps: ToolStep[]
+}
+
+export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps }) => {
+  const [selectedStep, setSelectedStep] = useState<ToolStep | null>(null)
+
+  const handleClose = () => {
+    setSelectedStep(null)
+  }
+
+  return (
+    <>
+      <ToolContainer>
+        {steps.map((step) => (
+          <ToolWrapper key={step.id}>
+            <Tooltip title={step.name}>
+              <ToolIcon
+                size="small"
+                onClick={() => setSelectedStep(step)}
+              >
+                <SettingsIcon sx={{ fontSize: 20 }} />
+              </ToolIcon>
+            </Tooltip>
+            <ToolTooltip>
+              <strong>{step.name}</strong>
+            </ToolTooltip>
+          </ToolWrapper>
+        ))}
+      </ToolContainer>
+
+      <Dialog
+        open={!!selectedStep}
+        onClose={handleClose}
+        maxWidth="md"
+        fullWidth
+      >
+        {selectedStep && (
+          <>
+            <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="h6" component="div">
+                {selectedStep.name}
+              </Typography>
+              <IconButton
+                aria-label="close"
+                onClick={handleClose}
+                sx={{ color: (theme) => theme.palette.grey[500] }}
+              >
+                <CloseIcon />
+              </IconButton>
+            </DialogTitle>
+            <DialogContent dividers>
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="subtitle1" gutterBottom>
+                  Arguments:
+                </Typography>
+                <pre style={{ 
+                  backgroundColor: '#f5f5f5', 
+                  padding: '10px', 
+                  borderRadius: '4px',
+                  overflow: 'auto'
+                }}>
+                  {JSON.stringify(selectedStep.details.arguments, null, 2)}
+                </pre>
+              </Box>
+              <Box>
+                <Typography variant="subtitle1" gutterBottom>
+                  Response:
+                </Typography>
+                <pre style={{ 
+                  backgroundColor: '#f5f5f5', 
+                  padding: '10px', 
+                  borderRadius: '4px',
+                  overflow: 'auto'
+                }}>
+                  {JSON.stringify(JSON.parse(selectedStep.message), null, 2)}
+                </pre>
+              </Box>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={handleClose}>Close</Button>
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
+    </>
+  )
+}
+
+export default ToolStepsWidget 
