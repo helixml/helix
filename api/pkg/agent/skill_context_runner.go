@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/helixml/helix/api/pkg/agent/prompts"
+	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
@@ -127,7 +128,7 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 				arguments := map[string]interface{}{}
 				err = json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments)
 				if err != nil {
-					log.Error().Err(err).Msg("Error unmarshalling tool arguments")
+					log.Error().Err(err).Msg("Error unmarshaling tool arguments")
 					resultChan <- struct {
 						toolCall *openai.ToolCall
 						output   string
@@ -137,6 +138,15 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 				}
 
 				output, err := tool.Execute(ctx, meta, arguments)
+
+				// Instrument the output
+				_ = a.emitter.EmitStepInfo(ctx, &types.StepInfo{
+					Name:      tool.Name(),
+					Type:      types.StepInfoTypeToolUse,
+					Message:   output,
+					Arguments: arguments,
+				})
+
 				resultChan <- struct {
 					toolCall *openai.ToolCall
 					output   string

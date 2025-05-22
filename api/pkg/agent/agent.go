@@ -31,7 +31,7 @@ type Agent struct {
 }
 
 // NewAgent creates an Agent by adding the prompt as a DeveloperMessage.
-func NewAgent(prompt string, skills []Skill) *Agent {
+func NewAgent(emitter StepInfoEmitter, prompt string, skills []Skill) *Agent {
 	// Validate that all skills have both Description and SystemPrompt set
 	for _, skill := range skills {
 		if skill.Description == "" {
@@ -45,8 +45,9 @@ func NewAgent(prompt string, skills []Skill) *Agent {
 	}
 
 	return &Agent{
-		prompt: prompt,
-		skills: skills,
+		prompt:  prompt,
+		skills:  skills,
+		emitter: emitter,
 	}
 }
 

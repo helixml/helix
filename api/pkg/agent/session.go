@@ -10,9 +10,10 @@ import (
 )
 
 type Meta struct {
-	UserID    string
-	SessionID string
-	Extra     map[string]string
+	UserID        string
+	SessionID     string
+	InteractionID string
+	Extra         map[string]string
 }
 
 // Session holds ephemeral conversation data & references to global resources.
@@ -39,6 +40,7 @@ func NewSession(ctx context.Context, stepInfoEmitter StepInfoEmitter, llm *LLM, 
 	ctx, cancel := context.WithCancel(ctx)
 	ctx = context.WithValue(ctx, ContextKey("userID"), meta.UserID)
 	ctx = context.WithValue(ctx, ContextKey("sessionID"), meta.SessionID)
+	ctx = context.WithValue(ctx, ContextKey("interactionID"), meta.InteractionID)
 	ctx = context.WithValue(ctx, ContextKey("extra"), meta.Extra)
 	s := &Session{
 		ctx:       ctx,

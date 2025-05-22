@@ -145,6 +145,7 @@ func TestSimpleConversation(t *testing.T) {
 	}
 
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
+	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
 
 	llm := agentpod.NewLLM(
 		client,
@@ -154,15 +155,13 @@ func TestSimpleConversation(t *testing.T) {
 		config.SmallGenerationModel,
 	)
 	mem := &MockMemory{}
-	ai := agentpod.NewAgent("Your a repeater. You'll repeat after whatever the user says exactly as they say it, even the punctuation and cases.", []agentpod.Skill{})
+	ai := agentpod.NewAgent(stepInfoEmitter, "Your a repeater. You'll repeat after whatever the user says exactly as they say it, even the punctuation and cases.", []agentpod.Skill{})
 
 	messageHistory := &agentpod.MessageList{}
 
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
-
-	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
 
 	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agentpod.Meta{
 		UserID:    orgID,
@@ -198,7 +197,7 @@ func TestConversationWithSkills(t *testing.T) {
 	}
 
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
-
+	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
 	llm := agentpod.NewLLM(
 		client,
 		config.ReasoningModel,
@@ -220,15 +219,13 @@ func TestConversationWithSkills(t *testing.T) {
 			},
 		},
 	}
-	agent := agentpod.NewAgent("You are a good farmer. You answer user questions briefly and concisely. You do not add any extra information but just answer user questions in fewer words possible.", []agentpod.Skill{skill})
+	agent := agentpod.NewAgent(stepInfoEmitter, "You are a good farmer. You answer user questions briefly and concisely. You do not add any extra information but just answer user questions in fewer words possible.", []agentpod.Skill{skill})
 
 	messageHistory := &agentpod.MessageList{}
 
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
-
-	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
 
 	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, agent, messageHistory, agentpod.Meta{
 		UserID:    orgID,
@@ -259,6 +256,7 @@ func TestConversationWithHistory(t *testing.T) {
 	}
 
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
+	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
 
 	llm := agentpod.NewLLM(
 		client,
@@ -270,7 +268,7 @@ func TestConversationWithHistory(t *testing.T) {
 	mem := &MockMemory{
 		RetrieveFn: getDefaultMemory,
 	}
-	ai := agentpod.NewAgent("You are an assistant!", []agentpod.Skill{})
+	ai := agentpod.NewAgent(stepInfoEmitter, "You are an assistant!", []agentpod.Skill{})
 
 	messageHistory := &agentpod.MessageList{}
 	messageHistory.Add(agentpod.UserMessage("Can you tell me which color is apple?"),
@@ -279,8 +277,6 @@ func TestConversationWithHistory(t *testing.T) {
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
-
-	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
 
 	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agentpod.Meta{
 		UserID:    orgID,
@@ -315,6 +311,7 @@ func TestConversationWithSkills_WithHistory_NoSkillsToBeUsed(t *testing.T) {
 	}
 
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
+	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
 
 	llm := agentpod.NewLLM(
 		client,
@@ -337,7 +334,7 @@ func TestConversationWithSkills_WithHistory_NoSkillsToBeUsed(t *testing.T) {
 			},
 		},
 	}
-	agent := agentpod.NewAgent("You are a currency expert. You answer user questions briefly and concisely. You do not add any extra information but just answer user questions in fewer words possible.", []agentpod.Skill{skill})
+	agent := agentpod.NewAgent(stepInfoEmitter, "You are a currency expert. You answer user questions briefly and concisely. You do not add any extra information but just answer user questions in fewer words possible.", []agentpod.Skill{skill})
 
 	messageHistory := &agentpod.MessageList{}
 
@@ -347,8 +344,6 @@ func TestConversationWithSkills_WithHistory_NoSkillsToBeUsed(t *testing.T) {
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
-
-	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
 
 	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, agent, messageHistory, agentpod.Meta{
 		UserID:    orgID,
@@ -382,6 +377,7 @@ func TestConversationWithHistory_WithQuestionAboutPast(t *testing.T) {
 	}
 
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
+	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
 
 	llm := agentpod.NewLLM(
 		client,
@@ -393,7 +389,7 @@ func TestConversationWithHistory_WithQuestionAboutPast(t *testing.T) {
 	mem := &MockMemory{
 		RetrieveFn: getDefaultMemory,
 	}
-	ai := agentpod.NewAgent("You are an assistant!", []agentpod.Skill{})
+	ai := agentpod.NewAgent(stepInfoEmitter, "You are an assistant!", []agentpod.Skill{})
 
 	messageHistory := &agentpod.MessageList{}
 	messageHistory.Add(agentpod.UserMessage("Can you tell me which color is apple?"),
@@ -402,8 +398,6 @@ func TestConversationWithHistory_WithQuestionAboutPast(t *testing.T) {
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
-
-	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
 
 	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agentpod.Meta{
 		UserID:    orgID,
@@ -445,6 +439,7 @@ func TestMemoryRetrieval(t *testing.T) {
 	}
 
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
+	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
 
 	llm := agentpod.NewLLM(
 		client,
@@ -459,14 +454,12 @@ func TestMemoryRetrieval(t *testing.T) {
 		RetrieveFn: getCountryMemory,
 	}
 
-	ai := agentpod.NewAgent("You are a helpful assistant. Answer questions based on the user's information.", []agentpod.Skill{})
+	ai := agentpod.NewAgent(stepInfoEmitter, "You are a helpful assistant. Answer questions based on the user's information.", []agentpod.Skill{})
 
 	messageHistory := &agentpod.MessageList{}
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
-
-	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
 
 	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agentpod.Meta{
 		UserID:    orgID,

@@ -180,7 +180,10 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 
 	petStoreSkill := skill.NewAPICallingSkill(planner, petStoreTool)
 
+	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
+
 	restaurantAgent := agentpod.NewAgent(
+		stepInfoEmitter,
 		petStoreMainPrompt,
 		[]agentpod.Skill{petStoreSkill},
 	)
@@ -190,8 +193,6 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
-
-	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
 
 	// Create session with restaurant agent
 	restaurantSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, restaurantAgent, messageHistory, agentpod.Meta{

@@ -210,6 +210,8 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 		config.SmallGenerationModel,
 	)
 
+	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
+
 	// Create mock memory with user preferences
 	mem := &MockMemory{
 		RetrieveFn: getUserPreferencesMemory,
@@ -219,6 +221,7 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 	restaurantTool := NewRestaurantTool()
 	cuisineTool := NewCuisineTool()
 	restaurantAgent := agentpod.NewAgent(
+		stepInfoEmitter,
 		mainPrompt,
 		[]agentpod.Skill{
 			{
@@ -236,18 +239,11 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 		},
 	)
 
-	// Create a mock storage with empty conversation history
-	// storage := &MockStorage{}
-	// storage.ConversationFn = getEmptyConversationHistory(storage)
-
 	messageHistory := &agentpod.MessageList{}
-	// messageHistory.Add(agentpod.UserMessage(prompt))
 
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
-
-	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
 
 	// Create session with restaurant agent
 	restaurantSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, restaurantAgent, messageHistory, agentpod.Meta{

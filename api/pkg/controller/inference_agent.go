@@ -63,6 +63,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	}
 
 	helixAgent := agent.NewAgent(
+		c.stepInfoEmitter,
 		enriched,
 		skills,
 	)
@@ -86,9 +87,10 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	}
 
 	session := agent.NewSession(ctx, c.stepInfoEmitter, llm, mem, helixAgent, messageHistory, agent.Meta{
-		UserID:    req.User.ID,
-		SessionID: vals.SessionID,
-		Extra:     map[string]string{},
+		UserID:        req.User.ID,
+		SessionID:     vals.SessionID,
+		InteractionID: vals.InteractionID,
+		Extra:         map[string]string{},
 	})
 
 	// Get user message, could be in the part or content
