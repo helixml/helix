@@ -102,6 +102,7 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps }) => {
         onClose={handleClose}
         maxWidth="md"
         fullWidth
+        disableScrollLock={true}
         PaperProps={{
           sx: {
             backgroundColor: '#23272f', // pleasant dark grey
