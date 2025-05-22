@@ -70,39 +70,53 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
 }
 
 interface InteractionProps {
-  serverConfig: IServerConfig,
-  interaction: IInteraction,
-  session: ISession,
-  showFinetuning?: boolean,
-  highlightAllFiles?: boolean,
-  headerButtons?: React.ReactNode,
-  retryFinetuneErrors?: () => void,
-  onReloadSession?: () => void,
-  onClone?: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>,
-  onAddDocuments?: () => void,
-  onRegenerate?: (interactionID: string, message: string) => void,
-  children?: React.ReactNode,
-  onFilterDocument?: (docId: string) => void,
-  isLastInteraction?: boolean,
-  toolSteps?: any[],
+  serverConfig: IServerConfig;
+  interaction: IInteraction;
+  session: ISession;
+  highlightAllFiles: boolean;
+  retryFinetuneErrors: () => void;
+  onReloadSession: () => Promise<any>;
+  onClone: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>;
+  onAddDocuments?: () => void;
+  onFilterDocument?: (docId: string) => void;
+  headerButtons?: React.ReactNode;
+  children?: React.ReactNode;
+  isLastInteraction: boolean;
+  isOwner: boolean;
+  isAdmin: boolean;
+  scrollToBottom?: () => void;
+  appID?: string | null;
+  onHandleFilterDocument?: (docId: string) => void;
+  session_id: string;
+  hasSubscription: boolean;
+  onRegenerate?: (interactionID: string, message: string) => void;
+  sessionSteps?: any[];
+  showFinetuning?: boolean;
 }
 
 export const Interaction: FC<InteractionProps> = ({
   serverConfig,
   interaction,
   session,
-  highlightAllFiles = false,
-  showFinetuning = true,
-  headerButtons,
+  highlightAllFiles,
   retryFinetuneErrors,
   onReloadSession,
   onClone,
   onAddDocuments,
-  onRegenerate,
-  children,
   onFilterDocument,
+  headerButtons,
+  children,
   isLastInteraction,
-  toolSteps,
+  isOwner,
+  isAdmin,
+  scrollToBottom,
+  appID,
+  onHandleFilterDocument,
+  session_id,
+  hasSubscription,
+  onRegenerate,
+  sessionSteps = [],
+  showFinetuning = true,
 }) => {
   const account = useAccount()
 
@@ -232,7 +246,7 @@ export const Interaction: FC<InteractionProps> = ({
             handleCancel={handleCancel}
             handleSave={handleSave}
             isLastInteraction={isLastInteraction}
-            toolSteps={toolSteps}
+            sessionSteps={sessionSteps}
           />
         )}
       </InteractionContainer>

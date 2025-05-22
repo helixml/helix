@@ -109,7 +109,7 @@ interface MemoizedInteractionProps {
   session_id: string;
   hasSubscription: boolean;
   onRegenerate?: (interactionID: string, message: string) => void;
-  toolSteps: any[];
+  sessionSteps: any[];
 }
 
 // Create a memoized version of the Interaction component
@@ -135,7 +135,7 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
       headerButtons={props.headerButtons}
       onRegenerate={props.onRegenerate}
       isLastInteraction={props.isLastInteraction}
-      toolSteps={props.toolSteps}
+      sessionSteps={props.sessionSteps}
     >
       {isLive && (props.isOwner || props.isAdmin) && (
         <InteractionLiveStream
@@ -1444,16 +1444,6 @@ const Session: FC = () => {
                   const isLastInteraction = absoluteIndex === memoizedInteractions.length - 1
                   const isOwner = account.user?.id === sessionData.owner
 
-                  // Find tool steps for the previous user message
-                  let toolSteps: TypesStepInfo[] = []
-                  if (
-                    interaction.creator === SESSION_CREATOR_ASSISTANT &&
-                    absoluteIndex > 0 &&
-                    memoizedInteractions[absoluteIndex - 1].creator === SESSION_CREATOR_USER
-                  ) {
-                    toolSteps = getToolStepsForUserInteraction(memoizedInteractions[absoluteIndex - 1].id)
-                  }
-
                   return (
                     <MemoizedInteraction
                       key={interaction.id}
@@ -1475,7 +1465,7 @@ const Session: FC = () => {
                       session_id={sessionData.id}
                       hasSubscription={account.userConfig.stripe_subscription_active || false}
                       onRegenerate={onRegenerate}
-                      toolSteps={toolSteps}
+                      sessionSteps={sessionSteps?.data || []}
                     />
                   )
                 })}
@@ -1509,6 +1499,7 @@ const Session: FC = () => {
     onHandleFilterDocument,
     appID,
     memoizedInteractions,
+    sessionSteps?.data,
   ])
 
   useEffect(() => {
@@ -1701,22 +1692,6 @@ const Session: FC = () => {
     session.data,
     safeReloadSession,
   ])
-
-  // Helper to get tool steps for a user interaction id
-  const getToolStepsForUserInteraction = (userInteractionId: string) => {
-    if (!sessionSteps?.data) return []
-    return sessionSteps.data
-      .filter((step: any) => step.interaction_id === userInteractionId)
-      .map((step: any) => ({
-        id: step.id || '',
-        name: step.name || '',
-        type: step.type || '',
-        message: step.message || '',
-        details: {
-          arguments: step.details?.arguments || {}
-        }
-      }))
-  }
 
   if (!session.data) return null
 
