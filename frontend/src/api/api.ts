@@ -1515,8 +1515,11 @@ export interface TypesStepInfo {
   /** That were used to call the tool */
   arguments?: Record<string, any>;
   created?: string;
+  id?: string;
+  interaction_id?: string;
   message?: string;
   name?: string;
+  session_id?: string;
   type?: string;
   updated?: string;
 }
