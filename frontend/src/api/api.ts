@@ -1512,9 +1512,13 @@ export enum TypesSessionType {
 }
 
 export interface TypesStepInfo {
+  /** That were used to call the tool */
+  arguments?: Record<string, any>;
+  created?: string;
   message?: string;
   name?: string;
   type?: string;
+  updated?: string;
 }
 
 export interface TypesTeam {

@@ -5682,6 +5682,14 @@ const docTemplate = `{
         "types.StepInfo": {
             "type": "object",
             "properties": {
+                "arguments": {
+                    "description": "That were used to call the tool",
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "created": {
+                    "type": "string"
+                },
                 "message": {
                     "type": "string"
                 },
@@ -5689,6 +5697,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "type": {
+                    "type": "string"
+                },
+                "updated": {
                     "type": "string"
                 }
             }
