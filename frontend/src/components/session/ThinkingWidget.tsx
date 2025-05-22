@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
+import CircularProgress from '@mui/material/CircularProgress';
 
 interface ThinkingWidgetProps {
   text: string;
@@ -120,9 +121,18 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
         }}
         onClick={() => setOpen(!open)}
       >
-        <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'primary.main' }}>
-          💡 {isStreaming ? `Thinking ${formatDuration(elapsed)}` : `Thoughts`}
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'primary.main' }}>
+            💡 {isStreaming ? `Thinking ${formatDuration(elapsed)}` : `Thoughts`}
+          </Typography>
+          {isStreaming && (
+            <CircularProgress
+              size={16}
+              thickness={4}
+              sx={{ color: 'primary.main' }}
+            />
+          )}
+        </Box>
         <Typography variant="body2" sx={{ color: 'text.secondary', ml: 2 }}>
           {open ? 'Collapse details' : 'Expand for details'}
         </Typography>
