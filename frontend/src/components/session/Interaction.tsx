@@ -84,6 +84,7 @@ interface InteractionProps {
   children?: React.ReactNode,
   onFilterDocument?: (docId: string) => void,
   isLastInteraction?: boolean,
+  toolSteps?: any[],
 }
 
 export const Interaction: FC<InteractionProps> = ({
@@ -101,6 +102,7 @@ export const Interaction: FC<InteractionProps> = ({
   children,
   onFilterDocument,
   isLastInteraction,
+  toolSteps,
 }) => {
   const account = useAccount()
 
@@ -230,6 +232,7 @@ export const Interaction: FC<InteractionProps> = ({
             handleCancel={handleCancel}
             handleSave={handleSave}
             isLastInteraction={isLastInteraction}
+            toolSteps={toolSteps}
           />
         )}
       </InteractionContainer>

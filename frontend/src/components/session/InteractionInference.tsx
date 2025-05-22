@@ -14,6 +14,7 @@ import Tooltip from '@mui/material/Tooltip'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import TextField from '@mui/material/TextField'
 import CopyButtonWithCheck from './CopyButtonWithCheck'
+import ToolStepsWidget from './ToolStepsWidget'
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
@@ -66,6 +67,7 @@ export const InteractionInference: FC<{
   handleCancel?: () => void,
   handleSave?: () => void,
   isLastInteraction?: boolean,
+  toolSteps?: any[],
 }> = ({
   imageURLs = [],
   message,
@@ -83,6 +85,7 @@ export const InteractionInference: FC<{
   handleCancel: externalHandleCancel,
   handleSave: externalHandleSave,
   isLastInteraction,
+  toolSteps = [],
 }) => {
     const account = useAccount()
     const router = useRouter()
@@ -133,6 +136,9 @@ export const InteractionInference: FC<{
               )
             })
         }
+        {toolSteps.length > 0 && isFromAssistant && (
+          <ToolStepsWidget steps={toolSteps} />
+        )}
         {
           message && onRegenerate && (
             <Box

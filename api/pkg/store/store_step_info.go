@@ -37,7 +37,8 @@ func (s *PostgresStore) ListStepInfos(ctx context.Context, query *ListStepInfosQ
 		dbQuery = dbQuery.Where("session_id = ?", query.SessionID)
 	}
 
-	err := dbQuery.Order("created DESC").Find(&stepInfos).Error
+	// Oldest first (left to right)
+	err := dbQuery.Order("created ASC").Find(&stepInfos).Error
 	if err != nil {
 		return nil, err
 	}
