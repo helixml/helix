@@ -2454,11 +2454,19 @@ definitions:
     - SessionTypeImage
   types.StepInfo:
     properties:
+      arguments:
+        additionalProperties: true
+        description: That were used to call the tool
+        type: object
+      created:
+        type: string
       message:
         type: string
       name:
         type: string
       type:
+        type: string
+      updated:
         type: string
     type: object
   types.Team:
