@@ -55,9 +55,7 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
   const totalLines = lines.length;
   const visibleCount = 2;
   const blurredCount = 3;
-  const startBlur = Math.max(0, totalLines - visibleCount - blurredCount);
-  const startVisible = Math.max(0, totalLines - visibleCount);
-
+  
   if (!open && !isStreaming) {
     return (
       <Box
