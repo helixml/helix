@@ -33,7 +33,7 @@ func Validate(cfg *config.ServerConfig, k *types.AssistantKnowledge) error {
 	}
 
 	// At least one knowledge source must be specified
-	if k.Source.Web == nil && k.Source.Filestore == nil && k.Source.Content == nil {
+	if k.Source.Web == nil && k.Source.Filestore == nil && k.Source.Text == nil {
 		return fmt.Errorf("at least one knowledge source must be specified")
 	}
 

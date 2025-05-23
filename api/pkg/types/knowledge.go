@@ -131,7 +131,7 @@ type KnowledgeSource struct {
 	S3        *KnowledgeSourceS3             `json:"s3"`
 	GCS       *KnowledgeSourceGCS            `json:"gcs"`
 	Web       *KnowledgeSourceWeb            `json:"web"`
-	Content   *string                        `json:"text"`
+	Text      *string                        `json:"text"`
 }
 
 func (k KnowledgeSource) Value() (driver.Value, error) {

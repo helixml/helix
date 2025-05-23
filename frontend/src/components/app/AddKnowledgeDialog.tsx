@@ -10,7 +10,6 @@ import {
   Radio,
   TextField,
   FormControl,
-  FormHelperText,
   CircularProgress,
 } from '@mui/material';
 import { IKnowledgeSource } from '../../types';
@@ -28,9 +27,10 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
   onAdd,
   appId,
 }) => {
-  const [sourceType, setSourceType] = useState<'web' | 'filestore'>('web');
+  const [sourceType, setSourceType] = useState<'web' | 'filestore' | 'text'>('web');
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
+  const [plainText, setPlainText] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -45,6 +45,11 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
       return;
     }
 
+    if (sourceType === 'text' && !plainText.trim()) {
+      setError('Text content is required');
+      return;
+    }
+
     setIsLoading(true);
 
     const knowledgePath = sourceType === 'filestore' ? name : name;
@@ -54,17 +59,19 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
       name: name,
       source: sourceType === 'filestore'
         ? { filestore: { path: knowledgePath } }
-        : {
-          web: {
-            urls: [url],
-            crawler: {
-              enabled: true,
-              max_depth: 1,
-              max_pages: 5,
-              readability: true
+        : sourceType === 'text'
+          ? { text: plainText }
+          : {
+            web: {
+              urls: [url],
+              crawler: {
+                enabled: true,
+                max_depth: 1,
+                max_pages: 5,
+                readability: true
+              }
             }
-          }
-        },
+          },
       refresh_schedule: '',
       version: '',
       state: '',
@@ -89,6 +96,7 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
   const handleClose = () => {
     setName('');
     setUrl('');
+    setPlainText('');
     setError('');
     setSourceType('web');
     setIsLoading(false);
@@ -103,10 +111,11 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
           <RadioGroup
             row
             value={sourceType}
-            onChange={(e) => setSourceType(e.target.value as 'web' | 'filestore')}
+            onChange={(e) => setSourceType(e.target.value as 'web' | 'filestore' | 'text')}
           >
             <FormControlLabel value="web" control={<Radio />} label="Web" />
             <FormControlLabel value="filestore" control={<Radio />} label="Files" />
+            <FormControlLabel value="text" control={<Radio />} label="Plain Text" />
           </RadioGroup>
         </FormControl>
 
@@ -125,6 +134,23 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
           />
         )}
 
+        {sourceType === 'text' && (
+          <TextField
+            fullWidth
+            multiline
+            rows={6}
+            label="Your raw text such as markdown, html, etc."
+            value={plainText}
+            onChange={(e) => {
+              setPlainText(e.target.value);
+              setError('');
+            }}
+            error={!!error && !plainText.trim()}
+            helperText={error && !plainText.trim() ? 'Text content is required' : ''}
+            sx={{ mb: 2 }}
+          />
+        )}
+
         <TextField
           fullWidth
           label="Knowledge name"
@@ -139,16 +165,22 @@ const AddKnowledgeDialog: React.FC<AddKnowledgeDialogProps> = ({
         />
 
       </DialogContent>
-      <DialogActions>
-        <Button onClick={handleClose} disabled={isLoading}>Cancel</Button>
-        <Button
-          onClick={handleSubmit}
-          variant="contained"
-          disabled={isLoading}
-          startIcon={isLoading ? <CircularProgress size={20} /> : null}
-        >
-          {isLoading ? 'Adding...' : 'Add'}
-        </Button>
+      <DialogActions sx={{ display: 'flex', justifyContent: 'space-between' }}>
+        <div>
+          <Button sx={{ ml:2 }} onClick={handleClose} disabled={isLoading}>Cancel</Button>
+        </div>
+        <div>
+          <Button
+            sx={{ mr:2 }}
+            onClick={handleSubmit}
+            variant="outlined"
+            color="secondary"
+            disabled={isLoading}
+            startIcon={isLoading ? <CircularProgress size={20} /> : null}
+          >
+            {isLoading ? 'Adding...' : 'Add'}
+          </Button>
+        </div>
       </DialogActions>
     </Dialog>
   );
