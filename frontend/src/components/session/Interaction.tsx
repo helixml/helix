@@ -192,6 +192,7 @@ export const Interaction: FC<InteractionProps> = ({
         background={containerBackground}
         align={containerAlignment}
         border={containerBorder}
+        isAssistant={interaction?.creator == SESSION_CREATOR_ASSISTANT}
       >
         {
           showFinetuning && (
