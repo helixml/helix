@@ -107,6 +107,7 @@ export const InteractionInference: FC<{
         name: step.name || '',
         type: step.type || '',
         message: step.message || '',
+        created: step.created || '',
         details: {
           arguments: step.details?.arguments || {}
         }

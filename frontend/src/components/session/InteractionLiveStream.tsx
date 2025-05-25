@@ -67,7 +67,8 @@ export const InteractionLiveStream: FC<{
         message: step.message,
         details: {
           arguments: {}
-        }
+        },
+        created: step.created || '',
       })),
       [stepInfos]
     );

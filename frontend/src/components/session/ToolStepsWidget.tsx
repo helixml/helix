@@ -75,6 +75,7 @@ interface ToolStep {
   name: string
   type: string
   message: string
+  created: string
   details: {
     arguments: Record<string, any>
   }
@@ -93,27 +94,20 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps, isLiveStreami
   useEffect(() => {
     if (!isLiveStreaming) return
 
-    const newActiveTools = new Set<string>()
-    steps.forEach(step => {
-      if (!activeTools.has(step.id)) {
-        newActiveTools.add(step.id)
-      }
-    })
+    // Find the most recent step based on created timestamp
+    const mostRecentStep = steps.reduce((latest, current) => {
+      if (!latest) return current
+      return new Date(current.created) > new Date(latest.created) ? current : latest
+    }, null as ToolStep | null)
 
-    if (newActiveTools.size > 0) {
-      // Merge new tools with existing active tools
-      setActiveTools(prev => new Set([...prev, ...newActiveTools]))
+    if (mostRecentStep) {
+      // Only set the most recent step as active
+      setActiveTools(new Set([mostRecentStep.id]))
       
-      // Remove active state after 3 seconds for each new tool
-      newActiveTools.forEach(toolId => {
-        setTimeout(() => {
-          setActiveTools(prev => {
-            const newSet = new Set(prev)
-            newSet.delete(toolId)
-            return newSet
-          })
-        }, 3000)
-      })
+      // Remove active state after 3 seconds
+      setTimeout(() => {
+        setActiveTools(new Set())
+      }, 3000)
     }
   }, [steps, isLiveStreaming])
 
