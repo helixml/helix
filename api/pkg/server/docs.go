@@ -4370,6 +4370,9 @@ const docTemplate = `{
                 "duration_ms": {
                     "type": "integer"
                 },
+                "error": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
