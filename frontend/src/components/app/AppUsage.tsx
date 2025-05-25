@@ -222,6 +222,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                   sx={{
                     ...(call.error && {
                       border: '2px solid #ff4d4f',
+                      bgcolor: 'rgba(255, 77, 79, 0.1)',
                       '& td': {
                         borderColor: 'rgba(255, 77, 79, 0.2)'
                       }
