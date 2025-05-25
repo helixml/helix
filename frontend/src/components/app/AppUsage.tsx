@@ -205,6 +205,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
               <TableCell sx={headerCellStyle}>Created</TableCell>
               <TableCell sx={headerCellStyle}>Session ID</TableCell>
               <TableCell sx={headerCellStyle}>Step</TableCell>
+              <TableCell sx={headerCellStyle}>Duration (ms)</TableCell>
               <TableCell sx={headerCellStyle}>Original Request</TableCell>
               <TableCell sx={headerCellStyle}>Request</TableCell>
               <TableCell sx={headerCellStyle}>Response</TableCell>
@@ -232,6 +233,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                 <TableCell>{call.created ? new Date(call.created).toLocaleString() : ''}</TableCell>
                 <TableCell>{call.session_id}</TableCell>
                 <TableCell>{call.step || 'n/a'}</TableCell>
+                <TableCell>{call.duration_ms || 'n/a'}</TableCell>
                 <TableCell>
                   {call.original_request && (
                     <Button onClick={() => handleOpenModal(call.original_request, call)}>View</Button>
