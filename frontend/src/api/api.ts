@@ -960,6 +960,7 @@ export interface TypesLLMCall {
   completionTokens?: number;
   created?: string;
   duration_ms?: number;
+  error?: string;
   id?: string;
   interaction_id?: string;
   model?: string;

@@ -1631,6 +1631,7 @@ type LLMCall struct {
 	PromptTokens     int64
 	CompletionTokens int64
 	TotalTokens      int64
+	Error            string `json:"error"`
 }
 
 type CreateSecretRequest struct {
