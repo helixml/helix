@@ -4,6 +4,8 @@ import { ISession, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, W
 import useAccount from '../hooks/useAccount';
 import useSessions from '../hooks/useSessions';
 import { TypesCreatorType, TypesMessage } from '../api/api';
+import { sessionStepsQueryKey } from '../services/sessionService';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface NewInferenceParams {
   regenerate?: boolean;
@@ -44,6 +46,7 @@ export const useStreaming = (): StreamingContextType => {
 export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const account = useAccount();
   const sessions = useSessions()
+  const queryClient = useQueryClient();
   const [currentResponses, setCurrentResponses] = useState<Map<string, Partial<IInteraction>>>(new Map());
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [stepInfos, setStepInfos] = useState<Map<string, any[]>>(new Map());
@@ -195,7 +198,10 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       if (parsedData.step_info && parsedData.step_info.type === "thinking") {
       // Don't reload on thinking info events as we will get a lot of them
         return
-      }
+      }      
+
+      // Invalidate the stepInfos query
+      queryClient.invalidateQueries({ queryKey: sessionStepsQueryKey(currentSessionId) });
       
       // Reload all sessions to refresh the name in the sidebar
       sessions.loadSessions()
