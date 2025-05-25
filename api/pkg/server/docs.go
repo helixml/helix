@@ -4412,6 +4412,9 @@ const docTemplate = `{
                 "step": {
                     "$ref": "#/definitions/types.LLMCallStep"
                 },
+                "stream": {
+                    "type": "boolean"
+                },
                 "totalTokens": {
                     "type": "integer"
                 },

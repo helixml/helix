@@ -944,31 +944,31 @@ export interface IApiOptions {
   signal?: AbortSignal;
 }
 
-export interface LLMCall {
-  id: string;
-  created: string;
-  updated: string;
-  session_id: string;
-  interaction_id: string;
-  model: string;
-  provider: string;
-  step: string;
-  request: any;
-  response: any;
-  original_request: any;
-  duration_ms: number;
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-}
+// export interface LLMCall {
+//   id: string;
+//   created: string;
+//   updated: string;
+//   session_id: string;
+//   interaction_id: string;
+//   model: string;
+//   provider: string;
+//   step: string;
+//   request: any;
+//   response: any;
+//   original_request: any;
+//   duration_ms: number;
+//   prompt_tokens: number;
+//   completion_tokens: number;
+//   total_tokens: number;
+// }
 
-export interface PaginatedLLMCalls {
-  calls: LLMCall[];
-  page: number;
-  pageSize: number;
-  totalCount: number;
-  totalPages: number;
-}
+// export interface PaginatedLLMCalls {
+//   calls: LLMCall[];
+//   page: number;
+//   pageSize: number;
+//   totalCount: number;
+//   totalPages: number;
+// }
 
 export interface ICreateSecret {
   name: string,

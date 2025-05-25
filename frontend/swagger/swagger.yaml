@@ -1550,6 +1550,8 @@ definitions:
         type: string
       step:
         $ref: '#/definitions/types.LLMCallStep'
+      stream:
+        type: boolean
       totalTokens:
         type: integer
       updated:

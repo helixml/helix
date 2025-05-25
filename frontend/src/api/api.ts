@@ -971,6 +971,7 @@ export interface TypesLLMCall {
   response?: number[];
   session_id?: string;
   step?: TypesLLMCallStep;
+  stream?: boolean;
   totalTokens?: number;
   updated?: string;
   user_id?: string;
