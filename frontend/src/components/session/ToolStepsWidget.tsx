@@ -1,5 +1,5 @@
-import React, { FC, useState } from 'react'
-import { styled } from '@mui/material/styles'
+import React, { FC, useState, useEffect } from 'react'
+import { styled, keyframes } from '@mui/material/styles'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
@@ -11,6 +11,16 @@ import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
 import SettingsIcon from '@mui/icons-material/Settings'
 import CloseIcon from '@mui/icons-material/Close'
+
+// Add spinning animation
+const spin = keyframes`
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+`
 
 const ToolContainer = styled(Box)({
   display: 'flex',
@@ -25,15 +35,19 @@ const ToolWrapper = styled(Box)({
   height: '20px'
 })
 
-const ToolIcon = styled(IconButton)({
+const ToolIcon = styled(IconButton, {
+  shouldForwardProp: (prop) => prop !== 'isActive'
+})<{ isActive?: boolean }>(({ isActive }) => ({
   width: '100%',
   height: '100%',
   padding: 0,
-  color: '#666',
+  color: isActive ? '#ff9800' : '#666',
   '&:hover': {
-    color: '#000'
-  }
-})
+    color: isActive ? '#ff9800' : '#000'
+  },
+  animation: isActive ? `${spin} 1s linear infinite` : 'none',
+  transition: 'color 0.3s ease'
+}))
 
 const ToolTooltip = styled(Box)(({ theme }) => ({
   position: 'absolute',
@@ -68,10 +82,40 @@ interface ToolStep {
 
 interface ToolStepsWidgetProps {
   steps: ToolStep[]
+  isLiveStreaming?: boolean
 }
 
-export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps }) => {
+export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps, isLiveStreaming = false }) => {
   const [selectedStep, setSelectedStep] = useState<ToolStep | null>(null)
+  const [activeTools, setActiveTools] = useState<Set<string>>(new Set())
+
+  // Track newly added tools
+  useEffect(() => {
+    if (!isLiveStreaming) return
+
+    const newActiveTools = new Set<string>()
+    steps.forEach(step => {
+      if (!activeTools.has(step.id)) {
+        newActiveTools.add(step.id)
+      }
+    })
+
+    if (newActiveTools.size > 0) {
+      // Merge new tools with existing active tools
+      setActiveTools(prev => new Set([...prev, ...newActiveTools]))
+      
+      // Remove active state after 3 seconds for each new tool
+      newActiveTools.forEach(toolId => {
+        setTimeout(() => {
+          setActiveTools(prev => {
+            const newSet = new Set(prev)
+            newSet.delete(toolId)
+            return newSet
+          })
+        }, 3000)
+      })
+    }
+  }, [steps, isLiveStreaming])
 
   const handleClose = () => {
     setSelectedStep(null)
@@ -86,6 +130,7 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps }) => {
               <ToolIcon
                 size="small"
                 onClick={() => setSelectedStep(step)}
+                isActive={activeTools.has(step.id)}
               >
                 <SettingsIcon sx={{ fontSize: 20 }} />
               </ToolIcon>
