@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/helixml/helix/api/pkg/agent/prompts"
+	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
 
 	pkg_errors "github.com/pkg/errors"
@@ -63,6 +64,7 @@ func (a *Agent) GetSkill(name string) (*Skill, error) {
 // summarizeMultipleToolResults summarizes results when multiple tools were called
 func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages *MessageList, llm *LLM) (string, error) {
 	clonedMessages.AddFirst("Craft a helpful answer to user's question based on the tool call results. Be concise and to the point.")
+
 	params := openai.ChatCompletionRequest{
 		Messages: clonedMessages.All(),
 		Model:    llm.GenerationModel,
@@ -70,6 +72,10 @@ func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages
 			IncludeUsage: true,
 		},
 	}
+
+	ctx = oai.SetStep(ctx, &oai.Step{
+		Step: types.LLMCallStep("summarize_multiple_tool_results"),
+	})
 
 	stream, err := llm.NewStreaming(ctx, params)
 	if err != nil {
@@ -178,6 +184,10 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 		Tools:      tools,
 	}
 
+	ctx = oai.SetStep(ctx, &oai.Step{
+		Step: types.LLMCallStep("decide_next_action"),
+	})
+
 	completion, err := llm.New(ctx, params)
 	if err != nil {
 		log.Error().Err(err).Interface("params", params).Msg("Error getting initial response")
@@ -270,6 +280,11 @@ func (a *Agent) sendThoughtsAboutSkills(ctx context.Context, llm *LLM, messageHi
 	}()
 
 	messageHistory.AddFirst(allSpecSystemPrompt)
+
+	ctx = oai.SetStep(ctx, &oai.Step{
+		Step: types.LLMCallStep("send_thoughts_about_skills"),
+	})
+
 	stream, err := llm.NewStreaming(ctx, openai.ChatCompletionRequest{
 		Messages: messageHistory.All(),
 		Model:    llm.SmallGenerationModel,
@@ -339,6 +354,10 @@ func (a *Agent) sendThoughtsAboutTools(ctx context.Context, llm *LLM, messageHis
 	}
 	messageHistory.Add(AssistantMessage(assistantMessage))
 
+	ctx = oai.SetStep(ctx, &oai.Step{
+		Step: types.LLMCallStep("send_thoughts_about_tools"),
+	})
+
 	stream, err := llm.NewStreaming(ctx, openai.ChatCompletionRequest{
 		Messages: messageHistory.All(),
 		Model:    llm.SmallGenerationModel,
@@ -393,6 +412,10 @@ func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *
 		Messages: clonedMessages.All(),
 		Model:    llm.GenerationModel,
 	}
+
+	ctx = oai.SetStep(ctx, &oai.Step{
+		Step: types.LLMCallStep("run_without_skills"),
+	})
 
 	completion, err := llm.New(ctx, params)
 	if err != nil {
