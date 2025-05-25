@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/helixml/helix/api/pkg/agent/prompts"
+	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
@@ -66,6 +67,10 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 		// we need this because we need to send thoughts to the user. The thoughts sending go routine
 		// doesn't get the tool calls from here tool calls but instead as an assistant message
 		messageHistoryBeforeLLMCall := messageHistory.Clone()
+
+		ctx = oai.SetStep(ctx, &oai.Step{
+			Step: types.LLMCallStep(fmt.Sprintf("skill_context_runner (%s)", skill.Name)),
+		})
 
 		completion, err := llm.New(ctx, params)
 		if err != nil {
