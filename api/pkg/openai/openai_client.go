@@ -89,7 +89,7 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	err = retry.Do(func() error {
 		resp, err = c.apiClient.CreateChatCompletion(ctx, request)
 		if err != nil {
-			if strings.Contains(err.Error(), "401 Unauthorized") || strings.Contains(err.Error(), "404") {
+			if strings.Contains(err.Error(), "401 Unauthorized") || strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "400") {
 				return retry.Unrecoverable(err)
 			}
 
@@ -100,6 +100,7 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	},
 		retry.Attempts(retries),
 		retry.Delay(delayBetweenRetries),
+		retry.LastErrorOnly(true),
 		retry.Context(ctx),
 	)
 
