@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -67,6 +68,7 @@ func (p *PubSubStepInfoEmitter) EmitStepInfo(ctx context.Context, info *types.St
 	info.ID = system.GenerateStepInfoID()
 	info.SessionID = vals.SessionID
 	info.InteractionID = vals.InteractionID
+	info.Created = time.Now()
 
 	queue := pubsub.GetSessionQueue(vals.OwnerID, vals.SessionID)
 	event := &types.WebsocketEvent{
