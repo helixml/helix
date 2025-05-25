@@ -66,6 +66,7 @@ func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request op
 	start := time.Now()
 	resp, err := m.client.CreateChatCompletion(ctx, request)
 	if err != nil {
+		m.logLLMCall(ctx, &request, &resp, err, time.Since(start).Milliseconds())
 		return resp, err
 	}
 
@@ -79,15 +80,18 @@ func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request op
 
 		defer m.wg.Done()
 
-		m.logLLMCall(ctx, &request, &resp, time.Since(start).Milliseconds())
+		m.logLLMCall(ctx, &request, &resp, nil, time.Since(start).Milliseconds())
 	}()
 
 	return resp, nil
 }
 
 func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+	start := time.Now()
+
 	upstream, err := m.client.CreateChatCompletionStream(ctx, request)
 	if err != nil {
+		m.logLLMCall(ctx, &request, nil, err, time.Since(start).Milliseconds())
 		return nil, err
 	}
 
@@ -107,8 +111,6 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 		defer m.wg.Done()
 		// Once done, close the writer
 		defer downstreamWriter.Close()
-
-		start := time.Now()
 
 		var resp = openai.ChatCompletionResponse{}
 
@@ -133,7 +135,7 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 		}
 
 		// Once the stream is done, close the downstream writer
-		m.logLLMCall(ctx, &request, &resp, time.Since(start).Milliseconds())
+		m.logLLMCall(ctx, &request, &resp, nil, time.Since(start).Milliseconds())
 	}()
 
 	return downstream, nil
@@ -193,17 +195,21 @@ func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompleti
 	}
 }
 
-func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, durationMs int64) {
+func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, apiError error, durationMs int64) {
 	reqBts, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal LLM request")
 		return
 	}
 
-	respBts, err := json.MarshalIndent(resp, "", "  ")
-	if err != nil {
-		log.Error().Err(err).Msg("failed to marshal LLM response")
-		return
+	var respBts []byte
+
+	if resp != nil {
+		respBts, err = json.MarshalIndent(resp, "", "  ")
+		if err != nil {
+			log.Error().Err(err).Msg("failed to marshal LLM response")
+			return
+		}
 	}
 
 	vals, ok := oai.GetContextValues(ctx)
@@ -259,6 +265,11 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		TotalTokens:      int64(resp.Usage.TotalTokens),
 		UserID:           vals.OwnerID,
 	}
+
+	if apiError != nil {
+		llmCall.Error = apiError.Error()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), logCallTimeout)
 	defer cancel()
 
