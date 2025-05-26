@@ -148,9 +148,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       ) : null
 
       // TODO: add the list of apis also to this display
-      // we can grab stuff from the tools package that already renders endpoints
-
-      const accessType = app.global ? 'Global' : 'Private'
+      // we can grab stuff from the tools package that already renders endpoints    
 
       return {
         id: app.id,
@@ -188,25 +186,11 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
             </Cell>
           </Row>
         ),
-        type: (
-          <Typography variant="body1">
-            {accessType}
-          </Typography>
-        ),
         actions: (
           <>
             { gptscriptsElem }
             { apisElem }
           </>
-        ),
-        updated: (
-          <Box
-            sx={{
-              fontSize: '0.9em',
-            }}
-          >
-            { new Date(app.updated).toLocaleString() }
-          </Box>
         ),
         usage: (
           <Box sx={{ width: 200, height: 50 }}>
@@ -320,17 +304,11 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
           name: 'name',
           title: 'Name',
       }, {
-        name: 'type',
-        title: 'Access Type',
-      }, {
-        name: 'updated',
-        title: 'Updated At',
-      }, {
         name: 'actions',
-        title: 'Actions',
+        title: 'Skills',
       }, {
         name: 'usage',
-        title: 'Usage',
+        title: 'Token Usage',
       }]}
       data={ tableData }
       getActions={ getActions }
