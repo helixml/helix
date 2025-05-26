@@ -144,6 +144,10 @@ func TestSimpleConversation(t *testing.T) {
 		t.Fatal("Failed to load config:", err)
 	}
 
+	if config.OpenAIAPIKey == "" {
+		t.Skip("Skipping test because OpenAI API key is not set")
+	}
+
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
 	stepInfoEmitter := agent.NewLogStepInfoEmitter()
 
@@ -255,6 +259,10 @@ func TestConversationWithHistory(t *testing.T) {
 		t.Fatal("Failed to load config:", err)
 	}
 
+	if config.OpenAIAPIKey == "" {
+		t.Skip("Skipping test because OpenAI API key is not set")
+	}
+
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
 	stepInfoEmitter := agent.NewLogStepInfoEmitter()
 
@@ -308,6 +316,10 @@ func TestConversationWithSkills_WithHistory_NoSkillsToBeUsed(t *testing.T) {
 	config, err := LoadConfig()
 	if err != nil {
 		t.Fatal("Failed to load config:", err)
+	}
+
+	if config.OpenAIAPIKey == "" {
+		t.Skip("Skipping test because OpenAI API key is not set")
 	}
 
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
@@ -376,6 +388,10 @@ func TestConversationWithHistory_WithQuestionAboutPast(t *testing.T) {
 		t.Fatal("Failed to load config:", err)
 	}
 
+	if config.OpenAIAPIKey == "" {
+		t.Skip("Skipping test because OpenAI API key is not set")
+	}
+
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
 	stepInfoEmitter := agent.NewLogStepInfoEmitter()
 
@@ -436,6 +452,10 @@ func TestMemoryRetrieval(t *testing.T) {
 	config, err := LoadConfig()
 	if err != nil {
 		t.Fatal("Failed to load config:", err)
+	}
+
+	if config.OpenAIAPIKey == "" {
+		t.Skip("Skipping test because OpenAI API key is not set")
 	}
 
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
