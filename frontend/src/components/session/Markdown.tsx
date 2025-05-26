@@ -10,8 +10,7 @@ import { keyframes } from '@mui/material/styles'
 // https://react-syntax-highlighter.github.io/react-syntax-highlighter/demo/prism.html
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { ISession } from '../../types'
-// Import the escapeRegExp helper from session.ts
-import { escapeRegExp } from '../../utils/session'
+
 import DOMPurify from 'dompurify'
 
 // Import the new Citation component
@@ -23,45 +22,10 @@ import ThinkingWidget from './ThinkingWidget'
 
 const SyntaxHighlighter = SyntaxHighlighterTS as any
 
-// Create a rainbow shadow animation
-const rainbowShadow = keyframes`
-  0% { box-shadow: 0 0 12px 4px rgba(255, 0, 0, 0.5), 0 0 20px 8px rgba(255, 0, 255, 0.3); }
-  20% { box-shadow: 0 0 12px 4px rgba(255, 0, 255, 0.5), 0 0 20px 8px rgba(0, 0, 255, 0.3); }
-  40% { box-shadow: 0 0 12px 4px rgba(0, 0, 255, 0.5), 0 0 20px 8px rgba(0, 255, 255, 0.3); }
-  60% { box-shadow: 0 0 12px 4px rgba(0, 255, 255, 0.5), 0 0 20px 8px rgba(0, 255, 0, 0.3); }
-  80% { box-shadow: 0 0 12px 4px rgba(0, 255, 0, 0.5), 0 0 20px 8px rgba(255, 255, 0, 0.3); }
-  100% { box-shadow: 0 0 12px 4px rgba(255, 255, 0, 0.5), 0 0 20px 8px rgba(255, 0, 0, 0.3); }
-`
-
 // Create a blinking animation for the cursor
 const blink = keyframes`
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
-`
-
-// Create a pulsing animation for partial citations
-const pulseFade = keyframes`
-  0% { opacity: 0.7; }
-  50% { opacity: 0.9; }
-  100% { opacity: 0.7; }
-`
-
-// Create a shimmer animation for loading indicators
-const shimmer = keyframes`
-  0% { background-position: 100% 0; }
-  100% { background-position: -100% 0; }
-`
-
-// Create a subtle bounce animation for loading content
-const subtleBounce = keyframes`
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-1px); }
-`
-
-// Create a fade-in animation for citation boxes
-const fadeIn = keyframes`
-  0% { opacity: 0; transform: translateX(10px); }
-  100% { opacity: 1; transform: translateX(0); }
 `
 
 export interface MessageProcessorOptions {
