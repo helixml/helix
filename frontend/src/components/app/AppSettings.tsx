@@ -496,6 +496,8 @@ const AppSettings: FC<AppSettingsProps> = ({
                 The model used for reasoning and planning tasks.
               </Typography>
               <AdvancedModelPicker
+                recommendedModels={['o3-mini', 'o4-mini']}
+                hint='Recommended to use o3-mini level models, should be a strong model capable of using tools and reasoning.'
                 selectedProvider={provider}
                 selectedModelId={reasoning_model}
                 onSelectModel={(provider, model) => {
@@ -517,6 +519,8 @@ const AppSettings: FC<AppSettingsProps> = ({
                 The model used for generating responses. Recommended to use gpt-4o level models.
               </Typography>
               <AdvancedModelPicker
+                recommendedModels={['gpt-4o', 'gpt-4o-mini']}
+                hint='Recommended to use gpt-4o level models, should be a strong model capable of planning next actions and interpreting tool responses.'
                 selectedProvider={provider}
                 selectedModelId={generation_model}
                 onSelectModel={(provider, model) => {
@@ -538,6 +542,8 @@ const AppSettings: FC<AppSettingsProps> = ({
                 A smaller model used for quick reasoning tasks. Recommended to use o3-mini level models.
               </Typography>
               <AdvancedModelPicker
+                recommendedModels={['o3-mini', 'o4-mini']}
+                hint='Recommended to use o3-mini level models, should be a strong model capable of using tools and reasoning.'
                 selectedProvider={provider}
                 selectedModelId={small_reasoning_model}
                 onSelectModel={(provider, model) => {
@@ -559,6 +565,8 @@ const AppSettings: FC<AppSettingsProps> = ({
                 A smaller model used for quick response generation. Recommended to use gpt-4o-mini level models.
               </Typography>
               <AdvancedModelPicker
+                recommendedModels={['gpt-4o', 'gpt-4o-mini']}
+                hint='Recommended to use gpt-4o level models, should be a strong model capable of planning next actions and interpreting tool responses.'
                 selectedProvider={provider}
                 selectedModelId={small_generation_model}
                 onSelectModel={(provider, model) => {
