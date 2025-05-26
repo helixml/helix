@@ -10,6 +10,8 @@ import DialogActions from '@mui/material/DialogActions'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
 import SettingsIcon from '@mui/icons-material/Settings'
+import AltRouteIcon from '@mui/icons-material/AltRoute'
+import SchoolIcon from '@mui/icons-material/School'
 import CloseIcon from '@mui/icons-material/Close'
 
 // Add spinning animation
@@ -79,6 +81,7 @@ interface ToolStep {
   details: {
     arguments: Record<string, any>
   }
+  is_actionable?: boolean
 }
 
 interface ToolStepsWidgetProps {
@@ -115,22 +118,48 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps, isLiveStreami
     setSelectedStep(null)
   }
 
+  const getStepIcon = (step: ToolStep) => {
+    if (step.type === 'rag') {
+      return <SchoolIcon sx={{ fontSize: 20 }} />
+    }
+    if (step.is_actionable) {
+      return <AltRouteIcon sx={{ fontSize: 20 }} />
+    }
+    return <SettingsIcon sx={{ fontSize: 20 }} />
+  }
+
+  const getStepTooltip = (step: ToolStep) => {
+    if (step.type === 'rag') {
+      return `Tool: ${step.name}\nMessage: ${step.message}`
+    }
+    if (step.is_actionable) {
+      return step.message
+    }
+    return `Tool: ${step.name}`
+  }
+
   return (
     <>
       <ToolContainer>
         {steps.map((step) => (
           <ToolWrapper key={step.id}>
-            <Tooltip title={`Tool: ${step.name}`}>
-              <ToolIcon
-                size="small"
-                onClick={() => setSelectedStep(step)}
-                isActive={activeTools.has(step.id)}
-              >
-                <SettingsIcon sx={{ fontSize: 20 }} />
-              </ToolIcon>
+            <Tooltip title={getStepTooltip(step)}>
+              <span>
+                <ToolIcon
+                  size="small"
+                  onClick={() => !step.is_actionable && setSelectedStep(step)}
+                  isActive={activeTools.has(step.id)}
+                  sx={{ 
+                    cursor: step.is_actionable ? 'default' : 'pointer',
+                    pointerEvents: step.is_actionable ? 'none' : 'auto'
+                  }}
+                >
+                  {getStepIcon(step)}
+                </ToolIcon>
+              </span>
             </Tooltip>
             <ToolTooltip>
-              Tool: <strong>{step.name}</strong>
+              {getStepTooltip(step)}
             </ToolTooltip>
           </ToolWrapper>
         ))}
@@ -175,7 +204,7 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps, isLiveStreami
                   borderRadius: '4px',
                   overflow: 'auto'
                 }}>
-                  {JSON.stringify(selectedStep.details.arguments, null, 2)}
+                  {JSON.stringify(selectedStep.details?.arguments || {}, null, 2)}
                 </pre>
               </Box>
               <Box>
@@ -189,7 +218,15 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps, isLiveStreami
                   borderRadius: '4px',
                   overflow: 'auto'
                 }}>
-                  {JSON.stringify(JSON.parse(selectedStep.message), null, 2)}
+                  {(() => {
+                    if (!selectedStep.message) return '{}';
+                    try {
+                      const parsed = JSON.parse(selectedStep.message);
+                      return JSON.stringify(parsed, null, 2);
+                    } catch (e) {
+                      return selectedStep.message;
+                    }
+                  })()}
                 </pre>
               </Box>
             </DialogContent>
