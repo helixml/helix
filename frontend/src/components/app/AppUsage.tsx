@@ -172,7 +172,8 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
               labelStyle: {
                 angle: 0,
                 textAnchor: 'middle'
-              }
+              },
+              tickMinStep: 24 * 60 * 60 * 1000
             }]}
             series={chartData.series.map(series => ({
               ...series,
