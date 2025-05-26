@@ -33,6 +33,7 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import useFilestore from '../hooks/useFilestore';
 import AppUsage from '../components/app/AppUsage'
 import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
+import useLightTheme from '../hooks/useLightTheme'
 
 const App: FC = () => {
   const account = useAccount()  
@@ -48,6 +49,8 @@ const App: FC = () => {
   const appTools = useApp(params.app_id)
   // Get user access information from appTools
   const { userAccess } = appTools
+
+  const lightTheme = useLightTheme()
 
   const [deletingAPIKey, setDeletingAPIKey] = useState('')
   const [isAccessDenied, setIsAccessDenied] = useState(false)
@@ -178,7 +181,7 @@ const App: FC = () => {
           <Box sx={{ height: 'calc(100% - 48px)', overflow: 'hidden' }}>
             <Grid container spacing={2} sx={{ height: '100%' }}>
               {tabValue === 'usage' ? (
-                <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8 }}>
+                <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
                   <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
                     <AppUsage appId={appTools.id} />
                   </Box>
@@ -189,7 +192,8 @@ const App: FC = () => {
                     borderRight: '1px solid #303047',
                     height: '100%',
                     overflow: 'auto',
-                    pb: 8 // Add padding at bottom to prevent content being hidden behind fixed bar
+                    pb: 8, // Add padding at bottom to prevent content being hidden behind fixed bar
+                    ...lightTheme.scrollbar
                   }}>
                     <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
                       {tabValue === 'settings' && appTools.flatApp && (
