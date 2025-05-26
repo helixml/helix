@@ -47,17 +47,19 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 
 	isFirstIteration := true
 	for {
-		// First iteration is when the main planning happens - use the bigger model.
-		modelToUse := llm.SmallReasoningModel
+		modelToUse := llm.SmallGenerationModel
+		reasoningEffor := ""
 		if isFirstIteration {
+			// First iteration is when the main planning happens - use the bigger model.
 			modelToUse = llm.ReasoningModel
 			isFirstIteration = false
+			reasoningEffor = "high"
 		}
 
 		params := openai.ChatCompletionRequest{
 			Messages:        messageHistory.All(),
 			Model:           modelToUse,
-			ReasoningEffort: "high",
+			ReasoningEffort: reasoningEffor,
 		}
 		log.Info().Str("skill", skill.Name).Interface("tools", skill.Tools).Msg("Running skill")
 		if len(skill.GetTools()) > 0 {
