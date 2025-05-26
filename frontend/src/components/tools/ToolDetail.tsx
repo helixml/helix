@@ -31,7 +31,7 @@ const ToolDetail: FC<React.PropsWithChildren<{
             { tool.config.api.url }
           </Typography>
         </Box>
-        <Box component="ul" sx={{ listStyle: 'disc', pl: 4, mt: 0 }}>
+        <Box component="ul" sx={{ listStyle: 'disc', pl: 7, mt: 0 }}>
           {
             tool.config.api.actions?.map((action, index) => (
               <Tooltip 
