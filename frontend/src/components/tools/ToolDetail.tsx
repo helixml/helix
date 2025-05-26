@@ -11,6 +11,7 @@ import {
   ITool,
 } from '../../types'
 import useLightTheme from '../../hooks/useLightTheme'
+import SettingsIcon from '@mui/icons-material/Settings'
 
 const ToolDetail: FC<React.PropsWithChildren<{
   tool: ITool,
@@ -22,27 +23,28 @@ const ToolDetail: FC<React.PropsWithChildren<{
   if(tool.config.api) {
     details = (
       <Box sx={{ border: '1px solid #757575', borderRadius: 2, p: 2, mb: 1 }}>
-        <Box sx={{mb: 0, mt: 0}}>          
-          <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', color: lightTheme.textColorFaded}}>
-            API - { tool.config.api.url }
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+          <Tooltip title="API Tool">
+            <SettingsIcon fontSize="small" sx={{ color: lightTheme.textColorFaded, mr: 1 }} />
+          </Tooltip>
+          <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', color: lightTheme.textColorFaded, mb: 0}}>
+            { tool.config.api.url }
           </Typography>
         </Box>
-        <Box component="ul" sx={{ listStyle: 'disc', pl: 2, mt: 1 }}>
+        <Box component="ul" sx={{ listStyle: 'disc', pl: 4, mt: 0 }}>
           {
-            tool.config.api.actions?.map((action, index) => {
-              return (
-                <Tooltip 
-                  key={index}
-                  title={action.description || ''}
-                >
-                  <Box component="li">
-                    <Typography sx={{ color: lightTheme.textColorFaded }}>
-                      {action.name}
-                    </Typography>
-                  </Box>
-                </Tooltip>
-              )
-            })
+            tool.config.api.actions?.map((action, index) => (
+              <Tooltip 
+                key={index}
+                title={action.description || ''}
+              >
+                <Box component="li">
+                  <Typography sx={{ color: lightTheme.textColorFaded }}>
+                    {action.name}
+                  </Typography>
+                </Box>
+              </Tooltip>
+            ))
           }
         </Box>
       </Box>
