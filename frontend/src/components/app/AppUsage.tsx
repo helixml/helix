@@ -190,6 +190,9 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
               '& .MuiAreaElement-root': {
                 fill: 'url(#usageGradient)',
               },
+              '& .MuiMarkElement-root': {
+                display: 'none',
+              },
             }}
           >
             <defs>
