@@ -152,16 +152,18 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
               return (
                 <Box
                   key={index}
-                  sx={{ border: '1px solid #757575', borderRadius: 2, p: 2, mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}
+                  sx={{ border: '1px solid #757575', borderRadius: 2, p: 2, mb: 1 }}
                 >
-                  <Tooltip title="Knowledge">
-                    <SchoolIcon fontSize="small" sx={{ color: lightTheme.textColorFaded, mr: 1, mb: 1 }} />
-                  </Tooltip>
-                  <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', color: lightTheme.textColorFaded}}>
-                    {knowledge.name}
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <Tooltip title="Knowledge">
+                      <SchoolIcon fontSize="small" sx={{ color: lightTheme.textColorFaded, mr: 1 }} />
+                    </Tooltip>
+                    <Typography variant="body1" sx={{fontWeight: 'bold', color: lightTheme.textColorFaded}}>
+                      {knowledge.name}
+                    </Typography>
+                  </Box>
                   {knowledge.description && (
-                    <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, ml: 1 }}>
+                    <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, pl: 4.5 }}>
                       {knowledge.description}
                     </Typography>
                   )}
