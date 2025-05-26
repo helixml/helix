@@ -4,6 +4,7 @@ import Typography from '@mui/material/Typography'
 import Chip from '@mui/material/Chip'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
+import Tooltip from '@mui/material/Tooltip'
 
 import {
   ITool,
@@ -17,40 +18,37 @@ const ToolDetail: FC<React.PropsWithChildren<{
   let details: any = ''
   if(tool.config.api) {
     details = (
-      <>
-        <Box sx={{mb: 2}}>          
+      <Box sx={{ border: '1px solid #757575', borderRadius: 2, p: 2, mb: 1 }}>
+        <Box sx={{mb: 0, mt: 0}}>          
           <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold'}}>
             API - { tool.config.api.url }
           </Typography>
         </Box>
-        {
-          tool.config.api.actions?.map((action, index) => {
-            return (
-              <Box key={index}>
-                <Row>
-                  <Cell sx={{width:'50%'}}>
+        <Box component="ul" sx={{ listStyle: 'disc', pl: 2, mt: 1 }}>
+          {
+            tool.config.api.actions?.map((action, index) => {
+              return (
+                <Tooltip 
+                  key={index}
+                  title={action.description || ''}
+                  
+                >
+                  <Box component="li">
                     <Typography>
                       {action.name}
                     </Typography>
-                  </Cell>                  
-                </Row>
-                <Row sx={{mt: 0.5, mb: 2}}>
-                  <Cell>
-                    <Typography variant="caption" sx={{color: '#999'}}>
-                      {action.description}
-                    </Typography>
-                  </Cell>
-                </Row>
-              </Box>
-            )
-          })
-        }
-      </>
+                  </Box>
+                </Tooltip>
+              )
+            })
+          }
+        </Box>
+      </Box>
     )
   }
   if(tool.config.gptscript) {
     details = (
-      <>
+      <Box sx={{ border: '1px solid #757575', borderRadius: 2, p: 2, mb: 2 }}>
         <Box sx={{mb: 2}}>
           {
             tool.config.gptscript.script_url && (
@@ -63,7 +61,7 @@ const ToolDetail: FC<React.PropsWithChildren<{
             { tool.description }
           </Typography>
         </Box>
-      </>
+      </Box>
     )
   }
 
