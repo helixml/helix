@@ -20,7 +20,7 @@ const ToolDetail: FC<React.PropsWithChildren<{
     details = (
       <Box sx={{ border: '1px solid #757575', borderRadius: 2, p: 2, mb: 1 }}>
         <Box sx={{mb: 0, mt: 0}}>          
-          <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold'}}>
+          <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', color: 'rgba(255, 255, 255, 0.7)'}}>
             API - { tool.config.api.url }
           </Typography>
         </Box>
@@ -31,10 +31,9 @@ const ToolDetail: FC<React.PropsWithChildren<{
                 <Tooltip 
                   key={index}
                   title={action.description || ''}
-                  
                 >
                   <Box component="li">
-                    <Typography>
+                    <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
                       {action.name}
                     </Typography>
                   </Box>
@@ -52,12 +51,12 @@ const ToolDetail: FC<React.PropsWithChildren<{
         <Box sx={{mb: 2}}>
           {
             tool.config.gptscript.script_url && (
-              <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline'}}>
+              <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline', color: 'rgba(255, 255, 255, 0.7)'}}>
                 { tool.config.gptscript.script_url }
               </Typography>
             )
           }
-          <Typography variant="caption" gutterBottom>
+          <Typography variant="caption" gutterBottom sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
             { tool.description }
           </Typography>
         </Box>
