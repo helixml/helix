@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	agentpod "github.com/helixml/helix/api/pkg/agent"
+	agent "github.com/helixml/helix/api/pkg/agent"
 	helix_openai "github.com/helixml/helix/api/pkg/openai"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -26,7 +26,7 @@ type Restaurant struct {
 	Location string
 }
 
-var _ agentpod.Tool = &RestaurantTool{}
+var _ agent.Tool = &RestaurantTool{}
 
 func NewRestaurantTool() *RestaurantTool {
 	return &RestaurantTool{
@@ -94,7 +94,7 @@ func (r *RestaurantTool) OpenAI() []openai.Tool {
 	}
 }
 
-func (r *RestaurantTool) Execute(ctx context.Context, meta agentpod.Meta, args map[string]interface{}) (string, error) {
+func (r *RestaurantTool) Execute(_ context.Context, _ agent.Meta, args map[string]interface{}) (string, error) {
 	location := args["location"].(string)
 	cuisine := args["cuisine"].(string)
 
@@ -113,7 +113,7 @@ type CuisineTool struct {
 	dishes      map[string][]string
 }
 
-var _ agentpod.Tool = &CuisineTool{}
+var _ agent.Tool = &CuisineTool{}
 
 func NewCuisineTool() *CuisineTool {
 	return &CuisineTool{
@@ -165,7 +165,7 @@ func (c *CuisineTool) OpenAI() []openai.Tool {
 	}
 }
 
-func (c *CuisineTool) Execute(ctx context.Context, meta agentpod.Meta, args map[string]interface{}) (string, error) {
+func (c *CuisineTool) Execute(_ context.Context, _ agent.Meta, args map[string]interface{}) (string, error) {
 	restaurant := args["restaurant"].(string)
 	if dishes, ok := c.dishes[restaurant]; ok {
 		return strings.Join(dishes, ", "), nil
@@ -174,9 +174,9 @@ func (c *CuisineTool) Execute(ctx context.Context, meta agentpod.Meta, args map[
 }
 
 // Function to create memory with user preferences
-func getUserPreferencesMemory(meta *agentpod.Meta) (*agentpod.MemoryBlock, error) {
-	memoryBlock := agentpod.NewMemoryBlock()
-	userDetailsBlock := agentpod.NewMemoryBlock()
+func getUserPreferencesMemory(_ *agent.Meta) (*agent.MemoryBlock, error) {
+	memoryBlock := agent.NewMemoryBlock()
+	userDetailsBlock := agent.NewMemoryBlock()
 	userDetailsBlock.AddString("location", "Downtown")
 	userDetailsBlock.AddString("favorite_cuisines", "Italian")
 	memoryBlock.AddBlock("UserDetails", userDetailsBlock)
@@ -202,7 +202,7 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 
 	require.NotEmpty(t, config.OpenAIAPIKey, "OpenAI API Key is not set")
 
-	llm := agentpod.NewLLM(
+	llm := agent.NewLLM(
 		client,
 		config.ReasoningModel,
 		config.GenerationModel,
@@ -210,7 +210,7 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 		config.SmallGenerationModel,
 	)
 
-	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
+	stepInfoEmitter := agent.NewLogStepInfoEmitter()
 
 	// Create mock memory with user preferences
 	mem := &MockMemory{
@@ -220,33 +220,33 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 	// Create restaurant agent with restaurant recommendation tool
 	restaurantTool := NewRestaurantTool()
 	cuisineTool := NewCuisineTool()
-	restaurantAgent := agentpod.NewAgent(
+	restaurantAgent := agent.NewAgent(
 		stepInfoEmitter,
 		mainPrompt,
-		[]agentpod.Skill{
+		[]agent.Skill{
 			{
 				Name:         "RestaurantExpert",
 				Description:  "Expert in restaurant recommendations. You cannot make cusine recommendations. We have a cuisine expert for that.",
 				SystemPrompt: "As a restaurant expert, you provide personalized restaurant recommendations. Do not make any recommendations on dishes. We have cusines expert for that.",
-				Tools:        []agentpod.Tool{restaurantTool},
+				Tools:        []agent.Tool{restaurantTool},
 			},
 			{
 				Name:         "CuisineExpert",
 				Description:  "Expert in cuisine and dishes, you provide dish recommendations for restaurants found by RestaurantExpert. Should not be called before restaurant expert made the restaurant recommendation.",
-				SystemPrompt: "As a cuisine expert, you provide dish recommendations for restaurants found by RestaurantExpert. You should only do recommendations on cusines for the restaurants you have access to. You should not assume the existance of any restaurants that you don't have access to",
-				Tools:        []agentpod.Tool{cuisineTool},
+				SystemPrompt: "As a cuisine expert, you provide dish recommendations for restaurants found by RestaurantExpert. You should only do recommendations on cusines for the restaurants you have access to. You should not assume the existence of any restaurants that you don't have access to",
+				Tools:        []agent.Tool{cuisineTool},
 			},
 		},
 	)
 
-	messageHistory := &agentpod.MessageList{}
+	messageHistory := &agent.MessageList{}
 
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
 	// Create session with restaurant agent
-	restaurantSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, restaurantAgent, messageHistory, agentpod.Meta{
+	restaurantSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, restaurantAgent, messageHistory, agent.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID, "domain": "test"},
@@ -257,10 +257,10 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 	for {
 		out := restaurantSession.Out()
 
-		if out.Type == agentpod.ResponseTypePartialText {
+		if out.Type == agent.ResponseTypePartialText {
 			response += out.Content
 		}
-		if out.Type == agentpod.ResponseTypeEnd {
+		if out.Type == agent.ResponseTypeEnd {
 			break
 		}
 	}

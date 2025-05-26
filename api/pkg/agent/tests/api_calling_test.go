@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	agentpod "github.com/helixml/helix/api/pkg/agent"
+	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/agent/skill"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/gptscript"
@@ -23,9 +23,9 @@ import (
 )
 
 // Function to create memory with user preferences
-func getEmptyPreferencesMemory(meta *agentpod.Meta) (*agentpod.MemoryBlock, error) {
-	memoryBlock := agentpod.NewMemoryBlock()
-	userDetailsBlock := agentpod.NewMemoryBlock()
+func getEmptyPreferencesMemory(_ *agent.Meta) (*agent.MemoryBlock, error) {
+	memoryBlock := agent.NewMemoryBlock()
+	userDetailsBlock := agent.NewMemoryBlock()
 	// userDetailsBlock.AddString("location", "Downtown")
 	// userDetailsBlock.AddString("favorite_cuisines", "Italian")
 	memoryBlock.AddBlock("UserDetails", userDetailsBlock)
@@ -132,7 +132,7 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 
 	require.NotEmpty(t, config.OpenAIAPIKey, "OpenAI API Key is not set")
 
-	llm := agentpod.NewLLM(
+	llm := agent.NewLLM(
 		client,
 		config.ReasoningModel,
 		config.GenerationModel,
@@ -180,22 +180,22 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 
 	petStoreSkill := skill.NewAPICallingSkill(planner, petStoreTool)
 
-	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
+	stepInfoEmitter := agent.NewLogStepInfoEmitter()
 
-	restaurantAgent := agentpod.NewAgent(
+	restaurantAgent := agent.NewAgent(
 		stepInfoEmitter,
 		petStoreMainPrompt,
-		[]agentpod.Skill{petStoreSkill},
+		[]agent.Skill{petStoreSkill},
 	)
 
-	messageHistory := &agentpod.MessageList{}
+	messageHistory := &agent.MessageList{}
 
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
 	// Create session with restaurant agent
-	restaurantSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, restaurantAgent, messageHistory, agentpod.Meta{
+	restaurantSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, restaurantAgent, messageHistory, agent.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID, "domain": "test"},
@@ -206,10 +206,10 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 	for {
 		out := restaurantSession.Out()
 
-		if out.Type == agentpod.ResponseTypePartialText {
+		if out.Type == agent.ResponseTypePartialText {
 			response += out.Content
 		}
-		if out.Type == agentpod.ResponseTypeEnd {
+		if out.Type == agent.ResponseTypeEnd {
 			break
 		}
 	}
