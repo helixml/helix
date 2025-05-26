@@ -25,6 +25,7 @@ var openaiTextModels = map[string]int{
 	"o1-mini":                     128000,
 	"o1-pro":                      128000,
 	"o3-mini":                     200000,
+	"o3":                          200000,
 	"o4-mini":                     200000,
 	"gpt-4o-mini-search-preview":  128000,
 	"gpt-4o-search-preview":       128000,
