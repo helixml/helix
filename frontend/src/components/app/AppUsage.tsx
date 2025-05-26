@@ -169,7 +169,6 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                 const date = new Date(value);
                 return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
               },
-              // tickNumber: 7,
               labelStyle: {
                 angle: 0,
                 textAnchor: 'middle'
@@ -187,7 +186,19 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                 hidden: true
               }
             }}
-          />
+            sx={{
+              '& .MuiAreaElement-root': {
+                fill: 'url(#usageGradient)',
+              },
+            }}
+          >
+            <defs>
+              <linearGradient id="usageGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#00c8ff" stopOpacity={0.5} />
+                <stop offset="100%" stopColor="#070714" stopOpacity={0.1} />
+              </linearGradient>
+            </defs>
+          </LineChart>
         ) : (
           <Typography variant="body1" textAlign="center">No usage data available</Typography>
         )}
