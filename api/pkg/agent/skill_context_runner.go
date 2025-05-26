@@ -192,6 +192,7 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 	}
 	allMessages := messageHistory.All()
 	lastMessage := allMessages[len(allMessages)-1]
+
 	// If it's a ChatCompletionMessage, convert it to a tool message
 	if lastMessage.Role == openai.ChatMessageRoleAssistant {
 		if lastMessage.Content == "" {
@@ -206,12 +207,13 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 			Content:    lastMessage.Content,
 			ToolCallID: skillToolCallID,
 		}, nil
-	} else {
-		log.Error().Str("type", fmt.Sprintf("%T", lastMessage)).Msg("Unexpected message type in SkillContextRunner result")
-		return &openai.ChatCompletionMessage{
-			Role:       openai.ChatMessageRoleTool,
-			Content:    "Error: The skill execution did not produce a valid response",
-			ToolCallID: skillToolCallID,
-		}, nil
 	}
+
+	log.Error().Str("type", fmt.Sprintf("%T", lastMessage)).Msg("Unexpected message type in SkillContextRunner result")
+
+	return &openai.ChatCompletionMessage{
+		Role:       openai.ChatMessageRoleTool,
+		Content:    "Error: The skill execution did not produce a valid response",
+		ToolCallID: skillToolCallID,
+	}, nil
 }

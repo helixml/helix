@@ -4,6 +4,7 @@ package agent
 import (
 	"fmt"
 
+	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -95,6 +96,6 @@ func (ml *MessageList) PrintMessages() {
 			}
 		}
 
-		fmt.Printf("Role: %s\nContent: %s\nMultiContent: %v\n\n", role, content, multiContent)
+		log.Info().Msgf("Role: %s\nContent: %s\nMultiContent: %v\n\n", role, content, multiContent)
 	}
 }

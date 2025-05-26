@@ -1,6 +1,3 @@
-// Package agent - skill.go
-// Defines the Skill structure, grouping Tools and domain-specific logic.
-
 package agent
 
 import (

@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/agent"
-	agentpod "github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -55,7 +54,7 @@ type APICallingTool struct {
 	planner     tools.Planner
 }
 
-var _ agentpod.Tool = &APICallingTool{}
+var _ agent.Tool = &APICallingTool{}
 
 func (t *APICallingTool) Name() string {
 	return agent.SanitizeToolName(t.toolName)
@@ -179,11 +178,14 @@ func (t *APICallingTool) OpenAI() []openai.Tool {
 	}
 }
 
-func (t *APICallingTool) Execute(ctx context.Context, meta agentpod.Meta, args map[string]interface{}) (string, error) {
+func (t *APICallingTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
 
 	log.Info().
 		Str("tool_name", t.toolName).
 		Str("tool_id", t.toolID).
+		Str("interaction_id", meta.InteractionID).
+		Str("session_id", meta.SessionID).
+		Str("user_id", meta.UserID).
 		Any("args", args).Msg("Executing API calling tool")
 
 	params := make(map[string]interface{})

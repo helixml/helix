@@ -614,22 +614,22 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 			Type:    ResponseTypePartialText,
 		}
 		return
-	} else {
-		// If we have the response in the finalCompletion, we return it
-		if finalCompletion != nil {
-			outUserChannel <- Response{
-				Content: finalCompletion.Choices[0].Message.Content,
-				Type:    ResponseTypePartialText,
-			}
-			return
-		}
+	}
 
-		// If there are no skill results, we return an error
-		log.Warn().Msg("No skill results available to return")
+	// If we have the response in the finalCompletion, we return it
+	if finalCompletion != nil {
 		outUserChannel <- Response{
-			Content: "I encountered an error while processing the results.",
-			Type:    ResponseTypeError,
+			Content: finalCompletion.Choices[0].Message.Content,
+			Type:    ResponseTypePartialText,
 		}
+		return
+	}
+
+	// If there are no skill results, we return an error
+	log.Warn().Msg("No skill results available to return")
+	outUserChannel <- Response{
+		Content: "I encountered an error while processing the results.",
+		Type:    ResponseTypeError,
 	}
 }
 

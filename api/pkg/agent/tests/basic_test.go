@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	agentpod "github.com/helixml/helix/api/pkg/agent"
+	agent "github.com/helixml/helix/api/pkg/agent"
 	helix_openai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/stretchr/testify/require"
 
@@ -15,22 +15,22 @@ import (
 
 // MockMemory implements the Memory interface for testing
 type MockMemory struct {
-	RetrieveFn func(*agentpod.Meta) (*agentpod.MemoryBlock, error)
+	RetrieveFn func(*agent.Meta) (*agent.MemoryBlock, error)
 }
 
 // Retrieve returns a memory block for testing
-func (m *MockMemory) Retrieve(meta *agentpod.Meta) (*agentpod.MemoryBlock, error) {
+func (m *MockMemory) Retrieve(meta *agent.Meta) (*agent.MemoryBlock, error) {
 	if m.RetrieveFn != nil {
 		return m.RetrieveFn(meta)
 	}
 	// Default implementation returns an empty memory block
-	memoryBlock := agentpod.NewMemoryBlock()
+	memoryBlock := agent.NewMemoryBlock()
 	return memoryBlock, nil
 }
 
 // Default memory retrieval function that includes basic user data
-func getDefaultMemory(meta *agentpod.Meta) (*agentpod.MemoryBlock, error) {
-	memoryBlock := agentpod.NewMemoryBlock()
+func getDefaultMemory(meta *agent.Meta) (*agent.MemoryBlock, error) {
+	memoryBlock := agent.NewMemoryBlock()
 	memoryBlock.AddString("user_id", meta.Extra["user_id"])
 	memoryBlock.AddString("session_id", meta.SessionID)
 	return memoryBlock, nil
@@ -41,7 +41,7 @@ type BestAppleFinder struct {
 	description string
 }
 
-var _ agentpod.Tool = &BestAppleFinder{}
+var _ agent.Tool = &BestAppleFinder{}
 
 func (b *BestAppleFinder) Name() string {
 	return b.toolName
@@ -81,7 +81,7 @@ func (b *BestAppleFinder) OpenAI() []openai.Tool {
 	}
 }
 
-func (b *BestAppleFinder) Execute(ctx context.Context, meta agentpod.Meta, args map[string]interface{}) (string, error) {
+func (b *BestAppleFinder) Execute(_ context.Context, _ agent.Meta, _ map[string]interface{}) (string, error) {
 	return "green apple", nil
 }
 
@@ -90,7 +90,7 @@ type CurrencyConverter struct {
 	description string
 }
 
-var _ agentpod.Tool = &CurrencyConverter{}
+var _ agent.Tool = &CurrencyConverter{}
 
 func (b *CurrencyConverter) Name() string {
 	return b.toolName
@@ -134,7 +134,7 @@ func (b *CurrencyConverter) OpenAI() []openai.Tool {
 	}
 }
 
-func (b *CurrencyConverter) Execute(ctx context.Context, meta agentpod.Meta, args map[string]interface{}) (string, error) {
+func (b *CurrencyConverter) Execute(_ context.Context, _ agent.Meta, _ map[string]interface{}) (string, error) {
 	return "100 USD is 80 EUR", nil
 }
 
@@ -145,9 +145,9 @@ func TestSimpleConversation(t *testing.T) {
 	}
 
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
-	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
+	stepInfoEmitter := agent.NewLogStepInfoEmitter()
 
-	llm := agentpod.NewLLM(
+	llm := agent.NewLLM(
 		client,
 		config.ReasoningModel,
 		config.GenerationModel,
@@ -155,15 +155,15 @@ func TestSimpleConversation(t *testing.T) {
 		config.SmallGenerationModel,
 	)
 	mem := &MockMemory{}
-	ai := agentpod.NewAgent(stepInfoEmitter, "Your a repeater. You'll repeat after whatever the user says exactly as they say it, even the punctuation and cases.", []agentpod.Skill{})
+	ai := agent.NewAgent(stepInfoEmitter, "Your a repeater. You'll repeat after whatever the user says exactly as they say it, even the punctuation and cases.", []agent.Skill{})
 
-	messageHistory := &agentpod.MessageList{}
+	messageHistory := &agent.MessageList{}
 
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
-	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agentpod.Meta{
+	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agent.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -173,10 +173,10 @@ func TestSimpleConversation(t *testing.T) {
 	var finalContent string
 	for {
 		out := convSession.Out()
-		if out.Type == agentpod.ResponseTypePartialText {
+		if out.Type == agent.ResponseTypePartialText {
 			finalContent += out.Content
 		}
-		if out.Type == agentpod.ResponseTypeEnd {
+		if out.Type == agent.ResponseTypeEnd {
 			break
 		}
 	}
@@ -197,8 +197,8 @@ func TestConversationWithSkills(t *testing.T) {
 	}
 
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
-	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
-	llm := agentpod.NewLLM(
+	stepInfoEmitter := agent.NewLogStepInfoEmitter()
+	llm := agent.NewLLM(
 		client,
 		config.ReasoningModel,
 		config.GenerationModel,
@@ -208,26 +208,26 @@ func TestConversationWithSkills(t *testing.T) {
 	mem := &MockMemory{
 		RetrieveFn: getDefaultMemory,
 	}
-	skill := agentpod.Skill{
+	skill := agent.Skill{
 		Name:         "AppleExpert",
 		Description:  "You are an expert in apples",
 		SystemPrompt: "As an apple expert, you provide detailed information about different apple varieties and their characteristics.",
-		Tools: []agentpod.Tool{
+		Tools: []agent.Tool{
 			&BestAppleFinder{
 				toolName:    "BestAppleFinder",
 				description: "Find the best apple",
 			},
 		},
 	}
-	agent := agentpod.NewAgent(stepInfoEmitter, "You are a good farmer. You answer user questions briefly and concisely. You do not add any extra information but just answer user questions in fewer words possible.", []agentpod.Skill{skill})
+	myAgent := agent.NewAgent(stepInfoEmitter, "You are a good farmer. You answer user questions briefly and concisely. You do not add any extra information but just answer user questions in fewer words possible.", []agent.Skill{skill})
 
-	messageHistory := &agentpod.MessageList{}
+	messageHistory := &agent.MessageList{}
 
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
-	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, agent, messageHistory, agentpod.Meta{
+	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, myAgent, messageHistory, agent.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -237,10 +237,10 @@ func TestConversationWithSkills(t *testing.T) {
 	var finalContent string
 	for {
 		out := convSession.Out()
-		if out.Type == agentpod.ResponseTypePartialText {
+		if out.Type == agent.ResponseTypePartialText {
 			finalContent += out.Content
 		}
-		if out.Type == agentpod.ResponseTypeEnd {
+		if out.Type == agent.ResponseTypeEnd {
 			break
 		}
 	}
@@ -256,9 +256,9 @@ func TestConversationWithHistory(t *testing.T) {
 	}
 
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
-	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
+	stepInfoEmitter := agent.NewLogStepInfoEmitter()
 
-	llm := agentpod.NewLLM(
+	llm := agent.NewLLM(
 		client,
 		config.ReasoningModel,
 		config.GenerationModel,
@@ -268,17 +268,17 @@ func TestConversationWithHistory(t *testing.T) {
 	mem := &MockMemory{
 		RetrieveFn: getDefaultMemory,
 	}
-	ai := agentpod.NewAgent(stepInfoEmitter, "You are an assistant!", []agentpod.Skill{})
+	ai := agent.NewAgent(stepInfoEmitter, "You are an assistant!", []agent.Skill{})
 
-	messageHistory := &agentpod.MessageList{}
-	messageHistory.Add(agentpod.UserMessage("Can you tell me which color is apple?"),
-		agentpod.AssistantMessage("The apple is generally red"))
+	messageHistory := &agent.MessageList{}
+	messageHistory.Add(agent.UserMessage("Can you tell me which color is apple?"),
+		agent.AssistantMessage("The apple is generally red"))
 
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
-	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agentpod.Meta{
+	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agent.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -289,10 +289,10 @@ func TestConversationWithHistory(t *testing.T) {
 	var finalContent string
 	for {
 		out := convSession.Out()
-		if out.Type == agentpod.ResponseTypePartialText {
+		if out.Type == agent.ResponseTypePartialText {
 			finalContent += out.Content
 		}
-		if out.Type == agentpod.ResponseTypeEnd {
+		if out.Type == agent.ResponseTypeEnd {
 			break
 		}
 	}
@@ -311,9 +311,9 @@ func TestConversationWithSkills_WithHistory_NoSkillsToBeUsed(t *testing.T) {
 	}
 
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
-	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
+	stepInfoEmitter := agent.NewLogStepInfoEmitter()
 
-	llm := agentpod.NewLLM(
+	llm := agent.NewLLM(
 		client,
 		config.ReasoningModel,
 		config.GenerationModel,
@@ -323,29 +323,29 @@ func TestConversationWithSkills_WithHistory_NoSkillsToBeUsed(t *testing.T) {
 	mem := &MockMemory{
 		RetrieveFn: getDefaultMemory,
 	}
-	skill := agentpod.Skill{
+	skill := agent.Skill{
 		Name:         "CurrencyConverter",
 		Description:  "You are an expert in currency conversion",
 		SystemPrompt: "As an currency expert, you provide detailed information about different currency conversion rates.",
-		Tools: []agentpod.Tool{
+		Tools: []agent.Tool{
 			&CurrencyConverter{
 				toolName:    "CurrencyConverterAPI",
 				description: "Convert currency",
 			},
 		},
 	}
-	agent := agentpod.NewAgent(stepInfoEmitter, "You are a currency expert. You answer user questions briefly and concisely. You do not add any extra information but just answer user questions in fewer words possible.", []agentpod.Skill{skill})
+	myAgent := agent.NewAgent(stepInfoEmitter, "You are a currency expert. You answer user questions briefly and concisely. You do not add any extra information but just answer user questions in fewer words possible.", []agent.Skill{skill})
 
-	messageHistory := &agentpod.MessageList{}
+	messageHistory := &agent.MessageList{}
 
-	messageHistory.Add(agentpod.UserMessage("how much 2000 usd is in euros?"))
-	messageHistory.Add(agentpod.AssistantMessage("Using the latest exchange rate, 1 USD is approximately 0.887477 EUR. Therefore, 2000 USD is about 2000 * 0.887477, which equals roughly 1774.95 EUR"))
+	messageHistory.Add(agent.UserMessage("how much 2000 usd is in euros?"))
+	messageHistory.Add(agent.AssistantMessage("Using the latest exchange rate, 1 USD is approximately 0.887477 EUR. Therefore, 2000 USD is about 2000 * 0.887477, which equals roughly 1774.95 EUR"))
 
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
-	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, agent, messageHistory, agentpod.Meta{
+	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, myAgent, messageHistory, agent.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -356,10 +356,10 @@ func TestConversationWithSkills_WithHistory_NoSkillsToBeUsed(t *testing.T) {
 	var finalContent string
 	for {
 		out := convSession.Out()
-		if out.Type == agentpod.ResponseTypePartialText {
+		if out.Type == agent.ResponseTypePartialText {
 			finalContent += out.Content
 		}
-		if out.Type == agentpod.ResponseTypeEnd {
+		if out.Type == agent.ResponseTypeEnd {
 			break
 		}
 	}
@@ -377,9 +377,9 @@ func TestConversationWithHistory_WithQuestionAboutPast(t *testing.T) {
 	}
 
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
-	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
+	stepInfoEmitter := agent.NewLogStepInfoEmitter()
 
-	llm := agentpod.NewLLM(
+	llm := agent.NewLLM(
 		client,
 		config.ReasoningModel,
 		config.GenerationModel,
@@ -389,17 +389,17 @@ func TestConversationWithHistory_WithQuestionAboutPast(t *testing.T) {
 	mem := &MockMemory{
 		RetrieveFn: getDefaultMemory,
 	}
-	ai := agentpod.NewAgent(stepInfoEmitter, "You are an assistant!", []agentpod.Skill{})
+	ai := agent.NewAgent(stepInfoEmitter, "You are an assistant!", []agent.Skill{})
 
-	messageHistory := &agentpod.MessageList{}
-	messageHistory.Add(agentpod.UserMessage("Can you tell me which color is apple?"),
-		agentpod.AssistantMessage("The apple is generally red"))
+	messageHistory := &agent.MessageList{}
+	messageHistory.Add(agent.UserMessage("Can you tell me which color is apple?"),
+		agent.AssistantMessage("The apple is generally red"))
 
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
-	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agentpod.Meta{
+	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agent.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -410,10 +410,10 @@ func TestConversationWithHistory_WithQuestionAboutPast(t *testing.T) {
 	var finalContent string
 	for {
 		out := convSession.Out()
-		if out.Type == agentpod.ResponseTypePartialText {
+		if out.Type == agent.ResponseTypePartialText {
 			finalContent += out.Content
 		}
-		if out.Type == agentpod.ResponseTypeEnd {
+		if out.Type == agent.ResponseTypeEnd {
 			break
 		}
 	}
@@ -424,9 +424,9 @@ func TestConversationWithHistory_WithQuestionAboutPast(t *testing.T) {
 }
 
 // Function to create memory with country information
-func getCountryMemory(meta *agentpod.Meta) (*agentpod.MemoryBlock, error) {
-	memoryBlock := agentpod.NewMemoryBlock()
-	userDetailsBlock := agentpod.NewMemoryBlock()
+func getCountryMemory(_ *agent.Meta) (*agent.MemoryBlock, error) {
+	memoryBlock := agent.NewMemoryBlock()
+	userDetailsBlock := agent.NewMemoryBlock()
 	userDetailsBlock.AddString("country", "United Kingdom")
 	memoryBlock.AddBlock("UserDetails", userDetailsBlock)
 	return memoryBlock, nil
@@ -439,9 +439,9 @@ func TestMemoryRetrieval(t *testing.T) {
 	}
 
 	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
-	stepInfoEmitter := agentpod.NewLogStepInfoEmitter()
+	stepInfoEmitter := agent.NewLogStepInfoEmitter()
 
-	llm := agentpod.NewLLM(
+	llm := agent.NewLLM(
 		client,
 		config.ReasoningModel,
 		config.GenerationModel,
@@ -454,14 +454,14 @@ func TestMemoryRetrieval(t *testing.T) {
 		RetrieveFn: getCountryMemory,
 	}
 
-	ai := agentpod.NewAgent(stepInfoEmitter, "You are a helpful assistant. Answer questions based on the user's information.", []agentpod.Skill{})
+	ai := agent.NewAgent(stepInfoEmitter, "You are a helpful assistant. Answer questions based on the user's information.", []agent.Skill{})
 
-	messageHistory := &agentpod.MessageList{}
+	messageHistory := &agent.MessageList{}
 	orgID := GenerateNewTestID()
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
-	convSession := agentpod.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agentpod.Meta{
+	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agent.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -472,10 +472,10 @@ func TestMemoryRetrieval(t *testing.T) {
 	var finalContent string
 	for {
 		out := convSession.Out()
-		if out.Type == agentpod.ResponseTypePartialText {
+		if out.Type == agent.ResponseTypePartialText {
 			finalContent += out.Content
 		}
-		if out.Type == agentpod.ResponseTypeEnd {
+		if out.Type == agent.ResponseTypeEnd {
 			break
 		}
 	}

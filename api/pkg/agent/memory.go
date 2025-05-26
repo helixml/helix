@@ -13,7 +13,8 @@ func NewDefaultMemory() *DefaultMemory {
 	return &DefaultMemory{}
 }
 
-func (m *DefaultMemory) Retrieve(meta *Meta) (*MemoryBlock, error) {
+func (m *DefaultMemory) Retrieve(_ *Meta) (*MemoryBlock, error) {
+	// TODO: integrate mem0 or other memory store
 	return NewMemoryBlock(), nil
 }
 
