@@ -6,7 +6,6 @@ import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
 import Chip from '@mui/material/Chip'
 import GitHubIcon from '@mui/icons-material/GitHub'
-import SettingsIcon from '@mui/icons-material/Settings'
 import SchoolIcon from '@mui/icons-material/School'
 import { LineChart } from '@mui/x-charts';
 
@@ -23,14 +22,10 @@ import useApi from '../../hooks/useApi'
 import {
   IApp,
   APP_SOURCE_GITHUB,
-  APP_SOURCE_HELIX,
 } from '../../types'
 
-import {
-  getAppImage,
-  getAppAvatar,
-  getAppName,
-  getAppDescription,
+import {  
+  getAppName,  
 } from '../../utils/apps'
 
 // Import the Helix icon
