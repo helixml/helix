@@ -6,7 +6,7 @@ import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
 import Chip from '@mui/material/Chip'
 import GitHubIcon from '@mui/icons-material/GitHub'
-import { SparkLineChart } from '@mui/x-charts';
+import { LineChart } from '@mui/x-charts';
 
 import SimpleTable from '../widgets/SimpleTable'
 import ClickLink from '../widgets/ClickLink'
@@ -84,6 +84,10 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       const appUsage = usageData[app.id] || []
       // const last7DaysData = appUsage?.slice(-7) || []
       const usageValues = appUsage.map((day: TypesAggregatedUsageMetric) => day.total_tokens || 0)
+      const usageLabels = appUsage.map((day: TypesAggregatedUsageMetric) => {
+        const date = new Date(day.date)
+        return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' }) // e.g., "Mon 3"
+      })
       const todayTokens = appUsage[appUsage.length - 1]?.total_tokens || 0
       const totalTokens = appUsage.reduce((sum: number, day: TypesAggregatedUsageMetric) => sum + (day.total_tokens || 0), 0)
 
@@ -206,34 +210,59 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         ),
         usage: (
           <Box sx={{ width: 200, height: 50 }}>
-            <Tooltip
-              title={
-                <Box>
-                  <Typography variant="body2">Daily usage:</Typography>
-                  {appUsage.map((day: TypesAggregatedUsageMetric, i: number) => (
-                    <Typography key={i} variant="caption" component="div">
-                      {new Date(day.date).toLocaleDateString()}: {day.total_tokens || 0} tokens
-                    </Typography>
-                  ))}
-                  <Typography variant="body2" sx={{ mt: 1 }}>
-                    Today: {todayTokens} tokens
-                  </Typography>
-                  <Typography variant="body2">
-                    Total (7 days): {totalTokens} tokens
-                  </Typography>
-                </Box>
-              }
-            >
-              <Box>
-                <SparkLineChart
-                  data={usageValues}
-                  height={50}
-                  width={200}
-                  showTooltip={true}
-                  curve="linear"
-                />
-              </Box>
-            </Tooltip>
+            <Box>
+              <LineChart
+                xAxis={[
+                  {
+                    data: usageLabels,
+                    scaleType: 'point',
+                    tickLabelStyle: { fontSize: 10, fill: '#aaa' },
+                    label: '',
+                  }
+                ]}
+                yAxis={[
+                  {
+                    tickLabelStyle: { display: 'none' },
+                    label: '',
+                  }
+                ]}
+                series={[{
+                  data: usageValues,
+                  area: true,
+                  showMark: false,
+                  color: '#00c8ff',
+                }]}
+                height={50}
+                width={200}
+                slotProps={{
+                  legend: { hidden: true },
+                }}
+                sx={{
+                  '& .MuiAreaElement-root': {
+                    fill: 'url(#usageGradient)',
+                  },
+                  '& .MuiMarkElement-root': {
+                    display: 'none',
+                  },
+                  '& .MuiLineElement-root': {
+                    strokeWidth: 2,
+                  },
+                  '& .MuiChartsAxis-line': {
+                    display: 'none',
+                  },
+                }}
+                grid={{ horizontal: false, vertical: false }}
+                disableAxisListener
+                margin={{ top: 0, bottom: 0, left: 0, right: 0 }}
+              >
+                <defs>
+                  <linearGradient id="usageGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#00c8ff" stopOpacity={0.5} />
+                    <stop offset="100%" stopColor="#070714" stopOpacity={0.1} />
+                  </linearGradient>
+                </defs>
+              </LineChart>
+            </Box>            
           </Box>
         ),
       }
