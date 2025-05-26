@@ -6,21 +6,24 @@ import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 import Tooltip from '@mui/material/Tooltip'
 
+
 import {
   ITool,
 } from '../../types'
+import useLightTheme from '../../hooks/useLightTheme'
 
 const ToolDetail: FC<React.PropsWithChildren<{
   tool: ITool,
 }>> = ({
   tool,
 }) => {
+  const lightTheme = useLightTheme()
   let details: any = ''
   if(tool.config.api) {
     details = (
       <Box sx={{ border: '1px solid #757575', borderRadius: 2, p: 2, mb: 1 }}>
         <Box sx={{mb: 0, mt: 0}}>          
-          <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', color: 'rgba(255, 255, 255, 0.7)'}}>
+          <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', color: lightTheme.textColorFaded}}>
             API - { tool.config.api.url }
           </Typography>
         </Box>
@@ -33,7 +36,7 @@ const ToolDetail: FC<React.PropsWithChildren<{
                   title={action.description || ''}
                 >
                   <Box component="li">
-                    <Typography sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
+                    <Typography sx={{ color: lightTheme.textColorFaded }}>
                       {action.name}
                     </Typography>
                   </Box>
