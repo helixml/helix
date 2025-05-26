@@ -126,7 +126,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
     if (!editingTool) return false;
     if (!editingTool.tool.name) return false;
     if (!editingTool.tool.description) return false;
-    if (!editingTool.tool.system_prompt) return false;
+    if (app.agent_mode && !editingTool.tool.system_prompt) return false;
     if (!editingTool.tool.url) return false;
     if (!editingTool.tool.schema) return false;
     return true;
@@ -429,10 +429,10 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                   onChange={(e) => updateEditingTool({ system_prompt: e.target.value })}
                   label="System Prompt"
                   fullWidth
-                  required
+                  required={app.agent_mode}
                   multiline
                   rows={4}
-                  helperText="Instructions when using this API. E.g. 'You are an expert at using the currency exchange API to get the latest rates'"
+                  helperText="Instructions when using this API. E.g. 'You are an expert at using the currency exchange API to get the latest rates'. Only required when used with the agent mode"
                   disabled={isReadOnly}
                 />
               </Grid>

@@ -257,7 +257,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 			assistant := &app.Config.Helix.Assistants[idx]
 			for idx := range assistant.Tools {
 				tool := assistant.Tools[idx]
-				err = tools.ValidateTool(tool, s.Controller.ToolsPlanner, true)
+				err = tools.ValidateTool(assistant, tool, s.Controller.ToolsPlanner, true)
 				if err != nil {
 					return nil, system.NewHTTPError400(err.Error())
 				}
@@ -609,7 +609,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		assistant := &update.Config.Helix.Assistants[idx]
 		for idx := range assistant.Tools {
 			tool := assistant.Tools[idx]
-			err = tools.ValidateTool(tool, s.Controller.ToolsPlanner, true)
+			err = tools.ValidateTool(assistant, tool, s.Controller.ToolsPlanner, true)
 			if err != nil {
 				return nil, system.NewHTTPError400(err.Error())
 			}
