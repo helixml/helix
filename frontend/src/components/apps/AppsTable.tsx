@@ -6,6 +6,8 @@ import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
 import Chip from '@mui/material/Chip'
 import GitHubIcon from '@mui/icons-material/GitHub'
+import SettingsIcon from '@mui/icons-material/Settings'
+import SchoolIcon from '@mui/icons-material/School'
 import { LineChart } from '@mui/x-charts';
 
 import SimpleTable from '../widgets/SimpleTable'
@@ -33,6 +35,7 @@ import {
 
 // Import the Helix icon
 import HelixIcon from '../../../assets/img/logo.png'
+import useLightTheme from '../../hooks/useLightTheme'
 
 interface TypesAggregatedUsageMetric {
   date: string;
@@ -53,7 +56,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
   const api = useApi()
   const apiClient = api.getApiClient()
   const theme = useTheme()
-  
+  const lightTheme = useLightTheme()
   // Add state for usage data with proper typing
   const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({})
 
@@ -147,6 +150,33 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         </>
       ) : null
 
+      const knowledgeElem = assistant && assistant.knowledge && assistant.knowledge.length > 0 ? (
+        <>
+          {
+            assistant.knowledge.map((knowledge, index) => {
+              return (
+                <Box
+                  key={index}
+                  sx={{ border: '1px solid #757575', borderRadius: 2, p: 2, mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}
+                >
+                  <Tooltip title="Knowledge">
+                    <SchoolIcon fontSize="small" sx={{ color: lightTheme.textColorFaded, mr: 1, mb: 1 }} />
+                  </Tooltip>
+                  <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', color: lightTheme.textColorFaded}}>
+                    {knowledge.name}
+                  </Typography>
+                  {knowledge.description && (
+                    <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, ml: 1 }}>
+                      {knowledge.description}
+                    </Typography>
+                  )}
+                </Box>
+              )
+            })
+          }
+        </>
+      ) : null
+
       // TODO: add the list of apis also to this display
       // we can grab stuff from the tools package that already renders endpoints    
 
@@ -190,6 +220,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
           <>
             { gptscriptsElem }
             { apisElem }
+            { knowledgeElem }            
           </>
         ),
         usage: (
