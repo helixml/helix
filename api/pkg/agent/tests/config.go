@@ -14,6 +14,8 @@ type Config struct {
 
 	SmallReasoningModel  string `envconfig:"SMALL_REASONING_MODEL" default:"o3-mini"`
 	SmallGenerationModel string `envconfig:"SMALL_GENERATION_MODEL" default:"gpt-4o-mini"`
+
+	DisableAgentTests bool `envconfig:"DISABLE_AGENT_TESTS" default:"false"`
 }
 
 func LoadConfig() (*Config, error) {
