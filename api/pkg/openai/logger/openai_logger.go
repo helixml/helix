@@ -230,12 +230,21 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		log.Debug().Msg("failed to get app_id")
 	}
 
-	if resp.Usage.PromptTokens == 0 && resp.Usage.CompletionTokens == 0 {
-		// Compute the token usage
-		promptTokens, completionTokens, totalTokens := m.computeTokenUsage(req, resp)
-		resp.Usage.PromptTokens = promptTokens
-		resp.Usage.CompletionTokens = completionTokens
-		resp.Usage.TotalTokens = totalTokens
+	// Initialize token counts to 0 in case resp is nil
+	var promptTokens, completionTokens, totalTokens int
+
+	if resp != nil {
+		if resp.Usage.PromptTokens == 0 && resp.Usage.CompletionTokens == 0 {
+			// Compute the token usage
+			promptTokens, completionTokens, totalTokens = m.computeTokenUsage(req, resp)
+			resp.Usage.PromptTokens = promptTokens
+			resp.Usage.CompletionTokens = completionTokens
+			resp.Usage.TotalTokens = totalTokens
+		} else {
+			promptTokens = resp.Usage.PromptTokens
+			completionTokens = resp.Usage.CompletionTokens
+			totalTokens = resp.Usage.TotalTokens
+		}
 	}
 
 	log.Debug().
@@ -244,9 +253,9 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		Str("model", req.Model).
 		Str("provider", string(m.provider)).
 		Str("step", string(step.Step)).
-		Int("prompt_tokens", resp.Usage.PromptTokens).
-		Int("completion_tokens", resp.Usage.CompletionTokens).
-		Int("total_tokens", resp.Usage.TotalTokens).
+		Int("prompt_tokens", promptTokens).
+		Int("completion_tokens", completionTokens).
+		Int("total_tokens", totalTokens).
 		Msg("logging LLM call")
 
 	llmCall := &types.LLMCall{
@@ -260,9 +269,9 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		Response:         respBts,
 		Provider:         string(m.provider),
 		DurationMs:       durationMs,
-		PromptTokens:     int64(resp.Usage.PromptTokens),
-		CompletionTokens: int64(resp.Usage.CompletionTokens),
-		TotalTokens:      int64(resp.Usage.TotalTokens),
+		PromptTokens:     int64(promptTokens),
+		CompletionTokens: int64(completionTokens),
+		TotalTokens:      int64(totalTokens),
 		UserID:           vals.OwnerID,
 		Stream:           stream,
 	}
