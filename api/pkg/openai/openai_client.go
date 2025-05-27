@@ -89,7 +89,7 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	err = retry.Do(func() error {
 		resp, err = c.apiClient.CreateChatCompletion(ctx, request)
 		if err != nil {
-			if strings.Contains(err.Error(), "401 Unauthorized") || strings.Contains(err.Error(), "404") {
+			if strings.Contains(err.Error(), "401 Unauthorized") || strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "400") {
 				return retry.Unrecoverable(err)
 			}
 
@@ -100,6 +100,7 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	},
 		retry.Attempts(retries),
 		retry.Delay(delayBetweenRetries),
+		retry.LastErrorOnly(true),
 		retry.Context(ctx),
 	)
 
@@ -247,7 +248,8 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 	if hasGPTModel {
 		filteredModels := make([]types.OpenAIModel, 0)
 		for _, m := range models {
-			if strings.HasPrefix(m.ID, "gpt-") {
+			// gpt, o3, o1, etc
+			if strings.HasPrefix(m.ID, "gpt-") || strings.HasPrefix(m.ID, "o3") || strings.HasPrefix(m.ID, "o1") || strings.HasPrefix(m.ID, "o4") {
 				// Add the type chat. This is needed
 				// for UI to correctly allow filtering
 				m.Type = "chat"

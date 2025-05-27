@@ -52,9 +52,10 @@ import {
   INTERACTION_STATE_ERROR,
   IShareSessionInstructions,
   SESSION_CREATOR_ASSISTANT,
+  SESSION_CREATOR_USER,
 } from '../types'
 
-import { TypesMessageContentType, TypesMessage } from '../api/api'
+import { TypesMessageContentType, TypesMessage, TypesStepInfo } from '../api/api'
 
 import {
   getAssistantInteraction,
@@ -69,6 +70,7 @@ import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
 import { generateFixtureSession } from '../utils/fixtures'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
+import { useListSessionSteps } from '../services/sessionService'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -107,6 +109,7 @@ interface MemoizedInteractionProps {
   session_id: string;
   hasSubscription: boolean;
   onRegenerate?: (interactionID: string, message: string) => void;
+  sessionSteps: TypesStepInfo[];
 }
 
 // Create a memoized version of the Interaction component
@@ -132,6 +135,11 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
       headerButtons={props.headerButtons}
       onRegenerate={props.onRegenerate}
       isLastInteraction={props.isLastInteraction}
+      sessionSteps={props.sessionSteps}
+      isOwner={props.isOwner}
+      isAdmin={props.isAdmin}
+      session_id={props.session_id}
+      hasSubscription={props.hasSubscription}
     >
       {isLive && (props.isOwner || props.isAdmin) && (
         <InteractionLiveStream
@@ -454,6 +462,9 @@ const Session: FC = () => {
   const apps = useApps()
   const isBigScreen = useMediaQuery(theme.breakpoints.up('md'))
   const lightTheme = useLightTheme()
+  const { data: sessionSteps } = useListSessionSteps(session.data?.id || '', {
+    enabled: !!session.data?.id
+  })
 
   const isOwner = account.user?.id == session.data?.owner
   const sessionID = router.params.session_id
@@ -1458,6 +1469,7 @@ const Session: FC = () => {
                       session_id={sessionData.id}
                       hasSubscription={account.userConfig.stripe_subscription_active || false}
                       onRegenerate={onRegenerate}
+                      sessionSteps={sessionSteps?.data || []}
                     />
                   )
                 })}
@@ -1491,6 +1503,7 @@ const Session: FC = () => {
     onHandleFilterDocument,
     appID,
     memoizedInteractions,
+    sessionSteps?.data,
   ])
 
   useEffect(() => {
@@ -1875,7 +1888,18 @@ const Session: FC = () => {
                               }}
                             >
                               {loading ? (
-                                <LoadingSpinner />
+                                <Box
+                                  sx={{
+                                    width: 20,
+                                    height: 20,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    overflow: 'hidden',
+                                  }}
+                                >
+                                  <LoadingSpinner />
+                                </Box>
                               ) : (
                                 <ArrowUpwardIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
                               )}

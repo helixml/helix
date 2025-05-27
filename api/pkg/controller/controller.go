@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	agent "github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -58,6 +59,8 @@ type Controller struct {
 	schedulingDecisions []*types.GlobalSchedulingDecision
 
 	scheduler *scheduler.Scheduler
+
+	stepInfoEmitter agent.StepInfoEmitter
 }
 
 func NewController(
@@ -96,6 +99,7 @@ func NewController(
 		},
 		schedulingDecisions: []*types.GlobalSchedulingDecision{},
 		scheduler:           options.Scheduler,
+		stepInfoEmitter:     agent.NewPubSubStepInfoEmitter(options.PubSub, options.Store),
 	}
 
 	// Default provider

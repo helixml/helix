@@ -5,7 +5,6 @@ import Container from '@mui/material/Container'
 import LockIcon from '@mui/icons-material/Lock'
 
 import Page from '../components/system/Page'
-import CreateAppWindow from '../components/apps/CreateAppWindow'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import AppsTable from '../components/apps/AppsTable'
 
@@ -331,21 +330,6 @@ const Apps: FC = () => {
           >
             New App
           </Button>
-          <Button
-            id="connect-repo-button"
-            variant="contained"
-            color="secondary"
-            endIcon={<AddIcon />}
-            onClick={ () => {
-              if(!account.user) {
-                account.setShowLoginWindow(true)
-                return false
-              }
-              setParams({add_app: 'true'})
-            }}
-          >
-            Connect Repo
-          </Button>
         </div>
       )}
     >
@@ -361,20 +345,6 @@ const Apps: FC = () => {
           onDelete={ setDeletingApp }
         />
       </Container>
-      {
-        params.add_app && apps.githubStatus && (
-          <CreateAppWindow
-            githubStatus={ apps.githubStatus }
-            githubRepos={ apps.githubRepos}
-            githubReposLoading={ apps.githubReposLoading }
-            onConnectRepo={ onConnectRepo }
-            onCancel={ () => removeParams(['add_app']) }
-            onLoadRepos={ apps.loadGithubRepos }
-            connectLoading= { apps.connectLoading }
-            connectError= { apps.connectError }
-          />
-        )
-      }
       {
         deletingApp && (
           <DeleteConfirmWindow

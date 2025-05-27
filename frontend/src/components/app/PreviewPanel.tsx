@@ -336,6 +336,14 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
                         return
                       }}
                       isLastInteraction={isLastInteraction}
+                      highlightAllFiles={false}
+                      retryFinetuneErrors={() => {}}
+                      onReloadSession={async () => {}}
+                      onClone={async () => false}
+                      isOwner={true}
+                      isAdmin={false}
+                      session_id={session.id}
+                      hasSubscription={true}
                     >
                       {
                         isLive && (

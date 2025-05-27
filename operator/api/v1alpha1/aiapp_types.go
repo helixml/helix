@@ -29,7 +29,7 @@ type AssistantConfig struct {
 	Image       string `json:"image,omitempty"`
 	Provider    string `json:"provider,omitempty"` // openai, togetherai, helix, etc.
 	Model       string `json:"model"`
-	Type        string `json:"type,omitempty"` // defaults to text
+	Type        string `json:"type,omitempty"` // TODO: remove
 
 	SystemPrompt string `json:"system_prompt,omitempty"`
 

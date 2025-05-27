@@ -106,7 +106,7 @@ func (c *HelixClient) GetAppByName(ctx context.Context, name string) (*types.App
 	return nil, fmt.Errorf("app with name %s not found", name)
 }
 
-func (c *HelixClient) RunAPIAction(ctx context.Context, appID string, action string, parameters map[string]string) (*types.RunAPIActionResponse, error) {
+func (c *HelixClient) RunAPIAction(ctx context.Context, appID string, action string, parameters map[string]interface{}) (*types.RunAPIActionResponse, error) {
 	req := types.RunAPIActionRequest{
 		Action:     action,
 		Parameters: parameters,

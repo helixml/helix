@@ -2037,6 +2037,26 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/{id}/step-info": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.StepInfo"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/template-apps": {
             "get": {
                 "security": [
@@ -2271,6 +2291,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "system_prompt": {
+                    "description": "E.g. As a restaurant expert, you provide personalized restaurant recommendations",
                     "type": "string"
                 },
                 "tool_type": {
@@ -3348,6 +3372,9 @@ const docTemplate = `{
                 "schema": {
                     "type": "string"
                 },
+                "system_prompt": {
+                    "type": "string"
+                },
                 "url": {
                     "type": "string"
                 }
@@ -3356,6 +3383,10 @@ const docTemplate = `{
         "types.AssistantConfig": {
             "type": "object",
             "properties": {
+                "agent_mode": {
+                    "description": "AgentMode triggers the use of the agent loop",
+                    "type": "boolean"
+                },
                 "apis": {
                     "type": "array",
                     "items": {
@@ -3375,6 +3406,9 @@ const docTemplate = `{
                 "frequency_penalty": {
                     "description": "How much to penalize new tokens based on their frequency in the text so far.\nIncreases the model's likelihood to talk about new topics\n0 - balanced\n2 - less repetitive",
                     "type": "number"
+                },
+                "generation_model": {
+                    "type": "string"
                 },
                 "gptscripts": {
                     "type": "array",
@@ -3428,6 +3462,15 @@ const docTemplate = `{
                     "description": "Controls effort on reasoning for reasoning models. It can be set to \"low\", \"medium\", or \"high\".",
                     "type": "string"
                 },
+                "reasoning_model": {
+                    "type": "string"
+                },
+                "small_generation_model": {
+                    "type": "string"
+                },
+                "small_reasoning_model": {
+                    "type": "string"
+                },
                 "system_prompt": {
                     "type": "string"
                 },
@@ -3461,9 +3504,6 @@ const docTemplate = `{
                 "top_p": {
                     "description": "An alternative to sampling with temperature, called nucleus sampling,\nwhere the model considers the results of the tokens with top_p probability mass.\nSo 0.1 means only the tokens comprising the top 10% probability mass are considered.\n0 - balanced\n2 - more creative",
                     "type": "number"
-                },
-                "type": {
-                    "$ref": "#/definitions/types.SessionType"
                 },
                 "zapier": {
                     "type": "array",
@@ -3834,6 +3874,14 @@ const docTemplate = `{
                 "completed": {
                     "type": "string"
                 },
+                "content": {
+                    "description": "Original content received from the API. This will include the Message and any images.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.MessageContent"
+                        }
+                    ]
+                },
                 "created": {
                     "type": "string"
                 },
@@ -3894,7 +3942,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "message": {
-                    "description": "e.g. Prove pythagoras",
+                    "description": "TODO: remove and keep only content",
                     "type": "string"
                 },
                 "metadata": {
@@ -4322,6 +4370,9 @@ const docTemplate = `{
                 "duration_ms": {
                     "type": "integer"
                 },
+                "error": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -4360,6 +4411,9 @@ const docTemplate = `{
                 },
                 "step": {
                     "$ref": "#/definitions/types.LLMCallStep"
+                },
+                "stream": {
+                    "type": "boolean"
                 },
                 "totalTokens": {
                     "type": "integer"
@@ -4425,7 +4479,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "content_type": {
-                    "description": "text, image, multimodal_text",
+                    "description": "text, image_url, multimodal_text",
                     "allOf": [
                         {
                             "$ref": "#/definitions/types.MessageContentType"
@@ -5100,9 +5154,7 @@ const docTemplate = `{
                 },
                 "parameters": {
                     "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
+                    "additionalProperties": true
                 }
             }
         },
@@ -5347,6 +5399,10 @@ const docTemplate = `{
                 },
                 "rag_source_id": {
                     "type": "string"
+                },
+                "regenerate": {
+                    "description": "If true, we will regenerate the response for the last message",
+                    "type": "boolean"
                 },
                 "session_id": {
                     "description": "If empty, we will start a new session",
@@ -5629,6 +5685,52 @@ const docTemplate = `{
                 "SessionTypeImage"
             ]
         },
+        "types.StepInfo": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "string"
+                },
+                "details": {
+                    "description": "That were used to call the tool",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.StepInfoDetails"
+                        }
+                    ]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.StepInfoDetails": {
+            "type": "object",
+            "properties": {
+                "arguments": {
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            }
+        },
         "types.Team": {
             "type": "object",
             "properties": {
@@ -5866,6 +5968,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "schema": {
+                    "type": "string"
+                },
+                "system_prompt": {
+                    "description": "System prompt to guide the AI when using this API",
                     "type": "string"
                 },
                 "url": {

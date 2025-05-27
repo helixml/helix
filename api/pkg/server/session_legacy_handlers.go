@@ -141,10 +141,6 @@ func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user
 				newSession.LoraID = assistant.LoraID
 			}
 
-			if assistant.Type != "" {
-				newSession.Type = assistant.Type
-			}
-
 			// tools will be assigned by the app inside the controller
 			// TODO: refactor so all "get settings from the app" code is in the same place
 		}
