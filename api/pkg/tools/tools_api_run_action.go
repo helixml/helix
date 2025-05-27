@@ -441,12 +441,7 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 					Str("auth_header_prefix", prefix).
 					Str("auth_header_type", strings.Split(authHeader, " ")[0]).
 					Msg("API tool has Authorization header in callAPI")
-			} else {
-				log.Warn().
-					Str("session_id", sessionID).
-					Msg("API tool missing Authorization header in callAPI")
-
-				// Inspect OAuth provider - is it correctly configured?
+			} else { // Inspect OAuth provider - is it correctly configured?
 				log.Info().
 					Str("session_id", sessionID).
 					Str("oauth_provider", tool.Config.API.OAuthProvider).
@@ -455,9 +450,6 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 					Msg("OAuth provider info for tool")
 			}
 		} else {
-			log.Warn().
-				Str("session_id", sessionID).
-				Msg("API tool has no headers map in callAPI")
 
 			// Headers map is nil, let's examine the tool config
 			log.Info().
@@ -577,7 +569,7 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 
 	if req.Parameters == nil {
 		// Initialize empty parameters map, some API actions don't require parameters
-		req.Parameters = make(map[string]string)
+		req.Parameters = make(map[string]interface{})
 	}
 
 	log.Info().
@@ -727,6 +719,11 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// If body is empty but status code is 200, return the status text
+	if len(body) == 0 && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return &types.RunAPIActionResponse{Response: "OK"}, nil
 	}
 
 	return &types.RunAPIActionResponse{Response: string(body)}, nil

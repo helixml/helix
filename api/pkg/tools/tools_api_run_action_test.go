@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/davecgh/go-spew/spew"
 )
@@ -76,6 +78,74 @@ func (suite *ActionTestSuite) TestAction_runApiAction_showPetById() {
 
 	fmt.Println("U:", history[0].Content)
 	fmt.Println("A:", resp.Message)
+}
+
+func (suite *ActionTestSuite) TestAction_RunAPIActionWithParameters_createPet() {
+	called := false
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		suite.Equal("/pets", r.URL.Path)
+		suite.Equal("POST", r.Method)
+
+		body, err := io.ReadAll(r.Body)
+		suite.NoError(err)
+		defer r.Body.Close()
+
+		assert.Contains(suite.T(), string(body), "fluffy")
+		assert.Contains(suite.T(), string(body), "dog")
+
+		fmt.Fprintln(w, "{\"id\": 99944, \"name\": \"fluffy\", \"tag\": \"dog\", \"description\": \"a brown dog\"}")
+
+		called = true
+	}))
+	defer ts.Close()
+
+	managePetsAPI := &types.Tool{
+		Name:        "managePetsApi",
+		Description: "pet store API that is used to manage pets",
+		ToolType:    types.ToolTypeAPI,
+		Config: types.ToolConfig{
+			API: &types.ToolAPIConfig{
+				URL:    ts.URL,
+				Schema: petStoreAPISpec,
+				Actions: []*types.ToolAPIAction{
+					{
+						Name:        "listPets",
+						Description: "List all pets",
+						Method:      "GET",
+						Path:        "/pets",
+					},
+					{
+						Name:        "createPets",
+						Description: "Create a pet",
+						Method:      "POST",
+						Path:        "/pets",
+					},
+					{
+						Name:        "showPetById",
+						Description: "Info for a specific pet",
+						Method:      "GET",
+						Path:        "/pets/{petId}",
+					},
+				},
+			},
+		},
+	}
+
+	resp, err := suite.strategy.RunAPIActionWithParameters(suite.ctx, &types.RunAPIActionRequest{
+		Tool:   managePetsAPI,
+		Action: "createPets",
+		Parameters: map[string]interface{}{
+			"name": "fluffy",
+			"tag":  "dog",
+		},
+	})
+	suite.NoError(err)
+	suite.strategy.wg.Wait()
+
+	suite.True(called, "expected to call the API")
+
+	fmt.Println("A:", resp.Response)
 }
 
 const weatherResp = `{

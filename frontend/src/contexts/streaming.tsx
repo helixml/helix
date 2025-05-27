@@ -1,9 +1,11 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect, useRef } from 'react';
 import ReconnectingWebSocket from 'reconnecting-websocket';
-import { ISession, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, IInteraction, ISessionChatRequest, SESSION_TYPE_TEXT, ISessionType } from '../types';
+import { ISession, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WEBSOCKET_EVENT_TYPE_STEP_INFO, WORKER_TASK_RESPONSE_TYPE_PROGRESS, IInteraction, ISessionChatRequest, SESSION_TYPE_TEXT, ISessionType } from '../types';
 import useAccount from '../hooks/useAccount';
 import useSessions from '../hooks/useSessions';
 import { TypesCreatorType, TypesMessage } from '../api/api';
+import { sessionStepsQueryKey } from '../services/sessionService';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface NewInferenceParams {
   regenerate?: boolean;
@@ -44,6 +46,7 @@ export const useStreaming = (): StreamingContextType => {
 export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const account = useAccount();
   const sessions = useSessions()
+  const queryClient = useQueryClient();
   const [currentResponses, setCurrentResponses] = useState<Map<string, Partial<IInteraction>>>(new Map());
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [stepInfos, setStepInfos] = useState<Map<string, any[]>>(new Map());
@@ -118,6 +121,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
     if (parsedData.type as string === "step_info") {
         const stepInfo = parsedData.step_info;
+
         setStepInfos(prev => {
             const currentSteps = prev.get(currentSessionId) || [];
             const updatedSteps = [...currentSteps, stepInfo];
@@ -188,10 +192,19 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     const messageHandler = (event: MessageEvent<any>) => {
       const parsedData = JSON.parse(event.data) as IWebsocketEvent;
       if (parsedData.session_id !== currentSessionId) return;
+
+      handleWebsocketEvent(parsedData);
+
+      if (parsedData.step_info && parsedData.step_info.type === "thinking") {
+      // Don't reload on thinking info events as we will get a lot of them
+        return
+      }      
+
+      // Invalidate the stepInfos query
+      queryClient.invalidateQueries({ queryKey: sessionStepsQueryKey(currentSessionId) });
       
       // Reload all sessions to refresh the name in the sidebar
       sessions.loadSessions()
-      handleWebsocketEvent(parsedData);
     };
 
     rws.addEventListener('message', messageHandler);
