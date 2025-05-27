@@ -35,6 +35,7 @@ type Client interface {
 	ListModels(ctx context.Context) ([]types.OpenAIModel, error)
 
 	CreateEmbeddings(ctx context.Context, request openai.EmbeddingRequest) (resp openai.EmbeddingResponse, err error)
+	CreateFlexibleEmbeddings(ctx context.Context, request types.FlexibleEmbeddingRequest) (types.FlexibleEmbeddingResponse, error)
 
 	APIKey() string
 }
@@ -289,6 +290,62 @@ func (c *RetryableClient) CreateEmbeddings(ctx context.Context, request openai.E
 	)
 
 	return
+}
+
+func (c *RetryableClient) CreateFlexibleEmbeddings(ctx context.Context, request types.FlexibleEmbeddingRequest) (types.FlexibleEmbeddingResponse, error) {
+	url := c.baseURL + "/v1/embeddings"
+
+	var responseBody types.FlexibleEmbeddingResponse
+	var err error
+
+	// Marshal the request to JSON
+	requestBody, err := json.Marshal(request)
+	if err != nil {
+		return responseBody, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Perform request with retries
+	err = retry.Do(func() error {
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBody))
+		if err != nil {
+			return fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to send request: %w", err)
+		}
+		defer resp.Body.Close()
+
+		respBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read response body: %w", err)
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			// For 401 errors, don't retry
+			if resp.StatusCode == 401 {
+				return retry.Unrecoverable(fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBytes)))
+			}
+			return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBytes))
+		}
+
+		// Parse the response
+		if err := json.Unmarshal(respBytes, &responseBody); err != nil {
+			return fmt.Errorf("failed to unmarshal response: %w", err)
+		}
+
+		return nil
+	},
+		retry.Attempts(embeddingRetries),
+		retry.Delay(embeddingDelay),
+		retry.Context(ctx),
+	)
+
+	return responseBody, err
 }
 
 type openAIClientInterceptor struct {

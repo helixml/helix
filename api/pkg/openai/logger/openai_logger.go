@@ -410,3 +410,62 @@ func (m *LoggingMiddleware) CreateEmbeddings(ctx context.Context, request openai
 
 	return resp, err
 }
+
+func (m *LoggingMiddleware) CreateFlexibleEmbeddings(ctx context.Context, request types.FlexibleEmbeddingRequest) (resp types.FlexibleEmbeddingResponse, err error) {
+	startTime := time.Now()
+
+	// Log the request
+	logEntry := log.Info().
+		Str("component", "openai_logger").
+		Str("provider", string(m.provider)).
+		Str("operation", "flexible_embedding").
+		Str("model", request.Model)
+
+	// Add input information based on what's provided
+	if request.Input != nil {
+		logEntry = logEntry.Int("input_length", len(fmt.Sprintf("%v", request.Input)))
+	}
+	if len(request.Messages) > 0 {
+		logEntry = logEntry.Int("message_count", len(request.Messages))
+	}
+
+	logEntry.Msg("🔍 Flexible embedding request")
+
+	// Call the actual embedding API
+	resp, err = m.client.CreateFlexibleEmbeddings(ctx, request)
+
+	// Calculate duration
+	durationMs := time.Since(startTime).Milliseconds()
+
+	// Log the response
+	if err != nil {
+		log.Error().
+			Str("component", "openai_logger").
+			Str("provider", string(m.provider)).
+			Str("operation", "flexible_embedding").
+			Str("model", request.Model).
+			Int64("duration_ms", durationMs).
+			Err(err).
+			Msg("❌ Flexible embedding failed")
+	} else {
+		// Build the log entry
+		logEntry := log.Info().
+			Str("component", "openai_logger").
+			Str("provider", string(m.provider)).
+			Str("operation", "flexible_embedding").
+			Str("model", request.Model).
+			Int64("duration_ms", durationMs).
+			Int("embedding_count", len(resp.Data))
+
+		// Only add dimensions if we have at least one embedding
+		if len(resp.Data) > 0 {
+			logEntry = logEntry.Int("embedding_dimensions", len(resp.Data[0].Embedding))
+		} else {
+			logEntry = logEntry.Str("error", "empty_embedding_response")
+		}
+
+		logEntry.Msg("✅ Flexible embedding completed")
+	}
+
+	return resp, err
+}

@@ -1,5 +1,7 @@
 package openai
 
+//go:generate mockgen -source $GOFILE -destination helix_openai_client_mocks.go -package $GOPACKAGE
+
 import (
 	"context"
 	"encoding/json"
