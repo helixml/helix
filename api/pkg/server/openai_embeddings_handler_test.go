@@ -13,7 +13,6 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 
-	oai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -59,7 +58,7 @@ func (s *OpenAIEmbeddingsSuite) SetupTest() {
 	s.server = server
 }
 
-func (s *OpenAIEmbeddingsSuite) TestCreateEmbeddings() {
+func (s *OpenAIEmbeddingsSuite) TestCreateEmbeddingsStandardFormat() {
 	req, err := http.NewRequest("POST", "/v1/embeddings", bytes.NewBufferString(`{
     "input": "The food was delicious and the waiter...",
     "model": "text-embedding-ada-002",
@@ -75,15 +74,28 @@ func (s *OpenAIEmbeddingsSuite) TestCreateEmbeddings() {
 		Provider: string(types.ProviderOpenAI),
 	}).Return(s.openAiClient, nil)
 
-	s.openAiClient.EXPECT().CreateEmbeddings(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, req oai.EmbeddingRequest) (oai.EmbeddingResponse, error) {
-			s.Equal("text-embedding-ada-002", string(req.Model))
-			s.Equal("float", string(req.EncodingFormat))
+	s.openAiClient.EXPECT().CreateFlexibleEmbeddings(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req types.FlexibleEmbeddingRequest) (types.FlexibleEmbeddingResponse, error) {
+			s.Equal("text-embedding-ada-002", req.Model)
+			s.Equal("float", req.EncodingFormat)
 			s.Equal("The food was delicious and the waiter...", req.Input)
 
-			return oai.EmbeddingResponse{
-				Data: []oai.Embedding{
-					{Index: 0, Embedding: []float32{0.1, 0.2, 0.3}},
+			return types.FlexibleEmbeddingResponse{
+				Object: "list",
+				Data: []struct {
+					Object    string    `json:"object"`
+					Index     int       `json:"index"`
+					Embedding []float32 `json:"embedding"`
+				}{
+					{Object: "embedding", Index: 0, Embedding: []float32{0.1, 0.2, 0.3}},
+				},
+				Model: "text-embedding-ada-002",
+				Usage: struct {
+					PromptTokens int `json:"prompt_tokens"`
+					TotalTokens  int `json:"total_tokens"`
+				}{
+					PromptTokens: 10,
+					TotalTokens:  10,
 				},
 			}, nil
 		})
@@ -91,5 +103,59 @@ func (s *OpenAIEmbeddingsSuite) TestCreateEmbeddings() {
 	s.server.createEmbeddings(rec, req)
 
 	s.Equal(http.StatusOK, rec.Code)
+}
 
+func (s *OpenAIEmbeddingsSuite) TestCreateEmbeddingsWithChatFormat() {
+	req, err := http.NewRequest("POST", "/v1/embeddings", bytes.NewBufferString(`{
+    "model": "text-embedding-ada-002",
+    "messages": [
+      {"role": "user", "content": "What is the capital of France?"},
+      {"role": "assistant", "content": "The capital of France is Paris."}
+    ],
+    "encoding_format": "float"
+  }`))
+	s.NoError(err)
+
+	req = req.WithContext(s.authCtx)
+
+	rec := httptest.NewRecorder()
+
+	s.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
+		Provider: string(types.ProviderOpenAI),
+	}).Return(s.openAiClient, nil)
+
+	s.openAiClient.EXPECT().CreateFlexibleEmbeddings(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req types.FlexibleEmbeddingRequest) (types.FlexibleEmbeddingResponse, error) {
+			s.Equal("text-embedding-ada-002", req.Model)
+			s.Equal("float", req.EncodingFormat)
+			s.Len(req.Messages, 2)
+			s.Equal("user", req.Messages[0].Role)
+			s.Equal("What is the capital of France?", req.Messages[0].Content)
+			s.Equal("assistant", req.Messages[1].Role)
+			s.Equal("The capital of France is Paris.", req.Messages[1].Content)
+
+			return types.FlexibleEmbeddingResponse{
+				Object: "list",
+				Data: []struct {
+					Object    string    `json:"object"`
+					Index     int       `json:"index"`
+					Embedding []float32 `json:"embedding"`
+				}{
+					{Object: "embedding", Index: 0, Embedding: []float32{0.1, 0.2, 0.3}},
+					{Object: "embedding", Index: 1, Embedding: []float32{0.4, 0.5, 0.6}},
+				},
+				Model: "text-embedding-ada-002",
+				Usage: struct {
+					PromptTokens int `json:"prompt_tokens"`
+					TotalTokens  int `json:"total_tokens"`
+				}{
+					PromptTokens: 20,
+					TotalTokens:  20,
+				},
+			}, nil
+		})
+
+	s.server.createEmbeddings(rec, req)
+
+	s.Equal(http.StatusOK, rec.Code)
 }

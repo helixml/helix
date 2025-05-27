@@ -1,5 +1,7 @@
 package openai
 
+//go:generate mockgen -source $GOFILE -destination helix_openai_client_mocks.go -package $GOPACKAGE
+
 import (
 	"context"
 	"encoding/json"
@@ -21,6 +23,7 @@ type HelixClient interface {
 	CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
 	CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error)
 	CreateEmbeddings(ctx context.Context, request openai.EmbeddingRequest) (openai.EmbeddingResponse, error)
+	CreateFlexibleEmbeddings(ctx context.Context, request types.FlexibleEmbeddingRequest) (types.FlexibleEmbeddingResponse, error)
 }
 
 var _ HelixClient = &InternalHelixServer{}
@@ -323,6 +326,100 @@ func (c *InternalHelixServer) CreateEmbeddings(ctx context.Context, embeddingReq
 				Str("raw_response", string(respData)).
 				Msg("❌ Error unmarshalling embedding response")
 			return resp, fmt.Errorf("error unmarshalling embedding response: %w, raw response: %s", err, string(respData))
+		}
+
+		return resp, nil
+	}
+}
+
+// CreateFlexibleEmbeddings implements the flexible embedding method for Chat Embeddings API
+func (c *InternalHelixServer) CreateFlexibleEmbeddings(ctx context.Context, flexibleRequest types.FlexibleEmbeddingRequest) (resp types.FlexibleEmbeddingResponse, err error) {
+	requestID := system.GenerateRequestID()
+	ownerID := "internal"
+
+	// Create a channel to signal when we get a response
+	doneCh := make(chan struct{})
+
+	var respData []byte
+	var respError error
+
+	// Subscribe to the runner response from the runner
+	sub, err := c.pubsub.Subscribe(ctx, pubsub.GetRunnerResponsesQueue(ownerID, requestID), func(payload []byte) error {
+		defer close(doneCh)
+
+		var runnerResp types.RunnerNatsReplyResponse
+		if err := json.Unmarshal(payload, &runnerResp); err != nil {
+			respError = fmt.Errorf("error unmarshalling runner response: %w", err)
+			return nil
+		}
+
+		if runnerResp.Error != "" {
+			respError = fmt.Errorf("embedding error from runner: %s", runnerResp.Error)
+			return nil
+		}
+
+		respData = runnerResp.Response
+		return nil
+	})
+	if err != nil {
+		return resp, fmt.Errorf("error subscribing to runner responses: %w", err)
+	}
+	defer func() {
+		if unsubErr := sub.Unsubscribe(); unsubErr != nil {
+			log.Warn().Err(unsubErr).Msg("error unsubscribing from runner responses")
+		}
+	}()
+
+	// Create a new inference request with flexible embedding request
+	req := &types.RunnerLLMInferenceRequest{
+		RequestID:                requestID,
+		CreatedAt:                time.Now(),
+		OwnerID:                  ownerID,
+		Embeddings:               true,
+		FlexibleEmbeddingRequest: &flexibleRequest,
+		// Set the request model based on the embedding model
+		Request: &openai.ChatCompletionRequest{
+			Model: flexibleRequest.Model,
+		},
+	}
+
+	model, err := c.store.GetModel(context.Background(), flexibleRequest.Model)
+	if err != nil {
+		return resp, fmt.Errorf("error getting model: %w", err)
+	}
+
+	// Enqueue the request for processing
+	work, err := scheduler.NewLLMWorkload(req, model)
+	if err != nil {
+		return resp, fmt.Errorf("error creating workload: %w", err)
+	}
+
+	err = c.scheduler.Enqueue(work)
+	if err != nil {
+		return resp, fmt.Errorf("error enqueuing work: %w", err)
+	}
+
+	// Wait for the response or timeout
+	select {
+	case <-ctx.Done():
+		return resp, ctx.Err()
+	case <-doneCh:
+		// Response received
+		if respError != nil {
+			return resp, respError
+		}
+
+		// Parse the embedding response
+		if err := json.Unmarshal(respData, &resp); err != nil {
+			// Log the raw response data to help debug invalid JSON errors
+			log.Error().
+				Str("component", "openai").
+				Str("operation", "flexible_embedding").
+				Str("request_id", requestID).
+				Str("error_message", err.Error()).
+				Str("raw_response", string(respData)).
+				Msg("❌ Error unmarshalling flexible embedding response")
+			return resp, fmt.Errorf("error unmarshalling flexible embedding response: %w, raw response: %s", err, string(respData))
 		}
 
 		return resp, nil

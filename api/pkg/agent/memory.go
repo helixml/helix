@@ -3,6 +3,7 @@ package agent
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -132,16 +133,25 @@ func (mb *MemoryBlock) parseWithIndent(level int, tagName string) string {
 	// Open tag
 	result.WriteString(fmt.Sprintf("%s<%s>\n", indent, tagName))
 
-	// First process all string values
-	for k, v := range mb.Items {
+	// Get all keys and sort them for deterministic output
+	keys := make([]string, 0, len(mb.Items))
+	for k := range mb.Items {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// First process all string values in sorted order
+	for _, k := range keys {
+		v := mb.Items[k]
 		if v.IsString() {
 			innerIndent := strings.Repeat("  ", level+1)
 			result.WriteString(fmt.Sprintf("%s%s: %v\n", innerIndent, k, v.AsString()))
 		}
 	}
 
-	// Then process all nested blocks
-	for k, v := range mb.Items {
+	// Then process all nested blocks in sorted order
+	for _, k := range keys {
+		v := mb.Items[k]
 		if v.IsBlock() {
 			result.WriteString(v.AsBlock().parseWithIndent(level+1, k))
 		}

@@ -1575,8 +1575,9 @@ type RunnerLLMInferenceRequest struct {
 	Request *openai.ChatCompletionRequest
 
 	// Added fields for embeddings
-	Embeddings       bool                    `json:"embeddings,omitempty"`
-	EmbeddingRequest openai.EmbeddingRequest `json:"embedding_request,omitempty"`
+	Embeddings               bool                      `json:"embeddings,omitempty"`
+	EmbeddingRequest         openai.EmbeddingRequest   `json:"embedding_request,omitempty"`
+	FlexibleEmbeddingRequest *FlexibleEmbeddingRequest `json:"flexible_embedding_request,omitempty"`
 }
 
 type RunnerLLMInferenceResponse struct {
@@ -1835,4 +1836,29 @@ type ImageURLData struct {
 type ImageURLPart struct {
 	Type     string       `json:"type"` // Expected to be "image_url"
 	ImageURL ImageURLData `json:"image_url"`
+}
+
+// FlexibleEmbeddingRequest represents a flexible embedding request that can handle both
+// standard OpenAI embedding format and Chat Embeddings API format with messages
+type FlexibleEmbeddingRequest struct {
+	Model          string                  `json:"model"`
+	Input          interface{}             `json:"input,omitempty"`    // Can be string, []string, [][]int, etc.
+	Messages       []ChatCompletionMessage `json:"messages,omitempty"` // For Chat Embeddings API format
+	EncodingFormat string                  `json:"encoding_format,omitempty"`
+	Dimensions     int                     `json:"dimensions,omitempty"`
+}
+
+// FlexibleEmbeddingResponse represents a flexible embedding response
+type FlexibleEmbeddingResponse struct {
+	Object string `json:"object"`
+	Data   []struct {
+		Object    string    `json:"object"`
+		Index     int       `json:"index"`
+		Embedding []float32 `json:"embedding"`
+	} `json:"data"`
+	Model string `json:"model"`
+	Usage struct {
+		PromptTokens int `json:"prompt_tokens"`
+		TotalTokens  int `json:"total_tokens"`
+	} `json:"usage"`
 }
