@@ -74,7 +74,6 @@ class HaystackService:
             embedder = UnixSocketOpenAIDocumentEmbedder(
                 socket_path=settings.EMBEDDINGS_SOCKET,
                 model=settings.EMBEDDINGS_MODEL,
-                dimensions=settings.EMBEDDING_DIM,
             )
         else:
             logger.info(f"Using API for document embeddings: {settings.VLLM_BASE_URL}")
@@ -82,7 +81,6 @@ class HaystackService:
                 api_key=Secret.from_token(settings.VLLM_API_KEY),
                 api_base_url=settings.VLLM_BASE_URL,
                 model=settings.EMBEDDINGS_MODEL,
-                dimensions=settings.EMBEDDING_DIM,
             )
 
         converter = LocalUnstructuredConverter()
@@ -140,7 +138,6 @@ class HaystackService:
             embedder = UnixSocketOpenAITextEmbedder(
                 socket_path=settings.EMBEDDINGS_SOCKET,
                 model=settings.EMBEDDINGS_MODEL,
-                dimensions=settings.EMBEDDING_DIM,
             )
         else:
             logger.info(f"Using API for text embeddings: {settings.VLLM_BASE_URL}")
@@ -148,7 +145,6 @@ class HaystackService:
                 api_key=Secret.from_token(settings.VLLM_API_KEY),
                 api_base_url=settings.VLLM_BASE_URL,
                 model=settings.EMBEDDINGS_MODEL,
-                dimensions=settings.EMBEDDING_DIM,
             )
 
         # Dense vector retriever using VectorChord
