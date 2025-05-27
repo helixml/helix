@@ -15,7 +15,7 @@ import {
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import useApi from '../../hooks/useApi';
-import { PaginatedLLMCalls, LLMCall } from '../../types';
+import { TypesPaginatedLLMCalls, TypesLLMCall } from '../../api/api';
 import JsonView from '../widgets/JsonView';
 
 interface LLMCallsTableProps {
@@ -24,7 +24,7 @@ interface LLMCallsTableProps {
 
 const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
   const api = useApi();
-  const [llmCalls, setLLMCalls] = useState<PaginatedLLMCalls | null>(null);
+  const [llmCalls, setLLMCalls] = useState<TypesPaginatedLLMCalls | null>(null);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [modalContent, setModalContent] = useState<any>(null);
@@ -40,7 +40,7 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
         sessionFilter: sessionFilter,
       }).toString();
 
-      const data = await api.get<PaginatedLLMCalls>(`/api/v1/llm_calls?${queryParams}`);
+      const data = await api.get<TypesPaginatedLLMCalls>(`/api/v1/llm_calls?${queryParams}`);
       setLLMCalls(data);
     } catch (error) {
       console.error('Error fetching LLM calls:', error);
@@ -106,10 +106,10 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
                 <TableCell colSpan={6}>LLM call logging is disabled by the administrator.</TableCell>
               </TableRow>
             ) : (
-              llmCalls.calls.map((call: LLMCall) => (
+              llmCalls.calls?.map((call: TypesLLMCall) => (
                 <TableRow key={call.id}>
                   <TableCell>{call.id}</TableCell>
-                <TableCell>{new Date(call.created).toLocaleString()}</TableCell>
+                <TableCell>{call.created ? new Date(call.created).toLocaleString() : ''}</TableCell>
                 <TableCell>{call.session_id}</TableCell>
                 <TableCell>{call.interaction_id}</TableCell>
                 <TableCell>{call.model}</TableCell>
@@ -125,7 +125,11 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
                   <Button onClick={() => handleOpenModal(call.request)}>View</Button>
                 </TableCell>
                 <TableCell>
-                  <Button onClick={() => handleOpenModal(call.response)}>View</Button>
+                  {call.error ? (
+                    <Button onClick={() => handleOpenModal({ error: call.error })}>View Error</Button>
+                  ) : (
+                    <Button onClick={() => handleOpenModal(call.response)}>View</Button>
+                  )}
                 </TableCell>
                 </TableRow>
               ))
@@ -136,7 +140,7 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
       <TablePagination
         rowsPerPageOptions={[10, 25, 100]}
         component="div"
-        count={llmCalls.totalCount}
+        count={llmCalls.totalCount || 0}
         rowsPerPage={rowsPerPage}
         page={page}
         onPageChange={handleChangePage}

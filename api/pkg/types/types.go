@@ -5,6 +5,8 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -662,12 +664,46 @@ const (
 	StepInfoTypeWebSearch = "web_search"
 	StepInfoTypeRAG       = "rag"
 	StepInfoTypeToolUse   = "tool_use"
+	StepInfoTypeThinking  = "thinking"
 )
 
 type StepInfo struct {
-	Name    string       `json:"name"`
-	Type    StepInfoType `json:"type"`
-	Message string       `json:"message"`
+	ID            string          `json:"id" gorm:"primaryKey"`
+	Created       time.Time       `json:"created"`
+	Updated       time.Time       `json:"updated"`
+	SessionID     string          `json:"session_id"`
+	InteractionID string          `json:"interaction_id"`
+	Name          string          `json:"name"`
+	Type          StepInfoType    `json:"type"`
+	Message       string          `json:"message"`
+	Details       StepInfoDetails `json:"details" gorm:"type:jsonb"` // That were used to call the tool
+}
+
+type StepInfoDetails struct {
+	Arguments map[string]interface{} `json:"arguments"`
+	// TODO: OAuth tokens supplied or not
+}
+
+func (t StepInfoDetails) Value() (driver.Value, error) {
+	j, err := json.Marshal(t)
+	return j, err
+}
+
+func (t *StepInfoDetails) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed")
+	}
+	var result StepInfoDetails
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (StepInfoDetails) GormDataType() string {
+	return "json"
 }
 
 // the context of a long running python process
@@ -884,9 +920,11 @@ func HistoryFromChatCompletionRequest(req openai.ChatCompletionRequest) []*ToolH
 
 	// Copy the messages from the request into history messages
 	for _, message := range req.Messages {
-		if message.Content == "" {
+		contentString, err := GetMessageText(&message)
+		if err != nil {
 			continue
 		}
+
 		if message.Role == openai.ChatMessageRoleSystem {
 			// it is a VERY bad idea to include >1 system message when talking to an LLM
 			// https://x.com/lmarsden/status/1826406206996693431
@@ -894,11 +932,37 @@ func HistoryFromChatCompletionRequest(req openai.ChatCompletionRequest) []*ToolH
 		}
 		history = append(history, &ToolHistoryMessage{
 			Role:    message.Role,
-			Content: message.Content,
+			Content: contentString,
 		})
 	}
 
 	return history
+}
+
+// GetMessageText extracts the plain text content from an OpenAI chat message
+// of any type (user, assistant, or developer message)
+func GetMessageText(message *openai.ChatCompletionMessage) (string, error) {
+	// For multi-content messages
+	if len(message.MultiContent) > 0 {
+		var builder strings.Builder
+		for _, part := range message.MultiContent {
+			if part.Type == "text" {
+				builder.WriteString(part.Text)
+			}
+		}
+		return builder.String(), nil
+	}
+
+	if message.Content == "" {
+		return "", fmt.Errorf("message %+v content is empty", message)
+	}
+
+	// For simple string content
+	if message.Content != "" {
+		return message.Content, nil
+	}
+
+	return "", fmt.Errorf("unsupported message type %+v", message)
 }
 
 func HistoryFromInteractions(interactions []*Interaction) []*ToolHistoryMessage {
@@ -951,12 +1015,13 @@ const (
 )
 
 type Tool struct {
-	ID          string     `json:"id" gorm:"primaryKey"`
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	ToolType    ToolType   `json:"tool_type"`
-	Global      bool       `json:"global"`
-	Config      ToolConfig `json:"config" gorm:"jsonb"`
+	ID           string     `json:"id" gorm:"primaryKey"`
+	Name         string     `json:"name"`
+	Description  string     `json:"description"`
+	SystemPrompt string     `json:"system_prompt"` // E.g. As a restaurant expert, you provide personalized restaurant recommendations
+	ToolType     ToolType   `json:"tool_type"`
+	Global       bool       `json:"global"`
+	Config       ToolConfig `json:"config" gorm:"jsonb"`
 }
 
 type ToolConfig struct {
@@ -994,6 +1059,8 @@ type ToolAPIConfig struct {
 
 	Headers map[string]string `json:"headers" yaml:"headers"` // Headers (authentication, etc)
 	Query   map[string]string `json:"query" yaml:"query"`     // Query parameters that will be always set
+
+	SystemPrompt string `json:"system_prompt" yaml:"system_prompt"` // System prompt to guide the AI when using this API
 
 	RequestPrepTemplate     string `json:"request_prep_template" yaml:"request_prep_template"`         // Template for request preparation, leave empty for default
 	ResponseSuccessTemplate string `json:"response_success_template" yaml:"response_success_template"` // Template for successful response, leave empty for default
@@ -1057,6 +1124,8 @@ type AssistantAPI struct {
 	Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	Query       map[string]string `json:"query,omitempty" yaml:"query,omitempty"`
 
+	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
+
 	RequestPrepTemplate     string `json:"request_prep_template,omitempty" yaml:"request_prep_template,omitempty"`
 	ResponseSuccessTemplate string `json:"response_success_template,omitempty" yaml:"response_success_template,omitempty"`
 	ResponseErrorTemplate   string `json:"response_error_template,omitempty" yaml:"response_error_template,omitempty"`
@@ -1069,14 +1138,20 @@ type AssistantAPI struct {
 // apps are a collection of assistants
 // the APIs and GPTScripts are both processed into a single list of Tools
 type AssistantConfig struct {
-	ID          string      `json:"id,omitempty" yaml:"id,omitempty"`
-	Name        string      `json:"name,omitempty" yaml:"name,omitempty"`
-	Description string      `json:"description,omitempty" yaml:"description,omitempty"`
-	Avatar      string      `json:"avatar,omitempty" yaml:"avatar,omitempty"`
-	Image       string      `json:"image,omitempty" yaml:"image,omitempty"`
-	Provider    string      `json:"provider,omitempty" yaml:"provider,omitempty"`
-	Model       string      `json:"model,omitempty" yaml:"model,omitempty"`
-	Type        SessionType `json:"type,omitempty" yaml:"type,omitempty"`
+	ID          string `json:"id,omitempty" yaml:"id,omitempty"`
+	Name        string `json:"name,omitempty" yaml:"name,omitempty"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+	Avatar      string `json:"avatar,omitempty" yaml:"avatar,omitempty"`
+	Image       string `json:"image,omitempty" yaml:"image,omitempty"`
+	Provider    string `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Model       string `json:"model,omitempty" yaml:"model,omitempty"`
+
+	// AgentMode triggers the use of the agent loop
+	AgentMode            bool   `json:"agent_mode"`
+	ReasoningModel       string `json:"reasoning_model"`
+	GenerationModel      string `json:"generation_model"`
+	SmallReasoningModel  string `json:"small_reasoning_model"`
+	SmallGenerationModel string `json:"small_generation_model"`
 
 	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 
@@ -1557,6 +1632,8 @@ type LLMCall struct {
 	PromptTokens     int64
 	CompletionTokens int64
 	TotalTokens      int64
+	Stream           bool   `json:"stream"`
+	Error            string `json:"error"`
 }
 
 type CreateSecretRequest struct {
@@ -1628,8 +1705,8 @@ type RunnerActualSlotAttributes struct {
 }
 
 type RunAPIActionRequest struct {
-	Action     string            `json:"action"`
-	Parameters map[string]string `json:"parameters"`
+	Action     string                 `json:"action"`
+	Parameters map[string]interface{} `json:"parameters"`
 
 	Tool *Tool `json:"-"` // Set internally
 

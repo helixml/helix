@@ -14,6 +14,7 @@ import Tooltip from '@mui/material/Tooltip'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import TextField from '@mui/material/TextField'
 import CopyButtonWithCheck from './CopyButtonWithCheck'
+import ToolStepsWidget from './ToolStepsWidget'
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
@@ -66,6 +67,7 @@ export const InteractionInference: FC<{
   handleCancel?: () => void,
   handleSave?: () => void,
   isLastInteraction?: boolean,
+  sessionSteps?: any[],
 }> = ({
   imageURLs = [],
   message,
@@ -83,6 +85,7 @@ export const InteractionInference: FC<{
   handleCancel: externalHandleCancel,
   handleSave: externalHandleSave,
   isLastInteraction,
+  sessionSteps = [],
 }) => {
     const account = useAccount()
     const router = useRouter()
@@ -95,6 +98,20 @@ export const InteractionInference: FC<{
     const setEditedMessage = externalSetEditedMessage || setInternalEditedMessage
     const handleCancel = externalHandleCancel || (() => { setInternalEditedMessage(message || ''); setInternalIsEditing(false) })
     const handleSave = externalHandleSave || (() => { if (onRegenerate && internalEditedMessage !== message) { onRegenerate(interaction.id, internalEditedMessage) } setInternalIsEditing(false) })
+
+    // Filter tool steps for this interaction
+    const toolSteps = sessionSteps
+      .filter(step => step.interaction_id === interaction.id)
+      .map(step => ({
+        id: step.id || '',
+        name: step.name || '',
+        type: step.type || '',
+        message: step.message || '',
+        created: step.created || '',
+        details: {
+          arguments: step.details?.arguments || {}
+        }
+      }))
 
     if (!serverConfig || !serverConfig.filestore_prefix) return null
     if (!interaction) return null
@@ -133,6 +150,9 @@ export const InteractionInference: FC<{
               )
             })
         }
+        {toolSteps.length > 0 && isFromAssistant && (
+          <ToolStepsWidget steps={toolSteps} />
+        )}
         {
           message && onRegenerate && (
             <Box

@@ -484,6 +484,16 @@ const Dashboard: FC = () => {
                   serverConfig={account.serverConfig}
                   interaction={interaction}
                   session={viewingSession}
+                  onRegenerate={() => {}}
+                  retryFinetuneErrors={() => {}}
+                  onReloadSession={async () => {}}
+                  onClone={async () => false}
+                  isOwner={true}
+                  isAdmin={false}
+                  session_id={viewingSession.id}
+                  highlightAllFiles={false}
+                  isLastInteraction={i === viewingSession.interactions.length - 1}
+                  hasSubscription={true}
                 />
               )
             })}

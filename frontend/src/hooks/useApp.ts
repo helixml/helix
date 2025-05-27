@@ -313,7 +313,27 @@ export const useApp = (appId: string) => {
     if (updates.model !== undefined) {
       assistants[0].model = updates.model
     }
-    
+
+    if (updates.agent_mode !== undefined) {
+      assistants[0].agent_mode = updates.agent_mode
+    }
+
+    if (updates.reasoning_model !== undefined) {
+      assistants[0].reasoning_model = updates.reasoning_model
+    }
+
+    if (updates.generation_model !== undefined) {
+      assistants[0].generation_model = updates.generation_model
+    }
+
+    if (updates.small_reasoning_model !== undefined) {
+      assistants[0].small_reasoning_model = updates.small_reasoning_model
+    }
+
+    if (updates.small_generation_model !== undefined) {
+      assistants[0].small_generation_model = updates.small_generation_model
+    }
+
     if (updates.context_limit !== undefined) {
       assistants[0].context_limit = updates.context_limit
     }

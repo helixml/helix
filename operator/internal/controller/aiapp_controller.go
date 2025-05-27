@@ -105,7 +105,6 @@ func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			Image:                assistant.Image,
 			Provider:             assistant.Provider,
 			Model:                assistant.Model,
-			Type:                 types.SessionType(assistant.Type),
 			SystemPrompt:         assistant.SystemPrompt,
 			RAGSourceID:          assistant.RAGSourceID,
 			LoraID:               assistant.LoraID,

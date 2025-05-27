@@ -343,6 +343,21 @@ func (mr *MockStoreMockRecorder) CreateSession(ctx, session any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSession", reflect.TypeOf((*MockStore)(nil).CreateSession), ctx, session)
 }
 
+// CreateStepInfo mocks base method.
+func (m *MockStore) CreateStepInfo(ctx context.Context, stepInfo *types.StepInfo) (*types.StepInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateStepInfo", ctx, stepInfo)
+	ret0, _ := ret[0].(*types.StepInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateStepInfo indicates an expected call of CreateStepInfo.
+func (mr *MockStoreMockRecorder) CreateStepInfo(ctx, stepInfo any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateStepInfo", reflect.TypeOf((*MockStore)(nil).CreateStepInfo), ctx, stepInfo)
+}
+
 // CreateTeam mocks base method.
 func (m *MockStore) CreateTeam(ctx context.Context, team *types.Team) (*types.Team, error) {
 	m.ctrl.T.Helper()
@@ -669,6 +684,20 @@ func (m *MockStore) DeleteSession(ctx context.Context, id string) (*types.Sessio
 func (mr *MockStoreMockRecorder) DeleteSession(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSession", reflect.TypeOf((*MockStore)(nil).DeleteSession), ctx, id)
+}
+
+// DeleteStepInfo mocks base method.
+func (m *MockStore) DeleteStepInfo(ctx context.Context, sessionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteStepInfo", ctx, sessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteStepInfo indicates an expected call of DeleteStepInfo.
+func (mr *MockStoreMockRecorder) DeleteStepInfo(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteStepInfo", reflect.TypeOf((*MockStore)(nil).DeleteStepInfo), ctx, sessionID)
 }
 
 // DeleteTeam mocks base method.
@@ -1491,6 +1520,21 @@ func (m *MockStore) ListSecrets(ctx context.Context, q *ListSecretsQuery) ([]*ty
 func (mr *MockStoreMockRecorder) ListSecrets(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSecrets", reflect.TypeOf((*MockStore)(nil).ListSecrets), ctx, q)
+}
+
+// ListStepInfos mocks base method.
+func (m *MockStore) ListStepInfos(ctx context.Context, query *ListStepInfosQuery) ([]*types.StepInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListStepInfos", ctx, query)
+	ret0, _ := ret[0].([]*types.StepInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListStepInfos indicates an expected call of ListStepInfos.
+func (mr *MockStoreMockRecorder) ListStepInfos(ctx, query any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStepInfos", reflect.TypeOf((*MockStore)(nil).ListStepInfos), ctx, query)
 }
 
 // ListTeamMemberships mocks base method.

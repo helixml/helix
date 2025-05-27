@@ -13,10 +13,11 @@ import {
   Typography,
   Modal,
   Divider,
+  Tooltip,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import useApi from '../../hooks/useApi';
-import { PaginatedLLMCalls, LLMCall } from '../../types';
+import { TypesPaginatedLLMCalls, TypesLLMCall } from '../../api/api';
 import JsonView from '../widgets/JsonView';
 import { LineChart } from '@mui/x-charts';
 import { TypesUsersAggregatedUsageMetric, TypesAggregatedUsageMetric } from '../../api/api';
@@ -30,7 +31,7 @@ const win = (window as any)
 const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const api = useApi();
   const apiClient = api.getApiClient();
-  const [llmCalls, setLLMCalls] = useState<PaginatedLLMCalls | null>(null);
+  const [llmCalls, setLLMCalls] = useState<TypesPaginatedLLMCalls | null>(null);
   const [usageData, setUsageData] = useState<TypesUsersAggregatedUsageMetric[]>([]);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -58,7 +59,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
         pageSize: rowsPerPage.toString(),
       }).toString();
 
-      const data = await api.get<PaginatedLLMCalls>(`/api/v1/apps/${appId}/llm-calls?${queryParams}`);
+      const data = await api.get<TypesPaginatedLLMCalls>(`/api/v1/apps/${appId}/llm-calls?${queryParams}`);
       setLLMCalls(data);
     } catch (error) {
       console.error('Error fetching LLM calls:', error);
@@ -86,12 +87,13 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
     fetchUsageData();
   };
 
-  const handleOpenModal = (content: any, call: LLMCall) => {
+  const handleOpenModal = (content: any, call: TypesLLMCall) => {
     setModalContent({
       content,
       sessionId: call.session_id,
       interactionId: call.interaction_id,
-      step: call.step
+      step: call.step,
+      isError: !!call.error
     });
     setModalOpen(true);
   };
@@ -152,7 +154,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
       }}
     >
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2 }}>
-        <Typography variant="h6">Usage tokens (last 7 days)</Typography>
+        <Typography variant="h6">Token usage (last 7 days)</Typography>
         <Button startIcon={<RefreshIcon />} onClick={handleRefresh}>
           Refresh
         </Button>
@@ -167,11 +169,11 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                 const date = new Date(value);
                 return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
               },
-              // tickNumber: 7,
               labelStyle: {
                 angle: 0,
                 textAnchor: 'middle'
-              }
+              },
+              tickMinStep: 24 * 60 * 60 * 1000
             }]}
             series={chartData.series.map(series => ({
               ...series,
@@ -185,7 +187,22 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                 hidden: true
               }
             }}
-          />
+            sx={{
+              '& .MuiAreaElement-root': {
+                fill: 'url(#usageGradient)',
+              },
+              '& .MuiMarkElement-root': {
+                display: 'none',
+              },
+            }}
+          >
+            <defs>
+              <linearGradient id="usageGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#00c8ff" stopOpacity={0.5} />
+                <stop offset="100%" stopColor="#070714" stopOpacity={0.1} />
+              </linearGradient>
+            </defs>
+          </LineChart>
         ) : (
           <Typography variant="body1" textAlign="center">No usage data available</Typography>
         )}
@@ -203,6 +220,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
               <TableCell sx={headerCellStyle}>Created</TableCell>
               <TableCell sx={headerCellStyle}>Session ID</TableCell>
               <TableCell sx={headerCellStyle}>Step</TableCell>
+              <TableCell sx={headerCellStyle}>Duration (ms)</TableCell>
               <TableCell sx={headerCellStyle}>Original Request</TableCell>
               <TableCell sx={headerCellStyle}>Request</TableCell>
               <TableCell sx={headerCellStyle}>Response</TableCell>
@@ -214,11 +232,23 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                 <TableCell colSpan={6}>LLM call logging is disabled by the administrator.</TableCell>
               </TableRow>
             ) : (
-              llmCalls.calls.map((call: LLMCall) => (
-                <TableRow key={call.id}>
-                <TableCell>{new Date(call.created).toLocaleString()}</TableCell>
+              llmCalls.calls?.map((call: TypesLLMCall) => (
+                <TableRow 
+                  key={call.id}
+                  sx={{
+                    ...(call.error && {
+                      border: '2px solid #ff4d4f',
+                      bgcolor: 'rgba(255, 77, 79, 0.1)',
+                      '& td': {
+                        borderColor: 'rgba(255, 77, 79, 0.2)'
+                      }
+                    })
+                  }}
+                >
+                <TableCell>{call.created ? new Date(call.created).toLocaleString() : ''}</TableCell>
                 <TableCell>{call.session_id}</TableCell>
                 <TableCell>{call.step || 'n/a'}</TableCell>
+                <TableCell>{call.duration_ms || 'n/a'}</TableCell>
                 <TableCell>
                   {call.original_request && (
                     <Button onClick={() => handleOpenModal(call.original_request, call)}>View</Button>
@@ -228,7 +258,13 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                   <Button onClick={() => handleOpenModal(call.request, call)}>View</Button>
                 </TableCell>
                 <TableCell>
-                  <Button onClick={() => handleOpenModal(call.response, call)}>View</Button>
+                  <Tooltip title={call.error || ''}>
+                    <span>
+                      <Button onClick={() => handleOpenModal(call.error ? { error: call.error } : call.response, call)}>
+                        {call.error ? 'View Error' : 'View'}
+                      </Button>
+                    </span>
+                  </Tooltip>
                 </TableCell>
                 </TableRow>
               ))
@@ -239,7 +275,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
       <TablePagination
         rowsPerPageOptions={[10, 25, 100]}
         component="div"
-        count={llmCalls.totalCount}
+        count={llmCalls.totalCount || 0}
         rowsPerPage={rowsPerPage}
         page={page}
         onPageChange={handleChangePage}
@@ -278,6 +314,11 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
             <Typography variant="subtitle2" gutterBottom>
               Step: {modalContent?.step}
             </Typography>
+            {modalContent?.isError && (
+              <Typography variant="subtitle2" color="error" gutterBottom>
+                Error occurred during this call
+              </Typography>
+            )}
           </Box>
 
           <JsonView data={modalContent?.content} />

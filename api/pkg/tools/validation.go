@@ -65,7 +65,7 @@ func (c *ChainStrategy) validateOperationIDs(_ context.Context, _ *types.Tool, s
 	return nil
 }
 
-func ValidateTool(tool *types.Tool, planner Planner, strict bool) error {
+func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Planner, strict bool) error {
 	switch tool.ToolType {
 	case types.ToolTypeGPTScript:
 
@@ -94,6 +94,10 @@ func ValidateTool(tool *types.Tool, planner Planner, strict bool) error {
 
 		if tool.Config.API.Schema == "" {
 			return system.NewHTTPError400("API schema is required for API tools")
+		}
+
+		if assistant.AgentMode && tool.Config.API.SystemPrompt == "" {
+			return system.NewHTTPError400("system prompt is required for API tools when using the agent mode")
 		}
 
 		// If schema is base64 encoded, decode it
