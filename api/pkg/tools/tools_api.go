@@ -1,11 +1,14 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -16,7 +19,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, action string, params map[string]string) (*http.Request, error) {
+func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, action string, params map[string]interface{}) (*http.Request, error) {
 	loader := openapi3.NewLoader()
 
 	schema, err := loader.LoadFromData([]byte(tool.Config.API.Schema))
@@ -26,18 +29,25 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 
 	// Based on the operationId get the path and method
 	var path, method string
+	var requestBodySchema *openapi3.SchemaRef
 
 	queryParams := make(map[string]bool)
 	pathParams := make(map[string]bool)
 
 	for p, pathItem := range schema.Paths.Map() {
-		for m, operation := range pathItem.Operations() {
-			if operation.OperationID == action {
+		for m, op := range pathItem.Operations() {
+			if op.OperationID == action {
 				path = p
 				method = m
 
-				for _, param := range operation.Parameters {
+				// Get request body schema if it exists
+				if op.RequestBody != nil && op.RequestBody.Value != nil {
+					if content, ok := op.RequestBody.Value.Content["application/json"]; ok {
+						requestBodySchema = content.Schema
+					}
+				}
 
+				for _, param := range op.Parameters {
 					switch param.Value.In {
 					case "query":
 						queryParams[param.Value.Name] = true
@@ -56,7 +66,78 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 	}
 
 	// Prepare request
-	req, err := http.NewRequestWithContext(ctx, method, tool.Config.API.URL+path, nil)
+	var body io.Reader
+	if requestBodySchema != nil {
+		// Check if we have a nested body parameter
+		if bodyStr, exists := params["body"]; exists {
+			// If body parameter exists, use it directly
+			if bodyStrStr, ok := bodyStr.(string); ok {
+				body = bytes.NewReader([]byte(bodyStrStr))
+			} else {
+				// If body is not a string, marshal it to JSON
+				jsonBody, err := json.Marshal(bodyStr)
+				if err != nil {
+					return nil, fmt.Errorf("failed to marshal body parameter: %w", err)
+				}
+				body = bytes.NewReader(jsonBody)
+			}
+		} else {
+			// Create a map to hold the body parameters
+			bodyParams := make(map[string]interface{})
+
+			// Extract body parameters from the schema
+			if requestBodySchema.Value != nil {
+				for propName, propSchema := range requestBodySchema.Value.Properties {
+					if value, exists := params[propName]; exists {
+						// Convert the value to the appropriate type based on the schema
+						if len(propSchema.Value.Type.Slice()) > 0 {
+							switch propSchema.Value.Type.Slice()[0] {
+							case "integer":
+								if strVal, ok := value.(string); ok {
+									if intVal, err := strconv.Atoi(strVal); err == nil {
+										bodyParams[propName] = intVal
+									}
+								} else if intVal, ok := value.(float64); ok {
+									bodyParams[propName] = int(intVal)
+								} else if intVal, ok := value.(int); ok {
+									bodyParams[propName] = intVal
+								}
+							case "number":
+								if strVal, ok := value.(string); ok {
+									if floatVal, err := strconv.ParseFloat(strVal, 64); err == nil {
+										bodyParams[propName] = floatVal
+									}
+								} else if floatVal, ok := value.(float64); ok {
+									bodyParams[propName] = floatVal
+								}
+							case "boolean":
+								if strVal, ok := value.(string); ok {
+									if boolVal, err := strconv.ParseBool(strVal); err == nil {
+										bodyParams[propName] = boolVal
+									}
+								} else if boolVal, ok := value.(bool); ok {
+									bodyParams[propName] = boolVal
+								}
+							default:
+								bodyParams[propName] = value
+							}
+						} else {
+							bodyParams[propName] = value
+						}
+					}
+				}
+			}
+
+			// Marshal the body parameters to JSON
+			jsonBody, err := json.Marshal(bodyParams)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal request body: %w", err)
+			}
+			body = bytes.NewReader(jsonBody)
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, tool.Config.API.URL+path, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -69,12 +150,23 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 
 	// Add path params
 	for k, v := range params {
+		if k == "body" {
+			continue // Skip body parameter as it's already handled
+		}
 		if pathParams[k] {
-			req.URL.Path = strings.Replace(req.URL.Path, "{"+k+"}", v, -1)
+			if strVal, ok := v.(string); ok {
+				req.URL.Path = strings.Replace(req.URL.Path, "{"+k+"}", strVal, -1)
+			} else {
+				req.URL.Path = strings.Replace(req.URL.Path, "{"+k+"}", fmt.Sprintf("%v", v), -1)
+			}
 		}
 
 		if queryParams[k] {
-			q.Add(k, v)
+			if strVal, ok := v.(string); ok {
+				q.Add(k, strVal)
+			} else {
+				q.Add(k, fmt.Sprintf("%v", v))
+			}
 		}
 	}
 
@@ -137,6 +229,7 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		Interface("query_params", queryParams).
 		Interface("path_params", pathParams).
 		Interface("headers", tool.Config.API.Headers).
+		Bool("has_request_body", requestBodySchema != nil).
 		Msg("API request details")
 
 	// Log authorization header if present (for debugging purposes only)
@@ -146,7 +239,7 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 			Str("auth_header_prefix", authHeader[:7]+"...").
 			Msg("API request has Authorization header")
 	} else {
-		log.Warn().
+		log.Info().
 			Interface("all_headers", req.Header).
 			Interface("tool_headers", tool.Config.API.Headers).
 			Msg("No Authorization header found for API request")
@@ -155,7 +248,7 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 	return req, nil
 }
 
-func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (map[string]string, error) {
+func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (map[string]interface{}, error) {
 	systemPrompt, err := c.getAPISystemPrompt(tool, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
@@ -229,24 +322,12 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, client oai.
 	return params, nil
 }
 
-func unmarshalParams(data string) (map[string]string, error) {
-	var initial map[string]interface{}
-	err := unmarshalJSON(data, &initial)
+func unmarshalParams(data string) (map[string]interface{}, error) {
+	var params map[string]interface{}
+	err := unmarshalJSON(data, &params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response from inference API: %w (%s)", err, data)
 	}
-
-	params := make(map[string]string)
-
-	for k, v := range initial {
-		// Convert any type of value to string
-		if v == nil {
-			params[k] = "" // Set empty string if value is nil
-		} else {
-			params[k] = fmt.Sprintf("%v", v)
-		}
-	}
-
 	return params, nil
 }
 
@@ -470,6 +551,7 @@ type Parameter struct {
 	Required    bool
 	Type        ParameterType
 	Description string
+	Schema      *openapi3.SchemaRef
 }
 
 type ParameterType string
@@ -495,6 +577,7 @@ func GetParametersFromSchema(spec string, action string) ([]*Parameter, error) {
 	for _, pathItem := range schema.Paths.Map() {
 		for _, operation := range pathItem.Operations() {
 			if operation.OperationID == action {
+				// Handle path and query parameters
 				for _, param := range operation.Parameters {
 					parameters = append(parameters, &Parameter{
 						Name:        param.Value.Name,
@@ -504,10 +587,19 @@ func GetParametersFromSchema(spec string, action string) ([]*Parameter, error) {
 					})
 				}
 
-				// if operation.RequestBody != nil {
-				// 	// TODO: Add body parameter. Need to lookup the schema in components
-				// 	// and then add it to the parameters list all items.
-				// }
+				// Handle request body parameters
+				if operation.RequestBody != nil && operation.RequestBody.Value != nil {
+					if content, ok := operation.RequestBody.Value.Content["application/json"]; ok && content.Schema != nil {
+						// For request body, we'll use a special parameter name "body"
+						parameters = append(parameters, &Parameter{
+							Name:        "body",
+							Required:    operation.RequestBody.Value.Required,
+							Type:        ParameterTypeObject,
+							Description: "Request body",
+							Schema:      content.Schema,
+						})
+					}
+				}
 			}
 		}
 	}

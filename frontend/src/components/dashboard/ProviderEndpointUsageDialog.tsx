@@ -111,6 +111,25 @@ const ProviderEndpointUsageDialog: React.FC<ProviderEndpointUsageDialogProps> = 
       onClose={onClose}
       maxWidth="md"
       fullWidth
+      PaperProps={{
+        sx: {
+          bgcolor: '#000000',
+          backdropFilter: 'blur(10px)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          '& .MuiDialogTitle-root': {
+            color: 'white',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+            padding: '16px 24px'
+          },
+          '& .MuiDialogContent-root': {
+            color: 'white'
+          },
+          '& .MuiDialogActions-root': {
+            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+            padding: '16px 24px'
+          }
+        }
+      }}
     >
       <DialogTitle>
         Usage Statistics: {endpoint?.name}
@@ -138,14 +157,34 @@ const ProviderEndpointUsageDialog: React.FC<ProviderEndpointUsageDialogProps> = 
                       textAnchor: 'middle'
                     }
                   }]}
-                  series={chartData.series}
+                  series={chartData.series.map(series => ({
+                    ...series,
+                    showMarkers: false,
+                    area: true,
+                    lineStyle: { marker: { display: 'none' } }
+                  }))}
                   height={300}
                   slotProps={{
                     legend: {
                       hidden: true
                     }
                   }}
-                />
+                  sx={{
+                    '& .MuiAreaElement-root': {
+                      fill: 'url(#usageGradient)',
+                    },
+                    '& .MuiMarkElement-root': {
+                      display: 'none',
+                    },
+                  }}
+                >
+                  <defs>
+                    <linearGradient id="usageGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#00c8ff" stopOpacity={0.5} />
+                      <stop offset="100%" stopColor="#070714" stopOpacity={0.1} />
+                    </linearGradient>
+                  </defs>
+                </LineChart>
               ) : (
                 <Typography variant="body1" textAlign="center">No usage data available</Typography>
               )}

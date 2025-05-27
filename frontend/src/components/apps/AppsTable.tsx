@@ -6,7 +6,8 @@ import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
 import Chip from '@mui/material/Chip'
 import GitHubIcon from '@mui/icons-material/GitHub'
-import { SparkLineChart } from '@mui/x-charts';
+import SchoolIcon from '@mui/icons-material/School'
+import { LineChart } from '@mui/x-charts';
 
 import SimpleTable from '../widgets/SimpleTable'
 import ClickLink from '../widgets/ClickLink'
@@ -21,18 +22,15 @@ import useApi from '../../hooks/useApi'
 import {
   IApp,
   APP_SOURCE_GITHUB,
-  APP_SOURCE_HELIX,
 } from '../../types'
 
-import {
-  getAppImage,
-  getAppAvatar,
-  getAppName,
-  getAppDescription,
+import {  
+  getAppName,  
 } from '../../utils/apps'
 
 // Import the Helix icon
 import HelixIcon from '../../../assets/img/logo.png'
+import useLightTheme from '../../hooks/useLightTheme'
 
 interface TypesAggregatedUsageMetric {
   date: string;
@@ -53,7 +51,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
   const api = useApi()
   const apiClient = api.getApiClient()
   const theme = useTheme()
-  
+  const lightTheme = useLightTheme()
   // Add state for usage data with proper typing
   const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({})
 
@@ -84,6 +82,10 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       const appUsage = usageData[app.id] || []
       // const last7DaysData = appUsage?.slice(-7) || []
       const usageValues = appUsage.map((day: TypesAggregatedUsageMetric) => day.total_tokens || 0)
+      const usageLabels = appUsage.map((day: TypesAggregatedUsageMetric) => {
+        const date = new Date(day.date)
+        return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' }) // e.g., "Mon 3"
+      })
       const todayTokens = appUsage[appUsage.length - 1]?.total_tokens || 0
       const totalTokens = appUsage.reduce((sum: number, day: TypesAggregatedUsageMetric) => sum + (day.total_tokens || 0), 0)
 
@@ -143,10 +145,37 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         </>
       ) : null
 
-      // TODO: add the list of apis also to this display
-      // we can grab stuff from the tools package that already renders endpoints
+      const knowledgeElem = assistant && assistant.knowledge && assistant.knowledge.length > 0 ? (
+        <>
+          {
+            assistant.knowledge.map((knowledge, index) => {
+              return (
+                <Box
+                  key={index}
+                  sx={{ border: '1px solid #757575', borderRadius: 2, p: 2, mb: 1 }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <Tooltip title="Knowledge">
+                      <SchoolIcon fontSize="small" sx={{ color: lightTheme.textColorFaded, mr: 1 }} />
+                    </Tooltip>
+                    <Typography variant="body1" sx={{fontWeight: 'bold', color: lightTheme.textColorFaded}}>
+                      {knowledge.name}
+                    </Typography>
+                  </Box>
+                  {knowledge.description && (
+                    <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, pl: 4.5 }}>
+                      {knowledge.description}
+                    </Typography>
+                  )}
+                </Box>
+              )
+            })
+          }
+        </>
+      ) : null
 
-      const accessType = app.global ? 'Global' : 'Private'
+      // TODO: add the list of apis also to this display
+      // we can grab stuff from the tools package that already renders endpoints    
 
       return {
         id: app.id,
@@ -184,56 +213,68 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
             </Cell>
           </Row>
         ),
-        type: (
-          <Typography variant="body1">
-            {accessType}
-          </Typography>
-        ),
         actions: (
           <>
             { gptscriptsElem }
             { apisElem }
+            { knowledgeElem }            
           </>
-        ),
-        updated: (
-          <Box
-            sx={{
-              fontSize: '0.9em',
-            }}
-          >
-            { new Date(app.updated).toLocaleString() }
-          </Box>
         ),
         usage: (
           <Box sx={{ width: 200, height: 50 }}>
-            <Tooltip
-              title={
-                <Box>
-                  <Typography variant="body2">Daily usage:</Typography>
-                  {appUsage.map((day: TypesAggregatedUsageMetric, i: number) => (
-                    <Typography key={i} variant="caption" component="div">
-                      {new Date(day.date).toLocaleDateString()}: {day.total_tokens || 0} tokens
-                    </Typography>
-                  ))}
-                  <Typography variant="body2" sx={{ mt: 1 }}>
-                    Today: {todayTokens} tokens
-                  </Typography>
-                  <Typography variant="body2">
-                    Total (7 days): {totalTokens} tokens
-                  </Typography>
-                </Box>
-              }
-            >
-              <Box>
-                <SparkLineChart
-                  data={usageValues}
-                  height={50}
-                  width={200}
-                  showTooltip={true}
-                  curve="linear"
-                />
-              </Box>
-            </Tooltip>
+            <Box>
+              <LineChart
+                xAxis={[
+                  {
+                    data: usageLabels,
+                    scaleType: 'point',
+                    tickLabelStyle: { fontSize: 10, fill: '#aaa' },
+                    label: '',
+                  }
+                ]}
+                yAxis={[
+                  {
+                    tickLabelStyle: { display: 'none' },
+                    label: '',
+                  }
+                ]}
+                series={[{
+                  data: usageValues,
+                  area: true,
+                  showMark: false,
+                  color: '#00c8ff',
+                }]}
+                height={50}
+                width={200}
+                slotProps={{
+                  legend: { hidden: true },
+                }}
+                sx={{
+                  '& .MuiAreaElement-root': {
+                    fill: 'url(#usageGradient)',
+                  },
+                  '& .MuiMarkElement-root': {
+                    display: 'none',
+                  },
+                  '& .MuiLineElement-root': {
+                    strokeWidth: 2,
+                  },
+                  '& .MuiChartsAxis-line': {
+                    display: 'none',
+                  },
+                }}
+                grid={{ horizontal: false, vertical: false }}
+                disableAxisListener
+                margin={{ top: 0, bottom: 0, left: 0, right: 0 }}
+              >
+                <defs>
+                  <linearGradient id="usageGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#00c8ff" stopOpacity={0.5} />
+                    <stop offset="100%" stopColor="#070714" stopOpacity={0.1} />
+                  </linearGradient>
+                </defs>
+              </LineChart>
+            </Box>            
           </Box>
         ),
       }
@@ -291,17 +332,11 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
           name: 'name',
           title: 'Name',
       }, {
-        name: 'type',
-        title: 'Access Type',
-      }, {
-        name: 'updated',
-        title: 'Updated At',
-      }, {
         name: 'actions',
-        title: 'Actions',
+        title: 'Skills',
       }, {
         name: 'usage',
-        title: 'Usage',
+        title: 'Token Usage',
       }]}
       data={ tableData }
       getActions={ getActions }

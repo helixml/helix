@@ -10,10 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/llm"
@@ -121,6 +123,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 				startReq.Model = assistant.Model
 			}
 
+			if assistant.Provider != "" {
+				startReq.Provider = types.Provider(assistant.Provider)
+			}
+
 			if assistant.ContextLimit > 0 {
 				messageContextLimit = assistant.ContextLimit
 			}
@@ -154,7 +160,8 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		startReq.Type = types.SessionTypeText
 	}
 
-	if startReq.SystemPrompt == "" {
+	// If there's no app and no system prompt, set the default system prompt
+	if startReq.AppID == "" && startReq.SystemPrompt == "" {
 		startReq.SystemPrompt = `You are a helpful assistant called Helix, built on a platform called HelixML enabling private deployment of GenAI models enabling privacy, security and compliance. If the user's query includes sections in square brackets [like this], indicating that some values are missing, you should ask for the missing values, but DO NOT include the square brackets in your response - instead make the response seem natural and extremely concise - only asking the required questions asking for the values to be filled in. To reiterate, do NOT include square brackets in the response.
 
 EXAMPLE:
@@ -201,12 +208,6 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		// Updating session model and provider
 		session.ModelName = startReq.Model
 
-		// Set the session ID in the context to enable document ID tracking
-		ctx = oai.SetContextSessionID(ctx, session.ID)
-		log.Debug().
-			Str("session_id", session.ID).
-			Str("app_id", startReq.AppID).
-			Msg("existing session: set session ID in context for document tracking")
 	} else {
 		// Create session
 		newSession = true
@@ -284,24 +285,25 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		ownerID = oai.RunnerID
 	}
 
+	lastInteraction, err := data.GetLastInteraction(session)
+	if err != nil {
+		log.Error().Err(err).Msg("error getting last interaction")
+		http.Error(rw, "error getting last interaction", http.StatusInternalServerError)
+		return
+	}
+
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
 		OwnerID:         ownerID,
 		SessionID:       session.ID,
-		InteractionID:   session.Interactions[0].ID,
+		InteractionID:   lastInteraction.ID,
 		OriginalRequest: body,
 	})
 
 	var (
 		chatCompletionRequest = openai.ChatCompletionRequest{
-			Model: modelName,
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleSystem,
-					Content: startReq.SystemPrompt,
-				},
-			},
+			Model:    modelName,
+			Messages: []openai.ChatCompletionMessage{},
 		}
-
 		options = &controller.ChatCompletionOptions{
 			AppID:       startReq.AppID,
 			AssistantID: startReq.AssistantID,
@@ -318,6 +320,14 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			}(),
 		}
 	)
+
+	// Adding system prompt to the chat completion request if it's set
+	if startReq.SystemPrompt != "" {
+		chatCompletionRequest.Messages = append(chatCompletionRequest.Messages, openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: startReq.SystemPrompt,
+		})
+	}
 
 	// Convert interactions (except the last one) to messages
 	messagesToInclude := limitInteractions(session.Interactions, messageContextLimit)
@@ -525,9 +535,6 @@ func (s *HelixAPIServer) generateSessionName(user *types.User, sessionID, provid
 
 	options := &controller.ChatCompletionOptions{
 		Provider: provider,
-		// AppID:       r.URL.Query().Get("app_id"),
-		// AssistantID: r.URL.Query().Get("assistant_id"),
-		// RAGSourceID: r.URL.Query().Get("rag_source_id"),
 	}
 
 	resp, _, err := s.Controller.ChatCompletion(ctx, user, req, options)
@@ -646,6 +653,12 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	// Call the LLM
 	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
+		log.Error().
+			Str("app_id", options.AppID).
+			Str("session_id", session.ID).
+			Err(err).
+			Msg("error running controller chat completion stream")
+
 		// Update the session with the response
 		session.Interactions[len(session.Interactions)-1].Error = err.Error()
 		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
@@ -678,7 +691,12 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 			break
 		}
 		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			log.Error().
+				Str("app_id", options.AppID).
+				Str("session_id", session.ID).
+				Any("response", response).
+				Err(err).
+				Msg("error receiving stream")
 			return err
 		}
 
@@ -708,4 +726,36 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	session.Interactions[len(session.Interactions)-1].Finished = true
 
 	return s.Controller.WriteSession(ctx, session)
+}
+
+// getSessionStepInfo godoc
+// @Summary Get session step info
+// @Description Get session step info
+// @Tags    session
+
+// @Success 200 {array} types.StepInfo
+// @Router /api/v1/sessions/{id}/step-info [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getSessionStepInfo(_ http.ResponseWriter, req *http.Request) ([]*types.StepInfo, *system.HTTPError) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+	id := mux.Vars(req)["id"]
+
+	session, err := s.Store.GetSession(ctx, id)
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get session %s, error: %s", id, err))
+	}
+
+	if session.Owner != user.ID {
+		return nil, system.NewHTTPError403("you are not allowed to access this session")
+	}
+
+	stepInfos, err := s.Store.ListStepInfos(ctx, &store.ListStepInfosQuery{
+		SessionID: id,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get step infos for session %s, error: %s", id, err))
+	}
+
+	return stepInfos, nil
 }

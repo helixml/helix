@@ -66,6 +66,7 @@ func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request op
 	start := time.Now()
 	resp, err := m.client.CreateChatCompletion(ctx, request)
 	if err != nil {
+		m.logLLMCall(ctx, &request, &resp, err, false, time.Since(start).Milliseconds())
 		return resp, err
 	}
 
@@ -79,15 +80,18 @@ func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request op
 
 		defer m.wg.Done()
 
-		m.logLLMCall(ctx, &request, &resp, time.Since(start).Milliseconds())
+		m.logLLMCall(ctx, &request, &resp, nil, false, time.Since(start).Milliseconds())
 	}()
 
 	return resp, nil
 }
 
 func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+	start := time.Now()
+
 	upstream, err := m.client.CreateChatCompletionStream(ctx, request)
 	if err != nil {
+		m.logLLMCall(ctx, &request, nil, err, true, time.Since(start).Milliseconds())
 		return nil, err
 	}
 
@@ -107,8 +111,6 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 		defer m.wg.Done()
 		// Once done, close the writer
 		defer downstreamWriter.Close()
-
-		start := time.Now()
 
 		var resp = openai.ChatCompletionResponse{}
 
@@ -133,7 +135,7 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 		}
 
 		// Once the stream is done, close the downstream writer
-		m.logLLMCall(ctx, &request, &resp, time.Since(start).Milliseconds())
+		m.logLLMCall(ctx, &request, &resp, nil, true, time.Since(start).Milliseconds())
 	}()
 
 	return downstream, nil
@@ -166,10 +168,22 @@ func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompleti
 
 	// Append the chunk to the response
 	if len(chunk.Choices) > 0 {
+		// Role
+		if chunk.Choices[0].Delta.Role != "" {
+			resp.Choices[0].Message.Role = chunk.Choices[0].Delta.Role
+		}
+
+		// Content
 		resp.Choices[0].Message.Content += chunk.Choices[0].Delta.Content
 
+		// Function calls
 		if chunk.Choices[0].Delta.FunctionCall != nil {
 			resp.Choices[0].Message.FunctionCall = chunk.Choices[0].Delta.FunctionCall
+		}
+
+		// Tool calls
+		if len(chunk.Choices[0].Delta.ToolCalls) > 0 {
+			resp.Choices[0].Message.ToolCalls = append(resp.Choices[0].Message.ToolCalls, chunk.Choices[0].Delta.ToolCalls...)
 		}
 	}
 
@@ -181,17 +195,21 @@ func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompleti
 	}
 }
 
-func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, durationMs int64) {
+func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, apiError error, stream bool, durationMs int64) {
 	reqBts, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal LLM request")
 		return
 	}
 
-	respBts, err := json.MarshalIndent(resp, "", "  ")
-	if err != nil {
-		log.Error().Err(err).Msg("failed to marshal LLM response")
-		return
+	var respBts []byte
+
+	if resp != nil {
+		respBts, err = json.MarshalIndent(resp, "", "  ")
+		if err != nil {
+			log.Error().Err(err).Msg("failed to marshal LLM response")
+			return
+		}
 	}
 
 	vals, ok := oai.GetContextValues(ctx)
@@ -246,7 +264,13 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		CompletionTokens: int64(resp.Usage.CompletionTokens),
 		TotalTokens:      int64(resp.Usage.TotalTokens),
 		UserID:           vals.OwnerID,
+		Stream:           stream,
 	}
+
+	if apiError != nil {
+		llmCall.Error = apiError.Error()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), logCallTimeout)
 	defer cancel()
 

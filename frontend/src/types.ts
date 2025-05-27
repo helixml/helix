@@ -1,4 +1,4 @@
-import { TypesUserAppAccessResponse, TypesAssistantConfig, TypesMessage, TypesMessageContent } from './api/api'
+import { TypesUserAppAccessResponse, TypesAssistantConfig, TypesStepInfo, TypesMessage, TypesMessageContent } from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
 // SYSTEM means the system prompt, NOT an assistant message (as it previously
@@ -26,10 +26,10 @@ export const INTERACTION_STATE_EDITING: IInteractionState = 'editing'
 export const INTERACTION_STATE_COMPLETE: IInteractionState = 'complete'
 export const INTERACTION_STATE_ERROR: IInteractionState = 'error'
 
-export type IWebSocketEventType = 'session_update' | 'worker_task_response'
+export type IWebSocketEventType = 'session_update' | 'worker_task_response' | 'step_info'
 export const WEBSOCKET_EVENT_TYPE_SESSION_UPDATE: IWebSocketEventType = 'session_update'
 export const WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE: IWebSocketEventType = 'worker_task_response'
-
+export const WEBSOCKET_EVENT_TYPE_STEP_INFO: IWebSocketEventType = 'step_info'
 export type IWorkerTaskResponseType = 'stream' | 'progress' | 'result'
 export const WORKER_TASK_RESPONSE_TYPE_STREAM: IWorkerTaskResponseType = 'stream'
 export const WORKER_TASK_RESPONSE_TYPE_PROGRESS: IWorkerTaskResponseType = 'progress'
@@ -264,7 +264,7 @@ export interface IWebsocketEvent {
   owner: string,
   session?: ISession,
   worker_task_response?: IWorkerTaskResponse,
-  step_info?: any,
+  step_info?: TypesStepInfo,
 }
 
 export interface IServerConfig {
@@ -548,6 +548,7 @@ export interface IAssistantApi {
   request_prep_template?: string,
   response_success_template?: string,
   response_error_template?: string,
+  system_prompt?: string,
   oauth_provider?: string,
   oauth_scopes?: string[],
 }
@@ -575,6 +576,11 @@ export interface IAssistantConfig {
   image?: string;
   provider?: string;
   model?: string;
+  agent_mode?: boolean;
+  reasoning_model?: string;
+  generation_model?: string;
+  small_reasoning_model?: string;
+  small_generation_model?: string;
   /**
    * ContextLimit - the number of messages to include in the context for the AI assistant.
    * When set to 1, the AI assistant will only see and remember the most recent message.
@@ -783,6 +789,11 @@ export interface IAppFlatState {
   system_prompt?: string
   provider?: string
   model?: string
+  agent_mode?: boolean
+  reasoning_model?: string
+  generation_model?: string
+  small_reasoning_model?: string
+  small_generation_model?: string
   context_limit?: number
   frequency_penalty?: number
   max_tokens?: number
@@ -933,31 +944,31 @@ export interface IApiOptions {
   signal?: AbortSignal;
 }
 
-export interface LLMCall {
-  id: string;
-  created: string;
-  updated: string;
-  session_id: string;
-  interaction_id: string;
-  model: string;
-  provider: string;
-  step: string;
-  request: any;
-  response: any;
-  original_request: any;
-  duration_ms: number;
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-}
+// export interface LLMCall {
+//   id: string;
+//   created: string;
+//   updated: string;
+//   session_id: string;
+//   interaction_id: string;
+//   model: string;
+//   provider: string;
+//   step: string;
+//   request: any;
+//   response: any;
+//   original_request: any;
+//   duration_ms: number;
+//   prompt_tokens: number;
+//   completion_tokens: number;
+//   total_tokens: number;
+// }
 
-export interface PaginatedLLMCalls {
-  calls: LLMCall[];
-  page: number;
-  pageSize: number;
-  totalCount: number;
-  totalPages: number;
-}
+// export interface PaginatedLLMCalls {
+//   calls: LLMCall[];
+//   page: number;
+//   pageSize: number;
+//   totalCount: number;
+//   totalPages: number;
+// }
 
 export interface ICreateSecret {
   name: string,

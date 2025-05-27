@@ -46,4 +46,7 @@ components:
           type: string
         CV:
           type: string
+        salary_usd:
+          description: Salary in USD
+          type: integer
 `;

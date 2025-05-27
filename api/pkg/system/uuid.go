@@ -29,6 +29,7 @@ const (
 	RolePrefix                = "role_"
 	AccessGrantPrefix         = "ag_"
 	UsageMetricPrefix         = "um_"
+	StepInfoPrefix            = "step_"
 )
 
 func GenerateUUID() string {
@@ -41,6 +42,10 @@ func GenerateID() string {
 
 func newID() string {
 	return strings.ToLower(ulid.Make().String())
+}
+
+func GenerateStepInfoID() string {
+	return fmt.Sprintf("%s%s", StepInfoPrefix, newID())
 }
 
 func GenerateToolID() string {

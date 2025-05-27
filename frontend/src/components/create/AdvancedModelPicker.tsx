@@ -26,6 +26,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import MemoryIcon from '@mui/icons-material/Memory';
+import StarIcon from '@mui/icons-material/Star';
 import { useListProviders } from '../../services/providersService';
 import { TypesOpenAIModel, TypesProviderEndpoint } from '../../api/api';
 import openaiLogo from '../../../assets/img/openai-logo.png'
@@ -42,6 +43,8 @@ interface AdvancedModelPickerProps {
   displayMode?: 'full' | 'short'; // Controls how the model name is displayed
   buttonVariant?: 'text' | 'outlined' | 'contained'; // New prop for button variant
   disabled?: boolean; // New prop to disable the picker
+  hint?: string; // Optional hint text to display in the dialog
+  recommendedModels?: string[]; // List of recommended model IDs to show at the top
 }
 
 const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint }> = ({ provider }) => {
@@ -125,6 +128,8 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   displayMode = 'full',
   buttonVariant = 'outlined', // Default to outlined
   disabled = false, // Default to false
+  hint,
+  recommendedModels = [], // Default to empty array
 }) => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -195,7 +200,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   
   // Determine tooltip title based on disabled state
   const tooltipTitle = useMemo(() => {
-    if (disabled) return "Model is controlled by the App";
+    if (disabled) return "Model selection is disabled";
     return displayModelName;
   }, [disabled, displayModelName]);
 
@@ -209,8 +214,26 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
       models = models.filter(model => model.enabled);
     }
 
+    // Sort models to put recommended ones at the top
+    if (recommendedModels.length > 0) {
+      models.sort((a, b) => {
+        const aIndex = recommendedModels.indexOf(a.id || '');
+        const bIndex = recommendedModels.indexOf(b.id || '');
+        
+        // If both are in recommended list, maintain their order in recommended list
+        if (aIndex !== -1 && bIndex !== -1) {
+          return aIndex - bIndex;
+        }
+        // If only one is in recommended list, put it first
+        if (aIndex !== -1) return -1;
+        if (bIndex !== -1) return 1;
+        // If neither is in recommended list, maintain original order
+        return 0;
+      });
+    }
+
     return models;
-  }, [searchQuery, allModels, currentType, showOnlyEnabled]);
+  }, [searchQuery, allModels, currentType, showOnlyEnabled, recommendedModels]);
 
   const handleOpenDialog = () => {
     setSearchQuery('');
@@ -314,6 +337,15 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
             flexDirection: 'column' 
           }}
         >
+          {hint && (
+            <Typography 
+              variant="body2" 
+              color="text.secondary" 
+              sx={{ mb: 2, fontStyle: 'italic' }}
+            >
+              {hint}
+            </Typography>
+          )}
           <TextField
             fullWidth
             placeholder="Search models..."
@@ -379,6 +411,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
             {!isLoading && filteredModels.map((model) => {
               const formattedContextLength = formatContextLength(model.context_length);
               const isDisabled = !model.enabled; // Check if the model is disabled
+              const isRecommended = recommendedModels.includes(model.id || '');
 
               const listItem = (
                 <ListItem
@@ -408,7 +441,23 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                       <ProviderIcon provider={model.provider} />
                     </ListItemIcon>
                     <ListItemText
-                      primary={model.id || 'Unnamed Model'}
+                      primary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          {model.id || 'Unnamed Model'}
+                          {isRecommended && (
+                            <Tooltip title="Recommended model">
+                              <StarIcon 
+                                sx={{ 
+                                  fontSize: '1rem', 
+                                  color: '#FFD700',
+                                  ml: 0.5,
+                                  verticalAlign: 'middle'
+                                }} 
+                              />
+                            </Tooltip>
+                          )}
+                        </Box>
+                      }
                       secondary={model.provider.name}
                       primaryTypographyProps={{
                         variant: 'body1',
