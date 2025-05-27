@@ -496,22 +496,22 @@ func (s *HelixRunnerAPIServer) createEmbedding(rw http.ResponseWriter, r *http.R
 					Msg("❌ Failed to write response for chat embeddings")
 			}
 			return
-		} else {
-			// Standard embedding with Input field
-			log.Info().
-				Str("component", "runner").
-				Str("operation", "embedding").
-				Str("slot_id", slotUUID.String()).
-				Str("model", slot.Model).
-				Msg("Converting flexible embedding request to standard format")
+		}
 
-			// Convert to standard OpenAI embedding request
-			embeddingRequest = openai.EmbeddingRequest{
-				Model:          openai.EmbeddingModel(flexibleRequest.Model),
-				Input:          flexibleRequest.Input,
-				EncodingFormat: openai.EmbeddingEncodingFormat(flexibleRequest.EncodingFormat),
-				Dimensions:     flexibleRequest.Dimensions,
-			}
+		// Standard embedding with Input field
+		log.Info().
+			Str("component", "runner").
+			Str("operation", "embedding").
+			Str("slot_id", slotUUID.String()).
+			Str("model", slot.Model).
+			Msg("Converting flexible embedding request to standard format")
+
+		// Convert to standard OpenAI embedding request
+		embeddingRequest = openai.EmbeddingRequest{
+			Model:          openai.EmbeddingModel(flexibleRequest.Model),
+			Input:          flexibleRequest.Input,
+			EncodingFormat: openai.EmbeddingEncodingFormat(flexibleRequest.EncodingFormat),
+			Dimensions:     flexibleRequest.Dimensions,
 		}
 	}
 
