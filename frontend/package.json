@@ -14,7 +14,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@babel/core": "^7.0.0",
+    "@babel/core": "^7.27.3",
     "@chbphone55/pretty-bytes": "^1.0.0",
     "@emotion/react": "^11.7.1",
     "@emotion/styled": "^11.6.0",
