@@ -1092,10 +1092,10 @@
   resolved "https://registry.yarnpkg.com/@rollup/rollup-win32-x64-msvc/-/rollup-win32-x64-msvc-4.36.0.tgz#88b23fe29d28fa647030b36e912c1b5b50831b1d"
   integrity sha512-aRXd7tRZkWLqGbChgcMMDEHjOKudo1kChb1Jt1IfR8cY/KIpgNviLeJy5FUb9IpSuQj8dU2fAYNMPW/hLKOSTw==
 
-"@rudderstack/analytics-js@^3.0.3":
-  version "3.11.17"
-  resolved "https://registry.yarnpkg.com/@rudderstack/analytics-js/-/analytics-js-3.11.17.tgz#1cc18c8d556413d20edd85eefa41a7d042232a89"
-  integrity sha512-w783VwspIcRPS2AplGJ/Mapl4iLb+giq5Xl8XMN1h+yBhGbtvXr1BW7bwl4ytyB9iqvxvQcjAeUIa+ksLs8YVg==
+"@rudderstack/analytics-js@^3.18.2":
+  version "3.18.2"
+  resolved "https://registry.yarnpkg.com/@rudderstack/analytics-js/-/analytics-js-3.18.2.tgz#f7ff6127201c42ba24542dd3b49100567325461f"
+  integrity sha512-GO1ExBGksSoEftVdN/QSmPlF6zvgNqYgIUW/Eixzse3BJjPtAxVrYYuSCIN/Mm2+NO7cVndZQ/UaxrsnXL3YkQ==
 
 "@sentry-internal/browser-utils@8.50.0":
   version "8.50.0"
