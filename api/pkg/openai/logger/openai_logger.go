@@ -230,12 +230,21 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		log.Debug().Msg("failed to get app_id")
 	}
 
-	if resp.Usage.PromptTokens == 0 && resp.Usage.CompletionTokens == 0 {
-		// Compute the token usage
-		promptTokens, completionTokens, totalTokens := m.computeTokenUsage(req, resp)
-		resp.Usage.PromptTokens = promptTokens
-		resp.Usage.CompletionTokens = completionTokens
-		resp.Usage.TotalTokens = totalTokens
+	// Initialize token counts to 0 in case resp is nil
+	var promptTokens, completionTokens, totalTokens int
+
+	if resp != nil {
+		if resp.Usage.PromptTokens == 0 && resp.Usage.CompletionTokens == 0 {
+			// Compute the token usage
+			promptTokens, completionTokens, totalTokens = m.computeTokenUsage(req, resp)
+			resp.Usage.PromptTokens = promptTokens
+			resp.Usage.CompletionTokens = completionTokens
+			resp.Usage.TotalTokens = totalTokens
+		} else {
+			promptTokens = resp.Usage.PromptTokens
+			completionTokens = resp.Usage.CompletionTokens
+			totalTokens = resp.Usage.TotalTokens
+		}
 	}
 
 	log.Debug().
@@ -244,9 +253,9 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		Str("model", req.Model).
 		Str("provider", string(m.provider)).
 		Str("step", string(step.Step)).
-		Int("prompt_tokens", resp.Usage.PromptTokens).
-		Int("completion_tokens", resp.Usage.CompletionTokens).
-		Int("total_tokens", resp.Usage.TotalTokens).
+		Int("prompt_tokens", promptTokens).
+		Int("completion_tokens", completionTokens).
+		Int("total_tokens", totalTokens).
 		Msg("logging LLM call")
 
 	llmCall := &types.LLMCall{
@@ -260,9 +269,9 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		Response:         respBts,
 		Provider:         string(m.provider),
 		DurationMs:       durationMs,
-		PromptTokens:     int64(resp.Usage.PromptTokens),
-		CompletionTokens: int64(resp.Usage.CompletionTokens),
-		TotalTokens:      int64(resp.Usage.TotalTokens),
+		PromptTokens:     int64(promptTokens),
+		CompletionTokens: int64(completionTokens),
+		TotalTokens:      int64(totalTokens),
 		UserID:           vals.OwnerID,
 		Stream:           stream,
 	}
@@ -406,6 +415,65 @@ func (m *LoggingMiddleware) CreateEmbeddings(ctx context.Context, request openai
 		}
 
 		logEntry.Msg("✅ Embedding completed")
+	}
+
+	return resp, err
+}
+
+func (m *LoggingMiddleware) CreateFlexibleEmbeddings(ctx context.Context, request types.FlexibleEmbeddingRequest) (resp types.FlexibleEmbeddingResponse, err error) {
+	startTime := time.Now()
+
+	// Log the request
+	logEntry := log.Info().
+		Str("component", "openai_logger").
+		Str("provider", string(m.provider)).
+		Str("operation", "flexible_embedding").
+		Str("model", request.Model)
+
+	// Add input information based on what's provided
+	if request.Input != nil {
+		logEntry = logEntry.Int("input_length", len(fmt.Sprintf("%v", request.Input)))
+	}
+	if len(request.Messages) > 0 {
+		logEntry = logEntry.Int("message_count", len(request.Messages))
+	}
+
+	logEntry.Msg("🔍 Flexible embedding request")
+
+	// Call the actual embedding API
+	resp, err = m.client.CreateFlexibleEmbeddings(ctx, request)
+
+	// Calculate duration
+	durationMs := time.Since(startTime).Milliseconds()
+
+	// Log the response
+	if err != nil {
+		log.Error().
+			Str("component", "openai_logger").
+			Str("provider", string(m.provider)).
+			Str("operation", "flexible_embedding").
+			Str("model", request.Model).
+			Int64("duration_ms", durationMs).
+			Err(err).
+			Msg("❌ Flexible embedding failed")
+	} else {
+		// Build the log entry
+		logEntry := log.Info().
+			Str("component", "openai_logger").
+			Str("provider", string(m.provider)).
+			Str("operation", "flexible_embedding").
+			Str("model", request.Model).
+			Int64("duration_ms", durationMs).
+			Int("embedding_count", len(resp.Data))
+
+		// Only add dimensions if we have at least one embedding
+		if len(resp.Data) > 0 {
+			logEntry = logEntry.Int("embedding_dimensions", len(resp.Data[0].Embedding))
+		} else {
+			logEntry = logEntry.Str("error", "empty_embedding_response")
+		}
+
+		logEntry.Msg("✅ Flexible embedding completed")
 	}
 
 	return resp, err
