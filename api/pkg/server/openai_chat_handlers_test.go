@@ -1349,6 +1349,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_CustomQueryParams() {
 		Owner: suite.userID,
 	}).Return([]*types.Secret{}, nil).Times(2)
 
+	suite.store.EXPECT().CreateStepInfo(gomock.Any(), gomock.Any()).Times(4)
+
 	req, err := http.NewRequest("POST", "/v1/chat/completions?app_id=app123&job_id=123", bytes.NewBufferString(`{
 		"model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
 		"stream": false,

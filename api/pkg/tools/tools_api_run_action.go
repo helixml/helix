@@ -441,12 +441,7 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 					Str("auth_header_prefix", prefix).
 					Str("auth_header_type", strings.Split(authHeader, " ")[0]).
 					Msg("API tool has Authorization header in callAPI")
-			} else {
-				log.Warn().
-					Str("session_id", sessionID).
-					Msg("API tool missing Authorization header in callAPI")
-
-				// Inspect OAuth provider - is it correctly configured?
+			} else { // Inspect OAuth provider - is it correctly configured?
 				log.Info().
 					Str("session_id", sessionID).
 					Str("oauth_provider", tool.Config.API.OAuthProvider).
@@ -455,9 +450,6 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 					Msg("OAuth provider info for tool")
 			}
 		} else {
-			log.Warn().
-				Str("session_id", sessionID).
-				Msg("API tool has no headers map in callAPI")
 
 			// Headers map is nil, let's examine the tool config
 			log.Info().
