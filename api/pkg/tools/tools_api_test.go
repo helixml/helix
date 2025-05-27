@@ -667,7 +667,7 @@ func Test_unmarshalParams(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    map[string]string
+		want    map[string]interface{}
 		wantErr bool
 	}{
 		{
@@ -675,8 +675,8 @@ func Test_unmarshalParams(t *testing.T) {
 			args: args{
 				data: `{"id": 1000}`,
 			},
-			want: map[string]string{
-				"id": "1000",
+			want: map[string]interface{}{
+				"id": float64(1000),
 			},
 		},
 		{
@@ -684,7 +684,7 @@ func Test_unmarshalParams(t *testing.T) {
 			args: args{
 				data: `{"id": "1000"}`,
 			},
-			want: map[string]string{
+			want: map[string]interface{}{
 				"id": "1000",
 			},
 		},
@@ -693,8 +693,8 @@ func Test_unmarshalParams(t *testing.T) {
 			args: args{
 				data: `{"id": 1005.0}`,
 			},
-			want: map[string]string{
-				"id": "1005",
+			want: map[string]interface{}{
+				"id": float64(1005),
 			},
 		},
 		{
@@ -702,8 +702,8 @@ func Test_unmarshalParams(t *testing.T) {
 			args: args{
 				data: `{"id": 1005.5}`,
 			},
-			want: map[string]string{
-				"id": "1005.5",
+			want: map[string]interface{}{
+				"id": 1005.5,
 			},
 		},
 		{
@@ -711,8 +711,8 @@ func Test_unmarshalParams(t *testing.T) {
 			args: args{
 				data: `{"yes": true}`,
 			},
-			want: map[string]string{
-				"yes": "true",
+			want: map[string]interface{}{
+				"yes": true,
 			},
 		},
 		{
@@ -720,8 +720,8 @@ func Test_unmarshalParams(t *testing.T) {
 			args: args{
 				data: "```json{\"id\": 1000}```",
 			},
-			want: map[string]string{
-				"id": "1000",
+			want: map[string]interface{}{
+				"id": float64(1000),
 			},
 		},
 		{
@@ -729,8 +729,8 @@ func Test_unmarshalParams(t *testing.T) {
 			args: args{
 				data: "```json{\"id\": 1000}```blah blah blah I am very smart LLM",
 			},
-			want: map[string]string{
-				"id": "1000",
+			want: map[string]interface{}{
+				"id": float64(1000),
 			},
 		},
 		{
@@ -738,8 +738,8 @@ func Test_unmarshalParams(t *testing.T) {
 			args: args{
 				data: "```\n{\"id\": 1000}```blah blah blah I am very stupid LLM that cannot follow instructions about backticks",
 			},
-			want: map[string]string{
-				"id": "1000",
+			want: map[string]interface{}{
+				"id": float64(1000),
 			},
 		},
 	}
@@ -752,6 +752,8 @@ func Test_unmarshalParams(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("unmarshalParams() = %v, want %v", got, tt.want)
+				spew.Dump(got)
+				spew.Dump(tt.want)
 			}
 		})
 	}
