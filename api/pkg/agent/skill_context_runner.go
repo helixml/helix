@@ -46,6 +46,8 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 	messageHistory.AddFirst(systemPrompt)
 
 	isFirstIteration := true
+	iterationNumber := 1
+
 	for {
 		modelToUse := llm.SmallGenerationModel
 		reasoningEffort := ""
@@ -61,7 +63,15 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 			Model:           modelToUse.Model,
 			ReasoningEffort: reasoningEffort,
 		}
-		log.Info().Str("skill", skill.Name).Interface("tools", skill.Tools).Msg("Running skill")
+
+		log.Info().
+			Str("skill", skill.Name).
+			Interface("tools", skill.Tools).
+			Int("iteration", iterationNumber).
+			Str("reasoning_effort", reasoningEffort).
+			Str("model", modelToUse.Model).
+			Msg("Running skill")
+
 		if len(skill.GetTools()) > 0 {
 			params.Tools = skill.GetTools()
 		}
@@ -71,7 +81,7 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 		messageHistoryBeforeLLMCall := messageHistory.Clone()
 
 		ctx = oai.SetStep(ctx, &oai.Step{
-			Step: types.LLMCallStep(fmt.Sprintf("skill_context_runner (%s)", skill.Name)),
+			Step: types.LLMCallStep(fmt.Sprintf("skill_context_runner (%s | iteration %d)", skill.Name, iterationNumber)),
 		})
 
 		completion, err := llm.New(ctx, modelToUse, params)
