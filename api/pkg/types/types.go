@@ -1147,11 +1147,19 @@ type AssistantConfig struct {
 	Model       string `json:"model,omitempty" yaml:"model,omitempty"`
 
 	// AgentMode triggers the use of the agent loop
-	AgentMode            bool   `json:"agent_mode"`
-	ReasoningModel       string `json:"reasoning_model"`
-	GenerationModel      string `json:"generation_model"`
-	SmallReasoningModel  string `json:"small_reasoning_model"`
-	SmallGenerationModel string `json:"small_generation_model"`
+	AgentMode bool `json:"agent_mode"`
+
+	ReasoningModelProvider string `json:"reasoning_model_provider"`
+	ReasoningModel         string `json:"reasoning_model"`
+
+	GenerationModelProvider string `json:"generation_model_provider"`
+	GenerationModel         string `json:"generation_model"`
+
+	SmallReasoningModelProvider string `json:"small_reasoning_model_provider"`
+	SmallReasoningModel         string `json:"small_reasoning_model"`
+
+	SmallGenerationModelProvider string `json:"small_generation_model_provider"`
+	SmallGenerationModel         string `json:"small_generation_model"`
 
 	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 
