@@ -65,9 +65,11 @@ func (a *Agent) GetSkill(name string) (*Skill, error) {
 func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages *MessageList, llm *LLM) (string, error) {
 	clonedMessages.AddFirst("Craft a helpful answer to user's question based on the tool call results. Be concise and to the point.")
 
+	model := llm.GenerationModel
+
 	params := openai.ChatCompletionRequest{
 		Messages: clonedMessages.All(),
-		Model:    llm.GenerationModel,
+		Model:    model.Model,
 		StreamOptions: &openai.StreamOptions{
 			IncludeUsage: true,
 		},
@@ -77,7 +79,7 @@ func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages
 		Step: types.LLMCallStep("summarize_multiple_tool_results"),
 	})
 
-	stream, err := llm.NewStreaming(ctx, params)
+	stream, err := llm.NewStreaming(ctx, model, params)
 	if err != nil {
 		return "", err
 	}
@@ -176,10 +178,12 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 		tools = append([]openai.Tool{a.StopTool()}, a.ConvertSkillsToTools()...)
 	}
 
+	model := llm.GenerationModel
+
 	// TODO make it strict to call the tool when the openai sdk supports passing the option 'required'
 	params := openai.ChatCompletionRequest{
 		Messages:   clonedMessages.All(),
-		Model:      llm.GenerationModel,
+		Model:      model.Model,
 		ToolChoice: "auto",
 		Tools:      tools,
 	}
@@ -188,7 +192,7 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 		Step: types.LLMCallStep("decide_next_action"),
 	})
 
-	completion, err := llm.New(ctx, params)
+	completion, err := llm.New(ctx, model, params)
 	if err != nil {
 		log.Error().Err(err).Interface("params", params).Msg("Error getting initial response")
 		return nil, err
@@ -285,9 +289,11 @@ func (a *Agent) sendThoughtsAboutSkills(ctx context.Context, llm *LLM, messageHi
 		Step: types.LLMCallStep("send_thoughts_about_skills"),
 	})
 
-	stream, err := llm.NewStreaming(ctx, openai.ChatCompletionRequest{
+	model := llm.SmallGenerationModel
+
+	stream, err := llm.NewStreaming(ctx, model, openai.ChatCompletionRequest{
 		Messages: messageHistory.All(),
-		Model:    llm.SmallGenerationModel,
+		Model:    model.Model,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("Error creating streaming")
@@ -358,9 +364,11 @@ func (a *Agent) sendThoughtsAboutTools(ctx context.Context, llm *LLM, messageHis
 		Step: types.LLMCallStep("send_thoughts_about_tools"),
 	})
 
-	stream, err := llm.NewStreaming(ctx, openai.ChatCompletionRequest{
+	model := llm.SmallGenerationModel
+
+	stream, err := llm.NewStreaming(ctx, model, openai.ChatCompletionRequest{
 		Messages: messageHistory.All(),
-		Model:    llm.SmallGenerationModel,
+		Model:    model.Model,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("Error creating streaming")
@@ -408,16 +416,18 @@ func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *
 	clonedMessages := messageHistory.Clone()
 	clonedMessages.AddFirst(systemPrompt)
 
+	model := llm.GenerationModel
+
 	params := openai.ChatCompletionRequest{
 		Messages: clonedMessages.All(),
-		Model:    llm.GenerationModel,
+		Model:    model.Model,
 	}
 
 	ctx = oai.SetStep(ctx, &oai.Step{
 		Step: types.LLMCallStep("run_without_skills"),
 	})
 
-	completion, err := llm.New(ctx, params)
+	completion, err := llm.New(ctx, model, params)
 	if err != nil {
 		a.handleLLMError(err, outUserChannel)
 		return
