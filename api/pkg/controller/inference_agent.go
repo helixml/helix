@@ -8,6 +8,7 @@ import (
 	agent "github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/agent/skill"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/openai/transport"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -16,7 +17,6 @@ import (
 )
 
 type runAgentRequest struct {
-	Client    oai.Client
 	Assistant *types.AssistantConfig
 	User      *types.User
 	Request   openai.ChatCompletionRequest
@@ -37,12 +37,45 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 
 	mem := agent.NewDefaultMemory()
 
+	// Assemble clients and providers
+
+	reasoningModel, err := c.getLLMModelConfig(ctx,
+		req.User.ID,
+		withFallbackProvider(req.Assistant.ReasoningModelProvider, req.Assistant), // Defaults to top level assistant provider
+		req.Assistant.ReasoningModel)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get reasoning model config: %w", err)
+	}
+
+	generationModel, err := c.getLLMModelConfig(ctx,
+		req.User.ID,
+		withFallbackProvider(req.Assistant.GenerationModelProvider, req.Assistant), // Defaults to top level assistant provider
+		req.Assistant.GenerationModel)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get generation model config: %w", err)
+	}
+
+	smallReasoningModel, err := c.getLLMModelConfig(ctx,
+		req.User.ID,
+		withFallbackProvider(req.Assistant.SmallReasoningModelProvider, req.Assistant), // Defaults to top level assistant provider
+		req.Assistant.SmallReasoningModel)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get small reasoning model config: %w", err)
+	}
+
+	smallGenerationModel, err := c.getLLMModelConfig(ctx,
+		req.User.ID,
+		withFallbackProvider(req.Assistant.SmallGenerationModelProvider, req.Assistant), // Defaults to top level assistant provider
+		req.Assistant.SmallGenerationModel)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get small generation model config: %w", err)
+	}
+
 	llm := agent.NewLLM(
-		req.Client,
-		req.Assistant.ReasoningModel,
-		req.Assistant.GenerationModel,
-		req.Assistant.SmallReasoningModel,
-		req.Assistant.SmallGenerationModel,
+		reasoningModel,
+		generationModel,
+		smallReasoningModel,
+		smallGenerationModel,
 	)
 
 	enriched, err := renderPrompt(req.Assistant.SystemPrompt, systemPromptValues{
@@ -97,6 +130,28 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	session.In(getLastMessage(req.Request))
 
 	return session, nil
+}
+
+func withFallbackProvider(provider string, assistant *types.AssistantConfig) string {
+	if provider == "" {
+		return assistant.Provider
+	}
+	return provider
+}
+
+func (c *Controller) getLLMModelConfig(ctx context.Context, owner, provider, model string) (*agent.LLMModelConfig, error) {
+	client, err := c.providerManager.GetClient(ctx, &manager.GetClientRequest{
+		Provider: provider,
+		Owner:    owner,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get client: %w", err)
+	}
+
+	return &agent.LLMModelConfig{
+		Client: client,
+		Model:  model,
+	}, nil
 }
 
 func (c *Controller) runAgentBlocking(ctx context.Context, req *runAgentRequest) (*openai.ChatCompletionResponse, error) {
