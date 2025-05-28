@@ -34,7 +34,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const [llmCalls, setLLMCalls] = useState<TypesPaginatedLLMCalls | null>(null);
   const [usageData, setUsageData] = useState<TypesUsersAggregatedUsageMetric[]>([]);
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [rowsPerPage, setRowsPerPage] = useState(100);
   const [modalContent, setModalContent] = useState<any>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
