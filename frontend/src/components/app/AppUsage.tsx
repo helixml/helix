@@ -79,6 +79,22 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
     backdropFilter: 'blur(10px)'
   };  
 
+  const parseRequest = (request: any): any => {
+    try {
+      if (typeof request === 'string') {
+        return JSON.parse(request);
+      }
+      return request;
+    } catch (e) {
+      return request;
+    }
+  };
+
+  const getReasoningEffort = (request: any): string => {
+    const parsed = parseRequest(request);
+    return parsed?.reasoning_effort || 'n/a';
+  };
+
   const fetchUsageData = async () => {
     try {
       const response = await apiClient.v1AppsUsersDailyUsageDetail(appId);
@@ -445,7 +461,11 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                                       </Tooltip>
                                     )}
                                   </TableCell>
-                                  <TableCell>{call.model || 'n/a'}</TableCell>
+                                  <TableCell>
+                                    <Tooltip title={getReasoningEffort(call.request) !== 'n/a' ? `Reasoning effort: ${getReasoningEffort(call.request)}` : ''}>
+                                      <span>{call.model || 'n/a'}</span>
+                                    </Tooltip>
+                                  </TableCell>
                                   <TableCell>
                                     <Button onClick={() => handleOpenModal(call.request)}>View</Button>
                                   </TableCell>
