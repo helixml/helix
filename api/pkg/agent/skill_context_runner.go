@@ -58,7 +58,7 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 
 		params := openai.ChatCompletionRequest{
 			Messages:        messageHistory.All(),
-			Model:           modelToUse,
+			Model:           modelToUse.Model,
 			ReasoningEffort: reasoningEffor,
 		}
 		log.Info().Str("skill", skill.Name).Interface("tools", skill.Tools).Msg("Running skill")
@@ -74,7 +74,7 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 			Step: types.LLMCallStep(fmt.Sprintf("skill_context_runner (%s)", skill.Name)),
 		})
 
-		completion, err := llm.New(ctx, params)
+		completion, err := llm.New(ctx, modelToUse, params)
 		if err != nil {
 			log.Error().Err(err).Msg("Error calling LLM while running skill")
 			return MessageWhenToolErrorWithRetry("Network error", skillToolCallID), err
