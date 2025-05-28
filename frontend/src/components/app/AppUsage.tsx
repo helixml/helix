@@ -319,7 +319,6 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
             <TableRow>
               <TableCell sx={headerCellStyle} width="50px"></TableCell>
               <TableCell sx={headerCellStyle}>Time</TableCell>
-              <TableCell sx={headerCellStyle}>Interaction ID</TableCell>
               <TableCell sx={headerCellStyle}>Duration</TableCell>
               <TableCell sx={headerCellStyle}>Total Tokens</TableCell>
               <TableCell sx={headerCellStyle}>Original Request</TableCell>
@@ -366,7 +365,6 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                       </IconButton>
                     </TableCell>
                     <TableCell>{group.created ? new Date(group.created).toLocaleString() : ''}</TableCell>
-                    <TableCell>{group.interaction_id}</TableCell>
                     <TableCell>{formatDuration(group.total_duration)}</TableCell>
                     <TableCell>{group.total_tokens}</TableCell>
                     <TableCell>
