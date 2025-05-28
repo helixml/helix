@@ -322,16 +322,32 @@ export const useApp = (appId: string) => {
       assistants[0].reasoning_model = updates.reasoning_model
     }
 
+    if (updates.reasoning_model_provider !== undefined) {
+      assistants[0].reasoning_model_provider = updates.reasoning_model_provider
+    }
+
     if (updates.generation_model !== undefined) {
       assistants[0].generation_model = updates.generation_model
+    }
+
+    if (updates.generation_model_provider !== undefined) {
+      assistants[0].generation_model_provider = updates.generation_model_provider
     }
 
     if (updates.small_reasoning_model !== undefined) {
       assistants[0].small_reasoning_model = updates.small_reasoning_model
     }
 
+    if (updates.small_reasoning_model_provider !== undefined) {
+      assistants[0].small_reasoning_model_provider = updates.small_reasoning_model_provider
+    }
+
     if (updates.small_generation_model !== undefined) {
       assistants[0].small_generation_model = updates.small_generation_model
+    }
+
+    if (updates.small_generation_model_provider !== undefined) {
+      assistants[0].small_generation_model_provider = updates.small_generation_model_provider
     }
 
     if (updates.context_limit !== undefined) {
