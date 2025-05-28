@@ -42,6 +42,19 @@ interface GroupedLLMCall {
 
 const win = (window as any)
 
+const formatDuration = (ms: number): string => {
+  if (ms < 1000) {
+    return `${ms}ms`;
+  }
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}m ${remainingSeconds}s`;
+};
+
 const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const api = useApi();
   const apiClient = api.getApiClient();
@@ -281,7 +294,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
               <TableCell sx={headerCellStyle} width="50px"></TableCell>
               <TableCell sx={headerCellStyle}>Time</TableCell>
               <TableCell sx={headerCellStyle}>Interaction ID</TableCell>
-              <TableCell sx={headerCellStyle}>Duration (ms)</TableCell>
+              <TableCell sx={headerCellStyle}>Duration</TableCell>
               <TableCell sx={headerCellStyle}>Total Tokens</TableCell>
               <TableCell sx={headerCellStyle}>Original Request</TableCell>
               <TableCell sx={headerCellStyle}>Status</TableCell>
@@ -319,7 +332,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                     </TableCell>
                     <TableCell>{group.created ? new Date(group.created).toLocaleString() : ''}</TableCell>
                     <TableCell>{group.interaction_id}</TableCell>
-                    <TableCell>{group.total_duration}</TableCell>
+                    <TableCell>{formatDuration(group.total_duration)}</TableCell>
                     <TableCell>{group.total_tokens}</TableCell>
                     <TableCell>
                       {group.original_request && (
