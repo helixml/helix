@@ -1,8 +1,11 @@
 package tests
 
 import (
+	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
+
+	helix_openai "github.com/helixml/helix/api/pkg/openai"
 )
 
 type Config struct {
@@ -29,4 +32,34 @@ func LoadConfig() (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func getLLM(config *Config) *agent.LLM {
+	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
+
+	reasoning := agent.LLMModelConfig{
+		Client: client,
+		Model:  config.ReasoningModel,
+	}
+	generation := agent.LLMModelConfig{
+		Client: client,
+		Model:  config.GenerationModel,
+	}
+	smallReasoning := agent.LLMModelConfig{
+		Client: client,
+		Model:  config.SmallReasoningModel,
+	}
+	smallGeneration := agent.LLMModelConfig{
+		Client: client,
+		Model:  config.SmallGenerationModel,
+	}
+
+	llm := agent.NewLLM(
+		&reasoning,
+		&generation,
+		&smallReasoning,
+		&smallGeneration,
+	)
+
+	return llm
 }
