@@ -14,8 +14,12 @@ import {
   Modal,
   Divider,
   Tooltip,
+  IconButton,
+  Collapse,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import useApi from '../../hooks/useApi';
 import { TypesPaginatedLLMCalls, TypesLLMCall } from '../../api/api';
 import JsonView from '../widgets/JsonView';
@@ -24,6 +28,16 @@ import { TypesUsersAggregatedUsageMetric, TypesAggregatedUsageMetric } from '../
 
 interface AppLogsTableProps {
   appId: string;
+}
+
+interface GroupedLLMCall {
+  interaction_id: string;
+  created: string;
+  total_duration: number;
+  total_tokens: number;
+  original_request: any;
+  status: 'OK' | 'ERROR';
+  calls: TypesLLMCall[];
 }
 
 const win = (window as any)
@@ -37,6 +51,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const [rowsPerPage, setRowsPerPage] = useState(100);
   const [modalContent, setModalContent] = useState<any>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   const headerCellStyle = {
     bgcolor: 'rgba(0, 0, 0, 0.2)',
@@ -87,20 +102,66 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
     fetchUsageData();
   };
 
-  const handleOpenModal = (content: any, call: TypesLLMCall) => {
-    setModalContent({
-      content,
-      sessionId: call.session_id,
-      interactionId: call.interaction_id,
-      step: call.step,
-      isError: !!call.error
-    });
+  const handleOpenModal = (content: any) => {
+    setModalContent(content);
     setModalOpen(true);
   };
 
   const handleCloseModal = () => {
     setModalOpen(false);
   };
+
+  const toggleRow = (interactionId: string) => {
+    const newExpandedRows = new Set(expandedRows);
+    if (newExpandedRows.has(interactionId)) {
+      newExpandedRows.delete(interactionId);
+    } else {
+      newExpandedRows.add(interactionId);
+    }
+    setExpandedRows(newExpandedRows);
+  };
+
+  // Group LLM calls by interaction_id
+  const groupedCalls = React.useMemo(() => {
+    if (!llmCalls?.calls) return [];
+
+    const groups = new Map<string, GroupedLLMCall>();
+    
+    llmCalls.calls.forEach(call => {
+      if (!call.interaction_id) return;
+      
+      if (!groups.has(call.interaction_id)) {
+        groups.set(call.interaction_id, {
+          interaction_id: call.interaction_id,
+          created: call.created || '',
+          total_duration: 0,
+          total_tokens: 0,
+          original_request: call.original_request,
+          status: 'OK',
+          calls: [],
+        });
+      }
+      
+      const group = groups.get(call.interaction_id)!;
+      group.calls.push(call);
+      group.total_duration += call.duration_ms || 0;
+      group.total_tokens += call.totalTokens || 0;
+      if (call.error) {
+        group.status = 'ERROR';
+      }
+    });
+
+    // Sort individual calls within each group by creation time (oldest to newest)
+    groups.forEach(group => {
+      group.calls.sort((a, b) => 
+        new Date(a.created || '').getTime() - new Date(b.created || '').getTime()
+      );
+    });
+
+    return Array.from(groups.values()).sort((a, b) => 
+      new Date(b.created).getTime() - new Date(a.created).getTime()
+    );
+  }, [llmCalls?.calls]);
 
   // Prepare data for the line chart
   const prepareChartData = () => {
@@ -217,56 +278,97 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
         <Table stickyHeader aria-label="LLM calls table">
           <TableHead>
             <TableRow>
-              <TableCell sx={headerCellStyle}>Created</TableCell>
-              <TableCell sx={headerCellStyle}>Session ID</TableCell>
-              <TableCell sx={headerCellStyle}>Step</TableCell>
+              <TableCell sx={headerCellStyle} width="50px"></TableCell>
+              <TableCell sx={headerCellStyle}>Time</TableCell>
+              <TableCell sx={headerCellStyle}>Interaction ID</TableCell>
               <TableCell sx={headerCellStyle}>Duration (ms)</TableCell>
+              <TableCell sx={headerCellStyle}>Total Tokens</TableCell>
               <TableCell sx={headerCellStyle}>Original Request</TableCell>
-              <TableCell sx={headerCellStyle}>Request</TableCell>
-              <TableCell sx={headerCellStyle}>Response</TableCell>
+              <TableCell sx={headerCellStyle}>Status</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             { win.DISABLE_LLM_CALL_LOGGING ? (
               <TableRow>
-                <TableCell colSpan={6}>LLM call logging is disabled by the administrator.</TableCell>
+                <TableCell colSpan={7}>LLM call logging is disabled by the administrator.</TableCell>
               </TableRow>
             ) : (
-              llmCalls.calls?.map((call: TypesLLMCall) => (
-                <TableRow 
-                  key={call.id}
-                  sx={{
-                    ...(call.error && {
-                      border: '2px solid #ff4d4f',
-                      bgcolor: 'rgba(255, 77, 79, 0.1)',
-                      '& td': {
-                        borderColor: 'rgba(255, 77, 79, 0.2)'
-                      }
-                    })
-                  }}
-                >
-                <TableCell>{call.created ? new Date(call.created).toLocaleString() : ''}</TableCell>
-                <TableCell>{call.session_id}</TableCell>
-                <TableCell>{call.step || 'n/a'}</TableCell>
-                <TableCell>{call.duration_ms || 'n/a'}</TableCell>
-                <TableCell>
-                  {call.original_request && (
-                    <Button onClick={() => handleOpenModal(call.original_request, call)}>View</Button>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <Button onClick={() => handleOpenModal(call.request, call)}>View</Button>
-                </TableCell>
-                <TableCell>
-                  <Tooltip title={call.error || ''}>
-                    <span>
-                      <Button onClick={() => handleOpenModal(call.error ? { error: call.error } : call.response, call)}>
-                        {call.error ? 'View Error' : 'View'}
-                      </Button>
-                    </span>
-                  </Tooltip>
-                </TableCell>
-                </TableRow>
+              groupedCalls.map((group) => (
+                <React.Fragment key={group.interaction_id}>
+                  <TableRow 
+                    sx={{
+                      ...(group.status === 'ERROR' && {
+                        border: '2px solid #ff4d4f',
+                        bgcolor: 'rgba(255, 77, 79, 0.1)',
+                        '& td': {
+                          borderColor: 'rgba(255, 77, 79, 0.2)'
+                        }
+                      })
+                    }}
+                  >
+                    <TableCell>
+                      <IconButton
+                        size="small"
+                        onClick={() => toggleRow(group.interaction_id)}
+                      >
+                        {expandedRows.has(group.interaction_id) ? 
+                          <KeyboardArrowUpIcon /> : 
+                          <KeyboardArrowDownIcon />
+                        }
+                      </IconButton>
+                    </TableCell>
+                    <TableCell>{group.created ? new Date(group.created).toLocaleString() : ''}</TableCell>
+                    <TableCell>{group.interaction_id}</TableCell>
+                    <TableCell>{group.total_duration}</TableCell>
+                    <TableCell>{group.total_tokens}</TableCell>
+                    <TableCell>
+                      {group.original_request && (
+                        <Button onClick={() => handleOpenModal(group.original_request)}>View</Button>
+                      )}
+                    </TableCell>
+                    <TableCell>{group.status}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={7}>
+                      <Collapse in={expandedRows.has(group.interaction_id)} timeout="auto" unmountOnExit>
+                        <Box sx={{ margin: 1 }}>
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>Time</TableCell>
+                                <TableCell>Step</TableCell>
+                                <TableCell>Duration (ms)</TableCell>
+                                <TableCell>Request</TableCell>
+                                <TableCell>Response</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {group.calls.map((call) => (
+                                <TableRow key={call.id}>
+                                  <TableCell>{call.created ? new Date(call.created).toLocaleString() : ''}</TableCell>
+                                  <TableCell>{call.step || 'n/a'}</TableCell>
+                                  <TableCell>{call.duration_ms || 'n/a'}</TableCell>
+                                  <TableCell>
+                                    <Button onClick={() => handleOpenModal(call.request)}>View</Button>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Tooltip title={call.error || ''}>
+                                      <span>
+                                        <Button onClick={() => handleOpenModal(call.error ? { error: call.error } : call.response)}>
+                                          {call.error ? 'View Error' : 'View'}
+                                        </Button>
+                                      </span>
+                                    </Tooltip>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </Box>
+                      </Collapse>
+                    </TableCell>
+                  </TableRow>
+                </React.Fragment>
               ))
             )}
           </TableBody>
@@ -303,25 +405,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
           <Typography id="json-modal-title" variant="h6" component="h2" gutterBottom>
             JSON Content
           </Typography>
-          
-          <Box sx={{ mb: 2, p: 2, bgcolor: 'rgba(0, 0, 0, 0.1)', borderRadius: 1 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Session ID: {modalContent?.sessionId}
-            </Typography>
-            <Typography variant="subtitle2" gutterBottom>
-              Interaction ID: {modalContent?.interactionId}
-            </Typography>
-            <Typography variant="subtitle2" gutterBottom>
-              Step: {modalContent?.step}
-            </Typography>
-            {modalContent?.isError && (
-              <Typography variant="subtitle2" color="error" gutterBottom>
-                Error occurred during this call
-              </Typography>
-            )}
-          </Box>
-
-          <JsonView data={modalContent?.content} />
+          <JsonView data={modalContent} />
         </Box>
       </Modal>
     </Paper>
