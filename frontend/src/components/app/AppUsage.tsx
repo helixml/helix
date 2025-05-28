@@ -383,6 +383,36 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                     <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
                       <Collapse in={expandedRows.has(group.interaction_id)} timeout="auto" unmountOnExit>
                         <Box sx={{ margin: 1 }}>
+                          <Box sx={{ mb: 2, p: 2, bgcolor: 'rgba(0, 0, 0, 0.2)', borderRadius: 1 }}>
+                            <Typography variant="subtitle2" gutterBottom>Session Details</Typography>
+                            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">Session ID</Typography>
+                                <Typography variant="body2">
+                                  {group.session_id ? (
+                                    <Link href={`/session/${group.session_id}`} target="_blank" rel="noopener noreferrer">
+                                      {group.session_id}
+                                    </Link>
+                                  ) : 'N/A'}
+                                </Typography>
+                              </Box>
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">Interaction ID</Typography>
+                                <Typography variant="body2">{group.interaction_id}</Typography>
+                              </Box>
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">User ID</Typography>
+                                <Typography variant="body2">{group.user_id || 'N/A'}</Typography>
+                              </Box>
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">Total Tokens</Typography>
+                                <Typography variant="body2">
+                                  {group.calls.reduce((acc, call) => acc + (call.prompt_tokens || 0), 0)} prompt / {' '}
+                                  {group.calls.reduce((acc, call) => acc + (call.completion_tokens || 0), 0)} completion
+                                </Typography>
+                              </Box>
+                            </Box>
+                          </Box>
                           <Table size="small">
                             <TableHead>
                               <TableRow>
