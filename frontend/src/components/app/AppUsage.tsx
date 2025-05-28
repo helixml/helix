@@ -420,6 +420,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                                 <TableCell>Timestamp</TableCell>
                                 <TableCell>Step</TableCell>
                                 <TableCell>Duration (ms)</TableCell>
+                                <TableCell>Model</TableCell>
                                 <TableCell>Request</TableCell>
                                 <TableCell>Response</TableCell>
                               </TableRow>
@@ -444,6 +445,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                                       </Tooltip>
                                     )}
                                   </TableCell>
+                                  <TableCell>{call.model || 'n/a'}</TableCell>
                                   <TableCell>
                                     <Button onClick={() => handleOpenModal(call.request)}>View</Button>
                                   </TableCell>
