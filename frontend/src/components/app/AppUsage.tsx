@@ -316,13 +316,21 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                         '& td': {
                           borderColor: 'rgba(255, 77, 79, 0.2)'
                         }
-                      })
+                      }),
+                      cursor: 'pointer',
+                      '&:hover': {
+                        bgcolor: 'rgba(255, 255, 255, 0.05)'
+                      }
                     }}
+                    onClick={() => toggleRow(group.interaction_id)}
                   >
                     <TableCell>
                       <IconButton
                         size="small"
-                        onClick={() => toggleRow(group.interaction_id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleRow(group.interaction_id);
+                        }}
                       >
                         {expandedRows.has(group.interaction_id) ? 
                           <KeyboardArrowUpIcon /> : 
@@ -361,7 +369,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                           <Table size="small">
                             <TableHead>
                               <TableRow>
-                                <TableCell>Time</TableCell>
+                                <TableCell>Timestamp</TableCell>
                                 <TableCell>Step</TableCell>
                                 <TableCell>Duration (ms)</TableCell>
                                 <TableCell>Request</TableCell>
