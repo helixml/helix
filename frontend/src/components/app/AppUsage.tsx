@@ -445,7 +445,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                                   <TableCell>{call.created ? new Date(call.created).toLocaleString() : ''}</TableCell>
                                   <TableCell>{call.step || 'n/a'}</TableCell>
                                   <TableCell>
-                                    {call.duration_ms || 'n/a'}
+                                    {call.duration_ms ? formatDuration(call.duration_ms) : 'n/a'}
                                     {call.duration_ms && call.duration_ms > 5000 && (
                                       <Tooltip title="Model taking a long time to think">
                                         <WarningIcon 
