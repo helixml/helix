@@ -145,7 +145,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
       const group = groups.get(call.interaction_id)!;
       group.calls.push(call);
       group.total_duration += call.duration_ms || 0;
-      group.total_tokens += call.totalTokens || 0;
+      group.total_tokens += call.total_tokens || 0;
       if (call.error) {
         group.status = 'ERROR';
       }
@@ -326,7 +326,20 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                         <Button onClick={() => handleOpenModal(group.original_request)}>View</Button>
                       )}
                     </TableCell>
-                    <TableCell>{group.status}</TableCell>
+                    <TableCell>
+                      <Button 
+                        onClick={() => {
+                          // Get the latest call (last in the array since we sorted by oldest first)
+                          const latestCall = group.calls[group.calls.length - 1];
+                          if (latestCall) {
+                            handleOpenModal(latestCall.error ? { error: latestCall.error } : latestCall.response);
+                          }
+                        }}
+                        color={group.status === 'ERROR' ? 'error' : 'primary'}
+                      >
+                        {group.status}
+                      </Button>
+                    </TableCell>
                   </TableRow>
                   <TableRow>
                     <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={7}>

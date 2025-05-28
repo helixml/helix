@@ -1535,7 +1535,7 @@ definitions:
     properties:
       app_id:
         type: string
-      completionTokens:
+      completion_tokens:
         type: integer
       created:
         type: string
@@ -1553,7 +1553,7 @@ definitions:
         items:
           type: integer
         type: array
-      promptTokens:
+      prompt_tokens:
         type: integer
       provider:
         type: string
@@ -1571,7 +1571,7 @@ definitions:
         $ref: '#/definitions/types.LLMCallStep'
       stream:
         type: boolean
-      totalTokens:
+      total_tokens:
         type: integer
       updated:
         type: string

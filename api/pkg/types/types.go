@@ -1637,11 +1637,11 @@ type LLMCall struct {
 	Request          datatypes.JSON `json:"request" gorm:"type:jsonb"`
 	Response         datatypes.JSON `json:"response" gorm:"type:jsonb"`
 	DurationMs       int64          `json:"duration_ms"`
-	PromptTokens     int64
-	CompletionTokens int64
-	TotalTokens      int64
-	Stream           bool   `json:"stream"`
-	Error            string `json:"error"`
+	PromptTokens     int64          `json:"prompt_tokens"`
+	CompletionTokens int64          `json:"completion_tokens"`
+	TotalTokens      int64          `json:"total_tokens"`
+	Stream           bool           `json:"stream"`
+	Error            string         `json:"error"`
 }
 
 type CreateSecretRequest struct {

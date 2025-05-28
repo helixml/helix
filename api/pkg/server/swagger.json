@@ -4403,7 +4403,7 @@
                 "app_id": {
                     "type": "string"
                 },
-                "completionTokens": {
+                "completion_tokens": {
                     "type": "integer"
                 },
                 "created": {
@@ -4430,7 +4430,7 @@
                         "type": "integer"
                     }
                 },
-                "promptTokens": {
+                "prompt_tokens": {
                     "type": "integer"
                 },
                 "provider": {
@@ -4457,7 +4457,7 @@
                 "stream": {
                     "type": "boolean"
                 },
-                "totalTokens": {
+                "total_tokens": {
                     "type": "integer"
                 },
                 "updated": {

@@ -4407,7 +4407,7 @@ const docTemplate = `{
                 "app_id": {
                     "type": "string"
                 },
-                "completionTokens": {
+                "completion_tokens": {
                     "type": "integer"
                 },
                 "created": {
@@ -4434,7 +4434,7 @@ const docTemplate = `{
                         "type": "integer"
                     }
                 },
-                "promptTokens": {
+                "prompt_tokens": {
                     "type": "integer"
                 },
                 "provider": {
@@ -4461,7 +4461,7 @@ const docTemplate = `{
                 "stream": {
                     "type": "boolean"
                 },
-                "totalTokens": {
+                "total_tokens": {
                     "type": "integer"
                 },
                 "updated": {
