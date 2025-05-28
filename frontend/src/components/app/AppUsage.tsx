@@ -23,6 +23,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import LinkIcon from '@mui/icons-material/Link';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import WarningIcon from '@mui/icons-material/Warning';
 import useApi from '../../hooks/useApi';
 import { TypesPaginatedLLMCalls, TypesLLMCall } from '../../api/api';
 import JsonView from '../widgets/JsonView';
@@ -428,7 +429,21 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                                 <TableRow key={call.id}>
                                   <TableCell>{call.created ? new Date(call.created).toLocaleString() : ''}</TableCell>
                                   <TableCell>{call.step || 'n/a'}</TableCell>
-                                  <TableCell>{call.duration_ms || 'n/a'}</TableCell>
+                                  <TableCell>
+                                    {call.duration_ms || 'n/a'}
+                                    {call.duration_ms && call.duration_ms > 5000 && (
+                                      <Tooltip title="Model taking a long time to think">
+                                        <WarningIcon 
+                                          sx={{ 
+                                            ml: 1, 
+                                            color: '#ff9800',
+                                            verticalAlign: 'middle',
+                                            fontSize: '1rem'
+                                          }} 
+                                        />
+                                      </Tooltip>
+                                    )}
+                                  </TableCell>
                                   <TableCell>
                                     <Button onClick={() => handleOpenModal(call.request)}>View</Button>
                                   </TableCell>
