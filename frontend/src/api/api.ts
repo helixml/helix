@@ -966,7 +966,7 @@ export interface TypesKnowledgeVersion {
 
 export interface TypesLLMCall {
   app_id?: string;
-  completionTokens?: number;
+  completion_tokens?: number;
   created?: string;
   duration_ms?: number;
   error?: string;
@@ -974,14 +974,14 @@ export interface TypesLLMCall {
   interaction_id?: string;
   model?: string;
   original_request?: number[];
-  promptTokens?: number;
+  prompt_tokens?: number;
   provider?: string;
   request?: number[];
   response?: number[];
   session_id?: string;
   step?: TypesLLMCallStep;
   stream?: boolean;
-  totalTokens?: number;
+  total_tokens?: number;
   updated?: string;
   user_id?: string;
 }
