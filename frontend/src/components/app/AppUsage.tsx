@@ -16,15 +16,19 @@ import {
   Tooltip,
   IconButton,
   Collapse,
+  Link,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import LinkIcon from '@mui/icons-material/Link';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import useApi from '../../hooks/useApi';
 import { TypesPaginatedLLMCalls, TypesLLMCall } from '../../api/api';
 import JsonView from '../widgets/JsonView';
 import { LineChart } from '@mui/x-charts';
 import { TypesUsersAggregatedUsageMetric, TypesAggregatedUsageMetric } from '../../api/api';
+import useAccount from '../../hooks/useAccount';
 
 interface AppLogsTableProps {
   appId: string;
@@ -38,6 +42,8 @@ interface GroupedLLMCall {
   original_request: any;
   status: 'OK' | 'ERROR';
   calls: TypesLLMCall[];
+  user_id?: string;
+  session_id?: string;
 }
 
 const win = (window as any)
@@ -58,6 +64,7 @@ const formatDuration = (ms: number): string => {
 const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const api = useApi();
   const apiClient = api.getApiClient();
+  const account = useAccount();
   const [llmCalls, setLLMCalls] = useState<TypesPaginatedLLMCalls | null>(null);
   const [usageData, setUsageData] = useState<TypesUsersAggregatedUsageMetric[]>([]);
   const [page, setPage] = useState(0);
@@ -152,6 +159,8 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
           original_request: call.original_request,
           status: 'OK',
           calls: [],
+          user_id: call.user_id,
+          session_id: call.session_id,
         });
       }
       
@@ -298,12 +307,13 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
               <TableCell sx={headerCellStyle}>Total Tokens</TableCell>
               <TableCell sx={headerCellStyle}>Original Request</TableCell>
               <TableCell sx={headerCellStyle}>Status</TableCell>
+              <TableCell sx={headerCellStyle}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             { win.DISABLE_LLM_CALL_LOGGING ? (
               <TableRow>
-                <TableCell colSpan={7}>LLM call logging is disabled by the administrator.</TableCell>
+                <TableCell colSpan={8}>LLM call logging is disabled by the administrator.</TableCell>
               </TableRow>
             ) : (
               groupedCalls.map((group) => (
@@ -361,9 +371,16 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                         {group.status}
                       </Button>
                     </TableCell>
+                    <TableCell>
+                      {group.user_id === account.user?.id && group.session_id && (
+                        <Link href={`/session/${group.session_id}`} target="_blank" rel="noopener noreferrer">
+                          <OpenInNewIcon />
+                        </Link>
+                      )}
+                    </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={7}>
+                    <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
                       <Collapse in={expandedRows.has(group.interaction_id)} timeout="auto" unmountOnExit>
                         <Box sx={{ margin: 1 }}>
                           <Table size="small">
@@ -388,7 +405,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                                   <TableCell>
                                     <Tooltip title={call.error || ''}>
                                       <span>
-                                        <Button onClick={() => handleOpenModal(call.error ? { error: call.error } : call.response)}>
+                                        <Button sx={{ mr: 3 }} onClick={() => handleOpenModal(call.error ? { error: call.error } : call.response)}>
                                           {call.error ? 'View Error' : 'View'}
                                         </Button>
                                       </span>
