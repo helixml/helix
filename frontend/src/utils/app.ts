@@ -46,10 +46,12 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
       flatState.max_iterations = assistant.max_iterations
       flatState.reasoning_model = assistant.reasoning_model
       flatState.reasoning_model_provider = assistant.reasoning_model_provider
+      flatState.reasoning_model_effort = assistant.reasoning_model_effort
       flatState.generation_model = assistant.generation_model
       flatState.generation_model_provider = assistant.generation_model_provider
       flatState.small_reasoning_model = assistant.small_reasoning_model
       flatState.small_reasoning_model_provider = assistant.small_reasoning_model_provider
+      flatState.small_reasoning_model_effort = assistant.small_reasoning_model_effort
       flatState.small_generation_model = assistant.small_generation_model
       flatState.small_generation_model_provider = assistant.small_generation_model_provider
       
