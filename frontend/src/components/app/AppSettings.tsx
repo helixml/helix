@@ -422,6 +422,21 @@ const AppSettings: FC<AppSettingsProps> = ({
     }
   };
 
+  const getEffortTooltip = (effort: string) => {
+    switch (effort) {
+      case 'none':
+        return 'Reasoning disabled - no additional reasoning steps will be performed';
+      case 'low':
+        return 'Low effort - minimal reasoning steps, faster responses but may be less thorough';
+      case 'medium':
+        return 'Medium effort - balanced reasoning steps, good balance of speed and thoroughness';
+      case 'high':
+        return 'High effort - extensive reasoning steps, most thorough but may be slower';
+      default:
+        return '';
+    }
+  };
+
   return (
     <Box sx={{ mt: 2 }}>
       <Box sx={{ mb: 3 }}>
@@ -557,61 +572,78 @@ const AppSettings: FC<AppSettingsProps> = ({
                   displayMode="short"
                 />
                 <Box>
-                  <Button
-                    variant="text"
-                    onClick={handleMainEffortClick}
-                    endIcon={<ArrowDropDownIcon />}
-                    disabled={readOnly}
-                    sx={{
-                      borderRadius: '8px',
-                      color: 'text.primary',
-                      textTransform: 'none',
-                      fontSize: '0.875rem',
-                      padding: '4px 8px',
-                      height: '32px',
-                      minWidth: 'auto',
-                      maxWidth: '120px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      border: '1px solid #fff',
-                      '&:hover': {
-                        backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
-                      },
-                      ...(readOnly && {
-                        opacity: 0.5,
-                        pointerEvents: 'none',
-                      }),
-                    }}
+                  <Tooltip 
+                    title={getEffortTooltip(reasoning_model_effort)}
+                    placement="top"
+                    arrow
                   >
-                    <Typography 
-                      variant="caption" 
-                      component="span"
-                      sx={{ 
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        display: 'inline-block',
-                        lineHeight: 1.2,
-                        verticalAlign: 'middle',
+                    <Button
+                      variant="text"
+                      onClick={handleMainEffortClick}
+                      endIcon={<ArrowDropDownIcon />}
+                      disabled={readOnly}
+                      sx={{
+                        borderRadius: '8px',
+                        color: 'text.primary',
+                        textTransform: 'none',
                         fontSize: '0.875rem',
+                        padding: '4px 8px',
+                        height: '32px',
+                        minWidth: 'auto',
+                        maxWidth: '120px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        border: '1px solid #fff',
+                        '&:hover': {
+                          backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
+                        },
+                        ...(readOnly && {
+                          opacity: 0.5,
+                          pointerEvents: 'none',
+                        }),
                       }}
                     >
-                      {reasoning_model_effort.charAt(0).toUpperCase() + reasoning_model_effort.slice(1)}
-                    </Typography>
-                  </Button>
+                      <Typography 
+                        variant="caption" 
+                        component="span"
+                        sx={{ 
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          display: 'inline-block',
+                          lineHeight: 1.2,
+                          verticalAlign: 'middle',
+                          fontSize: '0.875rem',
+                        }}
+                      >
+                        {reasoning_model_effort.charAt(0).toUpperCase() + reasoning_model_effort.slice(1)}
+                      </Typography>
+                    </Button>
+                  </Tooltip>
                   <Menu
                     anchorEl={mainEffortMenuAnchor}
                     open={Boolean(mainEffortMenuAnchor)}
                     onClose={handleMainEffortClose}
                   >
-                    {['none', 'low', 'medium', 'high'].map((effort) => (
-                      <MenuItem 
-                        key={effort} 
-                        onClick={() => handleEffortSelect(effort, true)}
-                        selected={effort === reasoning_model_effort}
+                    {[
+                      { value: 'none', tooltip: 'Reasoning disabled - no additional reasoning steps will be performed' },
+                      { value: 'low', tooltip: 'Low reasoning effort - minimal reasoning steps, faster responses but may be less thorough' },
+                      { value: 'medium', tooltip: 'Medium reasoning effort - balanced reasoning steps, good balance of speed and thoroughness' },
+                      { value: 'high', tooltip: 'High reasoning effort - extensive reasoning steps, most thorough but may be slower' }
+                    ].map(({ value, tooltip }) => (
+                      <Tooltip 
+                        key={value}
+                        title={tooltip}
+                        placement="right"
+                        arrow
                       >
-                        {effort.charAt(0).toUpperCase() + effort.slice(1)}
-                      </MenuItem>
+                        <MenuItem 
+                          onClick={() => handleEffortSelect(value, true)}
+                          selected={value === reasoning_model_effort}
+                        >
+                          {value.charAt(0).toUpperCase() + value.slice(1)}
+                        </MenuItem>
+                      </Tooltip>
                     ))}
                   </Menu>
                 </Box>
@@ -668,61 +700,78 @@ const AppSettings: FC<AppSettingsProps> = ({
                   displayMode="short"
                 />
                 <Box>
-                  <Button
-                    variant="text"
-                    onClick={handleSmallEffortClick}
-                    endIcon={<ArrowDropDownIcon />}
-                    disabled={readOnly}
-                    sx={{
-                      borderRadius: '8px',
-                      color: 'text.primary',
-                      textTransform: 'none',
-                      fontSize: '0.875rem',
-                      padding: '4px 8px',
-                      height: '32px',
-                      minWidth: 'auto',
-                      maxWidth: '120px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      border: '1px solid #fff',
-                      '&:hover': {
-                        backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
-                      },
-                      ...(readOnly && {
-                        opacity: 0.5,
-                        pointerEvents: 'none',
-                      }),
-                    }}
+                  <Tooltip 
+                    title={getEffortTooltip(small_reasoning_model_effort)}
+                    placement="top"
+                    arrow
                   >
-                    <Typography 
-                      variant="caption" 
-                      component="span"
-                      sx={{ 
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        display: 'inline-block',
-                        lineHeight: 1.2,
-                        verticalAlign: 'middle',
+                    <Button
+                      variant="text"
+                      onClick={handleSmallEffortClick}
+                      endIcon={<ArrowDropDownIcon />}
+                      disabled={readOnly}
+                      sx={{
+                        borderRadius: '8px',
+                        color: 'text.primary',
+                        textTransform: 'none',
                         fontSize: '0.875rem',
+                        padding: '4px 8px',
+                        height: '32px',
+                        minWidth: 'auto',
+                        maxWidth: '120px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        border: '1px solid #fff',
+                        '&:hover': {
+                          backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
+                        },
+                        ...(readOnly && {
+                          opacity: 0.5,
+                          pointerEvents: 'none',
+                        }),
                       }}
                     >
-                      {small_reasoning_model_effort.charAt(0).toUpperCase() + small_reasoning_model_effort.slice(1)}
-                    </Typography>
-                  </Button>
+                      <Typography 
+                        variant="caption" 
+                        component="span"
+                        sx={{ 
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          display: 'inline-block',
+                          lineHeight: 1.2,
+                          verticalAlign: 'middle',
+                          fontSize: '0.875rem',
+                        }}
+                      >
+                        {small_reasoning_model_effort.charAt(0).toUpperCase() + small_reasoning_model_effort.slice(1)}
+                      </Typography>
+                    </Button>
+                  </Tooltip>
                   <Menu
                     anchorEl={smallEffortMenuAnchor}
                     open={Boolean(smallEffortMenuAnchor)}
                     onClose={handleSmallEffortClose}
                   >
-                    {['none', 'low', 'medium', 'high'].map((effort) => (
-                      <MenuItem 
-                        key={effort} 
-                        onClick={() => handleEffortSelect(effort, false)}
-                        selected={effort === small_reasoning_model_effort}
+                    {[
+                      { value: 'none', tooltip: 'Reasoning disabled - no additional reasoning steps will be performed' },
+                      { value: 'low', tooltip: 'Low effort - minimal reasoning steps, faster responses but may be less thorough' },
+                      { value: 'medium', tooltip: 'Medium effort - balanced reasoning steps, good balance of speed and thoroughness' },
+                      { value: 'high', tooltip: 'High effort - extensive reasoning steps, most thorough but may be slower' }
+                    ].map(({ value, tooltip }) => (
+                      <Tooltip 
+                        key={value}
+                        title={tooltip}
+                        placement="right"
+                        arrow
                       >
-                        {effort.charAt(0).toUpperCase() + effort.slice(1)}
-                      </MenuItem>
+                        <MenuItem 
+                          onClick={() => handleEffortSelect(value, false)}
+                          selected={value === small_reasoning_model_effort}
+                        >
+                          {value.charAt(0).toUpperCase() + value.slice(1)}
+                        </MenuItem>
+                      </Tooltip>
                     ))}
                   </Menu>
                 </Box>
