@@ -66,7 +66,7 @@ func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request op
 	start := time.Now()
 	resp, err := m.client.CreateChatCompletion(ctx, request)
 	if err != nil {
-		m.logLLMCall(ctx, &request, &resp, err, false, time.Since(start).Milliseconds())
+		m.logLLMCall(ctx, start, &request, &resp, err, false, time.Since(start).Milliseconds())
 		return resp, err
 	}
 
@@ -80,7 +80,7 @@ func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request op
 
 		defer m.wg.Done()
 
-		m.logLLMCall(ctx, &request, &resp, nil, false, time.Since(start).Milliseconds())
+		m.logLLMCall(ctx, start, &request, &resp, nil, false, time.Since(start).Milliseconds())
 	}()
 
 	return resp, nil
@@ -91,7 +91,7 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 
 	upstream, err := m.client.CreateChatCompletionStream(ctx, request)
 	if err != nil {
-		m.logLLMCall(ctx, &request, nil, err, true, time.Since(start).Milliseconds())
+		m.logLLMCall(ctx, start, &request, nil, err, true, time.Since(start).Milliseconds())
 		return nil, err
 	}
 
@@ -135,7 +135,7 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 		}
 
 		// Once the stream is done, close the downstream writer
-		m.logLLMCall(ctx, &request, &resp, nil, true, time.Since(start).Milliseconds())
+		m.logLLMCall(ctx, start, &request, &resp, nil, true, time.Since(start).Milliseconds())
 	}()
 
 	return downstream, nil
@@ -195,7 +195,7 @@ func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompleti
 	}
 }
 
-func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, apiError error, stream bool, durationMs int64) {
+func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, apiError error, stream bool, durationMs int64) {
 	reqBts, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal LLM request")
@@ -259,6 +259,7 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		Msg("logging LLM call")
 
 	llmCall := &types.LLMCall{
+		Created:          createdAt,
 		AppID:            appID,
 		SessionID:        vals.SessionID,
 		InteractionID:    vals.InteractionID,
