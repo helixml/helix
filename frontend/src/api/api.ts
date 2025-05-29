@@ -491,6 +491,7 @@ export interface TypesAssistantConfig {
   is_actionable_template?: string;
   knowledge?: TypesAssistantKnowledge[];
   lora_id?: string;
+  max_iterations?: number;
   /** The maximum number of tokens to generate before stopping. */
   max_tokens?: number;
   model?: string;

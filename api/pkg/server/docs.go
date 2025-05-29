@@ -3329,6 +3329,9 @@ const docTemplate = `{
                 "lora_id": {
                     "type": "string"
                 },
+                "max_iterations": {
+                    "type": "integer"
+                },
                 "max_tokens": {
                     "description": "The maximum number of tokens to generate before stopping.",
                     "type": "integer"
