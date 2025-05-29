@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { Box, Typography } from '@mui/material';
 
 interface LLMCall {
@@ -19,10 +19,24 @@ const formatMs = (ms: number) => `${ms} ms`;
 
 const ROW_HEIGHT = 32;
 const BAR_HEIGHT = 22;
-const LABEL_WIDTH = 220;
+const LABEL_WIDTH = 0;
 const CHART_PADDING = 24;
 
 const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHoverCallId, highlightedCallId }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(900);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (containerRef.current) {
+        setContainerWidth(containerRef.current.offsetWidth);
+      }
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const chartData = useMemo(() => {
     if (!calls.length) return [];
     const sorted = [...calls].sort((a, b) => new Date(a.created).getTime() - new Date(b.created).getTime());
@@ -42,7 +56,7 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
 
   const minX = 0;
   const maxX = Math.max(...chartData.map(d => d.end)) * 1.1;
-  const width = 900;
+  const width = containerWidth;
   const height = chartData.length * ROW_HEIGHT + CHART_PADDING * 2;
 
   // X axis ticks
@@ -56,10 +70,16 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
       : 'url(#barGradient)';
 
   return (
-    <Box sx={{ width: '100%', mb: 2 }}>
+    <Box ref={containerRef} sx={{ width: '100%', mb: 2 }}>
       <Typography variant="subtitle2" sx={{ mb: 1 }}>Timeline of LLM Calls</Typography>
       <Box sx={{ width: '100%', overflowX: 'auto', bgcolor: 'transparent' }}>
-        <svg width={width} height={height} style={{ display: 'block', width: '100%' }}>
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          width={width}
+          height={height}
+          style={{ display: 'block', width: '100%' }}
+          preserveAspectRatio="none"
+        >
           <defs>
             <linearGradient id="barGradient" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor="#00c8ff" stopOpacity={0.8} />
@@ -70,20 +90,6 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
               <stop offset="100%" stopColor="#ff4081" stopOpacity={0.9} />
             </linearGradient>
           </defs>
-          {/* Y axis labels */}
-          {chartData.map((d, i) => (
-            <text
-              key={d.id + '-label'}
-              x={LABEL_WIDTH - 8}
-              y={CHART_PADDING + i * ROW_HEIGHT + BAR_HEIGHT / 2 + 5}
-              textAnchor="end"
-              fill="#aaa"
-              fontSize={15}
-              fontFamily="inherit"
-            >
-              {d.label}
-            </text>
-          ))}
           {/* X axis line and ticks */}
           <line
             x1={LABEL_WIDTH}
