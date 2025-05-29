@@ -183,7 +183,6 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
       
       const group = groups.get(call.interaction_id)!;
       group.calls.push(call);
-      group.total_duration += call.duration_ms || 0;
       group.total_tokens += call.total_tokens || 0;
       if (call.error) {
         group.status = 'ERROR';
@@ -195,6 +194,17 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
       group.calls.sort((a, b) => 
         new Date(a.created || '').getTime() - new Date(b.created || '').getTime()
       );
+      
+      // Calculate total duration based on first and last call timestamps
+      if (group.calls.length > 0) {
+        const firstCall = group.calls[0];
+        const lastCall = group.calls[group.calls.length - 1];
+        if (firstCall.created && lastCall.created) {
+          const startTime = new Date(firstCall.created).getTime();
+          const endTime = new Date(lastCall.created).getTime();
+          group.total_duration = endTime - startTime;
+        }
+      }
     });
 
     return Array.from(groups.values()).sort((a, b) => 
