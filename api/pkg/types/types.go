@@ -1152,12 +1152,14 @@ type AssistantConfig struct {
 
 	ReasoningModelProvider string `json:"reasoning_model_provider"`
 	ReasoningModel         string `json:"reasoning_model"`
+	ReasoningModelEffort   string `json:"reasoning_model_effort"`
 
 	GenerationModelProvider string `json:"generation_model_provider"`
 	GenerationModel         string `json:"generation_model"`
 
 	SmallReasoningModelProvider string `json:"small_reasoning_model_provider"`
 	SmallReasoningModel         string `json:"small_reasoning_model"`
+	SmallReasoningModelEffort   string `json:"small_reasoning_model_effort"`
 
 	SmallGenerationModelProvider string `json:"small_generation_model_provider"`
 	SmallGenerationModel         string `json:"small_generation_model"`

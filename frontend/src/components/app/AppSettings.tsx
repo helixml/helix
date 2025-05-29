@@ -13,6 +13,9 @@ import FormControl from '@mui/material/FormControl'
 import Typography from '@mui/material/Typography'
 import Stack from '@mui/material/Stack'
 import Link from '@mui/material/Link'
+import Button from '@mui/material/Button'
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
+import Menu from '@mui/material/Menu'
 
 import {
   IAppFlatState,
@@ -102,10 +105,12 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [max_iterations, setMaxIterations] = useState(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
   const [reasoning_model, setReasoningModel] = useState(app.reasoning_model || '')
   const [reasoning_model_provider, setReasoningModelProvider] = useState(app.reasoning_model_provider || '')
+  const [reasoning_model_effort, setReasoningModelEffort] = useState(app.reasoning_model_effort || 'medium')
   const [generation_model, setGenerationModel] = useState(app.generation_model || '')
   const [generation_model_provider, setGenerationModelProvider] = useState(app.generation_model_provider || '')
   const [small_reasoning_model, setSmallReasoningModel] = useState(app.small_reasoning_model || '')
   const [small_reasoning_model_provider, setSmallReasoningModelProvider] = useState(app.small_reasoning_model_provider || '')
+  const [small_reasoning_model_effort, setSmallReasoningModelEffort] = useState(app.small_reasoning_model_effort || 'medium')
   const [small_generation_model, setSmallGenerationModel] = useState(app.small_generation_model || '')
   const [small_generation_model_provider, setSmallGenerationModelProvider] = useState(app.small_generation_model_provider || '')
   
@@ -223,10 +228,12 @@ const AppSettings: FC<AppSettingsProps> = ({
       agent_mode,
       reasoning_model,
       reasoning_model_provider,
+      reasoning_model_effort,
       generation_model,
       generation_model_provider,
       small_reasoning_model,
       small_reasoning_model_provider,
+      small_reasoning_model_effort,
       small_generation_model,
       small_generation_model_provider,
       provider,
@@ -376,6 +383,45 @@ const AppSettings: FC<AppSettingsProps> = ({
     }
   }
 
+  const [mainEffortMenuAnchor, setMainEffortMenuAnchor] = useState<null | HTMLElement>(null);
+  const [smallEffortMenuAnchor, setSmallEffortMenuAnchor] = useState<null | HTMLElement>(null);
+
+  const handleMainEffortClick = (event: React.MouseEvent<HTMLElement>) => {
+    setMainEffortMenuAnchor(event.currentTarget);
+  };
+
+  const handleSmallEffortClick = (event: React.MouseEvent<HTMLElement>) => {
+    setSmallEffortMenuAnchor(event.currentTarget);
+  };
+
+  const handleMainEffortClose = () => {
+    setMainEffortMenuAnchor(null);
+  };
+
+  const handleSmallEffortClose = () => {
+    setSmallEffortMenuAnchor(null);
+  };
+
+  const handleEffortSelect = (effort: string, isMain: boolean) => {
+    if (isMain) {
+      setReasoningModelEffort(effort);
+      const updatedApp: IAppFlatState = {
+        ...app,
+        reasoning_model_effort: effort,
+      };
+      onUpdate(updatedApp);
+      handleMainEffortClose();
+    } else {
+      setSmallReasoningModelEffort(effort);
+      const updatedApp: IAppFlatState = {
+        ...app,
+        small_reasoning_model_effort: effort,
+      };
+      onUpdate(updatedApp);
+      handleSmallEffortClose();
+    }
+  };
+
   return (
     <Box sx={{ mt: 2 }}>
       <Box sx={{ mb: 3 }}>
@@ -491,24 +537,85 @@ const AppSettings: FC<AppSettingsProps> = ({
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                 The model used for reasoning and planning tasks.
               </Typography>
-              <AdvancedModelPicker
-                recommendedModels={['o3-mini', 'o4-mini']}
-                hint='Recommended to use o3-mini level models, should be a strong model capable of using tools and reasoning.'
-                selectedProvider={reasoning_model_provider}
-                selectedModelId={reasoning_model}
-                onSelectModel={(provider, model) => {
-                  setReasoningModel(model);
-                  setReasoningModelProvider(provider);
-                  const updatedApp: IAppFlatState = {
-                    ...app,
-                    reasoning_model: model,
-                    reasoning_model_provider: provider,
-                  };
-                  onUpdate(updatedApp);
-                }}
-                currentType="text"
-                displayMode="short"
-              />
+              <Stack direction="row" spacing={2} alignItems="center">
+                <Box flexGrow={1}>
+                  <AdvancedModelPicker
+                    recommendedModels={['o3-mini', 'o4-mini']}
+                    hint='Recommended to use o3-mini level models, should be a strong model capable of using tools and reasoning.'
+                    selectedProvider={reasoning_model_provider}
+                    selectedModelId={reasoning_model}
+                    onSelectModel={(provider, model) => {
+                      setReasoningModel(model);
+                      setReasoningModelProvider(provider);
+                      const updatedApp: IAppFlatState = {
+                        ...app,
+                        reasoning_model: model,
+                        reasoning_model_provider: provider,
+                      };
+                      onUpdate(updatedApp);
+                    }}
+                    currentType="text"
+                    displayMode="short"
+                  />
+                </Box>
+                <Button
+                  variant="text"
+                  onClick={handleMainEffortClick}
+                  endIcon={<ArrowDropDownIcon />}
+                  disabled={readOnly}
+                  sx={{
+                    borderRadius: '8px',
+                    color: 'text.primary',
+                    textTransform: 'none',
+                    fontSize: '0.875rem',
+                    padding: '4px 8px',
+                    height: '32px',
+                    minWidth: 'auto',
+                    maxWidth: '120px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    border: '1px solid #fff',
+                    '&:hover': {
+                      backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
+                    },
+                    ...(readOnly && {
+                      opacity: 0.5,
+                      pointerEvents: 'none',
+                    }),
+                  }}
+                >
+                  <Typography 
+                    variant="caption" 
+                    component="span"
+                    sx={{ 
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      display: 'inline-block',
+                      lineHeight: 1.2,
+                      verticalAlign: 'middle',
+                      fontSize: '0.875rem',
+                    }}
+                  >
+                    {reasoning_model_effort.charAt(0).toUpperCase() + reasoning_model_effort.slice(1)}
+                  </Typography>
+                </Button>
+                <Menu
+                  anchorEl={mainEffortMenuAnchor}
+                  open={Boolean(mainEffortMenuAnchor)}
+                  onClose={handleMainEffortClose}
+                >
+                  {['none', 'low', 'medium', 'high'].map((effort) => (
+                    <MenuItem 
+                      key={effort} 
+                      onClick={() => handleEffortSelect(effort, true)}
+                      selected={effort === reasoning_model_effort}
+                    >
+                      {effort.charAt(0).toUpperCase() + effort.slice(1)}
+                    </MenuItem>
+                  ))}
+                </Menu>
+              </Stack>
             </Box>
 
             <Box sx={{ mb: 3 }}>
@@ -541,24 +648,85 @@ const AppSettings: FC<AppSettingsProps> = ({
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                 A smaller model used for quick reasoning tasks. Recommended to use o3-mini level models.
               </Typography>
-              <AdvancedModelPicker
-                recommendedModels={['o3-mini', 'o4-mini']}
-                hint='Recommended to use o3-mini level models, should be a strong model capable of using tools and reasoning.'
-                selectedProvider={small_reasoning_model_provider}
-                selectedModelId={small_reasoning_model}
-                onSelectModel={(provider, model) => {
-                  setSmallReasoningModel(model);
-                  setSmallReasoningModelProvider(provider);
-                  const updatedApp: IAppFlatState = {
-                    ...app,
-                    small_reasoning_model: model,
-                    small_reasoning_model_provider: provider,
-                  };
-                  onUpdate(updatedApp);
-                }}
-                currentType="text"
-                displayMode="short"
-              />
+              <Stack direction="row" spacing={2} alignItems="center">
+                <Box flexGrow={1}>
+                  <AdvancedModelPicker
+                    recommendedModels={['o3-mini', 'o4-mini']}
+                    hint='Recommended to use o3-mini level models, should be a strong model capable of using tools and reasoning.'
+                    selectedProvider={small_reasoning_model_provider}
+                    selectedModelId={small_reasoning_model}
+                    onSelectModel={(provider, model) => {
+                      setSmallReasoningModel(model);
+                      setSmallReasoningModelProvider(provider);
+                      const updatedApp: IAppFlatState = {
+                        ...app,
+                        small_reasoning_model: model,
+                        small_reasoning_model_provider: provider,
+                      };
+                      onUpdate(updatedApp);
+                    }}
+                    currentType="text"
+                    displayMode="short"
+                  />
+                </Box>
+                <Button
+                  variant="text"
+                  onClick={handleSmallEffortClick}
+                  endIcon={<ArrowDropDownIcon />}
+                  disabled={readOnly}
+                  sx={{
+                    borderRadius: '8px',
+                    color: 'text.primary',
+                    textTransform: 'none',
+                    fontSize: '0.875rem',
+                    padding: '4px 8px',
+                    height: '32px',
+                    minWidth: 'auto',
+                    maxWidth: '120px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    border: '1px solid #fff',
+                    '&:hover': {
+                      backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
+                    },
+                    ...(readOnly && {
+                      opacity: 0.5,
+                      pointerEvents: 'none',
+                    }),
+                  }}
+                >
+                  <Typography 
+                    variant="caption" 
+                    component="span"
+                    sx={{ 
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      display: 'inline-block',
+                      lineHeight: 1.2,
+                      verticalAlign: 'middle',
+                      fontSize: '0.875rem',
+                    }}
+                  >
+                    {small_reasoning_model_effort.charAt(0).toUpperCase() + small_reasoning_model_effort.slice(1)}
+                  </Typography>
+                </Button>
+                <Menu
+                  anchorEl={smallEffortMenuAnchor}
+                  open={Boolean(smallEffortMenuAnchor)}
+                  onClose={handleSmallEffortClose}
+                >
+                  {['none', 'low', 'medium', 'high'].map((effort) => (
+                    <MenuItem 
+                      key={effort} 
+                      onClick={() => handleEffortSelect(effort, false)}
+                      selected={effort === small_reasoning_model_effort}
+                    >
+                      {effort.charAt(0).toUpperCase() + effort.slice(1)}
+                    </MenuItem>
+                  ))}
+                </Menu>
+              </Stack>
             </Box>
 
             <Box sx={{ mb: 3 }}>

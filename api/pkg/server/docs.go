@@ -3359,6 +3359,9 @@ const docTemplate = `{
                 "reasoning_model": {
                     "type": "string"
                 },
+                "reasoning_model_effort": {
+                    "type": "string"
+                },
                 "reasoning_model_provider": {
                     "type": "string"
                 },
@@ -3369,6 +3372,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "small_reasoning_model": {
+                    "type": "string"
+                },
+                "small_reasoning_model_effort": {
                     "type": "string"
                 },
                 "small_reasoning_model_provider": {

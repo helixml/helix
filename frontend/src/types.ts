@@ -580,10 +580,12 @@ export interface IAssistantConfig {
   max_iterations?: number;
   reasoning_model?: string;
   reasoning_model_provider?: string;
+  reasoning_model_effort?: string;
   generation_model?: string;
   generation_model_provider?: string;
   small_reasoning_model?: string;
   small_reasoning_model_provider?: string;
+  small_reasoning_model_effort?: string;
   small_generation_model?: string;
   small_generation_model_provider?: string;
   /**
@@ -798,10 +800,12 @@ export interface IAppFlatState {
   max_iterations?: number
   reasoning_model?: string
   reasoning_model_provider?: string
+  reasoning_model_effort?: string
   generation_model?: string
   generation_model_provider?: string
   small_reasoning_model?: string
   small_reasoning_model_provider?: string
+  small_reasoning_model_effort?: string
   small_generation_model?: string
   small_generation_model_provider?: string
   context_limit?: number
