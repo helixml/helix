@@ -70,6 +70,7 @@ const getTooltipContent = (call: LLMCall): React.ReactNode => {
 const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHoverCallId, highlightedCallId }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(900);
+  const [hoverX, setHoverX] = useState<number | null>(null);
 
   useEffect(() => {
     const handleResize = () => {
@@ -124,6 +125,12 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
           height={height}
           style={{ display: 'block', width: '100%' }}
           preserveAspectRatio="none"
+          onMouseMove={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            setHoverX(x);
+          }}
+          onMouseLeave={() => setHoverX(null)}
         >
           <defs>
             <linearGradient id="barGradient" x1="0" y1="0" x2="1" y2="0">
@@ -135,6 +142,20 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
               <stop offset="100%" stopColor="#ff4081" stopOpacity={0.9} />
             </linearGradient>
           </defs>
+          {/* Hover line */}
+          {hoverX !== null && (
+            <line
+              x1={hoverX}
+              y1={CHART_PADDING}
+              x2={hoverX}
+              y2={height - CHART_PADDING}
+              stroke="#888"
+              strokeWidth={1}
+              strokeDasharray="4"
+              opacity={0.3}
+              pointerEvents="none"
+            />
+          )}
           {/* X axis line and ticks */}
           <line
             x1={LABEL_WIDTH}
