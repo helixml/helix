@@ -30,6 +30,7 @@ import JsonView from '../widgets/JsonView';
 import { LineChart } from '@mui/x-charts';
 import { TypesUsersAggregatedUsageMetric, TypesAggregatedUsageMetric } from '../../api/api';
 import useAccount from '../../hooks/useAccount';
+import LLMCallTimelineChart from './LLMCallTimelineChart';
 
 interface AppLogsTableProps {
   appId: string;
@@ -73,6 +74,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const [modalContent, setModalContent] = useState<any>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [hoveredCallId, setHoveredCallId] = useState<string | null>(null);
 
   const headerCellStyle = {
     bgcolor: 'rgba(0, 0, 0, 0.2)',
@@ -438,6 +440,17 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                               </Box>
                             </Box>
                           </Box>
+                          <LLMCallTimelineChart
+                            calls={group.calls.map(call => ({
+                              id: call.id || '',
+                              created: call.created || '',
+                              duration_ms: call.duration_ms || 0,
+                              step: call.step,
+                              model: call.model,
+                            }))}
+                            onHoverCallId={setHoveredCallId}
+                            highlightedCallId={hoveredCallId}
+                          />
                           <Table size="small" sx={{ bgcolor: 'rgba(0, 0, 0, 0.2)' }}>
                             <TableHead>
                               <TableRow>
@@ -451,7 +464,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                             </TableHead>
                             <TableBody>
                               {group.calls.map((call) => (
-                                <TableRow key={call.id}>
+                                <TableRow key={call.id} sx={hoveredCallId === call.id ? { bgcolor: 'rgba(0,200,255,0.12)' } : {}}>
                                   <TableCell>{call.created ? new Date(call.created).toLocaleString() : ''}</TableCell>
                                   <TableCell>{call.step || 'n/a'}</TableCell>
                                   <TableCell>
