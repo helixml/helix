@@ -46,11 +46,14 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 	messageHistory.AddFirst(systemPrompt)
 
 	isFirstIteration := true
-	iterationNumber := 1
+	iterationNumber := 0
 
 	for {
+		iterationNumber++
+
 		modelToUse := llm.SmallGenerationModel
-		reasoningEffort := ""
+
+		reasoningEffort := "" // TODO: move to app configuration
 		if isFirstIteration {
 			// First iteration is when the main planning happens - use the bigger model.
 			modelToUse = llm.ReasoningModel
