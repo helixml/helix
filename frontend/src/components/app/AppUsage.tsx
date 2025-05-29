@@ -428,7 +428,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                               </Box>
                             </Box>
                           </Box>
-                          <Table size="small">
+                          <Table size="small" sx={{ bgcolor: 'rgba(0, 0, 0, 0.2)' }}>
                             <TableHead>
                               <TableRow>
                                 <TableCell>Timestamp</TableCell>
