@@ -13,7 +13,9 @@ func (s *PostgresStore) CreateLLMCall(ctx context.Context, call *types.LLMCall) 
 		call.ID = system.GenerateLLMCallID()
 	}
 
-	call.Created = time.Now()
+	if call.Created.IsZero() {
+		call.Created = time.Now()
+	}
 
 	err := s.gdb.WithContext(ctx).Create(call).Error
 	if err != nil {
