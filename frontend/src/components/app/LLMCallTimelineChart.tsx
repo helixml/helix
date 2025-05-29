@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, Typography, Tooltip } from '@mui/material';
 
 interface LLMCall {
   id: string;
@@ -7,6 +7,7 @@ interface LLMCall {
   duration_ms: number;
   step?: string;
   model?: string;
+  response?: any;
 }
 
 interface LLMCallTimelineChartProps {
@@ -21,6 +22,41 @@ const ROW_HEIGHT = 22;
 const BAR_HEIGHT = 14;
 const LABEL_WIDTH = 0;
 const CHART_PADDING = 24;
+
+const parseResponse = (response: any): any => {
+  try {
+    if (typeof response === 'string') {
+      return JSON.parse(response);
+    }
+    return response;
+  } catch (e) {
+    return response;
+  }
+};
+
+const getAssistantMessage = (response: any): string => {
+  const parsed = parseResponse(response);
+  return parsed?.choices?.[0]?.message?.content || 'n/a';
+};
+
+const getToolCalls = (response: any): any[] => {
+  const parsed = parseResponse(response);
+  return parsed?.choices?.[0]?.message?.tool_calls || [];
+};
+
+const getTooltipContent = (call: LLMCall): string => {
+  if (call.step === 'decide_next_action' && call.response) {
+    const toolCalls = getToolCalls(call.response);
+    if (toolCalls.length > 0) {
+      return `Tool Calls:\n${toolCalls.map(tc => `- ${tc.function?.name || 'Unknown'}`).join('\n')}`;
+    }
+    const message = getAssistantMessage(call.response);
+    if (message !== 'n/a') {
+      return `Message: ${message}`;
+    }
+  }
+  return `Duration: ${formatMs(call.duration_ms)}`;
+};
 
 const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHoverCallId, highlightedCallId }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -130,32 +166,38 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
             const barWidth = ((width - LABEL_WIDTH - CHART_PADDING) * d.duration) / (maxX - minX);
             const y = CHART_PADDING + i * ROW_HEIGHT;
             return (
-              <g
+              <Tooltip
                 key={d.id}
-                onMouseOver={() => onHoverCallId?.(d.id)}
-                onMouseOut={() => onHoverCallId?.(null)}
-                style={{ cursor: 'pointer' }}
+                title={getTooltipContent(d)}
+                placement="top"
+                arrow
               >
-                <rect
-                  x={x}
-                  y={y}
-                  width={barWidth}
-                  height={BAR_HEIGHT}
-                  rx={8}
-                  fill={barColor(d.id)}
-                  style={{ filter: highlightedCallId === d.id ? 'drop-shadow(0 0 8px #ffb300)' : undefined }}
-                />
-                <text
-                  x={x + 6}
-                  y={y + BAR_HEIGHT / 2 + 4}
-                  fill="#fff"
-                  fontSize={11}
-                  fontFamily="inherit"
-                  pointerEvents="none"
+                <g
+                  onMouseOver={() => onHoverCallId?.(d.id)}
+                  onMouseOut={() => onHoverCallId?.(null)}
+                  style={{ cursor: 'pointer' }}
                 >
-                  {d.label}
-                </text>
-              </g>
+                  <rect
+                    x={x}
+                    y={y}
+                    width={barWidth}
+                    height={BAR_HEIGHT}
+                    rx={8}
+                    fill={barColor(d.id)}
+                    style={{ filter: highlightedCallId === d.id ? 'drop-shadow(0 0 8px #ffb300)' : undefined }}
+                  />
+                  <text
+                    x={x + 6}
+                    y={y + BAR_HEIGHT / 2 + 4}
+                    fill="#fff"
+                    fontSize={11}
+                    fontFamily="inherit"
+                    pointerEvents="none"
+                  >
+                    {d.label}
+                  </text>
+                </g>
+              </Tooltip>
             );
           })}
         </svg>
