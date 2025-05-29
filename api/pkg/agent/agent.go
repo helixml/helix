@@ -70,9 +70,6 @@ func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages
 	params := openai.ChatCompletionRequest{
 		Messages: clonedMessages.All(),
 		Model:    model.Model,
-		StreamOptions: &openai.StreamOptions{
-			IncludeUsage: true,
-		},
 	}
 
 	ctx = oai.SetStep(ctx, &oai.Step{

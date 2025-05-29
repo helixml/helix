@@ -44,5 +44,8 @@ func (c *LLM) New(ctx context.Context, model *LLMModelConfig, params openai.Chat
 }
 
 func (c *LLM) NewStreaming(ctx context.Context, model *LLMModelConfig, params openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+	params.StreamOptions = &openai.StreamOptions{
+		IncludeUsage: true,
+	}
 	return model.Client.CreateChatCompletionStream(ctx, params)
 }
