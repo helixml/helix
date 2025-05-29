@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	agent "github.com/helixml/helix/api/pkg/agent"
-	helix_openai "github.com/helixml/helix/api/pkg/openai"
 
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/sashabaranov/go-openai/jsonschema"
@@ -196,19 +195,11 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 	config, err := LoadConfig()
 	require.NoError(t, err)
 
-	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
-
 	t.Logf("testing restaurant recommendation with prompt: %s", prompt)
 
 	require.NotEmpty(t, config.OpenAIAPIKey, "OpenAI API Key is not set")
 
-	llm := agent.NewLLM(
-		client,
-		config.ReasoningModel,
-		config.GenerationModel,
-		config.SmallReasoningModel,
-		config.SmallGenerationModel,
-	)
+	llm := getLLM(config)
 
 	stepInfoEmitter := agent.NewLogStepInfoEmitter()
 

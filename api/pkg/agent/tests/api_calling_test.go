@@ -132,13 +132,7 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 
 	require.NotEmpty(t, config.OpenAIAPIKey, "OpenAI API Key is not set")
 
-	llm := agent.NewLLM(
-		client,
-		config.ReasoningModel,
-		config.GenerationModel,
-		config.SmallReasoningModel,
-		config.SmallGenerationModel,
-	)
+	llm := getLLM(config)
 
 	// Create mock memory with user preferences
 	mem := &MockMemory{

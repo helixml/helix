@@ -578,9 +578,13 @@ export interface IAssistantConfig {
   model?: string;
   agent_mode?: boolean;
   reasoning_model?: string;
+  reasoning_model_provider?: string;
   generation_model?: string;
+  generation_model_provider?: string;
   small_reasoning_model?: string;
+  small_reasoning_model_provider?: string;
   small_generation_model?: string;
+  small_generation_model_provider?: string;
   /**
    * ContextLimit - the number of messages to include in the context for the AI assistant.
    * When set to 1, the AI assistant will only see and remember the most recent message.
@@ -791,9 +795,13 @@ export interface IAppFlatState {
   model?: string
   agent_mode?: boolean
   reasoning_model?: string
+  reasoning_model_provider?: string
   generation_model?: string
+  generation_model_provider?: string
   small_reasoning_model?: string
+  small_reasoning_model_provider?: string
   small_generation_model?: string
+  small_generation_model_provider?: string
   context_limit?: number
   frequency_penalty?: number
   max_tokens?: number
