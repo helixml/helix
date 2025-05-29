@@ -45,11 +45,30 @@ const getToolCalls = (response: any): any[] => {
 };
 
 const getTooltipContent = (call: LLMCall): React.ReactNode => {
+  const startTime = new Date(call.created);
+  const endTime = new Date(startTime.getTime() + call.duration_ms);
+  
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString('en-US', { 
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  };
+
+  const content: React.ReactNode[] = [
+    <div key="times">
+      Started: {formatTime(startTime)}<br />
+      Finished: {formatTime(endTime)}
+    </div>
+  ];
+
   if (call.step === 'decide_next_action' && call.response) {
     const toolCalls = getToolCalls(call.response);
     if (toolCalls.length > 0) {
-      return (
-        <div>
+      content.push(
+        <div key="toolcalls">
           <div>Tool Calls:</div>
           <ul style={{ margin: 0, paddingLeft: 18 }}>
             {toolCalls.map((tc, idx) => (
@@ -58,13 +77,17 @@ const getTooltipContent = (call: LLMCall): React.ReactNode => {
           </ul>
         </div>
       );
-    }
-    const message = getAssistantMessage(call.response);
-    if (message !== 'n/a') {
-      return <div>Message: {message}</div>;
+    } else {
+      const message = getAssistantMessage(call.response);
+      if (message !== 'n/a') {
+        content.push(<div key="message">Message: {message}</div>);
+      }
     }
   }
-  return <div>Duration: {formatMs(call.duration_ms)}</div>;
+
+  content.push(<div key="duration">Duration: {formatMs(call.duration_ms)}</div>);
+
+  return <div>{content}</div>;
 };
 
 const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHoverCallId, highlightedCallId }) => {
