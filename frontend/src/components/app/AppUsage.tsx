@@ -14,34 +14,86 @@ import {
   Modal,
   Divider,
   Tooltip,
+  IconButton,
+  Collapse,
+  Link,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import LinkIcon from '@mui/icons-material/Link';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import WarningIcon from '@mui/icons-material/Warning';
 import useApi from '../../hooks/useApi';
 import { TypesPaginatedLLMCalls, TypesLLMCall } from '../../api/api';
 import JsonView from '../widgets/JsonView';
 import { LineChart } from '@mui/x-charts';
 import { TypesUsersAggregatedUsageMetric, TypesAggregatedUsageMetric } from '../../api/api';
+import useAccount from '../../hooks/useAccount';
 
 interface AppLogsTableProps {
   appId: string;
 }
 
+interface GroupedLLMCall {
+  interaction_id: string;
+  created: string;
+  total_duration: number;
+  total_tokens: number;
+  original_request: any;
+  status: 'OK' | 'ERROR';
+  calls: TypesLLMCall[];
+  user_id?: string;
+  session_id?: string;
+}
+
 const win = (window as any)
+
+const formatDuration = (ms: number): string => {
+  if (ms < 1000) {
+    return `${ms}ms`;
+  }
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}m ${remainingSeconds}s`;
+};
 
 const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const api = useApi();
   const apiClient = api.getApiClient();
+  const account = useAccount();
   const [llmCalls, setLLMCalls] = useState<TypesPaginatedLLMCalls | null>(null);
   const [usageData, setUsageData] = useState<TypesUsersAggregatedUsageMetric[]>([]);
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [rowsPerPage, setRowsPerPage] = useState(100);
   const [modalContent, setModalContent] = useState<any>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   const headerCellStyle = {
     bgcolor: 'rgba(0, 0, 0, 0.2)',
     backdropFilter: 'blur(10px)'
   };  
+
+  const parseRequest = (request: any): any => {
+    try {
+      if (typeof request === 'string') {
+        return JSON.parse(request);
+      }
+      return request;
+    } catch (e) {
+      return request;
+    }
+  };
+
+  const getReasoningEffort = (request: any): string => {
+    const parsed = parseRequest(request);
+    return parsed?.reasoning_effort || 'n/a';
+  };
 
   const fetchUsageData = async () => {
     try {
@@ -87,20 +139,78 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
     fetchUsageData();
   };
 
-  const handleOpenModal = (content: any, call: TypesLLMCall) => {
-    setModalContent({
-      content,
-      sessionId: call.session_id,
-      interactionId: call.interaction_id,
-      step: call.step,
-      isError: !!call.error
-    });
+  const handleOpenModal = (content: any) => {
+    setModalContent(content);
     setModalOpen(true);
   };
 
   const handleCloseModal = () => {
     setModalOpen(false);
   };
+
+  const toggleRow = (interactionId: string) => {
+    const newExpandedRows = new Set(expandedRows);
+    if (newExpandedRows.has(interactionId)) {
+      newExpandedRows.delete(interactionId);
+    } else {
+      newExpandedRows.add(interactionId);
+    }
+    setExpandedRows(newExpandedRows);
+  };
+
+  // Group LLM calls by interaction_id
+  const groupedCalls = React.useMemo(() => {
+    if (!llmCalls?.calls) return [];
+
+    const groups = new Map<string, GroupedLLMCall>();
+    
+    llmCalls.calls.forEach(call => {
+      if (!call.interaction_id) return;
+      
+      if (!groups.has(call.interaction_id)) {
+        groups.set(call.interaction_id, {
+          interaction_id: call.interaction_id,
+          created: call.created || '',
+          total_duration: 0,
+          total_tokens: 0,
+          original_request: call.original_request,
+          status: 'OK',
+          calls: [],
+          user_id: call.user_id,
+          session_id: call.session_id,
+        });
+      }
+      
+      const group = groups.get(call.interaction_id)!;
+      group.calls.push(call);
+      group.total_tokens += call.total_tokens || 0;
+      if (call.error) {
+        group.status = 'ERROR';
+      }
+    });
+
+    // Sort individual calls within each group by creation time (oldest to newest)
+    groups.forEach(group => {
+      group.calls.sort((a, b) => 
+        new Date(a.created || '').getTime() - new Date(b.created || '').getTime()
+      );
+      
+      // Calculate total duration based on first and last call timestamps
+      if (group.calls.length > 0) {
+        const firstCall = group.calls[0];
+        const lastCall = group.calls[group.calls.length - 1];
+        if (firstCall.created && lastCall.created) {
+          const startTime = new Date(firstCall.created).getTime();
+          const endTime = new Date(lastCall.created).getTime();
+          group.total_duration = endTime - startTime;
+        }
+      }
+    });
+
+    return Array.from(groups.values()).sort((a, b) => 
+      new Date(b.created).getTime() - new Date(a.created).getTime()
+    );
+  }, [llmCalls?.calls]);
 
   // Prepare data for the line chart
   const prepareChartData = () => {
@@ -217,56 +327,174 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
         <Table stickyHeader aria-label="LLM calls table">
           <TableHead>
             <TableRow>
-              <TableCell sx={headerCellStyle}>Created</TableCell>
-              <TableCell sx={headerCellStyle}>Session ID</TableCell>
-              <TableCell sx={headerCellStyle}>Step</TableCell>
-              <TableCell sx={headerCellStyle}>Duration (ms)</TableCell>
+              <TableCell sx={headerCellStyle} width="50px"></TableCell>
+              <TableCell sx={headerCellStyle}>Time</TableCell>
+              <TableCell sx={headerCellStyle}>Duration</TableCell>
+              <TableCell sx={headerCellStyle}>Total Tokens</TableCell>
               <TableCell sx={headerCellStyle}>Original Request</TableCell>
-              <TableCell sx={headerCellStyle}>Request</TableCell>
-              <TableCell sx={headerCellStyle}>Response</TableCell>
+              <TableCell sx={headerCellStyle}>Status</TableCell>
+              <TableCell sx={headerCellStyle}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             { win.DISABLE_LLM_CALL_LOGGING ? (
               <TableRow>
-                <TableCell colSpan={6}>LLM call logging is disabled by the administrator.</TableCell>
+                <TableCell colSpan={8}>LLM call logging is disabled by the administrator.</TableCell>
               </TableRow>
             ) : (
-              llmCalls.calls?.map((call: TypesLLMCall) => (
-                <TableRow 
-                  key={call.id}
-                  sx={{
-                    ...(call.error && {
-                      border: '2px solid #ff4d4f',
-                      bgcolor: 'rgba(255, 77, 79, 0.1)',
-                      '& td': {
-                        borderColor: 'rgba(255, 77, 79, 0.2)'
+              groupedCalls.map((group) => (
+                <React.Fragment key={group.interaction_id}>
+                  <TableRow 
+                    sx={{
+                      ...(group.status === 'ERROR' && {
+                        border: '2px solid #ff4d4f',
+                        bgcolor: 'rgba(255, 77, 79, 0.1)',
+                        '& td': {
+                          borderColor: 'rgba(255, 77, 79, 0.2)'
+                        }
+                      }),
+                      cursor: 'pointer',
+                      '&:hover': {
+                        bgcolor: 'rgba(255, 255, 255, 0.05)'
                       }
-                    })
-                  }}
-                >
-                <TableCell>{call.created ? new Date(call.created).toLocaleString() : ''}</TableCell>
-                <TableCell>{call.session_id}</TableCell>
-                <TableCell>{call.step || 'n/a'}</TableCell>
-                <TableCell>{call.duration_ms || 'n/a'}</TableCell>
-                <TableCell>
-                  {call.original_request && (
-                    <Button onClick={() => handleOpenModal(call.original_request, call)}>View</Button>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <Button onClick={() => handleOpenModal(call.request, call)}>View</Button>
-                </TableCell>
-                <TableCell>
-                  <Tooltip title={call.error || ''}>
-                    <span>
-                      <Button onClick={() => handleOpenModal(call.error ? { error: call.error } : call.response, call)}>
-                        {call.error ? 'View Error' : 'View'}
+                    }}
+                    onClick={() => toggleRow(group.interaction_id)}
+                  >
+                    <TableCell>
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleRow(group.interaction_id);
+                        }}
+                      >
+                        {expandedRows.has(group.interaction_id) ? 
+                          <KeyboardArrowUpIcon /> : 
+                          <KeyboardArrowDownIcon />
+                        }
+                      </IconButton>
+                    </TableCell>
+                    <TableCell>{group.created ? new Date(group.created).toLocaleString() : ''}</TableCell>
+                    <TableCell>{formatDuration(group.total_duration)}</TableCell>
+                    <TableCell>{group.total_tokens}</TableCell>
+                    <TableCell>
+                      {group.original_request && (
+                        <Button onClick={() => handleOpenModal(group.original_request)}>View</Button>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Button 
+                        onClick={() => {
+                          // Get the latest call (last in the array since we sorted by oldest first)
+                          const latestCall = group.calls[group.calls.length - 1];
+                          if (latestCall) {
+                            handleOpenModal(latestCall.error ? { error: latestCall.error } : latestCall.response);
+                          }
+                        }}
+                        color={group.status === 'ERROR' ? 'error' : 'primary'}
+                      >
+                        {group.status}
                       </Button>
-                    </span>
-                  </Tooltip>
-                </TableCell>
-                </TableRow>
+                    </TableCell>
+                    <TableCell>
+                      {group.user_id === account.user?.id && group.session_id && (
+                        <Link href={`/session/${group.session_id}`} target="_blank" rel="noopener noreferrer">
+                          <OpenInNewIcon />
+                        </Link>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
+                      <Collapse in={expandedRows.has(group.interaction_id)} timeout="auto" unmountOnExit>
+                        <Box sx={{ margin: 1 }}>
+                          <Box sx={{ mb: 2, p: 2, bgcolor: 'rgba(0, 0, 0, 0.2)', borderRadius: 1 }}>
+                            <Typography variant="subtitle2" gutterBottom>Session Details</Typography>
+                            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">Session ID</Typography>
+                                <Typography variant="body2">
+                                  {group.session_id ? (
+                                    <Link href={`/session/${group.session_id}`} target="_blank" rel="noopener noreferrer">
+                                      {group.session_id}
+                                    </Link>
+                                  ) : 'N/A'}
+                                </Typography>
+                              </Box>
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">Interaction ID</Typography>
+                                <Typography variant="body2">{group.interaction_id}</Typography>
+                              </Box>
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">User ID</Typography>
+                                <Typography variant="body2">{group.user_id || 'N/A'}</Typography>
+                              </Box>
+                              <Box>
+                                <Typography variant="caption" color="text.secondary">Total Tokens</Typography>
+                                <Typography variant="body2">
+                                  {group.calls.reduce((acc, call) => acc + (call.prompt_tokens || 0), 0)} prompt / {' '}
+                                  {group.calls.reduce((acc, call) => acc + (call.completion_tokens || 0), 0)} completion
+                                </Typography>
+                              </Box>
+                            </Box>
+                          </Box>
+                          <Table size="small" sx={{ bgcolor: 'rgba(0, 0, 0, 0.2)' }}>
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>Timestamp</TableCell>
+                                <TableCell>Step</TableCell>
+                                <TableCell>Duration (ms)</TableCell>
+                                <TableCell>Model</TableCell>
+                                <TableCell>Request</TableCell>
+                                <TableCell>Response</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {group.calls.map((call) => (
+                                <TableRow key={call.id}>
+                                  <TableCell>{call.created ? new Date(call.created).toLocaleString() : ''}</TableCell>
+                                  <TableCell>{call.step || 'n/a'}</TableCell>
+                                  <TableCell>
+                                    {call.duration_ms ? formatDuration(call.duration_ms) : 'n/a'}
+                                    {call.duration_ms && call.duration_ms > 5000 && (
+                                      <Tooltip title="Model taking a long time to think">
+                                        <WarningIcon 
+                                          sx={{ 
+                                            ml: 1, 
+                                            color: '#ff9800',
+                                            verticalAlign: 'middle',
+                                            fontSize: '1rem'
+                                          }} 
+                                        />
+                                      </Tooltip>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Tooltip title={getReasoningEffort(call.request) !== 'n/a' ? `Reasoning effort: ${getReasoningEffort(call.request)}` : ''}>
+                                      <span>{call.model || 'n/a'}</span>
+                                    </Tooltip>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Button onClick={() => handleOpenModal(call.request)}>View</Button>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Tooltip title={call.error || ''}>
+                                      <span>
+                                        <Button sx={{ mr: 3 }} onClick={() => handleOpenModal(call.error ? { error: call.error } : call.response)}>
+                                          {call.error ? 'View Error' : 'View'}
+                                        </Button>
+                                      </span>
+                                    </Tooltip>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </Box>
+                      </Collapse>
+                    </TableCell>
+                  </TableRow>
+                </React.Fragment>
               ))
             )}
           </TableBody>
@@ -303,25 +531,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
           <Typography id="json-modal-title" variant="h6" component="h2" gutterBottom>
             JSON Content
           </Typography>
-          
-          <Box sx={{ mb: 2, p: 2, bgcolor: 'rgba(0, 0, 0, 0.1)', borderRadius: 1 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Session ID: {modalContent?.sessionId}
-            </Typography>
-            <Typography variant="subtitle2" gutterBottom>
-              Interaction ID: {modalContent?.interactionId}
-            </Typography>
-            <Typography variant="subtitle2" gutterBottom>
-              Step: {modalContent?.step}
-            </Typography>
-            {modalContent?.isError && (
-              <Typography variant="subtitle2" color="error" gutterBottom>
-                Error occurred during this call
-              </Typography>
-            )}
-          </Box>
-
-          <JsonView data={modalContent?.content} />
+          <JsonView data={modalContent} />
         </Box>
       </Modal>
     </Paper>

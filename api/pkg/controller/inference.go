@@ -71,7 +71,6 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		log.Info().Msg("running in agent mode")
 
 		resp, err := c.runAgentBlocking(ctx, &runAgentRequest{
-			Client:    client,
 			Assistant: assistant,
 			User:      user,
 			Request:   req,
@@ -198,7 +197,6 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		log.Info().Msg("running in agent mode")
 
 		resp, err := c.runAgentStream(ctx, &runAgentRequest{
-			Client:    client,
 			Assistant: assistant,
 			User:      user,
 			Request:   req,

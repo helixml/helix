@@ -46,22 +46,35 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 	messageHistory.AddFirst(systemPrompt)
 
 	isFirstIteration := true
+	iterationNumber := 0
+
 	for {
+		iterationNumber++
+
 		modelToUse := llm.SmallGenerationModel
-		reasoningEffor := ""
+
+		reasoningEffort := "" // TODO: move to app configuration
 		if isFirstIteration {
 			// First iteration is when the main planning happens - use the bigger model.
 			modelToUse = llm.ReasoningModel
 			isFirstIteration = false
-			reasoningEffor = "high"
+			reasoningEffort = "high"
 		}
 
 		params := openai.ChatCompletionRequest{
 			Messages:        messageHistory.All(),
-			Model:           modelToUse,
-			ReasoningEffort: reasoningEffor,
+			Model:           modelToUse.Model,
+			ReasoningEffort: reasoningEffort,
 		}
-		log.Info().Str("skill", skill.Name).Interface("tools", skill.Tools).Msg("Running skill")
+
+		log.Info().
+			Str("skill", skill.Name).
+			Interface("tools", skill.Tools).
+			Int("iteration", iterationNumber).
+			Str("reasoning_effort", reasoningEffort).
+			Str("model", modelToUse.Model).
+			Msg("Running skill")
+
 		if len(skill.GetTools()) > 0 {
 			params.Tools = skill.GetTools()
 		}
@@ -71,10 +84,10 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 		messageHistoryBeforeLLMCall := messageHistory.Clone()
 
 		ctx = oai.SetStep(ctx, &oai.Step{
-			Step: types.LLMCallStep(fmt.Sprintf("skill_context_runner (%s)", skill.Name)),
+			Step: types.LLMCallStep(fmt.Sprintf("skill_context_runner (%s | iteration %d)", skill.Name, iterationNumber)),
 		})
 
-		completion, err := llm.New(ctx, params)
+		completion, err := llm.New(ctx, modelToUse, params)
 		if err != nil {
 			log.Error().Err(err).Msg("Error calling LLM while running skill")
 			return MessageWhenToolErrorWithRetry("Network error", skillToolCallID), err

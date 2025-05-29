@@ -2208,19 +2208,19 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates an embedding vector representing the input text",
+                "description": "Creates an embedding vector representing the input text. Supports both standard OpenAI embedding format and Chat Embeddings API format with messages.",
                 "tags": [
                     "embeddings"
                 ],
                 "summary": "Creates an embedding vector representing the input text",
                 "parameters": [
                     {
-                        "description": "Request body with options for embeddings.",
+                        "description": "Request body with options for embeddings. Can use either 'input' field (standard) or 'messages' field (Chat Embeddings API).",
                         "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/openai.EmbeddingRequest"
+                            "$ref": "#/definitions/types.FlexibleEmbeddingRequest"
                         }
                     }
                 ],
@@ -2228,7 +2228,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/openai.EmbeddingResponse"
+                            "$ref": "#/definitions/types.FlexibleEmbeddingResponse"
                         }
                     }
                 }
@@ -2893,118 +2893,6 @@ const docTemplate = `{
                 }
             }
         },
-        "openai.Embedding": {
-            "type": "object",
-            "properties": {
-                "embedding": {
-                    "type": "array",
-                    "items": {
-                        "type": "number"
-                    }
-                },
-                "index": {
-                    "type": "integer"
-                },
-                "object": {
-                    "type": "string"
-                }
-            }
-        },
-        "openai.EmbeddingEncodingFormat": {
-            "type": "string",
-            "enum": [
-                "float",
-                "base64"
-            ],
-            "x-enum-varnames": [
-                "EmbeddingEncodingFormatFloat",
-                "EmbeddingEncodingFormatBase64"
-            ]
-        },
-        "openai.EmbeddingModel": {
-            "type": "string",
-            "enum": [
-                "text-similarity-ada-001",
-                "text-similarity-babbage-001",
-                "text-similarity-curie-001",
-                "text-similarity-davinci-001",
-                "text-search-ada-doc-001",
-                "text-search-ada-query-001",
-                "text-search-babbage-doc-001",
-                "text-search-babbage-query-001",
-                "text-search-curie-doc-001",
-                "text-search-curie-query-001",
-                "text-search-davinci-doc-001",
-                "text-search-davinci-query-001",
-                "code-search-ada-code-001",
-                "code-search-ada-text-001",
-                "code-search-babbage-code-001",
-                "code-search-babbage-text-001",
-                "text-embedding-ada-002",
-                "text-embedding-3-small",
-                "text-embedding-3-large"
-            ],
-            "x-enum-varnames": [
-                "AdaSimilarity",
-                "BabbageSimilarity",
-                "CurieSimilarity",
-                "DavinciSimilarity",
-                "AdaSearchDocument",
-                "AdaSearchQuery",
-                "BabbageSearchDocument",
-                "BabbageSearchQuery",
-                "CurieSearchDocument",
-                "CurieSearchQuery",
-                "DavinciSearchDocument",
-                "DavinciSearchQuery",
-                "AdaCodeSearchCode",
-                "AdaCodeSearchText",
-                "BabbageCodeSearchCode",
-                "BabbageCodeSearchText",
-                "AdaEmbeddingV2",
-                "SmallEmbedding3",
-                "LargeEmbedding3"
-            ]
-        },
-        "openai.EmbeddingRequest": {
-            "type": "object",
-            "properties": {
-                "dimensions": {
-                    "description": "Dimensions The number of dimensions the resulting output embeddings should have.\nOnly supported in text-embedding-3 and later models.",
-                    "type": "integer"
-                },
-                "encoding_format": {
-                    "$ref": "#/definitions/openai.EmbeddingEncodingFormat"
-                },
-                "input": {},
-                "model": {
-                    "$ref": "#/definitions/openai.EmbeddingModel"
-                },
-                "user": {
-                    "type": "string"
-                }
-            }
-        },
-        "openai.EmbeddingResponse": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/openai.Embedding"
-                    }
-                },
-                "model": {
-                    "$ref": "#/definitions/openai.EmbeddingModel"
-                },
-                "object": {
-                    "type": "string"
-                },
-                "usage": {
-                    "$ref": "#/definitions/github_com_sashabaranov_go-openai.Usage"
-                }
-            }
-        },
         "openai.JailBreak": {
             "type": "object",
             "properties": {
@@ -3410,6 +3298,9 @@ const docTemplate = `{
                 "generation_model": {
                     "type": "string"
                 },
+                "generation_model_provider": {
+                    "type": "string"
+                },
                 "gptscripts": {
                     "type": "array",
                     "items": {
@@ -3465,10 +3356,19 @@ const docTemplate = `{
                 "reasoning_model": {
                     "type": "string"
                 },
+                "reasoning_model_provider": {
+                    "type": "string"
+                },
                 "small_generation_model": {
                     "type": "string"
                 },
+                "small_generation_model_provider": {
+                    "type": "string"
+                },
                 "small_reasoning_model": {
+                    "type": "string"
+                },
+                "small_reasoning_model_provider": {
                     "type": "string"
                 },
                 "system_prompt": {
@@ -3595,6 +3495,73 @@ const docTemplate = `{
                     "type": "boolean"
                 }
             }
+        },
+        "types.ChatCompletionMessage": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "multiContent": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ChatMessagePart"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "description": "For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool.",
+                    "type": "string"
+                },
+                "tool_calls": {
+                    "description": "For Role=assistant prompts this may be set to the tool calls generated by the model, such as function calls.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_sashabaranov_go-openai.ToolCall"
+                    }
+                }
+            }
+        },
+        "types.ChatMessageImageURL": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "$ref": "#/definitions/types.ImageURLDetail"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ChatMessagePart": {
+            "type": "object",
+            "properties": {
+                "image_url": {
+                    "$ref": "#/definitions/types.ChatMessageImageURL"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.ChatMessagePartType"
+                }
+            }
+        },
+        "types.ChatMessagePartType": {
+            "type": "string",
+            "enum": [
+                "text",
+                "image_url"
+            ],
+            "x-enum-varnames": [
+                "ChatMessagePartTypeText",
+                "ChatMessagePartTypeImageURL"
+            ]
         },
         "types.Choice": {
             "type": "object",
@@ -3843,6 +3810,72 @@ const docTemplate = `{
                 }
             }
         },
+        "types.FlexibleEmbeddingRequest": {
+            "type": "object",
+            "properties": {
+                "dimensions": {
+                    "type": "integer"
+                },
+                "encoding_format": {
+                    "type": "string"
+                },
+                "input": {
+                    "description": "Can be string, []string, [][]int, etc."
+                },
+                "messages": {
+                    "description": "For Chat Embeddings API format",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.ChatCompletionMessage"
+                    }
+                },
+                "model": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.FlexibleEmbeddingResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "embedding": {
+                                "type": "array",
+                                "items": {
+                                    "type": "number"
+                                }
+                            },
+                            "index": {
+                                "type": "integer"
+                            },
+                            "object": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                },
+                "model": {
+                    "type": "string"
+                },
+                "object": {
+                    "type": "string"
+                },
+                "usage": {
+                    "type": "object",
+                    "properties": {
+                        "prompt_tokens": {
+                            "type": "integer"
+                        },
+                        "total_tokens": {
+                            "type": "integer"
+                        }
+                    }
+                }
+            }
+        },
         "types.GptScriptRequest": {
             "type": "object",
             "properties": {
@@ -3867,6 +3900,19 @@ const docTemplate = `{
                     "type": "integer"
                 }
             }
+        },
+        "types.ImageURLDetail": {
+            "type": "string",
+            "enum": [
+                "high",
+                "low",
+                "auto"
+            ],
+            "x-enum-varnames": [
+                "ImageURLDetailHigh",
+                "ImageURLDetailLow",
+                "ImageURLDetailAuto"
+            ]
         },
         "types.Interaction": {
             "type": "object",
@@ -4361,7 +4407,7 @@ const docTemplate = `{
                 "app_id": {
                     "type": "string"
                 },
-                "completionTokens": {
+                "completion_tokens": {
                     "type": "integer"
                 },
                 "created": {
@@ -4388,7 +4434,7 @@ const docTemplate = `{
                         "type": "integer"
                     }
                 },
-                "promptTokens": {
+                "prompt_tokens": {
                     "type": "integer"
                 },
                 "provider": {
@@ -4415,7 +4461,7 @@ const docTemplate = `{
                 "stream": {
                     "type": "boolean"
                 },
-                "totalTokens": {
+                "total_tokens": {
                     "type": "integer"
                 },
                 "updated": {

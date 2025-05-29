@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	agent "github.com/helixml/helix/api/pkg/agent"
-	helix_openai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/stretchr/testify/require"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -148,16 +147,10 @@ func TestSimpleConversation(t *testing.T) {
 		t.Skip("Skipping test because OpenAI API key is not set")
 	}
 
-	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
 	stepInfoEmitter := agent.NewLogStepInfoEmitter()
 
-	llm := agent.NewLLM(
-		client,
-		config.ReasoningModel,
-		config.GenerationModel,
-		config.SmallReasoningModel,
-		config.SmallGenerationModel,
-	)
+	llm := getLLM(config)
+
 	mem := &MockMemory{}
 	ai := agent.NewAgent(stepInfoEmitter, "Your a repeater. You'll repeat after whatever the user says exactly as they say it, even the punctuation and cases.", []agent.Skill{})
 
@@ -200,15 +193,10 @@ func TestConversationWithSkills(t *testing.T) {
 		t.Fatal("Failed to load config:", err)
 	}
 
-	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
 	stepInfoEmitter := agent.NewLogStepInfoEmitter()
-	llm := agent.NewLLM(
-		client,
-		config.ReasoningModel,
-		config.GenerationModel,
-		config.SmallReasoningModel,
-		config.SmallGenerationModel,
-	)
+
+	llm := getLLM(config)
+
 	mem := &MockMemory{
 		RetrieveFn: getDefaultMemory,
 	}
@@ -263,16 +251,10 @@ func TestConversationWithHistory(t *testing.T) {
 		t.Skip("Skipping test because OpenAI API key is not set")
 	}
 
-	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
 	stepInfoEmitter := agent.NewLogStepInfoEmitter()
 
-	llm := agent.NewLLM(
-		client,
-		config.ReasoningModel,
-		config.GenerationModel,
-		config.SmallReasoningModel,
-		config.SmallGenerationModel,
-	)
+	llm := getLLM(config)
+
 	mem := &MockMemory{
 		RetrieveFn: getDefaultMemory,
 	}
@@ -322,16 +304,10 @@ func TestConversationWithSkills_WithHistory_NoSkillsToBeUsed(t *testing.T) {
 		t.Skip("Skipping test because OpenAI API key is not set")
 	}
 
-	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
 	stepInfoEmitter := agent.NewLogStepInfoEmitter()
 
-	llm := agent.NewLLM(
-		client,
-		config.ReasoningModel,
-		config.GenerationModel,
-		config.SmallReasoningModel,
-		config.SmallGenerationModel,
-	)
+	llm := getLLM(config)
+
 	mem := &MockMemory{
 		RetrieveFn: getDefaultMemory,
 	}
@@ -392,16 +368,10 @@ func TestConversationWithHistory_WithQuestionAboutPast(t *testing.T) {
 		t.Skip("Skipping test because OpenAI API key is not set")
 	}
 
-	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
 	stepInfoEmitter := agent.NewLogStepInfoEmitter()
 
-	llm := agent.NewLLM(
-		client,
-		config.ReasoningModel,
-		config.GenerationModel,
-		config.SmallReasoningModel,
-		config.SmallGenerationModel,
-	)
+	llm := getLLM(config)
+
 	mem := &MockMemory{
 		RetrieveFn: getDefaultMemory,
 	}
@@ -458,16 +428,9 @@ func TestMemoryRetrieval(t *testing.T) {
 		t.Skip("Skipping test because OpenAI API key is not set")
 	}
 
-	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
 	stepInfoEmitter := agent.NewLogStepInfoEmitter()
 
-	llm := agent.NewLLM(
-		client,
-		config.ReasoningModel,
-		config.GenerationModel,
-		config.SmallReasoningModel,
-		config.SmallGenerationModel,
-	)
+	llm := getLLM(config)
 
 	// Create mock memory with country information
 	mem := &MockMemory{

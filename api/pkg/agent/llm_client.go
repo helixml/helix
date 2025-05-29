@@ -11,29 +11,31 @@ import (
 type ContextKey string
 
 type LLM struct {
-	APIKey               string
-	BaseURL              string
-	ReasoningModel       string
-	GenerationModel      string
-	SmallReasoningModel  string
-	SmallGenerationModel string
-	client               helix_openai.Client
+	ReasoningModel       *LLMModelConfig
+	GenerationModel      *LLMModelConfig
+	SmallReasoningModel  *LLMModelConfig
+	SmallGenerationModel *LLMModelConfig
 }
 
-func NewLLM(client helix_openai.Client, reasoningModel string, generationModel string, smallReasoningModel string, smallGenerationModel string) *LLM {
+// LLMModelConfig holds info for a specific LLM model
+type LLMModelConfig struct {
+	Client helix_openai.Client
+	Model  string
+}
+
+func NewLLM(reasoningModel *LLMModelConfig, generationModel *LLMModelConfig, smallReasoningModel *LLMModelConfig, smallGenerationModel *LLMModelConfig) *LLM {
 	return &LLM{
 		ReasoningModel:       reasoningModel,
 		GenerationModel:      generationModel,
 		SmallReasoningModel:  smallReasoningModel,
 		SmallGenerationModel: smallGenerationModel,
-		client:               client,
 	}
 }
 
 // TODO failures like too long, non-processable etc from the LLM needs to be handled
-func (c *LLM) New(ctx context.Context, params openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+func (c *LLM) New(ctx context.Context, model *LLMModelConfig, params openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
 
-	resp, err := c.client.CreateChatCompletion(ctx, params)
+	resp, err := model.Client.CreateChatCompletion(ctx, params)
 	if err != nil {
 		return openai.ChatCompletionResponse{}, err
 	}
@@ -41,6 +43,9 @@ func (c *LLM) New(ctx context.Context, params openai.ChatCompletionRequest) (ope
 	return resp, nil
 }
 
-func (c *LLM) NewStreaming(ctx context.Context, params openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
-	return c.client.CreateChatCompletionStream(ctx, params)
+func (c *LLM) NewStreaming(ctx context.Context, model *LLMModelConfig, params openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+	params.StreamOptions = &openai.StreamOptions{
+		IncludeUsage: true,
+	}
+	return model.Client.CreateChatCompletionStream(ctx, params)
 }

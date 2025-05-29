@@ -99,9 +99,13 @@ const AppSettings: FC<AppSettingsProps> = ({
   // Agent mode settings
   const [agent_mode, setAgentMode] = useState(app.agent_mode || false)
   const [reasoning_model, setReasoningModel] = useState(app.reasoning_model || '')
+  const [reasoning_model_provider, setReasoningModelProvider] = useState(app.reasoning_model_provider || '')
   const [generation_model, setGenerationModel] = useState(app.generation_model || '')
+  const [generation_model_provider, setGenerationModelProvider] = useState(app.generation_model_provider || '')
   const [small_reasoning_model, setSmallReasoningModel] = useState(app.small_reasoning_model || '')
+  const [small_reasoning_model_provider, setSmallReasoningModelProvider] = useState(app.small_reasoning_model_provider || '')
   const [small_generation_model, setSmallGenerationModel] = useState(app.small_generation_model || '')
+  const [small_generation_model_provider, setSmallGenerationModelProvider] = useState(app.small_generation_model_provider || '')
   
   // Advanced settings state
   const [contextLimit, setContextLimit] = useState(app.context_limit || 0)
@@ -131,11 +135,21 @@ const AppSettings: FC<AppSettingsProps> = ({
       setImage(app.image || '')
       setGlobal(app.global || false)
       setModel(app.model || '')
+      // Agent configuration
       setAgentMode(app.agent_mode || false)
+      // Reasoning configuration
       setReasoningModel(app.reasoning_model || '')
+      setReasoningModelProvider(app.reasoning_model_provider || '')
+      
       setGenerationModel(app.generation_model || '')
+      setGenerationModelProvider(app.generation_model_provider || '')
+      
       setSmallReasoningModel(app.small_reasoning_model || '')
+      setSmallReasoningModelProvider(app.small_reasoning_model_provider || '')
+      
       setSmallGenerationModel(app.small_generation_model || '')
+      setSmallGenerationModelProvider(app.small_generation_model_provider || '')
+      
       setProvider(app.provider || '')
       setContextLimit(app.context_limit || 0)
       setFrequencyPenalty(app.frequency_penalty || 0)
@@ -237,9 +251,13 @@ const AppSettings: FC<AppSettingsProps> = ({
       model,
       agent_mode,
       reasoning_model,
+      reasoning_model_provider,
       generation_model,
+      generation_model_provider,
       small_reasoning_model,
+      small_reasoning_model_provider,
       small_generation_model,
+      small_generation_model_provider,
       provider,
       context_limit: field === 'contextLimit' ? value as number : contextLimit,
       frequency_penalty: field === 'frequencyPenalty' ? value as number : frequencyPenalty,
@@ -498,13 +516,15 @@ const AppSettings: FC<AppSettingsProps> = ({
               <AdvancedModelPicker
                 recommendedModels={['o3-mini', 'o4-mini']}
                 hint='Recommended to use o3-mini level models, should be a strong model capable of using tools and reasoning.'
-                selectedProvider={provider}
+                selectedProvider={reasoning_model_provider}
                 selectedModelId={reasoning_model}
                 onSelectModel={(provider, model) => {
                   setReasoningModel(model);
+                  setReasoningModelProvider(provider);
                   const updatedApp: IAppFlatState = {
                     ...app,
                     reasoning_model: model,
+                    reasoning_model_provider: provider,
                   };
                   onUpdate(updatedApp);
                 }}
@@ -521,13 +541,15 @@ const AppSettings: FC<AppSettingsProps> = ({
               <AdvancedModelPicker
                 recommendedModels={['gpt-4o', 'gpt-4o-mini']}
                 hint='Recommended to use gpt-4o level models, should be a strong model capable of planning next actions and interpreting tool responses.'
-                selectedProvider={provider}
+                selectedProvider={generation_model_provider}
                 selectedModelId={generation_model}
                 onSelectModel={(provider, model) => {
                   setGenerationModel(model);
+                  setGenerationModelProvider(provider);
                   const updatedApp: IAppFlatState = {
                     ...app,
                     generation_model: model,
+                    generation_model_provider: provider,
                   };
                   onUpdate(updatedApp);
                 }}
@@ -544,13 +566,15 @@ const AppSettings: FC<AppSettingsProps> = ({
               <AdvancedModelPicker
                 recommendedModels={['o3-mini', 'o4-mini']}
                 hint='Recommended to use o3-mini level models, should be a strong model capable of using tools and reasoning.'
-                selectedProvider={provider}
+                selectedProvider={small_reasoning_model_provider}
                 selectedModelId={small_reasoning_model}
                 onSelectModel={(provider, model) => {
                   setSmallReasoningModel(model);
+                  setSmallReasoningModelProvider(provider);
                   const updatedApp: IAppFlatState = {
                     ...app,
                     small_reasoning_model: model,
+                    small_reasoning_model_provider: provider,
                   };
                   onUpdate(updatedApp);
                 }}
@@ -571,9 +595,11 @@ const AppSettings: FC<AppSettingsProps> = ({
                 selectedModelId={small_generation_model}
                 onSelectModel={(provider, model) => {
                   setSmallGenerationModel(model);
+                  setSmallGenerationModelProvider(provider);
                   const updatedApp: IAppFlatState = {
                     ...app,
                     small_generation_model: model,
+                    small_generation_model_provider: provider,
                   };
                   onUpdate(updatedApp);
                 }}
