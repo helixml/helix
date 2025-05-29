@@ -447,6 +447,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                               duration_ms: call.duration_ms || 0,
                               step: call.step,
                               model: call.model,
+                              response: call.response,
                             }))}
                             onHoverCallId={setHoveredCallId}
                             highlightedCallId={hoveredCallId}
