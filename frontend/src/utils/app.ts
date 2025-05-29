@@ -43,6 +43,7 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
       flatState.top_p = assistant.top_p
 
       flatState.agent_mode = assistant.agent_mode
+      flatState.max_iterations = assistant.max_iterations
       flatState.reasoning_model = assistant.reasoning_model
       flatState.reasoning_model_provider = assistant.reasoning_model_provider
       flatState.generation_model = assistant.generation_model

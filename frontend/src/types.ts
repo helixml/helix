@@ -577,6 +577,7 @@ export interface IAssistantConfig {
   provider?: string;
   model?: string;
   agent_mode?: boolean;
+  max_iterations?: number;
   reasoning_model?: string;
   reasoning_model_provider?: string;
   generation_model?: string;
@@ -794,6 +795,7 @@ export interface IAppFlatState {
   provider?: string
   model?: string
   agent_mode?: boolean
+  max_iterations?: number
   reasoning_model?: string
   reasoning_model_provider?: string
   generation_model?: string

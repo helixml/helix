@@ -318,6 +318,11 @@ export const useApp = (appId: string) => {
       assistants[0].agent_mode = updates.agent_mode
     }
 
+    if (updates.max_iterations !== undefined) {
+      assistants[0].max_iterations = updates.max_iterations
+      console.log('max_iterations', updates.max_iterations)
+    }
+
     if (updates.reasoning_model !== undefined) {
       assistants[0].reasoning_model = updates.reasoning_model
     }
