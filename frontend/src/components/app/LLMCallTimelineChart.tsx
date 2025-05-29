@@ -44,18 +44,27 @@ const getToolCalls = (response: any): any[] => {
   return parsed?.choices?.[0]?.message?.tool_calls || [];
 };
 
-const getTooltipContent = (call: LLMCall): string => {
+const getTooltipContent = (call: LLMCall): React.ReactNode => {
   if (call.step === 'decide_next_action' && call.response) {
     const toolCalls = getToolCalls(call.response);
     if (toolCalls.length > 0) {
-      return `Tool Calls:\n${toolCalls.map(tc => `- ${tc.function?.name || 'Unknown'}`).join('\n')}`;
+      return (
+        <div>
+          <div>Tool Calls:</div>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {toolCalls.map((tc, idx) => (
+              <li key={idx}>{tc.function?.name || 'Unknown'}</li>
+            ))}
+          </ul>
+        </div>
+      );
     }
     const message = getAssistantMessage(call.response);
     if (message !== 'n/a') {
-      return `Message: ${message}`;
+      return <div>Message: {message}</div>;
     }
   }
-  return `Duration: ${formatMs(call.duration_ms)}`;
+  return <div>Duration: {formatMs(call.duration_ms)}</div>;
 };
 
 const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHoverCallId, highlightedCallId }) => {
@@ -171,6 +180,7 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
                 title={getTooltipContent(d)}
                 placement="top"
                 arrow
+                slotProps={{ tooltip: { sx: { bgcolor: '#222', opacity: 1 } } }}
               >
                 <g
                   onMouseOver={() => onHoverCallId?.(d.id)}
