@@ -61,7 +61,8 @@ const getTooltipContent = (call: LLMCall): React.ReactNode => {
     <div key="times">
       Started: {formatTime(startTime)}<br />
       Finished: {formatTime(endTime)}
-    </div>
+    </div>,
+    <div key="duration">Duration: {formatMs(call.duration_ms)}</div>
   ];
 
   if (call.step === 'decide_next_action' && call.response) {
@@ -84,8 +85,6 @@ const getTooltipContent = (call: LLMCall): React.ReactNode => {
       }
     }
   }
-
-  content.push(<div key="duration">Duration: {formatMs(call.duration_ms)}</div>);
 
   return <div>{content}</div>;
 };
