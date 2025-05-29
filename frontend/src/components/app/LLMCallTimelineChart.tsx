@@ -17,8 +17,8 @@ interface LLMCallTimelineChartProps {
 
 const formatMs = (ms: number) => `${ms} ms`;
 
-const ROW_HEIGHT = 32;
-const BAR_HEIGHT = 22;
+const ROW_HEIGHT = 22;
+const BAR_HEIGHT = 14;
 const LABEL_WIDTH = 0;
 const CHART_PADDING = 24;
 
@@ -113,10 +113,10 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
                 />
                 <text
                   x={x}
-                  y={height - CHART_PADDING + 24}
+                  y={height - CHART_PADDING + 16}
                   textAnchor="middle"
                   fill="#aaa"
-                  fontSize={15}
+                  fontSize={11}
                   fontFamily="inherit"
                 >
                   {formatMs(Math.round(tick))}
@@ -146,10 +146,10 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
                   style={{ filter: highlightedCallId === d.id ? 'drop-shadow(0 0 8px #ffb300)' : undefined }}
                 />
                 <text
-                  x={x + 10}
-                  y={y + BAR_HEIGHT / 2 + 6}
+                  x={x + 6}
+                  y={y + BAR_HEIGHT / 2 + 4}
                   fill="#fff"
-                  fontSize={14}
+                  fontSize={11}
                   fontFamily="inherit"
                   pointerEvents="none"
                 >
