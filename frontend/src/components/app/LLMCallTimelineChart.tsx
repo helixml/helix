@@ -8,6 +8,7 @@ interface LLMCall {
   step?: string;
   model?: string;
   response?: any;
+  request?: any;
 }
 
 interface LLMCallTimelineChartProps {
@@ -32,6 +33,22 @@ const parseResponse = (response: any): any => {
   } catch (e) {
     return response;
   }
+};
+
+const parseRequest = (request: any): any => {
+  try {
+    if (typeof request === 'string') {
+      return JSON.parse(request);
+    }
+    return request;
+  } catch (e) {
+    return request;
+  }
+};
+
+const getReasoningEffort = (request: any): string => {
+  const parsed = parseRequest(request);
+  return parsed?.reasoning_effort || 'n/a';
 };
 
 const getAssistantMessage = (response: any): string => {
@@ -64,6 +81,11 @@ const getTooltipContent = (call: LLMCall): React.ReactNode => {
     </div>,
     <div key="duration">Duration: {formatMs(call.duration_ms)}</div>
   ];
+
+  if (call.step?.startsWith('skill_context_runner') && call.request) {
+    const reasoningEffort = getReasoningEffort(call.request);
+    content.push(<div key="reasoning">Reasoning Effort: {reasoningEffort}</div>);
+  }
 
   if (call.step === 'decide_next_action' && call.response) {
     const toolCalls = getToolCalls(call.response);
