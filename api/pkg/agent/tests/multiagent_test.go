@@ -228,6 +228,7 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 				Tools:        []agent.Tool{cuisineTool},
 			},
 		},
+		10,
 	)
 
 	messageHistory := &agent.MessageList{}
