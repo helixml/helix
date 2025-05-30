@@ -871,6 +871,7 @@ const AppSettings: FC<AppSettingsProps> = ({
               <Typography gutterBottom>Max Iterations</Typography>
               <Typography variant="body2" color="text.secondary">
                 The maximum number of reasoning iterations to perform before stopping.
+                Acts as a safety mechanism to prevent infinite loops.
                 <ResetLink field="max_iterations" value={max_iterations} onClick={() => handleReset('max_iterations')} />
               </Typography>
 
