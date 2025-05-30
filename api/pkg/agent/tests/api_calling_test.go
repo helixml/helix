@@ -180,6 +180,7 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 		stepInfoEmitter,
 		petStoreMainPrompt,
 		[]agent.Skill{petStoreSkill},
+		10,
 	)
 
 	messageHistory := &agent.MessageList{}
