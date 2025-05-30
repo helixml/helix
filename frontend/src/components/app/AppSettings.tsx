@@ -64,6 +64,45 @@ const DEFAULT_VALUES = {
   max_iterations: 10,
 } as const
 
+// Add BarsIcon component
+const BarsIcon = ({ effort }: { effort: string }) => {
+  const getBars = () => {
+    switch (effort) {
+      case 'none':
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
+            <Box sx={{ width: 2, height: 4, bgcolor: 'text.secondary' }} />
+          </Box>
+        )
+      case 'low':
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
+            <Box sx={{ width: 2, height: 8, bgcolor: 'info.main' }} />
+          </Box>
+        )
+      case 'medium':
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
+            <Box sx={{ width: 2, height: 8, bgcolor: 'success.main' }} />
+            <Box sx={{ width: 2, height: 12, bgcolor: 'success.main' }} />
+          </Box>
+        )
+      case 'high':
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
+            <Box sx={{ width: 2, height: 8, bgcolor: 'error.main' }} />
+            <Box sx={{ width: 2, height: 12, bgcolor: 'error.main' }} />
+            <Box sx={{ width: 2, height: 16, bgcolor: 'error.main' }} />
+          </Box>
+        )
+      default:
+        return null
+    }
+  }
+
+  return getBars()
+}
+
 const AppSettings: FC<AppSettingsProps> = ({
   id,
   app,
@@ -616,7 +655,12 @@ const AppSettings: FC<AppSettingsProps> = ({
                           fontSize: '0.875rem',
                         }}
                       >
-                        {reasoning_model_effort.charAt(0).toUpperCase() + reasoning_model_effort.slice(1)}
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <BarsIcon effort={reasoning_model_effort} />
+                          <Typography>
+                            {reasoning_model_effort.charAt(0).toUpperCase() + reasoning_model_effort.slice(1)}
+                          </Typography>
+                        </Stack>
                       </Typography>
                     </Button>
                   </Tooltip>
@@ -641,7 +685,12 @@ const AppSettings: FC<AppSettingsProps> = ({
                           onClick={() => handleEffortSelect(value, true)}
                           selected={value === reasoning_model_effort}
                         >
-                          {value.charAt(0).toUpperCase() + value.slice(1)}
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <BarsIcon effort={value} />
+                            <Typography>
+                              {value.charAt(0).toUpperCase() + value.slice(1)}
+                            </Typography>
+                          </Stack>
                         </MenuItem>
                       </Tooltip>
                     ))}
@@ -744,7 +793,12 @@ const AppSettings: FC<AppSettingsProps> = ({
                           fontSize: '0.875rem',
                         }}
                       >
-                        {small_reasoning_model_effort.charAt(0).toUpperCase() + small_reasoning_model_effort.slice(1)}
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <BarsIcon effort={small_reasoning_model_effort} />
+                          <Typography>
+                            {small_reasoning_model_effort.charAt(0).toUpperCase() + small_reasoning_model_effort.slice(1)}
+                          </Typography>
+                        </Stack>
                       </Typography>
                     </Button>
                   </Tooltip>
@@ -769,7 +823,12 @@ const AppSettings: FC<AppSettingsProps> = ({
                           onClick={() => handleEffortSelect(value, false)}
                           selected={value === small_reasoning_model_effort}
                         >
-                          {value.charAt(0).toUpperCase() + value.slice(1)}
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <BarsIcon effort={value} />
+                            <Typography>
+                              {value.charAt(0).toUpperCase() + value.slice(1)}
+                            </Typography>
+                          </Stack>
                         </MenuItem>
                       </Tooltip>
                     ))}
