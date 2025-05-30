@@ -21,18 +21,21 @@ import (
 	"github.com/tmc/langchaingo/jsonschema"
 )
 
+const defaultMaxIterations = 10
+
 var ignErr *IgnorableError
 var retErr *RetryableError
 
 // Agent orchestrates calls to the LLM, uses Skills/Tools, and determines how to respond.
 type Agent struct {
-	prompt  string
-	skills  []Skill
-	emitter StepInfoEmitter // Send information about various steps
+	prompt        string
+	skills        []Skill
+	emitter       StepInfoEmitter // Send information about various steps
+	maxIterations int             // Max number of iterations to run the agent per loop
 }
 
 // NewAgent creates an Agent by adding the prompt as a DeveloperMessage.
-func NewAgent(emitter StepInfoEmitter, prompt string, skills []Skill) *Agent {
+func NewAgent(emitter StepInfoEmitter, prompt string, skills []Skill, maxIterations int) *Agent {
 	// Validate that all skills have both Description and SystemPrompt set
 	for _, skill := range skills {
 		if skill.Description == "" {
@@ -45,10 +48,15 @@ func NewAgent(emitter StepInfoEmitter, prompt string, skills []Skill) *Agent {
 		}
 	}
 
+	if maxIterations <= 0 {
+		maxIterations = defaultMaxIterations
+	}
+
 	return &Agent{
-		prompt:  prompt,
-		skills:  skills,
-		emitter: emitter,
+		prompt:        prompt,
+		skills:        skills,
+		emitter:       emitter,
+		maxIterations: maxIterations,
 	}
 }
 

@@ -29,7 +29,7 @@ func TestSkillValidation(t *testing.T) {
 
 	stepInfoEmitter := NewLogStepInfoEmitter()
 
-	_ = NewAgent(stepInfoEmitter, "Test prompt", []Skill{skill})
+	_ = NewAgent(stepInfoEmitter, "Test prompt", []Skill{skill}, 10)
 
 	// This line should not be reached due to the panic
 	t.Fatal("Test should have panicked before reaching this point")
@@ -58,7 +58,7 @@ func TestSkillValidationSystemPrompt(t *testing.T) {
 	}
 	stepInfoEmitter := NewLogStepInfoEmitter()
 
-	_ = NewAgent(stepInfoEmitter, "Test prompt", []Skill{skill})
+	_ = NewAgent(stepInfoEmitter, "Test prompt", []Skill{skill}, 10)
 
 	// This line should not be reached due to the panic
 	t.Fatal("Test should have panicked before reaching this point")
