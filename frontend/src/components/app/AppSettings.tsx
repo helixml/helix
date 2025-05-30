@@ -100,7 +100,12 @@ const BarsIcon = ({ effort }: { effort: string }) => {
     }
   }
 
-  return getBars()
+  // Add a fixed width and center the bars
+  return (
+    <Box sx={{ width: 32, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+      {getBars()}
+    </Box>
+  )
 }
 
 const AppSettings: FC<AppSettingsProps> = ({
