@@ -49,16 +49,26 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 	iterationNumber := 0
 
 	for {
+		if iterationNumber >= a.maxIterations {
+			return &openai.ChatCompletionMessage{
+				Role: openai.ChatMessageRoleTool,
+				Content: fmt.Sprintf("Error: max iterations (%d) reached for skill '%s'. Try adjusting model, reasoning effort or max iterations.",
+					a.maxIterations, skill.Name,
+				),
+				ToolCallID: skillToolCallID,
+			}, nil
+		}
+
 		iterationNumber++
 
-		modelToUse := llm.SmallGenerationModel
+		modelToUse := llm.SmallReasoningModel
+		reasoningEffort := llm.SmallReasoningModel.ReasoningEffort
 
-		reasoningEffort := "" // TODO: move to app configuration
 		if isFirstIteration {
 			// First iteration is when the main planning happens - use the bigger model.
 			modelToUse = llm.ReasoningModel
 			isFirstIteration = false
-			reasoningEffort = "high"
+			reasoningEffort = llm.ReasoningModel.ReasoningEffort
 		}
 
 		params := openai.ChatCompletionRequest{
