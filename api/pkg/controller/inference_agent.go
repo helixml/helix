@@ -46,6 +46,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	if err != nil {
 		return nil, fmt.Errorf("failed to get reasoning model config: %w", err)
 	}
+	reasoningModel.ReasoningEffort = req.Assistant.ReasoningModelEffort
 
 	generationModel, err := c.getLLMModelConfig(ctx,
 		req.User.ID,
@@ -62,6 +63,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	if err != nil {
 		return nil, fmt.Errorf("failed to get small reasoning model config: %w", err)
 	}
+	smallReasoningModel.ReasoningEffort = req.Assistant.SmallReasoningModelEffort
 
 	smallGenerationModel, err := c.getLLMModelConfig(ctx,
 		req.User.ID,
@@ -99,6 +101,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		c.stepInfoEmitter,
 		enriched,
 		skills,
+		req.Assistant.MaxIterations,
 	)
 
 	messageHistory := agent.NewMessageList()
