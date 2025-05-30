@@ -19,8 +19,9 @@ type LLM struct {
 
 // LLMModelConfig holds info for a specific LLM model
 type LLMModelConfig struct {
-	Client helix_openai.Client
-	Model  string
+	Client          helix_openai.Client
+	Model           string
+	ReasoningEffort string
 }
 
 func NewLLM(reasoningModel *LLMModelConfig, generationModel *LLMModelConfig, smallReasoningModel *LLMModelConfig, smallGenerationModel *LLMModelConfig) *LLM {
@@ -32,8 +33,11 @@ func NewLLM(reasoningModel *LLMModelConfig, generationModel *LLMModelConfig, sma
 	}
 }
 
-// TODO failures like too long, non-processable etc from the LLM needs to be handled
 func (c *LLM) New(ctx context.Context, model *LLMModelConfig, params openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+	// Reset the reasoning effort to none if it's not set
+	if params.ReasoningEffort == "none" {
+		params.ReasoningEffort = ""
+	}
 
 	resp, err := model.Client.CreateChatCompletion(ctx, params)
 	if err != nil {
@@ -44,6 +48,11 @@ func (c *LLM) New(ctx context.Context, model *LLMModelConfig, params openai.Chat
 }
 
 func (c *LLM) NewStreaming(ctx context.Context, model *LLMModelConfig, params openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+	// Reset the reasoning effort to none if it's not set
+	if params.ReasoningEffort == "none" {
+		params.ReasoningEffort = ""
+	}
+
 	params.StreamOptions = &openai.StreamOptions{
 		IncludeUsage: true,
 	}
