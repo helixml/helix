@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
-import { Box, Typography, Tooltip } from '@mui/material';
+import { Box, Typography, Tooltip, useTheme } from '@mui/material';
 
 interface LLMCall {
   id: string;
@@ -115,6 +115,7 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(900);
   const [hoverX, setHoverX] = useState<number | null>(null);
+  const theme = useTheme();
 
   useEffect(() => {
     const handleResize = () => {
@@ -178,12 +179,12 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
         >
           <defs>
             <linearGradient id="barGradient" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#00c8ff" stopOpacity={0.8} />
-              <stop offset="100%" stopColor="#6f00ff" stopOpacity={0.8} />
+              <stop offset="0%" stopColor={theme.chartGradientStart} stopOpacity={theme.chartGradientStartOpacity} />
+              <stop offset="100%" stopColor={theme.chartGradientEnd} stopOpacity={theme.chartGradientStartOpacity} />
             </linearGradient>
             <linearGradient id="barHighlightGradient" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#ffb300" stopOpacity={0.9} />
-              <stop offset="100%" stopColor="#ff4081" stopOpacity={0.9} />
+              <stop offset="0%" stopColor={theme.chartHighlightGradientStart} stopOpacity={theme.chartHighlightGradientStartOpacity} />
+              <stop offset="100%" stopColor={theme.chartHighlightGradientEnd} stopOpacity={theme.chartHighlightGradientEndOpacity} />
             </linearGradient>
           </defs>
           {/* Hover line */}

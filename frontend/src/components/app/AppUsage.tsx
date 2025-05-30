@@ -17,11 +17,11 @@ import {
   IconButton,
   Collapse,
   Link,
+  useTheme,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
-import LinkIcon from '@mui/icons-material/Link';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import WarningIcon from '@mui/icons-material/Warning';
 import useApi from '../../hooks/useApi';
@@ -67,6 +67,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const api = useApi();
   const apiClient = api.getApiClient();
   const account = useAccount();
+  const theme = useTheme();
   const [llmCalls, setLLMCalls] = useState<TypesPaginatedLLMCalls | null>(null);
   const [usageData, setUsageData] = useState<TypesUsersAggregatedUsageMetric[]>([]);
   const [page, setPage] = useState(0);
@@ -310,8 +311,8 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
           >
             <defs>
               <linearGradient id="usageGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#00c8ff" stopOpacity={0.8} />
-                <stop offset="100%" stopColor="#6f00ff" stopOpacity={0.1} />
+                <stop offset="0%" stopColor={theme.chartGradientStart} stopOpacity={theme.chartGradientStartOpacity} />
+                <stop offset="100%" stopColor={theme.chartGradientEnd} stopOpacity={theme.chartGradientEndOpacity} />
               </linearGradient>
             </defs>
           </LineChart>
