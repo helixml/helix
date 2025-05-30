@@ -154,7 +154,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [generation_model_provider, setGenerationModelProvider] = useState(app.generation_model_provider || '')
   const [small_reasoning_model, setSmallReasoningModel] = useState(app.small_reasoning_model || '')
   const [small_reasoning_model_provider, setSmallReasoningModelProvider] = useState(app.small_reasoning_model_provider || '')
-  const [small_reasoning_model_effort, setSmallReasoningModelEffort] = useState(app.small_reasoning_model_effort || 'medium')
+  const [small_reasoning_model_effort, setSmallReasoningModelEffort] = useState(app.small_reasoning_model_effort || 'none')
   const [small_generation_model, setSmallGenerationModel] = useState(app.small_generation_model || '')
   const [small_generation_model_provider, setSmallGenerationModelProvider] = useState(app.small_generation_model_provider || '')
   
@@ -730,13 +730,14 @@ const AppSettings: FC<AppSettingsProps> = ({
             </Box>
 
             <Box sx={{ mb: 3 }}>
-              <Typography gutterBottom>Small Reasoning Model</Typography>
+              <Typography gutterBottom>Small Reasoning Model (tool results interpretation)</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                A smaller model used for quick reasoning tasks. Recommended to use o3-mini level models.
+                A smaller model used for quick reasoning tasks and interpreting tool responses.
+                If model doesn't support reasoning, set reasoning effort to none.
               </Typography>
               <Stack direction="row" spacing={2} alignItems="flex-start">
                 <AdvancedModelPicker
-                  recommendedModels={['o3-mini', 'o4-mini']}
+                  recommendedModels={['o3-mini', 'o4-mini', 'gpt-4o-mini', 'gpt-4o']}
                   hint='Recommended to use o3-mini level models, should be a strong model capable of using tools and reasoning.'
                   selectedProvider={small_reasoning_model_provider}
                   selectedModelId={small_reasoning_model}
