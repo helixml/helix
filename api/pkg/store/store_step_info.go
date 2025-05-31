@@ -14,8 +14,12 @@ func (s *PostgresStore) CreateStepInfo(ctx context.Context, stepInfo *types.Step
 		stepInfo.ID = system.GenerateID()
 	}
 
-	stepInfo.Created = time.Now()
-	stepInfo.Updated = time.Now()
+	if stepInfo.Created.IsZero() {
+		stepInfo.Created = time.Now()
+	}
+	if stepInfo.Updated.IsZero() {
+		stepInfo.Updated = time.Now()
+	}
 
 	err := s.gdb.WithContext(ctx).Create(stepInfo).Error
 	if err != nil {

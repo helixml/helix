@@ -671,12 +671,15 @@ type StepInfo struct {
 	ID            string          `json:"id" gorm:"primaryKey"`
 	Created       time.Time       `json:"created"`
 	Updated       time.Time       `json:"updated"`
+	AppID         string          `json:"app_id"`
 	SessionID     string          `json:"session_id"`
 	InteractionID string          `json:"interaction_id"`
 	Name          string          `json:"name"`
 	Type          StepInfoType    `json:"type"`
 	Message       string          `json:"message"`
+	Error         string          `json:"error"`
 	Details       StepInfoDetails `json:"details" gorm:"type:jsonb"` // That were used to call the tool
+	DurationMs    int64           `json:"duration_ms"`               // How long the step took in milliseconds (useful for API calls, database queries, etc.)
 }
 
 type StepInfoDetails struct {
