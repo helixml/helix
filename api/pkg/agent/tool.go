@@ -11,6 +11,7 @@ import (
 type Tool interface {
 	String() string
 	Name() string
+	Icon() string          // Either Material UI icon, emoji or SVG. Leave empty for default
 	StatusMessage() string // not using now - but we will - soon
 	Description() string
 	OpenAI() []openai.Tool
