@@ -5743,6 +5743,9 @@ const docTemplate = `{
         "types.StepInfo": {
             "type": "object",
             "properties": {
+                "app_id": {
+                    "type": "string"
+                },
                 "created": {
                     "type": "string"
                 },
@@ -5753,6 +5756,17 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.StepInfoDetails"
                         }
                     ]
+                },
+                "duration_ms": {
+                    "description": "How long the step took in milliseconds (useful for API calls, database queries, etc.)",
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "icon": {
+                    "description": "Either Material UI icon, emoji or SVG. Leave empty for default",
+                    "type": "string"
                 },
                 "id": {
                     "type": "string"

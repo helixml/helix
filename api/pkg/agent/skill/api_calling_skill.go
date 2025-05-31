@@ -72,6 +72,10 @@ func (t *APICallingTool) StatusMessage() string {
 	return "Calling the API"
 }
 
+func (t *APICallingTool) Icon() string {
+	return ""
+}
+
 func (t *APICallingTool) OpenAI() []openai.Tool {
 	properties := map[string]jsonschema.Definition{}
 	required := []string{}

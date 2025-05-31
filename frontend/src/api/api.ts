@@ -1526,9 +1526,15 @@ export enum TypesSessionType {
 }
 
 export interface TypesStepInfo {
+  app_id?: string;
   created?: string;
   /** That were used to call the tool */
   details?: TypesStepInfoDetails;
+  /** How long the step took in milliseconds (useful for API calls, database queries, etc.) */
+  duration_ms?: number;
+  error?: string;
+  /** Either Material UI icon, emoji or SVG. Leave empty for default */
+  icon?: string;
   id?: string;
   interaction_id?: string;
   message?: string;
