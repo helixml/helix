@@ -257,7 +257,9 @@ export const InteractionInference: FC<{
         }
         {
           error && (
-            <Row>
+            <Row sx={{
+              mt: 3,
+            }}>
               <Cell grow>
                 <Alert severity="error">
                   The system has encountered an error -
