@@ -275,7 +275,7 @@ export const InteractionInference: FC<{
                   to view the details.
                 </Alert>
               </Cell>
-              {
+              {/* {
                 !upgrade && onRegenerate && (
                   <Cell
                     sx={{
@@ -293,7 +293,7 @@ export const InteractionInference: FC<{
                     </Button>
                   </Cell>
                 )
-              }
+              } */}
               {
                 upgrade && (
                   <Cell
