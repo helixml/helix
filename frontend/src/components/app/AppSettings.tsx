@@ -46,8 +46,8 @@ const RECOMMENDED_MODELS = {
     'o4-mini', 
     'gpt-4o-mini', 
     'gpt-4o', 
-    'Qwen/Qwen2.5-72B-Instruct-Turbo', 
-    'Qwen/Qwen3-235B-A22B-fp8-tput'
+    'Qwen/Qwen2.5-72B-Instruct-Turbo',     
+    'Qwen/Qwen2.5-7B-Instruct-Turbo',     
   ],
   // No tool use required, can be any text generation model
   smallGeneration: ['gpt-4o', 'gpt-4o-mini', 'Qwen/Qwen2.5-7B-Instruct-Turbo', 'meta-llama/Llama-3-8b-chat-hf']
