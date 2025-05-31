@@ -120,6 +120,7 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps, isLiveStreami
   }
 
   const getStepIcon = (step: ToolStep) => {
+    // Non-agent mode RAG step
     if (step.type === 'rag') {
       return <SchoolIcon sx={{ fontSize: 20 }} />
     }
