@@ -869,10 +869,15 @@ const AppSettings: FC<AppSettingsProps> = ({
             </Box>
 
             <Box sx={{ mb: 3 }}>
-              <Typography gutterBottom>Max Iterations</Typography>
+              <Typography gutterBottom>Max Reasoning Iterations (per task)</Typography>
               <Typography variant="body2" color="text.secondary">
-                The maximum number of reasoning iterations to perform before stopping.
-                Acts as a safety mechanism to prevent infinite loops.
+                The maximum number of reasoning iterations allowed for each reasoning task. This limit applies separately to:
+                <ul>
+                  <li>Global reasoning (overall conversation planning)</li>
+                  <li>Each individual skill's reasoning. Includes preparation and execution of the skill.</li>
+                </ul>
+                For example, with 3 skills and max iterations set to 10, you could have up to 40 total iterations (10 for global + 10 for each skill).
+                This acts as a safety mechanism to prevent infinite loops.
                 <ResetLink field="max_iterations" value={max_iterations} onClick={() => handleReset('max_iterations')} />
               </Typography>
 
