@@ -29,6 +29,11 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		vals = &oai.ContextValues{}
 	}
 
+	appID, ok := oai.GetContextAppID(ctx)
+	if !ok {
+		return nil, fmt.Errorf("appID not set in context, use 'openai.SetContextAppID()' before calling this method")
+	}
+
 	log.Info().
 		Str("session_id", vals.SessionID).
 		Str("user_id", req.User.ID).
@@ -123,6 +128,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	}
 
 	session := agent.NewSession(ctx, c.stepInfoEmitter, llm, mem, helixAgent, messageHistory, agent.Meta{
+		AppID:         appID,
 		UserID:        req.User.ID,
 		SessionID:     vals.SessionID,
 		InteractionID: vals.InteractionID,
