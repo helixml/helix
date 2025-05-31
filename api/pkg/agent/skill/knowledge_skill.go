@@ -41,12 +41,12 @@ Remember: Your goal is to provide accurate, well-sourced information while maint
 
 func NewKnowledgeSkill(ragClient rag.RAG, knowledge *types.Knowledge) agent.Skill {
 	return agent.Skill{
-		Name:         "KnowledgeBase",
+		Name:         "Knowledge_" + agent.SanitizeToolName(knowledge.Name),
 		Description:  fmt.Sprintf("Contains expert knowledge on topics: '%s'", knowledge.Description),
 		SystemPrompt: knowledgeBaseMainPrompt,
 		Tools: []agent.Tool{
 			&KnowledgeQueryTool{
-				name:        "KnowledgeQuery",
+				toolName:    "KnowledgeQuery",
 				description: "Contains expert knowledge on topics: '" + knowledge.Description + "'",
 				ragClient:   ragClient,
 				knowledge:   knowledge,
@@ -55,7 +55,7 @@ func NewKnowledgeSkill(ragClient rag.RAG, knowledge *types.Knowledge) agent.Skil
 }
 
 type KnowledgeQueryTool struct {
-	name        string
+	toolName    string
 	description string
 	ragClient   rag.RAG
 	knowledge   *types.Knowledge
@@ -64,7 +64,7 @@ type KnowledgeQueryTool struct {
 var _ agent.Tool = &KnowledgeQueryTool{}
 
 func (t *KnowledgeQueryTool) Name() string {
-	return t.name
+	return agent.SanitizeToolName(t.toolName)
 }
 
 func (t *KnowledgeQueryTool) Description() string {
@@ -72,7 +72,7 @@ func (t *KnowledgeQueryTool) Description() string {
 }
 
 func (t *KnowledgeQueryTool) String() string {
-	return t.name
+	return agent.SanitizeToolName(t.toolName)
 }
 
 func (t *KnowledgeQueryTool) StatusMessage() string {
@@ -84,7 +84,7 @@ func (t *KnowledgeQueryTool) OpenAI() []openai.Tool {
 		{
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
-				Name:        t.name,
+				Name:        agent.SanitizeToolName(t.toolName),
 				Description: t.description,
 				Parameters: jsonschema.Definition{
 					Type: jsonschema.Object,
