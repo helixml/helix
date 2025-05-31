@@ -26,13 +26,31 @@ import Divider from '@mui/material/Divider'
 // Recommended models configuration
 const RECOMMENDED_MODELS = {
   // Tool use required, reasoning and tool calling, must be strong model for complex tasks
-  reasoning: ['o3-mini', 'o4-mini', 'Qwen/Qwen2.5-72B-Instruct-Turbo', 'Qwen/Qwen3-235B-A22B-fp8-tput'],
+  reasoning: [
+    'o3-mini', 
+    'o4-mini', 
+    'Qwen/Qwen2.5-72B-Instruct-Turbo', 
+    'Qwen/Qwen3-235B-A22B-fp8-tput',    
+  ],
   // Tool use required, planning next actions using skills
-  generation: ['gpt-4o', 'gpt-4o-mini'],
+  generation: [
+    'gpt-4o', 
+    'gpt-4o-mini', 
+    'Qwen/Qwen3-235B-A22B-fp8-tput', 
+    'meta-llama/Llama-4-Scout-17B-16E-Instruct', 
+    'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8'
+  ],
   // No tool use required but might be useful 
-  smallReasoning: ['o3-mini', 'o4-mini', 'gpt-4o-mini', 'gpt-4o'],
-  // No tool use required
-  smallGeneration: ['gpt-4o', 'gpt-4o-mini']
+  smallReasoning: [
+    'o3-mini', 
+    'o4-mini', 
+    'gpt-4o-mini', 
+    'gpt-4o', 
+    'Qwen/Qwen2.5-72B-Instruct-Turbo', 
+    'Qwen/Qwen3-235B-A22B-fp8-tput'
+  ],
+  // No tool use required, can be any text generation model
+  smallGeneration: ['gpt-4o', 'gpt-4o-mini', 'Qwen/Qwen2.5-7B-Instruct-Turbo', 'meta-llama/Llama-3-8b-chat-hf']
 };
 
 interface AppSettingsProps {
