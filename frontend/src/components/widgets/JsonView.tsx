@@ -1,5 +1,8 @@
 import React, { FC, useState } from 'react'
-import { Box, Typography, Switch, FormControlLabel } from '@mui/material'
+import { Box, Typography, Switch, FormControlLabel, IconButton, Tooltip } from '@mui/material'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import CheckIcon from '@mui/icons-material/Check'
+import useSnackbar from '../../hooks/useSnackbar'
 
 interface JsonViewProps {
   data: any,
@@ -69,9 +72,25 @@ const JsonView: FC<React.PropsWithChildren<JsonViewProps>> = ({
   scrolling = false
 }) => {
   const [useFancyRendering, setUseFancyRendering] = useState(withFancyRendering);
+  const [showCopied, setShowCopied] = useState(false);
+  const snackbar = useSnackbar();
 
   const toggleRendering = () => {
     setUseFancyRendering(!useFancyRendering);
+  };
+
+  const handleCopy = () => {
+    const textToCopy = typeof(data) === 'string' ? data : JSON.stringify(data, null, 2);
+    navigator.clipboard.writeText(textToCopy)
+      .then(() => {
+        setShowCopied(true);
+        setTimeout(() => setShowCopied(false), 2000);
+        snackbar.success('Copied to clipboard');
+      })
+      .catch((error) => {
+        console.error('Failed to copy:', error);
+        snackbar.error('Failed to copy to clipboard');
+      });
   };
 
   return (
@@ -86,6 +105,7 @@ const JsonView: FC<React.PropsWithChildren<JsonViewProps>> = ({
       }
       <Box
         sx={{
+          position: 'relative',
           fontFamily: '"Roboto Mono", monospace',
           whiteSpace: 'pre-wrap',
           overflowX: 'auto',
@@ -97,6 +117,26 @@ const JsonView: FC<React.PropsWithChildren<JsonViewProps>> = ({
           borderRadius: 1,
         }}
       >
+        <Tooltip 
+          title={showCopied ? "Copied!" : "Copy to clipboard"}
+          placement="top"
+          open={showCopied}
+        >
+          <IconButton
+            onClick={handleCopy}
+            sx={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              color: 'white',
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              },
+            }}
+          >
+            {showCopied ? <CheckIcon /> : <ContentCopyIcon />}
+          </IconButton>
+        </Tooltip>
         {useFancyRendering
           ? renderJsonValue(data)
           : <pre>{JSON.stringify(data, null, 2)}</pre>}

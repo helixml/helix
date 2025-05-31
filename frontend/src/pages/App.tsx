@@ -204,9 +204,6 @@ const App: FC = () => {
                           readOnly={isReadOnly}
                           showErrors={appTools.showErrors}
                           isAdmin={account.admin}
-                          // providerEndpoints={endpointProviders.data}
-                          // onProviderModelsLoaded={appTools.onProviderModelsLoaded}
-                          // isSafeToSave={appTools.isSafeToSave}
                         />
                       )}
 
