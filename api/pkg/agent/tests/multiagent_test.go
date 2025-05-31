@@ -67,6 +67,10 @@ func (r *RestaurantTool) StatusMessage() string {
 	return "Finding the perfect restaurant for you"
 }
 
+func (r *RestaurantTool) Icon() string {
+	return ""
+}
+
 func (r *RestaurantTool) OpenAI() []openai.Tool {
 	return []openai.Tool{
 		{
@@ -140,6 +144,10 @@ func (c *CuisineTool) Description() string {
 
 func (c *CuisineTool) StatusMessage() string {
 	return "Finding the perfect dishes for you"
+}
+
+func (c *CuisineTool) Icon() string {
+	return ""
 }
 
 func (c *CuisineTool) OpenAI() []openai.Tool {

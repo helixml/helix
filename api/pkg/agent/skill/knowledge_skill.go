@@ -79,6 +79,10 @@ func (t *KnowledgeQueryTool) StatusMessage() string {
 	return "Searching the knowledge base"
 }
 
+func (t *KnowledgeQueryTool) Icon() string {
+	return "SchoolIcon"
+}
+
 func (t *KnowledgeQueryTool) OpenAI() []openai.Tool {
 	return []openai.Tool{
 		{
