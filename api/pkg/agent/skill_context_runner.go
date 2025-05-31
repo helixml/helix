@@ -139,7 +139,12 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 
 				tool, err := skill.GetTool(toolCall.Function.Name)
 				if err != nil {
-					log.Error().Err(err).Msg("Error getting tool")
+					log.Error().
+						Str("tool", toolCall.Function.Name).
+						Str("skill", skill.Name).
+						Err(err).
+						Msg("Error getting tool")
+
 					resultChan <- struct {
 						toolCall *openai.ToolCall
 						output   string
@@ -175,6 +180,7 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 				stepInfo := &types.StepInfo{
 					Created:    startTime,
 					Name:       tool.Name(),
+					Icon:       tool.Icon(),
 					Type:       types.StepInfoTypeToolUse,
 					Message:    output,
 					Details:    types.StepInfoDetails{Arguments: arguments},

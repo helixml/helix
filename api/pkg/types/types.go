@@ -675,6 +675,7 @@ type StepInfo struct {
 	SessionID     string          `json:"session_id"`
 	InteractionID string          `json:"interaction_id"`
 	Name          string          `json:"name"`
+	Icon          string          `json:"icon"` // Either Material UI icon, emoji or SVG. Leave empty for default
 	Type          StepInfoType    `json:"type"`
 	Message       string          `json:"message"`
 	Error         string          `json:"error"`

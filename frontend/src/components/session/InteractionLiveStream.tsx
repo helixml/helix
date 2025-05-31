@@ -63,6 +63,7 @@ export const InteractionLiveStream: FC<{
       stepInfos.map((step, index) => ({
         id: `step-${index}`,
         name: step.name,
+        icon: step.icon,
         type: step.type,
         message: step.message,
         details: {
