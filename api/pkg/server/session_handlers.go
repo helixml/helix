@@ -697,7 +697,15 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 				Any("response", response).
 				Err(err).
 				Msg("error receiving stream")
-			return err
+
+			// Update the interaction with what we have got so far
+			session.Interactions[len(session.Interactions)-1].Message = fullResponse
+			session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+			session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
+			session.Interactions[len(session.Interactions)-1].Error = err.Error()
+			session.Interactions[len(session.Interactions)-1].Finished = true
+
+			return s.Controller.WriteSession(ctx, session)
 		}
 
 		// Accumulate the response
