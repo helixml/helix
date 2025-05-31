@@ -10,6 +10,7 @@ import (
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/openai/transport"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
@@ -100,6 +101,24 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		if assistantTool.ToolType == types.ToolTypeAPI {
 			skills = append(skills, skill.NewAPICallingSkill(c.ToolsPlanner, assistantTool))
 		}
+	}
+
+	// Get assistant knowledge
+	knowledges, err := c.Options.Store.ListKnowledge(ctx, &store.ListKnowledgeQuery{
+		AppID: appID,
+	})
+	if err != nil {
+		log.Error().Err(err).Msgf("error listing knowledges for app %s", appID)
+		return nil, fmt.Errorf("failed to list knowledges for app %s: %w", appID, err)
+	}
+
+	for _, knowledge := range knowledges {
+		ragClient, err := c.GetRagClient(ctx, knowledge)
+		if err != nil {
+			log.Error().Err(err).Msgf("error getting RAG client for knowledge %s", knowledge.ID)
+			return nil, fmt.Errorf("failed to get RAG client for knowledge %s: %w", knowledge.ID, err)
+		}
+		skills = append(skills, skill.NewKnowledgeSkill(ragClient, knowledge))
 	}
 
 	helixAgent := agent.NewAgent(
