@@ -467,7 +467,12 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                             </TableHead>
                             <TableBody>
                               {group.calls.map((call) => (
-                                <TableRow key={call.id} sx={hoveredCallId === call.id ? { bgcolor: 'rgba(0,200,255,0.12)' } : {}}>
+                                <TableRow 
+                                  key={call.id} 
+                                  sx={hoveredCallId === call.id ? { bgcolor: 'rgba(0,200,255,0.12)' } : {}}
+                                  onMouseEnter={() => call.id && setHoveredCallId(call.id)}
+                                  onMouseLeave={() => setHoveredCallId(null)}
+                                >
                                   <TableCell>{call.created ? new Date(call.created).toLocaleString() : ''}</TableCell>
                                   <TableCell>{call.step || 'n/a'}</TableCell>
                                   <TableCell>
