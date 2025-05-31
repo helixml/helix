@@ -58,6 +58,10 @@ func (b *BestAppleFinder) StatusMessage() string {
 	return "Finding the best apple"
 }
 
+func (b *BestAppleFinder) Icon() string {
+	return ""
+}
+
 func (b *BestAppleFinder) OpenAI() []openai.Tool {
 	return []openai.Tool{
 		{
@@ -105,6 +109,10 @@ func (b *CurrencyConverter) Description() string {
 
 func (b *CurrencyConverter) StatusMessage() string {
 	return "Converting currency"
+}
+
+func (b *CurrencyConverter) Icon() string {
+	return ""
 }
 
 func (b *CurrencyConverter) OpenAI() []openai.Tool {
