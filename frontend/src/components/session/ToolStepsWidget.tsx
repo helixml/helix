@@ -39,8 +39,8 @@ const ToolWrapper = styled(Box)({
 })
 
 const ToolIcon = styled(IconButton, {
-  shouldForwardProp: (prop) => prop !== 'isActive'
-})<{ isActive?: boolean }>(({ isActive }) => ({
+  shouldForwardProp: (prop) => prop !== 'isActive' && prop !== 'hasIcon' && prop !== 'isRag'
+})<{ isActive?: boolean; hasIcon?: boolean; isRag?: boolean }>(({ isActive, hasIcon, isRag }) => ({
   width: '100%',
   height: '100%',
   padding: 0,
@@ -48,7 +48,7 @@ const ToolIcon = styled(IconButton, {
   '&:hover': {
     color: isActive ? '#ff9800' : '#000'
   },
-  animation: isActive ? `${spin} 1s linear infinite` : 'none',
+  animation: isActive && !hasIcon && !isRag ? `${spin} 1s linear infinite` : 'none',
   transition: 'color 0.3s ease'
 }))
 
@@ -161,6 +161,8 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps, isLiveStreami
                   size="small"
                   onClick={() => setSelectedStep(step)}
                   isActive={activeTools.has(step.id)}
+                  hasIcon={!!step.icon}
+                  isRag={step.type === 'rag'}
                   sx={{ 
                     cursor: 'pointer',
                     pointerEvents: 'auto'
