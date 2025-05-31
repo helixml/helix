@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/agent/prompts"
 	oai "github.com/helixml/helix/api/pkg/openai"
@@ -167,15 +168,26 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 					return
 				}
 
+				startTime := time.Now()
+
 				output, err := tool.Execute(ctx, meta, arguments)
 
+				stepInfo := &types.StepInfo{
+					Created:    startTime,
+					Name:       tool.Name(),
+					Type:       types.StepInfoTypeToolUse,
+					Message:    output,
+					Details:    types.StepInfoDetails{Arguments: arguments},
+					DurationMs: time.Since(startTime).Milliseconds(),
+				}
+
+				// Add error to the step info if it exists
+				if err != nil {
+					stepInfo.Error = err.Error()
+				}
+
 				// Instrument the output
-				_ = a.emitter.EmitStepInfo(ctx, &types.StepInfo{
-					Name:    tool.Name(),
-					Type:    types.StepInfoTypeToolUse,
-					Message: output,
-					Details: types.StepInfoDetails{Arguments: arguments},
-				})
+				_ = a.emitter.EmitStepInfo(ctx, stepInfo)
 
 				resultChan <- struct {
 					toolCall *openai.ToolCall
