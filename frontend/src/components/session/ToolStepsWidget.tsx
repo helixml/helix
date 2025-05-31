@@ -13,6 +13,7 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import AltRouteIcon from '@mui/icons-material/AltRoute'
 import SchoolIcon from '@mui/icons-material/School'
 import CloseIcon from '@mui/icons-material/Close'
+import * as Icons from '@mui/icons-material'
 
 // Add spinning animation
 const spin = keyframes`
@@ -75,13 +76,13 @@ const ToolTooltip = styled(Box)(({ theme }) => ({
 interface ToolStep {
   id: string
   name: string
+  icon: string
   type: string
   message: string
   created: string
   details: {
     arguments: Record<string, any>
-  }
-  is_actionable?: boolean
+  }  
 }
 
 interface ToolStepsWidgetProps {
@@ -122,9 +123,21 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps, isLiveStreami
     if (step.type === 'rag') {
       return <SchoolIcon sx={{ fontSize: 20 }} />
     }
-    if (step.is_actionable) {
-      return <AltRouteIcon sx={{ fontSize: 20 }} />
+    // If this is SVG image, render it
+    if (step.icon && step.icon.startsWith('http')) {
+      return <img src={step.icon} alt={step.name} style={{ width: 20, height: 20 }} />
     }
+    // If it's one of the few support MaterialUI icons, use them
+    switch (step.icon) {
+      case 'SchoolIcon':
+        return <SchoolIcon sx={{ fontSize: 20 }} />
+      case 'SettingsIcon':
+        return <SettingsIcon sx={{ fontSize: 20 }} />
+      case 'AltRouteIcon':
+        return <AltRouteIcon sx={{ fontSize: 20 }} />      
+    }
+
+    // If it's not a valid MaterialUI icon, use the default
     return <SettingsIcon sx={{ fontSize: 20 }} />
   }
 
@@ -132,9 +145,7 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps, isLiveStreami
     if (step.type === 'rag') {
       return `Tool: ${step.name}\nMessage: ${step.message}`
     }
-    if (step.is_actionable) {
-      return step.message
-    }
+   
     return `Tool: ${step.name}`
   }
 
@@ -147,11 +158,11 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps, isLiveStreami
               <span>
                 <ToolIcon
                   size="small"
-                  onClick={() => !step.is_actionable && setSelectedStep(step)}
+                  onClick={() => setSelectedStep(step)}
                   isActive={activeTools.has(step.id)}
                   sx={{ 
-                    cursor: step.is_actionable ? 'default' : 'pointer',
-                    pointerEvents: step.is_actionable ? 'none' : 'auto'
+                    cursor: 'pointer',
+                    pointerEvents: 'auto'
                   }}
                 >
                   {getStepIcon(step)}
