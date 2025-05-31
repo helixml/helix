@@ -217,14 +217,14 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 		[]agent.Skill{
 			{
 				Name:         "RestaurantExpert",
-				Description:  "Expert in restaurant recommendations. You cannot make cusine recommendations. We have a cuisine expert for that.",
-				SystemPrompt: "As a restaurant expert, you provide personalized restaurant recommendations. Do not make any recommendations on dishes. We have cusines expert for that.",
+				Description:  "Expert in restaurant recommendations. You cannot make cuisine recommendations. We have a cuisine expert for that.",
+				SystemPrompt: "As a restaurant expert, you provide personalized restaurant recommendations. Do not make any recommendations on dishes. We have cuisines expert for that.",
 				Tools:        []agent.Tool{restaurantTool},
 			},
 			{
 				Name:         "CuisineExpert",
 				Description:  "Expert in cuisine and dishes, you provide dish recommendations for restaurants found by RestaurantExpert. Should not be called before restaurant expert made the restaurant recommendation.",
-				SystemPrompt: "As a cuisine expert, you provide dish recommendations for restaurants found by RestaurantExpert. You should only do recommendations on cusines for the restaurants you have access to. You should not assume the existence of any restaurants that you don't have access to",
+				SystemPrompt: "As a cuisine expert, you provide dish recommendations for restaurants found by RestaurantExpert. You should only do recommendations on cuisines for the restaurants you have access to. You should not assume the existence of any restaurants that you don't have access to",
 				Tools:        []agent.Tool{cuisineTool},
 			},
 		},
