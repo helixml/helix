@@ -508,7 +508,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		finalCompletion = completion
 
 		// If no tool calls were requested, we're done
-		if completion.Choices[0].Message.ToolCalls == nil {
+		if len(completion.Choices[0].Message.ToolCalls) == 0 {
 			break
 		}
 
