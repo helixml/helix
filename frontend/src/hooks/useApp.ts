@@ -318,6 +318,10 @@ export const useApp = (appId: string) => {
       assistants[0].agent_mode = updates.agent_mode
     }
 
+    if (updates.max_iterations !== undefined) {
+      assistants[0].max_iterations = updates.max_iterations
+    }
+
     if (updates.reasoning_model !== undefined) {
       assistants[0].reasoning_model = updates.reasoning_model
     }
@@ -342,12 +346,20 @@ export const useApp = (appId: string) => {
       assistants[0].small_reasoning_model_provider = updates.small_reasoning_model_provider
     }
 
+    if (updates.reasoning_model_effort !== undefined) {
+      assistants[0].reasoning_model_effort = updates.reasoning_model_effort
+    }
+
     if (updates.small_generation_model !== undefined) {
       assistants[0].small_generation_model = updates.small_generation_model
     }
 
     if (updates.small_generation_model_provider !== undefined) {
       assistants[0].small_generation_model_provider = updates.small_generation_model_provider
+    }
+
+    if (updates.small_reasoning_model_effort !== undefined) {
+      assistants[0].small_reasoning_model_effort = updates.small_reasoning_model_effort
     }
 
     if (updates.context_limit !== undefined) {

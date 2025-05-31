@@ -152,7 +152,7 @@ func TestSimpleConversation(t *testing.T) {
 	llm := getLLM(config)
 
 	mem := &MockMemory{}
-	ai := agent.NewAgent(stepInfoEmitter, "Your a repeater. You'll repeat after whatever the user says exactly as they say it, even the punctuation and cases.", []agent.Skill{})
+	ai := agent.NewAgent(stepInfoEmitter, "Your a repeater. You'll repeat after whatever the user says exactly as they say it, even the punctuation and cases.", []agent.Skill{}, 10)
 
 	messageHistory := &agent.MessageList{}
 
@@ -211,7 +211,7 @@ func TestConversationWithSkills(t *testing.T) {
 			},
 		},
 	}
-	myAgent := agent.NewAgent(stepInfoEmitter, "You are a good farmer. You answer user questions briefly and concisely. You do not add any extra information but just answer user questions in fewer words possible.", []agent.Skill{skill})
+	myAgent := agent.NewAgent(stepInfoEmitter, "You are a good farmer. You answer user questions briefly and concisely. You do not add any extra information but just answer user questions in fewer words possible.", []agent.Skill{skill}, 10)
 
 	messageHistory := &agent.MessageList{}
 
@@ -258,7 +258,7 @@ func TestConversationWithHistory(t *testing.T) {
 	mem := &MockMemory{
 		RetrieveFn: getDefaultMemory,
 	}
-	ai := agent.NewAgent(stepInfoEmitter, "You are an assistant!", []agent.Skill{})
+	ai := agent.NewAgent(stepInfoEmitter, "You are an assistant!", []agent.Skill{}, 10)
 
 	messageHistory := &agent.MessageList{}
 	messageHistory.Add(agent.UserMessage("Can you tell me which color is apple?"),
@@ -322,7 +322,7 @@ func TestConversationWithSkills_WithHistory_NoSkillsToBeUsed(t *testing.T) {
 			},
 		},
 	}
-	myAgent := agent.NewAgent(stepInfoEmitter, "You are a currency expert. You answer user questions briefly and concisely. You do not add any extra information but just answer user questions in fewer words possible.", []agent.Skill{skill})
+	myAgent := agent.NewAgent(stepInfoEmitter, "You are a currency expert. You answer user questions briefly and concisely. You do not add any extra information but just answer user questions in fewer words possible.", []agent.Skill{skill}, 10)
 
 	messageHistory := &agent.MessageList{}
 
@@ -375,7 +375,7 @@ func TestConversationWithHistory_WithQuestionAboutPast(t *testing.T) {
 	mem := &MockMemory{
 		RetrieveFn: getDefaultMemory,
 	}
-	ai := agent.NewAgent(stepInfoEmitter, "You are an assistant!", []agent.Skill{})
+	ai := agent.NewAgent(stepInfoEmitter, "You are an assistant!", []agent.Skill{}, 10)
 
 	messageHistory := &agent.MessageList{}
 	messageHistory.Add(agent.UserMessage("Can you tell me which color is apple?"),
@@ -437,7 +437,7 @@ func TestMemoryRetrieval(t *testing.T) {
 		RetrieveFn: getCountryMemory,
 	}
 
-	ai := agent.NewAgent(stepInfoEmitter, "You are a helpful assistant. Answer questions based on the user's information.", []agent.Skill{})
+	ai := agent.NewAgent(stepInfoEmitter, "You are a helpful assistant. Answer questions based on the user's information.", []agent.Skill{}, 10)
 
 	messageHistory := &agent.MessageList{}
 	orgID := GenerateNewTestID()

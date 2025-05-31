@@ -64,11 +64,18 @@ func (p *PubSubStepInfoEmitter) EmitStepInfo(ctx context.Context, info *types.St
 		return fmt.Errorf("context values with session info not found")
 	}
 
+	appID, ok := oai.GetContextAppID(ctx)
+	if !ok {
+		log.Warn().Msg("appID not set in context, using 'n/a'")
+		appID = "n/a"
+	}
+
 	// Adding context metadata to the step info
 	info.ID = system.GenerateStepInfoID()
 	info.SessionID = vals.SessionID
 	info.InteractionID = vals.InteractionID
 	info.Created = time.Now()
+	info.AppID = appID
 
 	queue := pubsub.GetSessionQueue(vals.OwnerID, vals.SessionID)
 	event := &types.WebsocketEvent{
@@ -83,6 +90,11 @@ func (p *PubSubStepInfoEmitter) EmitStepInfo(ctx context.Context, info *types.St
 		return fmt.Errorf("failed to marshal step info: %w", err)
 	}
 
+	// Create new context with a timeout for persisting step info to the database.
+	// Do not inherit the context from the caller, as it may be cancelled.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	// Saving step info to the database
 	_, err = p.store.CreateStepInfo(ctx, info)
 	if err != nil {
@@ -96,7 +108,6 @@ func (p *PubSubStepInfoEmitter) EmitStepInfo(ctx context.Context, info *types.St
 		Str("step_id", info.ID).
 		Str("step_name", info.Name).
 		Str("step_type", string(info.Type)).
-		Str("step_message", info.Message).
 		Msg("emitting step info")
 
 	return p.pubsub.Publish(ctx, queue, bts)

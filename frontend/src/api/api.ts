@@ -491,6 +491,7 @@ export interface TypesAssistantConfig {
   is_actionable_template?: string;
   knowledge?: TypesAssistantKnowledge[];
   lora_id?: string;
+  max_iterations?: number;
   /** The maximum number of tokens to generate before stopping. */
   max_tokens?: number;
   model?: string;
@@ -507,10 +508,12 @@ export interface TypesAssistantConfig {
   /** Controls effort on reasoning for reasoning models. It can be set to "low", "medium", or "high". */
   reasoning_effort?: string;
   reasoning_model?: string;
+  reasoning_model_effort?: string;
   reasoning_model_provider?: string;
   small_generation_model?: string;
   small_generation_model_provider?: string;
   small_reasoning_model?: string;
+  small_reasoning_model_effort?: string;
   small_reasoning_model_provider?: string;
   system_prompt?: string;
   /**

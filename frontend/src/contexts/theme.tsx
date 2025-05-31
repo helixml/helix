@@ -28,7 +28,15 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
       typography: {
         fontFamily: "Assistant, Helvetica, Arial, sans-serif",
         fontSize: 14,
-      }
+      },
+      chartGradientStart: themeConfig.chartGradientStart,
+      chartGradientEnd: themeConfig.chartGradientEnd,
+      chartGradientStartOpacity: themeConfig.chartGradientStartOpacity,
+      chartGradientEndOpacity: themeConfig.chartGradientEndOpacity,
+      chartHighlightGradientStart: themeConfig.chartHighlightGradientStart,
+      chartHighlightGradientEnd: themeConfig.chartHighlightGradientEnd,
+      chartHighlightGradientStartOpacity: themeConfig.chartHighlightGradientStartOpacity,
+      chartHighlightGradientEndOpacity: themeConfig.chartHighlightGradientEndOpacity,
     })
   }, [
     themeConfig, mode

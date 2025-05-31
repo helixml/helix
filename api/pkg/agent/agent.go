@@ -21,18 +21,21 @@ import (
 	"github.com/tmc/langchaingo/jsonschema"
 )
 
+const defaultMaxIterations = 10
+
 var ignErr *IgnorableError
 var retErr *RetryableError
 
 // Agent orchestrates calls to the LLM, uses Skills/Tools, and determines how to respond.
 type Agent struct {
-	prompt  string
-	skills  []Skill
-	emitter StepInfoEmitter // Send information about various steps
+	prompt        string
+	skills        []Skill
+	emitter       StepInfoEmitter // Send information about various steps
+	maxIterations int             // Max number of iterations to run the agent per loop
 }
 
 // NewAgent creates an Agent by adding the prompt as a DeveloperMessage.
-func NewAgent(emitter StepInfoEmitter, prompt string, skills []Skill) *Agent {
+func NewAgent(emitter StepInfoEmitter, prompt string, skills []Skill, maxIterations int) *Agent {
 	// Validate that all skills have both Description and SystemPrompt set
 	for _, skill := range skills {
 		if skill.Description == "" {
@@ -45,10 +48,16 @@ func NewAgent(emitter StepInfoEmitter, prompt string, skills []Skill) *Agent {
 		}
 	}
 
+	// If not set or set to less than 2, use default. Otherwise agent will not be able to interpret tool results.
+	if maxIterations <= 2 {
+		maxIterations = defaultMaxIterations
+	}
+
 	return &Agent{
-		prompt:  prompt,
-		skills:  skills,
-		emitter: emitter,
+		prompt:        prompt,
+		skills:        skills,
+		emitter:       emitter,
+		maxIterations: maxIterations,
 	}
 }
 
@@ -475,7 +484,21 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		return
 	}
 
+	iterationNumber := 0
+
 	for {
+		if iterationNumber >= a.maxIterations {
+			outUserChannel <- Response{
+				Content: fmt.Sprintf("max iterations (%d) reached. Try adjusting model, system prompt, reasoning effort or max iterations.",
+					a.maxIterations,
+				),
+				Type: ResponseTypeError,
+			}
+			return
+		}
+
+		iterationNumber++
+
 		completion, err := a.decideNextAction(ctx, llm, messageHistory.Clone(), memoryBlock)
 		if err != nil {
 			a.handleLLMError(err, outUserChannel)

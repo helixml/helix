@@ -578,6 +578,14 @@ func (s *HelixAPIServer) handleBlockingSession(
 		// Update the session with the response
 		session.Interactions[len(session.Interactions)-1].Error = err.Error()
 		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
+		session.Interactions[len(session.Interactions)-1].Finished = true
+		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+
+		// Create new context with a timeout for persisting session to the database.
+		// Do not inherit the context from the caller, as it may be cancelled.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
 		writeErr := s.Controller.WriteSession(ctx, session)
 		if writeErr != nil {
 			return fmt.Errorf("error writing session: %w", writeErr)
@@ -596,6 +604,11 @@ func (s *HelixAPIServer) handleBlockingSession(
 	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
 	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
 	session.Interactions[len(session.Interactions)-1].Finished = true
+
+	// Create new context with a timeout for persisting session to the database.
+	// Do not inherit the context from the caller, as it may be cancelled.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
 	err = s.Controller.WriteSession(ctx, session)
 	if err != nil {
@@ -664,6 +677,12 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
 		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
 		session.Interactions[len(session.Interactions)-1].Finished = true
+
+		// Create new context with a timeout for persisting session to the database.
+		// Do not inherit the context from the caller, as it may be cancelled.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
 		writeErr := s.Controller.WriteSession(ctx, session)
 		if writeErr != nil {
 			return fmt.Errorf("error writing session: %w", writeErr)
@@ -697,7 +716,20 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 				Any("response", response).
 				Err(err).
 				Msg("error receiving stream")
-			return err
+
+			// Update the interaction with what we have got so far
+			session.Interactions[len(session.Interactions)-1].Message = fullResponse
+			session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+			session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
+			session.Interactions[len(session.Interactions)-1].Error = err.Error()
+			session.Interactions[len(session.Interactions)-1].Finished = true
+
+			// Create new context with a timeout for persisting session to the database.
+			// Do not inherit the context from the caller, as it may be cancelled.
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			return s.Controller.WriteSession(ctx, session)
 		}
 
 		// Accumulate the response
@@ -724,6 +756,11 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
 	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
 	session.Interactions[len(session.Interactions)-1].Finished = true
+
+	// Create new context with a timeout for persisting session to the database.
+	// Do not inherit the context from the caller, as it may be cancelled.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
 	return s.Controller.WriteSession(ctx, session)
 }

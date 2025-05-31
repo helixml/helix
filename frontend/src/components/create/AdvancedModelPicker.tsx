@@ -443,7 +443,9 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                     <ListItemText
                       primary={
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          {model.id || 'Unnamed Model'}
+                          <Typography variant="body1" component="span">
+                            {model.id || 'Unnamed Model'}
+                          </Typography>
                           {isRecommended && (
                             <Tooltip title="Recommended model">
                               <StarIcon 
@@ -460,7 +462,6 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                       }
                       secondary={model.provider.name}
                       primaryTypographyProps={{
-                        variant: 'body1',
                         sx: {
                           fontWeight: model.id === selectedModelId && !isDisabled ? 500 : 400,
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',

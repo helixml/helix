@@ -305,14 +305,14 @@ func (m *LoggingMiddleware) computeTokenUsage(req *openai.ChatCompletionRequest,
 	// Compute prompt tokens
 	promptTokens, err := computeRequestTokens(codec, req)
 	if err != nil {
-		log.Debug().Err(err).Str("model", req.Model).Msg("failed to count tokens for prompt in computeTokenUsage")
+		log.Warn().Err(err).Str("model", req.Model).Msg("failed to count tokens for prompt in computeTokenUsage")
 		return 0, 0, 0
 	}
 
 	// Compute completion tokens
 	completionTokens, err := computeCompletionTokens(codec, resp)
 	if err != nil {
-		log.Debug().Err(err).Str("model", req.Model).Msg("failed to count tokens for completion in computeTokenUsage")
+		log.Warn().Err(err).Str("model", req.Model).Msg("failed to count tokens for completion in computeTokenUsage")
 		return 0, 0, 0
 	}
 

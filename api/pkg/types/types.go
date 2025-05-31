@@ -671,12 +671,15 @@ type StepInfo struct {
 	ID            string          `json:"id" gorm:"primaryKey"`
 	Created       time.Time       `json:"created"`
 	Updated       time.Time       `json:"updated"`
+	AppID         string          `json:"app_id"`
 	SessionID     string          `json:"session_id"`
 	InteractionID string          `json:"interaction_id"`
 	Name          string          `json:"name"`
 	Type          StepInfoType    `json:"type"`
 	Message       string          `json:"message"`
+	Error         string          `json:"error"`
 	Details       StepInfoDetails `json:"details" gorm:"type:jsonb"` // That were used to call the tool
+	DurationMs    int64           `json:"duration_ms"`               // How long the step took in milliseconds (useful for API calls, database queries, etc.)
 }
 
 type StepInfoDetails struct {
@@ -1147,16 +1150,19 @@ type AssistantConfig struct {
 	Model       string `json:"model,omitempty" yaml:"model,omitempty"`
 
 	// AgentMode triggers the use of the agent loop
-	AgentMode bool `json:"agent_mode"`
+	AgentMode     bool `json:"agent_mode"`
+	MaxIterations int  `json:"max_iterations"`
 
 	ReasoningModelProvider string `json:"reasoning_model_provider"`
 	ReasoningModel         string `json:"reasoning_model"`
+	ReasoningModelEffort   string `json:"reasoning_model_effort"`
 
 	GenerationModelProvider string `json:"generation_model_provider"`
 	GenerationModel         string `json:"generation_model"`
 
 	SmallReasoningModelProvider string `json:"small_reasoning_model_provider"`
 	SmallReasoningModel         string `json:"small_reasoning_model"`
+	SmallReasoningModelEffort   string `json:"small_reasoning_model_effort"`
 
 	SmallGenerationModelProvider string `json:"small_generation_model_provider"`
 	SmallGenerationModel         string `json:"small_generation_model"`
