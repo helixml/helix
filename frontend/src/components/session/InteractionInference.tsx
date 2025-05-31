@@ -104,6 +104,7 @@ export const InteractionInference: FC<{
       .filter(step => step.interaction_id === interaction.id)
       .map(step => ({
         id: step.id || '',
+        icon: step.icon || '',
         name: step.name || '',
         type: step.type || '',
         message: step.message || '',
