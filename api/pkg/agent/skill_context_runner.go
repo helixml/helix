@@ -105,15 +105,35 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 		}
 		messageHistory.Add(&completion.Choices[0].Message)
 
+		// Log the completion for debugging
+		log.Debug().
+			Interface("completion", completion.Choices[0].Message).
+			Str("model", modelToUse.Model).
+			Msg("Received completion from LLM")
+
 		// Check if both tool call and content are non-empty
 		bothToolCallAndContent := completion.Choices[0].Message.ToolCalls != nil && completion.Choices[0].Message.Content != ""
 		if bothToolCallAndContent {
 			log.Error().Interface("message", completion.Choices[0].Message).Msg("Expectation is that tool call and content shouldn't both be non-empty")
 		}
 
-		// if there is no tool call, break
-		if completion.Choices[0].Message.ToolCalls == nil {
-			break
+		// if there is no tool call, check if we have a valid direct response
+		// if completion.Choices[0].Message.ToolCalls == nil || len(completion.Choices[0].Message.ToolCalls) == 0 {
+		if len(completion.Choices[0].Message.ToolCalls) == 0 {
+			// If we have content and it's a valid response, break the loop
+			if completion.Choices[0].Message.Content != "" {
+				log.Debug().
+					Str("content", completion.Choices[0].Message.Content).
+					Msg("Received direct response from LLM")
+				break
+			}
+			// If no content and no tool calls, this is an error
+			log.Error().Msg("Received empty response with no tool calls")
+			return &openai.ChatCompletionMessage{
+				Role:       openai.ChatMessageRoleTool,
+				Content:    "Error: The skill execution did not produce a valid response",
+				ToolCallID: skillToolCallID,
+			}, nil
 		}
 		toolsToCall := completion.Choices[0].Message.ToolCalls
 
