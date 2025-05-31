@@ -48,7 +48,8 @@ func NewAgent(emitter StepInfoEmitter, prompt string, skills []Skill, maxIterati
 		}
 	}
 
-	if maxIterations <= 0 {
+	// If not set or set to less than 2, use default. Otherwise agent will not be able to interpret tool results.
+	if maxIterations <= 2 {
 		maxIterations = defaultMaxIterations
 	}
 
