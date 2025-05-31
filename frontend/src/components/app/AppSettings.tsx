@@ -592,13 +592,14 @@ const AppSettings: FC<AppSettingsProps> = ({
             <Typography variant="subtitle1" sx={{ mb: 2 }}>Agent Configuration</Typography>
             
             <Box sx={{ mb: 3 }}>
-              <Typography gutterBottom>Main Reasoning and Planning Model</Typography>
+              <Typography gutterBottom>Main Reasoning Model (tool calling)</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                The model used for reasoning and planning tasks. Adjust reasoning effort based on complexity of the task.
+                The model used for reasoning and tool calling tasks. Adjust reasoning effort based on complexity of the task.
+                You will need the strongest model for this, must support tool use.
               </Typography>
               <Stack direction="row" spacing={2} alignItems="flex-start">
                 <AdvancedModelPicker
-                  recommendedModels={['o3-mini', 'o4-mini']}
+                  recommendedModels={['o3-mini', 'o4-mini', 'Qwen/Qwen3-235B-A22B-fp8-tput']}
                   hint='Recommended to use o3-mini level models, should be a strong model capable of using tools and reasoning.'
                   selectedProvider={reasoning_model_provider}
                   selectedModelId={reasoning_model}
@@ -705,9 +706,9 @@ const AppSettings: FC<AppSettingsProps> = ({
             </Box>
 
             <Box sx={{ mb: 3 }}>
-              <Typography gutterBottom>Generation Model</Typography>
+              <Typography gutterBottom>Generation Model (planning next actions)</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                The model used for generating responses. Recommended to use gpt-4o level models.
+                The model used for generating responses. Recommended to use gpt-4o level models. Must support tool use.
               </Typography>
               <AdvancedModelPicker
                 recommendedModels={['gpt-4o', 'gpt-4o-mini']}
@@ -733,7 +734,7 @@ const AppSettings: FC<AppSettingsProps> = ({
               <Typography gutterBottom>Small Reasoning Model (tool results interpretation)</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                 A smaller model used for quick reasoning tasks and interpreting tool responses.
-                If model doesn't support reasoning, set reasoning effort to none.
+                If model doesn't support reasoning, set reasoning effort to none. Tool use is recommended but not required.
               </Typography>
               <Stack direction="row" spacing={2} alignItems="flex-start">
                 <AdvancedModelPicker
