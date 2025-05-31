@@ -23,6 +23,18 @@ import {
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
 import Divider from '@mui/material/Divider'
 
+// Recommended models configuration
+const RECOMMENDED_MODELS = {
+  // Tool use required, reasoning and tool calling, must be strong model for complex tasks
+  reasoning: ['o3-mini', 'o4-mini', 'Qwen/Qwen2.5-72B-Instruct-Turbo', 'Qwen/Qwen3-235B-A22B-fp8-tput'],
+  // Tool use required, planning next actions using skills
+  generation: ['gpt-4o', 'gpt-4o-mini'],
+  // No tool use required but might be useful 
+  smallReasoning: ['o3-mini', 'o4-mini', 'gpt-4o-mini', 'gpt-4o'],
+  // No tool use required
+  smallGeneration: ['gpt-4o', 'gpt-4o-mini']
+};
+
 interface AppSettingsProps {
   id: string,
   app: IAppFlatState,
@@ -599,7 +611,7 @@ const AppSettings: FC<AppSettingsProps> = ({
               </Typography>
               <Stack direction="row" spacing={2} alignItems="flex-start">
                 <AdvancedModelPicker
-                  recommendedModels={['o3-mini', 'o4-mini', 'Qwen/Qwen3-235B-A22B-fp8-tput']}
+                  recommendedModels={RECOMMENDED_MODELS.reasoning}
                   hint='Recommended to use o3-mini level models, should be a strong model capable of using tools and reasoning.'
                   selectedProvider={reasoning_model_provider}
                   selectedModelId={reasoning_model}
@@ -711,7 +723,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                 The model used for generating responses. Recommended to use gpt-4o level models. Must support tool use.
               </Typography>
               <AdvancedModelPicker
-                recommendedModels={['gpt-4o', 'gpt-4o-mini']}
+                recommendedModels={RECOMMENDED_MODELS.generation}
                 hint='Recommended to use gpt-4o level models, should be a strong model capable of planning next actions and interpreting tool responses.'
                 selectedProvider={generation_model_provider}
                 selectedModelId={generation_model}
@@ -738,7 +750,7 @@ const AppSettings: FC<AppSettingsProps> = ({
               </Typography>
               <Stack direction="row" spacing={2} alignItems="flex-start">
                 <AdvancedModelPicker
-                  recommendedModels={['o3-mini', 'o4-mini', 'gpt-4o-mini', 'gpt-4o']}
+                  recommendedModels={RECOMMENDED_MODELS.smallReasoning}
                   hint='Recommended to use o3-mini level models, should be a strong model capable of using tools and reasoning.'
                   selectedProvider={small_reasoning_model_provider}
                   selectedModelId={small_reasoning_model}
@@ -850,7 +862,7 @@ const AppSettings: FC<AppSettingsProps> = ({
                 A smaller model used for quick response generation. Recommended to use gpt-4o-mini level models.
               </Typography>
               <AdvancedModelPicker
-                recommendedModels={['gpt-4o', 'gpt-4o-mini']}
+                recommendedModels={RECOMMENDED_MODELS.smallGeneration}
                 hint='Recommended to use gpt-4o level models, should be a strong model capable of planning next actions and interpreting tool responses.'
                 selectedProvider={provider}
                 selectedModelId={small_generation_model}
