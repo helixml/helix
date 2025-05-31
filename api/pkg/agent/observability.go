@@ -96,7 +96,6 @@ func (p *PubSubStepInfoEmitter) EmitStepInfo(ctx context.Context, info *types.St
 		Str("step_id", info.ID).
 		Str("step_name", info.Name).
 		Str("step_type", string(info.Type)).
-		Str("step_message", info.Message).
 		Msg("emitting step info")
 
 	return p.pubsub.Publish(ctx, queue, bts)
