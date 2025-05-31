@@ -29,6 +29,11 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		vals = &oai.ContextValues{}
 	}
 
+	appID, ok := oai.GetContextAppID(ctx)
+	if !ok {
+		return nil, fmt.Errorf("appID not set in context, use 'openai.SetContextAppID()' before calling this method")
+	}
+
 	log.Info().
 		Str("session_id", vals.SessionID).
 		Str("user_id", req.User.ID).
@@ -46,6 +51,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	if err != nil {
 		return nil, fmt.Errorf("failed to get reasoning model config: %w", err)
 	}
+	reasoningModel.ReasoningEffort = req.Assistant.ReasoningModelEffort
 
 	generationModel, err := c.getLLMModelConfig(ctx,
 		req.User.ID,
@@ -62,6 +68,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	if err != nil {
 		return nil, fmt.Errorf("failed to get small reasoning model config: %w", err)
 	}
+	smallReasoningModel.ReasoningEffort = req.Assistant.SmallReasoningModelEffort
 
 	smallGenerationModel, err := c.getLLMModelConfig(ctx,
 		req.User.ID,
@@ -99,6 +106,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		c.stepInfoEmitter,
 		enriched,
 		skills,
+		req.Assistant.MaxIterations,
 	)
 
 	messageHistory := agent.NewMessageList()
@@ -120,6 +128,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	}
 
 	session := agent.NewSession(ctx, c.stepInfoEmitter, llm, mem, helixAgent, messageHistory, agent.Meta{
+		AppID:         appID,
 		UserID:        req.User.ID,
 		SessionID:     vals.SessionID,
 		InteractionID: vals.InteractionID,
@@ -245,10 +254,13 @@ func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (
 				_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
 					Choices: []openai.ChatCompletionStreamChoice{
 						{
-							Delta: openai.ChatCompletionStreamChoiceDelta{Content: fmt.Sprintf("Agent error: %s", out.Content)},
+							FinishReason: openai.FinishReasonNull,
 						},
 					},
 				})
+				// Close the stream
+				writer.CloseWithError(fmt.Errorf("agent error: %s", out.Content))
+
 			case agent.ResponseTypeEnd:
 				// Write the final chunk with reason stop
 				_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{

@@ -55,6 +55,15 @@ export interface ITheme {
   deepPurple: string,
   deepBlue: string,
   deepGreen: string,
+  // Chart gradients
+  chartGradientStart: string,
+  chartGradientEnd: string,
+  chartGradientStartOpacity: number,
+  chartGradientEndOpacity: number,
+  chartHighlightGradientStart: string,
+  chartHighlightGradientEnd: string,
+  chartHighlightGradientStartOpacity: number,
+  chartHighlightGradientEndOpacity: number,
   // active sections
   activeSections: string[],
   logo: {
@@ -118,6 +127,15 @@ export const THEMES: Record<string, ITheme> = {
     deepPurple: '#250B1A',
     deepBlue: '#1F2236',
     deepGreen: '#193533',
+    // Chart gradients
+    chartGradientStart: '#00c8ff',
+    chartGradientEnd: '#6f00ff',
+    chartGradientStartOpacity: 0.8,
+    chartGradientEndOpacity: 0.1,
+    chartHighlightGradientStart: '#ffb300',
+    chartHighlightGradientEnd: '#ff4081',
+    chartHighlightGradientStartOpacity: 0.9,
+    chartHighlightGradientEndOpacity: 0.9,
     // this means ALL
     activeSections: [],
     logo: () => (

@@ -13,6 +13,9 @@ import FormControl from '@mui/material/FormControl'
 import Typography from '@mui/material/Typography'
 import Stack from '@mui/material/Stack'
 import Link from '@mui/material/Link'
+import Button from '@mui/material/Button'
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
+import Menu from '@mui/material/Menu'
 
 import {
   IAppFlatState,
@@ -57,8 +60,53 @@ const DEFAULT_VALUES = {
   presence_penalty: 0,
   top_p: 1,
   max_tokens: 2000,
-  reasoning_effort: 'medium'
+  reasoning_effort: 'medium',
+  max_iterations: 10,
 } as const
+
+// Add BarsIcon component
+const BarsIcon = ({ effort }: { effort: string }) => {
+  const getBars = () => {
+    switch (effort) {
+      case 'none':
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
+            <Box sx={{ width: 2, height: 4, bgcolor: 'text.secondary' }} />
+          </Box>
+        )
+      case 'low':
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
+            <Box sx={{ width: 2, height: 8, bgcolor: 'info.main' }} />
+          </Box>
+        )
+      case 'medium':
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
+            <Box sx={{ width: 2, height: 8, bgcolor: 'success.main' }} />
+            <Box sx={{ width: 2, height: 12, bgcolor: 'success.main' }} />
+          </Box>
+        )
+      case 'high':
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
+            <Box sx={{ width: 2, height: 8, bgcolor: 'error.main' }} />
+            <Box sx={{ width: 2, height: 12, bgcolor: 'error.main' }} />
+            <Box sx={{ width: 2, height: 16, bgcolor: 'error.main' }} />
+          </Box>
+        )
+      default:
+        return null
+    }
+  }
+
+  // Add a fixed width and center the bars
+  return (
+    <Box sx={{ width: 32, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+      {getBars()}
+    </Box>
+  )
+}
 
 const AppSettings: FC<AppSettingsProps> = ({
   id,
@@ -98,12 +146,15 @@ const AppSettings: FC<AppSettingsProps> = ({
 
   // Agent mode settings
   const [agent_mode, setAgentMode] = useState(app.agent_mode || false)
+  const [max_iterations, setMaxIterations] = useState(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
   const [reasoning_model, setReasoningModel] = useState(app.reasoning_model || '')
   const [reasoning_model_provider, setReasoningModelProvider] = useState(app.reasoning_model_provider || '')
+  const [reasoning_model_effort, setReasoningModelEffort] = useState(app.reasoning_model_effort || 'medium')
   const [generation_model, setGenerationModel] = useState(app.generation_model || '')
   const [generation_model_provider, setGenerationModelProvider] = useState(app.generation_model_provider || '')
   const [small_reasoning_model, setSmallReasoningModel] = useState(app.small_reasoning_model || '')
   const [small_reasoning_model_provider, setSmallReasoningModelProvider] = useState(app.small_reasoning_model_provider || '')
+  const [small_reasoning_model_effort, setSmallReasoningModelEffort] = useState(app.small_reasoning_model_effort || 'none')
   const [small_generation_model, setSmallGenerationModel] = useState(app.small_generation_model || '')
   const [small_generation_model_provider, setSmallGenerationModelProvider] = useState(app.small_generation_model_provider || '')
   
@@ -158,14 +209,15 @@ const AppSettings: FC<AppSettingsProps> = ({
       setReasoningEffort(app.reasoning_effort || DEFAULT_VALUES.reasoning_effort)
       setTemperature(app.temperature || 0)
       setTopP(app.top_p || 0)
+      setMaxIterations(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
       
       // Mark as initialized
       isInitialized.current = true
     }
   }, [app]) // Still depend on app, but we'll only use it for initialization
-
+ 
   // Handle blur event - gather all current state values and call onUpdate
-  const handleBlur = (field: 'name' | 'description' | 'system_prompt' | 'avatar' | 'image' | 'max_tokens') => {
+  const handleBlur = (field: 'name' | 'description' | 'system_prompt' | 'avatar' | 'image' | 'max_tokens' | 'max_iterations') => {
     // Get current value based on field name
     const currentValue = {
       name,
@@ -173,7 +225,8 @@ const AppSettings: FC<AppSettingsProps> = ({
       system_prompt,
       avatar,
       image,
-      max_tokens: maxTokens
+      max_tokens: maxTokens,
+      max_iterations: max_iterations
     }[field]
     
     // Get original value from app prop
@@ -199,48 +252,15 @@ const AppSettings: FC<AppSettingsProps> = ({
         reasoning_effort: reasoningEffort,
         temperature,
         top_p: topP,
+        max_iterations: max_iterations
       }
       
-      // Call onUpdate with the complete updated state
       onUpdate(updatedApp)
     }
   }
 
-  // Modify the handleAdvancedChange function to separate immediate state updates from debounced API calls
-  const handleAdvancedChange = (field: string, value: number | string) => {
-    const numericValue = typeof value === 'string' ? parseFloat(value) : value
-    
-    // Update local state immediately
-    switch(field) {
-      case 'contextLimit':
-        setContextLimit(numericValue as number)
-        break
-      case 'frequencyPenalty':
-        setFrequencyPenalty(numericValue as number)
-        break
-      case 'maxTokens':
-        setMaxTokens(numericValue as number)
-        break
-      case 'presencePenalty':
-        setPresencePenalty(numericValue as number)
-        break
-      case 'reasoningEffort':
-        setReasoningEffort(value as string)
-        break
-      case 'temperature':
-        setTemperature(numericValue as number)
-        break
-      case 'topP':
-        setTopP(numericValue as number)
-        break
-      case 'system_prompt':
-        setSystemPrompt(value as string)
-        break
-    }
-  }
-
   // Create debounced version of the update function
-  const debouncedUpdate = useDebounce((field: string, value: number | string) => {
+  const debouncedUpdate = useDebounce((field: 'contextLimit' | 'frequencyPenalty' | 'maxTokens' | 'presencePenalty' | 'reasoningEffort' | 'temperature' | 'topP' | 'system_prompt' | 'maxIterations', value: number | string) => {
     const updatedApp: IAppFlatState = {
       ...app,
       name,
@@ -252,10 +272,12 @@ const AppSettings: FC<AppSettingsProps> = ({
       agent_mode,
       reasoning_model,
       reasoning_model_provider,
+      reasoning_model_effort,
       generation_model,
       generation_model_provider,
       small_reasoning_model,
       small_reasoning_model_provider,
+      small_reasoning_model_effort,
       small_generation_model,
       small_generation_model_provider,
       provider,
@@ -267,14 +289,15 @@ const AppSettings: FC<AppSettingsProps> = ({
       temperature: field === 'temperature' ? value as number : temperature,
       top_p: field === 'topP' ? value as number : topP,
       system_prompt: field === 'system_prompt' ? value as string : system_prompt,
+      max_iterations: field === 'maxIterations' ? value as number : max_iterations
     }
     
     onUpdate(updatedApp)
   }, 300)
 
   // Combine immediate state update with debounced API call
-  const handleAdvancedChangeWithDebounce = (field: string, value: number | string) => {
-    handleAdvancedChange(field, value)
+  const handleAdvancedChangeWithDebounce = (field: 'contextLimit' | 'frequencyPenalty' | 'maxTokens' | 'presencePenalty' | 'reasoningEffort' | 'temperature' | 'topP' | 'system_prompt' | 'maxIterations', value: number | string) => {
+    console.log('handleAdvancedChangeWithDebounce', field, value)
     debouncedUpdate(field, value)
   }
 
@@ -305,6 +328,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       reasoning_effort: reasoningEffort,
       temperature,
       top_p: topP,
+      max_iterations: max_iterations
     }
     
     onUpdate(updatedApp)
@@ -332,6 +356,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       reasoning_effort: reasoningEffort,
       temperature,
       top_p: topP,
+      max_iterations: max_iterations
     }
     
     onUpdate(updatedApp)
@@ -395,8 +420,66 @@ const AppSettings: FC<AppSettingsProps> = ({
         setSystemPrompt(value as string)
         handleAdvancedChangeWithDebounce('system_prompt', value as string)
         break
+      case 'max_iterations':
+        setMaxIterations(value as number)
+        handleAdvancedChangeWithDebounce('maxIterations', value as number)
+        break
     }
   }
+
+  const [mainEffortMenuAnchor, setMainEffortMenuAnchor] = useState<null | HTMLElement>(null);
+  const [smallEffortMenuAnchor, setSmallEffortMenuAnchor] = useState<null | HTMLElement>(null);
+
+  const handleMainEffortClick = (event: React.MouseEvent<HTMLElement>) => {
+    setMainEffortMenuAnchor(event.currentTarget);
+  };
+
+  const handleSmallEffortClick = (event: React.MouseEvent<HTMLElement>) => {
+    setSmallEffortMenuAnchor(event.currentTarget);
+  };
+
+  const handleMainEffortClose = () => {
+    setMainEffortMenuAnchor(null);
+  };
+
+  const handleSmallEffortClose = () => {
+    setSmallEffortMenuAnchor(null);
+  };
+
+  const handleEffortSelect = (effort: string, isMain: boolean) => {
+    if (isMain) {
+      setReasoningModelEffort(effort);
+      const updatedApp: IAppFlatState = {
+        ...app,
+        reasoning_model_effort: effort,
+      };
+      onUpdate(updatedApp);
+      handleMainEffortClose();
+    } else {
+      setSmallReasoningModelEffort(effort);
+      const updatedApp: IAppFlatState = {
+        ...app,
+        small_reasoning_model_effort: effort,
+      };
+      onUpdate(updatedApp);
+      handleSmallEffortClose();
+    }
+  };
+
+  const getEffortTooltip = (effort: string) => {
+    switch (effort) {
+      case 'none':
+        return 'Reasoning disabled - no additional reasoning steps will be performed';
+      case 'low':
+        return 'Low effort - minimal reasoning steps, faster responses but may be less thorough';
+      case 'medium':
+        return 'Medium effort - balanced reasoning steps, good balance of speed and thoroughness';
+      case 'high':
+        return 'High effort - extensive reasoning steps, most thorough but may be slower';
+      default:
+        return '';
+    }
+  };
 
   return (
     <Box sx={{ mt: 2 }}>
@@ -511,26 +594,114 @@ const AppSettings: FC<AppSettingsProps> = ({
             <Box sx={{ mb: 3 }}>
               <Typography gutterBottom>Main Reasoning and Planning Model</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                The model used for reasoning and planning tasks.
+                The model used for reasoning and planning tasks. Adjust reasoning effort based on complexity of the task.
               </Typography>
-              <AdvancedModelPicker
-                recommendedModels={['o3-mini', 'o4-mini']}
-                hint='Recommended to use o3-mini level models, should be a strong model capable of using tools and reasoning.'
-                selectedProvider={reasoning_model_provider}
-                selectedModelId={reasoning_model}
-                onSelectModel={(provider, model) => {
-                  setReasoningModel(model);
-                  setReasoningModelProvider(provider);
-                  const updatedApp: IAppFlatState = {
-                    ...app,
-                    reasoning_model: model,
-                    reasoning_model_provider: provider,
-                  };
-                  onUpdate(updatedApp);
-                }}
-                currentType="text"
-                displayMode="short"
-              />
+              <Stack direction="row" spacing={2} alignItems="flex-start">
+                <AdvancedModelPicker
+                  recommendedModels={['o3-mini', 'o4-mini']}
+                  hint='Recommended to use o3-mini level models, should be a strong model capable of using tools and reasoning.'
+                  selectedProvider={reasoning_model_provider}
+                  selectedModelId={reasoning_model}
+                  onSelectModel={(provider, model) => {
+                    setReasoningModel(model);
+                    setReasoningModelProvider(provider);
+                    const updatedApp: IAppFlatState = {
+                      ...app,
+                      reasoning_model: model,
+                      reasoning_model_provider: provider,
+                    };
+                    onUpdate(updatedApp);
+                  }}
+                  currentType="text"
+                  displayMode="short"
+                />
+                <Box>
+                  <Tooltip 
+                    title={getEffortTooltip(reasoning_model_effort)}
+                    placement="top"
+                    arrow
+                  >
+                    <Button
+                      variant="text"
+                      onClick={handleMainEffortClick}
+                      endIcon={<ArrowDropDownIcon />}
+                      disabled={readOnly}
+                      sx={{
+                        borderRadius: '8px',
+                        color: 'text.primary',
+                        textTransform: 'none',
+                        fontSize: '0.875rem',
+                        padding: '4px 8px',
+                        height: '32px',
+                        minWidth: 'auto',
+                        maxWidth: '120px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        border: '1px solid #fff',
+                        '&:hover': {
+                          backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
+                        },
+                        ...(readOnly && {
+                          opacity: 0.5,
+                          pointerEvents: 'none',
+                        }),
+                      }}
+                    >
+                      <Typography 
+                        variant="caption" 
+                        component="span"
+                        sx={{ 
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          display: 'inline-block',
+                          lineHeight: 1.2,
+                          verticalAlign: 'middle',
+                          fontSize: '0.875rem',
+                        }}
+                      >
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <BarsIcon effort={reasoning_model_effort} />
+                          <Typography>
+                            {reasoning_model_effort.charAt(0).toUpperCase() + reasoning_model_effort.slice(1)}
+                          </Typography>
+                        </Stack>
+                      </Typography>
+                    </Button>
+                  </Tooltip>
+                  <Menu
+                    anchorEl={mainEffortMenuAnchor}
+                    open={Boolean(mainEffortMenuAnchor)}
+                    onClose={handleMainEffortClose}
+                  >
+                    {[
+                      { value: 'none', tooltip: 'Reasoning disabled - no additional reasoning steps will be performed' },
+                      { value: 'low', tooltip: 'Low reasoning effort - minimal reasoning steps, faster responses but may be less thorough' },
+                      { value: 'medium', tooltip: 'Medium reasoning effort - balanced reasoning steps, good balance of speed and thoroughness' },
+                      { value: 'high', tooltip: 'High reasoning effort - extensive reasoning steps, most thorough but may be slower' }
+                    ].map(({ value, tooltip }) => (
+                      <Tooltip 
+                        key={value}
+                        title={tooltip}
+                        placement="right"
+                        arrow
+                      >
+                        <MenuItem 
+                          onClick={() => handleEffortSelect(value, true)}
+                          selected={value === reasoning_model_effort}
+                        >
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <BarsIcon effort={value} />
+                            <Typography>
+                              {value.charAt(0).toUpperCase() + value.slice(1)}
+                            </Typography>
+                          </Stack>
+                        </MenuItem>
+                      </Tooltip>
+                    ))}
+                  </Menu>
+                </Box>
+              </Stack>
             </Box>
 
             <Box sx={{ mb: 3 }}>
@@ -559,28 +730,117 @@ const AppSettings: FC<AppSettingsProps> = ({
             </Box>
 
             <Box sx={{ mb: 3 }}>
-              <Typography gutterBottom>Small Reasoning Model</Typography>
+              <Typography gutterBottom>Small Reasoning Model (tool results interpretation)</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                A smaller model used for quick reasoning tasks. Recommended to use o3-mini level models.
+                A smaller model used for quick reasoning tasks and interpreting tool responses.
+                If model doesn't support reasoning, set reasoning effort to none.
               </Typography>
-              <AdvancedModelPicker
-                recommendedModels={['o3-mini', 'o4-mini']}
-                hint='Recommended to use o3-mini level models, should be a strong model capable of using tools and reasoning.'
-                selectedProvider={small_reasoning_model_provider}
-                selectedModelId={small_reasoning_model}
-                onSelectModel={(provider, model) => {
-                  setSmallReasoningModel(model);
-                  setSmallReasoningModelProvider(provider);
-                  const updatedApp: IAppFlatState = {
-                    ...app,
-                    small_reasoning_model: model,
-                    small_reasoning_model_provider: provider,
-                  };
-                  onUpdate(updatedApp);
-                }}
-                currentType="text"
-                displayMode="short"
-              />
+              <Stack direction="row" spacing={2} alignItems="flex-start">
+                <AdvancedModelPicker
+                  recommendedModels={['o3-mini', 'o4-mini', 'gpt-4o-mini', 'gpt-4o']}
+                  hint='Recommended to use o3-mini level models, should be a strong model capable of using tools and reasoning.'
+                  selectedProvider={small_reasoning_model_provider}
+                  selectedModelId={small_reasoning_model}
+                  onSelectModel={(provider, model) => {
+                    setSmallReasoningModel(model);
+                    setSmallReasoningModelProvider(provider);
+                    const updatedApp: IAppFlatState = {
+                      ...app,
+                      small_reasoning_model: model,
+                      small_reasoning_model_provider: provider,
+                    };
+                    onUpdate(updatedApp);
+                  }}
+                  currentType="text"
+                  displayMode="short"
+                />
+                <Box>
+                  <Tooltip 
+                    title={getEffortTooltip(small_reasoning_model_effort)}
+                    placement="top"
+                    arrow
+                  >
+                    <Button
+                      variant="text"
+                      onClick={handleSmallEffortClick}
+                      endIcon={<ArrowDropDownIcon />}
+                      disabled={readOnly}
+                      sx={{
+                        borderRadius: '8px',
+                        color: 'text.primary',
+                        textTransform: 'none',
+                        fontSize: '0.875rem',
+                        padding: '4px 8px',
+                        height: '32px',
+                        minWidth: 'auto',
+                        maxWidth: '120px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        border: '1px solid #fff',
+                        '&:hover': {
+                          backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
+                        },
+                        ...(readOnly && {
+                          opacity: 0.5,
+                          pointerEvents: 'none',
+                        }),
+                      }}
+                    >
+                      <Typography 
+                        variant="caption" 
+                        component="span"
+                        sx={{ 
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          display: 'inline-block',
+                          lineHeight: 1.2,
+                          verticalAlign: 'middle',
+                          fontSize: '0.875rem',
+                        }}
+                      >
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <BarsIcon effort={small_reasoning_model_effort} />
+                          <Typography>
+                            {small_reasoning_model_effort.charAt(0).toUpperCase() + small_reasoning_model_effort.slice(1)}
+                          </Typography>
+                        </Stack>
+                      </Typography>
+                    </Button>
+                  </Tooltip>
+                  <Menu
+                    anchorEl={smallEffortMenuAnchor}
+                    open={Boolean(smallEffortMenuAnchor)}
+                    onClose={handleSmallEffortClose}
+                  >
+                    {[
+                      { value: 'none', tooltip: 'Reasoning disabled - no additional reasoning steps will be performed' },
+                      { value: 'low', tooltip: 'Low effort - minimal reasoning steps, faster responses but may be less thorough' },
+                      { value: 'medium', tooltip: 'Medium effort - balanced reasoning steps, good balance of speed and thoroughness' },
+                      { value: 'high', tooltip: 'High effort - extensive reasoning steps, most thorough but may be slower' }
+                    ].map(({ value, tooltip }) => (
+                      <Tooltip 
+                        key={value}
+                        title={tooltip}
+                        placement="right"
+                        arrow
+                      >
+                        <MenuItem 
+                          onClick={() => handleEffortSelect(value, false)}
+                          selected={value === small_reasoning_model_effort}
+                        >
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <BarsIcon effort={value} />
+                            <Typography>
+                              {value.charAt(0).toUpperCase() + value.slice(1)}
+                            </Typography>
+                          </Stack>
+                        </MenuItem>
+                      </Tooltip>
+                    ))}
+                  </Menu>
+                </Box>
+              </Stack>
             </Box>
 
             <Box sx={{ mb: 3 }}>
@@ -605,6 +865,35 @@ const AppSettings: FC<AppSettingsProps> = ({
                 }}
                 currentType="text"
                 displayMode="short"
+              />
+            </Box>
+
+            <Box sx={{ mb: 3 }}>
+              <Typography gutterBottom>Max Reasoning Iterations (per task)</Typography>
+              <Typography variant="body2" color="text.secondary">
+                The maximum number of reasoning iterations allowed for each reasoning task. This limit applies separately to:
+                <ul>
+                  <li>Global reasoning (overall conversation planning)</li>
+                  <li>Each individual skill's reasoning. Includes preparation and execution of the skill.</li>
+                </ul>
+                For example, with 3 skills and max iterations set to 10, you could have up to 40 total iterations (10 for global + 10 for each skill).
+                This acts as a safety mechanism to prevent infinite loops.
+                <ResetLink field="max_iterations" value={max_iterations} onClick={() => handleReset('max_iterations')} />
+              </Typography>
+
+              <TextField
+                sx={{ mt: 1 }}
+                type="number"              
+                value={max_iterations}
+                onChange={(e) => {
+                  const value = parseInt(e.target.value) || DEFAULT_VALUES.max_iterations;
+                  setMaxIterations(value);
+                  handleAdvancedChangeWithDebounce('maxIterations', value);
+                }}
+                onBlur={() => handleBlur('max_iterations')}
+                fullWidth
+                disabled={readOnly}
+                inputProps={{ min: 1 }}
               />
             </Box>
           </Box>

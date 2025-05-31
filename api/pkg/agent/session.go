@@ -10,6 +10,7 @@ import (
 )
 
 type Meta struct {
+	AppID         string
 	UserID        string
 	SessionID     string
 	InteractionID string
@@ -41,6 +42,7 @@ func NewSession(ctx context.Context, stepInfoEmitter StepInfoEmitter, llm *LLM, 
 	ctx = context.WithValue(ctx, ContextKey("userID"), meta.UserID)
 	ctx = context.WithValue(ctx, ContextKey("sessionID"), meta.SessionID)
 	ctx = context.WithValue(ctx, ContextKey("interactionID"), meta.InteractionID)
+	ctx = context.WithValue(ctx, ContextKey("appID"), meta.AppID)
 	ctx = context.WithValue(ctx, ContextKey("extra"), meta.Extra)
 	s := &Session{
 		ctx:       ctx,

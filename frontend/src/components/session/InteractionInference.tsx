@@ -257,7 +257,9 @@ export const InteractionInference: FC<{
         }
         {
           error && (
-            <Row>
+            <Row sx={{
+              mt: 3,
+            }}>
               <Cell grow>
                 <Alert severity="error">
                   The system has encountered an error -
@@ -275,7 +277,7 @@ export const InteractionInference: FC<{
                   to view the details.
                 </Alert>
               </Cell>
-              {
+              {/* {
                 !upgrade && onRegenerate && (
                   <Cell
                     sx={{
@@ -293,7 +295,7 @@ export const InteractionInference: FC<{
                     </Button>
                   </Cell>
                 )
-              }
+              } */}
               {
                 upgrade && (
                   <Cell

@@ -1859,15 +1859,16 @@ const Session: FC = () => {
                         </Box>
                         {/* THIS IS THE NEW WRAPPING BOX FOR RIGHT SIDE ITEMS */}
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <AdvancedModelPicker
-                            selectedProvider={session.data.provider}
-                            selectedModelId={session.data.model_name}
-                            onSelectModel={handleModelChange}
-                            currentType="text"
-                            displayMode="short"
-                            buttonVariant="text"
-                            disabled={!!appID}
-                          />
+                          {!appID && (
+                            <AdvancedModelPicker
+                              selectedProvider={session.data.provider}
+                              selectedModelId={session.data.model_name}
+                              onSelectModel={handleModelChange}
+                              currentType="text"
+                              displayMode="short"
+                              buttonVariant="text"
+                            />
+                          )}
                           <Tooltip title="Send Prompt" placement="top">
                             <Box
                               onClick={() => onSend(inputValue)}

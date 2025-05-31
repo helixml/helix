@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
-import { Box, Typography, Tooltip } from '@mui/material';
+import { Box, Typography, Tooltip, useTheme } from '@mui/material';
 
 interface LLMCall {
   id: string;
@@ -8,6 +8,7 @@ interface LLMCall {
   step?: string;
   model?: string;
   response?: any;
+  request?: any;
 }
 
 interface LLMCallTimelineChartProps {
@@ -32,6 +33,22 @@ const parseResponse = (response: any): any => {
   } catch (e) {
     return response;
   }
+};
+
+const parseRequest = (request: any): any => {
+  try {
+    if (typeof request === 'string') {
+      return JSON.parse(request);
+    }
+    return request;
+  } catch (e) {
+    return request;
+  }
+};
+
+const getReasoningEffort = (request: any): string => {
+  const parsed = parseRequest(request);
+  return parsed?.reasoning_effort || 'n/a';
 };
 
 const getAssistantMessage = (response: any): string => {
@@ -65,6 +82,11 @@ const getTooltipContent = (call: LLMCall): React.ReactNode => {
     <div key="duration">Duration: {formatMs(call.duration_ms)}</div>
   ];
 
+  if (call.step?.startsWith('skill_context_runner') && call.request) {
+    const reasoningEffort = getReasoningEffort(call.request);
+    content.push(<div key="reasoning">Reasoning Effort: {reasoningEffort}</div>);
+  }
+
   if (call.step === 'decide_next_action' && call.response) {
     const toolCalls = getToolCalls(call.response);
     if (toolCalls.length > 0) {
@@ -93,6 +115,7 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(900);
   const [hoverX, setHoverX] = useState<number | null>(null);
+  const theme = useTheme();
 
   useEffect(() => {
     const handleResize = () => {
@@ -156,12 +179,12 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
         >
           <defs>
             <linearGradient id="barGradient" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#00c8ff" stopOpacity={0.8} />
-              <stop offset="100%" stopColor="#6f00ff" stopOpacity={0.8} />
+              <stop offset="0%" stopColor={theme.chartGradientStart} stopOpacity={theme.chartGradientStartOpacity} />
+              <stop offset="100%" stopColor={theme.chartGradientEnd} stopOpacity={theme.chartGradientStartOpacity} />
             </linearGradient>
             <linearGradient id="barHighlightGradient" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#ffb300" stopOpacity={0.9} />
-              <stop offset="100%" stopColor="#ff4081" stopOpacity={0.9} />
+              <stop offset="0%" stopColor={theme.chartHighlightGradientStart} stopOpacity={theme.chartHighlightGradientStartOpacity} />
+              <stop offset="100%" stopColor={theme.chartHighlightGradientEnd} stopOpacity={theme.chartHighlightGradientEndOpacity} />
             </linearGradient>
           </defs>
           {/* Hover line */}
