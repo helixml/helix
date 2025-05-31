@@ -248,10 +248,13 @@ func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (
 				_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
 					Choices: []openai.ChatCompletionStreamChoice{
 						{
-							Delta: openai.ChatCompletionStreamChoiceDelta{Content: fmt.Sprintf("Agent error: %s", out.Content)},
+							FinishReason: openai.FinishReasonNull,
 						},
 					},
 				})
+				// Close the stream
+				writer.CloseWithError(fmt.Errorf("agent error: %s", out.Content))
+
 			case agent.ResponseTypeEnd:
 				// Write the final chunk with reason stop
 				_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
