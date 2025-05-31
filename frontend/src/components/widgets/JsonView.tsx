@@ -21,6 +21,7 @@ const formatJsonString = (jsonString: string): string => {
 const commonStyles = {
   fontFamily: '"Roboto Mono", monospace',
   color: 'white',
+  fontSize: '0.775rem',
 }
 
 const renderJsonValue = (value: any): JSX.Element => {
