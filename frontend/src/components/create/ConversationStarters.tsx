@@ -32,7 +32,6 @@ const ConversationStarters: FC<{
       sx={{
         display: 'flex',
         flexDirection: 'column',
-        maxWidth: layout === 'horizontal' ? '800px' : '100%',
         width: '100%',
       }}
     >
@@ -89,7 +88,7 @@ const ConversationStarters: FC<{
           ))}
         </Grid>
       ) : (
-        <Stack spacing={0} divider={<Divider />}>
+        <Stack spacing={0} divider={<Divider />} alignItems="stretch">
           {conversationStarters.map((prompt, index) => (
             <Box
               key={index}
@@ -103,6 +102,7 @@ const ConversationStarters: FC<{
                 fontSize: 'small',
                 lineHeight: 1.4,
                 color: lightTheme.textColor,
+                justifyContent: 'center',
                 '&:hover': {
                   backgroundColor: 'rgba(0, 0, 0, 0.04)'
                 }

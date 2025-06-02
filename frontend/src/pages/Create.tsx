@@ -136,7 +136,7 @@ const Create: FC = () => {
     return true
   }
 
-  const onInference = async () => {
+  const onInference = async (prompt?: string) => {
     if (!checkLoginStatus()) return
     setLoading(true)
 
@@ -160,10 +160,12 @@ const Create: FC = () => {
       orgId = account.organizationTools.organization.id
     }
 
+    prompt = prompt || inputs.inputValue
+
     try {
       const session = await NewInference({
         type: type as ISessionType,
-        message: inputs.inputValue,
+        message: prompt,
         appId: appID,
         assistantId: assistantID,
         ragSourceId: ragSourceID,
@@ -358,9 +360,9 @@ const Create: FC = () => {
           }
           layout="horizontal"
           header={false}
-          onChange={(prompt) => {
+          onChange={async (prompt) => {
             inputs.setInputValue(prompt)
-            onInference()
+            onInference(prompt)
           }}
         />
       </Box>

@@ -255,7 +255,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           )}
         </Box>
         {!isSearchMode && (
-          <Box sx={{ mt: 2, mb: 2 }}>
+          <Box sx={{ mt: 2, mb: 2, width: '100%' }}>
             <ConversationStarters              
               onChange={(prompt: string) => {
                 setInputValue(prompt);
