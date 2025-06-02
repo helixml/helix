@@ -8,24 +8,14 @@ import LightbulbOutlinedIcon from '@mui/icons-material/LightbulbOutlined'
 
 import useLightTheme from '../../hooks/useLightTheme'
 
-import {
-  ISessionType,
-} from '../../types'
-
-import {
-  EXAMPLE_PROMPTS,
-} from '../../config'
-
 type LayoutType = 'horizontal' | 'vertical'
 
-const ExamplePrompts: FC<{
-  type: ISessionType,
+const ConversationStarters: FC<{  
   onChange: (prompt: string) => void,
   layout?: LayoutType,
   header?: boolean,
   conversationStarters?: string[],
 }> = ({
-  type,
   onChange,
   layout = 'horizontal',
   header = true,
@@ -37,12 +27,14 @@ const ExamplePrompts: FC<{
     if (conversationStarters.length > 0) {
       return conversationStarters.sort(() => Math.random() - 0.5).slice(0, 3)
     }
-    const usePrompts = EXAMPLE_PROMPTS[type] || []
-    return usePrompts.sort(() => Math.random() - 0.5).slice(0, 3)
+    return []
   }, [
-    type,
     conversationStarters,
   ])
+  
+  if (examplePrompts.length === 0) {
+    return null
+  }
   
   return (
     <Box
@@ -121,4 +113,4 @@ const ExamplePrompts: FC<{
   )
 }
 
-export default ExamplePrompts
+export default ConversationStarters

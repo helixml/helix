@@ -23,8 +23,9 @@ import Tooltip from '@mui/material/Tooltip';
 
 import Interaction from '../session/Interaction';
 import InteractionLiveStream from '../session/InteractionLiveStream';
+import ConversationStarters from '../create/ConversationStarters';
 
-import { ISession, ISessionRAGResult, IKnowledgeSearchResult } from '../../types';
+import { ISession, ISessionRAGResult, IKnowledgeSearchResult, ISessionType, SESSION_TYPE_TEXT } from '../../types';
 import ContextMenuModal from '../widgets/ContextMenuModal';
 import useApi from '../../hooks/useApi';
 
@@ -46,6 +47,7 @@ interface PreviewPanelProps {
   serverConfig: any;
   themeConfig: any;
   snackbar: any;
+  conversationStarters?: string[];
 }
 
 const PreviewPanel: React.FC<PreviewPanelProps> = ({
@@ -66,6 +68,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   serverConfig,
   themeConfig,
   snackbar,
+  conversationStarters = [],
 }) => {
   const textFieldRef = useRef<HTMLTextAreaElement>();
   const [selectedChunk, setSelectedChunk] = useState<ISessionRAGResult | null>(null);
@@ -251,6 +254,21 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
             </Button>
           )}
         </Box>
+        {!isSearchMode && (
+          <Box sx={{ mt: 2, mb: 2 }}>
+            <ConversationStarters              
+              onChange={(prompt: string) => {
+                setInputValue(prompt);
+                if (textFieldRef.current) {
+                  textFieldRef.current.focus();
+                }
+              }}
+              layout="vertical"
+              header={false}
+              conversationStarters={conversationStarters}
+            />
+          </Box>
+        )}
       </Box>
       {/* Scrollable Results Area */}
       <Box
