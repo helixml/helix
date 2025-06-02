@@ -35,6 +35,7 @@ import useSnackbar from '../hooks/useSnackbar'
 import useTracking from '../hooks/useTracking'
 import useUserAppAccess from '../hooks/useUserAppAccess'
 import { useStreaming } from '../contexts/streaming'
+import ConversationStarters from '../components/create/ConversationStarters'
 
 import {
   IDataEntity,
@@ -348,6 +349,18 @@ const Create: FC = () => {
         borderTop: isBigScreen ? '' : lightTheme.border,
       }}
     >
+      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'center', width: '100%' }}>
+        <ConversationStarters
+          conversationStarters={
+            (activeAssistant && activeAssistant.conversation_starters && activeAssistant.conversation_starters.length > 0)
+              ? activeAssistant.conversation_starters
+              : ((apps.app?.config.helix as any)?.conversation_starters || [])
+          }
+          layout="horizontal"
+          header={false}
+          onChange={(prompt) => inputs.setInputValue(prompt)}
+        />
+      </Box>
       <Box sx={{ mb: 1 }}>
         <InferenceTextField
           appId={appID}

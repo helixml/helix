@@ -51,20 +51,28 @@ const ConversationStarters: FC<{
         </Typography>
       )}
       {layout === 'horizontal' ? (
-        <Grid container spacing={2}>
+        <Grid container spacing={2} justifyContent="center" alignItems="center" sx={{ width: 'auto', margin: 0 }}>
           {examplePrompts.map((prompt, index) => (
-            <Grid item xs={4} key={index}>
+            <Grid item xs={4} key={index} sx={{ display: 'flex', justifyContent: 'center' }}>
               <Box
                 sx={{
-                  width: '100%',
-                  height: '100%',
+                  minWidth: 180,
+                  minHeight: 80,
+                  width: 180,
+                  height: 80,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                   cursor: 'pointer',
-                  border: lightTheme.border,
-                  borderRadius: 3,
-                  padding: 1.5,
-                  fontSize: 'small',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  borderRadius: 6,
+                  padding: 2,
+                  fontSize: '1rem',
                   lineHeight: 1.4,
-                  backgroundColor: `${lightTheme.isLight ? '#ADD8E630' : '#000020A0'}`
+                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                  color: '#fff',
+                  textAlign: 'center',
+                  boxShadow: '0 2px 8px 0 rgba(0,0,0,0.04)',
                 }}
                 onClick={() => onChange(prompt)}
               >
