@@ -358,7 +358,10 @@ const Create: FC = () => {
           }
           layout="horizontal"
           header={false}
-          onChange={(prompt) => inputs.setInputValue(prompt)}
+          onChange={(prompt) => {
+            inputs.setInputValue(prompt)
+            onInference()
+          }}
         />
       </Box>
       <Box sx={{ mb: 1 }}>

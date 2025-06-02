@@ -22,17 +22,8 @@ const ConversationStarters: FC<{
   conversationStarters = [],
 }) => {
   const lightTheme = useLightTheme()
-
-  const examplePrompts = useMemo(() => {
-    if (conversationStarters.length > 0) {
-      return conversationStarters.sort(() => Math.random() - 0.5).slice(0, 3)
-    }
-    return []
-  }, [
-    conversationStarters,
-  ])
   
-  if (examplePrompts.length === 0) {
+  if (conversationStarters.length === 0) {
     return null
   }
   
@@ -52,8 +43,8 @@ const ConversationStarters: FC<{
       )}
       {layout === 'horizontal' ? (
         <Grid container spacing={2} justifyContent="center" alignItems="center" sx={{ width: 'auto', margin: 0 }}>
-          {examplePrompts.map((prompt, index) => (
-            <Grid item xs={4} key={index} sx={{ display: 'flex', justifyContent: 'center' }}>
+          {conversationStarters.map((prompt, index) => (
+            <Grid item xs={12} sm={6} md={3} key={index} sx={{ display: 'flex', justifyContent: 'center' }}>
               <Box
                 sx={{
                   minWidth: 180,
@@ -67,23 +58,39 @@ const ConversationStarters: FC<{
                   border: '1px solid rgba(255,255,255,0.2)',
                   borderRadius: '12px',
                   padding: 2,
-                  fontSize: '1rem',
+                  fontSize: '0.92rem',
                   lineHeight: 1.4,
                   backgroundColor: 'rgba(255, 255, 255, 0.05)',
                   color: lightTheme.textColorFaded,
                   textAlign: 'center',
                   boxShadow: '0 2px 8px 0 rgba(0,0,0,0.04)',
+                  overflow: 'hidden',
                 }}
                 onClick={() => onChange(prompt)}
               >
-                {prompt}
+                <Typography
+                  sx={{
+                    width: '100%',
+                    fontSize: 'inherit',
+                    lineHeight: 'inherit',
+                    color: 'inherit',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    display: '-webkit-box',
+                    WebkitLineClamp: 3,
+                    WebkitBoxOrient: 'vertical',
+                    whiteSpace: 'normal',
+                  }}
+                >
+                  {prompt}
+                </Typography>
               </Box>
             </Grid>
           ))}
         </Grid>
       ) : (
         <Stack spacing={0} divider={<Divider />}>
-          {examplePrompts.map((prompt, index) => (
+          {conversationStarters.map((prompt, index) => (
             <Box
               key={index}
               sx={{
