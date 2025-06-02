@@ -3284,6 +3284,13 @@
                     "description": "ContextLimit - the number of messages to include in the context for the AI assistant.\nWhen set to 1, the AI assistant will only see and remember the most recent message.",
                     "type": "integer"
                 },
+                "conversation_starters": {
+                    "description": "ConversationStarters is a list of messages that will be presented to the user\nwhen a new session is about to be launched. Use this to showcase the capabilities of the assistant.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "description": {
                     "type": "string"
                 },
