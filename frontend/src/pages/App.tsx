@@ -341,6 +341,7 @@ const App: FC = () => {
                       serverConfig={account.serverConfig}
                       themeConfig={themeConfig}
                       snackbar={snackbar}
+                      conversationStarters={appTools.flatApp?.conversation_starters || []}
                     />
                   )}
                 </>
