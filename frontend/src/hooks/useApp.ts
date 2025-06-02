@@ -314,6 +314,10 @@ export const useApp = (appId: string) => {
       assistants[0].model = updates.model
     }
 
+    if (updates.conversation_starters !== undefined) {
+      assistants[0].conversation_starters = updates.conversation_starters
+    }
+
     if (updates.agent_mode !== undefined) {
       assistants[0].agent_mode = updates.agent_mode
     }
