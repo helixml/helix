@@ -58,6 +58,8 @@ func (r *Runner) reconcileHelixModels(ctx context.Context, ollamaRuntime Runtime
 }
 
 func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime) error {
+	log.Info().Msg("reconciling ollama models")
+
 	models := r.server.listHelixModels()
 
 	var ollamaModels []*types.Model
@@ -68,19 +70,19 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 			continue
 		}
 		if !model.AutoPull {
-			log.Trace().Str("model_id", model.ID).Msg("model auto pull disabled")
+			log.Debug().Str("model_id", model.ID).Msg("model auto pull disabled")
 			continue
 		}
 		// If model requires more memory than we have, skip it
 		if model.Memory > r.Options.MemoryBytes {
-			log.Trace().Str("model_id", model.ID).Msg("model memory limit exceeded")
+			log.Debug().Str("model_id", model.ID).Msg("model memory limit exceeded")
 			continue
 		}
 
 		ollamaModels = append(ollamaModels, model)
 	}
 
-	log.Trace().Any("models", models).Int("ollama_models_count", len(ollamaModels)).Msg("reconciling ollama models")
+	log.Debug().Any("models", models).Int("ollama_models_count", len(ollamaModels)).Msg("reconciling ollama models")
 
 	// List models from ollama
 	currentModels, err := retry.DoWithData(func() ([]string, error) {
@@ -102,7 +104,7 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 
 	for _, currentModel := range currentModels {
 		// Already exists, set the status to downloaded
-		log.Trace().Str("model_id", currentModel).Msg("existing model found")
+		log.Debug().Str("model_id", currentModel).Msg("existing model found")
 		r.server.setHelixModelsStatus(&types.RunnerModelStatus{
 			ModelID:            currentModel,
 			Runtime:            types.RuntimeOllama,
