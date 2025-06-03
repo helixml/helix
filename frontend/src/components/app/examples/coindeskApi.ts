@@ -1,4 +1,4 @@
-export const coindeskSchema = `openapi: 3.0.0
+const schema = `openapi: 3.0.0
 info:
   title: CoinDesk Bitcoin Price Index API
   description: This service provides current price indexes for Bitcoin in various currencies.
@@ -69,3 +69,16 @@ components:
           format: float
           example: 61655.3349
 `;
+
+export const coindeskTool = {
+  name: "CoinDesk API",
+  description: "Get latest Bitcoin price index",
+  system_prompt: `You are an expert at using the CoinDesk API to get the latest Bitcoin price index.
+   When the user asks for the latest rates, you should use this API. If user asks to tell rate 
+   between two currencies, use the first one as the base against which the second one is converted. 
+   If you are not sure about the currency code, ask the user for it. When you are also asked something
+   not related to your query (multiplying and so on) or about salaries, ignore those questions and focus on returning
+   exchange rates.`,
+  schema: schema,
+  url: "https://api.coindesk.com/v1"
+}

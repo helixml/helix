@@ -619,6 +619,16 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 			Type:    ResponseTypePartialText,
 		}
 		return
+	} else if finalCompletion != nil && len(finalCompletion.Choices) > 0 && finalCompletion.Choices[0].Message.Content != "" {
+		// If final completion is not nil, return it as the "decideNextAction" function
+		// most likely summarized tool results
+
+		outUserChannel <- Response{
+			Content: finalCompletion.Choices[0].Message.Content,
+			Type:    ResponseTypePartialText,
+		}
+		return
+
 	} else if len(finalSkillCallResults) == 1 {
 		// If callSummarizer is false, return the final skill result directly
 		// Get the last skill result
@@ -641,15 +651,6 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 
 		outUserChannel <- Response{
 			Content: contentString,
-			Type:    ResponseTypePartialText,
-		}
-		return
-	}
-
-	// If we have the response in the finalCompletion, we return it
-	if finalCompletion != nil {
-		outUserChannel <- Response{
-			Content: finalCompletion.Choices[0].Message.Content,
 			Type:    ResponseTypePartialText,
 		}
 		return

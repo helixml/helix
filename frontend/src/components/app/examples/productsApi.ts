@@ -1,4 +1,4 @@
-export const productSchema = `openapi: 3.0.0
+const schema = `openapi: 3.0.0
 info:
   title: Products API
   version: 1.0.0
@@ -91,3 +91,12 @@ components:
         receipt_id:
           type: string
 `;
+
+export const productsTool = {
+  name: "Products API",
+  description: "List computers, laptops and make orders",
+  system_prompt: `You are an expert at using the Computers Store API to get the latest products, prices and purchase laptops. 
+   This API can retrieve names, descriptions, prices and availability.`,
+  schema: schema,
+  url: "https://demos.tryhelix.ai"
+}

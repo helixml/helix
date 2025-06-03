@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
+import useLightTheme from '../../hooks/useLightTheme';
 
 interface ThinkingWidgetProps {
   text: string;
@@ -27,6 +28,7 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
       : Date.now()
   );
   const textContainerRef = useRef<HTMLDivElement | null>(null);
+  const lightTheme = useLightTheme();
 
   useEffect(() => {
     // Do not auto-expand/collapse based on isStreaming
@@ -117,7 +119,7 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
           width: '100%',
           cursor: 'pointer',
           userSelect: 'none',
-          minHeight: 40,
+          minHeight: 40,          
         }}
         onClick={() => setOpen(!open)}
       >
@@ -144,6 +146,7 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
             position: 'relative',
             zIndex: 2,
             py: 2,
+            
           }}
         >
           <Typography
@@ -212,6 +215,7 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
               zIndex: 2,
               position: 'relative',
               px: { xs: 0, sm: 2 },
+              ...lightTheme.scrollbar,
             }}
           >
             <Typography
