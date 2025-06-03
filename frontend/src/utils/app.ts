@@ -34,6 +34,7 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
       flatState.system_prompt = assistant.system_prompt
       flatState.provider = assistant.provider
       flatState.model = assistant.model
+      flatState.conversation_starters = assistant.conversation_starters || []
       flatState.context_limit = assistant.context_limit
       flatState.frequency_penalty = assistant.frequency_penalty
       flatState.max_tokens = assistant.max_tokens

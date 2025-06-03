@@ -473,6 +473,11 @@ export interface TypesAssistantConfig {
    * When set to 1, the AI assistant will only see and remember the most recent message.
    */
   context_limit?: number;
+  /**
+   * ConversationStarters is a list of messages that will be presented to the user
+   * when a new session is about to be launched. Use this to showcase the capabilities of the assistant.
+   */
+  conversation_starters?: string[];
   description?: string;
   /**
    * How much to penalize new tokens based on their frequency in the text so far.

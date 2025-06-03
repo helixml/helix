@@ -576,6 +576,7 @@ export interface IAssistantConfig {
   image?: string;
   provider?: string;
   model?: string;
+  conversation_starters?: string[];
   agent_mode?: boolean;
   max_iterations?: number;
   reasoning_model?: string;
@@ -822,6 +823,8 @@ export interface IAppFlatState {
   apiTools?: IAssistantApi[]
   zapierTools?: IAssistantZapier[]
   gptscriptTools?: IAssistantGPTScript[]
+
+  conversation_starters?: string[];
 }
 
 export interface IGithubStatus {
@@ -957,32 +960,6 @@ export interface IApiOptions {
   errorCapture?: (error: any) => void;
   signal?: AbortSignal;
 }
-
-// export interface LLMCall {
-//   id: string;
-//   created: string;
-//   updated: string;
-//   session_id: string;
-//   interaction_id: string;
-//   model: string;
-//   provider: string;
-//   step: string;
-//   request: any;
-//   response: any;
-//   original_request: any;
-//   duration_ms: number;
-//   prompt_tokens: number;
-//   completion_tokens: number;
-//   total_tokens: number;
-// }
-
-// export interface PaginatedLLMCalls {
-//   calls: LLMCall[];
-//   page: number;
-//   pageSize: number;
-//   totalCount: number;
-//   totalPages: number;
-// }
 
 export interface ICreateSecret {
   name: string,
