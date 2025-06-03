@@ -22,26 +22,20 @@ const ExamplePrompts: FC<{
   type: ISessionType,
   onChange: (prompt: string) => void,
   layout?: LayoutType,
-  header?: boolean,
-  conversationStarters?: string[],
+  header?: boolean,  
 }> = ({
   type,
   onChange,
   layout = 'horizontal',
-  header = true,
-  conversationStarters = [],
+  header = true,  
 }) => {
   const lightTheme = useLightTheme()
 
   const examplePrompts = useMemo(() => {
-    if (conversationStarters.length > 0) {
-      return conversationStarters.sort(() => Math.random() - 0.5).slice(0, 3)
-    }
     const usePrompts = EXAMPLE_PROMPTS[type] || []
     return usePrompts.sort(() => Math.random() - 0.5).slice(0, 3)
   }, [
-    type,
-    conversationStarters,
+    type,    
   ])
   
   return (

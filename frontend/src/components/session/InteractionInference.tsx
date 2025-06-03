@@ -278,8 +278,8 @@ export const InteractionInference: FC<{
                   to view the details.
                 </Alert>
               </Cell>
-              {/* {
-                !upgrade && onRegenerate && (
+              {
+                !upgrade && onRegenerate && !message && (
                   <Cell
                     sx={{
                       ml: 2,
@@ -290,13 +290,13 @@ export const InteractionInference: FC<{
                       color="secondary"
                       size="small"
                       endIcon={<ReplayIcon />}
-                      onClick={() => onRegenerate(interaction.id, message || '')}
+                      onClick={() => onRegenerate(interaction.id, '')}
                     >
                       Retry
                     </Button>
                   </Cell>
                 )
-              } */}
+              }
               {
                 upgrade && (
                   <Cell
