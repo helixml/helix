@@ -619,7 +619,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 			Type:    ResponseTypePartialText,
 		}
 		return
-	} else if finalCompletion != nil {
+	} else if finalCompletion != nil && len(finalCompletion.Choices) > 0 && finalCompletion.Choices[0].Message.Content != "" {
 		// If final completion is not nil, return it as the "decideNextAction" function
 		// most likely summarized tool results
 
