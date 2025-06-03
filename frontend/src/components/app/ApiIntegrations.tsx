@@ -18,8 +18,6 @@ import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
-import { coindeskSchema } from './coindesk_schema';
-import { jobVacanciesSchema } from './jobvacancies_schema';
 import DeleteIcon from '@mui/icons-material/Delete';
 import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
@@ -27,13 +25,18 @@ import ListItemText from '@mui/material/ListItemText';
 import EditIcon from '@mui/icons-material/Edit';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
-import { exchangeratesSchema } from './exchangerates_schema';
-import { productSchema } from './product_schema';
+
 import Avatar from '@mui/material/Avatar';
 import IconButton from '@mui/material/IconButton';
 import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
 import useApi from '../../hooks/useApi';
 import Link from '@mui/material/Link';
+
+import { coindeskTool } from './examples/coindeskApi';
+import { jobVacanciesTool } from './examples/jobVacanciesApi';
+import { airQualityTool } from './examples/airQualityApi';
+import { exchangeRatesTool } from './examples/exchangeRatesApi';
+import { productsTool } from './examples/productsApi';
 
 interface ApiIntegrationsProps {
   apis: IAssistantApi[];
@@ -199,37 +202,15 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
     setSchemaTemplate(selectedTemplate);
 
     if (selectedTemplate === 'coindesk') {
-      updateEditingTool({
-        name: "CoinDesk API",
-        description: "API for CoinDesk",
-        system_prompt: "You are an expert at using the CoinDesk API to get the latest prices",
-        schema: coindeskSchema,
-        url: "https://api.coindesk.com/v1"
-      });
+      updateEditingTool(coindeskTool);
     } else if (selectedTemplate === 'jobvacancies') {
-      updateEditingTool({
-        name: "Job Vacancies API",
-        description: "API for job vacancies",
-        system_prompt: "You are an expert at using the Job Vacancies API to get the latest job vacancies and candidate statuses. This API can retrieve names, job descriptions, emails and salary (in USD)",
-        schema: jobVacanciesSchema,
-        url: "https://demos.tryhelix.ai"
-      });
+      updateEditingTool(jobVacanciesTool);
+    } else if (selectedTemplate === 'airquality') {
+      updateEditingTool(airQualityTool);
     } else if (selectedTemplate === 'exchangerates') {
-      updateEditingTool({
-        name: "Exchange Rates API",
-        description: "Get latest currency exchange rates",
-        system_prompt: "You are an expert at using the Exchange Rates API to get the latest currency exchange rates. When the user asks for the latest rates, you should use this API. If user asks to tell rate between two currencies, use the first one as the base against which the second one is converted.",
-        schema: exchangeratesSchema,
-        url: "https://open.er-api.com/v6"
-      });
+      updateEditingTool(exchangeRatesTool);
     } else if (selectedTemplate === 'productStore') {
-      updateEditingTool({
-        name: "Computers Store API",
-        description: "List computers, laptops and make orders",
-        system_prompt: "You are an expert at using the Computers Store API to get the latest products, prices and purchase laptops. This API can retrieve names, descriptions, prices and availability.",
-        schema: productSchema,
-        url: "https://demos.tryhelix.ai"
-      });
+      updateEditingTool(productsTool);
     }
   };
 
@@ -392,6 +373,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                     <MenuItem value="custom">
                       <em>Custom</em>
                     </MenuItem>
+                    <MenuItem value="airquality">Air Quality</MenuItem>
                     <MenuItem value="exchangerates">Exchange Rates</MenuItem>
                     <MenuItem value="coindesk">CoinDesk</MenuItem>
                     <MenuItem value="jobvacancies">Job Vacancies</MenuItem>

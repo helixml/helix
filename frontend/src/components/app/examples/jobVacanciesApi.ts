@@ -1,4 +1,4 @@
-export const jobVacanciesSchema = `openapi: 3.0.0
+const schema = `openapi: 3.0.0
 info:
   title: Job Vacancies API
   version: 1.0.0
@@ -50,3 +50,11 @@ components:
           description: Salary in USD
           type: integer
 `;
+
+export const jobVacanciesTool = {
+  name: "Job Vacancies API",
+  description: "Get latest job vacancies and candidate statuses",
+  system_prompt: "You are an expert at using the Job Vacancies API to get the latest job vacancies and candidate statuses. This API can retrieve names, job descriptions, emails and salary (in USD)",
+  schema: schema,
+  url: "https://demos.tryhelix.ai"
+}
