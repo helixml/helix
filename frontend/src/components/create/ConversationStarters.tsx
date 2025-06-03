@@ -41,7 +41,7 @@ const ConversationStarters: FC<{
         </Typography>
       )}
       {layout === 'horizontal' ? (
-        <Grid container spacing={2} justifyContent="center" alignItems="center" sx={{ width: 'auto', margin: 0 }}>
+        <Grid container spacing={0.5} justifyContent="center" alignItems="center" sx={{ width: 'auto', margin: 0 }}>
           {conversationStarters.map((prompt, index) => (
             <Grid item xs={12} sm={6} md={3} key={index} sx={{ display: 'flex', justifyContent: 'center' }}>
               <Box

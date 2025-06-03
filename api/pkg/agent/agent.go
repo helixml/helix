@@ -237,7 +237,7 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 
 // handleLLMError handles errors from LLM API calls
 func (a *Agent) handleLLMError(err error, outUserChannel chan Response) {
-	content := "Error occurred!"
+	content := err.Error()
 	log.Error().Err(pkg_errors.WithStack(err)).Msg("Error streaming")
 	if strings.Contains(err.Error(), "ContentPolicyViolationError") {
 		log.Error().Err(err).Msg("Content policy violation!")

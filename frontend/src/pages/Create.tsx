@@ -351,7 +351,7 @@ const Create: FC = () => {
         borderTop: isBigScreen ? '' : lightTheme.border,
       }}
     >
-      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'center', width: '100%' }}>
+      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'center', width: '100%', maxWidth: 800, mx: 'auto' }}>
         <ConversationStarters
           conversationStarters={
             (activeAssistant && activeAssistant.conversation_starters && activeAssistant.conversation_starters.length > 0)
