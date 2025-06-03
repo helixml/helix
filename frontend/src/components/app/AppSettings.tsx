@@ -16,6 +16,9 @@ import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import Menu from '@mui/material/Menu'
+import IconButton from '@mui/material/IconButton'
+import DeleteIcon from '@mui/icons-material/Delete'
+import AddIcon from '@mui/icons-material/Add'
 
 import {
   IAppFlatState,
@@ -173,6 +176,8 @@ const AppSettings: FC<AppSettingsProps> = ({
   const [global, setGlobal] = useState(app.global || false)
   const [model, setModel] = useState(app.model || '')
   const [provider, setProvider] = useState(app.provider || '')
+  const [conversationStarters, setConversationStarters] = useState<string[]>(app.conversation_starters || [])
+  const [newStarter, setNewStarter] = useState('')
 
   // Agent mode settings
   const [agent_mode, setAgentMode] = useState(app.agent_mode || false)
@@ -240,6 +245,7 @@ const AppSettings: FC<AppSettingsProps> = ({
       setTemperature(app.temperature || 0)
       setTopP(app.top_p || 0)
       setMaxIterations(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
+      setConversationStarters(app.conversation_starters || [])
       
       // Mark as initialized
       isInitialized.current = true
@@ -282,11 +288,63 @@ const AppSettings: FC<AppSettingsProps> = ({
         reasoning_effort: reasoningEffort,
         temperature,
         top_p: topP,
-        max_iterations: max_iterations
+        max_iterations: max_iterations,
+        conversation_starters: conversationStarters
       }
       
       onUpdate(updatedApp)
     }
+  }
+
+  const handleConversationStarterBlur = () => {
+    if (newStarter.trim()) {
+      const updatedStarters = [...conversationStarters, newStarter.trim()]
+      setConversationStarters(updatedStarters)
+      setNewStarter('')
+      
+      const updatedApp: IAppFlatState = {
+        ...app,
+        conversation_starters: updatedStarters
+      }
+      onUpdate(updatedApp)
+    }
+  }
+
+  const handleConversationStarterChange = (index: number, value: string) => {
+    const updatedStarters = [...conversationStarters]
+    updatedStarters[index] = value
+    setConversationStarters(updatedStarters)
+    
+    const updatedApp: IAppFlatState = {
+      ...app,
+      conversation_starters: updatedStarters
+    }
+    onUpdate(updatedApp)
+  }
+
+  const handleAddStarter = () => {
+    if (newStarter.trim()) {
+      const updatedStarters = [...conversationStarters, newStarter.trim()]
+      setConversationStarters(updatedStarters)
+      setNewStarter('')
+      
+      const updatedApp: IAppFlatState = {
+        ...app,
+        conversation_starters: updatedStarters
+      }
+      onUpdate(updatedApp)
+    }
+  }
+
+  const handleRemoveStarter = (index: number) => {
+    const updatedStarters = conversationStarters.filter((_, i) => i !== index)
+    setConversationStarters(updatedStarters)
+    
+    const updatedApp: IAppFlatState = {
+      ...app,
+      conversation_starters: updatedStarters
+    }
+    onUpdate(updatedApp)
   }
 
   // Create debounced version of the update function
@@ -567,6 +625,64 @@ const AppSettings: FC<AppSettingsProps> = ({
           label="Background Image"
           helperText="URL for the app's main image"
         />
+        {/* Conversation Starters */}
+        <Box sx={{ mb: 2 }}>
+          {/* <Typography variant="subtitle1" gutterBottom>
+            Conversation Starters
+          </Typography> */}
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Add example messages that users can click to start a conversation. These help showcase the app's capabilities.
+          </Typography>
+          {conversationStarters.map((starter, index) => (
+            <Box key={index} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+              <TextField
+                fullWidth
+                value={starter}
+                onChange={(e) => handleConversationStarterChange(index, e.target.value)}
+                onBlur={() => {
+                  const updatedApp: IAppFlatState = {
+                    ...app,
+                    conversation_starters: conversationStarters
+                  }
+                  onUpdate(updatedApp)
+                }}
+                disabled={readOnly}
+                size="small"
+              />
+              <IconButton 
+                onClick={() => handleRemoveStarter(index)}
+                disabled={readOnly}
+                sx={{ ml: 1 }}
+              >
+                <DeleteIcon />
+              </IconButton>
+            </Box>
+          ))}
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <TextField
+              fullWidth
+              label="Conversation Starter"
+              value={newStarter}
+              onChange={(e) => setNewStarter(e.target.value)}
+              onBlur={handleConversationStarterBlur}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  handleAddStarter()
+                }
+              }}
+              disabled={readOnly}
+              size="small"
+              helperText="Add a new conversation starter to showcase the agent's capabilities"
+            />
+            <IconButton 
+              onClick={handleAddStarter}
+              disabled={readOnly || !newStarter.trim()}
+              sx={{ ml: 1, mb: 3 }}
+            >
+              <AddIcon />
+            </IconButton>
+          </Box>
+        </Box>
       </Box>
 
       <Box sx={{ mb: 3 }}>

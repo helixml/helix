@@ -1150,6 +1150,10 @@ type AssistantConfig struct {
 	Provider    string `json:"provider,omitempty" yaml:"provider,omitempty"`
 	Model       string `json:"model,omitempty" yaml:"model,omitempty"`
 
+	// ConversationStarters is a list of messages that will be presented to the user
+	// when a new session is about to be launched. Use this to showcase the capabilities of the assistant.
+	ConversationStarters []string `json:"conversation_starters,omitempty" yaml:"conversation_starters,omitempty"`
+
 	// AgentMode triggers the use of the agent loop
 	AgentMode     bool `json:"agent_mode"`
 	MaxIterations int  `json:"max_iterations"`

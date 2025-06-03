@@ -35,6 +35,7 @@ import useSnackbar from '../hooks/useSnackbar'
 import useTracking from '../hooks/useTracking'
 import useUserAppAccess from '../hooks/useUserAppAccess'
 import { useStreaming } from '../contexts/streaming'
+import ConversationStarters from '../components/create/ConversationStarters'
 
 import {
   IDataEntity,
@@ -135,7 +136,7 @@ const Create: FC = () => {
     return true
   }
 
-  const onInference = async () => {
+  const onInference = async (prompt?: string) => {
     if (!checkLoginStatus()) return
     setLoading(true)
 
@@ -159,10 +160,12 @@ const Create: FC = () => {
       orgId = account.organizationTools.organization.id
     }
 
+    prompt = prompt || inputs.inputValue
+
     try {
       const session = await NewInference({
         type: type as ISessionType,
-        message: inputs.inputValue,
+        message: prompt,
         appId: appID,
         assistantId: assistantID,
         ragSourceId: ragSourceID,
@@ -348,6 +351,21 @@ const Create: FC = () => {
         borderTop: isBigScreen ? '' : lightTheme.border,
       }}
     >
+      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'center', width: '100%' }}>
+        <ConversationStarters
+          conversationStarters={
+            (activeAssistant && activeAssistant.conversation_starters && activeAssistant.conversation_starters.length > 0)
+              ? activeAssistant.conversation_starters
+              : ((apps.app?.config.helix as any)?.conversation_starters || [])
+          }
+          layout="horizontal"
+          header={false}
+          onChange={async (prompt) => {
+            inputs.setInputValue(prompt)
+            onInference(prompt)
+          }}
+        />
+      </Box>
       <Box sx={{ mb: 1 }}>
         <InferenceTextField
           appId={appID}
