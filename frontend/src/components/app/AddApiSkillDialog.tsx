@@ -22,12 +22,11 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
-import { IAgentSkill, IRequiredApiParameter, IAppFlatState } from '../../types';
+import { IAgentSkill, IRequiredApiParameter, IAppFlatState, IAssistantApi } from '../../types';
 
 interface AddApiSkillDialogProps {
   open: boolean;
   onClose: () => void;
-  onSave: (skill: IAgentSkill) => void;
   skill?: IAgentSkill;
   app: IAppFlatState;
   onUpdate: (updates: IAppFlatState) => Promise<void>;
@@ -36,8 +35,7 @@ interface AddApiSkillDialogProps {
 
 const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   open,
-  onClose,
-  onSave,
+  onClose,  
   skill: initialSkill,
   app,
   onUpdate,
@@ -161,8 +159,50 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
     setParameterValues(prev => ({ ...prev, [name]: value }));
   };
 
+  // Check if all required parameters have values, used to ensure
+  // user can't save the skill without filling all required parameters
+  const areAllParametersFilled = () => {            
+    return skill.apiSkill.requiredParameters.every(param => {
+      if (!param.required) return true;
+      return parameterValues[param.name]?.trim() !== '';
+    });
+  };
+
   const handleSave = async () => {    
-    // await handleSkillToggle(true);    
+    console.log('skill config: ', skill);
+
+    // Construct the IAssistantApi object, which will be used 
+    // to update the application
+    const assistantApi: IAssistantApi = {
+      name: skill.name,
+      description: skill.description,
+      system_prompt: skill.systemPrompt,
+      schema: skill.apiSkill.schema,
+      url: skill.apiSkill.url,      
+      headers: {},
+      query: {},
+    };
+
+    // Go through required parameters based on parameter type add it to either
+    // header or query
+    skill.apiSkill.requiredParameters.forEach(param => {
+      if (param.type === 'header') {
+        assistantApi.headers![param.name] = parameterValues[param.name];
+      } else {
+        assistantApi.query![param.name] = parameterValues[param.name];
+      }
+    });
+
+    // Based on index update the app api tools array (if set, otherwise add)
+    if (existingSkillIndex !== null) {
+      app.apiTools![existingSkillIndex] = assistantApi;
+    } else {
+      app.apiTools!.push(assistantApi);
+    }
+
+    // Update the application
+    await onUpdate(app);
+
     onClose();
   };
 
@@ -173,34 +213,50 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
       </DialogTitle>
       <DialogContent>
         <Box sx={{ mt: 2 }}>
-          <TextField
-            fullWidth
-            label="Name"
-            value={skill.name}
-            onChange={(e) => handleChange('name', e.target.value)}
-            margin="normal"
-            required
-          />
-          <TextField
-            fullWidth
-            label="Description"
-            value={skill.description}
-            onChange={(e) => handleChange('description', e.target.value)}
-            margin="normal"
-            required
-            multiline
-            rows={2}
-          />
-          <TextField
-            fullWidth
-            label="System Prompt"
-            value={skill.systemPrompt}
-            onChange={(e) => handleChange('systemPrompt', e.target.value)}
-            margin="normal"
-            required
-            multiline
-            rows={4}
-          />
+          {skill.configurable ? (
+            <TextField
+              fullWidth
+              label="Name"
+              value={skill.name}
+              onChange={(e) => handleChange('name', e.target.value)}
+              margin="normal"
+              required
+            />
+          ) : (
+            <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>
+              {skill.name}
+            </Typography>
+          )}
+
+          {skill.configurable ? (
+            <TextField
+              fullWidth
+              label="Description"
+              value={skill.description}
+              onChange={(e) => handleChange('description', e.target.value)}
+              margin="normal"
+              required
+              multiline
+              rows={2}
+            />
+          ) : (
+            <Typography variant="body1" sx={{ mb: 2 }}>
+              {skill.description}
+            </Typography>
+          )}
+
+          {skill.configurable && (
+            <TextField
+              fullWidth
+              label="System Prompt"
+              value={skill.systemPrompt}
+              onChange={(e) => handleChange('systemPrompt', e.target.value)}
+              margin="normal"
+              required
+              multiline
+              rows={4}
+            />
+          )}
 
           {skill.configurable && (
             <>
@@ -249,7 +305,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
                       sx={{ mt: 0.5 }}
                     />
                   </Box>
-                  {param.required === false && (
+                  {param.required === false && skill.configurable && (
                     <ListItemSecondaryAction>
                       <IconButton
                         edge="end"
@@ -263,21 +319,28 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
                 </ListItem>
               ))}
             </List>
-            <Button
-              startIcon={<AddIcon />}
-              onClick={addRequiredParameter}
-              variant="outlined"
-              size="small"
-              sx={{ mt: 1 }}
-            >
-              Add Parameter
-            </Button>
+            {skill.configurable && (
+              <Button
+                startIcon={<AddIcon />}
+                onClick={addRequiredParameter}
+                variant="outlined"
+                size="small"
+                sx={{ mt: 1 }}
+              >
+                Add Parameter
+              </Button>
+            )}
           </Box>
         </Box>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={handleSave} variant="contained" color="primary">
+        <Button 
+          onClick={handleSave} 
+          variant="outlined" 
+          color="secondary"
+          disabled={!areAllParametersFilled()}
+        >
           Save
         </Button>
       </DialogActions>
