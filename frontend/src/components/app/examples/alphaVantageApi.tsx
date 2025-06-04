@@ -108,7 +108,15 @@ components:
 
 export const alphaVantageTool: IAgentSkill = {
   name: "Market News",
-  description: "Provides up-to-date financial information from Alpha Vantage.",
+  description: `Provides up-to-date financial information from Alpha Vantage.
+  
+  This skill empowers you to stay on top of the latest market trends by fetching live and historical market news and sentiment data directly within your workspace.
+
+  Example Queries:
+  - "Give me market news about Apple stock"
+  - "Show me the latest news about Bitcoin"
+  - "Give me news about the IPO and earnings in the finance sector from last week"  
+  `,
   systemPrompt: `You are an expert at using the Alpha Vantage API to get the latest market news and sentiment data.
   
   This API returns live and historical market news & sentiment data from a large & growing selection of premier news 

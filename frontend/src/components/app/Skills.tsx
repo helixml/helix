@@ -47,6 +47,10 @@ const SKILLS: ISkill[] = [
   },  
 ];
 
+const getFirstLine = (text: string): string => {
+  return text.split('\n')[0].trim();
+};
+
 interface SkillsProps {
   app: IAppFlatState,
   onUpdate: (updates: IAppFlatState) => Promise<void>,
@@ -142,7 +146,7 @@ const Skills: React.FC<SkillsProps> = ({
                 />
                 <CardContent sx={{ flexGrow: 1 }}>
                   <Typography variant="body2" color="text.secondary">
-                    {skill.description}
+                    {getFirstLine(skill.description)}
                   </Typography>
                 </CardContent>
                 <CardActions sx={{ justifyContent: 'center', px: 2, pb: 2 }}>
