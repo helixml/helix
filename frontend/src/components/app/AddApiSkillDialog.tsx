@@ -381,56 +381,58 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
             </SectionCard>
           )}
 
-          <SectionCard>
-            <Typography variant="h6" gutterBottom sx={{ color: '#F8FAFC' }}>
-              Settings
-            </Typography>
-            <List>
-              {skill.apiSkill.requiredParameters.map((param, index) => (
-                <ListItem key={index} alignItems="flex-start" sx={{ background: '#181A20', borderRadius: 2, mb: 1 }}>
-                  <Box sx={{ flex: 1, mb: 2 }}>
-                    <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#F1F1F1' }}>
-                      {param.name}
-                    </Typography>
-                    <Typography variant="caption" color="#A0AEC0" sx={{ mb: 1, display: 'block' }}>
-                      {renderDescriptionWithLinks(param.description)}
-                    </Typography>
-                    <DarkTextField                      
-                      value={parameterValues[param.name] || ''}
-                      onChange={e => handleParameterValueChange(param.name, e.target.value)}
-                      size="small"
-                      fullWidth
-                      required={param.required}
-                      sx={{ mt: 0.5 }}
-                    />
-                  </Box>
-                  {param.required === false && skill.configurable && (
-                    <ListItemSecondaryAction>
-                      <IconButton
-                        edge="end"
-                        aria-label="delete"
-                        onClick={() => removeRequiredParameter(index)}
-                        sx={{ color: '#F87171' }}
-                      >
-                        <DeleteIcon />
-                      </IconButton>
-                    </ListItemSecondaryAction>
-                  )}
-                </ListItem>
-              ))}
-            </List>
-            {skill.configurable && (
-              <DarkButton
-                startIcon={<AddIcon />}
-                onClick={addRequiredParameter}
-                variant="outlined"
-                size="small"
-                sx={{ mt: 1, borderColor: '#353945' }}
-              >
-                Add Parameter
-              </DarkButton>
-            )}
-          </SectionCard>
+          {skill.apiSkill.requiredParameters.length > 0 && (
+            <SectionCard>
+              <Typography variant="h6" gutterBottom sx={{ color: '#F8FAFC' }}>
+                Settings
+              </Typography>
+              <List>
+                {skill.apiSkill.requiredParameters.map((param, index) => (
+                  <ListItem key={index} alignItems="flex-start" sx={{ background: '#181A20', borderRadius: 2, mb: 1 }}>
+                    <Box sx={{ flex: 1, mb: 2 }}>
+                      <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#F1F1F1' }}>
+                        {param.name}
+                      </Typography>
+                      <Typography variant="caption" color="#A0AEC0" sx={{ mb: 1, display: 'block' }}>
+                        {renderDescriptionWithLinks(param.description)}
+                      </Typography>
+                      <DarkTextField                      
+                        value={parameterValues[param.name] || ''}
+                        onChange={e => handleParameterValueChange(param.name, e.target.value)}
+                        size="small"
+                        fullWidth
+                        required={param.required}
+                        sx={{ mt: 0.5 }}
+                      />
+                    </Box>
+                    {param.required === false && skill.configurable && (
+                      <ListItemSecondaryAction>
+                        <IconButton
+                          edge="end"
+                          aria-label="delete"
+                          onClick={() => removeRequiredParameter(index)}
+                          sx={{ color: '#F87171' }}
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </ListItemSecondaryAction>
+                    )}
+                  </ListItem>
+                ))}
+              </List>
+              {skill.configurable && (
+                <DarkButton
+                  startIcon={<AddIcon />}
+                  onClick={addRequiredParameter}
+                  variant="outlined"
+                  size="small"
+                  sx={{ mt: 1, borderColor: '#353945' }}
+                >
+                  Add Parameter
+                </DarkButton>
+              )}
+            </SectionCard>
+          )}
         </Box>
       </DialogContent>
       <DialogActions sx={{ background: '#181A20', borderTop: '1px solid #23262F' }}>
