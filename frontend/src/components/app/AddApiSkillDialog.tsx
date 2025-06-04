@@ -451,7 +451,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
           color="secondary"
           disabled={!areAllParametersFilled()}
         >
-          Save
+          {existingSkill ? 'Save' : 'Enable'}
         </Button>
       </DialogActions>
     </DarkDialog>
