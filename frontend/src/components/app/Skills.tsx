@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Switch, FormControlLabel } from '@mui/material';
+import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, IconButton, Menu, MenuItem } from '@mui/material';
 import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { IAppFlatState, IAgentSkill } from '../../types';
 import { alphaVantageTool } from './examples/alphaVantageApi';
 import AddApiSkillDialog from './AddApiSkillDialog';
@@ -55,6 +58,8 @@ const Skills: React.FC<SkillsProps> = ({
 }) => {
   const [selectedSkill, setSelectedSkill] = useState<IAgentSkill | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const [selectedSkillForMenu, setSelectedSkillForMenu] = useState<string | null>(null);
 
   const isSkillEnabled = (skillName: string): boolean => {
     return app.apiTools?.some(tool => tool.name === skillName) ?? false;
@@ -99,6 +104,23 @@ const Skills: React.FC<SkillsProps> = ({
         apiTools: updatedTools,
       });
     }
+  };
+
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, skillName: string) => {
+    setMenuAnchorEl(event.currentTarget);
+    setSelectedSkillForMenu(skillName);
+  };
+
+  const handleMenuClose = () => {
+    setMenuAnchorEl(null);
+    setSelectedSkillForMenu(null);
+  };
+
+  const handleDisableSkill = () => {
+    if (selectedSkillForMenu) {
+      handleSkillToggle(selectedSkillForMenu, false);
+    }
+    handleMenuClose();
   };
 
   const handleDialogSave = async (skill: IAgentSkill) => {
@@ -153,30 +175,58 @@ const Skills: React.FC<SkillsProps> = ({
                   }
                   title={skill.name}
                   titleTypographyProps={{ variant: 'h6' }}
+                  action={
+                    isEnabled && (
+                      <IconButton
+                        onClick={(e) => handleMenuOpen(e, skill.name)}
+                        size="small"
+                      >
+                        <MoreVertIcon />
+                      </IconButton>
+                    )
+                  }
                 />
                 <CardContent sx={{ flexGrow: 1 }}>
                   <Typography variant="body2" color="text.secondary">
                     {skill.description}
                   </Typography>
                 </CardContent>
-                <CardActions sx={{ justifyContent: 'flex-end', px: 2, pb: 2 }}>
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={isEnabled}
-                        onChange={(e) => handleSkillToggle(skill.name, e.target.checked)}
-                        color="primary"
-                      />
-                    }
-                    label={isEnabled ? "Enabled" : "Disabled"}
-                    labelPlacement="start"
-                  />
+                <CardActions sx={{ justifyContent: 'center', px: 2, pb: 2 }}>
+                  {isEnabled ? (
+                    <Button
+                      startIcon={<CheckCircleIcon />}
+                      color="success"
+                      variant="outlined"
+                      size="small"
+                      disabled
+                    >
+                      Enabled
+                    </Button>
+                  ) : (
+                    <Button
+                      startIcon={<AddCircleOutlineIcon />}
+                      color="secondary"
+                      variant="outlined"
+                      
+                      onClick={() => handleSkillToggle(skill.name, true)}
+                    >
+                      Enable
+                    </Button>
+                  )}
                 </CardActions>
               </Card>
             </Grid>
           );
         })}
       </Grid>
+
+      <Menu
+        anchorEl={menuAnchorEl}
+        open={Boolean(menuAnchorEl)}
+        onClose={handleMenuClose}
+      >
+        <MenuItem onClick={handleDisableSkill}>Disable</MenuItem>
+      </Menu>
 
       <AddApiSkillDialog
         open={isDialogOpen}
