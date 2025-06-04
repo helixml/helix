@@ -39,8 +39,8 @@ const SKILLS: ISkill[] = [
   {
     id: 'alpha-vantage',
     icon: <ShowChartIcon />,
-    name: 'Market News',
-    description: 'Get latest market news and sentiment data using Alpha Vantage API',
+    name: alphaVantageTool.name,
+    description: alphaVantageTool.description,
     type: 'custom',
     skill: alphaVantageTool,
     apiSkill: alphaVantageTool.apiSkill,
@@ -62,6 +62,8 @@ const Skills: React.FC<SkillsProps> = ({
   const [selectedSkillForMenu, setSelectedSkillForMenu] = useState<string | null>(null);
 
   const isSkillEnabled = (skillName: string): boolean => {
+    console.log('app.apiTools: ', app.apiTools);
+    console.log('skillName: ', skillName);
     return app.apiTools?.some(tool => tool.name === skillName) ?? false;
   };
 
@@ -144,11 +146,17 @@ const Skills: React.FC<SkillsProps> = ({
                 <CardActions sx={{ justifyContent: 'center', px: 2, pb: 2 }}>
                   {isEnabled ? (
                     <Button
-                      startIcon={<CheckCircleIcon />}
-                      color="success"
-                      variant="outlined"
-                      size="small"
-                      disabled
+                      startIcon={<CheckCircleIcon sx={{ color: '#1b5e20' }} />}
+                      sx={{ 
+                        color: '#1b5e20',
+                        borderColor: '#1b5e20',
+                        '&:hover': {
+                          borderColor: '#1b5e20',
+                          backgroundColor: 'rgba(27, 94, 32, 0.04)'
+                        }
+                      }}
+                      variant="outlined"     
+                      onClick={() => handleOpenDialog(skill)}                                       
                     >
                       Enabled
                     </Button>
