@@ -886,19 +886,23 @@ export interface IFeature {
   actions: IFeatureAction[],
 }
 
+export type IRequiredApiParameter = 'query' | 'header'
+
 export interface IAgentSkill {
   name: string;
   description: string;
-  system_prompt: string; // Will be used to configure the skill when it's running
-  schema: string;        // Schema of the API to be used, only applicable for API tools
-  url: string;           // URL of the API to be used, only applicable for API tools
-  configurable: boolean; // Whether the skill can be configured by the user
-  requiredParameters: Array<{
-    name: string;        // Name of the parameter
-    description: string; // Description of the parameter
-    type: string;        // Type of the parameter
-    required: boolean;   // Whether the parameter is required
-  }>;
+  systemPrompt: string; // Will be used to configure the skill when it's running
+  apiSkill: {
+    schema: string;        // Schema of the API to be used, only applicable for API tools
+    url: string;           // URL of the API to be used, only applicable for API tools
+    requiredParameters: Array<{
+      name: string;                // Name of the parameter
+      description: string;         // Description of the parameter
+      type: IRequiredApiParameter; // Type of the parameter (query, header)
+      required: boolean;           // Whether the parameter is required      
+    }>;
+  }
+  configurable: boolean; // Whether the skill can be configured by the user  
 }
 
 export interface ISessionLearnRequestRAGSettings {
