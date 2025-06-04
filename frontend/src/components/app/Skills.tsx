@@ -184,7 +184,7 @@ const Skills: React.FC<SkillsProps> = ({
           setSelectedSkill(null);
         }}
         onSave={() => {}}
-        existingSkill={selectedSkill || undefined}
+        skill={selectedSkill || undefined}
         app={app}
         onUpdate={onUpdate}
         isEnabled={selectedSkill ? isSkillEnabled(selectedSkill.name) : false}
