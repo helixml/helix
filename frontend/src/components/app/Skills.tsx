@@ -1,12 +1,23 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Switch, FormControlLabel } from '@mui/material';
 import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
-import { IAppFlatState } from '../../types';
+import { IAppFlatState, IAgentSkill } from '../../types';
 import { alphaVantageTool } from './examples/alphaVantageApi';
+import AddApiSkillDialog from './AddApiSkillDialog';
+
+interface ISkill {
+  id: string;
+  icon?: React.ReactNode;
+  name: string;
+  description: string;
+  type: string;
+  skill: IAgentSkill;
+  apiSkill?: IAgentSkill['apiSkill'];
+}
 
 // Example static skills/plugins data
-const SKILLS = [
+const SKILLS: ISkill[] = [
   // TODO: build skills in the backend for browser use and calculator
   // {
   //   id: 'browser-use',
@@ -29,6 +40,7 @@ const SKILLS = [
     description: 'Get latest market news and sentiment data using Alpha Vantage API',
     type: 'custom',
     skill: alphaVantageTool,
+    apiSkill: alphaVantageTool.apiSkill,
   },  
 ];
 
@@ -41,6 +53,9 @@ const Skills: React.FC<SkillsProps> = ({
   app, 
   onUpdate,
 }) => {
+  const [selectedSkill, setSelectedSkill] = useState<IAgentSkill | null>(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+
   const isSkillEnabled = (skillName: string): boolean => {
     return app.apiTools?.some(tool => tool.name === skillName) ?? false;
   };
@@ -50,8 +65,29 @@ const Skills: React.FC<SkillsProps> = ({
     let updatedTools;
 
     if (enabled) {
-      // Configuring skill
+      // Find the skill in SKILLS array
+      const skill = SKILLS.find(s => s.name === skillName);
       
+      if (skill?.apiSkill) {
+        // If skill has apiSkill, open the dialog for configuration
+        setSelectedSkill({
+          name: skill.name,
+          description: skill.description,
+          systemPrompt: '',
+          apiSkill: skill.apiSkill,
+          configurable: true,
+        });
+        setIsDialogOpen(true);
+        return;
+      }
+      
+      // If no apiSkill, just add the skill directly
+      updatedTools = [...currentTools, {
+        name: skillName,
+        description: skill?.description || '',
+        schema: '',
+        url: '',
+      }];
     } else {
       // Remove the skill from apiTools
       updatedTools = currentTools.filter(tool => tool.name !== skillName);
@@ -63,6 +99,24 @@ const Skills: React.FC<SkillsProps> = ({
         apiTools: updatedTools,
       });
     }
+  };
+
+  const handleDialogSave = async (skill: IAgentSkill) => {
+    const currentTools = app.apiTools || [];
+    const updatedTools = [...currentTools, {
+      name: skill.name,
+      description: skill.description,
+      schema: skill.apiSkill.schema,
+      url: skill.apiSkill.url,
+    }];
+
+    await onUpdate({
+      ...app,
+      apiTools: updatedTools,
+    });
+
+    setIsDialogOpen(false);
+    setSelectedSkill(null);
   };
 
   return (
@@ -123,6 +177,16 @@ const Skills: React.FC<SkillsProps> = ({
           );
         })}
       </Grid>
+
+      <AddApiSkillDialog
+        open={isDialogOpen}
+        onClose={() => {
+          setIsDialogOpen(false);
+          setSelectedSkill(null);
+        }}
+        onSave={handleDialogSave}
+        existingSkill={selectedSkill || undefined}
+      />
     </Box>
   );
 };
