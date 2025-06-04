@@ -1,3 +1,5 @@
+import { IAgentSkill } from '../../../types';
+
 const schema = `{
  "openapi": "Air Quality API",
  "info": {
@@ -215,10 +217,32 @@ const schema = `{
  }
 }`
 
-export const airQualityTool = {
-  name: "Air Quality API",
-  description: "API to get air quality information for a specific location.",
-  system_prompt: "You are an expert at using the Air Quality API to get the latest air quality information for a specific location.",
-  schema: schema,
-  url: "https://air-quality-api.open-meteo.com/v1"
+export const airQualityTool: IAgentSkill = {
+  name: "Air Quality",
+  description: `Provides real-time air quality information for any location worldwide.
+  
+  This skill allows you to get detailed air quality data including PM10 and PM2.5 measurements for any location by providing its latitude and longitude coordinates.
+
+  Example Queries:
+  - "What's the air quality in New York City?"
+  - "Show me the PM2.5 levels in Tokyo"
+  - "Get the current air quality data for London"
+  `,
+  systemPrompt: `You are an expert at using the Air Quality API to get real-time air quality information.
+  
+  This API provides hourly air quality data including PM10 and PM2.5 measurements for any location worldwide.
+  The data is sourced from reliable environmental monitoring stations and provides accurate, up-to-date information
+  about air quality conditions.
+  
+  When using this API:
+  1. Always provide both latitude and longitude coordinates
+  2. Use the hourly parameter to specify which pollutants to retrieve (pm10, pm2_5)
+  3. The response will include detailed measurements and their units
+  `,
+  apiSkill: {
+    schema: schema,
+    url: "https://air-quality-api.open-meteo.com/v1",
+    requiredParameters: [],
+  },
+  configurable: false,
 }

@@ -5,9 +5,12 @@ import ShowChartIcon from '@mui/icons-material/ShowChart';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import AirIcon from '@mui/icons-material/Air';
 import { IAppFlatState, IAgentSkill } from '../../types';
-import { alphaVantageTool } from './examples/alphaVantageApi';
 import AddApiSkillDialog from './AddApiSkillDialog';
+
+import { alphaVantageTool } from './examples/alphaVantageApi';
+import { airQualityTool } from './examples/airQualityApi';
 
 interface ISkill {
   id: string;
@@ -16,7 +19,7 @@ interface ISkill {
   description: string;
   type: string;
   skill: IAgentSkill;
-  apiSkill?: IAgentSkill['apiSkill'];
+  apiSkill?: IAgentSkill['apiSkill'];  
 }
 
 // Example static skills/plugins data
@@ -44,7 +47,16 @@ const SKILLS: ISkill[] = [
     type: 'custom',
     skill: alphaVantageTool,
     apiSkill: alphaVantageTool.apiSkill,
-  },  
+  },
+  {
+    id: 'air-quality',
+    icon: <AirIcon />,
+    name: airQualityTool.name,
+    description: airQualityTool.description,
+    type: 'custom',
+    skill: airQualityTool,
+    apiSkill: airQualityTool.apiSkill,
+  },
 ];
 
 const getFirstLine = (text: string): string => {
@@ -83,12 +95,18 @@ const Skills: React.FC<SkillsProps> = ({
     setSelectedSkillForMenu(null);
   };
 
-  const handleDisableSkill = () => {
+  const handleDisableSkill = async () => {
     if (selectedSkillForMenu) {
       const skill = SKILLS.find(s => s.name === selectedSkillForMenu);
       if (skill) {
-        setSelectedSkill(skill.skill);
-        setIsDialogOpen(true);
+        // Remove the tool from app.apiTools
+        const updatedTools = app.apiTools?.filter(tool => tool.name !== skill.name) || [];
+        
+        // Update the app state
+        await onUpdate({
+          ...app,
+          apiTools: updatedTools
+        });
       }
     }
     handleMenuClose();
