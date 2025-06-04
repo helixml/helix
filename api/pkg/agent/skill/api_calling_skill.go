@@ -96,19 +96,26 @@ func (t *APICallingTool) OpenAI() []openai.Tool {
 			property.Type = jsonschema.Boolean
 		case tools.ParameterTypeArray:
 			property.Type = jsonschema.Array
-			if param.Schema != nil && param.Schema.Value != nil && param.Schema.Value.Items != nil {
+			if param.Schema != nil && param.Schema.Value != nil {
 				// Handle array items type
-				itemType := param.Schema.Value.Items.Value.Type.Slice()[0]
-				switch itemType {
-				case "string":
+				if param.Schema.Value.Items != nil {
+					itemType := param.Schema.Value.Items.Value.Type.Slice()[0]
+					switch itemType {
+					case "string":
+						property.Items = &jsonschema.Definition{Type: jsonschema.String}
+					case "integer":
+						property.Items = &jsonschema.Definition{Type: jsonschema.Integer}
+					case "boolean":
+						property.Items = &jsonschema.Definition{Type: jsonschema.Boolean}
+					case "object":
+						property.Items = &jsonschema.Definition{Type: jsonschema.Object}
+					}
+				} else {
+					// Default to string array if items type is not specified
 					property.Items = &jsonschema.Definition{Type: jsonschema.String}
-				case "integer":
-					property.Items = &jsonschema.Definition{Type: jsonschema.Integer}
-				case "boolean":
-					property.Items = &jsonschema.Definition{Type: jsonschema.Boolean}
-				case "object":
-					property.Items = &jsonschema.Definition{Type: jsonschema.Object}
 				}
+			} else {
+				property.Items = &jsonschema.Definition{Type: jsonschema.String}
 			}
 		case tools.ParameterTypeObject:
 			property.Type = jsonschema.Object

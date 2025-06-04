@@ -27,8 +27,8 @@ paths:
             type: array
             items:
               type: string
-          style: form
-          explode: false
+            style: form
+            explode: false
           description: "Comma-separated list of stock/crypto/forex symbols to filter articles that mention these symbols. For example: tickers=IBM will filter for articles that mention the IBM ticker; tickers=COIN,CRYPTO:BTC,FOREX:USD will filter for articles that simultaneously mention Coinbase (COIN), Bitcoin (CRYPTO:BTC), and US Dollar (FOREX:USD) in their content."
         - name: topics
           in: query
@@ -37,8 +37,8 @@ paths:
             type: array
             items:
               type: string
-          style: form
-          explode: false
+            style: form
+            explode: false
           description: "Comma-separated list of topics to filter articles that cover these topics. The news topics of your choice. For example: topics=technology will filter for articles that write about the technology sector; topics=technology,ipo will filter for articles that simultaneously cover technology and IPO in their content."
         - name: time_from
           in: query
@@ -52,30 +52,6 @@ paths:
           schema:
             type: string
           description: End time for filtering articles, in YYYYMMDDTHHMM format
-        - name: sort
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [LATEST, EARLIEST, RELEVANCE]
-            default: LATEST
-          description: Sort order of the articles
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-            maximum: 1000
-            default: 50
-          description: Maximum number of articles to return
-        - name: apikey
-          in: query
-          required: true
-          schema:
-            type: string
-          description: Your API key
-      security:
-        - ApiKeyAuth: []
       responses:
         '200':
           description: A list of news articles matching the criteria
@@ -99,11 +75,6 @@ components:
           type: string
         time_published:
           type: string
-  securitySchemes:
-    ApiKeyAuth:
-      type: apiKey
-      in: query
-      name: apikey
 `
 
 export const alphaVantageTool: IAgentSkill = {
@@ -124,7 +95,8 @@ export const alphaVantageTool: IAgentSkill = {
   mergers & acquisitions, IPOs, etc. This API, combined with our core stock API, fundamental data, and technical indicator APIs, 
   can provide you with a 360-degree view of the financial market and the broader economy.
   
-  function to be used: "NEWS_SENTIMENT"
+  function to be used: "NEWS_SENTIMENT", then you can either use the tickers or topics to search. DO NOT USE BOTH AT THE SAME TIME.
+  Be super careful when using the tickers parameter, it's very easy to get the wrong ticker.
   `,
   apiSkill: {
     schema: schema,
