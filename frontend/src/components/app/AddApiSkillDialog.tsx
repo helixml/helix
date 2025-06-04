@@ -28,9 +28,9 @@ interface AddApiSkillDialogProps {
   open: boolean;
   onClose: () => void;
   onSave: (skill: IAgentSkill) => void;
-  existingSkill?: IAgentSkill;
+  skill?: IAgentSkill;
   app: IAppFlatState;
-  onUpdate: (updates: IAppFlatState) => Promise<void>;  
+  onUpdate: (updates: IAppFlatState) => Promise<void>;
   isEnabled: boolean;
 }
 
@@ -38,10 +38,10 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   open,
   onClose,
   onSave,
-  existingSkill,
+  skill: initialSkill,
   app,
   onUpdate,
-  isEnabled,
+  isEnabled: initialIsEnabled,
 }) => {
   const [skill, setSkill] = useState<IAgentSkill>({
     name: '',
@@ -55,11 +55,11 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
     configurable: true,
   });
 
-  const [enabled, setEnabled] = useState(isEnabled);
+  const [enabled, setEnabled] = useState(initialIsEnabled);
 
   useEffect(() => {
-    if (existingSkill) {
-      setSkill(existingSkill);
+    if (initialSkill) {
+      setSkill(initialSkill);
     } else {
       // Reset form when opening for new skill
       setSkill({
@@ -74,8 +74,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         configurable: true,
       });
     }
-    setEnabled(isEnabled);
-  }, [existingSkill, open, isEnabled]);
+    setEnabled(initialIsEnabled);
+  }, [initialSkill, open, initialIsEnabled]);
 
   const handleChange = (field: string, value: string) => {
     setSkill((prev) => ({
@@ -171,7 +171,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>
-        {existingSkill ? 'Edit API Skill' : 'Add API Skill'}
+        {initialSkill ? 'Edit API Skill' : 'Add API Skill'}
       </DialogTitle>
       <DialogContent>
         <Box sx={{ mt: 2 }}>
