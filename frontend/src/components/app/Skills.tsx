@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Button, Typography } from '@mui/material';
 import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
+import { IAppFlatState } from '../../types';
 
 // Example static skills/plugins data
 const SKILLS = [
@@ -29,7 +30,15 @@ const SKILLS = [
   },  
 ];
 
-const Skills: React.FC = () => {
+interface SkillsProps {
+  app: IAppFlatState,
+  onUpdate: (updates: IAppFlatState) => Promise<void>,
+}
+
+const Skills: React.FC<SkillsProps> = ({ 
+  app, 
+  onUpdate,
+}) => {
   return (
     <Box sx={{ mt: 2, mr: 4 }}>
       <Typography variant="h6" sx={{ mb: 2 }}>
