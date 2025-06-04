@@ -43,6 +43,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   onUpdate,
   isEnabled: initialIsEnabled,
 }) => {
+
   const [skill, setSkill] = useState<IAgentSkill>({
     name: '',
     description: '',
@@ -54,12 +55,20 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
     },
     configurable: true,
   });
-
-  const [enabled, setEnabled] = useState(initialIsEnabled);
+  
+  const [existingSkill, setExistingSkill] = useState<IAgentSkill | null>(null);
+  const [existingSkillIndex, setExistingSkillIndex] = useState<number | null>(null);
+  const [parameterValues, setParameterValues] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (initialSkill) {
       setSkill(initialSkill);
+      // Find existing skill in app.apiTools
+      const existingIndex = app.apiTools?.findIndex(tool => tool.name === initialSkill.name) ?? -1;
+      if (existingIndex !== -1) {
+        setExistingSkill(initialSkill);
+        setExistingSkillIndex(existingIndex);
+      }
     } else {
       // Reset form when opening for new skill
       setSkill({
@@ -73,9 +82,23 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         },
         configurable: true,
       });
+      setExistingSkill(null);
+      setExistingSkillIndex(null);
     }
-    setEnabled(initialIsEnabled);
-  }, [initialSkill, open, initialIsEnabled]);
+  }, [initialSkill, open, initialIsEnabled, app.apiTools]);
+
+  useEffect(() => {
+    if (skill.apiSkill.requiredParameters) {
+      const initialValues: Record<string, string> = {};
+      skill.apiSkill.requiredParameters.forEach(param => {
+        if (param.name && !(param.name in parameterValues)) {
+          initialValues[param.name] = '';
+        }
+      });
+      setParameterValues(prev => ({ ...initialValues, ...prev }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skill.apiSkill.requiredParameters]);
 
   const handleChange = (field: string, value: string) => {
     setSkill((prev) => ({
@@ -132,61 +155,24 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         ),
       },
     }));
+  };  
+
+  const handleParameterValueChange = (name: string, value: string) => {
+    setParameterValues(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleSkillToggle = async (enabled: boolean) => {
-    const currentTools = app.apiTools || [];
-    let updatedTools;
-
-    if (enabled) {
-      // If enabling, add the skill with its configuration
-      updatedTools = [...currentTools, {
-        name: skill.name,
-        description: skill.description,
-        schema: skill.apiSkill.schema,
-        url: skill.apiSkill.url,
-      }];
-    } else {
-      // If disabling, remove the skill
-      updatedTools = currentTools.filter(tool => tool.name !== skill.name);
-    }
-
-    if (updatedTools) {
-      await onUpdate({
-        ...app,
-        apiTools: updatedTools,
-      });
-    }
-  };
-
-  const handleSave = async () => {
-    if (enabled) {
-      await handleSkillToggle(true);
-    } else {
-      await handleSkillToggle(false);
-    }
+  const handleSave = async () => {    
+    // await handleSkillToggle(true);    
     onClose();
   };
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>
-        {initialSkill ? 'Edit API Skill' : 'Add API Skill'}
+        {existingSkill ? 'Edit API Skill' : 'Add API Skill'}
       </DialogTitle>
       <DialogContent>
         <Box sx={{ mt: 2 }}>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={enabled}
-                onChange={(e) => setEnabled(e.target.checked)}
-                color="primary"
-              />
-            }
-            label="Enable Skill"
-            sx={{ mb: 2 }}
-          />
-          
           <TextField
             fullWidth
             label="Name"
@@ -245,47 +231,35 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
             </Typography>
             <List>
               {skill.apiSkill.requiredParameters.map((param, index) => (
-                <ListItem key={index}>
-                  <ListItemText
-                    primary={
-                      <Box sx={{ display: 'flex', gap: 2 }}>
-                        <TextField
-                          label="Name"
-                          value={param.name}
-                          onChange={(e) => updateRequiredParameter(index, 'name', e.target.value)}
-                          size="small"
-                          required
-                        />
-                        <TextField
-                          label="Description"
-                          value={param.description}
-                          onChange={(e) => updateRequiredParameter(index, 'description', e.target.value)}
-                          size="small"
-                          required
-                        />
-                        <FormControl size="small" sx={{ minWidth: 120 }}>
-                          <InputLabel>Type</InputLabel>
-                          <Select
-                            value={param.type}
-                            label="Type"
-                            onChange={(e) => updateRequiredParameter(index, 'type', e.target.value)}
-                          >
-                            <MenuItem value="query">Query</MenuItem>
-                            <MenuItem value="header">Header</MenuItem>
-                          </Select>
-                        </FormControl>
-                      </Box>
-                    }
-                  />
-                  <ListItemSecondaryAction>
-                    <IconButton
-                      edge="end"
-                      aria-label="delete"
-                      onClick={() => removeRequiredParameter(index)}
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </ListItemSecondaryAction>
+                <ListItem key={index} alignItems="flex-start">
+                  <Box sx={{ flex: 1 }}>
+                    <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                      {param.name}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                      {param.description}
+                    </Typography>
+                    <TextField
+                      label={`Enter value for ${param.name}`}
+                      value={parameterValues[param.name] || ''}
+                      onChange={e => handleParameterValueChange(param.name, e.target.value)}
+                      size="small"
+                      fullWidth
+                      required={param.required}
+                      sx={{ mt: 0.5 }}
+                    />
+                  </Box>
+                  {param.required === false && (
+                    <ListItemSecondaryAction>
+                      <IconButton
+                        edge="end"
+                        aria-label="delete"
+                        onClick={() => removeRequiredParameter(index)}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </ListItemSecondaryAction>
+                  )}
                 </ListItem>
               ))}
             </List>
