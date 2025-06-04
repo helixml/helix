@@ -150,10 +150,10 @@ const Skills: React.FC<SkillsProps> = ({
                     <Button
                       startIcon={<CheckCircleIcon sx={{ color: '#4caf50' }} />}
                       sx={{ 
-                        color: '#4caf50',
-                        borderColor: '#4caf50',
+                        color: theme.palette.success.main,
+                        borderColor: theme.palette.success.main,
                         '&:hover': {
-                          borderColor: '#4caf50',
+                          borderColor: theme.palette.success.main,
                           backgroundColor: 'rgba(76, 175, 80, 0.04)'
                         }
                       }}
