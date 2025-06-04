@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, IconButton, Menu, MenuItem } from '@mui/material';
+import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, IconButton, Menu, MenuItem, useTheme } from '@mui/material';
 import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
@@ -56,6 +56,8 @@ const Skills: React.FC<SkillsProps> = ({
   app, 
   onUpdate,
 }) => {
+  const theme = useTheme();
+
   const [selectedSkill, setSelectedSkill] = useState<IAgentSkill | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
@@ -146,13 +148,13 @@ const Skills: React.FC<SkillsProps> = ({
                 <CardActions sx={{ justifyContent: 'center', px: 2, pb: 2 }}>
                   {isEnabled ? (
                     <Button
-                      startIcon={<CheckCircleIcon sx={{ color: '#1b5e20' }} />}
+                      startIcon={<CheckCircleIcon sx={{ color: '#4caf50' }} />}
                       sx={{ 
-                        color: '#1b5e20',
-                        borderColor: '#1b5e20',
+                        color: '#4caf50',
+                        borderColor: '#4caf50',
                         '&:hover': {
-                          borderColor: '#1b5e20',
-                          backgroundColor: 'rgba(27, 94, 32, 0.04)'
+                          borderColor: '#4caf50',
+                          backgroundColor: 'rgba(76, 175, 80, 0.04)'
                         }
                       }}
                       variant="outlined"     
