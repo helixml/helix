@@ -140,15 +140,37 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   useEffect(() => {
     if (skill.apiSkill.requiredParameters) {
       const initialValues: Record<string, string> = {};
-      skill.apiSkill.requiredParameters.forEach(param => {
-        if (param.name && !(param.name in parameterValues)) {
-          initialValues[param.name] = '';
+      
+      // If we have an existing skill, try to find its configuration in app.apiTools
+      if (existingSkill) {
+        const existingTool = app.apiTools?.find(tool => tool.name === existingSkill.name);
+        if (existingTool) {
+          skill.apiSkill.requiredParameters.forEach(param => {
+            if (param.name) {
+              // Check if parameter is in query or headers based on its type
+              if (param.type === 'header' && existingTool.headers) {
+                initialValues[param.name] = existingTool.headers[param.name] || '';
+              } else if (param.type === 'query' && existingTool.query) {
+                initialValues[param.name] = existingTool.query[param.name] || '';
+              } else {
+                initialValues[param.name] = '';
+              }
+            }
+          });
         }
-      });
+      } else {
+        // For new skills, just initialize empty values
+        skill.apiSkill.requiredParameters.forEach(param => {
+          if (param.name && !(param.name in parameterValues)) {
+            initialValues[param.name] = '';
+          }
+        });
+      }
+      
       setParameterValues(prev => ({ ...initialValues, ...prev }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skill.apiSkill.requiredParameters]);
+  }, [skill.apiSkill.requiredParameters, existingSkill, app.apiTools]);
 
   const handleChange = (field: string, value: string) => {
     setSkill((prev) => ({
