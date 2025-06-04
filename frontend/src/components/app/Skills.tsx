@@ -45,7 +45,7 @@ const Skills: React.FC<SkillsProps> = ({
     return app.apiTools?.some(tool => tool.name === skillName) ?? false;
   };
 
-  const handleSkillToggle = async (skillId: string, skillName: string, enabled: boolean) => {
+  const handleSkillToggle = async (skillName: string, enabled: boolean) => {
     const currentTools = app.apiTools || [];
     let updatedTools;
 
@@ -110,7 +110,7 @@ const Skills: React.FC<SkillsProps> = ({
                     control={
                       <Switch
                         checked={isEnabled}
-                        onChange={(e) => handleSkillToggle(skill.id, skill.name, e.target.checked)}
+                        onChange={(e) => handleSkillToggle(skill.name, e.target.checked)}
                         color="primary"
                       />
                     }
