@@ -12,6 +12,7 @@ import {
   List,
   ListItem,
   ListItemSecondaryAction,
+  Link,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -280,6 +281,44 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
     onClose();
   };
 
+  const renderDescriptionWithLinks = (text: string) => {
+    // URL regex pattern
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    
+    // First split by newlines
+    const lines = text.split('\n');
+    
+    return lines.map((line, lineIndex) => {
+      // Then split each line by URLs
+      const parts = line.split(urlRegex);
+      
+      const elements = parts.map((part, partIndex) => {
+        if (part.match(urlRegex)) {
+          return (
+            <Link
+              key={`${lineIndex}-${partIndex}`}
+              href={part}
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{ color: '#6366F1', textDecoration: 'underline' }}
+            >
+              {part}
+            </Link>
+          );
+        }
+        return part;
+      });
+
+      // Add line break after each line except the last one
+      return (
+        <React.Fragment key={lineIndex}>
+          {elements}
+          {lineIndex < lines.length - 1 && <br />}
+        </React.Fragment>
+      );
+    });
+  };
+
   return (
     <DarkDialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogContent>
@@ -288,7 +327,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
             {skill.name || 'New API Skill'}
           </NameTypography>
           <DescriptionTypography>
-            {skill.description || 'No description provided.'}
+            {renderDescriptionWithLinks(skill.description || 'No description provided.')}
           </DescriptionTypography>
 
           {skill.configurable && (
@@ -354,10 +393,9 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
                       {param.name}
                     </Typography>
                     <Typography variant="caption" color="#A0AEC0" sx={{ mb: 1, display: 'block' }}>
-                      {param.description}
+                      {renderDescriptionWithLinks(param.description)}
                     </Typography>
-                    <DarkTextField
-                      label={`Enter value for ${param.name}`}
+                    <DarkTextField                      
                       value={parameterValues[param.name] || ''}
                       onChange={e => handleParameterValueChange(param.name, e.target.value)}
                       size="small"
