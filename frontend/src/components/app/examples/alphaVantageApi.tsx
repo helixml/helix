@@ -117,5 +117,6 @@ export const alphaVantageTool = {
   `,
   schema: schema,
   url: "https://www.alphavantage.co",
-  configurable: false // Only API key is required from the user
+  configurable: false, // Only API key is required from the user, description and name are not configurable
+  requiredParameters: ['apikey'],
 }

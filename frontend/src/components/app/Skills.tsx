@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Button, Typography } from '@mui/material';
 import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
+import ShowChartIcon from '@mui/icons-material/ShowChart';
 
 // Example static skills/plugins data
 const SKILLS = [
@@ -17,6 +18,14 @@ const SKILLS = [
     description: 'Calculate a math expression. For example, "2 + 2" or "2 * 2".',
     type: 'custom',
     enabled: true,
+  },
+  {
+    id: 'alpha-vantage',
+    icon: <ShowChartIcon />,
+    name: 'Market News',
+    description: 'Get latest market news and sentiment data using Alpha Vantage API',
+    type: 'custom',
+    enabled: true,
   },  
 ];
 
@@ -28,7 +37,7 @@ const Skills: React.FC = () => {
       </Typography>
       <Grid container spacing={2}>
         {SKILLS.map((skill) => {
-          const icon = PROVIDER_ICONS[skill.type] || PROVIDER_ICONS['custom'];
+          const defaultIcon = PROVIDER_ICONS[skill.type] || PROVIDER_ICONS['custom'];
           const color = PROVIDER_COLORS[skill.type] || PROVIDER_COLORS['custom'];
           return (
             <Grid item xs={12} sm={6} md={4} lg={3} key={skill.id}>
@@ -48,7 +57,7 @@ const Skills: React.FC = () => {
                 <CardHeader
                   avatar={
                     <Avatar sx={{ bgcolor: color, color: 'white', width: 40, height: 40 }}>
-                      {icon}
+                      {skill.icon || defaultIcon}
                     </Avatar>
                   }
                   title={skill.name}
