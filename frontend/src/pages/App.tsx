@@ -190,7 +190,12 @@ const App: FC = () => {
               ) : tabValue === 'skills' ? (
                 <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
                   <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
-                    <Skills />
+                    { appTools.flatApp && (
+                      <Skills
+                        app={appTools.flatApp}
+                        onUpdate={appTools.saveFlatApp}
+                      />
+                    )}
                   </Box>
                 </Grid>
               ) : (
