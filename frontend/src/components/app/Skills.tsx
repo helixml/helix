@@ -183,7 +183,6 @@ const Skills: React.FC<SkillsProps> = ({
           setIsDialogOpen(false);
           setSelectedSkill(null);
         }}
-        onSave={() => {}}
         skill={selectedSkill || undefined}
         app={app}
         onUpdate={onUpdate}
