@@ -9,9 +9,9 @@ import { alphaVantageTool } from './examples/alphaVantageApi';
 const SKILLS = [
   // TODO: build skills in the backend for browser use and calculator
   // {
-  //   id: 'web-search',
-  //   name: 'Web Search',
-  //   description: 'Search for information from the internet in real-time using Google Search.',
+  //   id: 'browser-use',
+  //   name: 'Browser Use',
+  //   description: 'Use the browser to open links and search for information in real-time.',
   //   type: 'custom',
   //   enabled: false,
   // },
