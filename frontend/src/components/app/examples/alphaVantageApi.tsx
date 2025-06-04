@@ -108,7 +108,7 @@ components:
 export const alphaVantageTool: IAgentSkill = {
   name: "Alpha Vantage API",
   description: "API to get market news and sentiment data",
-  system_prompt: `You are an expert at using the Alpha Vantage API to get the latest market news and sentiment data.
+  systemPrompt: `You are an expert at using the Alpha Vantage API to get the latest market news and sentiment data.
   
   This API returns live and historical market news & sentiment data from a large & growing selection of premier news 
   outlets around the world, covering stocks, cryptocurrencies, forex, and a wide range of topics such as fiscal policy, 
@@ -117,13 +117,15 @@ export const alphaVantageTool: IAgentSkill = {
   
   function to be used: "NEWS_SENTIMENT"
   `,
-  schema: schema,
-  url: "https://www.alphavantage.co",
-  configurable: false, // Only API key is required from the user, description and name are not configurable
-  requiredParameters: [{
-    name: 'apikey',
-    description: 'Your free API key from https://www.alphavantage.co/support/#api-key',
-    type: 'string',
-    required: true,
-  }],
+  apiSkill: {
+    schema: schema,
+    url: "https://www.alphavantage.co",
+    requiredParameters: [{
+      name: 'apikey',
+      description: 'Your free API key from https://www.alphavantage.co/support/#api-key',
+      type: 'query',
+      required: true,
+    }],
+  },
+  configurable: false, // Only API key is required from the user, description and name are not configurable  
 }
