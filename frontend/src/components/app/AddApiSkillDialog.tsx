@@ -16,6 +16,7 @@ import {
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import { IAgentSkill, IRequiredApiParameter, IAppFlatState, IAssistantApi } from '../../types';
+import { styled } from '@mui/material/styles';
 
 interface AddApiSkillDialogProps {
   open: boolean;
@@ -25,6 +26,64 @@ interface AddApiSkillDialogProps {
   onUpdate: (updates: IAppFlatState) => Promise<void>;
   isEnabled: boolean;
 }
+
+// Styled components for dark theme
+const DarkDialog = styled(Dialog)(({ theme }) => ({
+  '& .MuiPaper-root': {
+    background: '#181A20',
+    color: '#F1F1F1',
+    borderRadius: 16,
+    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+  },
+}));
+
+const NameTypography = styled(Typography)(({ theme }) => ({
+  fontSize: '2rem',
+  fontWeight: 700,
+  color: '#F8FAFC',
+  marginBottom: theme.spacing(1),
+}));
+
+const DescriptionTypography = styled(Typography)(({ theme }) => ({
+  fontSize: '1.1rem',
+  color: '#A0AEC0',
+  marginBottom: theme.spacing(3),
+}));
+
+const SectionCard = styled(Box)(({ theme }) => ({
+  background: '#23262F',
+  borderRadius: 12,
+  padding: theme.spacing(3),
+  marginBottom: theme.spacing(3),
+  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+}));
+
+const DarkTextField = styled(TextField)(({ theme }) => ({
+  '& .MuiInputBase-root': {
+    background: '#23262F',
+    color: '#F1F1F1',
+    borderRadius: 8,
+  },
+  '& .MuiInputLabel-root': {
+    color: '#A0AEC0',
+  },
+  '& .MuiOutlinedInput-notchedOutline': {
+    borderColor: '#353945',
+  },
+  '&:hover .MuiOutlinedInput-notchedOutline': {
+    borderColor: '#6366F1',
+  },
+}));
+
+const DarkButton = styled(Button)(({ theme }) => ({
+  background: '#353945',
+  color: '#F1F1F1',
+  borderRadius: 8,
+  '&:hover': {
+    background: '#6366F1',
+    color: '#fff',
+  },
+}));
 
 const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   open,
@@ -200,60 +259,47 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>
-        {existingSkill ? 'Edit API Skill' : 'Add API Skill'}
-      </DialogTitle>
+    <DarkDialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogContent>
         <Box sx={{ mt: 2 }}>
-          {skill.configurable ? (
-            <TextField
-              fullWidth
-              label="Name"
-              value={skill.name}
-              onChange={(e) => handleChange('name', e.target.value)}
-              margin="normal"
-              required
-            />
-          ) : (
-            <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>
-              {skill.name}
-            </Typography>
-          )}
-
-          {skill.configurable ? (
-            <TextField
-              fullWidth
-              label="Description"
-              value={skill.description}
-              onChange={(e) => handleChange('description', e.target.value)}
-              margin="normal"
-              required
-              multiline
-              rows={2}
-            />
-          ) : (
-            <Typography variant="body1" sx={{ mb: 2 }}>
-              {skill.description}
-            </Typography>
-          )}
+          <NameTypography>
+            {skill.name || 'New API Skill'}
+          </NameTypography>
+          <DescriptionTypography>
+            {skill.description || 'No description provided.'}
+          </DescriptionTypography>
 
           {skill.configurable && (
-            <TextField
-              fullWidth
-              label="System Prompt"
-              value={skill.systemPrompt}
-              onChange={(e) => handleChange('systemPrompt', e.target.value)}
-              margin="normal"
-              required
-              multiline
-              rows={4}
-            />
-          )}
-
-          {skill.configurable && (
-            <>
-              <TextField
+            <SectionCard>
+              <DarkTextField
+                fullWidth
+                label="Name"
+                value={skill.name}
+                onChange={(e) => handleChange('name', e.target.value)}
+                margin="normal"
+                required
+              />
+              <DarkTextField
+                fullWidth
+                label="Description"
+                value={skill.description}
+                onChange={(e) => handleChange('description', e.target.value)}
+                margin="normal"
+                required
+                multiline
+                rows={2}
+              />
+              <DarkTextField
+                fullWidth
+                label="System Prompt"
+                value={skill.systemPrompt}
+                onChange={(e) => handleChange('systemPrompt', e.target.value)}
+                margin="normal"
+                required
+                multiline
+                rows={4}
+              />
+              <DarkTextField
                 fullWidth
                 label="URL"
                 value={skill.apiSkill.url}
@@ -261,7 +307,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
                 margin="normal"
                 required
               />
-              <TextField
+              <DarkTextField
                 fullWidth
                 label="Schema"
                 value={skill.apiSkill.schema}
@@ -271,24 +317,24 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
                 multiline
                 rows={10}
               />
-            </>
+            </SectionCard>
           )}
 
-          <Box sx={{ mt: 2 }}>
-            <Typography variant="h6" gutterBottom>
-              Required Parameters
+          <SectionCard>
+            <Typography variant="h6" gutterBottom sx={{ color: '#F8FAFC' }}>
+              Settings
             </Typography>
             <List>
               {skill.apiSkill.requiredParameters.map((param, index) => (
-                <ListItem key={index} alignItems="flex-start">
-                  <Box sx={{ flex: 1 }}>
-                    <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                <ListItem key={index} alignItems="flex-start" sx={{ background: '#181A20', borderRadius: 2, mb: 1 }}>
+                  <Box sx={{ flex: 1, mb: 2 }}>
+                    <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#F1F1F1' }}>
                       {param.name}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                    <Typography variant="caption" color="#A0AEC0" sx={{ mb: 1, display: 'block' }}>
                       {param.description}
                     </Typography>
-                    <TextField
+                    <DarkTextField
                       label={`Enter value for ${param.name}`}
                       value={parameterValues[param.name] || ''}
                       onChange={e => handleParameterValueChange(param.name, e.target.value)}
@@ -304,6 +350,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
                         edge="end"
                         aria-label="delete"
                         onClick={() => removeRequiredParameter(index)}
+                        sx={{ color: '#F87171' }}
                       >
                         <DeleteIcon />
                       </IconButton>
@@ -313,31 +360,33 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
               ))}
             </List>
             {skill.configurable && (
-              <Button
+              <DarkButton
                 startIcon={<AddIcon />}
                 onClick={addRequiredParameter}
                 variant="outlined"
                 size="small"
-                sx={{ mt: 1 }}
+                sx={{ mt: 1, borderColor: '#353945' }}
               >
                 Add Parameter
-              </Button>
+              </DarkButton>
             )}
-          </Box>
+          </SectionCard>
         </Box>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button 
-          onClick={handleSave} 
-          variant="outlined" 
+      <DialogActions sx={{ background: '#181A20', borderTop: '1px solid #23262F' }}>
+        <DarkButton onClick={onClose} variant="text">
+          Cancel
+        </DarkButton>
+        <DarkButton
+          onClick={handleSave}
+          variant="contained"
           color="secondary"
           disabled={!areAllParametersFilled()}
         >
           Save
-        </Button>
+        </DarkButton>
       </DialogActions>
-    </Dialog>
+    </DarkDialog>
   );
 };
 
