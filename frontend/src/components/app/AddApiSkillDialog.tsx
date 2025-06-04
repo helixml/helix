@@ -396,17 +396,23 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         </Box>
       </DialogContent>
       <DialogActions sx={{ background: '#181A20', borderTop: '1px solid #23262F' }}>
-        <DarkButton onClick={onClose} variant="text">
+        <Button 
+          onClick={onClose} 
+          size="small"
+          variant="outlined"
+          color="primary"
+        >
           Cancel
-        </DarkButton>
-        <DarkButton
+        </Button>
+        <Button
           onClick={handleSave}
-          variant="contained"
+          size="small"
+          variant="outlined"
           color="secondary"
           disabled={!areAllParametersFilled()}
         >
           Save
-        </DarkButton>
+        </Button>
       </DialogActions>
     </DarkDialog>
   );
