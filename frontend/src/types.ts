@@ -886,6 +886,21 @@ export interface IFeature {
   actions: IFeatureAction[],
 }
 
+export interface IAgentSkill {
+  name: string;
+  description: string;
+  system_prompt: string; // Will be used to configure the skill when it's running
+  schema: string;        // Schema of the API to be used, only applicable for API tools
+  url: string;           // URL of the API to be used, only applicable for API tools
+  configurable: boolean; // Whether the skill can be configured by the user
+  requiredParameters: Array<{
+    name: string;        // Name of the parameter
+    description: string; // Description of the parameter
+    type: string;        // Type of the parameter
+    required: boolean;   // Whether the parameter is required
+  }>;
+}
+
 export interface ISessionLearnRequestRAGSettings {
   distance_function: string,
   threshold: number,
