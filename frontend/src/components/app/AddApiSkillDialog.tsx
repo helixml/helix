@@ -17,16 +17,21 @@ import {
   ListItem,
   ListItemText,
   ListItemSecondaryAction,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
-import { IAgentSkill, IRequiredApiParameter } from '../../types';
+import { IAgentSkill, IRequiredApiParameter, IAppFlatState } from '../../types';
 
 interface AddApiSkillDialogProps {
   open: boolean;
   onClose: () => void;
   onSave: (skill: IAgentSkill) => void;
   existingSkill?: IAgentSkill;
+  app: IAppFlatState;
+  onUpdate: (updates: IAppFlatState) => Promise<void>;  
+  isEnabled: boolean;
 }
 
 const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
@@ -34,6 +39,9 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   onClose,
   onSave,
   existingSkill,
+  app,
+  onUpdate,
+  isEnabled,
 }) => {
   const [skill, setSkill] = useState<IAgentSkill>({
     name: '',
@@ -46,6 +54,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
     },
     configurable: true,
   });
+
+  const [enabled, setEnabled] = useState(isEnabled);
 
   useEffect(() => {
     if (existingSkill) {
@@ -64,7 +74,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         configurable: true,
       });
     }
-  }, [existingSkill, open]);
+    setEnabled(isEnabled);
+  }, [existingSkill, open, isEnabled]);
 
   const handleChange = (field: string, value: string) => {
     setSkill((prev) => ({
@@ -123,8 +134,37 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
     }));
   };
 
-  const handleSave = () => {
-    onSave(skill);
+  const handleSkillToggle = async (enabled: boolean) => {
+    const currentTools = app.apiTools || [];
+    let updatedTools;
+
+    if (enabled) {
+      // If enabling, add the skill with its configuration
+      updatedTools = [...currentTools, {
+        name: skill.name,
+        description: skill.description,
+        schema: skill.apiSkill.schema,
+        url: skill.apiSkill.url,
+      }];
+    } else {
+      // If disabling, remove the skill
+      updatedTools = currentTools.filter(tool => tool.name !== skill.name);
+    }
+
+    if (updatedTools) {
+      await onUpdate({
+        ...app,
+        apiTools: updatedTools,
+      });
+    }
+  };
+
+  const handleSave = async () => {
+    if (enabled) {
+      await handleSkillToggle(true);
+    } else {
+      await handleSkillToggle(false);
+    }
     onClose();
   };
 
@@ -135,6 +175,18 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
       </DialogTitle>
       <DialogContent>
         <Box sx={{ mt: 2 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={enabled}
+                onChange={(e) => setEnabled(e.target.checked)}
+                color="primary"
+              />
+            }
+            label="Enable Skill"
+            sx={{ mb: 2 }}
+          />
+          
           <TextField
             fullWidth
             label="Name"

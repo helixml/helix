@@ -65,47 +65,6 @@ const Skills: React.FC<SkillsProps> = ({
     return app.apiTools?.some(tool => tool.name === skillName) ?? false;
   };
 
-  const handleSkillToggle = async (skillName: string, enabled: boolean) => {
-    const currentTools = app.apiTools || [];
-    let updatedTools;
-
-    if (enabled) {
-      // Find the skill in SKILLS array
-      const skill = SKILLS.find(s => s.name === skillName);
-      
-      if (skill?.apiSkill) {
-        // If skill has apiSkill, open the dialog for configuration
-        setSelectedSkill({
-          name: skill.name,
-          description: skill.description,
-          systemPrompt: '',
-          apiSkill: skill.apiSkill,
-          configurable: true,
-        });
-        setIsDialogOpen(true);
-        return;
-      }
-      
-      // If no apiSkill, just add the skill directly
-      updatedTools = [...currentTools, {
-        name: skillName,
-        description: skill?.description || '',
-        schema: '',
-        url: '',
-      }];
-    } else {
-      // Remove the skill from apiTools
-      updatedTools = currentTools.filter(tool => tool.name !== skillName);
-    }
-
-    if (updatedTools) {
-      await onUpdate({
-        ...app,
-        apiTools: updatedTools,
-      });
-    }
-  };
-
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, skillName: string) => {
     setMenuAnchorEl(event.currentTarget);
     setSelectedSkillForMenu(skillName);
@@ -118,27 +77,18 @@ const Skills: React.FC<SkillsProps> = ({
 
   const handleDisableSkill = () => {
     if (selectedSkillForMenu) {
-      handleSkillToggle(selectedSkillForMenu, false);
+      const skill = SKILLS.find(s => s.name === selectedSkillForMenu);
+      if (skill) {
+        setSelectedSkill(skill.skill);
+        setIsDialogOpen(true);
+      }
     }
     handleMenuClose();
   };
 
-  const handleDialogSave = async (skill: IAgentSkill) => {
-    const currentTools = app.apiTools || [];
-    const updatedTools = [...currentTools, {
-      name: skill.name,
-      description: skill.description,
-      schema: skill.apiSkill.schema,
-      url: skill.apiSkill.url,
-    }];
-
-    await onUpdate({
-      ...app,
-      apiTools: updatedTools,
-    });
-
-    setIsDialogOpen(false);
-    setSelectedSkill(null);
+  const handleOpenDialog = (skill: ISkill) => {
+    setSelectedSkill(skill.skill);
+    setIsDialogOpen(true);
   };
 
   return (
@@ -207,8 +157,7 @@ const Skills: React.FC<SkillsProps> = ({
                       startIcon={<AddCircleOutlineIcon />}
                       color="secondary"
                       variant="outlined"
-                      
-                      onClick={() => handleSkillToggle(skill.name, true)}
+                      onClick={() => handleOpenDialog(skill)}
                     >
                       Enable
                     </Button>
@@ -234,8 +183,11 @@ const Skills: React.FC<SkillsProps> = ({
           setIsDialogOpen(false);
           setSelectedSkill(null);
         }}
-        onSave={handleDialogSave}
+        onSave={() => {}}
         existingSkill={selectedSkill || undefined}
+        app={app}
+        onUpdate={onUpdate}
+        isEnabled={selectedSkill ? isSkillEnabled(selectedSkill.name) : false}
       />
     </Box>
   );
