@@ -107,8 +107,8 @@ components:
 `
 
 export const alphaVantageTool: IAgentSkill = {
-  name: "Alpha Vantage API",
-  description: "API to get market news and sentiment data",
+  name: "Market News",
+  description: "Provides up-to-date financial information from Alpha Vantage.",
   systemPrompt: `You are an expert at using the Alpha Vantage API to get the latest market news and sentiment data.
   
   This API returns live and historical market news & sentiment data from a large & growing selection of premier news 
