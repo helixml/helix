@@ -1,0 +1,121 @@
+const schema = `openapi: 3.0.3
+info:
+  title: Alpha Vantage Market News & Sentiment API
+  description: API for retrieving market news and sentiment data from Alpha Vantage.
+  version: 1.0.0
+servers:
+  - url: https://www.alphavantage.co
+paths:
+  /query:
+    get:
+      summary: Get market news and sentiment data
+      parameters:
+        - name: function
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [NEWS_SENTIMENT]
+          description: The function to call, must be NEWS_SENTIMENT
+        - name: tickers
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: false
+          description: Comma-separated list of stock/crypto/forex symbols to filter articles that mention these symbols. For example: tickers=IBM will filter for articles that mention the IBM ticker; tickers=COIN,CRYPTO:BTC,FOREX:USD will filter for articles that simultaneously mention Coinbase (COIN), Bitcoin (CRYPTO:BTC), and US Dollar (FOREX:USD) in their content.
+        - name: topics
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: false
+          description: Comma-separated list of topics to filter articles that cover these topics. The news topics of your choice. For example: topics=technology will filter for articles that write about the technology sector; topics=technology,ipo will filter for articles that simultaneously cover technology and IPO in their content.
+        - name: time_from
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Start time for filtering articles, in YYYYMMDDTHHMM format
+        - name: time_to
+          in: query
+          required: false
+          schema:
+            type: string
+          description: End time for filtering articles, in YYYYMMDDTHHMM format
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [LATEST, EARLIEST, RELEVANCE]
+            default: LATEST
+          description: Sort order of the articles
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            maximum: 1000
+            default: 50
+          description: Maximum number of articles to return
+        - name: apikey
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Your API key
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: A list of news articles matching the criteria
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  feed:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NewsItem'
+components:
+  schemas:
+    NewsItem:
+      type: object
+      properties:
+        title:
+          type: string
+        url:
+          type: string
+        time_published:
+          type: string
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: query
+      name: apikey
+`
+
+export const alphaVantageTool = {
+  name: "Alpha Vantage API",
+  description: "API to get market news and sentiment data",
+  system_prompt: `You are an expert at using the Alpha Vantage API to get the latest market news and sentiment data.
+  
+  This API returns live and historical market news & sentiment data from a large & growing selection of premier news 
+  outlets around the world, covering stocks, cryptocurrencies, forex, and a wide range of topics such as fiscal policy, 
+  mergers & acquisitions, IPOs, etc. This API, combined with our core stock API, fundamental data, and technical indicator APIs, 
+  can provide you with a 360-degree view of the financial market and the broader economy.
+  
+  function to be used: "NEWS_SENTIMENT"
+  `,
+  schema: schema,
+  url: "https://www.alphavantage.co",
+  configurable: false // Only API key is required from the user
+}
