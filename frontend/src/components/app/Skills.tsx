@@ -139,9 +139,10 @@ const Skills: React.FC<SkillsProps> = ({
                   flexDirection: 'column',
                   transition: 'all 0.2s',
                   boxShadow: 2,
+                  opacity: isEnabled ? 1 : 0.7,
                   '&:hover': {
-                    transform: 'translateY(-4px)',
-                    boxShadow: 4,
+                    transform: isEnabled ? 'translateY(-4px)' : 'none',
+                    boxShadow: isEnabled ? 4 : 2,
                   },
                 }}
               >
