@@ -262,6 +262,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 				if toolNames[tool.Name] {
 					return nil, system.NewHTTPError400(fmt.Sprintf("tool '%s' has a duplicate name", tool.Name))
 				}
+				toolNames[tool.Name] = true
 			}
 
 			for idx := range assistant.Tools {
@@ -623,6 +624,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 			if toolNames[tool.Name] {
 				return nil, system.NewHTTPError400(fmt.Sprintf("tool '%s' has a duplicate name", tool.Name))
 			}
+			toolNames[tool.Name] = true
 		}
 
 		for idx := range assistant.Tools {
