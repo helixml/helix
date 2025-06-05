@@ -54,7 +54,7 @@ const BASE_SKILLS: ISkill[] = [
 const CUSTOM_API_SKILL: ISkill = {
   id: 'new-custom-api',
   icon: <ApiIcon />,
-  name: 'Custom API',
+  name: 'New API',
   description: 'Add your own custom API integration. You can configure the API endpoint, schema, and parameters.',
   type: SKILL_TYPE_HTTP_API,
   skill: {
