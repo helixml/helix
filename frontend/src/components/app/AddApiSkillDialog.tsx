@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { AxiosError } from 'axios';
 import {
   DialogContent,
   DialogActions,
@@ -11,6 +12,7 @@ import {
   ListItem,
   ListItemSecondaryAction,
   Link,
+  Alert,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -101,6 +103,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   const [existingSkill, setExistingSkill] = useState<IAgentSkill | null>(null);
   const [existingSkillIndex, setExistingSkillIndex] = useState<number | null>(null);
   const [parameterValues, setParameterValues] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialSkill) {
@@ -235,48 +238,55 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   };
 
   const handleSave = async () => {        
-    // Construct the IAssistantApi object, which will be used 
-    // to update the application
-    const assistantApi: IAssistantApi = {
-      name: skill.name,
-      description: skill.description,
-      system_prompt: skill.systemPrompt,
-      schema: skill.apiSkill.schema,
-      url: skill.apiSkill.url,      
-      headers: {},
-      query: {},
-    };
+    try {
+      setError(null);
+      // Construct the IAssistantApi object, which will be used 
+      // to update the application
+      const assistantApi: IAssistantApi = {
+        name: skill.name,
+        description: skill.description,
+        system_prompt: skill.systemPrompt,
+        schema: skill.apiSkill.schema,
+        url: skill.apiSkill.url,      
+        headers: {},
+        query: {},
+      };
 
-    // Go through required parameters based on parameter type add it to either
-    // header or query
-    skill.apiSkill.requiredParameters.forEach(param => {
-      switch (param.type) {
-        case 'header':
-          assistantApi.headers![param.name] = parameterValues[param.name];
-          break;
-        case 'query':
-          assistantApi.query![param.name] = parameterValues[param.name];
-          break;
-        // Add more cases here as needed, e.g.:
-        // case 'body':
-        //   assistantApi.body![param.name] = parameterValues[param.name];
-        //   break;
-        default:
-          assistantApi.query![param.name] = parameterValues[param.name];
+      // Go through required parameters based on parameter type add it to either
+      // header or query
+      skill.apiSkill.requiredParameters.forEach(param => {
+        switch (param.type) {
+          case 'header':
+            assistantApi.headers![param.name] = parameterValues[param.name];
+            break;
+          case 'query':
+            assistantApi.query![param.name] = parameterValues[param.name];
+            break;
+          default:
+            assistantApi.query![param.name] = parameterValues[param.name];
+        }
+      });    
+
+      // Based on index update the app api tools array (if set, otherwise add)
+      if (existingSkillIndex !== null) {      
+        app.apiTools![existingSkillIndex] = assistantApi;
+      } else {      
+        app.apiTools!.push(assistantApi);
       }
-    });    
 
-    // Based on index update the app api tools array (if set, otherwise add)
-    if (existingSkillIndex !== null) {      
-      app.apiTools![existingSkillIndex] = assistantApi;
-    } else {      
-      app.apiTools!.push(assistantApi);
+      // Update the application
+      await onUpdate(app);
+
+      onClose();
+    } catch (err) {
+      console.log(err)
+      // Convert to axios error
+      const axiosError = err as AxiosError;   
+      // If we have response, then show err.response.data, otherwise show err.message      
+      const errMessage = axiosError.response?.data ? JSON.stringify(axiosError.response.data) : axiosError.message || 'Failed to save skill';
+      
+      setError(errMessage);
     }
-
-    // Update the application
-    await onUpdate(app);
-
-    onClose();
   };
 
   const handleDisable = async () => {
@@ -470,38 +480,49 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
           )}
         </Box>
       </DialogContent>
-      <DialogActions sx={{ background: '#181A20', borderTop: '1px solid #23262F' }}>
-        <Button 
-          onClick={handleClose} 
-          size="small"
-          variant="outlined"
-          color="primary"
-        >
-          Cancel
-        </Button>
-        {/* Add spacer here */}
-        <Box sx={{ flex: 1 }} />
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          {existingSkill && (
-            <Button
-              onClick={handleDisable}
-              size="small"
-              variant="outlined"
-              color="error"
-              sx={{ borderColor: '#EF4444', color: '#EF4444', '&:hover': { borderColor: '#DC2626', color: '#DC2626' } }}
-            >
-              Disable
-            </Button>
-          )}
-          <Button
-            onClick={handleSave}
+      <DialogActions sx={{ background: '#181A20', borderTop: '1px solid #23262F', flexDirection: 'column', alignItems: 'stretch' }}>
+        {error && (
+          <Box sx={{ width: '100%', pl: 2, pr: 2, mb: 3 }}>
+            <Alert variant="outlined" severity="error" sx={{ width: '100%' }}>
+              {error}
+            </Alert>
+          </Box>
+        )}
+        <Box sx={{ display: 'flex', width: '100%' }}>
+          <Button 
+            onClick={handleClose} 
             size="small"
             variant="outlined"
-            color="secondary"
-            disabled={!areAllParametersFilled()}
+            color="primary"
           >
-            {existingSkill ? 'Save' : 'Enable'}
+            Cancel
           </Button>
+          {/* Add spacer here */}
+          <Box sx={{ flex: 1 }} />
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              {existingSkill && (
+                <Button
+                  onClick={handleDisable}
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  sx={{ borderColor: '#EF4444', color: '#EF4444', '&:hover': { borderColor: '#DC2626', color: '#DC2626' } }}
+                >
+                  Disable
+                </Button>
+              )}
+              <Button
+                onClick={handleSave}
+                size="small"
+                variant="outlined"
+                color="secondary"
+                disabled={!areAllParametersFilled()}
+              >
+                {existingSkill ? 'Save' : 'Enable'}
+              </Button>
+            </Box>
+          </Box>
         </Box>
       </DialogActions>
     </DarkDialog>

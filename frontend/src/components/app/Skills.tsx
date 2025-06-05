@@ -6,6 +6,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { IAppFlatState, IAgentSkill } from '../../types';
 import AddApiSkillDialog from './AddApiSkillDialog';
+import ApiIcon from '@mui/icons-material/Api';
 
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
 import { airQualityTool } from './examples/skillAirQualityApi';
@@ -60,6 +61,25 @@ const SKILLS: ISkill[] = [
     description: exchangeRatesSkill.description,
     type: 'custom',
     skill: exchangeRatesSkill,
+  },
+  {
+    id: 'custom-api',
+    icon: <ApiIcon />,
+    name: 'Custom API',
+    description: 'Add your own custom API integration. You can configure the API endpoint, schema, and parameters.',
+    type: 'custom',
+    skill: {
+      name: 'Custom API',
+      icon: <ApiIcon />,
+      description: 'Add your own custom API integration',
+      systemPrompt: '',
+      apiSkill: {
+        schema: '',
+        url: '',
+        requiredParameters: [],
+      },
+      configurable: true,
+    },
   },
 ];
 
