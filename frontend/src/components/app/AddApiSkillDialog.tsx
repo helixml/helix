@@ -325,15 +325,19 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         }
       });    
 
+      // Copy app object, has to be deep copy as we have arrays inside,
+      // so making a copy, adding a new skill into it and updating the app
+      const appCopy = JSON.parse(JSON.stringify(app));
+
       // Based on index update the app api tools array (if set, otherwise add)
       if (existingSkillIndex !== null) {      
-        app.apiTools![existingSkillIndex] = assistantApi;
-      } else {      
-        app.apiTools!.push(assistantApi);
+        appCopy.apiTools![existingSkillIndex] = assistantApi;
+      } else {
+        appCopy.apiTools!.push(assistantApi);
       }
 
       // Update the application
-      await onUpdate(app);
+      await onUpdate(appCopy);
 
       onClose();
     } catch (err) {
