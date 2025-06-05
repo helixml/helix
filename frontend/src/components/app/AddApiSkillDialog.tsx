@@ -19,6 +19,7 @@ import AddIcon from '@mui/icons-material/Add';
 import { IAgentSkill, IRequiredApiParameter, IAppFlatState, IAssistantApi } from '../../types';
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
+import useLightTheme from '../../hooks/useLightTheme'
 
 interface AddApiSkillDialogProps {
   open: boolean;
@@ -87,6 +88,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   onUpdate,
   isEnabled: initialIsEnabled,
 }) => {
+  const lightTheme = useLightTheme();
 
   const [skill, setSkill] = useState<IAgentSkill>({
     name: '',
@@ -367,8 +369,10 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         }
       }}
     >
-      <DialogContent>
-        <Box sx={{ mt: 2 }}>
+      <DialogContent sx={lightTheme.scrollbar}>
+        <Box sx={{ 
+          mt: 2,          
+          }}>
           <NameTypography>
             {skill.name || 'New API Skill'}
           </NameTypography>
