@@ -279,6 +279,15 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
     onClose();
   };
 
+  const handleDisable = async () => {
+    if (existingSkillIndex !== null) {
+      // Remove the skill from apiTools
+      app.apiTools = app.apiTools?.filter((_, index) => index !== existingSkillIndex);
+      await onUpdate(app);
+    }
+    onClose();
+  };
+
   const handleClose = () => {
     onClose();
   };
@@ -470,15 +479,28 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         >
           Cancel
         </Button>
-        <Button
-          onClick={handleSave}
-          size="small"
-          variant="outlined"
-          color="secondary"
-          disabled={!areAllParametersFilled()}
-        >
-          {existingSkill ? 'Save' : 'Enable'}
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          {existingSkill && (
+            <Button
+              onClick={handleDisable}
+              size="small"
+              variant="outlined"
+              color="error"
+              sx={{ borderColor: '#EF4444', color: '#EF4444', '&:hover': { borderColor: '#DC2626', color: '#DC2626' } }}
+            >
+              Disable
+            </Button>
+          )}
+          <Button
+            onClick={handleSave}
+            size="small"
+            variant="outlined"
+            color="secondary"
+            disabled={!areAllParametersFilled()}
+          >
+            {existingSkill ? 'Save' : 'Enable'}
+          </Button>
+        </Box>
       </DialogActions>
     </DarkDialog>
   );
