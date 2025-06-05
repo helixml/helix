@@ -1688,6 +1688,128 @@ definitions:
     - ModelTypeChat
     - ModelTypeImage
     - ModelTypeEmbed
+  types.OAuthConnection:
+    properties:
+      access_token:
+        description: OAuth token fields
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      expires_at:
+        type: string
+      id:
+        type: string
+      metadata:
+        type: string
+      profile:
+        $ref: '#/definitions/types.OAuthUserInfo'
+      provider:
+        allOf:
+        - $ref: '#/definitions/types.OAuthProvider'
+        description: Provider is a reference to the OAuth provider
+      provider_id:
+        type: string
+      provider_user_email:
+        type: string
+      provider_user_id:
+        description: User details from the provider
+        type: string
+      provider_username:
+        type: string
+      refresh_token:
+        type: string
+      scopes:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+      user_id:
+        type: string
+    type: object
+  types.OAuthProvider:
+    properties:
+      auth_url:
+        description: OAuth 2.0 fields
+        type: string
+      callback_url:
+        type: string
+      client_id:
+        description: Common fields for all providers
+        type: string
+      client_secret:
+        type: string
+      created_at:
+        type: string
+      creator_id:
+        description: Who created/owns this provider
+        type: string
+      creator_type:
+        $ref: '#/definitions/types.OwnerType'
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      description:
+        type: string
+      discovery_url:
+        type: string
+      enabled:
+        type: boolean
+      id:
+        type: string
+      name:
+        type: string
+      scopes:
+        description: Misc configuration
+        items:
+          type: string
+        type: array
+      token_url:
+        type: string
+      type:
+        $ref: '#/definitions/types.OAuthProviderType'
+      updated_at:
+        type: string
+      user_info_url:
+        type: string
+    type: object
+  types.OAuthProviderType:
+    enum:
+    - ""
+    - atlassian
+    - google
+    - microsoft
+    - github
+    - slack
+    - linkedin
+    - custom
+    type: string
+    x-enum-varnames:
+    - OAuthProviderTypeUnknown
+    - OAuthProviderTypeAtlassian
+    - OAuthProviderTypeGoogle
+    - OAuthProviderTypeMicrosoft
+    - OAuthProviderTypeGitHub
+    - OAuthProviderTypeSlack
+    - OAuthProviderTypeLinkedIn
+    - OAuthProviderTypeCustom
+  types.OAuthUserInfo:
+    properties:
+      avatar_url:
+        type: string
+      display_name:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      raw:
+        description: Raw JSON response from provider
+        type: string
+    type: object
   types.OpenAIMessage:
     properties:
       content:
@@ -3604,6 +3726,55 @@ paths:
       summary: List LLM calls
       tags:
       - llm_calls
+  /api/v1/oauth/connections:
+    get:
+      description: List OAuth connections for the user.
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OAuthConnection'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List OAuth connections
+      tags:
+      - oauth
+  /api/v1/oauth/providers:
+    get:
+      description: List OAuth providers for the user.
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.OAuthProvider'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List OAuth providers
+      tags:
+      - oauth
+    post:
+      description: Create a new OAuth provider for the user.
+      parameters:
+      - description: Request body with OAuth provider configuration.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.OAuthProvider'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.OAuthProvider'
+      security:
+      - BearerAuth: []
+      summary: Create a new OAuth provider
+      tags:
+      - oauth
   /api/v1/organizations:
     get:
       responses:
