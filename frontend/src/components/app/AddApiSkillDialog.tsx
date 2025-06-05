@@ -13,14 +13,24 @@ import {
   ListItemSecondaryAction,
   Link,
   Alert,
+  Menu,
+  MenuItem,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { IAgentSkill, IRequiredApiParameter, IAppFlatState, IAssistantApi } from '../../types';
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme'
 import yaml from 'js-yaml';
+
+// Example skills
+import { coindeskTool } from './examples/coindeskApi';
+import { jobVacanciesTool } from './examples/jobVacanciesApi';
+import { productsTool } from './examples/productsApi';
+import { climateTool } from './examples/climateApi';
+import { exchangeRatesTool } from './examples/exchangeRatesApi';
 
 interface AddApiSkillDialogProps {
   open: boolean;
@@ -90,6 +100,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   isEnabled: initialIsEnabled,
 }) => {
   const lightTheme = useLightTheme();
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
   const [skill, setSkill] = useState<IAgentSkill>({
     name: '',
@@ -349,6 +360,29 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
     onClose();
   };
 
+  const handleMenuClick = (event: React.MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  const handleExampleSelect = (example: IAssistantApi) => {
+    setSkill({
+      name: example.name,
+      description: example.description,
+      systemPrompt: example.system_prompt || '',
+      apiSkill: {
+        schema: example.schema,
+        url: example.url,
+        requiredParameters: [],
+      },
+      configurable: true,
+    });
+    handleMenuClose();
+  };
+
   const renderDescriptionWithLinks = (text: string) => {
     // URL regex pattern
     const urlRegex = /(https?:\/\/[^\s]+)/g;
@@ -418,9 +452,52 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         <Box sx={{ 
           mt: 2,          
           }}>
-          <NameTypography>
-            {skill.name || 'New API Skill'}
-          </NameTypography>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <NameTypography>
+              {skill.name || 'New API Skill'}
+            </NameTypography>
+            <Button
+              onClick={handleMenuClick}
+              variant="outlined"
+              size="small"
+              sx={{ 
+                color: '#A0AEC0',
+                borderColor: '#353945',
+                '&:hover': {
+                  borderColor: '#6366F1',
+                  color: '#6366F1',
+                },
+                textTransform: 'none',
+                fontSize: '0.875rem',
+                py: 0.5,
+                px: 1.5,
+              }}
+            >
+              Load from examples
+            </Button>
+            <Menu
+              anchorEl={anchorEl}
+              open={Boolean(anchorEl)}
+              onClose={handleMenuClose}
+              PaperProps={{
+                sx: {
+                  bgcolor: '#23262F',
+                  color: '#F1F1F1',
+                  '& .MuiMenuItem-root': {
+                    '&:hover': {
+                      bgcolor: '#353945',
+                    },
+                  },
+                },
+              }}
+            >
+              <MenuItem onClick={() => handleExampleSelect(coindeskTool)}>CoinDesk API</MenuItem>
+              <MenuItem onClick={() => handleExampleSelect(climateTool)}>Climate API</MenuItem>
+              <MenuItem onClick={() => handleExampleSelect(jobVacanciesTool)}>Job Vacancies API</MenuItem>
+              <MenuItem onClick={() => handleExampleSelect(exchangeRatesTool)}>Exchange Rates API</MenuItem>
+              <MenuItem onClick={() => handleExampleSelect(productsTool)}>Products API</MenuItem>
+            </Menu>
+          </Box>
           <DescriptionTypography>
             {renderDescriptionWithLinks(skill.description || 'No description provided.')}
           </DescriptionTypography>
