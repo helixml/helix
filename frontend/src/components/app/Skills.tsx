@@ -63,7 +63,7 @@ const SKILLS: ISkill[] = [
     skill: exchangeRatesSkill,
   },
   {
-    id: 'custom-api',
+    id: 'new-custom-api',
     icon: <ApiIcon />,
     name: 'Custom API',
     description: 'Add your own custom API integration. You can configure the API endpoint, schema, and parameters.',
@@ -135,7 +135,12 @@ const Skills: React.FC<SkillsProps> = ({
   };
 
   const handleOpenDialog = (skill: ISkill) => {
-    setSelectedSkill(skill.skill);
+    // For custom API tile, don't pass the skill template
+    if (skill.id === 'new-custom-api') {
+      setSelectedSkill(null);
+    } else {
+      setSelectedSkill(skill.skill);
+    }
     setIsDialogOpen(true);
   };
 

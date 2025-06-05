@@ -107,6 +107,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
 
   useEffect(() => {
     if (initialSkill) {
+      console.log('initialSkill: ', initialSkill);
       setSkill(initialSkill);
       // Find existing skill in app.apiTools
       const existingIndex = app.apiTools?.findIndex(tool => tool.name === initialSkill.name) ?? -1;
@@ -381,6 +382,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
                 fullWidth
                 label="Name"
                 value={skill.name}
+                helperText="The name of the skill, make it informative and unique for the AI"
                 onChange={(e) => handleChange('name', e.target.value)}
                 margin="normal"
                 required
@@ -388,6 +390,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
               <DarkTextField
                 fullWidth
                 label="Description"
+                helperText="A short description of the skill, make it informative and unique for the AI"
                 value={skill.description}
                 onChange={(e) => handleChange('description', e.target.value)}
                 margin="normal"
@@ -397,7 +400,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
               />
               <DarkTextField
                 fullWidth
-                label="System Prompt"
+                label="Skill System Prompt"
+                helperText="Will be used when running the skill, add special instructions that could help the AI understand the skill better"
                 value={skill.systemPrompt}
                 onChange={(e) => handleChange('systemPrompt', e.target.value)}
                 margin="normal"
@@ -407,7 +411,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
               />
               <DarkTextField
                 fullWidth
-                label="URL"
+                label="Server URL"
+                helperText="This URL will be used to make API calls"
                 value={skill.apiSkill.url}
                 onChange={(e) => handleApiSkillChange('url', e.target.value)}
                 margin="normal"
@@ -415,7 +420,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
               />
               <DarkTextField
                 fullWidth
-                label="Schema"
+                label="OpenAPI Schema"
+                helperText="OpenAPI (Swagger) schema of the API, can be YAML or JSON"
                 value={skill.apiSkill.schema}
                 onChange={(e) => handleApiSkillChange('schema', e.target.value)}
                 margin="normal"
@@ -499,7 +505,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
           </Button>
           {/* Add spacer here */}
           <Box sx={{ flex: 1 }} />
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1, mr: 2 }}>
             <Box sx={{ display: 'flex', gap: 1 }}>
               {existingSkill && (
                 <Button
