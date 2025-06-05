@@ -55,12 +55,12 @@ const CUSTOM_API_SKILL: ISkill = {
   id: 'new-custom-api',
   icon: <ApiIcon />,
   name: 'New API',
-  description: 'Add your own custom API integration. You can configure the API endpoint, schema, and parameters.',
+  description: 'Add your own custom API integration. Any HTTP endpoint can become a skill for your agent.',
   type: SKILL_TYPE_HTTP_API,
   skill: {
     name: 'Custom API',
     icon: <ApiIcon />,
-    description: 'Add your own custom API integration',
+    description: 'Add your own API integration.',
     systemPrompt: '',
     apiSkill: {
       schema: '',
@@ -166,6 +166,10 @@ const Skills: React.FC<SkillsProps> = ({
     <Box sx={{ mt: 2, mr: 4 }}>
       <Typography variant="h6" sx={{ mb: 2 }}>
         Skills
+      </Typography>
+      {/* Add a paragraph with info about skills */}
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        Extend the capabilities of the AI with custom functions, APIs and workflows.
       </Typography>
       <Grid container spacing={2}>
         {allSkills.map((skill) => {
