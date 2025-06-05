@@ -15,6 +15,7 @@ import {
   Alert,
   Menu,
   MenuItem,
+  Grid,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -110,6 +111,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
       schema: '',
       url: '',
       requiredParameters: [],
+      query: {},
+      headers: {},
     },
     configurable: true,
   });
@@ -123,7 +126,14 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   useEffect(() => {
     if (initialSkill) {
       console.log('initialSkill: ', initialSkill);
-      setSkill(initialSkill);
+      setSkill({
+        ...initialSkill,
+        apiSkill: {
+          ...initialSkill.apiSkill,
+          query: initialSkill.apiSkill.query || {},
+          headers: initialSkill.apiSkill.headers || {},
+        },
+      });
       // Find existing skill in app.apiTools
       const existingIndex = app.apiTools?.findIndex(tool => tool.name === initialSkill.name) ?? -1;
       if (existingIndex !== -1) {
@@ -140,6 +150,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
           schema: '',
           url: '',
           requiredParameters: [],
+          query: {},
+          headers: {},
         },
         configurable: true,
       });
@@ -223,9 +235,9 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
     }
   };
 
-  const handleApiSkillChange = (field: string, value: string) => {
+  const handleApiSkillChange = (field: string, value: string | Record<string, string>) => {
     if (field === 'schema') {
-      validateSchema(value);
+      validateSchema(value as string);
     }
     setSkill((prev) => ({
       ...prev,
@@ -306,8 +318,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         system_prompt: skill.systemPrompt,
         schema: skill.apiSkill.schema,
         url: skill.apiSkill.url,      
-        headers: {},
-        query: {},
+        headers: skill.apiSkill.headers || {},
+        query: skill.apiSkill.query || {},
       };
 
       // Go through required parameters based on parameter type add it to either
@@ -334,7 +346,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         appCopy.apiTools![existingSkillIndex] = assistantApi;
       } else {
         appCopy.apiTools!.push(assistantApi);
-      }
+      }      
 
       // Update the application
       await onUpdate(appCopy);
@@ -441,6 +453,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
               schema: '',
               url: '',
               requiredParameters: [],
+              query: {},
+              headers: {},
             },
             configurable: true,
           });
@@ -548,6 +562,143 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
                 margin="normal"
                 required
               />
+
+              <Box sx={{ mt: 2, mb: 2, ml: 1 }}>
+                <Typography variant="subtitle1" sx={{ mb: 2, color: '#F8FAFC' }}>
+                  API Configuration
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={6}>
+                    <Typography variant="subtitle2" sx={{ mb: 1, color: '#A0AEC0' }}>
+                      Query Parameters
+                    </Typography>
+                    <List>
+                      {Object.entries(skill.apiSkill.query || {}).map(([key, value], index) => (
+                        <ListItem key={`query-${index}`} sx={{ px: 0 }}>
+                          <Grid container spacing={1}>
+                            <Grid item xs={5}>
+                              <DarkTextField
+                                size="small"
+                                placeholder="Key"
+                                value={key}
+                                onChange={(e) => {
+                                  const newQuery = { ...skill.apiSkill.query };
+                                  delete newQuery[key];
+                                  newQuery[e.target.value] = value;
+                                  handleApiSkillChange('query', newQuery);
+                                }}
+                                fullWidth
+                              />
+                            </Grid>
+                            <Grid item xs={5}>
+                              <DarkTextField
+                                size="small"
+                                placeholder="Value"
+                                value={value}
+                                onChange={(e) => {
+                                  const newQuery = { ...skill.apiSkill.query };
+                                  newQuery[key] = e.target.value;
+                                  handleApiSkillChange('query', newQuery);
+                                }}
+                                fullWidth
+                              />
+                            </Grid>
+                            <Grid item xs={2}>
+                              <IconButton
+                                size="small"
+                                onClick={() => {
+                                  const newQuery = { ...skill.apiSkill.query };
+                                  delete newQuery[key];
+                                  handleApiSkillChange('query', newQuery);
+                                }}
+                                sx={{ color: '#F87171' }}
+                              >
+                                <DeleteIcon />
+                              </IconButton>
+                            </Grid>
+                          </Grid>
+                        </ListItem>
+                      ))}
+                    </List>
+                    <Button
+                      startIcon={<AddIcon />}
+                      onClick={() => {
+                        const newQuery = { ...skill.apiSkill.query, '': '' };
+                        handleApiSkillChange('query', newQuery);
+                      }}
+                      size="small"
+                      sx={{ mt: 1 }}
+                    >
+                      Add Query Parameter
+                    </Button>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="subtitle2" sx={{ mb: 1, color: '#A0AEC0' }}>
+                      Headers
+                    </Typography>
+                    <List>
+                      {Object.entries(skill.apiSkill.headers || {}).map(([key, value], index) => (
+                        <ListItem key={`header-${index}`} sx={{ px: 0 }}>
+                          <Grid container spacing={1}>
+                            <Grid item xs={5}>
+                              <DarkTextField
+                                size="small"
+                                placeholder="Key"
+                                value={key}
+                                onChange={(e) => {
+                                  const newHeaders = { ...skill.apiSkill.headers };
+                                  delete newHeaders[key];
+                                  newHeaders[e.target.value] = value;
+                                  handleApiSkillChange('headers', newHeaders);
+                                }}
+                                fullWidth
+                              />
+                            </Grid>
+                            <Grid item xs={5}>
+                              <DarkTextField
+                                size="small"
+                                placeholder="Value"
+                                value={value}
+                                onChange={(e) => {
+                                  const newHeaders = { ...skill.apiSkill.headers };
+                                  newHeaders[key] = e.target.value;
+                                  handleApiSkillChange('headers', newHeaders);
+                                }}
+                                fullWidth
+                              />
+                            </Grid>
+                            <Grid item xs={2}>
+                              <IconButton
+                                size="small"
+                                onClick={() => {
+                                  const newHeaders = { ...skill.apiSkill.headers };
+                                  delete newHeaders[key];
+                                  handleApiSkillChange('headers', newHeaders);
+                                }}
+                                sx={{ color: '#F87171' }}
+                              >
+                                <DeleteIcon />
+                              </IconButton>
+                            </Grid>
+                          </Grid>
+                        </ListItem>
+                      ))}
+                    </List>
+                    <Button
+                      startIcon={<AddIcon />}
+                      onClick={() => {
+                        const newHeaders = { ...skill.apiSkill.headers, '': '' };
+                        handleApiSkillChange('headers', newHeaders);
+                      }}
+                      size="small"
+                      sx={{ mt: 1 }}
+                    >
+                      Add Header
+                    </Button>
+                  </Grid>
+                </Grid>
+              </Box>
+
               <DarkTextField
                 fullWidth
                 label="OpenAPI Schema"
