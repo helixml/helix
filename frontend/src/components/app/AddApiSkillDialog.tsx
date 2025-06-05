@@ -20,6 +20,7 @@ import { IAgentSkill, IRequiredApiParameter, IAppFlatState, IAssistantApi } from
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme'
+import yaml from 'js-yaml';
 
 interface AddApiSkillDialogProps {
   open: boolean;
@@ -106,6 +107,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   const [existingSkillIndex, setExistingSkillIndex] = useState<number | null>(null);
   const [parameterValues, setParameterValues] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [schemaError, setSchemaError] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialSkill) {
@@ -177,7 +179,43 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
     }));
   };
 
+  const validateSchema = (schema: string): boolean => {
+    if (!schema.trim()) {
+      setSchemaError('Schema is required');
+      return false;
+    }
+
+    try {
+      // Try parsing as JSON first
+      JSON.parse(schema);
+      setSchemaError(null);
+      console.log("valid schema")
+      return true;
+    } catch (jsonError) {
+      try {
+        // If JSON parsing fails, try parsing as YAML, 
+        // loaded yaml schema should have several properties:
+        // - key "paths" should have at least one element
+        // - it should have "openapi" with a version number      
+        const yamlSchema = yaml.load(schema) as { paths?: any; openapi?: string };
+        if (!yamlSchema.paths || !yamlSchema.openapi) {
+          setSchemaError('Schema must be valid OpenAPI 3.0.0');
+          return false;
+        }
+
+        setSchemaError(null);
+        return true;
+      } catch (yamlError) {
+        setSchemaError('Schema must be valid JSON or YAML');
+        return false;
+      }
+    }
+  };
+
   const handleApiSkillChange = (field: string, value: string) => {
+    if (field === 'schema') {
+      validateSchema(value);
+    }
     setSkill((prev) => ({
       ...prev,
       apiSkill: {
@@ -243,6 +281,12 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   const handleSave = async () => {        
     try {
       setError(null);
+      
+      // Validate schema before saving
+      if (!validateSchema(skill.apiSkill.schema)) {
+        return;
+      }
+
       // Construct the IAssistantApi object, which will be used 
       // to update the application
       const assistantApi: IAssistantApi = {
@@ -365,6 +409,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
           setExistingSkill(null);
           setExistingSkillIndex(null);
           setParameterValues({});
+          setSchemaError(null);
           onClosed?.();
         }
       }}
@@ -425,13 +470,28 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
               <DarkTextField
                 fullWidth
                 label="OpenAPI Schema"
-                helperText="OpenAPI (Swagger) schema of the API, can be YAML or JSON"
                 value={skill.apiSkill.schema}
                 onChange={(e) => handleApiSkillChange('schema', e.target.value)}
                 margin="normal"
                 required
                 multiline
                 rows={10}
+                error={!!schemaError}
+                helperText={schemaError || "OpenAPI (Swagger) schema of the API, can be YAML or JSON"}
+                sx={{
+                  '& .MuiFormHelperText-root': {
+                    color: schemaError ? '#EF4444' : '#A0AEC0',
+                    fontSize: '0.875rem',
+                    marginTop: '4px',
+                  },
+                  '& .MuiOutlinedInput-root': {
+                    '&.Mui-error': {
+                      '& fieldset': {
+                        borderColor: '#EF4444',
+                      },
+                    },
+                  },
+                }}
               />
             </SectionCard>
           )}
