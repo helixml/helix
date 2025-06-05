@@ -1066,6 +1066,74 @@ export enum TypesModelType {
   ModelTypeEmbed = "embed",
 }
 
+export interface TypesOAuthConnection {
+  /** OAuth token fields */
+  access_token?: string;
+  created_at?: string;
+  deleted_at?: GormDeletedAt;
+  expires_at?: string;
+  id?: string;
+  metadata?: string;
+  profile?: TypesOAuthUserInfo;
+  /** Provider is a reference to the OAuth provider */
+  provider?: TypesOAuthProvider;
+  provider_id?: string;
+  provider_user_email?: string;
+  /** User details from the provider */
+  provider_user_id?: string;
+  provider_username?: string;
+  refresh_token?: string;
+  scopes?: string[];
+  updated_at?: string;
+  user_id?: string;
+}
+
+export interface TypesOAuthProvider {
+  /** OAuth 2.0 fields */
+  auth_url?: string;
+  callback_url?: string;
+  /** Common fields for all providers */
+  client_id?: string;
+  client_secret?: string;
+  created_at?: string;
+  /** Who created/owns this provider */
+  creator_id?: string;
+  creator_type?: TypesOwnerType;
+  deleted_at?: GormDeletedAt;
+  description?: string;
+  discovery_url?: string;
+  enabled?: boolean;
+  id?: string;
+  name?: string;
+  /** Misc configuration */
+  scopes?: string[];
+  token_url?: string;
+  type?: TypesOAuthProviderType;
+  updated_at?: string;
+  user_info_url?: string;
+}
+
+export enum TypesOAuthProviderType {
+  OAuthProviderTypeUnknown = "",
+  OAuthProviderTypeAtlassian = "atlassian",
+  OAuthProviderTypeGoogle = "google",
+  OAuthProviderTypeMicrosoft = "microsoft",
+  OAuthProviderTypeGitHub = "github",
+  OAuthProviderTypeSlack = "slack",
+  OAuthProviderTypeLinkedIn = "linkedin",
+  OAuthProviderTypeCustom = "custom",
+}
+
+export interface TypesOAuthUserInfo {
+  avatar_url?: string;
+  display_name?: string;
+  email?: string;
+  id?: string;
+  name?: string;
+  /** Raw JSON response from provider */
+  raw?: string;
+}
+
 export interface TypesOpenAIMessage {
   /** The message content */
   content?: string;
@@ -2573,6 +2641,59 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List OAuth connections for the user.
+     *
+     * @tags oauth
+     * @name V1OauthConnectionsList
+     * @summary List OAuth connections
+     * @request GET:/api/v1/oauth/connections
+     * @secure
+     */
+    v1OauthConnectionsList: (params: RequestParams = {}) =>
+      this.request<TypesOAuthConnection[], any>({
+        path: `/api/v1/oauth/connections`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List OAuth providers for the user.
+     *
+     * @tags oauth
+     * @name V1OauthProvidersList
+     * @summary List OAuth providers
+     * @request GET:/api/v1/oauth/providers
+     * @secure
+     */
+    v1OauthProvidersList: (params: RequestParams = {}) =>
+      this.request<TypesOAuthProvider[], any>({
+        path: `/api/v1/oauth/providers`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a new OAuth provider for the user.
+     *
+     * @tags oauth
+     * @name V1OauthProvidersCreate
+     * @summary Create a new OAuth provider
+     * @request POST:/api/v1/oauth/providers
+     * @secure
+     */
+    v1OauthProvidersCreate: (request: TypesOAuthProvider, params: RequestParams = {}) =>
+      this.request<TypesOAuthProvider, any>({
+        path: `/api/v1/oauth/providers`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 

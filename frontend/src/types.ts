@@ -896,6 +896,10 @@ export interface IAgentSkill {
   apiSkill: {
     schema: string;        // Schema of the API to be used, only applicable for API tools
     url: string;           // URL of the API to be used, only applicable for API tools
+    headers?: Record<string, string>; // Headers to set for HTTP requests
+    query?: Record<string, string>;   // Query parameters to set for HTTP requests (will override whatever AI model sets)
+    oauth_provider?: string;
+    oauth_scopes?: string[];
     requiredParameters: Array<{
       name: string;                // Name of the parameter
       description: string;         // Description of the parameter

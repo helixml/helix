@@ -38,6 +38,13 @@ func (s *HelixAPIServer) setupOAuthRoutes(r *mux.Router) {
 }
 
 // handleListOAuthProviders returns the list of available OAuth providers
+// listOAuthProviders godoc
+// @Summary List OAuth providers
+// @Description List OAuth providers for the user.
+// @Tags    oauth
+// @Success 200 {array} types.OAuthProvider
+// @Router /api/v1/oauth/providers [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) handleListOAuthProviders(_ http.ResponseWriter, r *http.Request) ([]*types.OAuthProvider, error) {
 	user := getRequestUser(r)
 
@@ -90,6 +97,14 @@ func (s *HelixAPIServer) handleListOAuthProviders(_ http.ResponseWriter, r *http
 }
 
 // handleCreateOAuthProvider creates a new OAuth provider
+// createOAuthProvider godoc
+// @Summary Create a new OAuth provider
+// @Description Create a new OAuth provider for the user.
+// @Tags    oauth
+// @Param request body types.OAuthProvider true "Request body with OAuth provider configuration."
+// @Success 200 {object} types.OAuthProvider
+// @Router /api/v1/oauth/providers [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) handleCreateOAuthProvider(_ http.ResponseWriter, r *http.Request) (*types.OAuthProvider, error) {
 	user := getRequestUser(r)
 
@@ -136,6 +151,13 @@ func (s *HelixAPIServer) handleCreateOAuthProvider(_ http.ResponseWriter, r *htt
 }
 
 // handleListOAuthConnections returns the list of OAuth connections for the current user
+// listOAuthConnections godoc
+// @Summary List OAuth connections
+// @Description List OAuth connections for the user.
+// @Tags    oauth
+// @Success 200 {array} types.OAuthConnection
+// @Router /api/v1/oauth/connections [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) handleListOAuthConnections(_ http.ResponseWriter, r *http.Request) ([]*types.OAuthConnection, error) {
 	user := getRequestUser(r)
 
