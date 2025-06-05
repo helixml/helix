@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, IconButton, Menu, MenuItem, useTheme } from '@mui/material';
 import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
@@ -21,23 +21,8 @@ interface ISkill {
   skill: IAgentSkill;
 }
 
-// Example static skills/plugins data
-const SKILLS: ISkill[] = [
-  // TODO: build skills in the backend for browser use and calculator
-  // {
-  //   id: 'browser-use',
-  //   name: 'Browser Use',
-  //   description: 'Use the browser to open links and search for information in real-time.',
-  //   type: 'custom',
-  //   enabled: false,
-  // },
-  // {
-  //   id: 'simple-calculator',
-  //   name: 'Simple Calculator',
-  //   description: 'Calculate a math expression. For example, "2 + 2" or "2 * 2".',
-  //   type: 'custom',
-  //   enabled: false,
-  // },
+// Base static skills/plugins data
+const BASE_SKILLS: ISkill[] = [
   {
     id: 'alpha-vantage',
     icon: alphaVantageTool.icon,
@@ -103,6 +88,36 @@ const Skills: React.FC<SkillsProps> = ({
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedSkillForMenu, setSelectedSkillForMenu] = useState<string | null>(null);
 
+  // Convert custom APIs to skills
+  const customApiSkills = useMemo(() => {
+    if (!app.apiTools) return [];
+    
+    return app.apiTools.map(api => ({
+      id: `custom-api-${api.name}`,
+      icon: <ApiIcon />,
+      name: api.name,
+      description: api.description,
+      type: 'custom',
+      skill: {
+        name: api.name,
+        icon: <ApiIcon />,
+        description: api.description,
+        systemPrompt: api.system_prompt || '',
+        apiSkill: {
+          schema: api.schema,
+          url: api.url,
+          requiredParameters: [],
+        },
+        configurable: true,
+      },
+    }));
+  }, [app.apiTools]);
+
+  // Combine base skills with custom API skills
+  const allSkills = useMemo(() => {
+    return [...BASE_SKILLS, ...customApiSkills];
+  }, [customApiSkills]);
+
   const isSkillEnabled = (skillName: string): boolean => {
     return app.apiTools?.some(tool => tool.name === skillName) ?? false;
   };
@@ -119,7 +134,7 @@ const Skills: React.FC<SkillsProps> = ({
 
   const handleDisableSkill = async () => {
     if (selectedSkillForMenu) {
-      const skill = SKILLS.find(s => s.name === selectedSkillForMenu);
+      const skill = allSkills.find(s => s.name === selectedSkillForMenu);
       if (skill) {
         // Remove the tool from app.apiTools
         const updatedTools = app.apiTools?.filter(tool => tool.name !== skill.name) || [];
@@ -150,7 +165,7 @@ const Skills: React.FC<SkillsProps> = ({
         Skills
       </Typography>
       <Grid container spacing={2}>
-        {SKILLS.map((skill) => {
+        {allSkills.map((skill) => {
           const defaultIcon = PROVIDER_ICONS[skill.type] || PROVIDER_ICONS['custom'];
           const color = PROVIDER_COLORS[skill.type] || PROVIDER_COLORS['custom'];
           const isEnabled = isSkillEnabled(skill.name);
