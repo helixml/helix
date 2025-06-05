@@ -123,6 +123,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   const [parameterValues, setParameterValues] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [schemaError, setSchemaError] = useState<string | null>(null);
+  const [urlError, setUrlError] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialSkill) {
@@ -237,6 +238,13 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   const handleApiSkillChange = (field: string, value: string | Record<string, string>) => {
     if (field === 'schema') {
       validateSchema(value as string);
+    } else if (field === 'url') {
+      const url = value as string;
+      if (url && !url.toLowerCase().startsWith('http')) {
+        setUrlError('URL must start with http:// or https://');
+      } else {
+        setUrlError(null);
+      }
     }
     setSkill((prev) => ({
       ...prev,
@@ -306,6 +314,12 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
       
       // Validate schema before saving
       if (!validateSchema(skill.apiSkill.schema)) {
+        return;
+      }
+
+      // Validate URL before saving
+      if (!skill.apiSkill.url.toLowerCase().startsWith('http')) {
+        setUrlError('URL must start with http:// or https://');
         return;
       }
 
@@ -461,6 +475,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
           setExistingSkillIndex(null);
           setParameterValues({});
           setSchemaError(null);
+          setUrlError(null);
           onClosed?.();
         }
       }}
@@ -555,11 +570,26 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
               <DarkTextField
                 fullWidth
                 label="Server URL"
-                helperText="This URL will be used to make API calls"
+                helperText={urlError || "This URL will be used to make API calls"}
                 value={skill.apiSkill.url}
                 onChange={(e) => handleApiSkillChange('url', e.target.value)}
                 margin="normal"
                 required
+                error={!!urlError}
+                sx={{
+                  '& .MuiFormHelperText-root': {
+                    color: urlError ? '#EF4444' : '#A0AEC0',
+                    fontSize: '0.875rem',
+                    marginTop: '4px',
+                  },
+                  '& .MuiOutlinedInput-root': {
+                    '&.Mui-error': {
+                      '& fieldset': {
+                        borderColor: '#EF4444',
+                      },
+                    },
+                  },
+                }}
               />
 
               <Box sx={{ mt: 2, mb: 2, ml: 1 }}>
