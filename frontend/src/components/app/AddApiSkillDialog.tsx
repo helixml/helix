@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   Dialog,
-  DialogTitle,
   DialogContent,
   DialogActions,
   Button,
@@ -243,9 +242,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
     });
   };
 
-  const handleSave = async () => {    
-    console.log('skill config: ', skill);
-
+  const handleSave = async () => {        
     // Construct the IAssistantApi object, which will be used 
     // to update the application
     const assistantApi: IAssistantApi = {
@@ -261,10 +258,19 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
     // Go through required parameters based on parameter type add it to either
     // header or query
     skill.apiSkill.requiredParameters.forEach(param => {
-      if (param.type === 'header') {
-        assistantApi.headers![param.name] = parameterValues[param.name];
-      } else {
-        assistantApi.query![param.name] = parameterValues[param.name];
+      switch (param.type) {
+        case 'header':
+          assistantApi.headers![param.name] = parameterValues[param.name];
+          break;
+        case 'query':
+          assistantApi.query![param.name] = parameterValues[param.name];
+          break;
+        // Add more cases here as needed, e.g.:
+        // case 'body':
+        //   assistantApi.body![param.name] = parameterValues[param.name];
+        //   break;
+        default:
+          assistantApi.query![param.name] = parameterValues[param.name];
       }
     });
 
