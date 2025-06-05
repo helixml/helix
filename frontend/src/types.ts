@@ -891,6 +891,7 @@ export type IRequiredApiParameter = 'query' | 'header'
 export interface IAgentSkill {
   name: string;
   description: string;
+  icon?: React.ReactNode;
   systemPrompt: string; // Will be used to configure the skill when it's running
   apiSkill: {
     schema: string;        // Schema of the API to be used, only applicable for API tools

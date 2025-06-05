@@ -1,11 +1,9 @@
 import React, { useState } from 'react';
 import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, IconButton, Menu, MenuItem, useTheme } from '@mui/material';
 import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
-import ShowChartIcon from '@mui/icons-material/ShowChart';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
-import AirIcon from '@mui/icons-material/Air';
 import { IAppFlatState, IAgentSkill } from '../../types';
 import AddApiSkillDialog from './AddApiSkillDialog';
 
@@ -19,7 +17,6 @@ interface ISkill {
   description: string;
   type: string;
   skill: IAgentSkill;
-  apiSkill?: IAgentSkill['apiSkill'];  
 }
 
 // Example static skills/plugins data
@@ -41,21 +38,19 @@ const SKILLS: ISkill[] = [
   // },
   {
     id: 'alpha-vantage',
-    icon: <ShowChartIcon />,
+    icon: alphaVantageTool.icon,
     name: alphaVantageTool.name,
     description: alphaVantageTool.description,
     type: 'custom',
     skill: alphaVantageTool,
-    apiSkill: alphaVantageTool.apiSkill,
   },
   {
     id: 'air-quality',
-    icon: <AirIcon />,
+    icon: airQualityTool.icon,
     name: airQualityTool.name,
     description: airQualityTool.description,
     type: 'custom',
     skill: airQualityTool,
-    apiSkill: airQualityTool.apiSkill,
   },
 ];
 
@@ -145,7 +140,7 @@ const Skills: React.FC<SkillsProps> = ({
               >
                 <CardHeader
                   avatar={
-                    <Avatar sx={{ bgcolor: color, color: 'white', width: 40, height: 40 }}>
+                    <Avatar sx={{ bgcolor: 'white', color: color, width: 40, height: 40 }}>
                       {skill.icon || defaultIcon}
                     </Avatar>
                   }
