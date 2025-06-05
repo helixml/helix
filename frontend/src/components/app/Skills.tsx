@@ -49,26 +49,27 @@ const BASE_SKILLS: ISkill[] = [
     type: SKILL_TYPE_HTTP_API,
     skill: exchangeRatesSkill,
   },
-  {
-    id: 'new-custom-api',
-    icon: <ApiIcon />,
-    name: 'Custom API',
-    description: 'Add your own custom API integration. You can configure the API endpoint, schema, and parameters.',
-    type: SKILL_TYPE_HTTP_API,
-    skill: {
-      name: 'Custom API',
-      icon: <ApiIcon />,
-      description: 'Add your own custom API integration',
-      systemPrompt: '',
-      apiSkill: {
-        schema: '',
-        url: '',
-        requiredParameters: [],
-      },
-      configurable: true,
-    },
-  },
 ];
+
+const CUSTOM_API_SKILL: ISkill = {
+  id: 'new-custom-api',
+  icon: <ApiIcon />,
+  name: 'Custom API',
+  description: 'Add your own custom API integration. You can configure the API endpoint, schema, and parameters.',
+  type: SKILL_TYPE_HTTP_API,
+  skill: {
+    name: 'Custom API',
+    icon: <ApiIcon />,
+    description: 'Add your own custom API integration',
+    systemPrompt: '',
+    apiSkill: {
+      schema: '',
+      url: '',
+      requiredParameters: [],
+    },
+    configurable: true,
+  },
+};
 
 const getFirstLine = (text: string): string => {
   return text.split('\n')[0].trim();
@@ -117,7 +118,7 @@ const Skills: React.FC<SkillsProps> = ({
 
   // Combine base skills with custom API skills
   const allSkills = useMemo(() => {
-    return [...BASE_SKILLS, ...customApiSkills];
+    return [...BASE_SKILLS, ...customApiSkills, CUSTOM_API_SKILL];
   }, [customApiSkills]);
 
   const isSkillEnabled = (skillName: string): boolean => {
@@ -171,6 +172,7 @@ const Skills: React.FC<SkillsProps> = ({
           const defaultIcon = PROVIDER_ICONS[skill.type] || PROVIDER_ICONS['custom'];
           const color = PROVIDER_COLORS[skill.type] || PROVIDER_COLORS['custom'];
           const isEnabled = isSkillEnabled(skill.name);
+          const isCustomApiTile = skill.id === 'new-custom-api';
           
           return (
             <Grid item xs={12} sm={6} md={4} lg={3} key={skill.id}>
@@ -219,6 +221,36 @@ const Skills: React.FC<SkillsProps> = ({
                       transform: isEnabled ? 'translateY(-4px)' : 'none',
                       boxShadow: isEnabled ? 4 : 2,
                     },
+                    ...(isCustomApiTile && {
+                      position: 'relative',
+                      '&::before': {
+                        content: '""',
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        borderRadius: 'inherit',
+                        padding: '2px',
+                        background: 'linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96c93d)',
+                        WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+                        WebkitMaskComposite: 'xor',
+                        maskComposite: 'exclude',
+                        animation: 'shimmer 3s linear infinite',
+                        backgroundSize: '300% 300%',
+                      },
+                      '@keyframes shimmer': {
+                        '0%': {
+                          backgroundPosition: '0% 50%',
+                        },
+                        '50%': {
+                          backgroundPosition: '100% 50%',
+                        },
+                        '100%': {
+                          backgroundPosition: '0% 50%',
+                        },
+                      },
+                    }),
                   }}
                 >
                   <CardHeader
@@ -269,7 +301,7 @@ const Skills: React.FC<SkillsProps> = ({
                         variant="outlined"
                         onClick={() => handleOpenDialog(skill)}
                       >
-                        Enable
+                        {isCustomApiTile ? 'Add' : 'Enable'}
                       </Button>
                     )}
                   </CardActions>
