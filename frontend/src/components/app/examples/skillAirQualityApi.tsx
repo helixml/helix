@@ -1,6 +1,6 @@
 import { IAgentSkill } from '../../../types';
 
-import logo from '../../../../assets/img/open-meteo.png'
+import openMeteoLogo from '../../../../assets/img/open-meteo.png'
 
 const schema = `{
  "openapi": "Air Quality API",
@@ -221,7 +221,7 @@ const schema = `{
 
 export const airQualityTool: IAgentSkill = {
   name: "Air Quality",
-  icon: <img src={logo} alt="Air Quality" style={{ width: '24px', height: '24px' }} />,
+  icon: <img src={openMeteoLogo} alt="Air Quality" style={{ width: '24px', height: '24px' }} />,
   description: `Provides real-time air quality information for any location worldwide.
   
   This skill allows you to get detailed air quality data including PM10 and PM2.5 measurements for any location by providing its latitude and longitude coordinates. This skill relies on https://open-meteo.com API.

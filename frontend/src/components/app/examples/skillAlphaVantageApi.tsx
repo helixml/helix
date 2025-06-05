@@ -1,6 +1,6 @@
 import { IAgentSkill } from '../../../types';
 
-import logo from '../../../../assets/img/alphavantage.png'
+import alphavantageLogo from '../../../../assets/img/alphavantage.png'
 
 const schema = `openapi: 3.0.3
 info:
@@ -81,7 +81,7 @@ components:
 
 export const alphaVantageTool: IAgentSkill = {
   name: "Market News",
-  icon: <img src={logo} alt="Alpha Vantage" style={{ width: '24px', height: '24px' }} />,
+  icon: <img src={alphavantageLogo} alt="Alpha Vantage" style={{ width: '24px', height: '24px' }} />,
   description: `Provides up-to-date financial information from Alpha Vantage.
   
   This skill empowers you to stay on top of the latest market trends by fetching live and historical market news and sentiment data directly within your workspace.
