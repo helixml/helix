@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, IconButton, Menu, MenuItem, useTheme, Tooltip } from '@mui/material';
+import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, IconButton, Menu, MenuItem, useTheme, Tooltip, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions } from '@mui/material';
 import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -90,6 +90,8 @@ const Skills: React.FC<SkillsProps> = ({
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedSkillForMenu, setSelectedSkillForMenu] = useState<string | null>(null);
+  const [isDisableConfirmOpen, setIsDisableConfirmOpen] = useState(false);
+  const [skillToDisable, setSkillToDisable] = useState<string | null>(null);
 
   // Convert custom APIs to skills
   const customApiSkills = useMemo(() => {
@@ -139,8 +141,8 @@ const Skills: React.FC<SkillsProps> = ({
   };
 
   const handleDisableSkill = async () => {
-    if (selectedSkillForMenu) {
-      const skill = allSkills.find(s => s.name === selectedSkillForMenu);
+    if (skillToDisable) {
+      const skill = allSkills.find(s => s.name === skillToDisable);
       if (skill) {
         // Remove the tool from app.apiTools
         const updatedTools = app.apiTools?.filter(tool => tool.name !== skill.name) || [];
@@ -152,6 +154,14 @@ const Skills: React.FC<SkillsProps> = ({
         });
       }
     }
+    handleMenuClose();
+    setIsDisableConfirmOpen(false);
+    setSkillToDisable(null);
+  };
+
+  const handleDisableClick = () => {
+    setSkillToDisable(selectedSkillForMenu);
+    setIsDisableConfirmOpen(true);
     handleMenuClose();
   };
 
@@ -324,8 +334,32 @@ const Skills: React.FC<SkillsProps> = ({
         open={Boolean(menuAnchorEl)}
         onClose={handleMenuClose}
       >
-        <MenuItem onClick={handleDisableSkill}>Disable</MenuItem>
+        <MenuItem onClick={handleDisableClick}>Disable</MenuItem>
       </Menu>
+
+      <Dialog
+        open={isDisableConfirmOpen}
+        onClose={() => {
+          setIsDisableConfirmOpen(false);
+          setSkillToDisable(null);
+        }}
+      >
+        <DialogTitle>Disable Skill</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to disable {skillToDisable ? `"${skillToDisable}"` : 'this skill'}? All configuration will be lost once the skill is disabled.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setIsDisableConfirmOpen(false);
+            setSkillToDisable(null);
+          }}>Cancel</Button>
+          <Button onClick={handleDisableSkill} color="error" variant="contained">
+            Disable
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <AddApiSkillDialog
         open={isDialogOpen}
