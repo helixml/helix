@@ -216,6 +216,8 @@ const Skills: React.FC<SkillsProps> = ({
         open={isDialogOpen}
         onClose={() => {
           setIsDialogOpen(false);
+        }}
+        onClosed={() => {
           setSelectedSkill(null);
         }}
         skill={selectedSkill || undefined}

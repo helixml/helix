@@ -21,6 +21,7 @@ import { styled } from '@mui/material/styles';
 interface AddApiSkillDialogProps {
   open: boolean;
   onClose: () => void;
+  onClosed?: () => void;
   skill?: IAgentSkill;
   app: IAppFlatState;
   onUpdate: (updates: IAppFlatState) => Promise<void>;
@@ -34,6 +35,10 @@ const DarkDialog = styled(Dialog)(({ theme }) => ({
     color: '#F1F1F1',
     borderRadius: 16,
     boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+    transition: 'all 0.2s ease-in-out',
+  },
+  '&.MuiDialog-root': {
+    transition: 'all 0.2s ease-in-out',
   },
 }));
 
@@ -88,6 +93,7 @@ const DarkButton = styled(Button)(({ theme }) => ({
 const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   open,
   onClose,  
+  onClosed,
   skill: initialSkill,
   app,
   onUpdate,
@@ -288,20 +294,6 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   };
 
   const handleClose = () => {
-    setSkill({
-      name: '',
-      description: '',
-      systemPrompt: '',
-      apiSkill: {
-        schema: '',
-        url: '',
-        requiredParameters: [],
-      },
-      configurable: true,
-    });
-    setExistingSkill(null);
-    setExistingSkillIndex(null);
-    setParameterValues({});
     onClose();
   };
 
@@ -344,7 +336,31 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   };
 
   return (
-    <DarkDialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <DarkDialog 
+      open={open} 
+      onClose={handleClose} 
+      maxWidth="md" 
+      fullWidth
+      TransitionProps={{
+        onExited: () => {
+          setSkill({
+            name: '',
+            description: '',
+            systemPrompt: '',
+            apiSkill: {
+              schema: '',
+              url: '',
+              requiredParameters: [],
+            },
+            configurable: true,
+          });
+          setExistingSkill(null);
+          setExistingSkillIndex(null);
+          setParameterValues({});
+          onClosed?.();
+        }
+      }}
+    >
       <DialogContent>
         <Box sx={{ mt: 2 }}>
           <NameTypography>
