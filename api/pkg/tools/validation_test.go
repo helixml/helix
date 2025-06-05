@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var alphaVantageApi = `
+var alphaVantageAPI = `
 openapi: 3.0.3
 info:
   title: Alpha Vantage Market News & Sentiment API
@@ -121,7 +121,7 @@ func TestValidateOperationIDs(t *testing.T) {
 		ToolType: types.ToolTypeAPI,
 		Config: types.ToolConfig{
 			API: &types.ToolAPIConfig{
-				Schema: alphaVantageApi,
+				Schema: alphaVantageAPI,
 				URL:    "https://www.alphavantage.co",
 			},
 		},
