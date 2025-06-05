@@ -9,6 +9,7 @@ import AddApiSkillDialog from './AddApiSkillDialog';
 
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
 import { airQualityTool } from './examples/skillAirQualityApi';
+import { exchangeRatesSkill } from './examples/skillExchangeRatesApi';
 
 interface ISkill {
   id: string;
@@ -51,6 +52,14 @@ const SKILLS: ISkill[] = [
     description: airQualityTool.description,
     type: 'custom',
     skill: airQualityTool,
+  },
+  {
+    id: 'exchange-rates',
+    icon: exchangeRatesSkill.icon,
+    name: exchangeRatesSkill.name,
+    description: exchangeRatesSkill.description,
+    type: 'custom',
+    skill: exchangeRatesSkill,
   },
 ];
 
