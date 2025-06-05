@@ -16,6 +16,7 @@ import {
   Menu,
   MenuItem,
   Grid,
+  Tooltip,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -567,9 +568,11 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
                 </Typography>
                 <Grid container spacing={2}>
                   <Grid item xs={6}>
-                    <Typography variant="subtitle2" sx={{ mb: 1, color: '#A0AEC0' }}>
-                      Query Parameters
-                    </Typography>
+                    <Tooltip title="Add additional query parameters that will always be set to the API calls that Helix makes.">
+                      <Typography variant="subtitle2" sx={{ mb: 1, color: '#A0AEC0' }}>
+                        Query Parameters
+                      </Typography>
+                    </Tooltip>
                     <List>
                       {Object.entries(skill.apiSkill.query || {}).map(([key, value], index) => (
                         <ListItem key={`query-${index}`} sx={{ px: 0 }}>
@@ -631,9 +634,11 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
                     </Button>
                   </Grid>
                   <Grid item xs={6}>
-                    <Typography variant="subtitle2" sx={{ mb: 1, color: '#A0AEC0' }}>
-                      Headers
-                    </Typography>
+                    <Tooltip title="Add additional headers that will always be set to the API calls that Helix makes.">
+                      <Typography variant="subtitle2" sx={{ mb: 1, color: '#A0AEC0' }}>
+                        Headers
+                      </Typography>
+                    </Tooltip>
                     <List>
                       {Object.entries(skill.apiSkill.headers || {}).map(([key, value], index) => (
                         <ListItem key={`header-${index}`} sx={{ px: 0 }}>
