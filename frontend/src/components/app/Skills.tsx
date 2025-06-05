@@ -84,8 +84,6 @@ const Skills: React.FC<SkillsProps> = ({
   const [selectedSkillForMenu, setSelectedSkillForMenu] = useState<string | null>(null);
 
   const isSkillEnabled = (skillName: string): boolean => {
-    console.log('app.apiTools: ', app.apiTools);
-    console.log('skillName: ', skillName);
     return app.apiTools?.some(tool => tool.name === skillName) ?? false;
   };
 
@@ -217,7 +215,7 @@ const Skills: React.FC<SkillsProps> = ({
         open={isDialogOpen}
         onClose={() => {
           setIsDialogOpen(false);
-          // setSelectedSkill(null);
+          setSelectedSkill(null);
         }}
         skill={selectedSkill || undefined}
         app={app}
