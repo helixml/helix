@@ -479,7 +479,8 @@ export const useApp = (appId: string) => {
     } catch (error) {
       console.error('Failed to save app:', error)
       snackbar.error('Failed to save app')
-      return
+      // Throw the error anyways
+      throw error
     } finally {
       setIsAppSaving(false)
     }

@@ -119,6 +119,8 @@ export const useApi = () => {
         const safeErrorMsg = typeof errorMessage === 'string' ? errorMessage : 'An error occurred'
         snackbar.setSnackbar(safeErrorMsg, 'error')
         reportError(new Error(safeErrorMsg))
+        // Throw the error anyways
+        throw e
       }
       if(options?.loading === true) loading.setLoading(false)
       return null
