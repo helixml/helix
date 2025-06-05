@@ -7,8 +7,8 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { IAppFlatState, IAgentSkill } from '../../types';
 import AddApiSkillDialog from './AddApiSkillDialog';
 
-import { alphaVantageTool } from './examples/alphaVantageApi';
-import { airQualityTool } from './examples/airQualityApi';
+import { alphaVantageTool } from './examples/skillAlphaVantageApi';
+import { airQualityTool } from './examples/skillAirQualityApi';
 
 interface ISkill {
   id: string;
