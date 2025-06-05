@@ -130,8 +130,6 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         ...initialSkill,
         apiSkill: {
           ...initialSkill.apiSkill,
-          query: initialSkill.apiSkill.query || {},
-          headers: initialSkill.apiSkill.headers || {},
         },
       });
       // Find existing skill in app.apiTools
