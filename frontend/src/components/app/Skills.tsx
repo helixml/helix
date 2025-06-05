@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, IconButton, Menu, MenuItem, useTheme } from '@mui/material';
+import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, IconButton, Menu, MenuItem, useTheme, Tooltip } from '@mui/material';
 import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -21,6 +21,8 @@ interface ISkill {
   skill: IAgentSkill;
 }
 
+const SKILL_TYPE_HTTP_API = 'HTTP API';
+
 // Base static skills/plugins data
 const BASE_SKILLS: ISkill[] = [
   {
@@ -28,7 +30,7 @@ const BASE_SKILLS: ISkill[] = [
     icon: alphaVantageTool.icon,
     name: alphaVantageTool.name,
     description: alphaVantageTool.description,
-    type: 'custom',
+    type: SKILL_TYPE_HTTP_API,
     skill: alphaVantageTool,
   },
   {
@@ -36,7 +38,7 @@ const BASE_SKILLS: ISkill[] = [
     icon: airQualityTool.icon,
     name: airQualityTool.name,
     description: airQualityTool.description,
-    type: 'custom',
+    type: SKILL_TYPE_HTTP_API,
     skill: airQualityTool,
   },
   {
@@ -44,7 +46,7 @@ const BASE_SKILLS: ISkill[] = [
     icon: exchangeRatesSkill.icon,
     name: exchangeRatesSkill.name,
     description: exchangeRatesSkill.description,
-    type: 'custom',
+    type: SKILL_TYPE_HTTP_API,
     skill: exchangeRatesSkill,
   },
   {
@@ -52,7 +54,7 @@ const BASE_SKILLS: ISkill[] = [
     icon: <ApiIcon />,
     name: 'Custom API',
     description: 'Add your own custom API integration. You can configure the API endpoint, schema, and parameters.',
-    type: 'custom',
+    type: SKILL_TYPE_HTTP_API,
     skill: {
       name: 'Custom API',
       icon: <ApiIcon />,
@@ -97,7 +99,7 @@ const Skills: React.FC<SkillsProps> = ({
       icon: <ApiIcon />,
       name: api.name,
       description: api.description,
-      type: 'custom',
+      type: SKILL_TYPE_HTTP_API,
       skill: {
         name: api.name,
         icon: <ApiIcon />,
@@ -172,73 +174,107 @@ const Skills: React.FC<SkillsProps> = ({
           
           return (
             <Grid item xs={12} sm={6} md={4} lg={3} key={skill.id}>
-              <Card
-                sx={{
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  transition: 'all 0.2s',
-                  boxShadow: 2,
-                  opacity: isEnabled ? 1 : 0.7,
-                  '&:hover': {
-                    transform: isEnabled ? 'translateY(-4px)' : 'none',
-                    boxShadow: isEnabled ? 4 : 2,
+              <Tooltip
+                title={
+                  <Box sx={{ p: 1 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                      Skill Type: {skill.type.toUpperCase()}
+                    </Typography>
+                    <Typography variant="body2">
+                      {skill.description}
+                    </Typography>
+                  </Box>
+                }
+                arrow
+                placement="bottom"
+                componentsProps={{
+                  tooltip: {
+                    sx: {
+                      bgcolor: 'background.paper',
+                      color: 'text.primary',
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      boxShadow: 3,
+                      maxWidth: 300,
+                      '& .MuiTooltip-arrow': {
+                        color: 'background.paper',
+                        '&:before': {
+                          border: '1px solid',
+                          borderColor: 'divider',
+                        },
+                      },
+                    },
                   },
                 }}
               >
-                <CardHeader
-                  avatar={
-                    <Avatar sx={{ bgcolor: 'white', color: color, width: 40, height: 40 }}>
-                      {skill.icon || defaultIcon}
-                    </Avatar>
-                  }
-                  title={skill.name}
-                  titleTypographyProps={{ variant: 'h6' }}
-                  action={
-                    isEnabled && (
-                      <IconButton
-                        onClick={(e) => handleMenuOpen(e, skill.name)}
-                        size="small"
-                      >
-                        <MoreVertIcon />
-                      </IconButton>
-                    )
-                  }
-                />
-                <CardContent sx={{ flexGrow: 1 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    {getFirstLine(skill.description)}
-                  </Typography>
-                </CardContent>
-                <CardActions sx={{ justifyContent: 'center', px: 2, pb: 2 }}>
-                  {isEnabled ? (
-                    <Button
-                      startIcon={<CheckCircleIcon sx={{ color: '#4caf50' }} />}
-                      sx={{ 
-                        color: theme.palette.success.main,
-                        borderColor: theme.palette.success.main,
-                        '&:hover': {
+                <Card
+                  sx={{
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    transition: 'all 0.2s',
+                    boxShadow: 2,
+                    opacity: isEnabled ? 1 : 0.7,
+                    '&:hover': {
+                      transform: isEnabled ? 'translateY(-4px)' : 'none',
+                      boxShadow: isEnabled ? 4 : 2,
+                    },
+                  }}
+                >
+                  <CardHeader
+                    avatar={
+                      <Avatar sx={{ bgcolor: 'white', color: color, width: 40, height: 40 }}>
+                        {skill.icon || defaultIcon}
+                      </Avatar>
+                    }
+                    title={skill.name}
+                    titleTypographyProps={{ variant: 'h6' }}
+                    action={
+                      isEnabled && (
+                        <IconButton
+                          onClick={(e) => handleMenuOpen(e, skill.name)}
+                          size="small"
+                        >
+                          <MoreVertIcon />
+                        </IconButton>
+                      )
+                    }
+                  />
+                  <CardContent sx={{ flexGrow: 1 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      {getFirstLine(skill.description)}
+                    </Typography>
+                  </CardContent>
+                  <CardActions sx={{ justifyContent: 'center', px: 2, pb: 2 }}>
+                    {isEnabled ? (
+                      <Button
+                        startIcon={<CheckCircleIcon sx={{ color: '#4caf50' }} />}
+                        sx={{ 
+                          color: theme.palette.success.main,
                           borderColor: theme.palette.success.main,
-                          backgroundColor: 'rgba(76, 175, 80, 0.04)'
-                        }
-                      }}
-                      variant="outlined"     
-                      onClick={() => handleOpenDialog(skill)}                                       
-                    >
-                      Enabled
-                    </Button>
-                  ) : (
-                    <Button
-                      startIcon={<AddCircleOutlineIcon />}
-                      color="secondary"
-                      variant="outlined"
-                      onClick={() => handleOpenDialog(skill)}
-                    >
-                      Enable
-                    </Button>
-                  )}
-                </CardActions>
-              </Card>
+                          '&:hover': {
+                            borderColor: theme.palette.success.main,
+                            backgroundColor: 'rgba(76, 175, 80, 0.04)'
+                          }
+                        }}
+                        variant="outlined"     
+                        onClick={() => handleOpenDialog(skill)}                                       
+                      >
+                        Enabled
+                      </Button>
+                    ) : (
+                      <Button
+                        startIcon={<AddCircleOutlineIcon />}
+                        color="secondary"
+                        variant="outlined"
+                        onClick={() => handleOpenDialog(skill)}
+                      >
+                        Enable
+                      </Button>
+                    )}
+                  </CardActions>
+                </Card>
+              </Tooltip>
             </Grid>
           );
         })}
