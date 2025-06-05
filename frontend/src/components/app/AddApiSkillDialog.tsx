@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Dialog,
   DialogContent,
   DialogActions,
   Button,
@@ -17,6 +16,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import { IAgentSkill, IRequiredApiParameter, IAppFlatState, IAssistantApi } from '../../types';
 import { styled } from '@mui/material/styles';
+import DarkDialog from '../dialog/DarkDialog';
 
 interface AddApiSkillDialogProps {
   open: boolean;
@@ -27,20 +27,6 @@ interface AddApiSkillDialogProps {
   onUpdate: (updates: IAppFlatState) => Promise<void>;
   isEnabled: boolean;
 }
-
-// Styled components for dark theme
-const DarkDialog = styled(Dialog)(({ theme }) => ({
-  '& .MuiPaper-root': {
-    background: '#181A20',
-    color: '#F1F1F1',
-    borderRadius: 16,
-    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-    transition: 'all 0.2s ease-in-out',
-  },
-  '&.MuiDialog-root': {
-    transition: 'all 0.2s ease-in-out',
-  },
-}));
 
 const NameTypography = styled(Typography)(({ theme }) => ({
   fontSize: '2rem',
