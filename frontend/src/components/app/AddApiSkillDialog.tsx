@@ -272,18 +272,36 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         default:
           assistantApi.query![param.name] = parameterValues[param.name];
       }
-    });
+    });    
 
     // Based on index update the app api tools array (if set, otherwise add)
-    if (existingSkillIndex !== null) {
+    if (existingSkillIndex !== null) {      
       app.apiTools![existingSkillIndex] = assistantApi;
-    } else {
+    } else {      
       app.apiTools!.push(assistantApi);
     }
 
     // Update the application
     await onUpdate(app);
 
+    onClose();
+  };
+
+  const handleClose = () => {
+    setSkill({
+      name: '',
+      description: '',
+      systemPrompt: '',
+      apiSkill: {
+        schema: '',
+        url: '',
+        requiredParameters: [],
+      },
+      configurable: true,
+    });
+    setExistingSkill(null);
+    setExistingSkillIndex(null);
+    setParameterValues({});
     onClose();
   };
 
@@ -443,7 +461,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
       </DialogContent>
       <DialogActions sx={{ background: '#181A20', borderTop: '1px solid #23262F' }}>
         <Button 
-          onClick={onClose} 
+          onClick={handleClose} 
           size="small"
           variant="outlined"
           color="primary"
