@@ -94,26 +94,29 @@ const Skills: React.FC<SkillsProps> = ({
   // Convert custom APIs to skills
   const customApiSkills = useMemo(() => {
     if (!app.apiTools) return [];
-    
-    return app.apiTools.map(api => ({
-      id: `custom-api-${api.name}`,
-      icon: <ApiIcon />,
-      name: api.name,
-      description: api.description,
-      type: SKILL_TYPE_HTTP_API,
-      skill: {
-        name: api.name,
+
+    // Filter out any API tools that match predefined skills
+    return app.apiTools
+      .filter(api => !BASE_SKILLS.some(skill => skill.name === api.name))
+      .map(api => ({
+        id: `custom-api-${api.name}`,
         icon: <ApiIcon />,
+        name: api.name,
         description: api.description,
-        systemPrompt: api.system_prompt || '',
-        apiSkill: {
-          schema: api.schema,
-          url: api.url,
-          requiredParameters: [],
+        type: SKILL_TYPE_HTTP_API,
+        skill: {
+          name: api.name,
+          icon: <ApiIcon />,
+          description: api.description,
+          systemPrompt: api.system_prompt || '',
+          apiSkill: {
+            schema: api.schema,
+            url: api.url,
+            requiredParameters: [],
+          },
+          configurable: true,
         },
-        configurable: true,
-      },
-    }));
+      }));
   }, [app.apiTools]);
 
   // Combine base skills with custom API skills
