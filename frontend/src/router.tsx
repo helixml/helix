@@ -14,7 +14,6 @@ import App from './pages/App'
 import Dashboard from './pages/Dashboard'
 import Create from './pages/Create'
 import Home from './pages/Home'
-import AppStore from './pages/AppStore'
 import OpenAPI from './pages/OpenAPI'
 import Secrets from './pages/Secrets'
 import { FilestoreContextProvider } from './contexts/filestore'
@@ -88,17 +87,6 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     },
     render: () => (
       <Session />
-    ),
-  }, {
-    name: namePrefix + 'appstore',
-    path: routePrefix + '/appstore',
-    meta: {
-      title: 'App Store',
-      drawer: true,
-      orgRouteAware: true,
-    },
-    render: () => (
-        <AppStore />
     ),
   }]
 }
