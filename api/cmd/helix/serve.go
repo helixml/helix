@@ -372,6 +372,12 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("unknown RAG provider: %s", cfg.RAG.DefaultRagProvider)
 	}
 
+	// Initialize browser pool
+	browserPool, err := browser.New(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create browser pool: %w", err)
+	}
+
 	controllerOptions := controller.Options{
 		Config:               cfg,
 		Store:                postgresStore,
@@ -386,6 +392,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		DataprepOpenAIClient: dataprepOpenAIClient,
 		Scheduler:            scheduler,
 		RunnerController:     runnerController,
+		Browser:              browserPool,
 	}
 
 	// Create the OAuth manager
@@ -405,12 +412,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	err = appController.Initialize()
 	if err != nil {
 		return err
-	}
-
-	// Initialize browser pool
-	browserPool, err := browser.New(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create browser pool: %w", err)
 	}
 
 	knowledgeReconciler, err := knowledge.New(cfg, postgresStore, fs, extractor, ragClient, browserPool)

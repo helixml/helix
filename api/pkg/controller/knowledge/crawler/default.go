@@ -127,6 +127,12 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		return nil, fmt.Errorf("error getting browser: %w", err)
 	}
 
+	defer func() {
+		if err := d.browser.PutBrowser(b); err != nil {
+			log.Warn().Err(err).Msg("error putting browser")
+		}
+	}()
+
 	for _, domain := range domains {
 		if err := collector.Limit(&colly.LimitRule{
 			DomainGlob:  fmt.Sprintf("*%s*", domain),

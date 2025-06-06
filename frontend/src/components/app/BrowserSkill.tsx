@@ -1,0 +1,217 @@
+import React, { useState, useEffect } from 'react';
+import {
+  DialogContent,
+  DialogActions,
+  Button,
+  Box,
+  Typography,
+  Switch,
+  FormControlLabel,
+  Alert,
+} from '@mui/material';
+import { IAppFlatState, IAssistantBrowser } from '../../types';
+import { styled } from '@mui/material/styles';
+import DarkDialog from '../dialog/DarkDialog';
+import useLightTheme from '../../hooks/useLightTheme';
+
+interface BrowserSkillProps {
+  open: boolean;
+  onClose: () => void;
+  onClosed?: () => void;
+  app: IAppFlatState;
+  onUpdate: (updates: IAppFlatState) => Promise<void>;
+  isEnabled: boolean;
+}
+
+const NameTypography = styled(Typography)(({ theme }) => ({
+  fontSize: '2rem',
+  fontWeight: 700,
+  color: '#F8FAFC',
+  marginBottom: theme.spacing(1),
+}));
+
+const DescriptionTypography = styled(Typography)(({ theme }) => ({
+  fontSize: '1.1rem',
+  color: '#A0AEC0',
+  marginBottom: theme.spacing(3),
+}));
+
+const SectionCard = styled(Box)(({ theme }) => ({
+  background: '#23262F',
+  borderRadius: 12,
+  padding: theme.spacing(3),
+  marginBottom: theme.spacing(3),
+  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+}));
+
+const BrowserSkill: React.FC<BrowserSkillProps> = ({
+  open,
+  onClose,
+  onClosed,
+  app,
+  onUpdate,
+  isEnabled: initialIsEnabled,
+}) => {
+  const lightTheme = useLightTheme();
+  const [error, setError] = useState<string | null>(null);
+  const [browserConfig, setBrowserConfig] = useState<IAssistantBrowser>({
+    enabled: false,
+    markdown_post_processing: false,
+  });
+
+  useEffect(() => {
+    if (app.browserTool) {
+      setBrowserConfig(app.browserTool);
+    } else {
+      setBrowserConfig({
+        enabled: false,
+        markdown_post_processing: false,
+      });
+    }
+  }, [app.browserTool]);
+
+  const handleChange = (field: keyof IAssistantBrowser, value: boolean) => {
+    setBrowserConfig(prev => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const handleEnable = async () => {
+    try {
+      setError(null);
+      
+      // Create a copy of the app state
+      const appCopy = JSON.parse(JSON.stringify(app));
+
+      browserConfig.enabled = true;      
+      
+      // Update the browser tool configuration
+      appCopy.browserTool = browserConfig;
+      
+      // Update the application
+      await onUpdate(appCopy);
+      
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save browser configuration');
+    }
+  };
+
+  const handleDisable = async () => {
+    try {
+      // Create a copy of the app state
+      const appCopy = JSON.parse(JSON.stringify(app));
+      
+      // Remove the browser tool configuration
+      appCopy.browserTool = undefined;
+      
+      // Update the application
+      await onUpdate(appCopy);
+      
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to disable browser');
+    }
+  };
+
+  const handleClose = () => {
+    onClose();
+  };
+
+  return (
+    <DarkDialog 
+      open={open} 
+      onClose={handleClose} 
+      maxWidth="md" 
+      fullWidth
+      TransitionProps={{
+        onExited: () => {
+          setBrowserConfig({
+            enabled: false,
+            markdown_post_processing: false,
+          });
+          setError(null);
+          onClosed?.();
+        }
+      }}
+    >
+      <DialogContent sx={lightTheme.scrollbar}>
+        <Box sx={{ mt: 2 }}>
+          <NameTypography>
+            Browser Skill
+          </NameTypography>
+          <DescriptionTypography>
+            Enable the browser skill to allow the AI to search and browse the web. This skill allows the AI to visit websites and extract information from them.
+          </DescriptionTypography>
+
+          <SectionCard>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={browserConfig.markdown_post_processing}
+                  onChange={(e) => handleChange('markdown_post_processing', e.target.checked)}
+                  color="primary"
+                  disabled={!browserConfig.enabled}
+                />
+              }
+              label={
+                <Typography sx={{ color: '#F8FAFC' }}>
+                  Convert HTML to Markdown
+                </Typography>
+              }
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              When enabled, the browser will convert HTML content to Markdown format, making it easier for the AI to process and present the information.
+            </Typography>
+          </SectionCard>
+        </Box>
+      </DialogContent>
+      <DialogActions sx={{ background: '#181A20', borderTop: '1px solid #23262F', flexDirection: 'column', alignItems: 'stretch' }}>
+        {error && (
+          <Box sx={{ width: '100%', pl: 2, pr: 2, mb: 3 }}>
+            <Alert variant="outlined" severity="error" sx={{ width: '100%' }}>
+              {error}
+            </Alert>
+          </Box>
+        )}
+        <Box sx={{ display: 'flex', width: '100%' }}>
+          <Button 
+            onClick={handleClose} 
+            size="small"
+            variant="outlined"
+            color="primary"
+          >
+            Cancel
+          </Button>
+          <Box sx={{ flex: 1 }} />
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1, mr: 2 }}>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              {browserConfig.enabled && (
+                <Button
+                  onClick={handleDisable}
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  sx={{ borderColor: '#EF4444', color: '#EF4444', '&:hover': { borderColor: '#DC2626', color: '#DC2626' } }}
+                >
+                  Disable
+                </Button>
+              )}
+              <Button
+                onClick={handleEnable}
+                size="small"
+                variant="outlined"
+                color="secondary"
+              >
+                Enable
+              </Button>
+            </Box>
+          </Box>
+        </Box>
+      </DialogActions>
+    </DarkDialog>
+  );
+};
+
+export default BrowserSkill; 

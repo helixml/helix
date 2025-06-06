@@ -26,6 +26,7 @@ export interface GithubComHelixmlHelixApiPkgTypesTool {
 
 export enum GithubComHelixmlHelixApiPkgTypesToolType {
   ToolTypeAPI = "api",
+  ToolTypeBrowser = "browser",
   ToolTypeGPTScript = "gptscript",
   ToolTypeZapier = "zapier",
 }
@@ -463,11 +464,18 @@ export interface TypesAssistantAPI {
   url?: string;
 }
 
+export interface TypesAssistantBrowser {
+  enabled?: boolean;
+  /** If true, the browser will return the HTML as markdown */
+  markdown_post_processing?: boolean;
+}
+
 export interface TypesAssistantConfig {
   /** AgentMode triggers the use of the agent loop */
   agent_mode?: boolean;
   apis?: TypesAssistantAPI[];
   avatar?: string;
+  browser?: TypesAssistantBrowser;
   /**
    * ContextLimit - the number of messages to include in the context for the AI assistant.
    * When set to 1, the AI assistant will only see and remember the most recent message.
@@ -1723,8 +1731,15 @@ export interface TypesToolAPIConfig {
   url?: string;
 }
 
+export interface TypesToolBrowserConfig {
+  enabled?: boolean;
+  /** If true, the browser will return the HTML as markdown */
+  markdown_post_processing?: boolean;
+}
+
 export interface TypesToolConfig {
   api?: TypesToolAPIConfig;
+  browser?: TypesToolBrowserConfig;
   gptscript?: TypesToolGPTScriptConfig;
   zapier?: TypesToolZapierConfig;
 }

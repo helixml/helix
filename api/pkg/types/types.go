@@ -1014,6 +1014,7 @@ type ToolType string
 
 const (
 	ToolTypeAPI       ToolType = "api"
+	ToolTypeBrowser   ToolType = "browser"
 	ToolTypeGPTScript ToolType = "gptscript"
 	ToolTypeZapier    ToolType = "zapier"
 )
@@ -1032,6 +1033,13 @@ type ToolConfig struct {
 	API       *ToolAPIConfig       `json:"api"`
 	GPTScript *ToolGPTScriptConfig `json:"gptscript"`
 	Zapier    *ToolZapierConfig    `json:"zapier"`
+	Browser   *ToolBrowserConfig   `json:"browser"`
+}
+
+type ToolBrowserConfig struct {
+	Enabled                bool `json:"enabled" yaml:"enabled"`
+	MarkdownPostProcessing bool `json:"markdown_post_processing" yaml:"markdown_post_processing"` // If true, the browser will return the HTML as markdown
+	// TODO: whitelist URLs?
 }
 
 func (t ToolConfig) Value() (driver.Value, error) {
@@ -1220,12 +1228,21 @@ type AssistantConfig struct {
 	APIs       []AssistantAPI       `json:"apis,omitempty" yaml:"apis,omitempty"`
 	GPTScripts []AssistantGPTScript `json:"gptscripts,omitempty" yaml:"gptscripts,omitempty"`
 	Zapier     []AssistantZapier    `json:"zapier,omitempty" yaml:"zapier,omitempty"`
-	Tools      []*Tool              `json:"tools,omitempty" yaml:"tools,omitempty"`
+
+	Browser AssistantBrowser `json:"browser,omitempty" yaml:"browser,omitempty"`
+
+	Tools []*Tool `json:"tools,omitempty" yaml:"tools,omitempty"`
 
 	Tests []struct {
 		Name  string     `json:"name,omitempty" yaml:"name,omitempty"`
 		Steps []TestStep `json:"steps,omitempty" yaml:"steps,omitempty"`
 	} `json:"tests,omitempty" yaml:"tests,omitempty"`
+}
+
+type AssistantBrowser struct {
+	Enabled                bool `json:"enabled" yaml:"enabled"`
+	MarkdownPostProcessing bool `json:"markdown_post_processing" yaml:"markdown_post_processing"` // If true, the browser will return the HTML as markdown
+	// TODO: whitelist URLs?
 }
 
 const ReasoningEffortNone = "none" // Don't set
