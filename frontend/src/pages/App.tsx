@@ -34,6 +34,7 @@ import useFilestore from '../hooks/useFilestore';
 import AppUsage from '../components/app/AppUsage'
 import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
 import useLightTheme from '../hooks/useLightTheme'
+import Skills from '../components/app/Skills'
 
 const App: FC = () => {
   const account = useAccount()  
@@ -164,12 +165,12 @@ const App: FC = () => {
             <Tabs value={tabValue} onChange={handleTabChange}>
               <Tab label="Settings" value="settings" />
               <Tab label="Knowledge" value="knowledge" />
-              <Tab label="Integrations" value="integrations" />
-              <Tab label="GPTScripts" value="gptscripts" />
-              <Tab label="API Keys" value="apikeys" />
-              <Tab label="Developers" value="developers" />
+              <Tab label="Skills" value="skills" />
+              <Tab label="Integrations" value="integrations" />              
+              <Tab label="API Keys" value="apikeys" />              
               <Tab label="IDE" value="ide" />
               <Tab label="Usage" value="usage" />
+              <Tab label="Export" value="developers" />         
               {
                 // Only show Access tab if user is an admin and app has an organization_id
                 appTools.app?.organization_id && userAccess.isAdmin && (
@@ -184,6 +185,17 @@ const App: FC = () => {
                 <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
                   <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
                     <AppUsage appId={appTools.id} />
+                  </Box>
+                </Grid>
+              ) : tabValue === 'skills' ? (
+                <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                  <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
+                    { appTools.flatApp && (
+                      <Skills
+                        app={appTools.flatApp}
+                        onUpdate={appTools.saveFlatApp}
+                      />
+                    )}
                   </Box>
                 </Grid>
               ) : (
@@ -269,26 +281,6 @@ const App: FC = () => {
                             isReadOnly={isReadOnly}
                           />
                         </>
-                      )}
-
-                      {tabValue === 'gptscripts' && (
-                        <GPTScriptsSection
-                          app={appTools.app}
-                          onAddGptScript={() => {
-                            appTools.setEditingGptScript({
-                              tool: {
-                                name: '',
-                                description: '',
-                                content: '',
-                              },
-                              index: appTools.gptscriptsTools.length
-                            });
-                          }}
-                          onEdit={(tool, index) => appTools.setEditingGptScript({ tool, index })}
-                          onDeleteGptScript={appTools.onDeleteGptScript}
-                          isReadOnly={isReadOnly}
-                          isGithubApp={appTools.isGithubApp}
-                        />
                       )}
 
                       {tabValue === 'apikeys' && (

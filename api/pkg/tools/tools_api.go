@@ -176,7 +176,8 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		q := req.URL.Query()
 		for k, v := range tool.Config.API.Query {
 			log.Debug().Str("key", k).Str("value", v).Msg("Adding query param")
-			q.Add(k, v)
+
+			q.Set(k, v)
 		}
 
 		req.URL.RawQuery = q.Encode()

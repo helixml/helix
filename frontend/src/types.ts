@@ -886,6 +886,30 @@ export interface IFeature {
   actions: IFeatureAction[],
 }
 
+export type IRequiredApiParameter = 'query' | 'header'
+
+export interface IAgentSkill {
+  name: string;
+  description: string;
+  icon?: React.ReactNode;
+  systemPrompt: string; // Will be used to configure the skill when it's running
+  apiSkill: {
+    schema: string;        // Schema of the API to be used, only applicable for API tools
+    url: string;           // URL of the API to be used, only applicable for API tools
+    headers?: Record<string, string>; // Headers to set for HTTP requests
+    query?: Record<string, string>;   // Query parameters to set for HTTP requests (will override whatever AI model sets)
+    oauth_provider?: string;
+    oauth_scopes?: string[];
+    requiredParameters: Array<{
+      name: string;                // Name of the parameter
+      description: string;         // Description of the parameter
+      type: IRequiredApiParameter; // Type of the parameter (query, header)
+      required: boolean;           // Whether the parameter is required      
+    }>;
+  }
+  configurable: boolean; // Whether the skill can be configured by the user  
+}
+
 export interface ISessionLearnRequestRAGSettings {
   distance_function: string,
   threshold: number,

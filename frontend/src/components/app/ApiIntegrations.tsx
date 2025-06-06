@@ -34,7 +34,6 @@ import Link from '@mui/material/Link';
 
 import { coindeskTool } from './examples/coindeskApi';
 import { jobVacanciesTool } from './examples/jobVacanciesApi';
-import { airQualityTool } from './examples/airQualityApi';
 import { exchangeRatesTool } from './examples/exchangeRatesApi';
 import { productsTool } from './examples/productsApi';
 import { climateTool } from './examples/climateApi';
@@ -208,8 +207,6 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
       updateEditingTool(climateTool);
     } else if (selectedTemplate === 'jobvacancies') {
       updateEditingTool(jobVacanciesTool);
-    } else if (selectedTemplate === 'airquality') {
-      updateEditingTool(airQualityTool);
     } else if (selectedTemplate === 'exchangerates') {
       updateEditingTool(exchangeRatesTool);
     } else if (selectedTemplate === 'productStore') {
@@ -376,8 +373,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                     <MenuItem value="custom">
                       <em>Custom</em>
                     </MenuItem>
-                    <MenuItem value="climate">Climate</MenuItem>
-                    <MenuItem value="airquality">Air Quality</MenuItem>
+                    <MenuItem value="climate">Climate</MenuItem>                    
                     <MenuItem value="exchangerates">Exchange Rates</MenuItem>
                     <MenuItem value="coindesk">CoinDesk</MenuItem>
                     <MenuItem value="jobvacancies">Job Vacancies</MenuItem>
