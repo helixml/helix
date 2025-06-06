@@ -206,7 +206,7 @@ export HELIX_API_KEY=${apiKey}
                 </Paper>
 
                 <Paper sx={{ mt: 2 }}>
-                  <Typography sx={{ p: 2}} variant="h6">CLI install &amp; login</Typography>
+                  <Typography sx={{ p: 2}} variant="h6">Helix CLI setup</Typography>
                   <List>
                     <ListItem>
                       <ListItemText                         
@@ -268,101 +268,6 @@ export HELIX_API_KEY=${apiKey}
                       </ListItem>
                     ))}
                   </List>
-                </Paper>
-
-                <Typography variant="h4" gutterBottom sx={{mt:4}}>API Docs</Typography>
-                <Paper sx={{ p: 2 }}>
-                  <Typography variant="h6">Text generation</Typography>
-                  <List>
-                  <ListItem >
-                    <ListItemText 
-                      primary={'Helix session chat'} 
-                      secondary={'Provides an easy way to set system prompt, fine-tuning adapters. Supply session_id to continue existing session.'} />
-                    
-                    <ListItemSecondaryAction sx={{ pr: 4 }}>
-                      <IconButton 
-                        edge="end" 
-                        aria-label="copy"
-                        onClick={() => handleCopy(curlExample)}
-                      >
-                        <CopyIcon />
-                      </IconButton>
-                    </ListItemSecondaryAction>
-
-                  </ListItem>
-                  </List>
-                  <Typography component="pre" 
-                      sx={{
-                      wordBreak: 'break-all',
-                      wordWrap: 'break-all',
-                      whiteSpace: 'pre-wrap',
-                      fontSize: '0.8rem',                      
-                      ml: 2,
-                      fontFamily: "monospace"
-                      }}
-                  >
-                    {curlExample}
-                  </Typography>
-                  <List>
-                    <ListItem >
-                      <ListItemText                     
-                        primary={'OpenAI chat'} 
-                        secondary={'Each API call creates a new Helix session, provide multiple messages to keep the context.'} />
-                      <ListItemSecondaryAction sx={{ pr: 4 }}>
-                        <IconButton 
-                          edge="end" 
-                          aria-label="copy"
-                          onClick={() => handleCopy(openAICurlExample)}
-                        >
-                          <CopyIcon />
-                        </IconButton>
-                      </ListItemSecondaryAction>
-                    </ListItem>
-                  </List>
-                  
-                  <Typography component="pre" 
-                      sx={{
-                      wordBreak: 'break-all',
-                      wordWrap: 'break-all',
-                      whiteSpace: 'pre-wrap',
-                      fontSize: '0.8rem',                      
-                      ml: 2,
-                      fontFamily: "monospace"
-                      }}
-                  >
-                    {openAICurlExample}                  
-                  </Typography>
-
-                  <List>
-                    <ListItem >
-                      <ListItemText                     
-                        primary={'OpenAI SDK compatibility'} 
-                        secondary={'Use any OpenAI SDK or tool with the following environment variables or settings to connect to Helix.'} />
-                      <ListItemSecondaryAction sx={{ pr: 4 }}>
-                        <IconButton 
-                          edge="end" 
-                          aria-label="copy"
-                          onClick={() => handleCopy(openAIAzureEnvVars)}
-                        >
-                          <CopyIcon />
-                        </IconButton>
-                      </ListItemSecondaryAction>
-                    </ListItem>
-                  </List>
-
-                  <Typography component="pre" 
-                      sx={{
-                      wordBreak: 'break-all',
-                      wordWrap: 'break-all',
-                      whiteSpace: 'pre-wrap',
-                      fontSize: '0.8rem',                      
-                      ml: 2,
-                      fontFamily: "monospace",
-                      }}
-                  >
-                    {openAIAzureEnvVars}                  
-                  </Typography>
-                  
                 </Paper>
               </Grid>
             </Grid>
