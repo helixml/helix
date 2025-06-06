@@ -103,8 +103,11 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
       // Create a copy of the app state
       const appCopy = JSON.parse(JSON.stringify(app));
       
-      // Remove the browser tool configuration
-      appCopy.browserTool = undefined;
+      // Set browser config as disabled
+      appCopy.browserTool = {
+        enabled: false,
+        markdown_post_processing: false,
+      };
       
       // Update the application
       await onUpdate(appCopy);
