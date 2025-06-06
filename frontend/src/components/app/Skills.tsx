@@ -153,7 +153,6 @@ const Skills: React.FC<SkillsProps> = ({
 
   const isSkillEnabled = (skillName: string): boolean => {
     if (skillName === 'Browser') {
-      console.log('app.browserTool', app.browserTool);
       return app.browserTool?.enabled ?? false;
     }
     return app.apiTools?.some(tool => tool.name === skillName) ?? false;
