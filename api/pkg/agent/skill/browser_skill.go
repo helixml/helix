@@ -119,11 +119,14 @@ func (t *BrowserTool) OpenAI() []openai.Tool {
 	}
 }
 
-func (t *BrowserTool) Execute(ctx context.Context, _ agent.Meta, args map[string]interface{}) (string, error) {
+// TODO: write in the context
+func (t *BrowserTool) Execute(_ context.Context, _ agent.Meta, args map[string]interface{}) (string, error) {
 	url, ok := args["url"].(string)
 	if !ok {
 		return "", fmt.Errorf("url is required")
 	}
+
+	log.Info().Str("url", url).Msg("Executing browser tool")
 
 	b, err := t.browser.GetBrowser()
 	if err != nil {
