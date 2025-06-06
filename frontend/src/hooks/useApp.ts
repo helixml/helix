@@ -418,6 +418,10 @@ export const useApp = (appId: string) => {
     if (updates.gptscriptTools !== undefined) {
       assistants[0].gptscripts = updates.gptscriptTools
     }
+
+    if (updates.browserTool !== undefined) {
+      assistants[0].browser = updates.browserTool
+    }
     
     return updatedApp
   }, [
