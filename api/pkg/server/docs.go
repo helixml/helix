@@ -2387,11 +2387,13 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "api",
+                "browser",
                 "gptscript",
                 "zapier"
             ],
             "x-enum-varnames": [
                 "ToolTypeAPI",
+                "ToolTypeBrowser",
                 "ToolTypeGPTScript",
                 "ToolTypeZapier"
             ]
@@ -3349,6 +3351,18 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AssistantBrowser": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "markdown_post_processing": {
+                    "description": "If true, the browser will return the HTML as markdown",
+                    "type": "boolean"
+                }
+            }
+        },
         "types.AssistantConfig": {
             "type": "object",
             "properties": {
@@ -3364,6 +3378,9 @@ const docTemplate = `{
                 },
                 "avatar": {
                     "type": "string"
+                },
+                "browser": {
+                    "$ref": "#/definitions/types.AssistantBrowser"
                 },
                 "context_limit": {
                     "description": "ContextLimit - the number of messages to include in the context for the AI assistant.\nWhen set to 1, the AI assistant will only see and remember the most recent message.",
@@ -6313,11 +6330,26 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ToolBrowserConfig": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "markdown_post_processing": {
+                    "description": "If true, the browser will return the HTML as markdown",
+                    "type": "boolean"
+                }
+            }
+        },
         "types.ToolConfig": {
             "type": "object",
             "properties": {
                 "api": {
                     "$ref": "#/definitions/types.ToolAPIConfig"
+                },
+                "browser": {
+                    "$ref": "#/definitions/types.ToolBrowserConfig"
                 },
                 "gptscript": {
                     "$ref": "#/definitions/types.ToolGPTScriptConfig"

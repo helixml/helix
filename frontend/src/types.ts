@@ -497,12 +497,17 @@ export interface IToolZapierConfig {
   max_iterations?: number,
 }
 
+export interface IToolBrowserConfig {
+  enabled: boolean,
+  markdown_post_processing: boolean,
+}
 
 export interface IToolConfig {
   api?: IToolApiConfig,
   gptscript?: IToolGptScriptConfig,
   zapier?: IToolZapierConfig,
   helix?: IAppHelixConfig,
+  browser?: IToolBrowserConfig,
 }
 
 export interface ITool {
@@ -551,6 +556,11 @@ export interface IAssistantApi {
   system_prompt?: string,
   oauth_provider?: string,
   oauth_scopes?: string[],
+}
+
+export interface IAssistantBrowser {  
+  enabled: boolean,
+  markdown_post_processing: boolean,
 }
 
 export interface IAssistantGPTScript {
@@ -823,6 +833,7 @@ export interface IAppFlatState {
   apiTools?: IAssistantApi[]
   zapierTools?: IAssistantZapier[]
   gptscriptTools?: IAssistantGPTScript[]
+  browserTool?: IAssistantBrowser
 
   conversation_starters?: string[];
 }
