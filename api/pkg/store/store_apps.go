@@ -161,6 +161,21 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 		assistant := &app.Config.Helix.Assistants[i]
 		var tools []*types.Tool
 
+		// Browser is simple, just add it to the tools, nothing to validate for now
+		if assistant.Browser.Enabled {
+			tools = append(tools, &types.Tool{
+				Name:        "Browser",
+				Description: "Use the browser to search the web",
+				ToolType:    types.ToolTypeBrowser,
+				Config: types.ToolConfig{
+					Browser: &types.ToolBrowserConfig{
+						Enabled:                assistant.Browser.Enabled,
+						MarkdownPostProcessing: assistant.Browser.MarkdownPostProcessing,
+					},
+				},
+			})
+		}
+
 		// Convert APIs to Tools
 		for _, api := range assistant.APIs {
 			t, err := ConvertAPIToTool(api)
