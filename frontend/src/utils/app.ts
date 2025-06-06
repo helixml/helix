@@ -62,6 +62,7 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
       flatState.gptscriptTools = assistant.gptscripts || []
       flatState.is_actionable_template = assistant.is_actionable_template
       flatState.is_actionable_history_length = assistant.is_actionable_history_length
+      flatState.browserTool = assistant.browser || undefined
     }
   }
   
