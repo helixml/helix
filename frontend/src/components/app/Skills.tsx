@@ -4,8 +4,10 @@ import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import LanguageIcon from '@mui/icons-material/Language';
 import { IAppFlatState, IAgentSkill } from '../../types';
 import AddApiSkillDialog from './AddApiSkillDialog';
+import BrowserSkill from './BrowserSkill';
 import ApiIcon from '@mui/icons-material/Api';
 
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
@@ -22,9 +24,28 @@ interface ISkill {
 }
 
 const SKILL_TYPE_HTTP_API = 'HTTP API';
+const SKILL_TYPE_BROWSER = 'Browser';
 
 // Base static skills/plugins data
 const BASE_SKILLS: ISkill[] = [
+  {
+    id: 'browser',
+    icon: <LanguageIcon />,
+    name: 'Browser',
+    description: 'Enable the AI to browse websites and extract information from them. The AI can visit URLs and process their content.',
+    type: SKILL_TYPE_BROWSER,
+    skill: {
+      name: 'Browser',
+      description: 'Enable the AI to browse websites and extract information from them.',
+      systemPrompt: '',
+      apiSkill: {
+        schema: '',
+        url: '',
+        requiredParameters: [],
+      },
+      configurable: true,
+    },
+  },
   {
     id: 'alpha-vantage',
     icon: alphaVantageTool.icon,
@@ -131,6 +152,9 @@ const Skills: React.FC<SkillsProps> = ({
   }, [customApiSkills]);
 
   const isSkillEnabled = (skillName: string): boolean => {
+    if (skillName === 'Browser') {
+      return app.browserTool?.enabled ?? false;
+    }
     return app.apiTools?.some(tool => tool.name === skillName) ?? false;
   };
 
@@ -177,6 +201,59 @@ const Skills: React.FC<SkillsProps> = ({
       setSelectedSkill(skill.skill);
     }
     setIsDialogOpen(true);
+  };
+
+  const renderSkillDialog = () => {
+    if (!selectedSkill) {
+      return (
+        <AddApiSkillDialog
+          open={isDialogOpen}
+          onClose={() => {
+            setIsDialogOpen(false);
+          }}
+          onClosed={() => {
+            setSelectedSkill(null);
+          }}
+          skill={undefined}
+          app={app}
+          onUpdate={onUpdate}
+          isEnabled={false}
+        />
+      );
+    }
+
+    if (selectedSkill.name === 'Browser') {
+      return (
+        <BrowserSkill
+          open={isDialogOpen}
+          onClose={() => {
+            setIsDialogOpen(false);
+          }}
+          onClosed={() => {
+            setSelectedSkill(null);
+          }}
+          app={app}
+          onUpdate={onUpdate}
+          isEnabled={isSkillEnabled('Browser')}
+        />
+      );
+    }
+
+    return (
+      <AddApiSkillDialog
+        open={isDialogOpen}
+        onClose={() => {
+          setIsDialogOpen(false);
+        }}
+        onClosed={() => {
+          setSelectedSkill(null);
+        }}
+        skill={selectedSkill}
+        app={app}
+        onUpdate={onUpdate}
+        isEnabled={isSkillEnabled(selectedSkill.name)}
+      />
+    );
   };
 
   return (
@@ -365,19 +442,7 @@ const Skills: React.FC<SkillsProps> = ({
         </DialogActions>
       </Dialog>
 
-      <AddApiSkillDialog
-        open={isDialogOpen}
-        onClose={() => {
-          setIsDialogOpen(false);
-        }}
-        onClosed={() => {
-          setSelectedSkill(null);
-        }}
-        skill={selectedSkill || undefined}
-        app={app}
-        onUpdate={onUpdate}
-        isEnabled={selectedSkill ? isSkillEnabled(selectedSkill.name) : false}
-      />
+      {renderSkillDialog()}
     </Box>
   );
 };

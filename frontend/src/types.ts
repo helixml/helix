@@ -647,6 +647,7 @@ export interface IAssistantConfig {
   apis?: IAssistantApi[];
   gptscripts?: IAssistantGPTScript[];
   zapier?: IAssistantZapier[];
+  browser?: IAssistantBrowser;
   tools?: ITool[];
   knowledge?: IKnowledgeSource[];
 }
