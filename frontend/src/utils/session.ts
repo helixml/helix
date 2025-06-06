@@ -268,9 +268,6 @@ export const getNewSessionBreadcrumbs = ({
     }]
   } else if (app) {
     return [{
-      title: 'App Store',
-      routeName: 'appstore',
-    }, {
       title: getAppName(app),
     }]
   }

@@ -5,7 +5,6 @@ import Link from '@mui/material/Link'
 import { SxProps } from '@mui/material/styles'
 import Typography from '@mui/material/Typography'
 import { FC, useEffect, useState, useMemo, useContext, useRef } from 'react'
-import AssistantPicker from '../components/appstore/AssistantPicker'
 import AppCreateHeader from '../components/appstore/CreateHeader'
 import CenterMessage from '../components/create/CenterMessage'
 import ConfigWindow from '../components/create/ConfigWindow'
@@ -616,24 +615,6 @@ const Create: FC = () => {
       >
         <AppCreateHeader
           app={apps.app}
-        />
-      </Cell>
-      <Cell
-        sx={{
-          px: PADDING_X,
-          py: 2,
-          pt: 4,
-          width: '100%',
-          position: 'relative',
-          zIndex: 2,
-        }}
-      >
-        <AssistantPicker
-          app={apps.app}
-          activeAssistantID={activeAssistantID}
-          onClick={(index) => {
-            router.setParams({ assistant_id: index.toString() })
-          }}
         />
       </Cell>
     </Row>
