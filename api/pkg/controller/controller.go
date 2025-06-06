@@ -6,6 +6,7 @@ import (
 
 	agent "github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/gptscript"
@@ -38,6 +39,7 @@ type Options struct {
 	Scheduler            *scheduler.Scheduler
 	RunnerController     *scheduler.RunnerController
 	OAuthManager         *oauth.Manager
+	Browser              *browser.Browser
 }
 
 type Controller struct {
