@@ -580,7 +580,7 @@ const SidebarContent: React.FC<{
                             <ListItemIcon>
                               <DashboardIcon fontSize="small" />
                             </ListItemIcon> 
-                            Admin Panel
+                            Admin Dashboard
                           </MenuItem>
                         )
                       }
