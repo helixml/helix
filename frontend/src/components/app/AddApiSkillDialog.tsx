@@ -20,7 +20,6 @@ import {
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { IAgentSkill, IRequiredApiParameter, IAppFlatState, IAssistantApi } from '../../types';
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';

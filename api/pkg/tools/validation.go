@@ -134,6 +134,8 @@ func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Pl
 		if tool.Config.Zapier.APIKey == "" {
 			return system.NewHTTPError400("API key is required for Zapier tools")
 		}
+	case types.ToolTypeBrowser:
+		// No validation needed
 	default:
 		return system.NewHTTPError400(fmt.Sprintf("invalid tool type %s, only API tools are supported at the moment", tool.ToolType))
 	}
