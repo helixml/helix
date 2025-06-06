@@ -21,6 +21,7 @@ import DashboardIcon from '@mui/icons-material/Dashboard'
 import LoginIcon from '@mui/icons-material/Login'
 import LogoutIcon from '@mui/icons-material/Logout'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
+import PolylineIcon from '@mui/icons-material/Polyline';
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import SchoolIcon from '@mui/icons-material/School'
@@ -530,81 +531,36 @@ const SidebarContent: React.FC<{
                       }}
                       open={Boolean(accountMenuAnchorEl)}
                       onClose={() => setAccountMenuAnchorEl(null)}
-                    >
-
-                      <MenuItem onClick={ () => {
-                        orgNavigateTo('home')
-                      }}>
-                        <ListItemIcon>
-                          <HomeIcon fontSize="small" />
-                        </ListItemIcon> 
-                        Home
-                      </MenuItem>
-
-                      <MenuItem onClick={ () => {
-                        orgNavigateTo('appstore')
-                      }}>
-                        <ListItemIcon>
-                          <AppsIcon fontSize="small" />
-                        </ListItemIcon> 
-                        App Store
-                      </MenuItem>
-
-                      {
-                        account.admin && (
-                          <MenuItem onClick={ () => {
-                            navigateTo('dashboard')
-                          }}>
-                            <ListItemIcon>
-                              <DashboardIcon fontSize="small" />
-                            </ListItemIcon> 
-                            Dashboard
-                          </MenuItem>
-                        )
-                      }
-
+                    >                      
                       {
                         account.serverConfig.apps_enabled && (
                           <MenuItem onClick={ () => {
                             orgNavigateTo('apps')
                           }}>
                             <ListItemIcon>
-                              <WebhookIcon fontSize="small" />
+                              <AppsIcon fontSize="small" />
                             </ListItemIcon> 
-                            Your Apps
+                            Apps
                           </MenuItem>
                         )
                       }
 
-                      <MenuItem onClick={ () => {
-                        orgNavigateTo('new', {
-                          model: defaultModel,
-                          mode: SESSION_MODE_FINETUNE,
-                          rag: true,
-                        })
-                      }}>
-                        <ListItemIcon>
-                          <SchoolIcon fontSize="small" />
-                        </ListItemIcon> 
-                        Learn
-                      </MenuItem>
-                      
                       <MenuItem onClick={ () => {
                         navigateTo('account')
                       }}>
                         <ListItemIcon>
                           <AccountBoxIcon fontSize="small" />
                         </ListItemIcon> 
-                        Account &amp; API
+                        Account Settings
                       </MenuItem>
 
                       <MenuItem onClick={ () => {
                         navigateTo('oauth-connections')
                       }}>
                         <ListItemIcon>
-                          <WebhookIcon fontSize="small" />
+                          <PolylineIcon fontSize="small" />
                         </ListItemIcon> 
-                        Connected Services
+                        Integrations
                       </MenuItem>
 
                       <MenuItem onClick={ () => {
@@ -616,14 +572,18 @@ const SidebarContent: React.FC<{
                         API Reference
                       </MenuItem>
 
-                      <MenuItem onClick={ () => {
-                        navigateTo('files')
-                      }}>
-                        <ListItemIcon>
-                          <CloudUploadIcon fontSize="small" />
-                        </ListItemIcon> 
-                        Files
-                      </MenuItem>
+                      {
+                        account.admin && (
+                          <MenuItem onClick={ () => {
+                            navigateTo('dashboard')
+                          }}>
+                            <ListItemIcon>
+                              <DashboardIcon fontSize="small" />
+                            </ListItemIcon> 
+                            Admin Panel
+                          </MenuItem>
+                        )
+                      }
 
                       <MenuItem onClick={ () => {
                         setAccountMenuAnchorEl(null)
