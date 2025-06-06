@@ -73,25 +73,6 @@ const IMAGE_GEN_FEATURE: IFeature = {
   }]
 }
 
-const APPS_FEATURE: IFeature = {
-  title: 'App Store',
-  description: 'AI Assistants and apps that you or other users have created',
-  icon: <AppsIcon sx={{color: '#ef2ec6'}} />,
-  // image: '/img/servers.png',
-  actions: [{
-    title: 'Browse',
-    color: 'secondary',
-    variant: 'outlined',
-    handler: (navigate) => navigate('appstore'),
-    id: 'browse-button',
-  }, {
-    title: 'Docs',
-    color: 'primary',
-    variant: 'text',
-    handler: () => window.open("https://docs.helixml.tech/helix/develop/getting-started/"),
-  }]
-}
-
 const RAG_FEATURE: IFeature = {
   title: 'RAG over Documents',
   description: 'Upload documents and index them, then chat to your documents',
@@ -411,18 +392,6 @@ const HomeFeatureGrid: FC = ({
 
   return (
     <>
-      <HomeFeatureSection
-        title="Use Generative AI"
-        features={[
-          CHAT_FEATURE,
-          IMAGE_GEN_FEATURE,
-          APPS_FEATURE,
-        ]}
-        sx={{
-          mb: 4,
-        }}
-      />
-
       <HomeFeatureSection
         title="Customize Models with Data"
         features={[
