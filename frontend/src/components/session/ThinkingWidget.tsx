@@ -55,10 +55,7 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
 
   // Split text into lines for custom rendering
   const lines = text.split('\n');
-  const totalLines = lines.length;
-  const visibleCount = 2;
-  const blurredCount = 3;
-  
+
   if (!open && !isStreaming) {
     return (
       <Box
@@ -146,7 +143,6 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
             position: 'relative',
             zIndex: 2,
             py: 2,
-            
           }}
         >
           <Typography
@@ -159,6 +155,7 @@ const ThinkingWidget: React.FC<ThinkingWidgetProps> = ({ text, startTime, isStre
               fontSize: 16,
               fontFamily: 'inherit',
               whiteSpace: 'pre-line',
+              ...lightTheme.scrollbar,
             }}
           >
             {text}

@@ -96,6 +96,10 @@ func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Pl
 			return system.NewHTTPError400("API schema is required for API tools")
 		}
 
+		// Trim space
+		tool.Config.API.Schema = strings.TrimSpace(tool.Config.API.Schema)
+		tool.Config.API.URL = strings.TrimSpace(tool.Config.API.URL)
+
 		if assistant.AgentMode && tool.Config.API.SystemPrompt == "" {
 			return system.NewHTTPError400("system prompt is required for API tools when using the agent mode")
 		}

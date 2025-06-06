@@ -255,6 +255,16 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		// Validate and default tools
 		for idx := range app.Config.Helix.Assistants {
 			assistant := &app.Config.Helix.Assistants[idx]
+
+			// Ensure we don't have tools with duplicate names
+			toolNames := make(map[string]bool)
+			for _, tool := range assistant.Tools {
+				if toolNames[tool.Name] {
+					return nil, system.NewHTTPError400(fmt.Sprintf("tool '%s' has a duplicate name", tool.Name))
+				}
+				toolNames[tool.Name] = true
+			}
+
 			for idx := range assistant.Tools {
 				tool := assistant.Tools[idx]
 				err = tools.ValidateTool(assistant, tool, s.Controller.ToolsPlanner, true)
@@ -607,6 +617,16 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	// Validate and default tools
 	for idx := range updatedWithTools.Config.Helix.Assistants {
 		assistant := &update.Config.Helix.Assistants[idx]
+
+		// Ensure we don't have tools with duplicate names
+		toolNames := make(map[string]bool)
+		for _, tool := range assistant.Tools {
+			if toolNames[tool.Name] {
+				return nil, system.NewHTTPError400(fmt.Sprintf("tool '%s' has a duplicate name", tool.Name))
+			}
+			toolNames[tool.Name] = true
+		}
+
 		for idx := range assistant.Tools {
 			tool := assistant.Tools[idx]
 			err = tools.ValidateTool(assistant, tool, s.Controller.ToolsPlanner, true)
