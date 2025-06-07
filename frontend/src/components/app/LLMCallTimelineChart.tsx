@@ -136,7 +136,7 @@ const getTooltipContent = (row: RowData): React.ReactNode => {
       content.push(<div key="reasoning">Reasoning Effort: {reasoningEffort}</div>);
     }
 
-    if (row.llm_call.step === 'decide_next_action' && row.llm_call.response) {
+    if ((row.llm_call.step === 'decide_next_action' || row.llm_call.step === 'summarize_multiple_tool_results') && row.llm_call.response) {
       const toolCalls = getToolCalls(row.llm_call.response);
       if (toolCalls.length > 0) {
         content.push(
