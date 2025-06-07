@@ -3298,6 +3298,32 @@ paths:
       summary: List LLM calls
       tags:
       - llm_calls
+  /api/v1/apps/{id}/step-info:
+    get:
+      description: List step info for a specific app
+      parameters:
+      - description: App ID
+        in: query
+        name: appId
+        type: string
+      - description: Interaction ID
+        in: query
+        name: interactionId
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.StepInfo'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List step info
+      tags:
+      - step_info
   /api/v1/apps/{id}/user-access:
     get:
       description: Returns the access rights the current user has for this app

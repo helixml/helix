@@ -29,7 +29,9 @@ func (s *PostgresStore) CreateStepInfo(ctx context.Context, stepInfo *types.Step
 }
 
 type ListStepInfosQuery struct {
-	SessionID string
+	SessionID     string
+	InteractionID string
+	AppID         string
 }
 
 func (s *PostgresStore) ListStepInfos(ctx context.Context, query *ListStepInfosQuery) ([]*types.StepInfo, error) {
@@ -39,6 +41,14 @@ func (s *PostgresStore) ListStepInfos(ctx context.Context, query *ListStepInfosQ
 
 	if query.SessionID != "" {
 		dbQuery = dbQuery.Where("session_id = ?", query.SessionID)
+	}
+
+	if query.AppID != "" {
+		dbQuery = dbQuery.Where("app_id = ?", query.AppID)
+	}
+
+	if query.InteractionID != "" {
+		dbQuery = dbQuery.Where("interaction_id = ?", query.InteractionID)
 	}
 
 	// Oldest first (left to right)

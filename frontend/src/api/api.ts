@@ -2214,6 +2214,34 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List step info for a specific app
+     *
+     * @tags step_info
+     * @name V1AppsStepInfoDetail
+     * @summary List step info
+     * @request GET:/api/v1/apps/{id}/step-info
+     * @secure
+     */
+    v1AppsStepInfoDetail: (
+      id: string,
+      query?: {
+        /** App ID */
+        appId?: string;
+        /** Interaction ID */
+        interactionId?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesStepInfo[], any>({
+        path: `/api/v1/apps/${id}/step-info`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Returns the access rights the current user has for this app
      *
      * @tags apps

@@ -127,3 +127,39 @@ func (s *HelixAPIServer) listAppLLMCalls(_ http.ResponseWriter, r *http.Request)
 
 	return response, nil
 }
+
+// listAppStepInfo godoc
+// @Summary List step info
+// @Description List step info for a specific app
+// @Tags    step_info
+// @Produce json
+// @Param   appId         query    string  false  "App ID"
+// @Param   interactionId query    string  false  "Interaction ID"
+// @Success 200 {array} types.StepInfo
+// @Router /api/v1/apps/{id}/step-info [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) listAppStepInfo(_ http.ResponseWriter, r *http.Request) ([]*types.StepInfo, *system.HTTPError) {
+	appID := getID(r)
+	user := getRequestUser(r)
+
+	interactionID := r.URL.Query().Get("interactionId")
+
+	app, err := s.Store.GetApp(r.Context(), appID)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	if app.Owner != user.ID && !isAdmin(user) {
+		return nil, system.NewHTTPError403("you do not have permission to view this app's LLM calls")
+	}
+
+	stepInfos, err := s.Store.ListStepInfos(r.Context(), &store.ListStepInfosQuery{
+		AppID:         appID,
+		InteractionID: interactionID,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return stepInfos, nil
+}
