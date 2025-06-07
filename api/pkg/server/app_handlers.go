@@ -74,14 +74,7 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 
 	allApps := append(nonGlobalUserApps, globalApps...)
 
-	// Filter apps based on the "type" query parameter
-	var filteredApps []*types.App
-	for _, app := range allApps {
-
-		filteredApps = append(filteredApps, app)
-	}
-
-	filteredApps = s.populateAppOwner(ctx, filteredApps)
+	filteredApps := s.populateAppOwner(ctx, allApps)
 
 	return filteredApps, nil
 }

@@ -4,7 +4,6 @@ import {
 
 export const APPS: IApp[] = [{
   id: 'app_01hyx25hdae1a3bvexs6dc2qhk',
-  app_source: 'helix',
   created: new Date(),
   updated: new Date(),
   owner: '',
@@ -52,7 +51,6 @@ export const APPS: IApp[] = [{
   }
 }, {
   id: 'app_01hyx25hdae1a3bvexs6dc2qha',
-  app_source: 'helix',
   created: new Date(),
   updated: new Date(),
   owner: '',
@@ -86,7 +84,6 @@ export const APPS: IApp[] = [{
   }
 }, {
   id: 'app_01hyx25hdae1a3bvexs6dc2qhb',
-  app_source: 'helix',
   created: new Date(),
   updated: new Date(),
   owner: '',
