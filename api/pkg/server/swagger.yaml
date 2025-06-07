@@ -591,8 +591,6 @@ definitions:
     type: object
   types.App:
     properties:
-      app_source:
-        $ref: '#/definitions/types.AppSource'
       config:
         $ref: '#/definitions/types.AppConfig'
       created:
@@ -623,36 +621,12 @@ definitions:
         items:
           type: string
         type: array
-      github:
-        $ref: '#/definitions/types.AppGithubConfig'
       helix:
         $ref: '#/definitions/types.AppHelixConfig'
       secrets:
         additionalProperties:
           type: string
         type: object
-    type: object
-  types.AppGithubConfig:
-    properties:
-      hash:
-        type: string
-      key_pair:
-        $ref: '#/definitions/types.KeyPair'
-      last_update:
-        $ref: '#/definitions/types.AppGithubConfigUpdate'
-      repo:
-        type: string
-      webhook_secret:
-        type: string
-    type: object
-  types.AppGithubConfigUpdate:
-    properties:
-      error:
-        type: string
-      hash:
-        type: string
-      updated:
-        type: string
     type: object
   types.AppHelixConfig:
     properties:
@@ -675,14 +649,6 @@ definitions:
           $ref: '#/definitions/types.Trigger'
         type: array
     type: object
-  types.AppSource:
-    enum:
-    - helix
-    - github
-    type: string
-    x-enum-varnames:
-    - AppSourceHelix
-    - AppSourceGithub
   types.AssistantAPI:
     properties:
       description:
@@ -1181,22 +1147,6 @@ definitions:
             type: integer
         type: object
     type: object
-  types.GptScriptRequest:
-    properties:
-      file_path:
-        type: string
-      input:
-        type: string
-    type: object
-  types.GptScriptResponse:
-    properties:
-      error:
-        type: string
-      output:
-        type: string
-      retries:
-        type: integer
-    type: object
   types.ImageURLDetail:
     enum:
     - high
@@ -1349,15 +1299,6 @@ definitions:
         type: string
       url:
         description: Images
-        type: string
-    type: object
-  types.KeyPair:
-    properties:
-      privateKey:
-        type: string
-      publicKey:
-        type: string
-      type:
         type: string
     type: object
   types.Knowledge:
@@ -3235,40 +3176,6 @@ paths:
       summary: Get app usage
       tags:
       - apps
-  /api/v1/apps/{id}/gptscript:
-    post:
-      consumes:
-      - application/json
-      description: Runs a gptscript for an app
-      parameters:
-      - description: Request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.GptScriptRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.GptScriptResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Run a GptScript
   /api/v1/apps/{id}/llm-calls:
     get:
       description: List user's LLM calls with pagination and optional session filtering
@@ -3385,27 +3292,6 @@ paths:
       summary: Get app users daily usage
       tags:
       - apps
-  /api/v1/apps/github/{id}:
-    put:
-      parameters:
-      - description: Request body with app configuration.
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.App'
-      - description: Tool ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.App'
-      security:
-      - BearerAuth: []
   /api/v1/auth/authenticated:
     get:
       description: Check if the user is authenticated

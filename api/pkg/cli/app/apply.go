@@ -205,8 +205,7 @@ func updateApp(ctx context.Context, apiClient client.Client, app *types.App, app
 
 func createApp(ctx context.Context, apiClient client.Client, orgID string, appConfig *types.AppHelixConfig, global bool) (string, error) {
 	app := &types.App{
-		AppSource: types.AppSourceHelix,
-		Global:    global,
+		Global: global,
 		Config: types.AppConfig{
 			AllowedDomains: []string{}, // TODO: make configurable
 			Helix:          *appConfig,

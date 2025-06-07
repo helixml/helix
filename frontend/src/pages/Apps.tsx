@@ -199,7 +199,7 @@ const Apps: FC = () => {
       console.log('Creating app with config:', JSON.stringify(appConfig, null, 2));
       
       // Create the app
-      const newApp = await apps.createApp('helix', appConfig);
+      const newApp = await apps.createApp(appConfig);
       
       if (!newApp) {
         console.error('App creation failed - no app returned from API');
@@ -238,24 +238,6 @@ const Apps: FC = () => {
     }
   };
 
-  const onConnectRepo = useCallback(async (repo: string) => {
-    if (!account.user) {
-      account.setShowLoginWindow(true)
-      return false
-    }
-    const newApp = await apps.createGithubApp(repo)
-    if(!newApp) return false
-    removeParams(['add_app'])
-    snackbar.success('app created')
-    apps.loadApps()
-    navigate('app', {
-      app_id: newApp.id,
-    })
-    return true
-  }, [
-    apps.createApp,
-  ])
-
   const onEditApp = (app: IApp) => {
     account.orgNavigate('app', {
       app_id: app.id,
@@ -272,23 +254,7 @@ const Apps: FC = () => {
   }, [
     deletingApp,
     apps.deleteApp,
-  ])
-
-  useEffect(() => {
-    if(!account.user) return
-    if(!params.add_app) return
-    apps.loadGithubStatus(`${window.location.href}?add_app=true`)
-  }, [
-    account.user,
-    params.add_app,
-  ])
-
-  useEffect(() => {
-    if(!apps.githubStatus) return
-    apps.loadGithubRepos()
-  }, [
-    apps.githubStatus,
-  ])
+  ])  
 
   useEffect(() => {
     if(!params.snackbar_message) return

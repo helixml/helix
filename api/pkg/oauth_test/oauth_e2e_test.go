@@ -215,7 +215,6 @@ paths:
 		ID:        fmt.Sprintf("app_%d", time.Now().UnixNano()),
 		Owner:     testUser.ID,
 		OwnerType: types.OwnerTypeUser,
-		AppSource: types.AppSourceHelix,
 		Config:    appConfig,
 	}
 

@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/apps"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/oauth"
@@ -75,20 +74,7 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 
 	allApps := append(nonGlobalUserApps, globalApps...)
 
-	// Filter apps based on the "type" query parameter
-	var filteredApps []*types.App
-	for _, app := range allApps {
-		if !isAdmin(user) && app.Global {
-			if app.Config.Github != nil {
-				app.Config.Github.KeyPair.PrivateKey = ""
-				app.Config.Github.WebhookSecret = ""
-			}
-		}
-
-		filteredApps = append(filteredApps, app)
-	}
-
-	filteredApps = s.populateAppOwner(ctx, filteredApps)
+	filteredApps := s.populateAppOwner(ctx, allApps)
 
 	return filteredApps, nil
 }
@@ -239,100 +225,51 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 	var created *types.App
 
-	// if this is a github app - then initialise it
-	switch app.AppSource {
-	case types.AppSourceHelix:
-		err = s.validateTriggers(app.Config.Helix.Triggers)
-		if err != nil {
-			return nil, system.NewHTTPError400(err.Error())
-		}
-
-		app, err = store.ParseAppTools(app)
-		if err != nil {
-			return nil, system.NewHTTPError400(err.Error())
-		}
-
-		// Validate and default tools
-		for idx := range app.Config.Helix.Assistants {
-			assistant := &app.Config.Helix.Assistants[idx]
-
-			// Ensure we don't have tools with duplicate names
-			toolNames := make(map[string]bool)
-			for _, tool := range assistant.Tools {
-				if toolNames[tool.Name] {
-					return nil, system.NewHTTPError400(fmt.Sprintf("tool '%s' has a duplicate name", tool.Name))
-				}
-				toolNames[tool.Name] = true
-			}
-
-			for idx := range assistant.Tools {
-				tool := assistant.Tools[idx]
-				err = tools.ValidateTool(assistant, tool, s.Controller.ToolsPlanner, true)
-				if err != nil {
-					return nil, system.NewHTTPError400(err.Error())
-				}
-			}
-
-			for _, k := range assistant.Knowledge {
-				err = s.validateKnowledge(k)
-				if err != nil {
-					return nil, system.NewHTTPError400(err.Error())
-				}
-			}
-		}
-
-		created, err = s.Store.CreateApp(ctx, app)
-		if err != nil {
-			return nil, system.NewHTTPError500(err.Error())
-		}
-
-		log.Info().Str("app_id", created.ID).Str("app_source", string(types.AppSourceHelix)).Msg("Created Helix app")
-	case types.AppSourceGithub:
-		if app.Config.Github.Repo == "" {
-			return nil, system.NewHTTPError400("github repo is required")
-		}
-		created, err = s.Store.CreateApp(ctx, app)
-		if err != nil {
-			return nil, system.NewHTTPError500(err.Error())
-		}
-
-		log.Info().Str("app_id", created.ID).Str("app_source", string(types.AppSourceGithub)).Msg("Created Github app")
-
-		client, err := s.getGithubClientFromRequest(r)
-		if err != nil {
-			return nil, system.NewHTTPError500(err.Error())
-		}
-		githubApp, err := apps.NewGithubApp(apps.AppOptions{
-			GithubConfig: s.Cfg.GitHub,
-			Client:       client,
-			App:          created,
-			ToolsPlanner: s.Controller.ToolsPlanner,
-			UpdateApp: func(app *types.App) (*types.App, error) {
-				return s.Store.UpdateApp(r.Context(), app)
-			},
-		})
-		if err != nil {
-			return nil, system.NewHTTPError500(err.Error())
-		}
-
-		newApp, err := githubApp.Create()
-		if err != nil {
-			if delErr := s.Store.DeleteApp(r.Context(), created.ID); delErr != nil {
-				return nil, system.NewHTTPError500(fmt.Sprintf("%v: %v", delErr, err))
-			}
-			return nil, system.NewHTTPError500(err.Error())
-		}
-
-		created, err = s.Store.UpdateApp(r.Context(), newApp)
-		if err != nil {
-			return nil, system.NewHTTPError500(err.Error())
-		}
-	default:
-		return nil, system.NewHTTPError400(
-			fmt.Sprintf("unknown app source, available sources: %s, %s",
-				types.AppSourceHelix,
-				types.AppSourceGithub))
+	err = s.validateTriggers(app.Config.Helix.Triggers)
+	if err != nil {
+		return nil, system.NewHTTPError400(err.Error())
 	}
+
+	app, err = store.ParseAppTools(app)
+	if err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
+
+	// Validate and default tools
+	for idx := range app.Config.Helix.Assistants {
+		assistant := &app.Config.Helix.Assistants[idx]
+
+		// Ensure we don't have tools with duplicate names
+		toolNames := make(map[string]bool)
+		for _, tool := range assistant.Tools {
+			if toolNames[tool.Name] {
+				return nil, system.NewHTTPError400(fmt.Sprintf("tool '%s' has a duplicate name", tool.Name))
+			}
+			toolNames[tool.Name] = true
+		}
+
+		for idx := range assistant.Tools {
+			tool := assistant.Tools[idx]
+			err = tools.ValidateTool(assistant, tool, s.Controller.ToolsPlanner, true)
+			if err != nil {
+				return nil, system.NewHTTPError400(err.Error())
+			}
+		}
+
+		for _, k := range assistant.Knowledge {
+			err = s.validateKnowledge(k)
+			if err != nil {
+				return nil, system.NewHTTPError400(err.Error())
+			}
+		}
+	}
+
+	created, err = s.Store.CreateApp(ctx, app)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	log.Info().Str("app_id", created.ID).Msg("Created Helix app")
 
 	err = s.ensureKnowledge(ctx, created)
 	if err != nil {
@@ -657,100 +594,6 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	return updated, nil
 }
 
-// updateGithubApp godoc
-// @Summary Update an existing app
-// @Description Update existing app
-// @Tags    apps
-
-// @Success 200 {object} types.App
-// @Param request    body types.App true "Request body with app configuration.")
-// @Param id path string true "Tool ID"
-// @Router /api/v1/apps/github/{id} [put]
-// @Security BearerAuth
-func (s *HelixAPIServer) updateGithubApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
-	user := getRequestUser(r)
-
-	var appUpdate AppUpdatePayload
-	err := json.NewDecoder(r.Body).Decode(&appUpdate)
-	if err != nil {
-		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body 3, error: %s", err))
-	}
-
-	if appUpdate.ActiveTools == nil {
-		appUpdate.ActiveTools = []string{}
-	}
-
-	if appUpdate.AllowedDomains == nil {
-		appUpdate.AllowedDomains = []string{}
-	}
-
-	if appUpdate.Secrets == nil {
-		appUpdate.Secrets = map[string]string{}
-	}
-
-	id := getID(r)
-
-	// Getting existing app
-	existing, err := s.Store.GetApp(r.Context(), id)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
-		}
-		return nil, system.NewHTTPError500(err.Error())
-	}
-
-	if existing == nil {
-		return nil, system.NewHTTPError404(store.ErrNotFound.Error())
-	}
-
-	if appUpdate.Global {
-		if !isAdmin(user) {
-			return nil, system.NewHTTPError403("only admin users can update global apps")
-		}
-	} else {
-		if existing.Owner != user.ID {
-			return nil, system.NewHTTPError403("you do not have permission to update this app")
-		}
-	}
-
-	if existing.AppSource == types.AppSourceGithub {
-		client, err := s.getGithubClientFromRequest(r)
-		if err != nil {
-			return nil, system.NewHTTPError500(err.Error())
-		}
-		githubApp, err := apps.NewGithubApp(apps.AppOptions{
-			GithubConfig: s.Cfg.GitHub,
-			Client:       client,
-			App:          existing,
-			ToolsPlanner: s.Controller.ToolsPlanner,
-			UpdateApp: func(app *types.App) (*types.App, error) {
-				return s.Store.UpdateApp(r.Context(), app)
-			},
-		})
-		if err != nil {
-			return nil, system.NewHTTPError500(err.Error())
-		}
-
-		existing, err = githubApp.Update()
-		if err != nil {
-			return nil, system.NewHTTPError500(err.Error())
-		}
-	}
-
-	existing.Updated = time.Now()
-	existing.Config.Secrets = appUpdate.Secrets
-	existing.Config.AllowedDomains = appUpdate.AllowedDomains
-	existing.Global = appUpdate.Global
-
-	// Updating the app
-	updated, err := s.Store.UpdateApp(r.Context(), existing)
-	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
-	}
-
-	return updated, nil
-}
-
 // deleteApp godoc
 // @Summary Delete app
 // @Description Delete app.
@@ -955,124 +798,6 @@ func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.Us
 	}
 
 	return oauthTokens
-}
-
-// appRunScript godoc
-// @Summary Run a GptScript
-// @Description Runs a gptscript for an app
-// @Accept json
-// @Produce json
-// @Param request body types.GptScriptRequest true "Request"
-// @Router /api/v1/apps/{id}/gptscript [post]
-// @Success 200 {object} types.GptScriptResponse
-// @Failure 400 {object} system.HTTPError
-// @Failure 404 {object} system.HTTPError
-// @Failure 500 {object} system.HTTPError
-// @Security BearerAuth
-func (s *HelixAPIServer) appRunScript(_ http.ResponseWriter, r *http.Request) (*types.GptScriptResponse, *system.HTTPError) {
-	start := time.Now()
-	user := getRequestUser(r)
-	id := getID(r)
-
-	appRecord, err := s.Store.GetApp(r.Context(), id)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return nil, system.NewHTTPError404("app not found")
-		}
-		return nil, system.NewHTTPError500(err.Error())
-	}
-
-	if user.ID != appRecord.Owner && !appRecord.Global {
-		return nil, system.NewHTTPError403("you do not have permission to run this script")
-	}
-
-	var req types.GptScriptRequest
-	err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body 4, error: %s", err))
-	}
-
-	envPairs := []string{}
-	for key, value := range appRecord.Config.Secrets {
-		envPairs = append(envPairs, key+"="+value)
-	}
-
-	// Get OAuth tokens as a map
-	oauthTokensMap := s.getAppOAuthTokenEnv(r.Context(), user, appRecord)
-
-	// Convert OAuth tokens map to environment variables format
-	for provider, token := range oauthTokensMap {
-		envName := fmt.Sprintf("OAUTH_TOKEN_%s", strings.ToUpper(provider))
-		envPairs = append(envPairs, fmt.Sprintf("%s=%s", envName, token))
-	}
-
-	logger := log.With().
-		Str("app_id", user.AppID).
-		Str("user_id", user.ID).Logger()
-
-	logger.Trace().Msg("starting app execution")
-
-	app := &types.GptScriptGithubApp{
-		Script: types.GptScript{
-			FilePath: req.FilePath,
-			Input:    req.Input,
-			Env:      envPairs,
-		},
-		Repo:       appRecord.Config.Github.Repo,
-		CommitHash: appRecord.Config.Github.Hash,
-		KeyPair:    appRecord.Config.Github.KeyPair,
-	}
-
-	result, err := s.gptScriptExecutor.ExecuteApp(r.Context(), app)
-	if err != nil {
-		logger.Warn().Err(err).Str("duration", time.Since(start).String()).Msg("app execution failed")
-
-		// Log error
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		_, runErr := s.Store.CreateScriptRun(ctx, &types.ScriptRun{
-			Owner:       user.ID,
-			OwnerType:   user.Type,
-			AppID:       user.AppID,
-			State:       types.ScriptRunStateError,
-			Type:        types.GptScriptRunnerTaskTypeGithubApp,
-			SystemError: err.Error(),
-			DurationMs:  int(time.Since(start).Milliseconds()),
-			Request: &types.GptScriptRunnerRequest{
-				GithubApp: app,
-			},
-		})
-		if runErr != nil {
-			log.Err(runErr).Msg("failed to create script run")
-		}
-
-		return nil, system.NewHTTPError500(err.Error())
-	}
-
-	logger.Info().Str("duration", time.Since(start).String()).Msg("app executed")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err = s.Store.CreateScriptRun(ctx, &types.ScriptRun{
-		Owner:      user.ID,
-		OwnerType:  user.Type,
-		AppID:      user.AppID,
-		State:      types.ScriptRunStateComplete,
-		Type:       types.GptScriptRunnerTaskTypeGithubApp,
-		Retries:    result.Retries,
-		DurationMs: int(time.Since(start).Milliseconds()),
-		Request: &types.GptScriptRunnerRequest{
-			GithubApp: app,
-		},
-		Response: result,
-	})
-	if err != nil {
-		log.Err(err).Msg("failed to create script run")
-	}
-
-	return result, nil
 }
 
 // appRunAPIAction godoc

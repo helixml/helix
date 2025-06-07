@@ -768,53 +768,55 @@ const AppSettings: FC<AppSettingsProps> = ({
                     placement="top"
                     arrow
                   >
-                    <Button
-                      variant="text"
-                      onClick={handleMainEffortClick}
-                      endIcon={<ArrowDropDownIcon />}
-                      disabled={readOnly}
-                      sx={{
-                        borderRadius: '8px',
-                        color: 'text.primary',
-                        textTransform: 'none',
-                        fontSize: '0.875rem',
-                        padding: '4px 8px',
-                        height: '32px',
-                        minWidth: 'auto',
-                        maxWidth: '120px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        border: '1px solid #fff',
-                        '&:hover': {
-                          backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
-                        },
-                        ...(readOnly && {
-                          opacity: 0.5,
-                          pointerEvents: 'none',
-                        }),
-                      }}
-                    >
-                      <Typography 
-                        variant="caption" 
-                        component="span"
-                        sx={{ 
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          display: 'inline-block',
-                          lineHeight: 1.2,
-                          verticalAlign: 'middle',
+                    <span>
+                      <Button
+                        variant="text"
+                        onClick={handleMainEffortClick}
+                        endIcon={<ArrowDropDownIcon />}
+                        disabled={readOnly}
+                        sx={{
+                          borderRadius: '8px',
+                          color: 'text.primary',
+                          textTransform: 'none',
                           fontSize: '0.875rem',
+                          padding: '4px 8px',
+                          height: '32px',
+                          minWidth: 'auto',
+                          maxWidth: '120px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          border: '1px solid #fff',
+                          '&:hover': {
+                            backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
+                          },
+                          ...(readOnly && {
+                            opacity: 0.5,
+                            pointerEvents: 'none',
+                          }),
                         }}
                       >
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <BarsIcon effort={reasoning_model_effort} />
-                          <Typography>
-                            {reasoning_model_effort.charAt(0).toUpperCase() + reasoning_model_effort.slice(1)}
-                          </Typography>
-                        </Stack>
-                      </Typography>
-                    </Button>
+                        <Typography 
+                          variant="caption" 
+                          component="span"
+                          sx={{ 
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            display: 'inline-block',
+                            lineHeight: 1.2,
+                            verticalAlign: 'middle',
+                            fontSize: '0.875rem',
+                          }}
+                        >
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <BarsIcon effort={reasoning_model_effort} />
+                            <Typography>
+                              {reasoning_model_effort.charAt(0).toUpperCase() + reasoning_model_effort.slice(1)}
+                            </Typography>
+                          </Stack>
+                        </Typography>
+                      </Button>
+                    </span>
                   </Tooltip>
                   <Menu
                     anchorEl={mainEffortMenuAnchor}
@@ -907,53 +909,55 @@ const AppSettings: FC<AppSettingsProps> = ({
                     placement="top"
                     arrow
                   >
-                    <Button
-                      variant="text"
-                      onClick={handleSmallEffortClick}
-                      endIcon={<ArrowDropDownIcon />}
-                      disabled={readOnly}
-                      sx={{
-                        borderRadius: '8px',
-                        color: 'text.primary',
-                        textTransform: 'none',
-                        fontSize: '0.875rem',
-                        padding: '4px 8px',
-                        height: '32px',
-                        minWidth: 'auto',
-                        maxWidth: '120px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        border: '1px solid #fff',
-                        '&:hover': {
-                          backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
-                        },
-                        ...(readOnly && {
-                          opacity: 0.5,
-                          pointerEvents: 'none',
-                        }),
-                      }}
-                    >
-                      <Typography 
-                        variant="caption" 
-                        component="span"
-                        sx={{ 
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          display: 'inline-block',
-                          lineHeight: 1.2,
-                          verticalAlign: 'middle',
+                    <span>
+                      <Button
+                        variant="text"
+                        onClick={handleSmallEffortClick}
+                        endIcon={<ArrowDropDownIcon />}
+                        disabled={readOnly}
+                        sx={{
+                          borderRadius: '8px',
+                          color: 'text.primary',
+                          textTransform: 'none',
                           fontSize: '0.875rem',
+                          padding: '4px 8px',
+                          height: '32px',
+                          minWidth: 'auto',
+                          maxWidth: '120px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          border: '1px solid #fff',
+                          '&:hover': {
+                            backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
+                          },
+                          ...(readOnly && {
+                            opacity: 0.5,
+                            pointerEvents: 'none',
+                          }),
                         }}
                       >
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <BarsIcon effort={small_reasoning_model_effort} />
-                          <Typography>
-                            {small_reasoning_model_effort.charAt(0).toUpperCase() + small_reasoning_model_effort.slice(1)}
-                          </Typography>
-                        </Stack>
-                      </Typography>
-                    </Button>
+                        <Typography 
+                          variant="caption" 
+                          component="span"
+                          sx={{ 
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            display: 'inline-block',
+                            lineHeight: 1.2,
+                            verticalAlign: 'middle',
+                            fontSize: '0.875rem',
+                          }}
+                        >
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <BarsIcon effort={small_reasoning_model_effort} />
+                            <Typography>
+                              {small_reasoning_model_effort.charAt(0).toUpperCase() + small_reasoning_model_effort.slice(1)}
+                            </Typography>
+                          </Stack>
+                        </Typography>
+                      </Button>
+                    </span>
                   </Tooltip>
                   <Menu
                     anchorEl={smallEffortMenuAnchor}
@@ -1017,16 +1021,20 @@ const AppSettings: FC<AppSettingsProps> = ({
 
             <Box sx={{ mb: 3 }}>
               <Typography gutterBottom>Max Reasoning Iterations (per task)</Typography>
-              <Typography variant="body2" color="text.secondary">
-                The maximum number of reasoning iterations allowed for each reasoning task. This limit applies separately to:
-                <ul>
+              <Box sx={{ mb: 1 }}>
+                <Typography variant="body2" color="text.secondary" component="div">
+                  The maximum number of reasoning iterations allowed for each reasoning task. This limit applies separately to:
+                </Typography>
+                <Box component="ul" sx={{ pl: 2, mt: 0.5, mb: 0.5 }}>
                   <li>Global reasoning (overall conversation planning)</li>
                   <li>Each individual skill's reasoning. Includes preparation and execution of the skill.</li>
-                </ul>
-                For example, with 3 skills and max iterations set to 10, you could have up to 40 total iterations (10 for global + 10 for each skill).
-                This acts as a safety mechanism to prevent infinite loops.
-                <ResetLink field="max_iterations" value={max_iterations} onClick={() => handleReset('max_iterations')} />
-              </Typography>
+                </Box>
+                <Typography variant="body2" color="text.secondary" component="div">
+                  For example, with 3 skills and max iterations set to 10, you could have up to 40 total iterations (10 for global + 10 for each skill).
+                  This acts as a safety mechanism to prevent infinite loops.
+                  <ResetLink field="max_iterations" value={max_iterations} onClick={() => handleReset('max_iterations')} />
+                </Typography>
+              </Box>
 
               <TextField
                 sx={{ mt: 1 }}
