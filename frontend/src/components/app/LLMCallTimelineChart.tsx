@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { Box, Typography, Tooltip, useTheme } from '@mui/material';
 import { TypesStepInfo } from '../../api/api';
+import { useListAppSteps } from '../../services/appService';
 
 interface LLMCall {
   id: string;
@@ -15,6 +16,8 @@ interface LLMCall {
 // RowData contains row data information. It can have set either llm_call or action_info (not both).
 // All rows contain created and duration_ms.
 interface RowData {
+  name: string; // Step name for action_info, or "step" for llm calls
+
   created: string;
   duration_ms: number;
   
@@ -72,6 +75,16 @@ const getAssistantMessage = (response: any): string => {
 const getToolCalls = (response: any): any[] => {
   const parsed = parseResponse(response);
   return parsed?.choices?.[0]?.message?.tool_calls || [];
+};
+
+// sortRowDataByCreated - oldest to newest, when sorting include
+// up to milliseconds precision 
+const sortRowDataByCreated = (rows: RowData[]): RowData[] => {
+  return [...rows].sort((a, b) => {
+    const aTime = new Date(a.created).getTime();
+    const bTime = new Date(b.created).getTime();
+    return aTime - bTime;
+  });
 };
 
 const getTooltipContent = (row: RowData): React.ReactNode => {
@@ -132,6 +145,8 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
   const [hoverX, setHoverX] = useState<number | null>(null);
   const theme = useTheme();
 
+  const { data: steps, isLoading: isLoadingSteps } = useListAppSteps(appId, interactionId);
+
   useEffect(() => {
     const handleResize = () => {
       if (containerRef.current) {
@@ -143,19 +158,34 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Create the initial rows array from calls
   const rows = useMemo(() => {
-    return calls.map((call) => ({
+    const llmRows = calls.map((call) => ({
+      name: call.step,
       created: call.created,
       duration_ms: call.duration_ms,
       llm_call: call,
     } as RowData));
-  }, [calls]);
+
+    const stepRows = steps && steps.data
+      ? steps.data.map((step: TypesStepInfo) => ({
+          name: step.name,
+          created: step.created,
+          duration_ms: step.duration_ms,
+          action_info: step,
+        } as RowData))
+      : [];
+
+    return [...llmRows, ...stepRows];
+  }, [calls, steps]);
 
   const chartData = useMemo(() => {
-    if (!rows.length) return [];
-    const sorted = [...rows].sort((a, b) => new Date(a.created).getTime() - new Date(b.created).getTime());
-    const baseTime = new Date(sorted[0].created).getTime();
+    if (!rows.length) return [];    
+    
+    // Sort rows by created time    
+    const sorted = sortRowDataByCreated(rows);
+    const baseTime = new Date(sorted[0].created).getTime();  
+
+    // Add a row for each step
     return sorted.map((row, idx) => {
       const start = new Date(row.created).getTime() - baseTime;
       return {

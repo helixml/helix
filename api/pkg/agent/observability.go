@@ -70,11 +70,15 @@ func (p *PubSubStepInfoEmitter) EmitStepInfo(ctx context.Context, info *types.St
 		appID = "n/a"
 	}
 
+	// Only set created time if it's not already set
+	if info.Created.IsZero() {
+		info.Created = time.Now()
+	}
+
 	// Adding context metadata to the step info
 	info.ID = system.GenerateStepInfoID()
 	info.SessionID = vals.SessionID
 	info.InteractionID = vals.InteractionID
-	info.Created = time.Now()
 	info.AppID = appID
 
 	queue := pubsub.GetSessionQueue(vals.OwnerID, vals.SessionID)
