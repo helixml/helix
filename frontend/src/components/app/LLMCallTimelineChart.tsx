@@ -1,7 +1,6 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { Box, Typography, Tooltip, useTheme } from '@mui/material';
 import { TypesStepInfo } from '../../api/api';
-import { useListAppSteps } from '../../services/appService';
 
 interface LLMCall {
   id: string;
@@ -11,6 +10,16 @@ interface LLMCall {
   model?: string;
   response?: any;
   request?: any;
+}
+
+// RowData contains row data information. It can have set either llm_call or action_info (not both).
+// All rows contain created and duration_ms.
+interface RowData {
+  created: string;
+  duration_ms: number;
+  
+  llm_call: LLMCall;          // Helix LLM calls with requests and responses. When response includes a tool call, next thing that's going to happen is a tool execution by Helix.
+  action_info: TypesStepInfo; // Helix taken actions, for example used browser, calculator, ran python code, called API, etc.
 }
 
 interface LLMCallTimelineChartProps {
@@ -120,8 +129,6 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
   const [containerWidth, setContainerWidth] = useState(900);
   const [hoverX, setHoverX] = useState<number | null>(null);
   const theme = useTheme();
-
-  const { data: steps } = useListAppSteps(appId, interactionId);
 
   useEffect(() => {
     const handleResize = () => {
