@@ -88,17 +88,39 @@ const sortRowDataByCreated = (rows: RowData[]): RowData[] => {
 };
 
 const getTooltipContent = (row: RowData): React.ReactNode => {
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString();
+  };
+
+
   const startTime = new Date(row.created);
   const endTime = new Date(startTime.getTime() + row.duration_ms);
-  
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString('en-US', { 
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    });
-  };
+
+  if (row.action_info) {
+    return (
+      <div>
+        <div style={{ fontWeight: 'bold' }}>Skill execution: {row.name}</div>
+        <div>Started: {formatTime(startTime)}</div>
+        <div>Finished: {formatTime(endTime)}</div>
+        <div>Duration: {formatMs(row.duration_ms)}</div>
+        {row.action_info.details?.arguments && Object.keys(row.action_info.details.arguments).length > 0 && (
+          <>
+            <div style={{ marginTop: '4px', fontWeight: 'bold' }}>Arguments:</div>
+            {Object.entries(row.action_info.details.arguments).map(([key, value]) => (
+              <div key={key} style={{ marginLeft: '8px' }}>
+                - {key}: {JSON.stringify(value)}
+              </div>
+            ))}
+          </>
+        )}
+        {row.action_info.error ? (
+          <div style={{ marginTop: '4px', color: 'red' }}>Error: {row.action_info.error}</div>
+        ) : row.action_info.message && (
+          <div style={{ marginTop: '4px' }}>Response: {row.action_info.message.length > 100 ? `${row.action_info.message.substring(0, 100)}...` : row.action_info.message}</div>
+        )}
+      </div>
+    );
+  }
 
   const content: React.ReactNode[] = [
     <div key="times">
@@ -194,7 +216,7 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
         start,
         end: start + (row.duration_ms || 0),
         duration: row.duration_ms || 0,
-        label: row.llm_call?.step || row.action_info?.name || `Call ${idx + 1}`,
+        label: row.llm_call?.step || `Skill execution: ${row.action_info?.name}`,
       };
     });
   }, [rows]);
