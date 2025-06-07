@@ -77,41 +77,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/apps/github/{id}": {
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "parameters": [
-                    {
-                        "description": "Request body with app configuration.",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.App"
-                        }
-                    },
-                    {
-                        "type": "string",
-                        "description": "Tool ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.App"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/apps/{id}": {
             "get": {
                 "security": [
@@ -349,60 +314,6 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/types.AggregatedUsageMetric"
                             }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{id}/gptscript": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Runs a gptscript for an app",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "summary": "Run a GptScript",
-                "parameters": [
-                    {
-                        "description": "Request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.GptScriptRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.GptScriptResponse"
                         }
                     },
                     "400": {
@@ -3192,9 +3103,6 @@ const docTemplate = `{
         "types.App": {
             "type": "object",
             "properties": {
-                "app_source": {
-                    "$ref": "#/definitions/types.AppSource"
-                },
                 "config": {
                     "$ref": "#/definitions/types.AppConfig"
                 },
@@ -3244,9 +3152,6 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
-                "github": {
-                    "$ref": "#/definitions/types.AppGithubConfig"
-                },
                 "helix": {
                     "$ref": "#/definitions/types.AppHelixConfig"
                 },
@@ -3255,40 +3160,6 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "string"
                     }
-                }
-            }
-        },
-        "types.AppGithubConfig": {
-            "type": "object",
-            "properties": {
-                "hash": {
-                    "type": "string"
-                },
-                "key_pair": {
-                    "$ref": "#/definitions/types.KeyPair"
-                },
-                "last_update": {
-                    "$ref": "#/definitions/types.AppGithubConfigUpdate"
-                },
-                "repo": {
-                    "type": "string"
-                },
-                "webhook_secret": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.AppGithubConfigUpdate": {
-            "type": "object",
-            "properties": {
-                "error": {
-                    "type": "string"
-                },
-                "hash": {
-                    "type": "string"
-                },
-                "updated": {
-                    "type": "string"
                 }
             }
         },
@@ -3323,17 +3194,6 @@ const docTemplate = `{
                     }
                 }
             }
-        },
-        "types.AppSource": {
-            "type": "string",
-            "enum": [
-                "helix",
-                "github"
-            ],
-            "x-enum-varnames": [
-                "AppSourceHelix",
-                "AppSourceGithub"
-            ]
         },
         "types.AssistantAPI": {
             "type": "object",
@@ -4026,31 +3886,6 @@ const docTemplate = `{
                 }
             }
         },
-        "types.GptScriptRequest": {
-            "type": "object",
-            "properties": {
-                "file_path": {
-                    "type": "string"
-                },
-                "input": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.GptScriptResponse": {
-            "type": "object",
-            "properties": {
-                "error": {
-                    "type": "string"
-                },
-                "output": {
-                    "type": "string"
-                },
-                "retries": {
-                    "type": "integer"
-                }
-            }
-        },
         "types.ImageURLDetail": {
             "type": "string",
             "enum": [
@@ -4253,20 +4088,6 @@ const docTemplate = `{
                 },
                 "url": {
                     "description": "Images",
-                    "type": "string"
-                }
-            }
-        },
-        "types.KeyPair": {
-            "type": "object",
-            "properties": {
-                "privateKey": {
-                    "type": "string"
-                },
-                "publicKey": {
-                    "type": "string"
-                },
-                "type": {
                     "type": "string"
                 }
             }

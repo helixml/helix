@@ -175,7 +175,6 @@ func (suite *OrganizationsRBACTestSuite) TestNonMemberCannotCreateApp() {
 
 	app, err := userNonMemberClient.CreateApp(suite.ctx, &types.App{
 		OrganizationID: suite.organization.ID,
-		AppSource:      types.AppSourceHelix,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
 				Name:        "TestAppVisibilityWithoutGrantingAccess",
@@ -209,7 +208,6 @@ func (suite *OrganizationsRBACTestSuite) TestAppVisibilityWithoutGrantingAccess(
 
 	app, err := userMember1Client.CreateApp(suite.ctx, &types.App{
 		OrganizationID: suite.organization.ID,
-		AppSource:      types.AppSourceHelix,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
 				Name:        "TestAppVisibilityWithoutGrantingAccess",
@@ -263,7 +261,6 @@ func (suite *OrganizationsRBACTestSuite) TestAppVisibility_GrantedAccessToSingle
 
 	app, err := userMember1Client.CreateApp(suite.ctx, &types.App{
 		OrganizationID: suite.organization.ID,
-		AppSource:      types.AppSourceHelix,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
 				Name:        "test-app-single-user-access",
@@ -325,7 +322,6 @@ func (suite *OrganizationsRBACTestSuite) TestAppVisibility_GrantedAccessToTeam()
 
 	app, err := userMember1Client.CreateApp(suite.ctx, &types.App{
 		OrganizationID: suite.organization.ID,
-		AppSource:      types.AppSourceHelix,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
 				Name:        "test-app-single-user-access",
@@ -387,7 +383,6 @@ func (suite *OrganizationsRBACTestSuite) TestAppUpdate_AppOwner_OrgOwner() {
 
 	app, err := userMember1Client.CreateApp(suite.ctx, &types.App{
 		OrganizationID: suite.organization.ID,
-		AppSource:      types.AppSourceHelix,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
 				Name:        "test-app-single-user-access",
@@ -424,7 +419,6 @@ func (suite *OrganizationsRBACTestSuite) TestAppUpdate_SingleUser() {
 
 	app, err := userMember1Client.CreateApp(suite.ctx, &types.App{
 		OrganizationID: suite.organization.ID,
-		AppSource:      types.AppSourceHelix,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
 				Name:        "test-app-single-user-access",
@@ -508,7 +502,6 @@ func (suite *OrganizationsRBACTestSuite) TestAppUpdate_Team() {
 
 	app, err := userMember1Client.CreateApp(suite.ctx, &types.App{
 		OrganizationID: suite.organization.ID,
-		AppSource:      types.AppSourceHelix,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
 				Name:        "test-app-single-user-access",

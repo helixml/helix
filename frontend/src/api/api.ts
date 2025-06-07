@@ -396,7 +396,6 @@ export interface TypesAggregatedUsageMetric {
 }
 
 export interface TypesApp {
-  app_source?: TypesAppSource;
   config?: TypesAppConfig;
   created?: string;
   global?: boolean;
@@ -413,23 +412,8 @@ export interface TypesApp {
 
 export interface TypesAppConfig {
   allowed_domains?: string[];
-  github?: TypesAppGithubConfig;
   helix?: TypesAppHelixConfig;
   secrets?: Record<string, string>;
-}
-
-export interface TypesAppGithubConfig {
-  hash?: string;
-  key_pair?: TypesKeyPair;
-  last_update?: TypesAppGithubConfigUpdate;
-  repo?: string;
-  webhook_secret?: string;
-}
-
-export interface TypesAppGithubConfigUpdate {
-  error?: string;
-  hash?: string;
-  updated?: string;
 }
 
 export interface TypesAppHelixConfig {
@@ -440,11 +424,6 @@ export interface TypesAppHelixConfig {
   image?: string;
   name?: string;
   triggers?: TypesTrigger[];
-}
-
-export enum TypesAppSource {
-  AppSourceHelix = "helix",
-  AppSourceGithub = "github",
 }
 
 export interface TypesAssistantAPI {
@@ -755,17 +734,6 @@ export interface TypesFlexibleEmbeddingResponse {
   };
 }
 
-export interface TypesGptScriptRequest {
-  file_path?: string;
-  input?: string;
-}
-
-export interface TypesGptScriptResponse {
-  error?: string;
-  output?: string;
-  retries?: number;
-}
-
 export enum TypesImageURLDetail {
   ImageURLDetailHigh = "high",
   ImageURLDetailLow = "low",
@@ -845,12 +813,6 @@ export interface TypesItem {
   object?: string;
   /** Images */
   url?: string;
-}
-
-export interface TypesKeyPair {
-  privateKey?: string;
-  publicKey?: string;
-  type?: string;
 }
 
 export interface TypesKnowledge {
@@ -2165,25 +2127,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Runs a gptscript for an app
-     *
-     * @name V1AppsGptscriptCreate
-     * @summary Run a GptScript
-     * @request POST:/api/v1/apps/{id}/gptscript
-     * @secure
-     */
-    v1AppsGptscriptCreate: (id: string, request: TypesGptScriptRequest, params: RequestParams = {}) =>
-      this.request<TypesGptScriptResponse, SystemHTTPError>({
-        path: `/api/v1/apps/${id}/gptscript`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
      * @description List user's LLM calls with pagination and optional session filtering for a specific app
      *
      * @tags llm_calls
@@ -2282,22 +2225,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
-        ...params,
-      }),
-
-    /**
-     * No description
-     *
-     * @name V1AppsGithubUpdate
-     * @request PUT:/api/v1/apps/github/{id}
-     * @secure
-     */
-    v1AppsGithubUpdate: (id: string, request: TypesApp, params: RequestParams = {}) =>
-      this.request<TypesApp, any>({
-        path: `/api/v1/apps/github/${id}`,
-        method: "PUT",
-        body: request,
-        secure: true,
         ...params,
       }),
 

@@ -1441,8 +1441,7 @@ func deployApp(namespacedAppName string, yamlFile string) (string, error) {
 
 	// Create the app using the same logic as in applyCmd
 	app := &types.App{
-		AppSource: types.AppSourceHelix,
-		Global:    false,
+		Global: false,
 		Config: types.AppConfig{
 			AllowedDomains: []string{},
 			Helix:          *parsedAppConfig,
