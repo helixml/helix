@@ -14,8 +14,7 @@ interface LLMCall {
 }
 
 interface LLMCallTimelineChartProps {
-  calls: LLMCall[];
-  // steps: TypesStepInfo[];
+  calls: LLMCall[];  
   appId: string;
   interactionId: string;
   onHoverCallId?: (id: string | null) => void;
