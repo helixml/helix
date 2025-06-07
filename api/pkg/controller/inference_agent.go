@@ -236,11 +236,25 @@ func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (
 
 	go func() {
 		defer writer.Close()
+
+		// We might start multiple thinking processes, so we need to keep track of them.
+		// Provide <think> only on the first thinking process.
+		// Provide </think> only on the last thinking process.
+		var (
+			thinkingProcesses int
+		)
+
 		for {
 			out := session.Out()
 
 			switch out.Type {
 			case agent.ResponseTypeThinkingStart:
+				thinkingProcesses++
+				// If we are already thinking, don't send another thinking start
+				if thinkingProcesses > 1 {
+					continue
+				}
+
 				_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
 					Choices: []openai.ChatCompletionStreamChoice{
 						{
@@ -257,6 +271,14 @@ func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (
 					},
 				})
 			case agent.ResponseTypeThinkingEnd:
+				// Only send the end if we are the last thinking process
+				if thinkingProcesses == 1 {
+					thinkingProcesses--
+				}
+				if thinkingProcesses > 0 {
+					continue
+				}
+
 				_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
 					Choices: []openai.ChatCompletionStreamChoice{
 						{
@@ -265,6 +287,19 @@ func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (
 					},
 				})
 			case agent.ResponseTypePartialText:
+				// If we are receiving ResponseTypePartialText it means all thinking processes are done
+				// and we can close the thinking processes (if we haven't already)
+				if thinkingProcesses > 0 {
+					// Write the end of the thinking process
+					_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
+						Choices: []openai.ChatCompletionStreamChoice{
+							{
+								Delta: openai.ChatCompletionStreamChoiceDelta{Content: "</think>"},
+							},
+						},
+					})
+				}
+				// Write the actual content
 				_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
 					Choices: []openai.ChatCompletionStreamChoice{
 						{

@@ -1,5 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { Box, Typography, Tooltip, useTheme } from '@mui/material';
+import { TypesStepInfo } from '../../api/api';
+import { useListAppSteps } from '../../services/appService';
 
 interface LLMCall {
   id: string;
@@ -11,8 +13,22 @@ interface LLMCall {
   request?: any;
 }
 
+// RowData contains row data information. It can have set either llm_call or action_info (not both).
+// All rows contain created and duration_ms.
+interface RowData {
+  name: string; // Step name for action_info, or "step" for llm calls
+
+  created: string;
+  duration_ms: number;
+  
+  llm_call: LLMCall;          // Helix LLM calls with requests and responses. When response includes a tool call, next thing that's going to happen is a tool execution by Helix.
+  action_info: TypesStepInfo; // Helix taken actions, for example used browser, calculator, ran python code, called API, etc.
+}
+
 interface LLMCallTimelineChartProps {
-  calls: LLMCall[];
+  calls: LLMCall[];  
+  appId: string;
+  interactionId: string;
   onHoverCallId?: (id: string | null) => void;
   highlightedCallId?: string | null;
 }
@@ -61,49 +77,83 @@ const getToolCalls = (response: any): any[] => {
   return parsed?.choices?.[0]?.message?.tool_calls || [];
 };
 
-const getTooltipContent = (call: LLMCall): React.ReactNode => {
-  const startTime = new Date(call.created);
-  const endTime = new Date(startTime.getTime() + call.duration_ms);
-  
+// sortRowDataByCreated - oldest to newest, when sorting include
+// up to milliseconds precision 
+const sortRowDataByCreated = (rows: RowData[]): RowData[] => {
+  return [...rows].sort((a, b) => {
+    const aTime = new Date(a.created).getTime();
+    const bTime = new Date(b.created).getTime();
+    return aTime - bTime;
+  });
+};
+
+const getTooltipContent = (row: RowData): React.ReactNode => {
   const formatTime = (date: Date) => {
-    return date.toLocaleTimeString('en-US', { 
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    });
+    return date.toLocaleTimeString();
   };
+
+
+  const startTime = new Date(row.created);
+  const endTime = new Date(startTime.getTime() + row.duration_ms);
+
+  if (row.action_info) {
+    return (
+      <div>
+        <div style={{ fontWeight: 'bold' }}>Skill execution: {row.name}</div>
+        <div>Started: {formatTime(startTime)}</div>
+        <div>Finished: {formatTime(endTime)}</div>
+        <div>Duration: {formatMs(row.duration_ms)}</div>
+        {row.action_info.details?.arguments && Object.keys(row.action_info.details.arguments).length > 0 && (
+          <>
+            <div style={{ marginTop: '4px', fontWeight: 'bold' }}>Arguments:</div>
+            {Object.entries(row.action_info.details.arguments).map(([key, value]) => (
+              <div key={key} style={{ marginLeft: '8px' }}>
+                - {key}: {JSON.stringify(value)}
+              </div>
+            ))}
+          </>
+        )}
+        {row.action_info.error ? (
+          <div style={{ marginTop: '4px', color: 'red' }}>Error: {row.action_info.error}</div>
+        ) : row.action_info.message && (
+          <div style={{ marginTop: '4px' }}>Response: {row.action_info.message.length > 100 ? `${row.action_info.message.substring(0, 100)}...` : row.action_info.message}</div>
+        )}
+      </div>
+    );
+  }
 
   const content: React.ReactNode[] = [
     <div key="times">
       Started: {formatTime(startTime)}<br />
       Finished: {formatTime(endTime)}
     </div>,
-    <div key="duration">Duration: {formatMs(call.duration_ms)}</div>
+    <div key="duration">Duration: {formatMs(row.duration_ms)}</div>
   ];
 
-  if (call.step?.startsWith('skill_context_runner') && call.request) {
-    const reasoningEffort = getReasoningEffort(call.request);
-    content.push(<div key="reasoning">Reasoning Effort: {reasoningEffort}</div>);
-  }
+  if (row.llm_call) {
+    if (row.llm_call.step?.startsWith('skill_context_runner') && row.llm_call.request) {
+      const reasoningEffort = getReasoningEffort(row.llm_call.request);
+      content.push(<div key="reasoning">Reasoning Effort: {reasoningEffort}</div>);
+    }
 
-  if (call.step === 'decide_next_action' && call.response) {
-    const toolCalls = getToolCalls(call.response);
-    if (toolCalls.length > 0) {
-      content.push(
-        <div key="toolcalls">
-          <div>Tool Calls:</div>
-          <ul style={{ margin: 0, paddingLeft: 18 }}>
-            {toolCalls.map((tc, idx) => (
-              <li key={idx}>{tc.function?.name || 'Unknown'}</li>
-            ))}
-          </ul>
-        </div>
-      );
-    } else {
-      const message = getAssistantMessage(call.response);
-      if (message !== 'n/a') {
-        content.push(<div key="message">Message: {message}</div>);
+    if ((row.llm_call.step === 'decide_next_action' || row.llm_call.step === 'summarize_multiple_tool_results') && row.llm_call.response) {
+      const toolCalls = getToolCalls(row.llm_call.response);
+      if (toolCalls.length > 0) {
+        content.push(
+          <div key="toolcalls">
+            <div>Tool Calls:</div>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {toolCalls.map((tc, idx) => (
+                <li key={idx}>{tc.function?.name || 'Unknown'}</li>
+              ))}
+            </ul>
+          </div>
+        );
+      } else {
+        const message = getAssistantMessage(row.llm_call.response);
+        if (message !== 'n/a') {
+          content.push(<div key="message">Message: {message}</div>);
+        }
       }
     }
   }
@@ -111,11 +161,13 @@ const getTooltipContent = (call: LLMCall): React.ReactNode => {
   return <div>{content}</div>;
 };
 
-const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHoverCallId, highlightedCallId }) => {
+const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHoverCallId, highlightedCallId, appId, interactionId }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(900);
   const [hoverX, setHoverX] = useState<number | null>(null);
   const theme = useTheme();
+
+  const { data: steps, isLoading: isLoadingSteps } = useListAppSteps(appId, interactionId);
 
   useEffect(() => {
     const handleResize = () => {
@@ -128,22 +180,46 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  const rows = useMemo(() => {
+    const llmRows = calls.map((call) => ({
+      name: call.step,
+      created: call.created,
+      duration_ms: call.duration_ms,
+      llm_call: call,
+    } as RowData));
+
+    const stepRows = steps && steps.data
+      ? steps.data.map((step: TypesStepInfo) => ({
+          name: step.name,
+          created: step.created,
+          duration_ms: step.duration_ms,
+          action_info: step,
+        } as RowData))
+      : [];
+
+    return [...llmRows, ...stepRows];
+  }, [calls, steps]);
+
   const chartData = useMemo(() => {
-    if (!calls.length) return [];
-    const sorted = [...calls].sort((a, b) => new Date(a.created).getTime() - new Date(b.created).getTime());
-    const baseTime = new Date(sorted[0].created).getTime();
-    return sorted.map((call, idx) => {
-      const start = new Date(call.created).getTime() - baseTime;
+    if (!rows.length) return [];    
+    
+    // Sort rows by created time    
+    const sorted = sortRowDataByCreated(rows);
+    const baseTime = new Date(sorted[0].created).getTime();  
+
+    // Add a row for each step
+    return sorted.map((row, idx) => {
+      const start = new Date(row.created).getTime() - baseTime;
       return {
-        ...call,
+        ...row,
         yOrder: idx,
         start,
-        end: start + (call.duration_ms || 0),
-        duration: call.duration_ms || 0,
-        label: call.step || `Call ${idx + 1}`,
+        end: start + (row.duration_ms || 0),
+        duration: row.duration_ms || 0,
+        label: row.llm_call?.step || `Skill execution: ${row.action_info?.name}`,
       };
     });
-  }, [calls]);
+  }, [rows]);
 
   const minX = 0;
   const maxX = Math.max(...chartData.map(d => d.end)) * 1.1;
@@ -155,14 +231,21 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
   const ticks = Array.from({ length: numTicks + 1 }, (_, i) => minX + ((maxX - minX) * i) / numTicks);
 
   // Chart colors
-  const barColor = (id: string) =>
-    highlightedCallId === id
+  const barColor = (row: RowData) => {
+    if (row.action_info) {
+      if (row.action_info.error) {
+        return 'url(#barErrorGradient)';
+      }
+      return 'url(#barActionGradient)';
+    }
+    return highlightedCallId === row.llm_call?.id
       ? 'url(#barHighlightGradient)'
       : 'url(#barGradient)';
+  };
 
   return (
     <Box ref={containerRef} sx={{ width: '100%', mb: 2 }}>
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>Timeline of LLM Calls</Typography>
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>Agent Execution Timeline</Typography>
       <Box sx={{ width: '100%', overflowX: 'auto', bgcolor: 'transparent' }}>
         <svg
           viewBox={`0 0 ${width} ${height}`}
@@ -180,11 +263,19 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
           <defs>
             <linearGradient id="barGradient" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor={theme.chartGradientStart} stopOpacity={theme.chartGradientStartOpacity} />
-              <stop offset="100%" stopColor={theme.chartGradientEnd} stopOpacity={theme.chartGradientStartOpacity} />
+              <stop offset="100%" stopColor={theme.chartGradientEnd} stopOpacity={theme.chartGradientEndOpacity} />
             </linearGradient>
             <linearGradient id="barHighlightGradient" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor={theme.chartHighlightGradientStart} stopOpacity={theme.chartHighlightGradientStartOpacity} />
               <stop offset="100%" stopColor={theme.chartHighlightGradientEnd} stopOpacity={theme.chartHighlightGradientEndOpacity} />
+            </linearGradient>
+            <linearGradient id="barActionGradient" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor={theme.chartActionGradientStart} stopOpacity={theme.chartActionGradientStartOpacity} />
+              <stop offset="100%" stopColor={theme.chartActionGradientEnd} stopOpacity={theme.chartActionGradientEndOpacity} />
+            </linearGradient>
+            <linearGradient id="barErrorGradient" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor={theme.chartErrorGradientStart} stopOpacity={theme.chartErrorGradientStartOpacity} />
+              <stop offset="100%" stopColor={theme.chartErrorGradientEnd} stopOpacity={theme.chartErrorGradientEndOpacity} />
             </linearGradient>
           </defs>
           {/* Hover line */}
@@ -242,14 +333,14 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
             const y = CHART_PADDING + i * ROW_HEIGHT;
             return (
               <Tooltip
-                key={d.id}
+                key={d.llm_call?.id || d.action_info?.id || i}
                 title={getTooltipContent(d)}
                 placement="top"
                 arrow
                 slotProps={{ tooltip: { sx: { bgcolor: '#222', opacity: 1 } } }}
               >
                 <g
-                  onMouseOver={() => onHoverCallId?.(d.id)}
+                  onMouseOver={() => onHoverCallId?.(d.llm_call?.id || null)}
                   onMouseOut={() => onHoverCallId?.(null)}
                   style={{ cursor: 'pointer' }}
                 >
@@ -259,8 +350,8 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
                     width={barWidth}
                     height={BAR_HEIGHT}
                     rx={8}
-                    fill={barColor(d.id)}
-                    style={{ filter: highlightedCallId === d.id ? 'drop-shadow(0 0 8px #ffb300)' : undefined }}
+                    fill={barColor(d)}
+                    style={{ filter: highlightedCallId === d.llm_call?.id ? 'drop-shadow(0 0 8px #ffb300)' : undefined }}
                   />
                   <text
                     x={x + 6}
