@@ -1104,15 +1104,6 @@ type ToolZapierConfig struct {
 	MaxIterations int    `json:"max_iterations"`
 }
 
-type AppSource string
-
-const (
-	// this means the configuration for the app lives in the Helix database
-	AppSourceHelix AppSource = "helix"
-	// this means the configuration for the app lives in a helix.yaml in a Github repository
-	AppSourceGithub AppSource = "github"
-)
-
 type AssistantGPTScript struct {
 	Name        string `json:"name" yaml:"name"`
 	Description string `json:"description" yaml:"description"` // When to use this tool (required)
@@ -1280,19 +1271,10 @@ type AppGithubConfigUpdate struct {
 	Error   string    `json:"error"`
 }
 
-type AppGithubConfig struct {
-	Repo          string                `json:"repo"`
-	Hash          string                `json:"hash"`
-	KeyPair       KeyPair               `json:"key_pair"`
-	WebhookSecret string                `json:"webhook_secret"`
-	LastUpdate    AppGithubConfigUpdate `json:"last_update"`
-}
-
 type AppConfig struct {
 	AllowedDomains []string          `json:"allowed_domains" yaml:"allowed_domains"`
 	Secrets        map[string]string `json:"secrets" yaml:"secrets"`
 	Helix          AppHelixConfig    `json:"helix"`
-	Github         *AppGithubConfig  `json:"github"`
 }
 
 func (c AppConfig) Value() (driver.Value, error) {
@@ -1386,7 +1368,6 @@ type App struct {
 	Owner string `json:"owner" gorm:"index"`
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
-	AppSource AppSource `json:"app_source" gorm:"column:app_type"`
 	Global    bool      `json:"global"`
 	Config    AppConfig `json:"config" gorm:"jsonb"`
 
