@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesModel, RequestParams, ContentType } from '../api/api';
+import { TypesModel } from '../api/api';
 
 export const helixModelsQueryKey = (runtime: string = "") => [
   "helixModels",
