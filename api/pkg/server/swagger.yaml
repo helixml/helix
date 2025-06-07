@@ -3300,12 +3300,9 @@ paths:
       - llm_calls
   /api/v1/apps/{id}/step-info:
     get:
-      description: List step info for a specific app
+      description: List step info for a specific app and interaction ID, used to build
+        the timeline of events
       parameters:
-      - description: App ID
-        in: query
-        name: appId
-        type: string
       - description: Interaction ID
         in: query
         name: interactionId

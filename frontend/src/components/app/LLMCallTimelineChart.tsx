@@ -1,5 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { Box, Typography, Tooltip, useTheme } from '@mui/material';
+import { TypesStepInfo } from '../../api/api';
+import { useListAppSteps } from '../../services/appService';
 
 interface LLMCall {
   id: string;
@@ -13,6 +15,9 @@ interface LLMCall {
 
 interface LLMCallTimelineChartProps {
   calls: LLMCall[];
+  // steps: TypesStepInfo[];
+  appId: string;
+  interactionId: string;
   onHoverCallId?: (id: string | null) => void;
   highlightedCallId?: string | null;
 }
@@ -111,11 +116,13 @@ const getTooltipContent = (call: LLMCall): React.ReactNode => {
   return <div>{content}</div>;
 };
 
-const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHoverCallId, highlightedCallId }) => {
+const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHoverCallId, highlightedCallId, appId, interactionId }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(900);
   const [hoverX, setHoverX] = useState<number | null>(null);
   const theme = useTheme();
+
+  const { data: steps } = useListAppSteps(appId, interactionId);
 
   useEffect(() => {
     const handleResize = () => {

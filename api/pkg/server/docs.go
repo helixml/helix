@@ -478,7 +478,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List step info for a specific app",
+                "description": "List step info for a specific app and interaction ID, used to build the timeline of events",
                 "produces": [
                     "application/json"
                 ],
@@ -487,12 +487,6 @@ const docTemplate = `{
                 ],
                 "summary": "List step info",
                 "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "appId",
-                        "in": "query"
-                    },
                     {
                         "type": "string",
                         "description": "Interaction ID",
