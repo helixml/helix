@@ -245,7 +245,7 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
 
   return (
     <Box ref={containerRef} sx={{ width: '100%', mb: 2 }}>
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>Timeline of LLM Calls</Typography>
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>Agent Execution Timeline</Typography>
       <Box sx={{ width: '100%', overflowX: 'auto', bgcolor: 'transparent' }}>
         <svg
           viewBox={`0 0 ${width} ${height}`}
