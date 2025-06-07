@@ -83,7 +83,6 @@ func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// Convert CRD to Helix App type
 	app := &types.App{
-		AppSource: types.AppSourceHelix,
 		Config: types.AppConfig{
 			Helix: types.AppHelixConfig{
 				Name:        appID,

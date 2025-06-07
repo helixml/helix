@@ -1,6 +1,4 @@
 import React, { FC, useEffect, useState } from 'react'
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'
-import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
@@ -15,8 +13,6 @@ import AppSettings from '../components/app/AppSettings'
 import AccessManagement from '../components/app/AccessManagement'
 import CodeExamples from '../components/app/CodeExamples'
 import DevelopersSection from '../components/app/DevelopersSection'
-import GPTScriptsSection from '../components/app/GPTScriptsSection'
-import GPTScriptEditor from '../components/app/GPTScriptEditor'
 import KnowledgeEditor from '../components/app/KnowledgeEditor'
 import PreviewPanel from '../components/app/PreviewPanel'
 import ZapierIntegrations from '../components/app/ZapierIntegrations'
@@ -30,7 +26,6 @@ import useApp from '../hooks/useApp'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
-import useFilestore from '../hooks/useFilestore';
 import AppUsage from '../components/app/AppUsage'
 import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
 import useLightTheme from '../hooks/useLightTheme'
@@ -40,7 +35,6 @@ const App: FC = () => {
   const account = useAccount()  
   const api = useApi()
   const snackbar = useSnackbar()
-  const filestore = useFilestore()
   const themeConfig = useThemeConfig()
   const {
     params,
@@ -132,17 +126,6 @@ const App: FC = () => {
       ]}
       topbarContent={(
         <Box sx={{ textAlign: 'right' }}>
-          <Button
-            sx={{ mr: 2 }}
-            type="button"
-            color="primary"
-            variant="outlined"
-            onClick={appTools.handleCopyEmbedCode}
-            startIcon={<ContentCopyIcon />}
-            disabled={account.apiKeys.length === 0 || isReadOnly}
-          >
-            Embed
-          </Button>
           <Button
             type="button"
             color="secondary"
@@ -369,16 +352,6 @@ const App: FC = () => {
           />
         )
       }
-
-      {/* GPT Script Editor Modal */}
-      <GPTScriptEditor
-        editingGptScript={appTools.editingGptScript}
-        setEditingGptScript={appTools.setEditingGptScript}
-        onSaveGptScript={appTools.onSaveGptScript}
-        showErrors={appTools.showErrors}
-        isReadOnly={isReadOnly}
-      />
-
     </Page>
   )
 }
