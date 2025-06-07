@@ -70,11 +70,30 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
     }
   }, [app.browserTool]);
 
-  const handleChange = (field: keyof IAssistantBrowser, value: boolean) => {
-    setBrowserConfig(prev => ({
-      ...prev,
-      [field]: value,
-    }));
+  const handleChange = async (field: keyof IAssistantBrowser, value: boolean) => {
+    try {
+      setError(null);
+      
+      // Create a copy of the app state
+      const appCopy = JSON.parse(JSON.stringify(app));
+      
+      // Update the browser config
+      const updatedConfig = {
+        ...browserConfig,
+        [field]: value,
+      };
+      
+      // Update the browser tool configuration
+      appCopy.browserTool = updatedConfig;
+      
+      // Update the application
+      await onUpdate(appCopy);
+      
+      // Update local state
+      setBrowserConfig(updatedConfig);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update browser configuration');
+    }
   };
 
   const handleEnable = async () => {
@@ -103,8 +122,11 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
       // Create a copy of the app state
       const appCopy = JSON.parse(JSON.stringify(app));
       
-      // Remove the browser tool configuration
-      appCopy.browserTool = undefined;
+      // Set browser config as disabled
+      appCopy.browserTool = {
+        enabled: false,
+        markdown_post_processing: false,
+      };
       
       // Update the application
       await onUpdate(appCopy);
@@ -198,14 +220,16 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
                   Disable
                 </Button>
               )}
-              <Button
-                onClick={handleEnable}
-                size="small"
-                variant="outlined"
-                color="secondary"
-              >
-                Enable
-              </Button>
+              {!browserConfig.enabled && (
+                <Button
+                  onClick={handleEnable}
+                  size="small"
+                  variant="outlined"
+                  color="secondary"
+                >
+                  Enable
+                </Button>
+              )}
             </Box>
           </Box>
         </Box>
