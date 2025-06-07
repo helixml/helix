@@ -15,9 +15,8 @@ import {
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
   ISession,
-  IUserAppAccessState,
 } from '../types'
-import { TypesCreatorType, TypesMessage } from '../api/api';
+import { TypesCreatorType } from '../api/api';
 import {
   removeEmptyValues,
 } from '../utils/data'
@@ -661,29 +660,7 @@ export const useApp = (appId: string) => {
       snackbar.error('Failed to search knowledge')
       setSearchResults([])
     }
-  }
-
-  const handleCopyEmbedCode = useCallback(() => {
-    if (account.apiKeys.length > 0) {
-      // TODO: remove model from embed code
-      const embedCode = `<script src="https://cdn.jsdelivr.net/npm/@helixml/chat-embed"></script>
-<script>
-  ChatWidget({
-    url: '${window.location.origin}/v1/chat/completions',
-    model: 'llama3:instruct',
-    bearerToken: '${account.apiKeys[0].key}',
-  })
-</script>`
-      navigator.clipboard.writeText(embedCode).then(() => {
-        snackbar.success('Embed code copied to clipboard');
-      }, (err) => {
-        console.error('Could not copy text: ', err);
-        snackbar.error('Failed to copy embed code');
-      });
-    } else {
-      snackbar.error('No API key available');
-    }
-  }, [account.apiKeys, snackbar]);  
+  }  
   
   // this hooks into any changes for the apps current preview session
   // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
@@ -956,9 +933,6 @@ export const useApp = (appId: string) => {
     searchResults,
     onInference,
     onSearch,
-
-    // Embed code
-    handleCopyEmbedCode,
 
     // Access grant state and methods
     accessGrants,

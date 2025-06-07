@@ -133,17 +133,6 @@ const App: FC = () => {
       topbarContent={(
         <Box sx={{ textAlign: 'right' }}>
           <Button
-            sx={{ mr: 2 }}
-            type="button"
-            color="primary"
-            variant="outlined"
-            onClick={appTools.handleCopyEmbedCode}
-            startIcon={<ContentCopyIcon />}
-            disabled={account.apiKeys.length === 0 || isReadOnly}
-          >
-            Embed
-          </Button>
-          <Button
             type="button"
             color="secondary"
             variant="contained"
