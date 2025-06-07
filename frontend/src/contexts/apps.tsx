@@ -1,16 +1,11 @@
 import React, { useEffect, createContext, useMemo, useState, useCallback, useRef, ReactNode } from 'react'
 import useApi from '../hooks/useApi'
 import useAccount from '../hooks/useAccount'
-import { throttle } from 'lodash'
 
 import {
   IApp,
   IAppUpdate,
-  IAppConfig,
-  IAppSource,
-  IGithubStatus,
-  APP_SOURCE_GITHUB,
-  APP_SOURCE_HELIX,
+  IAppConfig,  
   SESSION_TYPE_TEXT,
 } from '../types'
 
@@ -18,24 +13,14 @@ import {
 export interface IAppsContext {
   apps: IApp[],
   app: IApp | undefined,
-  githubStatus: IGithubStatus | undefined,
-  helixApps: IApp[],
-  githubApps: IApp[],
   loadApps: (query?: IAppsQuery) => Promise<void>,
   loadApp: (id: string, showErrors?: boolean) => Promise<void>,
   setApp: React.Dispatch<React.SetStateAction<IApp | undefined>>,
-  loadGithubStatus: (pageURL: string) => Promise<void>,
-  loadGithubRepos: () => Promise<void>,
-  createGithubApp: (repo: string) => Promise<IApp | null>,
   createEmptyHelixApp: () => Promise<IApp | undefined>,
   createOrgApp: () => Promise<IApp | undefined>,
-  createApp: (app_source: IAppSource, config: IAppConfig) => Promise<IApp | undefined>,
+  createApp: (config: IAppConfig) => Promise<IApp | undefined>,
   updateApp: (id: string, updatedApp: IAppUpdate) => Promise<IApp | undefined>,
   deleteApp: (id: string) => Promise<boolean | undefined>,
-  githubRepos: string[],
-  githubReposLoading: boolean,
-  connectError: string,
-  connectLoading: boolean,
 }
 
 export interface IAppsQuery {
@@ -46,24 +31,14 @@ export interface IAppsQuery {
 export const AppsContext = createContext<IAppsContext>({
   apps: [],
   app: undefined,
-  githubStatus: undefined,
-  helixApps: [],
-  githubApps: [],
   loadApps: async () => {},
   loadApp: async () => {},
   setApp: () => {},
-  loadGithubStatus: async () => {},
-  loadGithubRepos: async () => {},
-  createGithubApp: async () => null,
   createEmptyHelixApp: async () => undefined,
   createOrgApp: async () => undefined,
   createApp: async () => undefined,
   updateApp: async () => undefined,
   deleteApp: async () => undefined,
-  githubRepos: [],
-  githubReposLoading: false,
-  connectError: '',
-  connectLoading: false,
 })
 
 // Hook that contains all the logic from the useApps hook
@@ -73,12 +48,7 @@ export const useAppsContext = (): IAppsContext => {
   const mountedRef = useRef(true)
   
   const [ apps, setApps ] = useState<IApp[]>([])
-  const [ app, setApp ] = useState<IApp>()
-  const [ githubRepos, setGithubRepos ] = useState<string[]>([])
-  const [ githubStatus, setGithubStatus ] = useState<IGithubStatus>()
-  const [ githubReposLoading, setGithubReposLoading ] = useState(false)
-  const [ connectError, setConnectError ] = useState('')
-  const [ connectLoading, setConectLoading ] = useState(false)
+  const [ app, setApp ] = useState<IApp>()  
 
   const loadApps = useCallback(async () => {
     
@@ -96,18 +66,6 @@ export const useAppsContext = (): IAppsContext => {
     setApps(result || [])
   }, [account.organizationTools.organization])
 
-  const helixApps = useMemo(() => {
-    return apps.filter(app => app.app_source == APP_SOURCE_HELIX)
-  }, [
-    apps,
-  ])
-
-  const githubApps = useMemo(() => {
-    return apps.filter(app => app.app_source == APP_SOURCE_GITHUB)
-  }, [
-    apps,
-  ])
-
   const loadApp = useCallback(async (id: string, showErrors: boolean = true) => {
     if(!id) return
     const result = await api.get<IApp>(`/api/v1/apps/${id}`, undefined, {
@@ -118,74 +76,11 @@ export const useAppsContext = (): IAppsContext => {
     setApps(prevData => prevData.map(a => a.id === id ? result : a))
   }, [api])
 
-  const loadGithubStatus = useCallback(async (pageURL: string) => {
-    const result = await api.get<IGithubStatus>(`/api/v1/github/status`, {
-      params: {
-        pageURL,
-      }
-    })
-    if(!result) return
-    setGithubStatus(result)
-  }, [])
-
-  const loadGithubRepos = useCallback(async () => {
-    if(!githubStatus?.has_token) {
-      return
-    }
-    setGithubReposLoading(true)
-    const repos = await api.get<string[]>(`/api/v1/github/repos`)
-    if(!mountedRef.current) return
-    setGithubRepos(repos || [])
-    setGithubReposLoading(false)
-  }, [
-    githubStatus,
-  ])
-
-  const createGithubApp = useCallback(async (
-    repo: string,
-  ): Promise<IApp | null> => {
-    setConnectError('')
-    setConectLoading(true)
-    const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
-      app_source: APP_SOURCE_GITHUB,
-      organization_id: account.organizationTools.organization?.id || '',
-      config: {
-        helix: {
-          external_url: '',
-          name: '',
-          description: '',
-          avatar: '',
-          image: '',
-          assistants: [],
-        },
-        github: {
-          repo,
-          hash: ''
-        },
-        secrets: {},
-        allowed_domains: [],
-      },
-    }, {}, {
-      snackbar: true,
-      errorCapture: (e) => {
-        setConnectError(e)
-      }
-    })
-    setConectLoading(false)
-    return result
-  }, [
-    account.organizationTools.organization,
-  ])
-
   const createApp = useCallback(async (
-    app_source: IAppSource,
     config: IAppConfig,
   ): Promise<IApp | undefined> => {
-    console.log("useApps: Creating new app with source:", app_source);
-    console.log("useApps: App config:", config);
     try {
       const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
-        app_source,
         config,
       }, {}, {
         snackbar: true, // We'll handle snackbar messages in the component
@@ -212,7 +107,6 @@ export const useAppsContext = (): IAppsContext => {
       const defaultModel = account.models && account.models.length > 0 ? account.models[0].id : '';
 
       const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
-        app_source: 'helix',
         organization_id: account.organizationTools.organization?.id || '',
         config: {
           helix: {
@@ -329,25 +223,15 @@ export const useAppsContext = (): IAppsContext => {
 
   return {
     apps,
-    app,
-    githubStatus,
-    helixApps,
-    githubApps,
+    app,    
     loadApps,
     loadApp,
     setApp,
-    loadGithubStatus,
-    loadGithubRepos,
-    createGithubApp,
     createEmptyHelixApp,
     createOrgApp,
     createApp,
     updateApp,
     deleteApp,
-    githubRepos,
-    githubReposLoading,
-    connectError,
-    connectLoading,
   }
 }
 

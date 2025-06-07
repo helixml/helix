@@ -52,10 +52,6 @@ export const TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS: ITextDataPrepStage = 'edit_que
 export const TEXT_DATA_PREP_STAGE_FINETUNE: ITextDataPrepStage = 'finetune'
 export const TEXT_DATA_PREP_STAGE_COMPLETE: ITextDataPrepStage = 'complete'
 
-export type IAppSource = 'helix' | 'github'
-export const APP_SOURCE_HELIX: IAppSource = 'helix'
-export const APP_SOURCE_GITHUB: IAppSource = 'github'
-
 export const TEXT_DATA_PREP_STAGES: ITextDataPrepStage[] = [
   TEXT_DATA_PREP_STAGE_EDIT_FILES,
   TEXT_DATA_PREP_STAGE_EXTRACT_TEXT,
@@ -100,7 +96,7 @@ export interface IHelixModel {
 
 export type IOwnerType = 'user' | 'system' | 'org'
 
-export type IApiKeyType = 'api' | 'github' | 'app'
+export type IApiKeyType = 'api' | 'app'
 
 export interface IApiKey {
   owner: string,
@@ -752,22 +748,8 @@ export interface IAppHelixConfig {
   // Add any other properties that might be part of the helix config
 }
 
-export interface IAppGithubConfigUpdate {
-  updated: string,
-  hash: string,
-  error: string,
-}
-
-export interface IAppGithubConfig {
-  repo: string,
-  hash: string,
-  key_pair?: IKeyPair,
-  last_update?: IAppGithubConfigUpdate,
-}
-
 export interface IAppConfig {
-  helix: IAppHelixConfig;
-  github?: IAppGithubConfig;
+  helix: IAppHelixConfig;  
   secrets: Record<string, string>;
   allowed_domains: string[];
 }
@@ -781,7 +763,6 @@ export interface IApp {
   updated: Date;
   owner: string;
   owner_type: IOwnerType;
-  app_source: IAppSource;
 }
 
 export interface IAppUpdate {
@@ -790,7 +771,6 @@ export interface IAppUpdate {
     helix: IAppHelixConfig;
     secrets: Record<string, string>;
     allowed_domains: string[];
-    github?: IAppGithubConfig;
   };
   global: boolean;
   owner: string;
@@ -837,15 +817,6 @@ export interface IAppFlatState {
   browserTool?: IAssistantBrowser
 
   conversation_starters?: string[];
-}
-
-export interface IGithubStatus {
-  has_token: boolean,
-  redirect_url: string,
-}
-
-export interface IGithubRepo {
-  full_name: string,
 }
 
 export interface IGptScriptRequest {
@@ -954,11 +925,6 @@ export interface ISessionLearnRequest {
   rag_settings: ISessionLearnRequestRAGSettings,
 }
 
-// export type IMessageRole = 'user' | 'system' | 'assistant'
-// export interface IMessage {
-//   role: IMessageRole,
-//   content: IMessageContentPart[],
-// }
 
 export interface ISessionChatRequest {
   regenerate?: boolean,
