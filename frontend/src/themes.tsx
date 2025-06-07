@@ -131,7 +131,7 @@ export const THEMES: Record<string, ITheme> = {
     chartGradientStart: '#00c8ff',
     chartGradientEnd: '#6f00ff',
     chartGradientStartOpacity: 0.8,
-    chartGradientEndOpacity: 0.1,
+    chartGradientEndOpacity: 0.8,
     chartHighlightGradientStart: '#ffb300',
     chartHighlightGradientEnd: '#ff4081',
     chartHighlightGradientStartOpacity: 0.9,
