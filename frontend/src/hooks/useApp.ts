@@ -10,7 +10,6 @@ import {
   IAssistantGPTScript,
   IAssistantApi,
   IAssistantZapier,
-  APP_SOURCE_GITHUB,
   IAccessGrant,
   CreateAccessGrantRequest,
   SESSION_TYPE_TEXT,
@@ -33,7 +32,6 @@ import { useStreaming } from '../contexts/streaming'
 import {
   validateApp,
   getAppFlatState,
-  isGithubApp as isGithubAppBackend,
 } from '../utils/app'
 import { useListProviders } from '../services/providersService';
 
@@ -162,17 +160,11 @@ export const useApp = (appId: string) => {
     session.data,
   ])
 
-  const isGithubApp = useMemo(() => {
-    if(!app) return true
-    return isGithubAppBackend(app)
-  }, [app])
-
   const isReadOnly = useMemo(() => {
     if(!app) return true
-    if(isGithubApp) return true
     // If user access information is available, use it to determine read-only status
     return userAccess.access ? !userAccess.access.can_write : true
-  }, [app, isGithubApp, userAccess.access])
+  }, [app, userAccess.access])
 
   /**
    * 
@@ -253,19 +245,7 @@ export const useApp = (appId: string) => {
     }
 
     const assistants = updatedApp.config.helix.assistants
-    
-    // Check if this is a GitHub app
-    const isGithubApp = updatedApp.app_source === APP_SOURCE_GITHUB
-    
-    // For GitHub apps, only allow updating shared and global flags
-    if (isGithubApp) {
-      if (updates.global !== undefined) {
-        updatedApp.global = updates.global
-      }
-      
-      return updatedApp
-    }
-    
+        
     // For non-GitHub apps, update all fields as before
     // Update helix config fields
     if (updates.name !== undefined) {
@@ -424,9 +404,7 @@ export const useApp = (appId: string) => {
     }
     
     return updatedApp
-  }, [
-    isGithubApp,
-  ])
+  }, [])
   
   /**
    * Saves the app to the API
@@ -946,7 +924,6 @@ export const useApp = (appId: string) => {
     isAppLoading,
     isAppSaving,
     initialized,
-    isGithubApp,
     isReadOnly,
     isSafeToSave, // Export this state
     // onProviderModelsLoaded, // Export the callback

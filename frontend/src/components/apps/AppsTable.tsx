@@ -21,7 +21,6 @@ import useApi from '../../hooks/useApi'
 
 import {
   IApp,
-  APP_SOURCE_GITHUB,
 } from '../../types'
 
 import {  
@@ -183,11 +182,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         name: (
           <Row>
             <Cell sx={{pr: 2,}}>
-              {app.app_source === APP_SOURCE_GITHUB ? (
-                <GitHubIcon />
-              ) : (
-                <img src={HelixIcon} alt="Helix" style={{ width: '24px', height: '24px' }} />
-              )}
+              <img src={HelixIcon} alt="Helix" style={{ width: '24px', height: '24px' }} />
             </Cell>
             <Cell grow>
               <Typography variant="body1">                
@@ -206,9 +201,6 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
                 >
                   { getAppName(app) }
                 </a>
-              </Typography>
-              <Typography variant="caption">
-                { app.config.github?.repo }
               </Typography>
             </Cell>
           </Row>
