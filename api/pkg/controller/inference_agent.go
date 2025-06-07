@@ -287,6 +287,19 @@ func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (
 					},
 				})
 			case agent.ResponseTypePartialText:
+				// If we are receiving ResponseTypePartialText it means all thinking processes are done
+				// and we can close the thinking processes (if we haven't already)
+				if thinkingProcesses > 0 {
+					// Write the end of the thinking process
+					_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
+						Choices: []openai.ChatCompletionStreamChoice{
+							{
+								Delta: openai.ChatCompletionStreamChoiceDelta{Content: "</think>"},
+							},
+						},
+					})
+				}
+				// Write the actual content
 				_ = transport.WriteChatCompletionStream(writer, &openai.ChatCompletionStreamResponse{
 					Choices: []openai.ChatCompletionStreamChoice{
 						{
