@@ -231,10 +231,17 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
   const ticks = Array.from({ length: numTicks + 1 }, (_, i) => minX + ((maxX - minX) * i) / numTicks);
 
   // Chart colors
-  const barColor = (id: string) =>
-    highlightedCallId === id
+  const barColor = (row: RowData) => {
+    if (row.action_info) {
+      if (row.action_info.error) {
+        return 'url(#barErrorGradient)';
+      }
+      return 'url(#barActionGradient)';
+    }
+    return highlightedCallId === row.llm_call?.id
       ? 'url(#barHighlightGradient)'
       : 'url(#barGradient)';
+  };
 
   return (
     <Box ref={containerRef} sx={{ width: '100%', mb: 2 }}>
@@ -261,6 +268,14 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
             <linearGradient id="barHighlightGradient" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor={theme.chartHighlightGradientStart} stopOpacity={theme.chartHighlightGradientStartOpacity} />
               <stop offset="100%" stopColor={theme.chartHighlightGradientEnd} stopOpacity={theme.chartHighlightGradientEndOpacity} />
+            </linearGradient>
+            <linearGradient id="barActionGradient" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor={theme.chartActionGradientStart} stopOpacity={theme.chartActionGradientStartOpacity} />
+              <stop offset="100%" stopColor={theme.chartActionGradientEnd} stopOpacity={theme.chartActionGradientEndOpacity} />
+            </linearGradient>
+            <linearGradient id="barErrorGradient" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor={theme.chartErrorGradientStart} stopOpacity={theme.chartErrorGradientStartOpacity} />
+              <stop offset="100%" stopColor={theme.chartErrorGradientEnd} stopOpacity={theme.chartErrorGradientEndOpacity} />
             </linearGradient>
           </defs>
           {/* Hover line */}
@@ -335,7 +350,7 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
                     width={barWidth}
                     height={BAR_HEIGHT}
                     rx={8}
-                    fill={barColor(d.llm_call?.id || '')}
+                    fill={barColor(d)}
                     style={{ filter: highlightedCallId === d.llm_call?.id ? 'drop-shadow(0 0 8px #ffb300)' : undefined }}
                   />
                   <text
