@@ -880,14 +880,6 @@ export const useApp = (appId: string) => {
     const allDataLoaded = allProvidersLoaded && appLoaded
     
     if (allDataLoaded && !isLoadingProviders) {
-      console.log('All data loaded - enabling app saves', {
-        allProvidersLoaded,
-        // allModelsLoaded, 
-        appLoaded,
-        appProvider,
-        // appProviderLoaded,
-        // providersLoaded
-      })
       // Delay setting to ensure any pending state changes are complete
       setTimeout(() => {
         setIsSafeToSave(true)
