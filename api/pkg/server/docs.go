@@ -471,6 +471,48 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/apps/{id}/step-info": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List step info for a specific app",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "step_info"
+                ],
+                "summary": "List step info",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "appId",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Interaction ID",
+                        "name": "interactionId",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.StepInfo"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{id}/user-access": {
             "get": {
                 "security": [
