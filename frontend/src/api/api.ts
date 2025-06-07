@@ -2214,7 +2214,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List step info for a specific app
+     * @description List step info for a specific app and interaction ID, used to build the timeline of events
      *
      * @tags step_info
      * @name V1AppsStepInfoDetail
@@ -2225,8 +2225,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1AppsStepInfoDetail: (
       id: string,
       query?: {
-        /** App ID */
-        appId?: string;
         /** Interaction ID */
         interactionId?: string;
       },

@@ -442,6 +442,8 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                             </Box>
                           </Box>
                           <LLMCallTimelineChart
+                            appId={appId}
+                            interactionId={group.interaction_id}
                             calls={group.calls.map(call => ({
                               id: call.id || '',
                               created: call.created || '',

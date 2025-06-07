@@ -130,10 +130,9 @@ func (s *HelixAPIServer) listAppLLMCalls(_ http.ResponseWriter, r *http.Request)
 
 // listAppStepInfo godoc
 // @Summary List step info
-// @Description List step info for a specific app
+// @Description List step info for a specific app and interaction ID, used to build the timeline of events
 // @Tags    step_info
 // @Produce json
-// @Param   appId         query    string  false  "App ID"
 // @Param   interactionId query    string  false  "Interaction ID"
 // @Success 200 {array} types.StepInfo
 // @Router /api/v1/apps/{id}/step-info [get]
