@@ -256,7 +256,7 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
           <defs>
             <linearGradient id="barGradient" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor={theme.chartGradientStart} stopOpacity={theme.chartGradientStartOpacity} />
-              <stop offset="100%" stopColor={theme.chartGradientEnd} stopOpacity={theme.chartGradientStartOpacity} />
+              <stop offset="100%" stopColor={theme.chartGradientEnd} stopOpacity={theme.chartGradientEndOpacity} />
             </linearGradient>
             <linearGradient id="barHighlightGradient" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor={theme.chartHighlightGradientStart} stopOpacity={theme.chartHighlightGradientStartOpacity} />
