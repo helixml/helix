@@ -10,6 +10,14 @@ declare module '@mui/material/styles' {
     chartHighlightGradientEnd: string;
     chartHighlightGradientStartOpacity: number;
     chartHighlightGradientEndOpacity: number;
+    chartActionGradientStart: string;
+    chartActionGradientEnd: string;
+    chartActionGradientStartOpacity: number;
+    chartActionGradientEndOpacity: number;
+    chartErrorGradientStart: string;
+    chartErrorGradientEnd: string;
+    chartErrorGradientStartOpacity: number;
+    chartErrorGradientEndOpacity: number;
   }
   interface ThemeOptions {
     chartGradientStart?: string;
@@ -20,5 +28,13 @@ declare module '@mui/material/styles' {
     chartHighlightGradientEnd?: string;
     chartHighlightGradientStartOpacity?: number;
     chartHighlightGradientEndOpacity?: number;
+    chartActionGradientStart?: string;
+    chartActionGradientEnd?: string;
+    chartActionGradientStartOpacity?: number;
+    chartActionGradientEndOpacity?: number;
+    chartErrorGradientStart?: string;
+    chartErrorGradientEnd?: string;
+    chartErrorGradientStartOpacity?: number;
+    chartErrorGradientEndOpacity?: number;
   }
 } 

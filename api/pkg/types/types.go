@@ -671,9 +671,9 @@ type StepInfo struct {
 	ID            string          `json:"id" gorm:"primaryKey"`
 	Created       time.Time       `json:"created"`
 	Updated       time.Time       `json:"updated"`
-	AppID         string          `json:"app_id"`
-	SessionID     string          `json:"session_id"`
-	InteractionID string          `json:"interaction_id"`
+	AppID         string          `json:"app_id" gorm:"index:idx_app_interaction,priority:1"`
+	SessionID     string          `json:"session_id" gorm:"index"`
+	InteractionID string          `json:"interaction_id" gorm:"index:idx_app_interaction,priority:2"`
 	Name          string          `json:"name"`
 	Icon          string          `json:"icon"` // Either Material UI icon, emoji or SVG. Leave empty for default
 	Type          StepInfoType    `json:"type"`
@@ -1652,12 +1652,12 @@ const (
 // done by helix to LLM providers such as openai, togetherai or helix itself
 type LLMCall struct {
 	ID               string         `json:"id" gorm:"primaryKey"`
-	AppID            string         `json:"app_id" gorm:"index"`
+	AppID            string         `json:"app_id" gorm:"index:idx_app_interaction,priority:1"`
 	UserID           string         `json:"user_id" gorm:"index"`
 	Created          time.Time      `json:"created"`
 	Updated          time.Time      `json:"updated"`
 	SessionID        string         `json:"session_id" gorm:"index"`
-	InteractionID    string         `json:"interaction_id" gorm:"index"`
+	InteractionID    string         `json:"interaction_id" gorm:"index:idx_app_interaction,priority:2"`
 	Model            string         `json:"model"`
 	Provider         string         `json:"provider"`
 	Step             LLMCallStep    `json:"step" gorm:"index"`

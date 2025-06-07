@@ -37,6 +37,13 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
       chartHighlightGradientEnd: themeConfig.chartHighlightGradientEnd,
       chartHighlightGradientStartOpacity: themeConfig.chartHighlightGradientStartOpacity,
       chartHighlightGradientEndOpacity: themeConfig.chartHighlightGradientEndOpacity,
+      chartActionGradientStart: themeConfig.chartActionGradientStart,
+      chartActionGradientEnd: themeConfig.chartActionGradientEnd,
+      chartActionGradientStartOpacity: themeConfig.chartActionGradientStartOpacity,
+      chartActionGradientEndOpacity: themeConfig.chartActionGradientEndOpacity,
+      chartErrorGradientStart: themeConfig.chartErrorGradientStart,
+      chartErrorGradientEnd: themeConfig.chartErrorGradientEnd,
+      chartErrorGradientStartOpacity: themeConfig.chartErrorGradientStartOpacity,
     })
   }, [
     themeConfig, mode
