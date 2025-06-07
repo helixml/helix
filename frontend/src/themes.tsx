@@ -64,6 +64,15 @@ export interface ITheme {
   chartHighlightGradientEnd: string,
   chartHighlightGradientStartOpacity: number,
   chartHighlightGradientEndOpacity: number,
+  // Action info gradients
+  chartActionGradientStart: string,
+  chartActionGradientEnd: string,
+  chartActionGradientStartOpacity: number,
+  chartActionGradientEndOpacity: number,
+  chartErrorGradientStart: string,
+  chartErrorGradientEnd: string,
+  chartErrorGradientStartOpacity: number,
+  chartErrorGradientEndOpacity: number,
   // active sections
   activeSections: string[],
   logo: {
@@ -136,6 +145,15 @@ export const THEMES: Record<string, ITheme> = {
     chartHighlightGradientEnd: '#ff4081',
     chartHighlightGradientStartOpacity: 0.9,
     chartHighlightGradientEndOpacity: 0.9,
+    // Action info gradients
+    chartActionGradientStart: '#00cc7e',
+    chartActionGradientEnd: '#0099cc',
+    chartActionGradientStartOpacity: 0.8,
+    chartActionGradientEndOpacity: 0.8,
+    chartErrorGradientStart: '#ff3d00',
+    chartErrorGradientEnd: '#ff1744',
+    chartErrorGradientStartOpacity: 0.8,
+    chartErrorGradientEndOpacity: 0.8,
     // this means ALL
     activeSections: [],
     logo: () => (
