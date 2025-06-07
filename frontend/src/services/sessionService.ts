@@ -1,6 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesStepInfo, ContentType } from '../api/api';
 
 export const sessionStepsQueryKey = (id: string) => [
   "session-steps",

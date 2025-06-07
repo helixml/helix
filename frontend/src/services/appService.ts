@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-// import { TypesStepInfo, ContentType } from '../api/api';
 
 export const appStepsQueryKey = (id: string, interactionId: string) => [
   "app-steps",
