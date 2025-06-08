@@ -1,17 +1,23 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useState, useRef } from 'react'
 import Box from '@mui/material/Box'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import IconButton from '@mui/material/IconButton'
 import DeleteIcon from '@mui/icons-material/Delete'
 import AddIcon from '@mui/icons-material/Add'
+import Avatar from '@mui/material/Avatar'
+import Grid from '@mui/material/Grid'
 import { IAppFlatState } from '../../types'
+import { useUpdateAppAvatar, useDeleteAppAvatar } from '../../services/appService'
+import CloudUploadIcon from '@mui/icons-material/CloudUpload'
+import DeleteForeverIcon from '@mui/icons-material/DeleteForever'
 
 interface AppearanceSettingsProps {
   app: IAppFlatState
   onUpdate: (updates: IAppFlatState) => Promise<void>
   readOnly?: boolean
   showErrors?: boolean
+  id: string
 }
 
 const AppearanceSettings: FC<AppearanceSettingsProps> = ({
@@ -19,20 +25,21 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
   onUpdate,
   readOnly = false,
   showErrors = true,
+  id,
 }) => {
   const [name, setName] = useState(app.name || '')
   const [description, setDescription] = useState(app.description || '')
-  const [avatar, setAvatar] = useState(app.avatar || '')
-  const [image, setImage] = useState(app.image || '')
   const [conversationStarters, setConversationStarters] = useState<string[]>(app.conversation_starters || [])
   const [newStarter, setNewStarter] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleBlur = (field: 'name' | 'description' | 'avatar' | 'image') => {
+  const updateAvatarMutation = useUpdateAppAvatar(id)
+  const deleteAvatarMutation = useDeleteAppAvatar(id)
+
+  const handleBlur = (field: 'name' | 'description') => {
     const currentValue = {
       name,
       description,
-      avatar,
-      image,
     }[field]
     
     const originalValue = (app[field] || '') as string
@@ -42,8 +49,6 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
         ...app,
         name,
         description,
-        avatar,
-        image,
         conversation_starters: conversationStarters
       }
       
@@ -102,66 +107,152 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
     onUpdate(updatedApp)
   }
 
+  const handleAvatarClick = () => {
+    if (!readOnly && fileInputRef.current) {
+      fileInputRef.current.click()
+    }
+  }
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      try {
+        await updateAvatarMutation.mutateAsync(file)
+      } catch (error) {
+        console.error('Failed to upload avatar:', error)
+      }
+    }
+  }
+
+  const handleDeleteAvatar = async () => {
+    try {
+      await deleteAvatarMutation.mutateAsync()
+    } catch (error) {
+      console.error('Failed to delete avatar:', error)
+    }
+  }
+
   return (
     <Box sx={{ mt: 2 }}>
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
-          Application name
-        </Typography>
-        <TextField
-          sx={{ mb: 2 }}
-          id="app-name"
-          name="app-name"
-          error={showErrors && !name}
-          value={name}
-          disabled={readOnly}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={() => handleBlur('name')}
-          fullWidth
-          label="Name"
-          helperText="Name your app"
-        />
-        <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
-          Description
-        </Typography>
-        <TextField
-          sx={{ mb: 2 }}
-          id="app-description"
-          name="app-description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          onBlur={() => handleBlur('description')}
-          disabled={readOnly}
-          fullWidth
-          rows={2}
-          label="Description"
-          helperText="Enter a short description of what this app does, e.g. 'Tax filing assistant'"
-        />
-        <TextField
-          sx={{ mb: 2 }}
-          id="app-avatar"
-          name="app-avatar"
-          value={avatar}
-          onChange={(e) => setAvatar(e.target.value)}
-          onBlur={() => handleBlur('avatar')}
-          disabled={readOnly}
-          fullWidth
-          label="Avatar"
-          helperText="URL for the app's avatar image"
-        />
-        <TextField
-          sx={{ mb: 2 }}
-          id="app-image"
-          name="app-image"
-          value={image}
-          onChange={(e) => setImage(e.target.value)}
-          onBlur={() => handleBlur('image')}
-          disabled={readOnly}
-          fullWidth
-          label="Background Image"
-          helperText="URL for the app's main image"
-        />
-        
+      <Grid container spacing={3}>
+        {/* Left column - Name and Description */}
+        <Grid item xs={12} md={6}>
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
+              Application name
+            </Typography>
+            <TextField
+              sx={{ mb: 2 }}
+              id="app-name"
+              name="app-name"
+              error={showErrors && !name}
+              value={name}
+              disabled={readOnly}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={() => handleBlur('name')}
+              fullWidth
+              label="Name"
+              helperText="Name your app"
+            />
+            <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
+              Description
+            </Typography>
+            <TextField
+              sx={{ mb: 2 }}
+              id="app-description"
+              name="app-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onBlur={() => handleBlur('description')}
+              disabled={readOnly}
+              fullWidth
+              rows={2}
+              label="Description"
+              helperText="Enter a short description of what this app does, e.g. 'Tax filing assistant'"
+            />
+          </Box>
+        </Grid>
+
+        {/* Right column - Avatar */}
+        <Grid item xs={12} md={6}>
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '100%',
+              position: 'relative',
+            }}
+          >
+            <Box
+              sx={{
+                position: 'relative',
+                cursor: readOnly ? 'default' : 'pointer',
+                '&:hover .avatar-overlay': {
+                  opacity: 1,
+                },
+              }}
+              onClick={handleAvatarClick}
+            >
+              <Avatar
+                src={app.avatar ? `/api/v1/apps/${id}/avatar` : undefined}
+                sx={{
+                  width: 200,
+                  height: 200,
+                  border: '2px solid #fff',
+                  boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+                }}
+              />
+              {!readOnly && (
+                <Box
+                  className="avatar-overlay"
+                  sx={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                    borderRadius: '50%',
+                    opacity: 0,
+                    transition: 'opacity 0.2s',
+                  }}
+                >
+                  <CloudUploadIcon sx={{ color: 'white', fontSize: 40 }} />
+                </Box>
+              )}
+            </Box>
+            {!readOnly && app.avatar && (
+              <IconButton
+                onClick={handleDeleteAvatar}
+                sx={{
+                  mt: 2,
+                  color: 'error.main',
+                  '&:hover': {
+                    backgroundColor: 'error.light',
+                  },
+                }}
+              >
+                <DeleteForeverIcon />
+              </IconButton>
+            )}
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+              accept="image/*"
+              onChange={handleFileChange}
+            />
+          </Box>
+        </Grid>
+      </Grid>
+
+      {/* Conversation Starters Section */}
+      <Box sx={{ mt: 4 }}>
         <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
           Conversation Starters
         </Typography>
