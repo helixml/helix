@@ -6,8 +6,15 @@ import Grid from '@mui/material/Grid'
 import Tab from '@mui/material/Tab'
 import Tabs from '@mui/material/Tabs'
 import Typography from '@mui/material/Typography'
+import SettingsIcon from '@mui/icons-material/Settings';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
+import EmojiObjectsIcon from '@mui/icons-material/EmojiObjects';
+import VpnKeyIcon from '@mui/icons-material/VpnKey';
+import CodeIcon from '@mui/icons-material/Code';
+import BarChartIcon from '@mui/icons-material/BarChart';
+import CloudDownloadIcon from '@mui/icons-material/CloudDownload';
+import GroupIcon from '@mui/icons-material/Group';
 
-import ApiIntegrations from '../components/app/ApiIntegrations'
 import APIKeysSection from '../components/app/APIKeysSection'
 import AppSettings from '../components/app/AppSettings'
 import AccessManagement from '../components/app/AccessManagement'
@@ -15,7 +22,6 @@ import CodeExamples from '../components/app/CodeExamples'
 import DevelopersSection from '../components/app/DevelopersSection'
 import KnowledgeEditor from '../components/app/KnowledgeEditor'
 import PreviewPanel from '../components/app/PreviewPanel'
-import ZapierIntegrations from '../components/app/ZapierIntegrations'
 import Page from '../components/system/Page'
 import AccessDenied from '../components/system/AccessDenied'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
@@ -146,7 +152,7 @@ const App: FC = () => {
         <Box sx={{ height: '100%', width: '100%', flexGrow: 1, p: 2, pb: 0, mb: 0 }}>
           <Grid container sx={{ height: '100%' }}>
             {/* Left: Vertical Tabs */}
-            <Grid item xs={12} sm={3} md={2} sx={{ borderRight: '1px solid #303047', background: '#181828', minHeight: '80vh', pt: 3 }}>
+            <Grid item xs={12} sm={3} md={2} sx={{ borderRight: '1px solid #303047', minHeight: '80vh', pt: 3 }}>
               <Tabs
                 orientation="vertical"
                 variant="scrollable"
@@ -155,21 +161,39 @@ const App: FC = () => {
                 sx={{
                   borderRight: 0,
                   minWidth: 180,
-                  '.MuiTab-root': { alignItems: 'flex-start', textAlign: 'left', color: '#fff', fontWeight: 500 },
-                  '.Mui-selected': { color: '#90caf9' },
+                  alignItems: 'flex-start',
+                  '.MuiTabs-flexContainer': { alignItems: 'flex-start' },
+                  '.MuiTab-root': {
+                    justifyContent: 'flex-start',
+                    textAlign: 'left',
+                    color: '#8a8a9e',
+                    fontWeight: 400,
+                    fontSize: '0.95rem',
+                    minHeight: 44,
+                    pl: 2,
+                    pr: 2,
+                    borderRadius: 2,
+                    transition: 'color 0.2s',
+                  },
+                  '.Mui-selected': {
+                    color: '#fff',
+                    background: 'none',
+                  },
+                  '.MuiTab-iconWrapper': {
+                    marginRight: 12,
+                  },
                 }}
               >
-                <Tab label="Settings" value="settings" />
-                <Tab label="Knowledge" value="knowledge" />
-                <Tab label="Skills" value="skills" />
-                <Tab label="Integrations" value="integrations" />
-                <Tab label="API Keys" value="apikeys" />
-                <Tab label="IDE" value="ide" />
-                <Tab label="Usage" value="usage" />
-                <Tab label="Export" value="developers" />
+                <Tab icon={<SettingsIcon sx={{ mr: 1 }} />} iconPosition="start" label="Settings" value="settings" />
+                <Tab icon={<MenuBookIcon sx={{ mr: 1 }} />} iconPosition="start" label="Knowledge" value="knowledge" />
+                <Tab icon={<EmojiObjectsIcon sx={{ mr: 1 }} />} iconPosition="start" label="Skills" value="skills" />                
+                <Tab icon={<VpnKeyIcon sx={{ mr: 1 }} />} iconPosition="start" label="API Keys" value="apikeys" />
+                <Tab icon={<CodeIcon sx={{ mr: 1 }} />} iconPosition="start" label="IDE" value="ide" />
+                <Tab icon={<BarChartIcon sx={{ mr: 1 }} />} iconPosition="start" label="Usage" value="usage" />
+                <Tab icon={<CloudDownloadIcon sx={{ mr: 1 }} />} iconPosition="start" label="Export" value="developers" />
                 {
                   appTools.app?.organization_id && userAccess.isAdmin && (
-                    <Tab label="Access" value="access" />
+                    <Tab icon={<GroupIcon sx={{ mr: 1 }} />} iconPosition="start" label="Access" value="access" />
                   )
                 }
               </Tabs>
@@ -247,28 +271,7 @@ const App: FC = () => {
                                 }}
                               />
                             </Box>
-                          )}
-
-                          {tabValue === 'integrations' && appTools.flatApp && (
-                            <>
-                              <ApiIntegrations
-                                apis={appTools.apiTools}
-                                tools={appTools.apiToolsFromTools}
-                                onSaveApiTool={appTools.onSaveApiTool}
-                                onDeleteApiTool={appTools.onDeleteApiTool}
-                                isReadOnly={isReadOnly}
-                                app={appTools.flatApp}
-                                onUpdate={appTools.saveFlatApp}
-                              />
-
-                              <ZapierIntegrations
-                                zapier={appTools.zapierTools}
-                                onSaveZapierTool={appTools.onSaveZapierTool}
-                                onDeleteZapierTool={appTools.onDeleteZapierTool}
-                                isReadOnly={isReadOnly}
-                              />
-                            </>
-                          )}
+                          )}                     
 
                           {tabValue === 'apikeys' && (
                             <APIKeysSection
