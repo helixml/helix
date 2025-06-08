@@ -149,7 +149,7 @@ const App: FC = () => {
           height: '100%',
         }}
       >
-        <Box sx={{ height: '100%', width: '100%', flexGrow: 1, p: 2, pb: 0, mb: 0 }}>
+        <Box sx={{ height: '100%', width: '100%', flexGrow: 1, p: 2, pb: 0, mb: 0, mt: 2 }}>
           <Grid container sx={{ height: '100%' }}>
             {/* Left: Vertical Tabs */}
             <Grid item xs={12} sm={3} md={2} sx={{ borderRight: '1px solid #303047', minHeight: '80vh', pt: 3 }}>
@@ -203,7 +203,7 @@ const App: FC = () => {
               </Tabs>
             </Grid>
             {/* Right: Tab Content */}
-            <Grid item xs={12} sm={9} md={10} sx={{ height: '100%', overflow: 'hidden', backgroundColor: 'rgba(255, 255, 255, 0.05)', p: 0 }}>
+            <Grid item xs={12} sm={9} md={10} sx={{ height: '100%', overflow: 'hidden', backgroundColor: 'rgba(255, 255, 255, 0.05)', p: 0, mt: 2 }}>
               <Box sx={{ height: '100%', width: '100%', p: 0, pl: 4 }}>
                 <Grid container spacing={0} sx={{ height: '100%' }}>
                   {tabValue === 'usage' ? (
