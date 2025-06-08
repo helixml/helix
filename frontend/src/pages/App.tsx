@@ -143,186 +143,192 @@ const App: FC = () => {
           height: '100%',
         }}
       >
-        <Box sx={{ height: '100%', width: '100%', flexGrow: 1, p: 2, pb: 0, mb: 0, }}>
-          <Box>
-            <Tabs value={tabValue} onChange={handleTabChange}>
-              <Tab label="Settings" value="settings" />
-              <Tab label="Knowledge" value="knowledge" />
-              <Tab label="Skills" value="skills" />
-              <Tab label="Integrations" value="integrations" />              
-              <Tab label="API Keys" value="apikeys" />              
-              <Tab label="IDE" value="ide" />
-              <Tab label="Usage" value="usage" />
-              <Tab label="Export" value="developers" />         
-              {
-                // Only show Access tab if user is an admin and app has an organization_id
-                appTools.app?.organization_id && userAccess.isAdmin && (
-                  <Tab label="Access" value="access" />
-                )
-              }
-            </Tabs>
-          </Box>
-          <Box sx={{ height: 'calc(100% - 48px)', overflow: 'hidden' }}>
-            <Grid container spacing={2} sx={{ height: '100%' }}>
-              {tabValue === 'usage' ? (
-                <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
-                  <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
-                    <AppUsage appId={appTools.id} />
-                  </Box>
-                </Grid>
-              ) : tabValue === 'skills' ? (
-                <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
-                  <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
-                    { appTools.flatApp && (
-                      <Skills
-                        app={appTools.flatApp}
-                        onUpdate={appTools.saveFlatApp}
-                      />
-                    )}
-                  </Box>
-                </Grid>
-              ) : (
-                <>
-                  <Grid item sm={12} md={6} sx={{
-                    borderRight: '1px solid #303047',
-                    height: '100%',
-                    overflow: 'auto',
-                    pb: 8, // Add padding at bottom to prevent content being hidden behind fixed bar
-                    ...lightTheme.scrollbar
-                  }}>
-                    <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
-                      {tabValue === 'settings' && appTools.flatApp && (
-                        <AppSettings
-                          id={appTools.id}
-                          app={appTools.flatApp}
-                          onUpdate={appTools.saveFlatApp}
-                          readOnly={isReadOnly}
-                          showErrors={appTools.showErrors}
-                          isAdmin={account.admin}
-                        />
-                      )}
-
-                      {tabValue === 'access' && (
-                        <Box sx={{ mt: 2 }}>
-                          <AccessManagement
-                            appId={appTools.id}
-                            accessGrants={appTools.accessGrants}
-                            isLoading={false}
-                            isReadOnly={isReadOnly}
-                            onCreateGrant={appTools.createAccessGrant}
-                            onDeleteGrant={appTools.deleteAccessGrant}
-                          />
-                        </Box>
-                      )}
-
-                      {tabValue === 'knowledge' && (
-                        <Box sx={{ mt: 2 }}>
-                          <Typography variant="h6" sx={{ mb: 2 }}>
-                            Knowledge Sources
-                          </Typography>
-                          <KnowledgeEditor
-                            appId={appTools.id}
-                            disabled={isReadOnly}
-                            saveKnowledgeToApp={async (knowledge) => {
-                              // the knowledge has changed so we need to keep the app hook
-                              // in sync so it knows about the knowledge IDs then we
-                              // can use that for the preview panel
-                              await appTools.saveFlatApp({
-                                knowledge,
-                              })
-                              await appTools.loadServerKnowledge()
-                            }}
-                            onSaveApp={async () => {
-                              console.log('Saving app state after file upload to trigger indexing');
-                              // Save the current app state to ensure all knowledge changes are persisted
-                              if (!appTools.app) {
-                                console.warn('Cannot save app - app is null');
-                                return;
-                              }
-                              return await appTools.saveApp(appTools.app);
-                            }}
-                          />
-                        </Box>
-                      )}
-
-                      {tabValue === 'integrations' && appTools.flatApp && (
-                        <>
-                          <ApiIntegrations
-                            apis={appTools.apiTools}
-                            tools={appTools.apiToolsFromTools}
-                            onSaveApiTool={appTools.onSaveApiTool}
-                            onDeleteApiTool={appTools.onDeleteApiTool}
-                            isReadOnly={isReadOnly}
+        <Box sx={{ height: '100%', width: '100%', flexGrow: 1, p: 2, pb: 0, mb: 0 }}>
+          <Grid container sx={{ height: '100%' }}>
+            {/* Left: Vertical Tabs */}
+            <Grid item xs={12} sm={3} md={2} sx={{ borderRight: '1px solid #303047', background: '#181828', minHeight: '80vh', pt: 3 }}>
+              <Tabs
+                orientation="vertical"
+                variant="scrollable"
+                value={tabValue}
+                onChange={handleTabChange}
+                sx={{
+                  borderRight: 0,
+                  minWidth: 180,
+                  '.MuiTab-root': { alignItems: 'flex-start', textAlign: 'left', color: '#fff', fontWeight: 500 },
+                  '.Mui-selected': { color: '#90caf9' },
+                }}
+              >
+                <Tab label="Settings" value="settings" />
+                <Tab label="Knowledge" value="knowledge" />
+                <Tab label="Skills" value="skills" />
+                <Tab label="Integrations" value="integrations" />
+                <Tab label="API Keys" value="apikeys" />
+                <Tab label="IDE" value="ide" />
+                <Tab label="Usage" value="usage" />
+                <Tab label="Export" value="developers" />
+                {
+                  appTools.app?.organization_id && userAccess.isAdmin && (
+                    <Tab label="Access" value="access" />
+                  )
+                }
+              </Tabs>
+            </Grid>
+            {/* Right: Tab Content */}
+            <Grid item xs={12} sm={9} md={10} sx={{ height: '100%', overflow: 'hidden', background: 'linear-gradient(135deg, #23233a 0%, #181828 100%)', p: 0 }}>
+              <Box sx={{ height: '100%', width: '100%', p: 0 }}>
+                <Grid container spacing={0} sx={{ height: '100%' }}>
+                  {tabValue === 'usage' ? (
+                    <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
+                        <AppUsage appId={appTools.id} />
+                      </Box>
+                    </Grid>
+                  ) : tabValue === 'skills' ? (
+                    <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
+                        { appTools.flatApp && (
+                          <Skills
                             app={appTools.flatApp}
                             onUpdate={appTools.saveFlatApp}
                           />
-
-                          <ZapierIntegrations
-                            zapier={appTools.zapierTools}
-                            onSaveZapierTool={appTools.onSaveZapierTool}
-                            onDeleteZapierTool={appTools.onDeleteZapierTool}
-                            isReadOnly={isReadOnly}
-                          />
-                        </>
-                      )}
-
-                      {tabValue === 'apikeys' && (
-                        <APIKeysSection
-                          apiKeys={account.appApiKeys}
-                          onAddAPIKey={() => account.addAppAPIKey(appTools.id)}
-                          onDeleteKey={(key) => setDeletingAPIKey(key)}
-                          allowedDomains={appTools.flatApp?.allowedDomains || []}
-                          setAllowedDomains={(allowedDomains) => appTools.saveFlatApp({ allowedDomains })}
-                          isReadOnly={isReadOnly}
-                        />
-                      )}
-
-                      {tabValue === 'developers' && (
-                        <DevelopersSection
-                          schema={appTools.appSchema}
-                          setSchema={appTools.setAppSchema}
-                          showErrors={appTools.showErrors}
-                          appId={appTools.id}
-                          navigate={navigate}
-                        />
-                      )}
-
-                      {tabValue === 'ide' && (
-                        <IdeIntegrationSection
-                          appId={appTools.id}
-                        />
-                      )}
-                    </Box>
-                  </Grid>
-                  {/* For API keys section show  */}
-                  {tabValue === 'apikeys' ? (
-                    <CodeExamples apiKey={account.appApiKeys[0]?.key || ''} />
+                        )}
+                      </Box>
+                    </Grid>
                   ) : (
-                    <PreviewPanel
-                      appId={appTools.id}
-                      loading={appTools.isInferenceLoading}
-                      name={appTools.flatApp?.name || ''}
-                      avatar={appTools.flatApp?.avatar || ''}
-                      image={appTools.flatApp?.image || ''}
-                      isSearchMode={isSearchMode}
-                      setIsSearchMode={setIsSearchMode}
-                      inputValue={appTools.inputValue}
-                      setInputValue={appTools.setInputValue}
-                      onInference={appTools.onInference}
-                      onSearch={appTools.onSearch}
-                      hasKnowledgeSources={(appTools.flatApp?.knowledge?.length || 0) > 0}
-                      searchResults={appTools.searchResults}
-                      session={appTools.session.data}
-                      serverConfig={account.serverConfig}
-                      themeConfig={themeConfig}
-                      snackbar={snackbar}
-                      conversationStarters={appTools.flatApp?.conversation_starters || []}
-                    />
+                    <>
+                      <Grid item xs={12} md={6} sx={{
+                        borderRight: '1px solid #303047',
+                        height: '100%',
+                        overflow: 'auto',
+                        pb: 8,
+                        ...lightTheme.scrollbar
+                      }}>
+                        <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
+                          {tabValue === 'settings' && appTools.flatApp && (
+                            <AppSettings
+                              id={appTools.id}
+                              app={appTools.flatApp}
+                              onUpdate={appTools.saveFlatApp}
+                              readOnly={isReadOnly}
+                              showErrors={appTools.showErrors}
+                              isAdmin={account.admin}
+                            />
+                          )}
+
+                          {tabValue === 'access' && (
+                            <Box sx={{ mt: 2 }}>
+                              <AccessManagement
+                                appId={appTools.id}
+                                accessGrants={appTools.accessGrants}
+                                isLoading={false}
+                                isReadOnly={isReadOnly}
+                                onCreateGrant={appTools.createAccessGrant}
+                                onDeleteGrant={appTools.deleteAccessGrant}
+                              />
+                            </Box>
+                          )}
+
+                          {tabValue === 'knowledge' && (
+                            <Box sx={{ mt: 2 }}>
+                              <Typography variant="h6" sx={{ mb: 2 }}>
+                                Knowledge Sources
+                              </Typography>
+                              <KnowledgeEditor
+                                appId={appTools.id}
+                                disabled={isReadOnly}
+                                saveKnowledgeToApp={async (knowledge) => {
+                                  await appTools.saveFlatApp({ knowledge })
+                                  await appTools.loadServerKnowledge()
+                                }}
+                                onSaveApp={async () => {
+                                  if (!appTools.app) return;
+                                  return await appTools.saveApp(appTools.app);
+                                }}
+                              />
+                            </Box>
+                          )}
+
+                          {tabValue === 'integrations' && appTools.flatApp && (
+                            <>
+                              <ApiIntegrations
+                                apis={appTools.apiTools}
+                                tools={appTools.apiToolsFromTools}
+                                onSaveApiTool={appTools.onSaveApiTool}
+                                onDeleteApiTool={appTools.onDeleteApiTool}
+                                isReadOnly={isReadOnly}
+                                app={appTools.flatApp}
+                                onUpdate={appTools.saveFlatApp}
+                              />
+
+                              <ZapierIntegrations
+                                zapier={appTools.zapierTools}
+                                onSaveZapierTool={appTools.onSaveZapierTool}
+                                onDeleteZapierTool={appTools.onDeleteZapierTool}
+                                isReadOnly={isReadOnly}
+                              />
+                            </>
+                          )}
+
+                          {tabValue === 'apikeys' && (
+                            <APIKeysSection
+                              apiKeys={account.appApiKeys}
+                              onAddAPIKey={() => account.addAppAPIKey(appTools.id)}
+                              onDeleteKey={(key) => setDeletingAPIKey(key)}
+                              allowedDomains={appTools.flatApp?.allowedDomains || []}
+                              setAllowedDomains={(allowedDomains) => appTools.saveFlatApp({ allowedDomains })}
+                              isReadOnly={isReadOnly}
+                            />
+                          )}
+
+                          {tabValue === 'developers' && (
+                            <DevelopersSection
+                              schema={appTools.appSchema}
+                              setSchema={appTools.setAppSchema}
+                              showErrors={appTools.showErrors}
+                              appId={appTools.id}
+                              navigate={navigate}
+                            />
+                          )}
+
+                          {tabValue === 'ide' && (
+                            <IdeIntegrationSection
+                              appId={appTools.id}
+                            />
+                          )}
+                        </Box>
+                      </Grid>
+                      {/* For API keys section show  */}
+                      {tabValue === 'apikeys' ? (
+                        <CodeExamples apiKey={account.appApiKeys[0]?.key || ''} />
+                      ) : (
+                        <PreviewPanel
+                          appId={appTools.id}
+                          loading={appTools.isInferenceLoading}
+                          name={appTools.flatApp?.name || ''}
+                          avatar={appTools.flatApp?.avatar || ''}
+                          image={appTools.flatApp?.image || ''}
+                          isSearchMode={isSearchMode}
+                          setIsSearchMode={setIsSearchMode}
+                          inputValue={appTools.inputValue}
+                          setInputValue={appTools.setInputValue}
+                          onInference={appTools.onInference}
+                          onSearch={appTools.onSearch}
+                          hasKnowledgeSources={(appTools.flatApp?.knowledge?.length || 0) > 0}
+                          searchResults={appTools.searchResults}
+                          session={appTools.session.data}
+                          serverConfig={account.serverConfig}
+                          themeConfig={themeConfig}
+                          snackbar={snackbar}
+                          conversationStarters={appTools.flatApp?.conversation_starters || []}
+                        />
+                      )}
+                    </>
                   )}
-                </>
-              )}
+                </Grid>
+              </Box>
             </Grid>
-          </Box>
+          </Grid>
         </Box>
       </Container>
 
