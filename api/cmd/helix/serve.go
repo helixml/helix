@@ -9,6 +9,10 @@ import (
 	"os/signal"
 	"path/filepath"
 
+	// Register file driver
+	"gocloud.dev/blob/fileblob"
+	_ "gocloud.dev/blob/fileblob"
+
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
@@ -34,7 +38,6 @@ import (
 	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/version"
-	"gocloud.dev/blob"
 
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -445,7 +448,16 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		defer pingService.Stop()
 	}
 
-	avatarsBucket, err := blob.OpenBucket(ctx, fmt.Sprintf("file://%s/avatars", cfg.FileStore.LocalFSPath))
+	// Ensure the directory exists
+	err = os.MkdirAll(filepath.Join(cfg.FileStore.AvatarsPath, "avatars"), 0755)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to create avatars directory, app avatars will not be saved")
+	}
+
+	// avatarsBucket, err := blob.OpenBucket(ctx, cfg.FileStore.AvatarsPath)
+	avatarsBucket, err := fileblob.OpenBucket(cfg.FileStore.AvatarsPath, &fileblob.Options{
+		NoTempDir: true,
+	})
 	if err != nil {
 		return err
 	}
