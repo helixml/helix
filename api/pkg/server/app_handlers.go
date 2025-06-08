@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"encoding/base64"
+
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/oauth"
@@ -1085,4 +1087,150 @@ func (s *HelixAPIServer) getAppUserAccess(_ http.ResponseWriter, r *http.Request
 	// Always return the response, even if the user has no access
 	// This way the frontend can know the user's permission level
 	return response, nil
+}
+
+func (s *HelixAPIServer) uploadAppAvatar(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	id := getID(r)
+
+	// Get the app to check permissions
+	app, err := s.Store.GetApp(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(rw, "app not found", http.StatusNotFound)
+			return
+		}
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Check if user has permission to update the app
+	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionUpdate)
+	if err != nil {
+		http.Error(rw, "unauthorized", http.StatusForbidden)
+		return
+	}
+
+	// Read the request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(rw, "failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	// Decode base64 image
+	decoded, err := base64.StdEncoding.DecodeString(string(body))
+	if err != nil {
+		http.Error(rw, "invalid base64 image data", http.StatusBadRequest)
+		return
+	}
+
+	// Validate image format
+	contentType := http.DetectContentType(decoded)
+	if !strings.HasPrefix(contentType, "image/") {
+		http.Error(rw, "invalid image format", http.StatusBadRequest)
+		return
+	}
+
+	// Write to avatars bucket using just the app ID as the key
+	key := id
+	err = s.avatarsBucket.WriteAll(r.Context(), key, decoded, nil)
+	if err != nil {
+		http.Error(rw, "failed to save avatar", http.StatusInternalServerError)
+		return
+	}
+
+	// Update app config with avatar URL and content type
+	app.Config.Helix.Avatar = fmt.Sprintf("/api/v1/apps/%s/avatar", id)
+	app.Config.Helix.AvatarContentType = contentType
+	_, err = s.Store.UpdateApp(r.Context(), app)
+	if err != nil {
+		http.Error(rw, "failed to update app", http.StatusInternalServerError)
+		return
+	}
+
+	rw.WriteHeader(http.StatusOK)
+}
+
+func (s *HelixAPIServer) deleteAppAvatar(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	id := getID(r)
+
+	// Get the app to check permissions
+	app, err := s.Store.GetApp(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(rw, "app not found", http.StatusNotFound)
+			return
+		}
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Check if user has permission to update the app
+	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionUpdate)
+	if err != nil {
+		http.Error(rw, "unauthorized", http.StatusForbidden)
+		return
+	}
+
+	// Delete the avatar file
+	key := id
+	err = s.avatarsBucket.Delete(r.Context(), key)
+	if err != nil {
+		// Don't return error if file doesn't exist
+		if !strings.Contains(err.Error(), "not found") {
+			http.Error(rw, "failed to delete avatar", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Update app config to remove avatar URL and content type
+	app.Config.Helix.Avatar = ""
+	app.Config.Helix.AvatarContentType = ""
+	_, err = s.Store.UpdateApp(r.Context(), app)
+	if err != nil {
+		http.Error(rw, "failed to update app", http.StatusInternalServerError)
+		return
+	}
+
+	rw.WriteHeader(http.StatusOK)
+}
+
+func (s *HelixAPIServer) getAppAvatar(rw http.ResponseWriter, r *http.Request) {
+	id := getID(r)
+
+	// Get the app to check if it exists
+	app, err := s.Store.GetApp(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(rw, "app not found", http.StatusNotFound)
+			return
+		}
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Check if app has an avatar
+	if app.Config.Helix.Avatar == "" {
+		http.Error(rw, "avatar not found", http.StatusNotFound)
+		return
+	}
+
+	// Read the avatar file
+	key := id
+	data, err := s.avatarsBucket.ReadAll(r.Context(), key)
+	if err != nil {
+		http.Error(rw, "avatar not found", http.StatusNotFound)
+		return
+	}
+
+	// Set content type and serve the image
+	contentType := app.Config.Helix.AvatarContentType
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
+	rw.Header().Set("Content-Type", contentType)
+	rw.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
+	_, _ = rw.Write(data)
 }

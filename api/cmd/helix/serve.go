@@ -34,6 +34,7 @@ import (
 	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/version"
+	"gocloud.dev/blob"
 
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -444,6 +445,11 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		defer pingService.Stop()
 	}
 
+	avatarsBucket, err := blob.OpenBucket(ctx, fmt.Sprintf("file://%s/avatars", cfg.FileStore.LocalFSPath))
+	if err != nil {
+		return err
+	}
+
 	server, err := server.NewServer(
 		cfg,
 		postgresStore,
@@ -459,6 +465,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		scheduler,
 		pingService,
 		oauthManager,
+		avatarsBucket,
 	)
 	if err != nil {
 		return err
