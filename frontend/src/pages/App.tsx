@@ -168,39 +168,43 @@ const App: FC = () => {
                     textAlign: 'left',
                     color: '#8a8a9e',
                     fontWeight: 400,
-                    fontSize: '0.95rem',
-                    minHeight: 44,
+                    fontSize: '0.85rem',
+                    minHeight: 36,
                     pl: 2,
                     pr: 2,
                     borderRadius: 2,
                     transition: 'color 0.2s',
+                    '& .MuiTab-iconWrapper': {
+                      fontSize: '1.1rem',
+                      marginRight: 4,
+                    },
                   },
                   '.Mui-selected': {
-                    color: '#fff',
+                    color: '#fff !important',
                     background: 'none',
                   },
-                  '.MuiTab-iconWrapper': {
-                    marginRight: 12,
+                  '.MuiTabs-indicator': {
+                    display: 'none',
                   },
                 }}
               >
-                <Tab icon={<SettingsIcon sx={{ mr: 1 }} />} iconPosition="start" label="Settings" value="settings" />
-                <Tab icon={<MenuBookIcon sx={{ mr: 1 }} />} iconPosition="start" label="Knowledge" value="knowledge" />
-                <Tab icon={<EmojiObjectsIcon sx={{ mr: 1 }} />} iconPosition="start" label="Skills" value="skills" />                
-                <Tab icon={<VpnKeyIcon sx={{ mr: 1 }} />} iconPosition="start" label="API Keys" value="apikeys" />
-                <Tab icon={<CodeIcon sx={{ mr: 1 }} />} iconPosition="start" label="IDE" value="ide" />
-                <Tab icon={<BarChartIcon sx={{ mr: 1 }} />} iconPosition="start" label="Usage" value="usage" />
-                <Tab icon={<CloudDownloadIcon sx={{ mr: 1 }} />} iconPosition="start" label="Export" value="developers" />
+                <Tab icon={<SettingsIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Settings" value="settings" />
+                <Tab icon={<MenuBookIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Knowledge" value="knowledge" />
+                <Tab icon={<EmojiObjectsIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Skills" value="skills" />                
+                <Tab icon={<VpnKeyIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="API Keys" value="apikeys" />
+                <Tab icon={<CodeIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="IDE" value="ide" />
+                <Tab icon={<BarChartIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Usage" value="usage" />
+                <Tab icon={<CloudDownloadIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Export" value="developers" />
                 {
                   appTools.app?.organization_id && userAccess.isAdmin && (
-                    <Tab icon={<GroupIcon sx={{ mr: 1 }} />} iconPosition="start" label="Access" value="access" />
+                    <Tab icon={<GroupIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Access" value="access" />
                   )
                 }
               </Tabs>
             </Grid>
             {/* Right: Tab Content */}
-            <Grid item xs={12} sm={9} md={10} sx={{ height: '100%', overflow: 'hidden', background: 'linear-gradient(135deg, #23233a 0%, #181828 100%)', p: 0 }}>
-              <Box sx={{ height: '100%', width: '100%', p: 0 }}>
+            <Grid item xs={12} sm={9} md={10} sx={{ height: '100%', overflow: 'hidden', backgroundColor: 'rgba(255, 255, 255, 0.05)', p: 0 }}>
+              <Box sx={{ height: '100%', width: '100%', p: 0, pl: 4 }}>
                 <Grid container spacing={0} sx={{ height: '100%' }}>
                   {tabValue === 'usage' ? (
                     <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
