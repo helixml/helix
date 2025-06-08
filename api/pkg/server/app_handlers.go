@@ -1270,10 +1270,8 @@ func (s *HelixAPIServer) getAppAvatar(rw http.ResponseWriter, r *http.Request) {
 		contentType = http.DetectContentType(data)
 	}
 
-	fmt.Println("XXX WRITING data", len(data))
-
 	rw.Header().Set("Content-Type", contentType)
-	rw.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
+	rw.Header().Set("Cache-Control", "public, max-age=60") // Cache for 1 minute
 	_, _ = rw.Write(data)
 }
 
