@@ -560,7 +560,7 @@ const SidebarContent: React.FC<{
                         <ListItemIcon>
                           <PolylineIcon fontSize="small" />
                         </ListItemIcon> 
-                        Integrations
+                        Connected Services
                       </MenuItem>
 
                       <MenuItem onClick={ () => {
