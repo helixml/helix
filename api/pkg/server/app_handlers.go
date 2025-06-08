@@ -1226,7 +1226,7 @@ func (s *HelixAPIServer) deleteAppAvatar(rw http.ResponseWriter, r *http.Request
 
 func (s *HelixAPIServer) getAppAvatar(rw http.ResponseWriter, r *http.Request) {
 	id := getID(r)
-
+	fmt.Println("XXX GETTING avatar for", id)
 	// Get the app to check if it exists
 	app, err := s.Store.GetApp(r.Context(), id)
 	if err != nil {
@@ -1257,6 +1257,9 @@ func (s *HelixAPIServer) getAppAvatar(rw http.ResponseWriter, r *http.Request) {
 	if contentType == "" {
 		contentType = http.DetectContentType(data)
 	}
+
+	fmt.Println("XXX WRITING data", len(data))
+
 	rw.Header().Set("Content-Type", contentType)
 	rw.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
 	_, _ = rw.Write(data)

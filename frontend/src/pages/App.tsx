@@ -220,6 +220,7 @@ const App: FC = () => {
                             onUpdate={appTools.saveFlatApp}
                             readOnly={isReadOnly}
                             showErrors={appTools.showErrors}
+                            id={appTools.id}
                           />
                         )}
                       </Box>
