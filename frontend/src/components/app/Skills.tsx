@@ -259,7 +259,7 @@ const Skills: React.FC<SkillsProps> = ({
   return (
     <Box sx={{ mt: 2, mr: 4 }}>
       <Typography variant="h6" sx={{ mb: 2 }}>
-        Skills
+        💡 Skills
       </Typography>
       {/* Add a paragraph with info about skills */}
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
