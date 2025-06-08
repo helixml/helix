@@ -152,7 +152,7 @@ const App: FC = () => {
         <Box sx={{ height: '100%', width: '100%', flexGrow: 1, p: 2, pb: 0, mb: 0, mt: 2 }}>
           <Grid container sx={{ height: '100%' }}>
             {/* Left: Vertical Tabs */}
-            <Grid item xs={12} sm={3} md={2} sx={{ borderRight: '1px solid #303047', minHeight: '80vh', pt: 3 }}>
+            <Grid item xs={12} sm={3} md={2} sx={{ minHeight: '80vh', pt: 3 }}>
               <Tabs
                 orientation="vertical"
                 variant="scrollable"
@@ -192,7 +192,7 @@ const App: FC = () => {
                 <Tab icon={<MenuBookIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Knowledge" value="knowledge" />
                 <Tab icon={<EmojiObjectsIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Skills" value="skills" />                
                 <Tab icon={<VpnKeyIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="API Keys" value="apikeys" />
-                <Tab icon={<CodeIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="IDE" value="ide" />
+                <Tab icon={<CodeIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="MCP" value="mcp" />
                 <Tab icon={<BarChartIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Usage" value="usage" />
                 <Tab icon={<CloudDownloadIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Export" value="developers" />
                 {
@@ -298,7 +298,7 @@ const App: FC = () => {
                             />
                           )}
 
-                          {tabValue === 'ide' && (
+                          {tabValue === 'mcp' && (
                             <IdeIntegrationSection
                               appId={appTools.id}
                             />
