@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
 
 export const appStepsQueryKey = (id: string, interactionId: string) => [
@@ -17,5 +17,40 @@ export function useListAppSteps(appId: string, interactionId: string, options?: 
     queryKey: appStepsQueryKey(appId, interactionId),
     queryFn: () => apiClient.v1AppsStepInfoDetail(appId, {interactionId}),
     enabled: options?.enabled ?? true
+  })
+}
+
+// useUpdateAppAvatar returns a mutation for uploading/updating an app's avatar
+export function useUpdateAppAvatar(appId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useMutation({
+    mutationFn: async (file: File) => {
+      // Convert file to base64 string
+      const reader = new FileReader()
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onload = () => {
+          const base64 = reader.result as string
+          // Remove the data URL prefix (e.g., "data:image/jpeg;base64,")
+          const base64Data = base64.split(',')[1]
+          resolve(base64Data)
+        }
+      })
+      reader.readAsDataURL(file)
+      const base64Data = await base64Promise
+      
+      return apiClient.v1AppsAvatarCreate(appId, base64Data)
+    }
+  })
+}
+
+// useDeleteAppAvatar returns a mutation for deleting an app's avatar
+export function useDeleteAppAvatar(appId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useMutation({
+    mutationFn: () => apiClient.v1AppsAvatarDelete(appId)
   })
 }
