@@ -14,9 +14,11 @@ import CodeIcon from '@mui/icons-material/Code';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import CloudDownloadIcon from '@mui/icons-material/CloudDownload';
 import GroupIcon from '@mui/icons-material/Group';
+import PaletteIcon from '@mui/icons-material/Palette';
 
 import APIKeysSection from '../components/app/APIKeysSection'
 import AppSettings from '../components/app/AppSettings'
+import AppearanceSettings from '../components/app/AppearanceSettings'
 import AccessManagement from '../components/app/AccessManagement'
 import CodeExamples from '../components/app/CodeExamples'
 import DevelopersSection from '../components/app/DevelopersSection'
@@ -190,6 +192,7 @@ const App: FC = () => {
                   },
                 }}
               >
+                <Tab icon={<PaletteIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Appearance" value="appearance" />
                 <Tab icon={<SettingsIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Settings" value="settings" />
                 <Tab icon={<MenuBookIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Knowledge" value="knowledge" />
                 <Tab icon={<EmojiObjectsIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Skills" value="skills" />                
@@ -208,7 +211,20 @@ const App: FC = () => {
             <Grid item xs={12} sm={9} md={10} sx={{ height: '100%', overflow: 'hidden', backgroundColor: 'rgba(255, 255, 255, 0.05)', p: 0, mt: 2, borderRadius: 4 }}>
               <Box sx={{ height: '100%', width: '100%', p: 0, pl: 4, overflow: 'hidden' }}>
                 <Grid container spacing={0} sx={{ height: '100%', overflow: 'hidden' }}>
-                  {tabValue === 'usage' ? (
+                  {tabValue === 'appearance' ? (
+                    <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
+                        { appTools.flatApp && (
+                          <AppearanceSettings
+                            app={appTools.flatApp}
+                            onUpdate={appTools.saveFlatApp}
+                            readOnly={isReadOnly}
+                            showErrors={appTools.showErrors}
+                          />
+                        )}
+                      </Box>
+                    </Grid>
+                  ) : tabValue === 'usage' ? (
                     <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
                       <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
                         <AppUsage appId={appTools.id} />
