@@ -11,6 +11,7 @@ import { IAppFlatState } from '../../types'
 import { useUpdateAppAvatar, useDeleteAppAvatar } from '../../services/appService'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever'
+import useApps from '../../hooks/useApps'
 
 interface AppearanceSettingsProps {
   app: IAppFlatState
@@ -31,10 +32,13 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
   const [description, setDescription] = useState(app.description || '')
   const [conversationStarters, setConversationStarters] = useState<string[]>(app.conversation_starters || [])
   const [newStarter, setNewStarter] = useState('')
+  const [avatarUpdateKey, setAvatarUpdateKey] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const updateAvatarMutation = useUpdateAppAvatar(id)
   const deleteAvatarMutation = useDeleteAppAvatar(id)
+
+  const apps = useApps()
 
   const handleBlur = (field: 'name' | 'description') => {
     const currentValue = {
@@ -109,30 +113,40 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
 
   const handleAvatarClick = () => {
     if (!readOnly && fileInputRef.current) {
-      console.log("Avatar clicked, triggering file input")
       fileInputRef.current.click()
     }
   }
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    console.log("File change event triggered")
     const file = event.target.files?.[0]
     if (file) {
       try {
-        console.log("File selected:", file.name, "Size:", file.size, "Type:", file.type)
         await updateAvatarMutation.mutateAsync(file)
-        console.log("Avatar upload mutation completed successfully")
+        setAvatarUpdateKey(prev => prev + 1)
+                
+        await apps.loadApp(id)
+        // After loading the app, update the parent component's state
+        const updatedApp = await apps.app
+        if (updatedApp) {
+          onUpdate(updatedApp)
+        }
       } catch (error) {
         console.error('Failed to upload avatar:', error)
       }
-    } else {
-      console.log("No file selected")
     }
   }
 
   const handleDeleteAvatar = async () => {
     try {
       await deleteAvatarMutation.mutateAsync()
+      setAvatarUpdateKey(prev => prev + 1)
+      
+      // After deleting the avatar, reload the app and update parent state
+      await apps.loadApp(id)
+      const updatedApp = await apps.app
+      if (updatedApp) {
+        onUpdate(updatedApp)
+      }
     } catch (error) {
       console.error('Failed to delete avatar:', error)
     }
@@ -202,7 +216,7 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
               onClick={handleAvatarClick}
             >
               <Avatar
-                src={app.avatar ? `/api/v1/apps/${id}/avatar` : undefined}
+                src={app.avatar ? `/api/v1/apps/${id}/avatar?t=${avatarUpdateKey}` : `/img/logo.png`}
                 sx={{
                   width: 200,
                   height: 200,
