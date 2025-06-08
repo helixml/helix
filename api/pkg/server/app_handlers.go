@@ -1089,6 +1089,21 @@ func (s *HelixAPIServer) getAppUserAccess(_ http.ResponseWriter, r *http.Request
 	return response, nil
 }
 
+// uploadAppAvatar godoc
+// @Summary Upload app avatar
+// @Description Upload a base64 encoded image as the app's avatar
+// @Tags    apps
+// @Accept  text/plain
+// @Produce json
+// @Param id path string true "App ID"
+// @Param image body string true "Base64 encoded image data"
+// @Success 200
+// @Failure 400 {object} system.HTTPError
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/apps/{id}/avatar [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) uploadAppAvatar(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 	id := getID(r)
@@ -1152,6 +1167,18 @@ func (s *HelixAPIServer) uploadAppAvatar(rw http.ResponseWriter, r *http.Request
 	rw.WriteHeader(http.StatusOK)
 }
 
+// deleteAppAvatar godoc
+// @Summary Delete app avatar
+// @Description Delete the app's avatar image
+// @Tags    apps
+// @Produce json
+// @Param id path string true "App ID"
+// @Success 200
+// @Failure 403 {object} system.HTTPError
+// @Failure 404 {object} system.HTTPError
+// @Failure 500 {object} system.HTTPError
+// @Router /api/v1/apps/{id}/avatar [delete]
+// @Security BearerAuth
 func (s *HelixAPIServer) deleteAppAvatar(rw http.ResponseWriter, r *http.Request) {
 	user := getRequestUser(r)
 	id := getID(r)

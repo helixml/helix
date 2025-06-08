@@ -419,6 +419,7 @@ export interface TypesAppConfig {
 export interface TypesAppHelixConfig {
   assistants?: TypesAssistantConfig[];
   avatar?: string;
+  avatar_content_type?: string;
   description?: string;
   external_url?: string;
   image?: string;
@@ -2094,6 +2095,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Delete the app's avatar image
+     *
+     * @tags apps
+     * @name V1AppsAvatarDelete
+     * @summary Delete app avatar
+     * @request DELETE:/api/v1/apps/{id}/avatar
+     * @secure
+     */
+    v1AppsAvatarDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, SystemHTTPError>({
+        path: `/api/v1/apps/${id}/avatar`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Upload a base64 encoded image as the app's avatar
+     *
+     * @tags apps
+     * @name V1AppsAvatarCreate
+     * @summary Upload app avatar
+     * @request POST:/api/v1/apps/{id}/avatar
+     * @secure
+     */
+    v1AppsAvatarCreate: (id: string, image: string, params: RequestParams = {}) =>
+      this.request<void, SystemHTTPError>({
+        path: `/api/v1/apps/${id}/avatar`,
+        method: "POST",
+        body: image,
+        secure: true,
+        type: ContentType.Text,
         ...params,
       }),
 
