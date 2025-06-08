@@ -147,12 +147,14 @@ const App: FC = () => {
         maxWidth="xl"
         sx={{
           height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
-        <Box sx={{ height: '100%', width: '100%', flexGrow: 1, p: 2, pb: 0, mb: 0, mt: 2 }}>
-          <Grid container sx={{ height: '100%' }}>
+        <Box sx={{ flex: 1, width: '100%', p: 2, pb: 0, mb: 0, mt: 2, overflow: 'hidden' }}>
+          <Grid container sx={{ height: '100%', overflow: 'hidden' }}>
             {/* Left: Vertical Tabs */}
-            <Grid item xs={12} sm={3} md={2} sx={{ minHeight: '80vh', pt: 3 }}>
+            <Grid item xs={12} sm={3} md={2} sx={{ height: '100%', pt: 3, overflow: 'hidden' }}>
               <Tabs
                 orientation="vertical"
                 variant="scrollable"
@@ -204,8 +206,8 @@ const App: FC = () => {
             </Grid>
             {/* Right: Tab Content */}
             <Grid item xs={12} sm={9} md={10} sx={{ height: '100%', overflow: 'hidden', backgroundColor: 'rgba(255, 255, 255, 0.05)', p: 0, mt: 2, borderRadius: 4 }}>
-              <Box sx={{ height: '100%', width: '100%', p: 0, pl: 4 }}>
-                <Grid container spacing={0} sx={{ height: '100%' }}>
+              <Box sx={{ height: '100%', width: '100%', p: 0, pl: 4, overflow: 'hidden' }}>
+                <Grid container spacing={0} sx={{ height: '100%', overflow: 'hidden' }}>
                   {tabValue === 'usage' ? (
                     <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
                       <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
