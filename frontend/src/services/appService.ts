@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
 
 export const appStepsQueryKey = (id: string, interactionId: string) => [
@@ -24,6 +24,7 @@ export function useListAppSteps(appId: string, interactionId: string, options?: 
 export function useUpdateAppAvatar(appId: string) {
   const api = useApi()
   const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async (file: File) => {
@@ -41,6 +42,10 @@ export function useUpdateAppAvatar(appId: string) {
       const base64Data = await base64Promise
       
       return apiClient.v1AppsAvatarCreate(appId, base64Data)
+    },
+    onSuccess: () => {
+      // Invalidate any cached avatar data
+      queryClient.invalidateQueries({ queryKey: ['app', appId] })
     }
   })
 }

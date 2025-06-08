@@ -1148,12 +1148,14 @@ func (s *HelixAPIServer) uploadAppAvatar(rw http.ResponseWriter, r *http.Request
 	}
 
 	// Write to avatars bucket using just the app ID as the key
-	key := id
+	key := getAvatarKey(id)
 	err = s.avatarsBucket.WriteAll(r.Context(), key, decoded, nil)
 	if err != nil {
-		http.Error(rw, "failed to save avatar", http.StatusInternalServerError)
+		http.Error(rw, fmt.Sprintf("failed to save avatar: %s", err), http.StatusInternalServerError)
 		return
 	}
+
+	fmt.Println("avatar written to", key)
 
 	// Update app config with avatar URL and content type
 	app.Config.Helix.Avatar = fmt.Sprintf("/api/v1/apps/%s/avatar", id)
@@ -1202,7 +1204,7 @@ func (s *HelixAPIServer) deleteAppAvatar(rw http.ResponseWriter, r *http.Request
 	}
 
 	// Delete the avatar file
-	key := id
+	key := getAvatarKey(id)
 	err = s.avatarsBucket.Delete(r.Context(), key)
 	if err != nil {
 		// Don't return error if file doesn't exist
@@ -1226,7 +1228,7 @@ func (s *HelixAPIServer) deleteAppAvatar(rw http.ResponseWriter, r *http.Request
 
 func (s *HelixAPIServer) getAppAvatar(rw http.ResponseWriter, r *http.Request) {
 	id := getID(r)
-	fmt.Println("XXX GETTING avatar for", id)
+
 	// Get the app to check if it exists
 	app, err := s.Store.GetApp(r.Context(), id)
 	if err != nil {
@@ -1245,7 +1247,7 @@ func (s *HelixAPIServer) getAppAvatar(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	// Read the avatar file
-	key := id
+	key := getAvatarKey(id)
 	data, err := s.avatarsBucket.ReadAll(r.Context(), key)
 	if err != nil {
 		http.Error(rw, "avatar not found", http.StatusNotFound)
@@ -1263,4 +1265,8 @@ func (s *HelixAPIServer) getAppAvatar(rw http.ResponseWriter, r *http.Request) {
 	rw.Header().Set("Content-Type", contentType)
 	rw.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
 	_, _ = rw.Write(data)
+}
+
+func getAvatarKey(id string) string {
+	return fmt.Sprintf("/app-avatars/%s", id)
 }

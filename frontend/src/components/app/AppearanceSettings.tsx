@@ -109,18 +109,24 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
 
   const handleAvatarClick = () => {
     if (!readOnly && fileInputRef.current) {
+      console.log("Avatar clicked, triggering file input")
       fileInputRef.current.click()
     }
   }
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    console.log("File change event triggered")
     const file = event.target.files?.[0]
     if (file) {
       try {
+        console.log("File selected:", file.name, "Size:", file.size, "Type:", file.type)
         await updateAvatarMutation.mutateAsync(file)
+        console.log("Avatar upload mutation completed successfully")
       } catch (error) {
         console.error('Failed to upload avatar:', error)
       }
+    } else {
+      console.log("No file selected")
     }
   }
 
