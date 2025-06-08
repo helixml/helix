@@ -1126,8 +1126,11 @@ func (s *HelixAPIServer) uploadAppAvatar(rw http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Setup limit reader for 3MB
+	limitReader := io.LimitReader(r.Body, 3*1024*1024)
+
 	// Read the request body
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(limitReader)
 	if err != nil {
 		http.Error(rw, "failed to read request body", http.StatusBadRequest)
 		return
@@ -1142,9 +1145,18 @@ func (s *HelixAPIServer) uploadAppAvatar(rw http.ResponseWriter, r *http.Request
 
 	// Validate image format
 	contentType := http.DetectContentType(decoded)
-	if !strings.HasPrefix(contentType, "image/") {
-		http.Error(rw, "invalid image format", http.StatusBadRequest)
+
+	// Check if it's an SVG file by looking at the content
+	isSVG := strings.Contains(string(decoded), "<svg") && strings.Contains(string(decoded), "</svg>")
+
+	if !strings.HasPrefix(contentType, "image/") && !isSVG {
+		http.Error(rw, fmt.Sprintf("invalid image format: %s", contentType), http.StatusBadRequest)
 		return
+	}
+
+	// For SVG files, ensure we set the correct content type
+	if isSVG {
+		contentType = "image/svg+xml"
 	}
 
 	// Write to avatars bucket using just the app ID as the key
@@ -1154,8 +1166,6 @@ func (s *HelixAPIServer) uploadAppAvatar(rw http.ResponseWriter, r *http.Request
 		http.Error(rw, fmt.Sprintf("failed to save avatar: %s", err), http.StatusInternalServerError)
 		return
 	}
-
-	fmt.Println("avatar written to", key)
 
 	// Update app config with avatar URL and content type
 	app.Config.Helix.Avatar = fmt.Sprintf("/api/v1/apps/%s/avatar", id)
