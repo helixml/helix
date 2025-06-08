@@ -250,7 +250,7 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
               type="file"
               ref={fileInputRef}
               style={{ display: 'none' }}
-              accept="image/*"
+              accept="image/*,.svg"
               onChange={handleFileChange}
             />
           </Box>
