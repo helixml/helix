@@ -210,7 +210,15 @@ const App: FC = () => {
               </Tabs>
             </Grid>
             {/* Right: Tab Content */}
-            <Grid item xs={12} sm={9} md={10} sx={{ height: '100%', overflow: 'hidden', backgroundColor: theme.palette.background.paper, p: 0, mt: 2, borderRadius: 4 }}>
+            <Grid item xs={12} sm={9} md={10} sx={{
+              height: '100%',
+              overflow: 'hidden',
+              backgroundColor: themeConfig.darkPanel,
+              p: 0,
+              mt: 2,
+              borderRadius: 8,
+              boxShadow: '0 4px 24px 0 rgba(0,0,0,0.12)',
+            }}>
               <Box sx={{ height: '100%', width: '100%', p: 0, pl: 4, overflow: 'hidden' }}>
                 <Grid container spacing={0} sx={{ height: '100%', overflow: 'hidden' }}>
                   {tabValue === 'appearance' ? (
