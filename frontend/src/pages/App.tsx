@@ -137,7 +137,7 @@ const App: FC = () => {
           <Button
             type="button"
             color="secondary"
-            variant="contained"
+            variant="outlined"
             onClick={handleLaunch}
           >
             Launch
