@@ -315,6 +315,9 @@ const Skills: React.FC<SkillsProps> = ({
                     transition: 'all 0.2s',
                     boxShadow: 2,
                     opacity: isEnabled ? 1 : 0.7,
+                    borderStyle: 'dashed',
+                    borderWidth: 1,
+                    borderColor: 'divider',
                     '&:hover': {
                       transform: isEnabled ? 'translateY(-4px)' : 'none',
                       boxShadow: isEnabled ? 4 : 2,
