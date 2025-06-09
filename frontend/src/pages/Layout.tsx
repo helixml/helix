@@ -53,6 +53,12 @@ const Layout: FC<{
       return false;
     }
     
+    // Return false if version is a SHA1 hash (40 hex characters)
+    const isSha1Hash = /^[a-f0-9]{40}$/i.test(account.serverConfig.version);
+    if (isSha1Hash) {
+      return false;
+    }
+    
     // Parse versions for comparison
     const parseVersion = (versionString: string) => {
       // Check if it's a pre-release version (contains hyphen)
