@@ -469,7 +469,7 @@ const AppSettings: FC<AppSettingsProps> = ({
           disabled={readOnly}
           fullWidth
           multiline
-          rows={4}
+          rows={8}
           helperText="What does this app do? How does it behave? What should it avoid doing?"
         />           
       </Box>
