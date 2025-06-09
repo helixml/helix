@@ -244,6 +244,26 @@ const App: FC = () => {
                         )}
                       </Box>
                     </Grid>
+                  ) : tabValue === 'developers' ? (
+                    <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
+                        <DevelopersSection
+                          schema={appTools.appSchema}
+                          setSchema={appTools.setAppSchema}
+                          showErrors={appTools.showErrors}
+                          appId={appTools.id}
+                          navigate={navigate}
+                        />
+                      </Box>
+                    </Grid>
+                  ) : tabValue === 'mcp' ? (
+                    <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
+                        <IdeIntegrationSection
+                          appId={appTools.id}
+                        />
+                      </Box>
+                    </Grid>
                   ) : (
                     <>
                       <Grid item xs={12} md={6} sx={{
@@ -306,22 +326,6 @@ const App: FC = () => {
                               allowedDomains={appTools.flatApp?.allowedDomains || []}
                               setAllowedDomains={(allowedDomains) => appTools.saveFlatApp({ allowedDomains })}
                               isReadOnly={isReadOnly}
-                            />
-                          )}
-
-                          {tabValue === 'developers' && (
-                            <DevelopersSection
-                              schema={appTools.appSchema}
-                              setSchema={appTools.setAppSchema}
-                              showErrors={appTools.showErrors}
-                              appId={appTools.id}
-                              navigate={navigate}
-                            />
-                          )}
-
-                          {tabValue === 'mcp' && (
-                            <IdeIntegrationSection
-                              appId={appTools.id}
                             />
                           )}
                         </Box>
