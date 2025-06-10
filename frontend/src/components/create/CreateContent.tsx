@@ -327,92 +327,86 @@ const CreateContent: FC<CreateContentProps> = ({
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', minHeight: 0 }}>
       {!isEmbedded && topbar}
       {mode == SESSION_MODE_INFERENCE && inferenceHeader}
-      <Box sx={{ flexGrow: 1 }} />
-      {mode == SESSION_MODE_INFERENCE ? (
-        <Box
-          sx={{
-            width: '100%',
-            backgroundColor: 'background.paper',
-          }}
-        >
-          <Container maxWidth="lg">
-            <Box sx={{ py: 2 }}>
-              <Row>
-                <Cell flexGrow={1}>
-                  <Box
-                    sx={{
-                      width: { xs: '100%', sm: '80%', md: '70%', lg: '60%' },
-                      margin: '0 auto',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 2,
-                    }}
-                  >
-                    <Box sx={{ width: '100%' }}>
-                      <Stack direction="row" spacing={2} justifyContent="center">
-                        <ConversationStarters
-                          conversationStarters={
-                            (activeAssistant && activeAssistant.conversation_starters && activeAssistant.conversation_starters.length > 0)
-                              ? activeAssistant.conversation_starters
-                              : ((app?.config.helix as any)?.conversation_starters || [])
-                          }
-                          layout="horizontal"
-                          header={false}
-                          onChange={async (prompt) => {
-                            inputs.setInputValue(prompt)
-                            onInference(prompt)
-                          }}
+      {/* Main content area, fills available space */}
+      <Box sx={{ flexGrow: 1, minHeight: 0, overflow: 'auto', width: '100%' }}>        
+        <Container maxWidth="lg" sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', minHeight: 0, py: 2 }}>
+          <Row>
+            <Cell flexGrow={1}>
+              <Box
+                sx={{
+                  width: { xs: '100%', sm: '80%', md: '70%', lg: '60%' },
+                  margin: '0 auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 2,
+                }}
+              >
+                <Box sx={{ width: '100%' }}>
+                  <Stack direction="row" spacing={2} justifyContent="center">
+                    <ConversationStarters
+                      conversationStarters={
+                        (activeAssistant && activeAssistant.conversation_starters && activeAssistant.conversation_starters.length > 0)
+                          ? activeAssistant.conversation_starters
+                          : ((app?.config.helix as any)?.conversation_starters || [])
+                      }
+                      layout="horizontal"
+                      header={false}
+                      onChange={async (prompt) => {
+                        inputs.setInputValue(prompt)
+                        onInference(prompt)
+                      }}
+                    />
+                  </Stack>
+                </Box>
+                <Box sx={{ width: '100%' }}>
+                  <InferenceTextField
+                    appId={appID}
+                    loading={loading}
+                    type={type}
+                    focus={focusInput ? 'true' : activeAssistantID}
+                    value={inputs.inputValue}
+                    disabled={mode == SESSION_MODE_FINETUNE}
+                    startAdornment={isBigScreen && (
+                      activeAssistant ? (
+                        activeAssistantAvatar ? (
+                          <Avatar
+                            src={activeAssistantAvatar}
+                            sx={{
+                              width: '30px',
+                              height: '30px',
+                            }}
+                          />
+                        ) : null
+                      ) : (
+                        <SessionTypeButton
+                          type={type}
+                          onSetType={type => router.setParams({ type })}
                         />
-                      </Stack>
-                    </Box>
-                    <Box sx={{ width: '100%' }}>
-                      <InferenceTextField
-                        appId={appID}
-                        loading={loading}
-                        type={type}
-                        focus={focusInput ? 'true' : activeAssistantID}
-                        value={inputs.inputValue}
-                        disabled={mode == SESSION_MODE_FINETUNE}
-                        startAdornment={isBigScreen && (
-                          activeAssistant ? (
-                            activeAssistantAvatar ? (
-                              <Avatar
-                                src={activeAssistantAvatar}
-                                sx={{
-                                  width: '30px',
-                                  height: '30px',
-                                }}
-                              />
-                            ) : null
-                          ) : (
-                            <SessionTypeButton
-                              type={type}
-                              onSetType={type => router.setParams({ type })}
-                            />
-                          )
-                        )}
-                        promptLabel={activeAssistant ? `Chat with ${app?.config.helix.name || ''}` : undefined}
-                        onUpdate={inputs.setInputValue}
-                        onInference={onInference}
-                        attachedImages={attachedImages}
-                        onAttachedImagesChange={setAttachedImages}
-                      />
-                    </Box>
-                    <Box>
-                      <Disclaimer />
-                    </Box>
-                  </Box>
-                </Cell>
-              </Row>
+                      )
+                    )}
+                    promptLabel={activeAssistant ? `Chat with ${app?.config.helix.name || ''}` : undefined}
+                    onUpdate={inputs.setInputValue}
+                    onInference={onInference}
+                    attachedImages={attachedImages}
+                    onAttachedImagesChange={setAttachedImages}
+                  />
+                </Box>
+              </Box>
+            </Cell>
+          </Row>
+        </Container>       
+      </Box>
+      {/* Bottom disclaimer, always visible */}
+      {mode == SESSION_MODE_INFERENCE && (
+        <Box sx={{ flexShrink: 0 }}>
+          <Container maxWidth="lg">
+            <Box>
+              <Disclaimer />
             </Box>
           </Container>
-        </Box>
-      ) : (
-        <Box>
-          <Disclaimer />
         </Box>
       )}
       {showConfigWindow && (
