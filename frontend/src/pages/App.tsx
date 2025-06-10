@@ -150,13 +150,11 @@ const App: FC = () => {
       <Container
         maxWidth="xl"
         sx={{
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
+          display: 'block',
         }}
       >
-        <Box sx={{ flex: 1, width: '100%', p: 2, pb: 0, mb: 0, mt: 2, overflow: 'hidden' }}>
-          <Grid container sx={{ height: '100%', overflow: 'hidden' }}>
+        <Box sx={{ width: '100%', p: 2, pb: 0, mb: 0, mt: 2 }}>
+          <Grid container>
             {/* Left: Vertical Tabs */}
             <Grid item xs={12} sm={3} md={2} sx={{ height: '100%', pt: 3, overflow: 'hidden' }}>
               <Tabs
@@ -211,18 +209,16 @@ const App: FC = () => {
             </Grid>
             {/* Right: Tab Content */}
             <Grid item xs={12} sm={9} md={10} sx={{
-              height: '100%',
-              overflow: 'hidden',
               backgroundColor: themeConfig.darkPanel,
               p: 0,
               mt: 2,
               borderRadius: 8,
               boxShadow: '0 4px 24px 0 rgba(0,0,0,0.12)',
             }}>
-              <Box sx={{ height: '100%', width: '100%', p: 0, pl: 4, overflow: 'hidden' }}>
-                <Grid container spacing={0} sx={{ height: '100%', overflow: 'hidden' }}>
+              <Box sx={{ width: '100%', p: 0, pl: 4 }}>
+                <Grid container spacing={0}>
                   {tabValue === 'appearance' ? (
-                    <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                    <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
                       <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
                         { appTools.flatApp && (
                           <AppearanceSettings
@@ -236,13 +232,13 @@ const App: FC = () => {
                       </Box>
                     </Grid>
                   ) : tabValue === 'usage' ? (
-                    <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                    <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
                       <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
                         <AppUsage appId={appTools.id} />
                       </Box>
                     </Grid>
                   ) : tabValue === 'skills' ? (
-                    <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                    <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
                       <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
                         { appTools.flatApp && (
                           <Skills
@@ -253,7 +249,7 @@ const App: FC = () => {
                       </Box>
                     </Grid>
                   ) : tabValue === 'developers' ? (
-                    <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                    <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
                       <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
                         <DevelopersSection
                           schema={appTools.appSchema}
@@ -265,7 +261,7 @@ const App: FC = () => {
                       </Box>
                     </Grid>
                   ) : tabValue === 'mcp' ? (
-                    <Grid item xs={12} sx={{ height: '100%', overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                    <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
                       <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
                         <IdeIntegrationSection
                           appId={appTools.id}
@@ -276,7 +272,6 @@ const App: FC = () => {
                     <>
                       <Grid item xs={12} md={6} sx={{
                         borderRight: '1px solid #303047',
-                        height: '100%',
                         overflow: 'auto',
                         pb: 8,
                         ...lightTheme.scrollbar

@@ -258,13 +258,13 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   if (!llmCalls) return null;
 
   return (
-    <Paper 
-      sx={{ 
-        width: '100%', 
-        overflow: 'hidden',
-        bgcolor: 'transparent',
-        backdropFilter: 'blur(10px)'
-      }}
+    <div 
+      // sx={{ 
+      //   width: '100%', 
+      //   overflow: 'hidden',
+        // bgcolor: 'transparent',
+        // backdropFilter: 'blur(10px)'
+      // }}
     >
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2 }}>
         <Typography variant="h6">Token usage (last 7 days)</Typography>
@@ -557,7 +557,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
           <JsonView data={modalContent} />
         </Box>
       </Modal>
-    </Paper>
+    </div>
   );
 };
 

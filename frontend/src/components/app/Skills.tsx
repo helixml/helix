@@ -76,7 +76,7 @@ const CUSTOM_API_SKILL: ISkill = {
   id: 'new-custom-api',
   icon: <ApiIcon />,
   name: 'New API',
-  description: 'Add your own custom API integration. Any HTTP endpoint can become a skill for your agent.',
+  description: 'Add your own OpenAPI based integration. Any HTTP endpoint can become a skill for your agent.',
   type: SKILL_TYPE_HTTP_API,
   skill: {
     name: 'Custom API',
