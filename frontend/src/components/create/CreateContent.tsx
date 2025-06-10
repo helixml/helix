@@ -254,6 +254,11 @@ const CreateContent: FC<CreateContentProps> = ({
             top: 4,
             right: 4,
             zIndex: 3,
+            opacity: 0,
+            transition: 'opacity 0.2s ease-in-out',
+            '#HEADER:hover &': {
+              opacity: 1,
+            },
           }}
         >
           <Tooltip title="Edit App">
