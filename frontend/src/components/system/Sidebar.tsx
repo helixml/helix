@@ -38,11 +38,7 @@ import useApps from '../../hooks/useApps'
 import useSessions from '../../hooks/useSessions'
 import useApi from '../../hooks/useApi'
 import { AccountContext } from '../../contexts/account'
-import SlideMenuContainer, { triggerMenuChange } from './SlideMenuContainer'
-
-import {
-  SESSION_MODE_FINETUNE,
-} from '../../types'
+import SlideMenuContainer from './SlideMenuContainer'
 
 const RESOURCE_TYPES = [
   'chat',
