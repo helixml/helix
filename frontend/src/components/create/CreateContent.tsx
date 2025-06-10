@@ -216,7 +216,7 @@ const CreateContent: FC<CreateContentProps> = ({
         backgroundSize: app.config.helix.image ? 'cover' : 'auto',
         p: 0,
         minHeight: 0,
-        height: '110px',
+        height: '80px',
         alignItems: 'center',
         justifyContent: 'flex-start',
       }}
@@ -252,7 +252,7 @@ const CreateContent: FC<CreateContentProps> = ({
             <IconButton
               onClick={() => account.orgNavigate('app', { app_id: app?.id })}
               sx={{
-                mt: 4,
+                mt: 2,
                 mr: 4,
                 color: 'white',
                 backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -345,7 +345,6 @@ const CreateContent: FC<CreateContentProps> = ({
                 <Cell flexGrow={1}>
                   <Box
                     sx={{
-                      width: { xs: '100%', sm: '80%', md: '70%', lg: '60%' },
                       margin: '0 auto',
                       display: 'flex',
                       flexDirection: 'column',
