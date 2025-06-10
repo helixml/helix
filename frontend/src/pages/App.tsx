@@ -171,7 +171,7 @@ const App: FC = () => {
                     justifyContent: 'flex-start',
                     textAlign: 'left',
                     color: '#8a8a9e',
-                    fontWeight: 400,
+                    fontWeight: 500,
                     fontSize: '0.85rem',
                     minHeight: 36,
                     pl: 2,
