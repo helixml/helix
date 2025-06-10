@@ -153,7 +153,7 @@ const App: FC = () => {
           display: 'block',
         }}
       >
-        <Box sx={{ width: '100%', p: 2, pb: 0, mb: 0, mt: 2 }}>
+        <Box sx={{ width: '100%', pl: 2, pr: 2, mt: 2 }}>
           <Grid container>
             {/* Left: Vertical Tabs */}
             <Grid item xs={12} sm={3} md={2} sx={{ height: '100%', pt: 3, overflow: 'hidden' }}>
@@ -212,6 +212,7 @@ const App: FC = () => {
               backgroundColor: themeConfig.darkPanel,
               p: 0,
               mt: 2,
+              mb: 2,
               borderRadius: 8,
               boxShadow: '0 4px 24px 0 rgba(0,0,0,0.12)',
             }}>

@@ -444,8 +444,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
             flexGrow: 0,
             position: 'relative',
             zIndex: 2,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',            
           }}
         >
           <Container maxWidth="lg">

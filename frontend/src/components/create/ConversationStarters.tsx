@@ -46,10 +46,9 @@ const ConversationStarters: FC<{
             <Grid item xs={12} sm={6} md={3} key={index} sx={{ display: 'flex', justifyContent: 'center' }}>
               <Box
                 sx={{
-                  minWidth: 180,
-                  minHeight: 80,
-                  width: 180,
-                  height: 80,
+                  width: '100%',
+                  minWidth: 0,
+                  minHeight: 64,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
