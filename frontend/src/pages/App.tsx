@@ -219,19 +219,46 @@ const App: FC = () => {
               <Box sx={{ width: '100%', p: 0, pl: 4 }}>
                 <Grid container spacing={0}>
                   {tabValue === 'appearance' ? (
-                    <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
-                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
-                        { appTools.flatApp && (
-                          <AppearanceSettings
-                            app={appTools.flatApp}
-                            onUpdate={appTools.saveFlatApp}
-                            readOnly={isReadOnly}
-                            showErrors={appTools.showErrors}
-                            id={appTools.id}
-                          />
-                        )}
-                      </Box>
-                    </Grid>
+                    <>
+                      <Grid item xs={12} md={6} sx={{
+                        borderRight: '1px solid #303047',
+                        overflow: 'auto',
+                        pb: 8,
+                        ...lightTheme.scrollbar
+                      }}>
+                        <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                          { appTools.flatApp && (
+                            <AppearanceSettings
+                              app={appTools.flatApp}
+                              onUpdate={appTools.saveFlatApp}
+                              readOnly={isReadOnly}
+                              showErrors={appTools.showErrors}
+                              id={appTools.id}
+                            />
+                          )}
+                        </Box>
+                      </Grid>
+                      <PreviewPanel
+                        appId={appTools.id}
+                        loading={appTools.isInferenceLoading}
+                        name={appTools.flatApp?.name || ''}
+                        avatar={appTools.flatApp?.avatar || ''}
+                        image={appTools.flatApp?.image || ''}
+                        isSearchMode={isSearchMode}
+                        setIsSearchMode={setIsSearchMode}
+                        inputValue={appTools.inputValue}
+                        setInputValue={appTools.setInputValue}
+                        onInference={appTools.onInference}
+                        onSearch={appTools.onSearch}
+                        hasKnowledgeSources={(appTools.flatApp?.knowledge?.length || 0) > 0}
+                        searchResults={appTools.searchResults}
+                        session={appTools.session.data}
+                        serverConfig={account.serverConfig}
+                        themeConfig={themeConfig}
+                        snackbar={snackbar}
+                        conversationStarters={appTools.flatApp?.conversation_starters || []}
+                      />
+                    </>
                   ) : tabValue === 'usage' ? (
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
                       <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
