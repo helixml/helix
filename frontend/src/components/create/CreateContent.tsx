@@ -37,19 +37,14 @@ import Container from '@mui/material/Container'
 import Stack from '@mui/material/Stack'
 
 import {
-  IDataEntity,
   ISessionMode,
   ISessionType,
   SESSION_MODE_FINETUNE,
   SESSION_MODE_INFERENCE,
-  SESSION_TYPE_IMAGE,
   SESSION_TYPE_TEXT,
   IApp,
 } from '../../types'
 
-import {
-  COLORS,
-} from '../../config'
 
 import {
   getAssistant,
@@ -99,8 +94,7 @@ const CreateContent: FC<CreateContentProps> = ({
   const { models } = useContext(AccountContext)
 
   const [showConfigWindow, setShowConfigWindow] = useState(false)
-  const [showFileDrawer, setShowFileDrawer] = useState(false)
-  const [showImageLabelsEmptyError, setShowImageLabelsEmptyError] = useState(false)
+  const [showFileDrawer, setShowFileDrawer] = useState(false)  
   const [focusInput, setFocusInput] = useState(false)
   const [loading, setLoading] = useState(false)
   const [attachedImages, setAttachedImages] = useState<File[]>([])
@@ -117,7 +111,6 @@ const CreateContent: FC<CreateContentProps> = ({
 
   const activeAssistant = app && getAssistant(app, activeAssistantID)
 
-  const imageFineTuneStep = router.params.imageFineTuneStep || 'upload'
   const PADDING_X = isBigScreen ? PADDING_X_LARGE : PADDING_X_SMALL
 
   const filteredModels = useMemo(() => {
@@ -266,6 +259,7 @@ const CreateContent: FC<CreateContentProps> = ({
               onClick={() => account.orgNavigate('app', { app_id: app?.id })}
               sx={{
                 mt: 4,
+                mr: 4,
                 color: 'white',
                 backgroundColor: 'rgba(255, 255, 255, 0.1)',
                 '&:hover': {
@@ -299,121 +293,7 @@ const CreateContent: FC<CreateContentProps> = ({
   )
 
   const inferenceHeader = app ? inferenceHeaderApp : inferenceHeaderNormal
-
-  const finetuneAddDocumentsForm = mode == SESSION_MODE_FINETUNE && type == SESSION_TYPE_TEXT && (
-    <Box
-      sx={{
-        pt: 2,
-        px: PADDING_X,
-      }}
-    >
-      <AddDocumentsForm
-        files={inputs.finetuneFiles}
-        onAddFiles={newFiles => inputs.setFinetuneFiles(files => files.concat(newFiles))}
-      />
-    </Box>
-  )
-
-  const finetuneAddImagesForm = mode == SESSION_MODE_FINETUNE && type == SESSION_TYPE_IMAGE && imageFineTuneStep == 'upload' && (
-    <Box
-      sx={{
-        pt: 2,
-        px: PADDING_X,
-      }}
-    >
-      <AddImagesForm
-        files={inputs.finetuneFiles}
-        onAddFiles={newFiles => inputs.setFinetuneFiles(files => files.concat(newFiles))}
-      />
-    </Box>
-  )
-
-  const finetuneLabelImagesForm = mode == SESSION_MODE_FINETUNE && type == SESSION_TYPE_IMAGE && imageFineTuneStep == 'label' && (
-    <Box
-      sx={{
-        pt: 2,
-        px: PADDING_X,
-      }}
-    >
-      <LabelImagesForm
-        files={inputs.finetuneFiles}
-        labels={inputs.labels}
-        showEmptyErrors={showImageLabelsEmptyError}
-        onSetLabels={inputs.setLabels}
-      />
-    </Box>
-  )
-
-  const finetuneFooter = inputs.finetuneFiles.length > 0 && (
-    <Box
-      sx={{
-        p: 0,
-        px: PADDING_X,
-        borderTop: lightTheme.border,
-        height: '100px',
-        backgroundColor: 'rgba(0,0,0,0.5)',
-      }}
-    >
-      <Row sx={{ height: '100%' }}>
-        <Cell>
-          {
-            type == SESSION_TYPE_IMAGE && imageFineTuneStep == 'label' ? (
-              <Typography sx={{ display: 'inline-flex', textAlign: 'left' }}>
-                <Link
-                  component="button"
-                  onClick={() => router.removeParams(['imageFineTuneStep'])}
-                  sx={{ ml: 0.5, textDecoration: 'underline', color: COLORS[type] }}
-                >
-                  Return to upload images
-                </Link>
-              </Typography>
-            ) : (
-              <Typography sx={{ display: 'inline-flex', textAlign: 'left' }}>
-                {inputs.finetuneFiles.length} file{inputs.finetuneFiles.length !== 1 ? 's' : ''} added.
-                <Link
-                  component="button"
-                  onClick={() => setShowFileDrawer(true)}
-                  sx={{ ml: 0.5, textDecoration: 'underline', color: COLORS[type] }}
-                >
-                  View or edit files
-                </Link>
-              </Typography>
-            )
-          }
-        </Cell>
-        <Cell grow />
-        <Cell>
-          <Button
-            sx={{
-              bgcolor: COLORS[type],
-              color: 'black',
-              borderRadius: 1,
-              fontSize: "medium",
-              fontWeight: 800,
-              textTransform: 'none',
-            }}
-            variant="contained"
-            onClick={() => {
-              if (type == SESSION_TYPE_TEXT) {
-                onStartTextFinetune()
-              } else if (type == SESSION_TYPE_IMAGE) {
-                if (imageFineTuneStep == 'upload') {
-                  router.setParams({ imageFineTuneStep: 'label' })
-                } else {
-                  onStartImageFunetune()
-                }
-              }
-            }}
-          >
-            {
-              type == SESSION_TYPE_IMAGE && imageFineTuneStep == 'label' ? 'Start training' : 'Continue'
-            }
-          </Button>
-        </Cell>
-      </Row>
-    </Box>
-  )
-
+  
   const topbar = (
     <Toolbar
       mode={mode}
@@ -446,79 +326,16 @@ const CreateContent: FC<CreateContentProps> = ({
     return true
   }
 
-  const onStartFinetune = async (eventName: string) => {
-    try {
-      inputs.setUploadProgress({
-        percent: 0,
-        totalBytes: 0,
-        uploadedBytes: 0,
-      })
-
-      const dataEntity = await api.post<any, IDataEntity>('/api/v1/data_entities', inputs.getUploadedFiles(), {
-        onUploadProgress: inputs.uploadProgressHandler,
-      })
-
-      if (!dataEntity) {
-        snackbar.error('Failed to upload data entity')
-        throw new Error('Failed to upload data entity')
-      }
-
-      const sessionLearnRequest = inputs.getSessionLearnRequest(type, dataEntity.id)
-      const session = await api.post('/api/v1/sessions/learn', sessionLearnRequest, {
-        onUploadProgress: inputs.uploadProgressHandler,
-      })
-      inputs.setUploadProgress(undefined)
-      if (!session) {
-        snackbar.error('Failed to get new session')
-        throw new Error('Failed to get new session')
-      }
-      tracking.emitEvent({
-        name: eventName,
-        session,
-      })
-      await sessions.loadSessions()
-      router.navigate('session', { session_id: session.id })
-
-    } catch (e) {
-      inputs.setUploadProgress(undefined)
-    }
-  }
-
-  const onStartTextFinetune = async () => {
-    if (!checkLoginStatus()) return
-    await onStartFinetune('finetune:text')
-  }
-
-  const onStartImageFunetune = async () => {
-    const emptyLabel = inputs.finetuneFiles.find(file => {
-      return inputs.labels[file.file.name] ? false : true
-    })
-    if (emptyLabel) {
-      setShowImageLabelsEmptyError(true)
-      snackbar.error('Please label all images before continuing')
-      return
-    } else {
-      setShowImageLabelsEmptyError(false)
-    }
-
-    if (!checkLoginStatus()) return
-    await onStartFinetune('finetune:image')
-  }
-
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       {!isEmbedded && topbar}
       {mode == SESSION_MODE_INFERENCE && inferenceHeader}
-      {finetuneAddDocumentsForm}
-      {finetuneAddImagesForm}
-      {finetuneLabelImagesForm}
       <Box sx={{ flexGrow: 1 }} />
       {mode == SESSION_MODE_INFERENCE ? (
         <Box
           sx={{
             width: '100%',
             backgroundColor: 'background.paper',
-            borderTop: lightTheme.border,
           }}
         >
           <Container maxWidth="lg">
@@ -593,7 +410,11 @@ const CreateContent: FC<CreateContentProps> = ({
             </Box>
           </Container>
         </Box>
-      ) : finetuneFooter}
+      ) : (
+        <Box>
+          <Disclaimer />
+        </Box>
+      )}
       {showConfigWindow && (
         <ConfigWindow
           mode={mode}
