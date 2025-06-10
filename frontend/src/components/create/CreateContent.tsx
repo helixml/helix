@@ -34,6 +34,7 @@ import useUserAppAccess from '../../hooks/useUserAppAccess'
 import { useStreaming } from '../../contexts/streaming'
 import ConversationStarters from './ConversationStarters'
 import Container from '@mui/material/Container'
+import Stack from '@mui/material/Stack'
 
 import {
   IDataEntity,
@@ -185,10 +186,12 @@ const CreateContent: FC<CreateContentProps> = ({
     <Row
       vertical
       center
+      sx={{ minHeight: 0, p: 0, m: 0 }}
     >
       <Cell
         sx={{
-          pt: 4,
+          pt: 0.5,
+          pb: 0.5,
           px: PADDING_X,
         }}
       >
@@ -201,8 +204,8 @@ const CreateContent: FC<CreateContentProps> = ({
       <Cell
         sx={{
           px: PADDING_X,
-          py: 2,
-          maxWidth: '900px'
+          py: 0.5,
+          maxWidth: '900px',
         }}
       >
         <ExamplePrompts
@@ -218,15 +221,17 @@ const CreateContent: FC<CreateContentProps> = ({
   const inferenceHeaderApp = app && (
     <Row
       id="HEADER"
-      vertical
-      center
       sx={{
         position: 'relative',
         backgroundImage: `url(${app.config.helix.image || '/img/app-editor-swirl.webp'})`,
         backgroundPosition: 'top',
         backgroundRepeat: 'no-repeat',
         backgroundSize: app.config.helix.image ? 'cover' : 'auto',
-        p: 2,
+        p: 0,
+        minHeight: 0,
+        height: '110px',
+        alignItems: 'center',
+        justifyContent: 'flex-start',
       }}
     >
       {app.config.helix.image && (
@@ -246,8 +251,8 @@ const CreateContent: FC<CreateContentProps> = ({
         <Box
           sx={{
             position: 'absolute',
-            top: 16,
-            right: 16,
+            top: 4,
+            right: 4,
             zIndex: 3,
           }}
         >
@@ -255,11 +260,14 @@ const CreateContent: FC<CreateContentProps> = ({
             <IconButton
               onClick={() => account.orgNavigate('app', { app_id: app?.id })}
               sx={{
+                mt: 4,
                 color: 'white',
                 backgroundColor: 'rgba(255, 255, 255, 0.1)',
                 '&:hover': {
                   backgroundColor: 'rgba(255, 255, 255, 0.2)',
                 },
+                width: 32,
+                height: 32,
               }}
             >
               <EditIcon />
@@ -269,11 +277,13 @@ const CreateContent: FC<CreateContentProps> = ({
       )}
       <Cell
         sx={{
-          pt: 4,
+          pt: 0.5,
           px: PADDING_X,
-          textAlign: 'center',
           position: 'relative',
           zIndex: 2,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-start',
         }}
       >
         <AppCreateHeader
@@ -422,88 +432,6 @@ const CreateContent: FC<CreateContentProps> = ({
 
   const activeAssistantAvatar = activeAssistant && app ? getAssistantAvatar(app, activeAssistantID) : ''  
 
-  const inferenceFooter = (
-    <Box
-      sx={{
-        width: '100%',
-        backgroundColor: 'background.paper',
-        borderTop: lightTheme.border,
-      }}
-    >
-      <Container maxWidth="lg">
-        <Box sx={{ py: 2 }}>
-          <Row>
-            <Cell flexGrow={1}>
-              <Box
-                sx={{
-                  width: { xs: '100%', sm: '80%', md: '70%', lg: '60%' },
-                  margin: '0 auto',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 2,
-                }}
-              >
-                {/* Conversation starters */}
-                <Box sx={{ width: '100%' }}>
-                  <ConversationStarters
-                    conversationStarters={
-                      (activeAssistant && activeAssistant.conversation_starters && activeAssistant.conversation_starters.length > 0)
-                        ? activeAssistant.conversation_starters
-                        : ((app?.config.helix as any)?.conversation_starters || [])
-                    }
-                    layout="horizontal"
-                    header={false}
-                    onChange={async (prompt) => {
-                      inputs.setInputValue(prompt)
-                      onInference(prompt)
-                    }}
-                  />
-                </Box>
-                {/* Inference input */}
-                <Box sx={{ width: '100%' }}>
-                  <InferenceTextField
-                    appId={appID}
-                    loading={loading}
-                    type={type}
-                    focus={focusInput ? 'true' : activeAssistantID}
-                    value={inputs.inputValue}
-                    disabled={mode == SESSION_MODE_FINETUNE}
-                    startAdornment={isBigScreen && (
-                      activeAssistant ? (
-                        activeAssistantAvatar ? (
-                          <Avatar
-                            src={activeAssistantAvatar}
-                            sx={{
-                              width: '30px',
-                              height: '30px',
-                            }}
-                          />
-                        ) : null
-                      ) : (
-                        <SessionTypeButton
-                          type={type}
-                          onSetType={type => router.setParams({ type })}
-                        />
-                      )
-                    )}
-                    promptLabel={activeAssistant ? `Chat with ${app?.config.helix.name || ''}` : undefined}
-                    onUpdate={inputs.setInputValue}
-                    onInference={onInference}
-                    attachedImages={attachedImages}
-                    onAttachedImagesChange={setAttachedImages}
-                  />
-                </Box>
-                <Box>
-                  <Disclaimer />
-                </Box>
-              </Box>
-            </Cell>
-          </Row>
-        </Box>
-      </Container>
-    </Box>
-  )
-
   const checkLoginStatus = (): boolean => {
     if (!account.user) {
       inputs.serializePage()
@@ -573,13 +501,94 @@ const CreateContent: FC<CreateContentProps> = ({
   }
 
   return (
-    <>
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       {!isEmbedded && topbar}
       {mode == SESSION_MODE_INFERENCE && inferenceHeader}
       {finetuneAddDocumentsForm}
       {finetuneAddImagesForm}
       {finetuneLabelImagesForm}
-      {mode == SESSION_MODE_INFERENCE ? inferenceFooter : finetuneFooter}
+      <Box sx={{ flexGrow: 1 }} />
+      {mode == SESSION_MODE_INFERENCE ? (
+        <Box
+          sx={{
+            width: '100%',
+            backgroundColor: 'background.paper',
+            borderTop: lightTheme.border,
+          }}
+        >
+          <Container maxWidth="lg">
+            <Box sx={{ py: 2 }}>
+              <Row>
+                <Cell flexGrow={1}>
+                  <Box
+                    sx={{
+                      width: { xs: '100%', sm: '80%', md: '70%', lg: '60%' },
+                      margin: '0 auto',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 2,
+                    }}
+                  >
+                    <Box sx={{ width: '100%' }}>
+                      <Stack direction="row" spacing={2} justifyContent="center">
+                        <ConversationStarters
+                          conversationStarters={
+                            (activeAssistant && activeAssistant.conversation_starters && activeAssistant.conversation_starters.length > 0)
+                              ? activeAssistant.conversation_starters
+                              : ((app?.config.helix as any)?.conversation_starters || [])
+                          }
+                          layout="horizontal"
+                          header={false}
+                          onChange={async (prompt) => {
+                            inputs.setInputValue(prompt)
+                            onInference(prompt)
+                          }}
+                        />
+                      </Stack>
+                    </Box>
+                    <Box sx={{ width: '100%' }}>
+                      <InferenceTextField
+                        appId={appID}
+                        loading={loading}
+                        type={type}
+                        focus={focusInput ? 'true' : activeAssistantID}
+                        value={inputs.inputValue}
+                        disabled={mode == SESSION_MODE_FINETUNE}
+                        startAdornment={isBigScreen && (
+                          activeAssistant ? (
+                            activeAssistantAvatar ? (
+                              <Avatar
+                                src={activeAssistantAvatar}
+                                sx={{
+                                  width: '30px',
+                                  height: '30px',
+                                }}
+                              />
+                            ) : null
+                          ) : (
+                            <SessionTypeButton
+                              type={type}
+                              onSetType={type => router.setParams({ type })}
+                            />
+                          )
+                        )}
+                        promptLabel={activeAssistant ? `Chat with ${app?.config.helix.name || ''}` : undefined}
+                        onUpdate={inputs.setInputValue}
+                        onInference={onInference}
+                        attachedImages={attachedImages}
+                        onAttachedImagesChange={setAttachedImages}
+                      />
+                    </Box>
+                    <Box>
+                      <Disclaimer />
+                    </Box>
+                  </Box>
+                </Cell>
+              </Row>
+            </Box>
+          </Container>
+        </Box>
+      ) : finetuneFooter}
       {showConfigWindow && (
         <ConfigWindow
           mode={mode}
@@ -602,7 +611,7 @@ const CreateContent: FC<CreateContentProps> = ({
           percent={inputs.uploadProgress.percent}
         />
       )}
-    </>
+    </Box>
   )
 }
 
