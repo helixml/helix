@@ -219,7 +219,7 @@ const App: FC = () => {
                 <Grid container spacing={0}>
                   {tabValue === 'appearance' ? (
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
-                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
+                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
                         { appTools.flatApp && (
                           <AppearanceSettings
                             app={appTools.flatApp}
@@ -233,13 +233,13 @@ const App: FC = () => {
                     </Grid>
                   ) : tabValue === 'usage' ? (
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
-                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
+                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
                         <AppUsage appId={appTools.id} />
                       </Box>
                     </Grid>
                   ) : tabValue === 'skills' ? (
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
-                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
+                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
                         { appTools.flatApp && (
                           <Skills
                             app={appTools.flatApp}
@@ -250,7 +250,7 @@ const App: FC = () => {
                     </Grid>
                   ) : tabValue === 'developers' ? (
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
-                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
+                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
                         <DevelopersSection
                           schema={appTools.appSchema}
                           setSchema={appTools.setAppSchema}
@@ -262,7 +262,7 @@ const App: FC = () => {
                     </Grid>
                   ) : tabValue === 'mcp' ? (
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
-                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
+                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
                         <IdeIntegrationSection
                           appId={appTools.id}
                         />
@@ -276,7 +276,7 @@ const App: FC = () => {
                         pb: 8,
                         ...lightTheme.scrollbar
                       }}>
-                        <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
+                        <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
                           {tabValue === 'settings' && appTools.flatApp && (
                             <AppSettings
                               id={appTools.id}
