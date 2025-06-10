@@ -153,7 +153,7 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
   }
 
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box sx={{ mt: 2, mr: 2 }}>
       <Grid container spacing={3}>
         {/* Left column - Name and Description */}
         <Grid item xs={12} md={6}>
