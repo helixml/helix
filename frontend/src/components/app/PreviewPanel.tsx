@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState, useEffect } from 'react';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
@@ -20,14 +20,25 @@ import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import Link from '@mui/material/Link';
 import Tooltip from '@mui/material/Tooltip';
+import Container from '@mui/material/Container';
+import Stack from '@mui/material/Stack';
 
 import Interaction from '../session/Interaction';
 import InteractionLiveStream from '../session/InteractionLiveStream';
 import ConversationStarters from '../create/ConversationStarters';
+import InferenceTextField from '../create/InferenceTextField';
+import AppCreateHeader from '../appstore/CreateHeader';
+import Cell from '../widgets/Cell';
+import Row from '../widgets/Row';
 
-import { ISession, ISessionRAGResult, IKnowledgeSearchResult, ISessionType, SESSION_TYPE_TEXT } from '../../types';
+import { ISession, ISessionRAGResult, IKnowledgeSearchResult, ISessionType, SESSION_TYPE_TEXT, IApp } from '../../types';
 import ContextMenuModal from '../widgets/ContextMenuModal';
 import useApi from '../../hooks/useApi';
+import useIsBigScreen from '../../hooks/useIsBigScreen';
+import {
+  getAssistant,
+  getAssistantAvatar,  
+} from '../../utils/apps';
 
 interface PreviewPanelProps {
   appId: string;
@@ -48,6 +59,8 @@ interface PreviewPanelProps {
   themeConfig: any;
   snackbar: any;
   conversationStarters?: string[];
+  app?: IApp;
+  activeAssistantID?: string;
 }
 
 const PreviewPanel: React.FC<PreviewPanelProps> = ({
@@ -69,10 +82,29 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   themeConfig,
   snackbar,
   conversationStarters = [],
+  app,
+  activeAssistantID = '0',
 }) => {
   const textFieldRef = useRef<HTMLTextAreaElement>();
+  const scrollableRef = useRef<HTMLDivElement>(null);
   const [selectedChunk, setSelectedChunk] = useState<ISessionRAGResult | null>(null);
+  const [attachedImages, setAttachedImages] = useState<File[]>([]);
   const api = useApi();
+  const isBigScreen = useIsBigScreen();
+
+  const activeAssistant = app && getAssistant(app, activeAssistantID);
+  const activeAssistantAvatar = activeAssistant && app ? getAssistantAvatar(app, activeAssistantID) : '';
+
+  // Auto-scroll to bottom when session interactions change
+  useEffect(() => {
+    if (scrollableRef.current && session?.interactions) {
+      const scrollElement = scrollableRef.current;
+      scrollElement.scrollTo({
+        top: scrollElement.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  }, [session?.interactions]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
@@ -130,22 +162,24 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
     }
   };
 
-  return (
-    <Grid item xs={12} md={6}
+  // Header similar to CreateContent
+  const inferenceHeader = app && (
+    <Row
+      id="PREVIEW_HEADER"
       sx={{
         position: 'relative',
-        backgroundImage: `url(${image || '/img/app-editor-swirl.webp'})`,
+        backgroundImage: `url(${app.config.helix.image || image || '/img/app-editor-swirl.webp'})`,
         backgroundPosition: 'top',
         backgroundRepeat: 'no-repeat',
-        backgroundSize: image ? 'cover' : 'auto',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        borderRight: '1px solid #303047',
-        borderBottom: '1px solid #303047',
+        backgroundSize: (app.config.helix.image || image) ? 'cover' : 'auto',
+        p: 0,
+        minHeight: 0,
+        height: '80px',
+        alignItems: 'center',
+        justifyContent: 'flex-start',
       }}
     >
-      {image && (
+      {(app.config.helix.image || image) && (
         <Box
           sx={{
             position: 'absolute',
@@ -158,32 +192,106 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           }}
         />
       )}
-      {/* Fixed Preview Bar */}
-      <Box
+      <Cell
         sx={{
-          p: 2,
-          flexShrink: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
+          pt: 0.5,
+          px: 3,
           position: 'relative',
           zIndex: 2,
-          marginLeft: "-15px",
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-start',
         }}
       >
-        <Typography variant="h6" sx={{ mb: 2, color: 'white' }}>
+        <AppCreateHeader app={app} />
+      </Cell>
+      <Cell
+        sx={{
+          position: 'absolute',
+          top: 8,
+          right: 16,
+          zIndex: 2,
+        }}
+      >
+        <Typography variant="caption" sx={{ color: 'white', fontWeight: 'bold' }}>
           Preview
         </Typography>
-        <Avatar
-          src={avatar}
+      </Cell>
+    </Row>
+  );
+
+      return (
+    <Grid item xs={12} md={6}
+      sx={{
+        position: 'relative',
+        backgroundImage: !app ? `url(${image || '/img/app-editor-swirl.webp'})` : 'none',
+        backgroundPosition: 'top',
+        backgroundRepeat: 'no-repeat',
+        backgroundSize: image ? 'cover' : 'auto',
+        height: 'calc(100vh - 128px)',
+        display: 'flex',
+        flexDirection: 'column',
+        borderRight: '1px solid #303047',
+        borderBottom: '1px solid #303047',
+        overflow: 'hidden',
+      }}
+    >
+      {!app && image && (
+        <Box
           sx={{
-            width: 80,
-            height: 80,
-            mb: 2,
-            border: '2px solid #fff',
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            zIndex: 1,
           }}
         />
+      )}
+      
+      {/* Header */}
+      {app ? inferenceHeader : (
+        <Box
+          sx={{
+            p: 2,
+            flexShrink: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            position: 'relative',
+            zIndex: 2,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          }}
+        >
+          <Typography variant="h6" sx={{ mb: 2, color: 'white' }}>
+            Preview
+          </Typography>
+          <Avatar
+            src={avatar}
+            sx={{
+              width: 80,
+              height: 80,
+              mb: 2,
+              border: '2px solid #fff',
+            }}
+          />
+        </Box>
+      )}
+
+      {/* Search Mode Toggle */}
+      <Box
+        sx={{
+          px: 2,
+          py: 1,
+          flexShrink: 0,
+          position: 'relative',
+          zIndex: 2,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          justifyContent: 'center',
+        }}
+      >
         <FormControlLabel
           control={
             <Switch
@@ -193,195 +301,273 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
             />
           }
           label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
-          sx={{ mb: 2, color: 'white' }}
+          sx={{ color: 'white' }}
         />
-        <Box
-          sx={{
-            width: '100%',
-            flexGrow: 0,
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <ContextMenuModal appId={appId} textAreaRef={textFieldRef} onInsertText={(text) => {
-            setInputValue(inputValue + text);
-            if (isSearchMode) {
-              onSearch(inputValue + text);
-            }
-          }} />
-          <TextField
-            id="textEntry"
-            fullWidth
-            inputRef={textFieldRef}
-            autoFocus
-            label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
-            helperText={isSearchMode ? "" : "Prompt the assistant with a message, integrations and scripts are selected based on their descriptions"}
-            value={inputValue}
-            onChange={(e) => {
-              setInputValue(e.target.value);
-              if (isSearchMode) {
-                onSearch(e.target.value);
-              }
-            }}
-            multiline={!isSearchMode}
-            onKeyDown={handleKeyDown}
-            disabled={isSearchMode && !hasKnowledgeSources}
-            sx={{
-              '& .MuiInputBase-root': {
-                backgroundColor: 'rgba(0, 0, 0, 0.9)',
-              },
-              '& .MuiFormHelperText-root': {
-                color: 'white',
-              },
-            }}
-          />
-          {!isSearchMode && (
-            <Button
-              id="sendButton"
-              variant='contained'
-              onClick={onInference}
-              sx={{
-                color: themeConfig.darkText,
-                ml: 2,
-                mb: 3,
-              }}
-              endIcon={loading ? <CircularProgress size={16} /> : <SendIcon />}
-              disabled={loading}
-            >
-              Send
-            </Button>
-          )}
-        </Box>
-        {!isSearchMode && (
-          <Box sx={{ mt: 2, mb: 2, width: '100%' }}>
-            <ConversationStarters              
-              onChange={(prompt: string) => {
-                setInputValue(prompt);
-                if (textFieldRef.current) {
-                  textFieldRef.current.focus();
-                }
-              }}
-              layout="vertical"
-              header={false}
-              conversationStarters={conversationStarters}
-            />
-          </Box>
-        )}
       </Box>
+
       {/* Scrollable Results Area */}
       <Box
+        ref={scrollableRef}
         sx={{
           position: 'relative',
           zIndex: 2,
-          flexGrow: 1,
+          flex: '1 1 0',
+          minHeight: 0,
           overflowY: 'auto',
-          p: 2,
-          marginLeft: "-15px",
           backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          flexDirection: 'column',
+          // Custom scrollbar styling
+          '&::-webkit-scrollbar': {
+            width: '8px',
+          },
+          '&::-webkit-scrollbar-track': {
+            background: 'rgba(255, 255, 255, 0.1)',
+          },
+          '&::-webkit-scrollbar-thumb': {
+            background: 'rgba(255, 255, 255, 0.3)',
+            borderRadius: '4px',
+          },
+          '&::-webkit-scrollbar-thumb:hover': {
+            background: 'rgba(255, 255, 255, 0.5)',
+          },
         }}
       >
-        {isSearchMode ? (
-          hasKnowledgeSources ? (
-            searchResults && searchResults.length > 0 ? (
-              searchResults.map((result, index) => (
-                <Card key={index} sx={{ mb: 2, backgroundColor: 'rgba(0, 0, 0, 0.7)' }}>
-                  <CardContent>
-                    <Typography variant="h6" color="white">
-                      Knowledge: {result.knowledge.name}
-                    </Typography>
-                    <Typography variant="caption" color="rgba(255, 255, 255, 0.7)">
-                      Search completed in: {result.duration_ms}ms
-                    </Typography>
-                    {result.results.length > 0 ? (
-                      result.results.map((chunk, chunkIndex) => (
-                        <Tooltip title={chunk.content} arrow key={chunkIndex}>
-                          <Box
-                            sx={{
-                              mt: 1,
-                              p: 1,
-                              border: '1px solid rgba(255, 255, 255, 0.3)',
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              '&:hover': {
-                                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                              },
-                            }}
-                            onClick={() => handleChunkClick(chunk)}
-                          >
-                            <Typography variant="body2" color="white">
-                              Source: {chunk.source}
-                              <br />
-                              Content: {chunk.content.substring(0, 50)}...
-                            </Typography>
-                          </Box>
-                        </Tooltip>
-                      ))
-                    ) : (
-                      <Typography variant="body2" color="white">
-                        No matches found for this query.
+        <Container maxWidth="lg" sx={{ py: 2, width: '100%' }}>
+          {isSearchMode ? (
+            hasKnowledgeSources ? (
+              searchResults && searchResults.length > 0 ? (
+                searchResults.map((result, index) => (
+                  <Card key={index} sx={{ mb: 2, backgroundColor: 'rgba(0, 0, 0, 0.7)' }}>
+                    <CardContent>
+                      <Typography variant="h6" color="white">
+                        Knowledge: {result.knowledge.name}
                       </Typography>
-                    )}
-                  </CardContent>
-                </Card>
-              ))
+                      <Typography variant="caption" color="rgba(255, 255, 255, 0.7)">
+                        Search completed in: {result.duration_ms}ms
+                      </Typography>
+                      {result.results.length > 0 ? (
+                        result.results.map((chunk, chunkIndex) => (
+                          <Tooltip title={chunk.content} arrow key={chunkIndex}>
+                            <Box
+                              sx={{
+                                mt: 1,
+                                p: 1,
+                                border: '1px solid rgba(255, 255, 255, 0.3)',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                '&:hover': {
+                                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                },
+                              }}
+                              onClick={() => handleChunkClick(chunk)}
+                            >
+                              <Typography variant="body2" color="white">
+                                Source: {chunk.source}
+                                <br />
+                                Content: {chunk.content.substring(0, 50)}...
+                              </Typography>
+                            </Box>
+                          </Tooltip>
+                        ))
+                      ) : (
+                        <Typography variant="body2" color="white">
+                          No matches found for this query.
+                        </Typography>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))
+              ) : (
+                <Typography variant="body1" color="white">No search results found.</Typography>
+              )
             ) : (
-              <Typography variant="body1" color="white">No search results found.</Typography>
+              <Typography variant="body1" color="white">Add one or more knowledge sources to start searching.</Typography>
             )
           ) : (
-            <Typography variant="body1" color="white">Add one or more knowledge sources to start searching.</Typography>
-          )
-        ) : (
-          session && (
-            <>
-              {
-                session.interactions.map((interaction: any, i: number) => {
-                  const interactionsLength = session.interactions.length || 0;
-                  const isLastInteraction = i == interactionsLength - 1;
-                  const isLive = isLastInteraction && !interaction.finished;
+            session && (
+              <>
+                {
+                  session.interactions.map((interaction: any, i: number) => {
+                    const interactionsLength = session.interactions.length || 0;
+                    const isLastInteraction = i == interactionsLength - 1;
+                    const isLive = isLastInteraction && !interaction.finished;
 
-                  if (!session) return null;
-                  return (
-                    <Interaction
-                      key={interaction.id}
-                      serverConfig={serverConfig}
-                      interaction={interaction}
-                      session={session}                      
-                      onFilterDocument={onHandleFilterDocument}
-                      onRegenerate={function (interactionID: string, message: string): void {
-                        // No-op, need to start using sessions
-                        return
-                      }}
-                      isLastInteraction={isLastInteraction}
-                      highlightAllFiles={false}
-                      retryFinetuneErrors={() => {}}
-                      onReloadSession={async () => {}}
-                      onClone={async () => false}
-                      isOwner={true}
-                      isAdmin={false}
-                      session_id={session.id}
-                      hasSubscription={true}
-                    >
-                      {
-                        isLive && (
-                          <InteractionLiveStream
-                            session_id={session.id}
-                            interaction={interaction}
-                            session={session}
-                            serverConfig={serverConfig}
-                            onFilterDocument={onHandleFilterDocument}
-                          />
-                        )
-                      }
-                    </Interaction>
-                  );
-                })
-              }
-            </>
-          )
-        )}
+                    if (!session) return null;
+                    return (
+                      <Interaction
+                        key={interaction.id}
+                        serverConfig={serverConfig}
+                        interaction={interaction}
+                        session={session}                      
+                        onFilterDocument={onHandleFilterDocument}
+                        onRegenerate={function (interactionID: string, message: string): void {
+                          // No-op, need to start using sessions
+                          return
+                        }}
+                        isLastInteraction={isLastInteraction}
+                        highlightAllFiles={false}
+                        retryFinetuneErrors={() => {}}
+                        onReloadSession={async () => {}}
+                        onClone={async () => false}
+                        isOwner={true}
+                        isAdmin={false}
+                        session_id={session.id}
+                        hasSubscription={true}
+                      >
+                        {
+                          isLive && (
+                            <InteractionLiveStream
+                              session_id={session.id}
+                              interaction={interaction}
+                              session={session}
+                              serverConfig={serverConfig}
+                              onFilterDocument={onHandleFilterDocument}
+                            />
+                          )
+                        }
+                      </Interaction>
+                    );
+                  })
+                }
+              </>
+            )
+          )}
+        </Container>
       </Box>
+
+      {/* Bottom Input Section - Similar to CreateContent */}
+      {!isSearchMode && (
+        <Box 
+          sx={{ 
+            flexShrink: 0,
+            flexGrow: 0,
+            position: 'relative',
+            zIndex: 2,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+          }}
+        >
+          <Container maxWidth="lg">
+            <Box sx={{ py: 2 }}>
+              <Row>
+                <Cell flexGrow={1}>
+                  <Box
+                    sx={{
+                      margin: '0 auto',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 2,
+                    }}
+                  >
+                    {conversationStarters.length > 0 && (
+                      <Box sx={{ width: '100%' }}>
+                        <Stack direction="row" spacing={2} justifyContent="center">
+                          <ConversationStarters
+                            conversationStarters={conversationStarters}
+                            layout="horizontal"
+                            header={false}
+                            onChange={async (prompt) => {
+                              setInputValue(prompt)
+                              // Don't auto-trigger inference in preview mode
+                            }}
+                          />
+                        </Stack>
+                      </Box>
+                    )}
+                    <Box sx={{ width: '100%' }}>
+                      <InferenceTextField
+                        appId={appId}
+                        loading={loading}
+                        type={SESSION_TYPE_TEXT}
+                        focus="false"
+                        value={inputValue}
+                        disabled={false}
+                        startAdornment={isBigScreen && (
+                          activeAssistant ? (
+                            activeAssistantAvatar ? (
+                              <Avatar
+                                src={activeAssistantAvatar}
+                                sx={{
+                                  width: '30px',
+                                  height: '30px',
+                                }}
+                              />
+                            ) : null
+                          ) : null
+                        )}
+                        promptLabel={activeAssistant ? `Chat with ${app?.config.helix.name || name}` : `Message ${name || 'Helix'}`}
+                        onUpdate={setInputValue}
+                        onInference={onInference}
+                        attachedImages={attachedImages}
+                        onAttachedImagesChange={setAttachedImages}
+                      />
+                    </Box>
+                  </Box>
+                </Cell>
+              </Row>
+            </Box>
+          </Container>
+        </Box>
+      )}
+
+      {/* Search Mode Input */}
+      {isSearchMode && (
+        <Box
+          sx={{
+            p: 2,
+            flexShrink: 0,
+            flexGrow: 0,
+            position: 'relative',
+            zIndex: 2,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+          }}
+        >
+          <Box
+            sx={{
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 1,
+            }}
+          >
+            <ContextMenuModal appId={appId} textAreaRef={textFieldRef} onInsertText={(text) => {
+              setInputValue(inputValue + text);
+              if (isSearchMode) {
+                onSearch(inputValue + text);
+              }
+            }} />
+            <TextField
+              id="searchEntry"
+              fullWidth
+              inputRef={textFieldRef}
+              autoFocus
+              label={`Search ${name || 'Helix'} knowledge`}
+              value={inputValue}
+              onChange={(e) => {
+                setInputValue(e.target.value);
+                if (isSearchMode) {
+                  onSearch(e.target.value);
+                }
+              }}
+              onKeyDown={handleKeyDown}
+              disabled={isSearchMode && !hasKnowledgeSources}
+              sx={{
+                '& .MuiInputBase-root': {
+                  backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                },
+                '& .MuiFormHelperText-root': {
+                  color: 'white',
+                },
+              }}
+            />
+          </Box>
+        </Box>
+      )}
+
       <Dialog
         open={selectedChunk !== null}
         onClose={handleCloseDialog}
