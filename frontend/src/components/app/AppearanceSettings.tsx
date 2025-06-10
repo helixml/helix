@@ -323,7 +323,7 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
             <IconButton 
               onClick={handleAddStarter}
               disabled={readOnly || !newStarter.trim()}
-              sx={{ ml: 1, mb: 3 }}
+              sx={{ ml: 1 }}
             >
               <AddIcon />
             </IconButton>
