@@ -34,8 +34,6 @@ import {
 } from '../../types'
 
 import Avatar from '@mui/material/Avatar'
-import { SessionsContext } from '../../contexts/sessions'
-import SmallSpinner from '../system/SmallSpinner'
 
 // Menu identifier constant
 const MENU_TYPE = 'chat'
@@ -76,6 +74,106 @@ export const SessionsMenu: FC<{
     if (session.mode === SESSION_MODE_FINETUNE && session.type === SESSION_TYPE_TEXT) return <ModelTrainingIcon color="primary" />
   }
 
+  const groupSessionsByTime = (sessions: (ISession | ISessionSummary)[]) => {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const sevenDaysAgo = new Date(today)
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+    const thirtyDaysAgo = new Date(today)
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+
+    return sessions.reduce((acc, session) => {
+      const sessionDate = new Date(session.created)
+      if (sessionDate >= today) {
+        acc.today.push(session)
+      } else if (sessionDate >= sevenDaysAgo) {
+        acc.last7Days.push(session)
+      } else if (sessionDate >= thirtyDaysAgo) {
+        acc.last30Days.push(session)
+      } else {
+        acc.older.push(session)
+      }
+      return acc
+    }, {
+      today: [] as (ISession | ISessionSummary)[],
+      last7Days: [] as (ISession | ISessionSummary)[],
+      last30Days: [] as (ISession | ISessionSummary)[],
+      older: [] as (ISession | ISessionSummary)[],
+    })
+  }
+
+  const renderSessionGroup = (sessions: (ISession | ISessionSummary)[], title: string) => {
+    if (sessions.length === 0) return null
+
+    return (
+      <Fragment key={title}>
+        <ListItem>
+          <Typography
+            variant="subtitle2"
+            sx={{
+              color: lightTheme.textColorFaded,
+              fontSize: '0.8em',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+            }}
+          >
+            {title}
+          </Typography>
+        </ListItem>
+        {sessions.map((session) => {
+          const sessionId = 'session_id' in session ? session.session_id : session.id
+          const isActive = sessionId === params["session_id"]
+          return (
+            <ListItem
+              sx={{
+                borderRadius: '20px',
+                cursor: 'pointer',
+              }}
+              key={sessionId}
+              onClick={() => {
+                account.orgNavigate('session', {session_id: sessionId})
+                onOpenSession()
+              }}
+            >
+              <ListItemButton
+                selected={isActive}
+                sx={{
+                  borderRadius: '4px',
+                  backgroundColor: isActive ? '#1a1a2f' : 'transparent',
+                  cursor: 'pointer',
+                  '&:hover': {
+                    '.MuiListItemText-root .MuiTypography-root': { color: '#fff' },
+                    '.MuiListItemIcon-root': { color: '#fff' },
+                  },
+                }}
+              >
+                <ListItemIcon
+                  sx={{color:'red'}}
+                >
+                  {getSessionIcon(session)}
+                </ListItemIcon>
+                <ListItemText
+                  sx={{marginLeft: "-15px"}}
+                  primaryTypographyProps={{
+                    fontSize: 'small',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    color: isActive ? '#fff' : lightTheme.textColorFaded,
+                  }}
+                  primary={session.name}
+                  id={sessionId}
+                />
+              </ListItemButton>
+            </ListItem>
+          )
+        })}
+      </Fragment>
+    )
+  }
+
+  const groupedSessions = groupSessionsByTime(sessions.sessions)
+
   return (
     <SlideMenuContainer menuType={MENU_TYPE}>
       <List
@@ -84,55 +182,10 @@ export const SessionsMenu: FC<{
           px: 2,
         }}
       >
-        {
-          sessions.sessions.map((session, i) => {
-            const isActive = session.session_id === params["session_id"]
-            return (
-              <ListItem
-                sx={{
-                  borderRadius: '20px',
-                  cursor: 'pointer',
-                }}
-                key={ session.session_id }
-                onClick={ () => {
-                  account.orgNavigate('session', {session_id: session.session_id})
-                  onOpenSession()
-                }}
-              >
-                <ListItemButton
-                  selected={ isActive }
-                  sx={{
-                    borderRadius: '4px',
-                    backgroundColor: isActive ? '#1a1a2f' : 'transparent',
-                    cursor: 'pointer',
-                    '&:hover': {
-                      '.MuiListItemText-root .MuiTypography-root': { color: '#fff' },
-                      '.MuiListItemIcon-root': { color: '#fff' },
-                    },
-                  }}
-                >
-                  <ListItemIcon
-                    sx={{color:'red'}}
-                  >
-                    {getSessionIcon(session)}
-                  </ListItemIcon>
-                  <ListItemText
-                    sx={{marginLeft: "-15px"}}
-                    primaryTypographyProps={{
-                      fontSize: 'small',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      color: isActive ? '#fff' : lightTheme.textColorFaded,
-                    }}
-                    primary={ session.name }
-                    id={ session.session_id }
-                  />
-                </ListItemButton>
-              </ListItem>
-            )
-          })
-        }
+        {renderSessionGroup(groupedSessions.today, "Today")}
+        {renderSessionGroup(groupedSessions.last7Days, "Last 7 days")}
+        {renderSessionGroup(groupedSessions.last30Days, "Last 30 days")}
+        {renderSessionGroup(groupedSessions.older, "Older")}
       </List>
       {
         sessions.pagination.total > sessions.pagination.limit && (
