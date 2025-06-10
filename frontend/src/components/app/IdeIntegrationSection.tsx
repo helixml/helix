@@ -224,7 +224,7 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
   };
 
   return (
-    <Box sx={{ mt: 4 }}>
+    <Box sx={{ mt: 2, mr: 2 }}>
       <Typography variant="h6" sx={{ mb: 2 }}>
         IDE Integration
       </Typography>

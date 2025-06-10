@@ -266,7 +266,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
         // backdropFilter: 'blur(10px)'
       // }}
     >
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2, mb: 2, mr: 2 }}>
         <Typography variant="h6">Token usage (last 7 days)</Typography>
         <Button startIcon={<RefreshIcon />} onClick={handleRefresh}>
           Refresh
@@ -323,10 +323,10 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
 
       <Divider sx={{ my: 2 }} />
 
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2,  mr: 2 }}>
         <Typography variant="h6">LLM calls</Typography>        
       </Box>
-      <TableContainer sx={{ mt: 2 }}>
+      <TableContainer sx={{ mt: 2, mr: 2 }}>
         <Table stickyHeader aria-label="LLM calls table">
           <TableHead>
             <TableRow>
