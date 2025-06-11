@@ -209,7 +209,9 @@ export const SessionToolbar: FC<{
             )}
           </Box>
           <Typography variant="caption" sx={{ color: 'gray' }}>
-            Created on {new Date(session.created).toLocaleDateString()} {/* Adjust date formatting as needed */}
+            Created on <Tooltip title={new Date(session.created).toLocaleString()}>
+              <Box component="span" sx={{  }}>{new Date(session.created).toLocaleDateString()}</Box>
+            </Tooltip>
             {app && (
               <>
                 &nbsp;| App: <Link 
