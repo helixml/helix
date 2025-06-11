@@ -240,8 +240,9 @@ export const SessionToolbar: FC<{
         isBigScreen ? (
           <Box sx={{ alignItems: 'center' }}>
             <Row>
+              {/* TODO: reenable once implemented */}
               {/* "Share Session" is the first item if `isOwner` is true */}
-              {isOwner && (
+              {/* {isOwner && (
                 <Cell>
                   <Tooltip title="Share Session">
                     <IconButton
@@ -261,10 +262,11 @@ export const SessionToolbar: FC<{
                     </IconButton>
                   </Tooltip>
                 </Cell>
-              )}
+              )} */}
             
               {/* The rest of the icons follow */}
-              <Cell>
+              {/* TODO: reenable once implemented (file sharing) */}
+              {/* <Cell>
                 <Tooltip title="Files">
                   <IconButton
                     onClick={(e) => {
@@ -284,7 +286,7 @@ export const SessionToolbar: FC<{
                     <FolderOpenIcon />
                   </IconButton>
                 </Tooltip>
-              </Cell>
+              </Cell> */}
               <Cell>
                 <JsonWindowLink data={session}>
                   <Tooltip title="Show Info">
