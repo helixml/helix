@@ -172,6 +172,14 @@ const Skills: React.FC<SkillsProps> = ({
     if (skillToDisable) {
       const skill = allSkills.find(s => s.name === skillToDisable);
       if (skill) {
+        // If skill is Browser, we need to disable the browser tool
+        if (skill.name === 'Browser') {
+          await onUpdate({
+            ...app,
+            browserTool: { enabled: false, markdown_post_processing: false },
+          });
+          return
+        }
         // Remove the tool from app.apiTools
         const updatedTools = app.apiTools?.filter(tool => tool.name !== skill.name) || [];
         
