@@ -170,8 +170,7 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
               disabled={readOnly}
               onChange={(e) => setName(e.target.value)}
               onBlur={() => handleBlur('name')}
-              fullWidth
-              label="Name"
+              fullWidth              
               helperText="Name your app"
             />
             <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
