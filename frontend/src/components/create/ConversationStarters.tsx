@@ -15,11 +15,13 @@ const ConversationStarters: FC<{
   layout?: LayoutType,
   header?: boolean,
   conversationStarters?: string[],
+  mini?: boolean,
 }> = ({
   onChange,
   layout = 'horizontal',
   header = true,
   conversationStarters = [],
+  mini = false,
 }) => {
   const lightTheme = useLightTheme()
   
@@ -56,8 +58,8 @@ const ConversationStarters: FC<{
             <Box
               key={index}
               sx={{
-                width: 160,
-                height: 120,
+                width: mini ? 120 : 160,
+                height: mini ? 90 : 120,
                 minWidth: 0,
                 minHeight: 0,
                 display: 'flex',
@@ -66,8 +68,8 @@ const ConversationStarters: FC<{
                 cursor: 'pointer',
                 border: '1px solid rgba(255,255,255,0.2)',
                 borderRadius: '12px',
-                padding: 1.5,
-                fontSize: '0.92rem',
+                padding: mini ? 1 : 1.5,
+                fontSize: mini ? '0.8rem' : '0.95rem',
                 lineHeight: 1.3,
                 backgroundColor: 'rgba(255, 255, 255, 0.05)',
                 color: lightTheme.textColorFaded,
@@ -80,7 +82,7 @@ const ConversationStarters: FC<{
               <Typography
                 sx={{
                   width: '100%',
-                  fontSize: '0.95rem',
+                  fontSize: mini ? '0.8rem' : '0.95rem',
                   lineHeight: '1.3',
                   color: 'inherit',
                   overflow: 'hidden',

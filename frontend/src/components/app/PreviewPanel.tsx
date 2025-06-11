@@ -463,6 +463,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
                       <Box sx={{ width: '100%' }}>
                         <Stack direction="row" spacing={2} justifyContent="center">
                           <ConversationStarters
+                            mini={true}
                             conversationStarters={conversationStarters}
                             layout="horizontal"
                             header={false}
