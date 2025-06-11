@@ -21,7 +21,7 @@ const DevelopersSection: React.FC<DevelopersSectionProps> = ({
   navigate,
 }) => {
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box sx={{ mt: 2, mr: 4 }}>
       <Typography variant="h6" sx={{mb: 1}}>
         App Configuration
       </Typography>
