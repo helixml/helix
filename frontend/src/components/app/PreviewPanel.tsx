@@ -22,17 +22,31 @@ import Container from '@mui/material/Container';
 import Stack from '@mui/material/Stack';
 
 import Interaction from '../session/Interaction';
+import Session from '../../pages/Session';
 import InteractionLiveStream from '../session/InteractionLiveStream';
 import ConversationStarters from '../create/ConversationStarters';
 import InferenceTextField from '../create/InferenceTextField';
 import AppCreateHeader from '../appstore/CreateHeader';
 import Cell from '../widgets/Cell';
 import Row from '../widgets/Row';
+import { useRouterContext } from '../../contexts/router';
 
-import { ISession, ISessionRAGResult, IKnowledgeSearchResult, ISessionType, SESSION_TYPE_TEXT, IApp } from '../../types';
+import { 
+  ISession, 
+  ISessionRAGResult, 
+  IKnowledgeSearchResult,   
+  SESSION_TYPE_TEXT, 
+  IApp,
+  ICloneInteractionMode,
+  INTERACTION_STATE_EDITING,
+  INTERACTION_STATE_COMPLETE,
+  INTERACTION_STATE_ERROR,  
+} from '../../types';
+import { TypesCreatorType } from '../../api/api';
 import ContextMenuModal from '../widgets/ContextMenuModal';
 import useApi from '../../hooks/useApi';
 import useIsBigScreen from '../../hooks/useIsBigScreen';
+import { useStreaming } from '../../contexts/streaming';
 import {
   getAssistant,
   getAssistantAvatar,  
@@ -59,7 +73,91 @@ interface PreviewPanelProps {
   conversationStarters?: string[];
   app?: IApp;
   activeAssistantID?: string;
+  onSessionUpdate?: (session: ISession) => void;
 }
+
+// Create a memoized version of the Interaction component for better performance
+const MemoizedInteraction = React.memo((props: {
+  interaction: any;
+  session: any;
+  serverConfig: any;
+  onFilterDocument?: (docId: string) => void;
+  onRegenerate?: (interactionID: string, message: string) => void;
+  isLastInteraction: boolean;
+  highlightAllFiles: boolean;
+  retryFinetuneErrors: () => void;
+  onReloadSession: () => Promise<any>;
+  onClone: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>;
+  isOwner: boolean;
+  isAdmin: boolean;
+  session_id: string;
+  hasSubscription: boolean;
+  onMessageUpdate?: () => void;
+  children?: React.ReactNode;
+}) => {
+  const isLive = props.isLastInteraction && 
+                !props.interaction.finished && 
+                props.interaction.state !== INTERACTION_STATE_EDITING &&
+                props.interaction.state !== INTERACTION_STATE_COMPLETE &&
+                props.interaction.state !== INTERACTION_STATE_ERROR;
+
+  return (
+    <Interaction
+      key={props.interaction.id}
+      serverConfig={props.serverConfig}
+      interaction={props.interaction}
+      session={props.session}
+      highlightAllFiles={props.highlightAllFiles}
+      retryFinetuneErrors={props.retryFinetuneErrors}
+      onReloadSession={props.onReloadSession}
+      onClone={props.onClone}
+      onFilterDocument={props.onFilterDocument}
+      onRegenerate={props.onRegenerate}
+      isLastInteraction={props.isLastInteraction}
+      isOwner={props.isOwner}
+      isAdmin={props.isAdmin}
+      session_id={props.session_id}
+      hasSubscription={props.hasSubscription}
+    >
+      {isLive && (
+        <InteractionLiveStream
+          session_id={props.session_id}
+          interaction={props.interaction}
+          session={props.session}
+          serverConfig={props.serverConfig}
+          hasSubscription={props.hasSubscription}
+          onMessageUpdate={props.isLastInteraction ? props.onMessageUpdate : undefined}
+          onFilterDocument={props.onFilterDocument}
+          useInstantScroll={true}
+        />
+      )}
+      {props.children}
+    </Interaction>
+  );
+}, (prevProps, nextProps) => {
+  // More efficient comparison to prevent unnecessary re-renders
+  const interactionChanged = 
+    prevProps.interaction.id !== nextProps.interaction.id ||
+    prevProps.interaction.state !== nextProps.interaction.state ||
+    prevProps.interaction.finished !== nextProps.interaction.finished ||
+    (prevProps.interaction.output?.length !== nextProps.interaction.output?.length) ||
+    prevProps.interaction.last_stream_pointer !== nextProps.interaction.last_stream_pointer ||
+    prevProps.interaction.error !== nextProps.interaction.error;
+
+  const isLastInteraction = prevProps.interaction === 
+    prevProps.session.interactions[prevProps.session.interactions.length - 1];
+  
+  const lastInteractionNotFinished = 
+    isLastInteraction && !nextProps.interaction.finished;
+
+  // Always re-render if the interaction is the last one and not finished
+  if (lastInteractionNotFinished) {
+    return false;
+  }
+
+  return !interactionChanged && 
+         prevProps.highlightAllFiles === nextProps.highlightAllFiles;
+});
 
 const PreviewPanel: React.FC<PreviewPanelProps> = ({
   appId,
@@ -82,34 +180,170 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   conversationStarters = [],
   app,
   activeAssistantID = '0',
+  onSessionUpdate,
 }) => {
   const textFieldRef = useRef<HTMLTextAreaElement>();
   const scrollableRef = useRef<HTMLDivElement>(null);
   const [selectedChunk, setSelectedChunk] = useState<ISessionRAGResult | null>(null);
   const [attachedImages, setAttachedImages] = useState<File[]>([]);
+  const [isInternalLoading, setIsInternalLoading] = useState(false);
   const api = useApi();
   const isBigScreen = useIsBigScreen();
+  const { NewInference, setCurrentSessionId } = useStreaming();
+  const [isStreaming, setIsStreaming] = useState(false);
+  const router = useRouterContext();
+  // const [showSession, setShowSession] = useState(false);
 
   const activeAssistant = app && getAssistant(app, activeAssistantID);
   const activeAssistantAvatar = activeAssistant && app ? getAssistantAvatar(app, activeAssistantID) : '';
 
-  // Auto-scroll to bottom when session interactions change
+  // Load session from URL query parameter if present
   useEffect(() => {
-    if (scrollableRef.current && session?.interactions) {
-      const scrollElement = scrollableRef.current;
-      scrollElement.scrollTo({
-        top: scrollElement.scrollHeight,
-        behavior: 'smooth'
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionId = urlParams.get('sessionId') || router.params.session_id;
+    
+    if (sessionId && (!session || session.id !== sessionId)) {
+      api.get<ISession>(`/api/v1/sessions/${sessionId}`).then((loadedSession) => {
+        if (loadedSession && onSessionUpdate) {
+          onSessionUpdate(loadedSession);
+        }
+      }).catch((error) => {
+        console.error('Error loading session:', error);
+        snackbar.error('Failed to load session');
       });
     }
+  }, [api, session, onSessionUpdate, router.params.session_id, snackbar]);
+
+  // Connect session to streaming system - crucial for live streaming to work
+  useEffect(() => {
+    if (session?.id) {
+      setCurrentSessionId(session.id);
+    }
+  }, [session?.id, setCurrentSessionId]);
+
+  // Handle streaming state
+  useEffect(() => {
+    if (!session?.interactions || session.interactions.length === 0) return;
+
+    const lastInteraction = session.interactions[session.interactions.length - 1];
+    const shouldBeStreaming = !lastInteraction.finished && 
+                             lastInteraction.state !== INTERACTION_STATE_EDITING &&
+                             lastInteraction.state !== INTERACTION_STATE_COMPLETE &&
+                             lastInteraction.state !== INTERACTION_STATE_ERROR;
+
+    setIsStreaming(shouldBeStreaming);
   }, [session?.interactions]);
+
+  // Auto-scroll to bottom when session interactions change or during streaming
+  const scrollToBottom = useCallback(() => {
+    if (!scrollableRef.current) return;
+
+    scrollableRef.current.scrollTo({
+      top: scrollableRef.current.scrollHeight,
+      behavior: 'auto' // Use 'auto' instead of 'smooth' to prevent jumpiness during streaming
+    });
+  }, []);
+
+  // Auto-scroll when interactions change or content updates
+  useEffect(() => {
+    if (scrollableRef.current && session?.interactions) {
+      scrollToBottom();
+    }
+  }, [session?.interactions, scrollToBottom]);
+
+  // Auto-scroll during streaming
+  useEffect(() => {
+    if (isStreaming) {
+      scrollToBottom();
+    }
+  }, [isStreaming, scrollToBottom]);
+
+  // Add effect to handle final scroll when streaming ends
+  useEffect(() => {
+    if (isStreaming) return;
+
+    // Wait for the bottom bar and final content to render
+    const timer = setTimeout(() => {
+      if (!scrollableRef.current) return;
+      scrollableRef.current.scrollTo({
+        top: scrollableRef.current.scrollHeight,
+        behavior: 'auto'
+      });
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [isStreaming]);
+
+  // Handle inference - continue session if exists, otherwise create new
+  const handleInference = useCallback(async () => {
+    if (!inputValue.trim()) return;
+
+    if (session && session.id) {
+      // Continue existing session
+      setIsInternalLoading(true);
+      try {
+        const messagePayloadContent = {
+          content_type: "text",
+          parts: [
+            {
+              type: "text", 
+              text: inputValue,
+            }
+          ],
+        };
+
+        setInputValue('');
+        
+        const updatedSession = await NewInference({
+          message: '',
+          messages: [
+            {
+              role: TypesCreatorType.CreatorTypeUser,
+              content: messagePayloadContent as any,
+            }
+          ],
+          appId: appId,
+          assistantId: activeAssistantID || undefined,
+          ragSourceId: session.config?.rag_source_data_entity_id || '',
+          provider: session.provider,
+          modelName: session.model_name,
+          loraDir: session.lora_dir,
+          sessionId: session.id,
+          type: SESSION_TYPE_TEXT,
+        });
+
+        // Notify parent component of session update
+        if (onSessionUpdate) {
+          onSessionUpdate(updatedSession);
+        }
+      } catch (error) {
+        console.error('Error continuing conversation:', error);
+        snackbar.error('Failed to send message');
+        setInputValue(inputValue); // Restore input value on error
+      } finally {
+        setIsInternalLoading(false);
+      }
+    } else {
+      // No existing session, use parent's callback to create new session
+      onInference();
+      // Show Session component after first message
+      // setShowSession(true);
+    }
+  }, [inputValue, session, NewInference, appId, activeAssistantID, onInference, onSessionUpdate, snackbar, setInputValue]);
+
+  // Add effect to update URL when session is created
+  useEffect(() => {
+    if (session?.id && !router.params.session_id) {
+      router.setParams({ session_id: session.id });
+    }
+  }, [session?.id, router]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
       if (event.shiftKey) {
         setInputValue(inputValue + "\n");
       } else {
-        onInference();
+        handleInference();
       }
       event.preventDefault();
     }
@@ -159,6 +393,32 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
       snackbar.success('Content copied to clipboard');
     }
   };
+
+  // Dummy handlers for interaction components
+  const handleRegenerate = useCallback(async (interactionID: string, message: string) => {
+    // TODO: Implement regeneration in preview mode if needed
+    console.log('Regenerate not implemented in preview mode', { interactionID, message });
+  }, []);
+
+  const handleReloadSession = useCallback(async () => {
+    // TODO: Implement session reload if needed
+    console.log('Session reload not implemented in preview mode');
+    return session;
+  }, [session]);
+
+  const handleClone = useCallback(async (mode: ICloneInteractionMode, interactionID: string): Promise<boolean> => {
+    // TODO: Implement cloning if needed in preview mode
+    console.log('Clone not implemented in preview mode', { mode, interactionID });
+    return false;
+  }, []);
+
+  const retryFinetuneErrors = useCallback(() => {
+    // TODO: Implement if needed
+    console.log('Retry finetune errors not implemented in preview mode');
+  }, []);
+
+  // Determine if we're currently loading (either from parent or internal)
+  const isLoading = loading || isInternalLoading;
 
   // Header similar to CreateContent
   const inferenceHeader = app && (
@@ -218,7 +478,16 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
     </Row>
   );
 
-      return (
+  // If we have a session and showSession is true, render the Session component
+  // if (session) {
+  //   return (
+  //     <Grid item xs={12} md={6}>
+  //       <Session />
+  //     </Grid>
+  //   );
+  // }
+
+  return (
     <Grid item xs={12} md={6}
       sx={{
         position: 'relative',
@@ -315,7 +584,8 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           zIndex: 2,
           flex: '1 1 0',
           minHeight: 0,
-          overflowY: 'auto',
+          overflowY: isStreaming ? 'hidden' : 'auto',
+          transition: 'overflow-y 0.3s ease',
           backgroundColor: 'rgba(0, 0, 0, 0.5)',
           display: 'flex',
           flexDirection: 'column',
@@ -386,55 +656,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
             ) : (
               <Typography variant="body1" color="white">Add one or more knowledge sources to start searching.</Typography>
             )
-          ) : (
-            session && (
-              <>
-                {
-                  session.interactions.map((interaction: any, i: number) => {
-                    const interactionsLength = session.interactions.length || 0;
-                    const isLastInteraction = i == interactionsLength - 1;
-                    const isLive = isLastInteraction && !interaction.finished;
-
-                    if (!session) return null;
-                    return (
-                      <Interaction
-                        key={interaction.id}
-                        serverConfig={serverConfig}
-                        interaction={interaction}
-                        session={session}                      
-                        onFilterDocument={onHandleFilterDocument}
-                        onRegenerate={function (interactionID: string, message: string): void {
-                          // No-op, need to start using sessions
-                          return
-                        }}
-                        isLastInteraction={isLastInteraction}
-                        highlightAllFiles={false}
-                        retryFinetuneErrors={() => {}}
-                        onReloadSession={async () => {}}
-                        onClone={async () => false}
-                        isOwner={true}
-                        isAdmin={false}
-                        session_id={session.id}
-                        hasSubscription={true}
-                      >
-                        {
-                          isLive && (
-                            <InteractionLiveStream
-                              session_id={session.id}
-                              interaction={interaction}
-                              session={session}
-                              serverConfig={serverConfig}
-                              onFilterDocument={onHandleFilterDocument}
-                            />
-                          )
-                        }
-                      </Interaction>
-                    );
-                  })
-                }
-              </>
-            )
-          )}
+          ) : (< ></>)}
         </Container>
       </Box>
 
@@ -461,50 +683,59 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
                       gap: 2,
                     }}
                   >
-                    {conversationStarters.length > 0 && (
-                      <Box sx={{ width: '100%' }}>
-                        <Stack direction="row" spacing={2} justifyContent="center">
-                          <ConversationStarters
-                            mini={true}
-                            conversationStarters={conversationStarters}
-                            layout="horizontal"
-                            header={false}
-                            onChange={async (prompt) => {
-                              setInputValue(prompt)
-                              // Don't auto-trigger inference in preview mode
-                            }}
-                          />
-                        </Stack>
-                      </Box>
-                    )}
-                    <Box sx={{ width: '100%' }}>
-                      <InferenceTextField
-                        appId={appId}
-                        loading={loading}
-                        type={SESSION_TYPE_TEXT}
-                        focus="false"
-                        value={inputValue}
-                        disabled={false}
-                        startAdornment={isBigScreen && (
-                          activeAssistant ? (
-                            activeAssistantAvatar ? (
-                              <Avatar
-                                src={activeAssistantAvatar}
-                                sx={{
-                                  width: '30px',
-                                  height: '30px',
-                                }}
-                              />
-                            ) : null
-                          ) : null
-                        )}
-                        promptLabel={activeAssistant ? `Chat with ${app?.config.helix.name || name}` : `Message ${name || 'Helix'}`}
-                        onUpdate={setInputValue}
-                        onInference={onInference}
-                        attachedImages={attachedImages}
-                        onAttachedImagesChange={setAttachedImages}
+                    {session ?(
+                      <Session 
+                        previewMode={true}
                       />
-                    </Box>
+                    ) : (
+
+                    <>
+                    {conversationStarters.length > 0 && (
+                        <Box sx={{ width: '100%' }}>
+                          <Stack direction="row" spacing={2} justifyContent="center">
+                            <ConversationStarters
+                              mini={true}
+                              conversationStarters={conversationStarters}
+                              layout="horizontal"
+                              header={false}
+                              onChange={async (prompt) => {
+                                setInputValue(prompt)
+                                // Don't auto-trigger inference in preview mode
+                              }}
+                            />
+                          </Stack>
+                        </Box>
+                      )}                                        
+                      <Box sx={{ width: '100%' }}>
+                        <InferenceTextField
+                          appId={appId}
+                          loading={isLoading}
+                          type={SESSION_TYPE_TEXT}
+                          focus="false"
+                          value={inputValue}
+                          disabled={false}
+                          startAdornment={isBigScreen && (
+                            activeAssistant ? (
+                              activeAssistantAvatar ? (
+                                <Avatar
+                                  src={activeAssistantAvatar}
+                                  sx={{
+                                    width: '30px',
+                                    height: '30px',
+                                  }}
+                                />
+                              ) : null
+                            ) : null
+                          )}
+                          promptLabel={activeAssistant ? `Chat with ${app?.config.helix.name || name}` : `Message ${name || 'Helix'}`}
+                          onUpdate={setInputValue}
+                          onInference={handleInference}
+                          attachedImages={attachedImages}
+                          onAttachedImagesChange={setAttachedImages}
+                        />
+                      </Box>
+                    </>
+                    )}
                   </Box>
                 </Cell>
               </Row>
