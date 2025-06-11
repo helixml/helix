@@ -330,7 +330,7 @@ const App: FC = () => {
                           )}
 
                           {tabValue === 'knowledge' && (
-                            <Box sx={{ mt: 2 }}>
+                            <Box sx={{ mt: 2, height: 'calc(100vh - 200px)', overflow: 'auto' }}>
                               <Typography variant="h6" sx={{ mb: 2 }}>
                                 Knowledge Sources
                               </Typography>
