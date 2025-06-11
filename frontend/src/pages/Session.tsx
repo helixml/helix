@@ -448,7 +448,11 @@ const PerformanceMonitor: FC<{
   );
 };
 
-const Session: FC = () => {
+interface SessionProps {
+  previewMode?: boolean;
+}
+
+const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const snackbar = useSnackbar()
   const api = useApi()
   const router = useRouter()
@@ -467,7 +471,14 @@ const Session: FC = () => {
   })
 
   const isOwner = account.user?.id == session.data?.owner
-  const sessionID = router.params.session_id
+  let sessionID = router.params.session_id
+
+  // If params sessionID is not set, try to get it from URL query param sessionId=
+  if (!sessionID) {
+    const urlParams = new URLSearchParams(window.location.search)
+    sessionID = urlParams.get('sessionID') || ''
+  }
+
   const textFieldRef = useRef<HTMLTextAreaElement>(null)
 
   // --- Add image upload state/refs for new input area ---
@@ -1726,7 +1737,7 @@ const Session: FC = () => {
             borderBottom: theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder,
           }}
         >
-          {(isOwner || account.admin) && (
+          {(!previewMode && (isOwner || account.admin)) && (
             <Box sx={{ py: 1, px: 2 }}>
               <SessionToolbar
                 session={session.data}
@@ -1998,9 +2009,12 @@ const Session: FC = () => {
                     </Button>
                   </Box>
                 )}
-                <Box sx={{ mt: 2 }}>
-                  <Disclaimer />
-                </Box>
+                {/* Only show disclaimer if not in preview mode */}
+                {!previewMode && (
+                  <Box sx={{ mt: 2 }}>
+                    <Disclaimer />
+                  </Box>
+                )}
               </Box>
             </Container>
           </Box>
@@ -2150,7 +2164,7 @@ const Session: FC = () => {
       )}
 
       {/* Add performance monitor in development mode */}
-      {process.env.NODE_ENV !== 'production' && session.data && (
+      {process.env.NODE_ENV !== 'production' && session.data && !previewMode && (
         <PerformanceMonitor 
           sessionId={session.data.id} 
           interactionCount={session.data.interactions?.length || 0} 
