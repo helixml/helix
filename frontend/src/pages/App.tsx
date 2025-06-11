@@ -303,8 +303,8 @@ const App: FC = () => {
                           )}
 
                           {tabValue === 'knowledge' && (
-                            <Box sx={{ mt: 2, height: 'calc(100vh - 200px)', overflow: 'auto' }}>
-                              <Typography variant="h6" sx={{ mb: 2 }}>
+                            <Box sx={{ height: 'calc(100vh - 200px)', overflow: 'auto' }}>
+                              <Typography variant="h6" sx={{ mb: 2, mt: 2 }}>
                                 Knowledge Sources
                               </Typography>
                               <KnowledgeEditor
@@ -357,6 +357,7 @@ const App: FC = () => {
                           themeConfig={themeConfig}
                           snackbar={snackbar}
                           conversationStarters={appTools.flatApp?.conversation_starters || []}
+                          onSessionUpdate={appTools.onSessionUpdate}
                         />
                       )}
                     </>
