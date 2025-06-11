@@ -231,6 +231,11 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
         borderRight: '1px solid #303047',
         borderBottom: '1px solid #303047',
         overflow: 'hidden',
+        // Not sure why we need to set this to
+        // 35 to achieve the same rounded corners as the
+        // tab contents in App.tsx (there they are 8)
+        borderTopRightRadius: 35,
+        borderBottomRightRadius: 35,
       }}
     >
       {!app && image && (
