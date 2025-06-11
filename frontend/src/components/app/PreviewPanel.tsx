@@ -20,6 +20,7 @@ import Link from '@mui/material/Link';
 import Tooltip from '@mui/material/Tooltip';
 import Container from '@mui/material/Container';
 import Stack from '@mui/material/Stack';
+import CreateIcon from '@mui/icons-material/Create';
 
 import Interaction from '../session/Interaction';
 import Session from '../../pages/Session';
@@ -332,6 +333,17 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
     console.log('Retry finetune errors not implemented in preview mode');
   }, []);
 
+  const handleResetSession = useCallback(() => {
+    // Remove session_id from URL
+    router.setParams({
+      session_id: '',
+    });
+    // Reset session state through parent callback
+    if (onSessionUpdate) {
+      onSessionUpdate(undefined as any);
+    }
+  }, [router, onSessionUpdate]);
+
   // Determine if we're currently loading (either from parent or internal)
   const isLoading = loading || isInternalLoading;
 
@@ -465,6 +477,8 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           backgroundColor: 'rgba(0, 0, 0, 0.5)',
           display: 'flex',
           justifyContent: 'center',
+          alignItems: 'center',
+          gap: 1,
         }}
       >
         <FormControlLabel
@@ -478,6 +492,22 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
           sx={{ color: 'white' }}
         />
+        {session && !isSearchMode && (
+          <Tooltip title="Start new conversation">
+            <IconButton 
+              onClick={handleResetSession}
+              size="small"
+              sx={{ 
+                color: 'white',
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                }
+              }}
+            >
+              <CreateIcon />
+            </IconButton>
+          </Tooltip>
+        )}
       </Box>
 
       {/* Scrollable Results Area */}
