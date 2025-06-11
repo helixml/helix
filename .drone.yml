@@ -162,7 +162,7 @@ steps:
   depends_on: []
 
 - name: run-linter-operator
-  image: golangci/golangci-lint:v1.62-alpine
+  image: golangci/golangci-lint:v1.64-alpine
   commands:
     - cd operator && golangci-lint run
   when:
