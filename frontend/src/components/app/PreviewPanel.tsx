@@ -226,7 +226,6 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
         backgroundPosition: 'top',
         backgroundRepeat: 'no-repeat',
         backgroundSize: image ? 'cover' : 'auto',
-        height: 'calc(100vh - 128px)',
         display: 'flex',
         flexDirection: 'column',
         borderRight: '1px solid #303047',
