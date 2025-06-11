@@ -445,7 +445,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   };
 
   return (
-    <Box sx={{ mt: 2, height: 'calc(100vh - 200px)', overflowY: 'auto', pr: 2 }}>
+    <Box sx={{ mt: 2, pr: 2 }}>
       <Box sx={{ mb: 3 }}>
         <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
           App Configuration
