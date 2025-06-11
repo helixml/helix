@@ -213,7 +213,7 @@ const App: FC = () => {
               p: 0,
               mt: 2,
               mb: 2,
-              borderRadius: 8,
+              borderRadius: 2,
               boxShadow: '0 4px 24px 0 rgba(0,0,0,0.12)',
             }}>
               <Box sx={{ width: '100%', p: 0, pl: 4 }}>
