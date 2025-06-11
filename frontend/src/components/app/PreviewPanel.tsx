@@ -76,89 +76,6 @@ interface PreviewPanelProps {
   onSessionUpdate?: (session: ISession) => void;
 }
 
-// Create a memoized version of the Interaction component for better performance
-const MemoizedInteraction = React.memo((props: {
-  interaction: any;
-  session: any;
-  serverConfig: any;
-  onFilterDocument?: (docId: string) => void;
-  onRegenerate?: (interactionID: string, message: string) => void;
-  isLastInteraction: boolean;
-  highlightAllFiles: boolean;
-  retryFinetuneErrors: () => void;
-  onReloadSession: () => Promise<any>;
-  onClone: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>;
-  isOwner: boolean;
-  isAdmin: boolean;
-  session_id: string;
-  hasSubscription: boolean;
-  onMessageUpdate?: () => void;
-  children?: React.ReactNode;
-}) => {
-  const isLive = props.isLastInteraction && 
-                !props.interaction.finished && 
-                props.interaction.state !== INTERACTION_STATE_EDITING &&
-                props.interaction.state !== INTERACTION_STATE_COMPLETE &&
-                props.interaction.state !== INTERACTION_STATE_ERROR;
-
-  return (
-    <Interaction
-      key={props.interaction.id}
-      serverConfig={props.serverConfig}
-      interaction={props.interaction}
-      session={props.session}
-      highlightAllFiles={props.highlightAllFiles}
-      retryFinetuneErrors={props.retryFinetuneErrors}
-      onReloadSession={props.onReloadSession}
-      onClone={props.onClone}
-      onFilterDocument={props.onFilterDocument}
-      onRegenerate={props.onRegenerate}
-      isLastInteraction={props.isLastInteraction}
-      isOwner={props.isOwner}
-      isAdmin={props.isAdmin}
-      session_id={props.session_id}
-      hasSubscription={props.hasSubscription}
-    >
-      {isLive && (
-        <InteractionLiveStream
-          session_id={props.session_id}
-          interaction={props.interaction}
-          session={props.session}
-          serverConfig={props.serverConfig}
-          hasSubscription={props.hasSubscription}
-          onMessageUpdate={props.isLastInteraction ? props.onMessageUpdate : undefined}
-          onFilterDocument={props.onFilterDocument}
-          useInstantScroll={true}
-        />
-      )}
-      {props.children}
-    </Interaction>
-  );
-}, (prevProps, nextProps) => {
-  // More efficient comparison to prevent unnecessary re-renders
-  const interactionChanged = 
-    prevProps.interaction.id !== nextProps.interaction.id ||
-    prevProps.interaction.state !== nextProps.interaction.state ||
-    prevProps.interaction.finished !== nextProps.interaction.finished ||
-    (prevProps.interaction.output?.length !== nextProps.interaction.output?.length) ||
-    prevProps.interaction.last_stream_pointer !== nextProps.interaction.last_stream_pointer ||
-    prevProps.interaction.error !== nextProps.interaction.error;
-
-  const isLastInteraction = prevProps.interaction === 
-    prevProps.session.interactions[prevProps.session.interactions.length - 1];
-  
-  const lastInteractionNotFinished = 
-    isLastInteraction && !nextProps.interaction.finished;
-
-  // Always re-render if the interaction is the last one and not finished
-  if (lastInteractionNotFinished) {
-    return false;
-  }
-
-  return !interactionChanged && 
-         prevProps.highlightAllFiles === nextProps.highlightAllFiles;
-});
-
 const PreviewPanel: React.FC<PreviewPanelProps> = ({
   appId,
   loading,
@@ -174,8 +91,6 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   hasKnowledgeSources,
   searchResults,
   session,
-  serverConfig,
-  themeConfig,
   snackbar,
   conversationStarters = [],
   app,
@@ -478,15 +393,6 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
     </Row>
   );
 
-  // If we have a session and showSession is true, render the Session component
-  // if (session) {
-  //   return (
-  //     <Grid item xs={12} md={6}>
-  //       <Session />
-  //     </Grid>
-  //   );
-  // }
-
   return (
     <Grid item xs={12} md={6}
       sx={{
@@ -534,16 +440,14 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
             zIndex: 2,
             backgroundColor: 'rgba(0, 0, 0, 0.5)',
           }}
-        >
-          <Typography variant="h6" sx={{ mb: 2, color: 'white' }}>
-            Preview
-          </Typography>
+        >         
           <Avatar
             src={avatar}
             sx={{
               width: 80,
               height: 80,
               mb: 2,
+              mt: 2,
               border: '2px solid #fff',
             }}
           />
