@@ -683,12 +683,23 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
                       gap: 2,
                     }}
                   >
-                    {session ?(
-                      <Session 
-                        previewMode={true}
-                      />
+                    {session ? (
+                      <Box
+                        sx={{
+                          height: 'calc(100vh - 400px)', // Account for header and input areas
+                          minHeight: '500px',
+                          maxHeight: '100%',
+                          overflow: 'hidden',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          position: 'relative',
+                        }}
+                      >
+                        <Session 
+                          previewMode={true}
+                        />
+                      </Box>
                     ) : (
-
                     <>
                     {conversationStarters.length > 0 && (
                         <Box sx={{ width: '100%' }}>

@@ -1404,7 +1404,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           <div
             id="virtual-space-above"
             style={{
-              height: VIRTUAL_SPACE_HEIGHT,
+              height: previewMode ? '100%' : VIRTUAL_SPACE_HEIGHT,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -1714,7 +1714,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     <Box
       sx={{
         width: '100%',
-        height: '100vh',
+        height: previewMode ? '100%' : '100vh',
         display: 'flex',
         flexDirection: 'row',
       }}
@@ -1723,7 +1723,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       <Box
         sx={{
           flexGrow: 1,
-          height: '100vh',
+          height: previewMode ? '100%' : '100vh',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
