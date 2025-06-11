@@ -26,7 +26,7 @@ steps:
   depends_on: []
 
 - name: run-linter
-  image: golangci/golangci-lint:v1.62-alpine
+  image: golangci/golangci-lint:v1.64-alpine
   commands:
     - golangci-lint cache clean
     - golangci-lint run
