@@ -11,7 +11,6 @@ import (
 
 	// Register file driver
 	"gocloud.dev/blob/fileblob"
-	_ "gocloud.dev/blob/fileblob"
 
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
