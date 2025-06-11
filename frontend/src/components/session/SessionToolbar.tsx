@@ -29,7 +29,6 @@ import useThemeConfig from '../../hooks/useThemeConfig'
 
 import {
   ISession,
-  ISessionSummary,
 } from '../../types'
 
 import useRouter from '../../hooks/useRouter'
