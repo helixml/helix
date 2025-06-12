@@ -7,7 +7,7 @@ import (
 
 // @title HelixML API reference
 // @version 0.1
-// @description This is a HelixML AI API.
+// @description This is the HelixML API.
 
 // @contact.name Helix support
 // @contact.url https://app.tryhelix.ai/
