@@ -1425,9 +1425,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             maxWidth: 700,
             mx: 'auto',
             px: { xs: 1, sm: 2, md: 0 },
-            
-            borderRadius: 4,
-            boxShadow: 2,
             minHeight: '60vh',
             display: 'flex',
             flexDirection: 'column',
