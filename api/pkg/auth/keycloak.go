@@ -317,6 +317,12 @@ func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keyc
 	attributes["frontendUrl"] = cfg.KeycloakFrontEndURL
 	*realm.Attributes = attributes
 
+	// Set login theme to "helix" for both new and existing deployments
+	if realm.LoginTheme == nil || *realm.LoginTheme != "helix" {
+		realm.LoginTheme = addr("helix")
+		log.Info().Str("realm", cfg.Realm).Msg("Setting login theme to 'helix'")
+	}
+
 	err = gck.UpdateRealm(context.Background(), token, *realm)
 	if err != nil {
 		return fmt.Errorf("setRealmConfiguration: attempt to update realm config failed with: %s", err.Error())
@@ -325,6 +331,7 @@ func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keyc
 	log.Info().
 		Str("realm", cfg.Realm).
 		Str("frontend_url", cfg.KeycloakFrontEndURL).
+		Str("login_theme", gocloak.PString(realm.LoginTheme)).
 		Msg("Configured realm")
 
 	return nil
