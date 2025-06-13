@@ -16,9 +16,6 @@ import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import Menu from '@mui/material/Menu'
-import IconButton from '@mui/material/IconButton'
-import DeleteIcon from '@mui/icons-material/Delete'
-import AddIcon from '@mui/icons-material/Add'
 
 import {
   IAppFlatState,
@@ -168,16 +165,10 @@ const AppSettings: FC<AppSettingsProps> = ({
   }, [showAdvanced])
 
   // State for form fields
-  const [name, setName] = useState(app.name || '')
-  const [description, setDescription] = useState(app.description || '')
   const [system_prompt, setSystemPrompt] = useState(app.system_prompt || '')
-  const [avatar, setAvatar] = useState(app.avatar || '')
-  const [image, setImage] = useState(app.image || '')
   const [global, setGlobal] = useState(app.global || false)
   const [model, setModel] = useState(app.model || '')
   const [provider, setProvider] = useState(app.provider || '')
-  const [conversationStarters, setConversationStarters] = useState<string[]>(app.conversation_starters || [])
-  const [newStarter, setNewStarter] = useState('')
 
   // Agent mode settings
   const [agent_mode, setAgentMode] = useState(app.agent_mode || false)
@@ -207,18 +198,9 @@ const AppSettings: FC<AppSettingsProps> = ({
 
   // Update local state ONLY on initial mount, not when app prop changes
   useEffect(() => {
-    let useAppName = app.name || ''
-    if(app.name && app.name == id) {
-      useAppName = ''
-    }
-
     // Only initialize values if not already initialized
     if (!isInitialized.current) {
-      setName(useAppName)
-      setDescription(app.description || '')
       setSystemPrompt(app.system_prompt || DEFAULT_SYSTEM_PROMPT)
-      setAvatar(app.avatar || '')
-      setImage(app.image || '')
       setGlobal(app.global || false)
       setModel(app.model || '')
       // Agent configuration
@@ -245,116 +227,16 @@ const AppSettings: FC<AppSettingsProps> = ({
       setTemperature(app.temperature || 0)
       setTopP(app.top_p || 0)
       setMaxIterations(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
-      setConversationStarters(app.conversation_starters || [])
       
       // Mark as initialized
       isInitialized.current = true
     }
   }, [app]) // Still depend on app, but we'll only use it for initialization
  
-  // Handle blur event - gather all current state values and call onUpdate
-  const handleBlur = (field: 'name' | 'description' | 'system_prompt' | 'avatar' | 'image' | 'max_tokens' | 'max_iterations') => {
-    // Get current value based on field name
-    const currentValue = {
-      name,
-      description,
-      system_prompt,
-      avatar,
-      image,
-      max_tokens: maxTokens,
-      max_iterations: max_iterations
-    }[field]
-    
-    // Get original value from app prop
-    const originalValue = (app[field] || '') as string
-    
-    // Only update if the value has changed
-    if (currentValue !== originalValue) {
-      // Create a new IAppFlatState with all current state values
-      const updatedApp: IAppFlatState = {
-        ...app, // Keep any properties we're not explicitly managing
-        name,
-        description,
-        system_prompt,
-        avatar,
-        image,
-        global,
-        model,
-        provider,
-        context_limit: contextLimit,
-        frequency_penalty: frequencyPenalty,
-        max_tokens: maxTokens,
-        presence_penalty: presencePenalty,
-        reasoning_effort: reasoningEffort,
-        temperature,
-        top_p: topP,
-        max_iterations: max_iterations,
-        conversation_starters: conversationStarters
-      }
-      
-      onUpdate(updatedApp)
-    }
-  }
-
-  const handleConversationStarterBlur = () => {
-    if (newStarter.trim()) {
-      const updatedStarters = [...conversationStarters, newStarter.trim()]
-      setConversationStarters(updatedStarters)
-      setNewStarter('')
-      
-      const updatedApp: IAppFlatState = {
-        ...app,
-        conversation_starters: updatedStarters
-      }
-      onUpdate(updatedApp)
-    }
-  }
-
-  const handleConversationStarterChange = (index: number, value: string) => {
-    const updatedStarters = [...conversationStarters]
-    updatedStarters[index] = value
-    setConversationStarters(updatedStarters)
-    
-    const updatedApp: IAppFlatState = {
-      ...app,
-      conversation_starters: updatedStarters
-    }
-    onUpdate(updatedApp)
-  }
-
-  const handleAddStarter = () => {
-    if (newStarter.trim()) {
-      const updatedStarters = [...conversationStarters, newStarter.trim()]
-      setConversationStarters(updatedStarters)
-      setNewStarter('')
-      
-      const updatedApp: IAppFlatState = {
-        ...app,
-        conversation_starters: updatedStarters
-      }
-      onUpdate(updatedApp)
-    }
-  }
-
-  const handleRemoveStarter = (index: number) => {
-    const updatedStarters = conversationStarters.filter((_, i) => i !== index)
-    setConversationStarters(updatedStarters)
-    
-    const updatedApp: IAppFlatState = {
-      ...app,
-      conversation_starters: updatedStarters
-    }
-    onUpdate(updatedApp)
-  }
-
   // Create debounced version of the update function
   const debouncedUpdate = useDebounce((field: 'contextLimit' | 'frequencyPenalty' | 'maxTokens' | 'presencePenalty' | 'reasoningEffort' | 'temperature' | 'topP' | 'system_prompt' | 'maxIterations', value: number | string) => {
     const updatedApp: IAppFlatState = {
       ...app,
-      name,
-      description,      
-      avatar,
-      image,
       global,
       model,
       agent_mode,
@@ -400,11 +282,6 @@ const AppSettings: FC<AppSettingsProps> = ({
     // Create updated state and call onUpdate immediately for checkboxes
     const updatedApp: IAppFlatState = {
       ...app,
-      name,
-      description,
-      system_prompt,
-      avatar,
-      image,
       global: field === 'global' ? value : global,
       agent_mode: field === 'agent_mode' ? value : agent_mode,
       model,
@@ -429,11 +306,6 @@ const AppSettings: FC<AppSettingsProps> = ({
     // Create updated state and call onUpdate immediately for pickers
     const updatedApp: IAppFlatState = {
       ...app,
-      name,
-      description,
-      system_prompt,
-      avatar,
-      image,
       global,
       model,
       provider,
@@ -570,121 +442,7 @@ const AppSettings: FC<AppSettingsProps> = ({
   };
 
   return (
-    <Box sx={{ mt: 2 }}>
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
-          Appearance
-        </Typography>
-        <TextField
-          sx={{ mb: 2 }}
-          id="app-name"
-          name="app-name"
-          error={showErrors && !name}
-          value={name}
-          disabled={readOnly}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={() => handleBlur('name')}
-          fullWidth
-          label="Name"
-          helperText="Name your app"
-        />
-        <TextField
-          sx={{ mb: 2 }}
-          id="app-description"
-          name="app-description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          onBlur={() => handleBlur('description')}
-          disabled={readOnly}
-          fullWidth
-          rows={2}
-          label="Description"
-          helperText="Enter a short description of what this app does, e.g. 'Tax filing assistant'"
-        />
-        <TextField
-          sx={{ mb: 2 }}
-          id="app-avatar"
-          name="app-avatar"
-          value={avatar}
-          onChange={(e) => setAvatar(e.target.value)}
-          onBlur={() => handleBlur('avatar')}
-          disabled={readOnly}
-          fullWidth
-          label="Avatar"
-          helperText="URL for the app's avatar image"
-        />
-        <TextField
-          sx={{ mb: 2 }}
-          id="app-image"
-          name="app-image"
-          value={image}
-          onChange={(e) => setImage(e.target.value)}
-          onBlur={() => handleBlur('image')}
-          disabled={readOnly}
-          fullWidth
-          label="Background Image"
-          helperText="URL for the app's main image"
-        />
-        {/* Conversation Starters */}
-        <Box sx={{ mb: 2 }}>
-          {/* <Typography variant="subtitle1" gutterBottom>
-            Conversation Starters
-          </Typography> */}
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Add example messages that users can click to start a conversation. These help showcase the app's capabilities.
-          </Typography>
-          {conversationStarters.map((starter, index) => (
-            <Box key={index} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-              <TextField
-                fullWidth
-                value={starter}
-                onChange={(e) => handleConversationStarterChange(index, e.target.value)}
-                onBlur={() => {
-                  const updatedApp: IAppFlatState = {
-                    ...app,
-                    conversation_starters: conversationStarters
-                  }
-                  onUpdate(updatedApp)
-                }}
-                disabled={readOnly}
-                size="small"
-              />
-              <IconButton 
-                onClick={() => handleRemoveStarter(index)}
-                disabled={readOnly}
-                sx={{ ml: 1 }}
-              >
-                <DeleteIcon />
-              </IconButton>
-            </Box>
-          ))}
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <TextField
-              fullWidth
-              label="Conversation Starter"
-              value={newStarter}
-              onChange={(e) => setNewStarter(e.target.value)}
-              onBlur={handleConversationStarterBlur}
-              onKeyPress={(e) => {
-                if (e.key === 'Enter') {
-                  handleAddStarter()
-                }
-              }}
-              disabled={readOnly}
-              size="small"
-              helperText="Add a new conversation starter to showcase the agent's capabilities"
-            />
-            <IconButton 
-              onClick={handleAddStarter}
-              disabled={readOnly || !newStarter.trim()}
-              sx={{ ml: 1, mb: 3 }}
-            >
-              <AddIcon />
-            </IconButton>
-          </Box>
-        </Box>
-      </Box>
-
+    <Box sx={{ mt: 2, pr: 2 }}>
       <Box sx={{ mb: 3 }}>
         <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
           App Configuration
@@ -701,12 +459,14 @@ const AppSettings: FC<AppSettingsProps> = ({
           id="app-instructions"
           name="app-instructions"
           value={system_prompt}
-          onChange={(e) => setSystemPrompt(e.target.value)}
-          onBlur={() => handleBlur('system_prompt')}
+          onChange={(e) => {
+            setSystemPrompt(e.target.value)
+            handleAdvancedChangeWithDebounce('system_prompt', e.target.value)
+          }}
           disabled={readOnly}
           fullWidth
           multiline
-          rows={4}
+          rows={8}
           helperText="What does this app do? How does it behave? What should it avoid doing?"
         />           
       </Box>
@@ -714,9 +474,6 @@ const AppSettings: FC<AppSettingsProps> = ({
       <Box sx={{ mb: 3 }}>
         <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
           <Box>
-            {/* <Typography variant="h6" gutterBottom>
-              Agent Mode
-            </Typography> */}
             <Typography variant="body2" color="text.secondary">
               Use a more sophisticated reasoning process with separate models for different tasks.
             </Typography>
@@ -1045,7 +802,6 @@ const AppSettings: FC<AppSettingsProps> = ({
                   setMaxIterations(value);
                   handleAdvancedChangeWithDebounce('maxIterations', value);
                 }}
-                onBlur={() => handleBlur('max_iterations')}
                 fullWidth
                 disabled={readOnly}
                 inputProps={{ min: 1 }}
@@ -1231,7 +987,6 @@ const AppSettings: FC<AppSettingsProps> = ({
               type="number"              
               value={maxTokens}
               onChange={(e) => handleAdvancedChangeWithDebounce('maxTokens', parseInt(e.target.value))}
-              onBlur={() => handleBlur('max_tokens')}
               fullWidth
               disabled={readOnly}
             />

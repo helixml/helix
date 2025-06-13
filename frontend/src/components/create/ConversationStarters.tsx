@@ -15,11 +15,13 @@ const ConversationStarters: FC<{
   layout?: LayoutType,
   header?: boolean,
   conversationStarters?: string[],
+  mini?: boolean,
 }> = ({
   onChange,
   layout = 'horizontal',
   header = true,
   conversationStarters = [],
+  mini = false,
 }) => {
   const lightTheme = useLightTheme()
   
@@ -41,52 +43,61 @@ const ConversationStarters: FC<{
         </Typography>
       )}
       {layout === 'horizontal' ? (
-        <Grid container spacing={0.5} justifyContent="center" alignItems="center" sx={{ width: 'auto', margin: 0 }}>
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: 1.5,
+            flexWrap: 'wrap',
+            width: '100%',
+            mb: 1,
+          }}
+        >
           {conversationStarters.map((prompt, index) => (
-            <Grid item xs={12} sm={6} md={3} key={index} sx={{ display: 'flex', justifyContent: 'center' }}>
-              <Box
+            <Box
+              key={index}
+              sx={{
+                width: mini ? 120 : 160,
+                height: mini ? 90 : 120,
+                minWidth: 0,
+                minHeight: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: '12px',
+                padding: mini ? 1 : 1.5,
+                fontSize: mini ? '0.8rem' : '0.95rem',
+                lineHeight: 1.3,
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                color: lightTheme.textColorFaded,
+                textAlign: 'center',
+                boxShadow: '0 2px 8px 0 rgba(0,0,0,0.04)',
+                overflow: 'hidden',
+              }}
+              onClick={() => onChange(prompt)}
+            >
+              <Typography
                 sx={{
-                  minWidth: 180,
-                  minHeight: 80,
-                  width: 180,
-                  height: 80,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  border: '1px solid rgba(255,255,255,0.2)',
-                  borderRadius: '12px',
-                  padding: 2,
-                  fontSize: '0.92rem',
-                  lineHeight: 1.4,
-                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                  color: lightTheme.textColorFaded,
-                  textAlign: 'center',
-                  boxShadow: '0 2px 8px 0 rgba(0,0,0,0.04)',
+                  width: '100%',
+                  fontSize: mini ? '0.8rem' : '0.95rem',
+                  lineHeight: '1.3',
+                  color: 'inherit',
                   overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  display: '-webkit-box',
+                  WebkitLineClamp: 3,
+                  WebkitBoxOrient: 'vertical',
+                  whiteSpace: 'normal',
                 }}
-                onClick={() => onChange(prompt)}
               >
-                <Typography
-                  sx={{
-                    width: '100%',
-                    fontSize: 'inherit',
-                    lineHeight: 'inherit',
-                    color: 'inherit',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    display: '-webkit-box',
-                    WebkitLineClamp: 3,
-                    WebkitBoxOrient: 'vertical',
-                    whiteSpace: 'normal',
-                  }}
-                >
-                  {prompt}
-                </Typography>
-              </Box>
-            </Grid>
+                {prompt}
+              </Typography>
+            </Box>
           ))}
-        </Grid>
+        </Box>
       ) : (
         <Stack spacing={0} divider={<Divider />} alignItems="stretch">
           {conversationStarters.map((prompt, index) => (

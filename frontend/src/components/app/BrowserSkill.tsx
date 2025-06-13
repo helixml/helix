@@ -103,7 +103,9 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
       // Create a copy of the app state
       const appCopy = JSON.parse(JSON.stringify(app));
 
+      // Enable the browser skill and default options
       browserConfig.enabled = true;      
+      browserConfig.markdown_post_processing = true;
       
       // Update the browser tool configuration
       appCopy.browserTool = browserConfig;

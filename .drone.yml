@@ -8,7 +8,7 @@ workspace:
 
 steps:
 - name: build-backend
-  image: golang:1.23.8-alpine3.21
+  image: golang:1.24-alpine3.21
   environment:
     GITHUB_TOKEN:
       from_secret: github_token
@@ -26,7 +26,7 @@ steps:
   depends_on: []
 
 - name: run-linter
-  image: golangci/golangci-lint:v1.62-alpine
+  image: golangci/golangci-lint:v1.64-alpine
   commands:
     - golangci-lint cache clean
     - golangci-lint run
@@ -46,7 +46,7 @@ steps:
   depends_on: []
 
 - name: unit-test
-  image: golang:1.23.8-alpine3.21
+  image: golang:1.24-alpine3.21
   environment:
     # Disabled until tested with togetherai
     DISABLE_AGENT_TESTS: "true"
@@ -79,7 +79,7 @@ steps:
   depends_on: []
 
 - name: api-integration-test
-  image: golang:1.23.8-alpine3.21
+  image: golang:1.24-alpine3.21
   environment:
     OPENAI_API_KEY:
       from_secret: openai_tools
@@ -114,7 +114,7 @@ steps:
   depends_on: [unit-test]
 
 - name: release-backend
-  image: golang:1.23.8-bullseye
+  image: golang:1.24-bullseye
   when:
     event:
     - tag
@@ -153,7 +153,7 @@ steps:
   depends_on: [build-backend, build-frontend]
 
 - name: build-operator
-  image: golang:1.23.8-alpine3.21
+  image: golang:1.24-alpine3.21
   environment:
     GITHUB_TOKEN:
       from_secret: github_token
@@ -162,7 +162,7 @@ steps:
   depends_on: []
 
 - name: run-linter-operator
-  image: golangci/golangci-lint:v1.62-alpine
+  image: golangci/golangci-lint:v1.64-alpine
   commands:
     - cd operator && golangci-lint run
   when:
@@ -647,7 +647,7 @@ trigger:
 
 steps:
 - name: smoke-test-saas
-  image: golang:1.23.8-alpine3.21
+  image: golang:1.24-alpine3.21
   environment:
     BROWSER_URL: http://chrome:7317
     SERVER_URL: https://app.tryhelix.ai
@@ -704,7 +704,7 @@ trigger:
 
 steps:
 - name: smoke-test-launchpad
-  image: golang:1.23.8-alpine3.21
+  image: golang:1.24-alpine3.21
   environment:
     BROWSER_URL: http://chrome:7317
     LAUNCHPAD_API_KEY:
