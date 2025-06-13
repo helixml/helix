@@ -9,6 +9,9 @@ import (
 	"os/signal"
 	"path/filepath"
 
+	// Register file driver
+	"gocloud.dev/blob/fileblob"
+
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
@@ -444,6 +447,20 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		defer pingService.Stop()
 	}
 
+	// Ensure the directory exists
+	err = os.MkdirAll(filepath.Join(cfg.FileStore.AvatarsPath, "avatars"), 0755)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to create avatars directory, app avatars will not be saved")
+	}
+
+	// avatarsBucket, err := blob.OpenBucket(ctx, cfg.FileStore.AvatarsPath)
+	avatarsBucket, err := fileblob.OpenBucket(cfg.FileStore.AvatarsPath, &fileblob.Options{
+		NoTempDir: true,
+	})
+	if err != nil {
+		return err
+	}
+
 	server, err := server.NewServer(
 		cfg,
 		postgresStore,
@@ -459,6 +476,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		scheduler,
 		pingService,
 		oauthManager,
+		avatarsBucket,
 	)
 	if err != nil {
 		return err
