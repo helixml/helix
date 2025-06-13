@@ -359,9 +359,9 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
         backgroundSize: (app.config.helix.image || image) ? 'cover' : 'auto',
         p: 0,
         minHeight: 0,
-        height: '80px',
+        height: '40px',
         alignItems: 'center',
-        justifyContent: 'flex-start',
+        justifyContent: 'space-between',
       }}
     >
       {(app.config.helix.image || image) && (
@@ -379,8 +379,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
       )}
       <Cell
         sx={{
-          pt: 0.5,
-          px: 3,
+          px: 2,
           position: 'relative',
           zIndex: 2,
           display: 'flex',
@@ -392,15 +391,42 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
       </Cell>
       <Cell
         sx={{
-          position: 'absolute',
-          top: 8,
-          right: 16,
+          position: 'relative',
           zIndex: 2,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2,
+          pr: 2,          
         }}
       >
-        <Typography variant="caption" sx={{ color: 'white', fontWeight: 'bold' }}>
-          Preview
-        </Typography>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={isSearchMode}
+              onChange={handleSearchModeChange}
+              color="primary"
+              size="small"
+            />
+          }
+          label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
+          sx={{ color: 'white', margin: 0, alignItems: 'center', display: 'flex' }}
+        />
+        {session && !isSearchMode && (
+          <Tooltip title="Start new conversation">
+            <IconButton 
+              onClick={handleResetSession}
+              size="small"
+              sx={{ 
+                color: 'white',
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                }
+              }}
+            >
+              <CreateIcon />
+            </IconButton>
+          </Tooltip>
+        )}
       </Cell>
     </Row>
   );
@@ -418,9 +444,6 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
         borderRight: '1px solid #303047',
         borderBottom: '1px solid #303047',
         overflow: 'hidden',
-        // Not sure why we need to set this to
-        // 8 to achieve the same rounded corners as the
-        // tab contents in App.tsx (there they are 2)
         borderTopRightRadius: 8,
         borderBottomRightRadius: 8,
       }}
@@ -443,72 +466,45 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
       {app ? inferenceHeader : (
         <Box
           sx={{
-            p: 2,
-            flexShrink: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            position: 'relative',
-            zIndex: 2,
+            p: 0,
+            display: 'flex',            
+            justifyContent: 'space-between',
             backgroundColor: 'rgba(0, 0, 0, 0.5)',
           }}
         >         
-          <Avatar
-            src={avatar}
-            sx={{
-              width: 80,
-              height: 80,
-              mb: 2,
-              mt: 2,
-              border: '2px solid #fff',
-            }}
+          <FormControlLabel
+            sx={{ color: 'white', ml: 2, mt: 2 }}
+            control={
+              <Switch
+                checked={isSearchMode}
+                onChange={handleSearchModeChange}
+                color="primary"
+                size="small"
+              />
+            }
+            label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
+            
           />
+          {session && !isSearchMode && (
+            <Tooltip title="Start new conversation">
+              <IconButton 
+                onClick={handleResetSession}
+                size="small"
+                sx={{
+                  mt: 2,
+                  mr: 2,
+                  color: 'white',
+                  '&:hover': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  }
+                }}
+              >
+                <CreateIcon />
+              </IconButton>
+            </Tooltip>
+          )}
         </Box>
       )}
-
-      {/* Search Mode Toggle */}
-      <Box
-        sx={{
-          px: 2,
-          py: 1,
-          flexShrink: 0,
-          position: 'relative',
-          zIndex: 2,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          gap: 1,
-        }}
-      >
-        <FormControlLabel
-          control={
-            <Switch
-              checked={isSearchMode}
-              onChange={handleSearchModeChange}
-              color="primary"
-            />
-          }
-          label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
-          sx={{ color: 'white' }}
-        />
-        {session && !isSearchMode && (
-          <Tooltip title="Start new conversation">
-            <IconButton 
-              onClick={handleResetSession}
-              size="small"
-              sx={{ 
-                color: 'white',
-                '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                }
-              }}
-            >
-              <CreateIcon />
-            </IconButton>
-          </Tooltip>
-        )}
-      </Box>
 
       {/* Scrollable Results Area */}
       <Box
@@ -620,7 +616,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
                     {session ? (
                       <Box
                         sx={{
-                          height: 'calc(100vh - 400px)', // Account for header and input areas
+                          height: 'calc(100vh - 200px)', // Account for header and input areas
                           minHeight: '500px',
                           maxHeight: '100%',
                           overflow: 'hidden',
