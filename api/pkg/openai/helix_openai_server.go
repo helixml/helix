@@ -44,6 +44,11 @@ func (c *InternalHelixServer) ListModels(ctx context.Context) ([]types.OpenAIMod
 	}
 	var models []types.OpenAIModel
 	for _, model := range helixModels {
+		// Skip embedding models as they should not appear in chat model pickers
+		if model.Type == types.ModelTypeEmbed {
+			continue
+		}
+
 		models = append(models, types.OpenAIModel{
 			ID:            model.ID,
 			Object:        "model",

@@ -35,14 +35,28 @@ func (s *PostgresStore) seedModels(ctx context.Context) error {
 func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 	ollamaModels, _ := model.GetDefaultOllamaModels()
 
-	for _, model := range ollamaModels {
+	for i, model := range ollamaModels {
 		// Check if model already exists
 		existingModel, err := s.GetModel(ctx, model.ID)
 		if err != nil && err != ErrNotFound {
 			return err
 		}
 
+		// Determine sort order - llama3.1:8b-instruct-q8_0 gets priority
+		sortOrder := i + 10 // Default sort order based on position in list + offset
+		if model.ID == "llama3.1:8b-instruct-q8_0" {
+			sortOrder = 1 // Top priority
+		}
+
 		if existingModel != nil {
+			// Update existing model if it doesn't have sort_order set
+			if existingModel.SortOrder == 0 {
+				existingModel.SortOrder = sortOrder
+				_, err = s.UpdateModel(ctx, existingModel)
+				if err != nil {
+					log.Err(err).Str("model_id", model.ID).Msg("failed to update existing ollama model sort_order")
+				}
+			}
 			continue
 		}
 
@@ -57,6 +71,7 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 			Description:   model.Description,
 			Hide:          model.Hide,
 			Enabled:       true,
+			SortOrder:     sortOrder,
 		}
 
 		_, err = s.CreateModel(ctx, m)
@@ -71,7 +86,7 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 func (s *PostgresStore) seedDiffusersModels(ctx context.Context) error {
 	diffusersModels, _ := model.GetDefaultDiffusersModels()
 
-	for _, model := range diffusersModels {
+	for i, model := range diffusersModels {
 		// Check if model already exists
 		existingModel, err := s.GetModel(ctx, model.ID)
 		if err != nil && err != ErrNotFound {
@@ -79,6 +94,14 @@ func (s *PostgresStore) seedDiffusersModels(ctx context.Context) error {
 		}
 
 		if existingModel != nil {
+			// Update existing model if it doesn't have sort_order set
+			if existingModel.SortOrder == 0 {
+				existingModel.SortOrder = i + 200 // Diffusers models get 200+ range
+				_, err = s.UpdateModel(ctx, existingModel)
+				if err != nil {
+					log.Err(err).Str("model_id", model.ID).Msg("failed to update existing diffusers model sort_order")
+				}
+			}
 			continue
 		}
 
@@ -92,7 +115,8 @@ func (s *PostgresStore) seedDiffusersModels(ctx context.Context) error {
 			Description:   model.Description,
 			Hide:          model.Hide,
 			Enabled:       true,
-			ContextLength: 0, // Image models don't have context length
+			ContextLength: 0,       // Image models don't have context length
+			SortOrder:     i + 200, // Diffusers models get 200+ range
 		}
 
 		_, err = s.CreateModel(ctx, m)
@@ -107,14 +131,46 @@ func (s *PostgresStore) seedDiffusersModels(ctx context.Context) error {
 func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 	vllmModels, _ := model.GetDefaultVLLMModels()
 
-	for _, model := range vllmModels {
+	for i, model := range vllmModels {
 		// Check if model already exists
 		existingModel, err := s.GetModel(ctx, model.ID)
 		if err != nil && err != ErrNotFound {
 			return err
 		}
 
+		// Determine model type based on the args
+		modelType := types.ModelTypeChat // Default to chat
+		for _, arg := range model.Args {
+			if arg == "embed" {
+				modelType = types.ModelTypeEmbed
+				break
+			}
+		}
+
+		// Determine sort order - embedding models get higher numbers (lower priority)
+		sortOrder := i + 100 // Start VLLM models at 100+ to come after Ollama models
+		if modelType == types.ModelTypeEmbed {
+			sortOrder = i + 1000 // Embedding models get even higher numbers
+		}
+
 		if existingModel != nil {
+			// Update existing model if it needs corrections
+			needsUpdate := false
+			if existingModel.SortOrder == 0 {
+				existingModel.SortOrder = sortOrder
+				needsUpdate = true
+			}
+			if existingModel.Type != modelType {
+				existingModel.Type = modelType
+				needsUpdate = true
+			}
+
+			if needsUpdate {
+				_, err = s.UpdateModel(ctx, existingModel)
+				if err != nil {
+					log.Err(err).Str("model_id", model.ID).Msg("failed to update existing vllm model")
+				}
+			}
 			continue
 		}
 
@@ -122,13 +178,14 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 		m := &types.Model{
 			ID:            model.ID,
 			Name:          model.Name,
-			Type:          types.ModelTypeChat, // Assuming VLLM models are for chat
+			Type:          modelType,
 			Runtime:       types.RuntimeVLLM,
 			ContextLength: model.ContextLength,
 			Memory:        model.Memory,
 			Description:   model.Description,
 			Hide:          model.Hide,
 			Enabled:       true,
+			SortOrder:     sortOrder,
 		}
 
 		_, err = s.CreateModel(ctx, m)
@@ -245,7 +302,7 @@ func (s *PostgresStore) ListModels(ctx context.Context, q *ListModelsQuery) ([]*
 		query = query.Where("enabled = ?", *q.Enabled)
 	}
 
-	err := query.Order("created DESC").Find(&models).Error
+	err := query.Order("sort_order ASC, created DESC").Find(&models).Error
 	if err != nil {
 		return nil, err
 	}
