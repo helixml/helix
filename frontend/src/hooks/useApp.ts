@@ -623,6 +623,14 @@ export const useApp = (appId: string) => {
   }
   
   /**
+   * Handles session updates from multi-turn conversations
+   * @param updatedSession - The updated session data
+   */
+  const onSessionUpdate = useCallback((updatedSession: ISession) => {
+    session.setData(updatedSession)
+  }, [session])
+  
+  /**
    * Searches knowledge within the app
    * @param query - Search query to execute
    */
@@ -932,6 +940,7 @@ export const useApp = (appId: string) => {
     // Search & inference
     searchResults,
     onInference,
+    onSessionUpdate,
     onSearch,
 
     // Access grant state and methods

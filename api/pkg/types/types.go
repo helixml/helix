@@ -1245,13 +1245,14 @@ type TestStep struct {
 }
 
 type AppHelixConfig struct {
-	Name        string            `json:"name,omitempty" yaml:"name,omitempty"`
-	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
-	Avatar      string            `json:"avatar,omitempty" yaml:"avatar,omitempty"`
-	Image       string            `json:"image,omitempty" yaml:"image,omitempty"`
-	ExternalURL string            `json:"external_url,omitempty" yaml:"external_url,omitempty"`
-	Assistants  []AssistantConfig `json:"assistants,omitempty" yaml:"assistants,omitempty"`
-	Triggers    []Trigger         `json:"triggers,omitempty" yaml:"triggers,omitempty"`
+	Name              string            `json:"name,omitempty" yaml:"name,omitempty"`
+	Description       string            `json:"description,omitempty" yaml:"description,omitempty"`
+	Avatar            string            `json:"avatar,omitempty" yaml:"avatar,omitempty"`
+	AvatarContentType string            `json:"avatar_content_type,omitempty" yaml:"avatar_content_type,omitempty"`
+	Image             string            `json:"image,omitempty" yaml:"image,omitempty"`
+	ExternalURL       string            `json:"external_url,omitempty" yaml:"external_url,omitempty"`
+	Assistants        []AssistantConfig `json:"assistants,omitempty" yaml:"assistants,omitempty"`
+	Triggers          []Trigger         `json:"triggers,omitempty" yaml:"triggers,omitempty"`
 }
 
 type AppHelixConfigMetadata struct {

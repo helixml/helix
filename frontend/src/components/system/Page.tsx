@@ -73,6 +73,7 @@ const Page: React.FC<{
         display: 'flex',
         flexDirection: 'row',
         alignItems: 'center',
+        gap: '4px',
       }}
     >
       {
@@ -83,7 +84,11 @@ const Page: React.FC<{
               component="span"
               key={ index }
               sx={{
-                fontSize: '1rem', // Changed this line to make all items the same size
+                display: 'flex',
+                alignItems: 'center',
+                fontSize: '0.875rem',
+                color: isLast ? lightTheme.textColor : lightTheme.textColor + '99',
+                fontWeight: isLast ? 500 : 400,
               }}
             >
               {
@@ -92,8 +97,12 @@ const Page: React.FC<{
                     component="a"
                     sx={{
                       cursor: 'pointer',
-                      color: lightTheme.textColor,
-                      textDecoration: 'underline',
+                      color: 'inherit',
+                      textDecoration: 'none',
+                      transition: 'color 0.2s ease',
+                      '&:hover': {
+                        color: lightTheme.textColor,
+                      },
                     }}
                     onClick={ () => {
                       if(orgBreadcrumbs) {
@@ -101,14 +110,24 @@ const Page: React.FC<{
                       } else {
                         router.navigate(breadcrumb.routeName || '', breadcrumb.params || {}) 
                       }
-                      
                     }}
                   >
                     { breadcrumb.title }
                   </Link>
                 ) : breadcrumb.title
               }
-              { index < useBreadcrumbTitles.length - 1 ? <>&nbsp;&nbsp;&gt;&nbsp;&nbsp;</> : '' }
+              { index < useBreadcrumbTitles.length - 1 ? (
+                <Box
+                  component="span"
+                  sx={{
+                    mx: '4px',
+                    color: lightTheme.textColor + '66',
+                    fontSize: '0.75rem',
+                  }}
+                >
+                  /
+                </Box>
+              ) : null }
             </Box>
           )
         })

@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
+	"gocloud.dev/blob"
 
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
@@ -84,6 +85,7 @@ type HelixAPIServer struct {
 	oauthManager      *oauth.Manager
 	fileServerHandler http.Handler
 	cache             *ristretto.Cache[string, string]
+	avatarsBucket     *blob.Bucket
 }
 
 func NewServer(
@@ -101,6 +103,7 @@ func NewServer(
 	scheduler *scheduler.Scheduler,
 	pingService *version.PingService,
 	oauthManager *oauth.Manager,
+	avatarsBucket *blob.Bucket,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -201,6 +204,7 @@ func NewServer(
 		oauthManager:      oauthManager,
 		fileServerHandler: http.FileServer(neuteredFileSystem{http.Dir(cfg.FileStore.LocalFSPath)}),
 		cache:             cache,
+		avatarsBucket:     avatarsBucket,
 	}, nil
 }
 
@@ -386,6 +390,12 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/apps/{id}/access-grants", apiServer.listAppAccessGrants).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps/{id}/access-grants", apiServer.createAppAccessGrant).Methods(http.MethodPost)
 	authRouter.HandleFunc("/apps/{id}/access-grants/{grant_id}", apiServer.deleteAppAccessGrant).Methods(http.MethodDelete)
+
+	// Avatar routes
+	authRouter.HandleFunc("/apps/{id}/avatar", apiServer.uploadAppAvatar).Methods(http.MethodPost)
+	authRouter.HandleFunc("/apps/{id}/avatar", apiServer.deleteAppAvatar).Methods(http.MethodDelete)
+	// Anyone can get the avatar
+	insecureRouter.HandleFunc("/apps/{id}/avatar", apiServer.getAppAvatar).Methods(http.MethodGet)
 
 	// Template app routes
 	authRouter.HandleFunc("/template-apps", system.DefaultWrapper(apiServer.listTemplateApps)).Methods(http.MethodGet)

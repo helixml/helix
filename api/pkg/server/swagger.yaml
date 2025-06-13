@@ -636,6 +636,8 @@ definitions:
         type: array
       avatar:
         type: string
+      avatar_content_type:
+        type: string
       description:
         type: string
       external_url:
@@ -3131,6 +3133,79 @@ paths:
       security:
       - BearerAuth: []
       summary: Run an API action
+  /api/v1/apps/{id}/avatar:
+    delete:
+      description: Delete the app's avatar image
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Delete app avatar
+      tags:
+      - apps
+    post:
+      consumes:
+      - text/plain
+      description: Upload a base64 encoded image as the app's avatar
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Base64 encoded image data
+        in: body
+        name: image
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Upload app avatar
+      tags:
+      - apps
   /api/v1/apps/{id}/daily-usage:
     get:
       consumes:

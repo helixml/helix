@@ -86,28 +86,36 @@ func (b *Browser) GetBrowser() (*rod.Browser, error) {
 }
 
 func (b *Browser) getFromPool() (*rod.Browser, error) {
+	log.Info().Msg("Getting browser from pool")
 	browser, err := b.pool.Get(b.getBrowser)
 	if err != nil {
 		return nil, err
 	}
 
+	log.Info().Msg("Browser from pool")
+
 	return browser, nil
 }
 func (b *Browser) getBrowser() (*rod.Browser, error) {
 	if b.launcher != nil {
+		log.Info().Msg("Getting client from launcher")
 		client, err := b.launcher.Client()
 		if err != nil {
 			return nil, fmt.Errorf("error getting launcher client: %w", err)
 		}
 
+		log.Info().Msg("Creating new browser")
+
 		// Setup browser with the client
 		browser := rod.New().Client(client)
 
+		log.Info().Msg("Connecting to browser")
 		// Connect to the browser
 		err = browser.Connect()
 		if err != nil {
 			return nil, fmt.Errorf("error connecting to browser: %w", err)
 		}
+		log.Info().Msg("Browser connected")
 		return browser, nil
 	}
 

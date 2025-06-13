@@ -3,6 +3,7 @@ package skill
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
@@ -120,50 +121,86 @@ func (t *BrowserTool) OpenAI() []openai.Tool {
 }
 
 // TODO: write in the context
-func (t *BrowserTool) Execute(_ context.Context, _ agent.Meta, args map[string]interface{}) (string, error) {
+func (t *BrowserTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
 	url, ok := args["url"].(string)
 	if !ok {
 		return "", fmt.Errorf("url is required")
 	}
 
-	log.Info().Str("url", url).Msg("Executing browser tool")
+	log.Info().Str("url", url).
+		Str("user_id", meta.UserID).
+		Str("session_id", meta.SessionID).
+		Str("interaction_id", meta.InteractionID).
+		Str("app_id", meta.AppID).
+		Msg("Executing browser tool")
 
-	b, err := t.browser.GetBrowser()
-	if err != nil {
-		return "", fmt.Errorf("error getting browser: %w", err)
-	}
-	defer func() {
-		if err := t.browser.PutBrowser(b); err != nil {
-			log.Warn().Err(err).Msg("error putting browser")
+	var (
+		respCh = make(chan string, 1)
+		errCh  = make(chan error, 1)
+	)
+
+	go func() {
+		b, err := t.browser.GetBrowser()
+		if err != nil {
+			errCh <- fmt.Errorf("error getting browser: %w", err)
+			return
 		}
+		defer func() {
+			if err := t.browser.PutBrowser(b); err != nil {
+				log.Warn().Err(err).Msg("error putting browser")
+			}
+		}()
+
+		page, err := t.browser.GetPage(b, proto.TargetCreateTarget{URL: url})
+		if err != nil {
+			errCh <- fmt.Errorf("error getting page for %s: %w", url, err)
+			return
+		}
+		defer t.browser.PutPage(page)
+
+		err = page.WaitLoad()
+		if err != nil {
+			errCh <- fmt.Errorf("error waiting for page to load for %s: %w", url, err)
+			return
+		}
+
+		html, err := page.HTML()
+		if err != nil {
+			errCh <- fmt.Errorf("error getting HTML for %s: %w", url, err)
+			return
+		}
+
+		if t.config.MarkdownPostProcessing {
+			markdown, err := t.converter.ConvertString(html)
+			if err != nil {
+				log.Warn().Err(err).Msg("error converting HTML to markdown")
+				// Return the HTML as is, we can't do anything about it
+				respCh <- html
+				return
+			}
+
+			respCh <- markdown
+			return
+		}
+
+		respCh <- html
 	}()
 
-	page, err := t.browser.GetPage(b, proto.TargetCreateTarget{URL: url})
-	if err != nil {
-		return "", fmt.Errorf("error getting page for %s: %w", url, err)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		log.Warn().Str("url", url).
+			Str("user_id", meta.UserID).
+			Str("session_id", meta.SessionID).
+			Str("interaction_id", meta.InteractionID).
+			Str("app_id", meta.AppID).
+			Msg("timeout while browsing the web")
+		return "", fmt.Errorf("timeout while browsing the web")
+	case err := <-errCh:
+		return "", err
+	case resp := <-respCh:
+		return resp, nil
 	}
-	defer t.browser.PutPage(page)
-
-	err = page.WaitLoad()
-	if err != nil {
-		return "", fmt.Errorf("error waiting for page to load for %s: %w", url, err)
-	}
-
-	html, err := page.HTML()
-	if err != nil {
-		return "", fmt.Errorf("error getting HTML for %s: %w", url, err)
-	}
-
-	if t.config.MarkdownPostProcessing {
-		markdown, err := t.converter.ConvertString(html)
-		if err != nil {
-			log.Warn().Err(err).Msg("error converting HTML to markdown")
-			// Return the HTML as is, we can't do anything about it
-			return html, nil
-		}
-
-		return markdown, nil
-	}
-
-	return html, nil
 }

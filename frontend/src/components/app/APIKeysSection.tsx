@@ -58,19 +58,6 @@ const APIKeysSection: React.FC<APIKeysSectionProps> = ({
           onDeleteKey={onDeleteKey}
         />
       </Box>
-      <Typography variant="subtitle1" sx={{ mt: 4 }}>
-        Allowed Domains (website widget)
-      </Typography>
-      <Typography variant="caption" sx={{lineHeight: '1', color: '#999', padding: '8px 0'}}>
-        The domain where your app is hosted. http://localhost and http://localhost:port are always allowed.
-        Ensures the website chat widget can work for your custom domain.
-      </Typography>
-      <StringArrayEditor
-        entityTitle="domain"
-        disabled={isReadOnly}
-        data={allowedDomains}
-        onChange={setAllowedDomains}
-      />
     </Box>
   );
 };
