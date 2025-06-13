@@ -1271,7 +1271,7 @@ func (s *HelixAPIServer) getAppAvatar(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	rw.Header().Set("Content-Type", contentType)
-	rw.Header().Set("Cache-Control", "public, max-age=60") // Cache for 1 minute
+	rw.Header().Set("Cache-Control", "no-cache")
 	_, _ = rw.Write(data)
 }
 
