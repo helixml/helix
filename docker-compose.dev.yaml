@@ -128,7 +128,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-postgres}
   keycloak:
-    image: quay.io/keycloak/keycloak:23.0
+    image: registry.helixml.tech/helix/keycloak:latest
     restart: always
     environment:
       - KC_DB=postgres
@@ -143,6 +143,13 @@ services:
       - KC_HTTP_RELATIVE_PATH=/auth/
       - KC_HOSTNAME_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth/}
       - KC_HOSTNAME_ADMIN_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost:8080/auth/}
+      # Theme development settings - disable caching
+      - KC_SPI_THEME_CACHE_THEMES=false
+      - KC_SPI_THEME_CACHE_TEMPLATES=false
+      - KC_SPI_THEME_STATIC_MAX_AGE=-1
+    volumes:
+      # Mount themes directory for development
+      - ./themes:/opt/keycloak/themes
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e \"GET /auth/health/ready HTTP/1.1\r\nhost: http://localhost\r\nConnection: close\r\n\r\n\" >&3;grep \"HTTP/1.1 200 OK\" <&3"]
       interval: 5s

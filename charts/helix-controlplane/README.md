@@ -6,12 +6,18 @@
 
 Helix uses keycloak for authentication. If you have one already, you can skip this step. Otherwise, to install one through Helm ([chart info](https://bitnami.com/stack/keycloak/helm), [repo](https://github.com/bitnami/charts/tree/main/bitnami/keycloak/#installing-the-chart)), do this:
 
-Some of the values:
+**Note:** Helix includes a custom Keycloak image with the Helix theme pre-installed. Use the following configuration:
 
 ```bash
+export LATEST_RELEASE=$(curl -s https://get.helixml.tech/latest.txt)
+
 helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
+  --version "24.3.1" \
   --set auth.adminUser=admin \
   --set auth.adminPassword=oh-hallo-insecure-password \
+  --set image.registry=registry.helixml.tech \
+  --set image.repository=helix/keycloak \
+  --set image.tag="${LATEST_RELEASE}" \
   --set httpRelativePath="/auth/" 
 ```
 
@@ -24,9 +30,15 @@ kubectl expose pod keycloak-0 --port 8888 --target-port 8080 --name keycloak-ext
 Alternatively, if you run on k3s:
 
 ```
+export LATEST_RELEASE=$(curl -s https://get.helixml.tech/latest.txt)
+
 helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
+  --version "24.3.1" \
   --set auth.adminUser=admin \
   --set auth.adminPassword=oh-hallo-insecure-password \
+  --set image.registry=registry.helixml.tech \
+  --set image.repository=helix/keycloak \
+  --set image.tag="${LATEST_RELEASE}" \
   --set httpRelativePath="/auth/" \
   --set service.type=LoadBalancer \
   --set service.ports.http=8888
