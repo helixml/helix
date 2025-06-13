@@ -29,7 +29,6 @@ import useThemeConfig from '../../hooks/useThemeConfig'
 
 import {
   ISession,
-  ISessionSummary,
 } from '../../types'
 
 import useRouter from '../../hooks/useRouter'
@@ -210,7 +209,9 @@ export const SessionToolbar: FC<{
             )}
           </Box>
           <Typography variant="caption" sx={{ color: 'gray' }}>
-            Created on {new Date(session.created).toLocaleDateString()} {/* Adjust date formatting as needed */}
+            Created on <Tooltip title={new Date(session.created).toLocaleString()}>
+              <Box component="span" sx={{  }}>{new Date(session.created).toLocaleDateString()}</Box>
+            </Tooltip>
             {app && (
               <>
                 &nbsp;| App: <Link 
@@ -240,8 +241,9 @@ export const SessionToolbar: FC<{
         isBigScreen ? (
           <Box sx={{ alignItems: 'center' }}>
             <Row>
+              {/* TODO: reenable once implemented */}
               {/* "Share Session" is the first item if `isOwner` is true */}
-              {isOwner && (
+              {/* {isOwner && (
                 <Cell>
                   <Tooltip title="Share Session">
                     <IconButton
@@ -261,10 +263,11 @@ export const SessionToolbar: FC<{
                     </IconButton>
                   </Tooltip>
                 </Cell>
-              )}
+              )} */}
             
               {/* The rest of the icons follow */}
-              <Cell>
+              {/* TODO: reenable once implemented (file sharing) */}
+              {/* <Cell>
                 <Tooltip title="Files">
                   <IconButton
                     onClick={(e) => {
@@ -284,7 +287,7 @@ export const SessionToolbar: FC<{
                     <FolderOpenIcon />
                   </IconButton>
                 </Tooltip>
-              </Cell>
+              </Cell> */}
               <Cell>
                 <JsonWindowLink data={session}>
                   <Tooltip title="Show Info">

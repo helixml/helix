@@ -76,7 +76,7 @@ const CUSTOM_API_SKILL: ISkill = {
   id: 'new-custom-api',
   icon: <ApiIcon />,
   name: 'New API',
-  description: 'Add your own custom API integration. Any HTTP endpoint can become a skill for your agent.',
+  description: 'Add your own OpenAPI based integration. Any HTTP endpoint can become a skill for your agent.',
   type: SKILL_TYPE_HTTP_API,
   skill: {
     name: 'Custom API',
@@ -172,6 +172,14 @@ const Skills: React.FC<SkillsProps> = ({
     if (skillToDisable) {
       const skill = allSkills.find(s => s.name === skillToDisable);
       if (skill) {
+        // If skill is Browser, we need to disable the browser tool
+        if (skill.name === 'Browser') {
+          await onUpdate({
+            ...app,
+            browserTool: { enabled: false, markdown_post_processing: false },
+          });
+          return
+        }
         // Remove the tool from app.apiTools
         const updatedTools = app.apiTools?.filter(tool => tool.name !== skill.name) || [];
         
@@ -259,7 +267,7 @@ const Skills: React.FC<SkillsProps> = ({
   return (
     <Box sx={{ mt: 2, mr: 4 }}>
       <Typography variant="h6" sx={{ mb: 2 }}>
-        Skills
+        💡 Skills
       </Typography>
       {/* Add a paragraph with info about skills */}
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -315,6 +323,9 @@ const Skills: React.FC<SkillsProps> = ({
                     transition: 'all 0.2s',
                     boxShadow: 2,
                     opacity: isEnabled ? 1 : 0.7,
+                    borderStyle: 'dashed',
+                    borderWidth: 1,
+                    borderColor: 'divider',
                     '&:hover': {
                       transform: isEnabled ? 'translateY(-4px)' : 'none',
                       boxShadow: isEnabled ? 4 : 2,
