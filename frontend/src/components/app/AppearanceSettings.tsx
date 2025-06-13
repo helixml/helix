@@ -125,9 +125,9 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
         setAvatarUpdateKey(prev => prev + 1)
                 
         await apps.loadApp(id)
-        // After loading the app, update the parent component's state
         const updatedApp = await apps.app
         if (updatedApp) {
+          console.log('updated app', updatedApp)
           onUpdate(updatedApp)
         }
       } catch (error) {
@@ -213,9 +213,10 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
                 },
               }}
               onClick={handleAvatarClick}
-            >
+            >              
               <Avatar
-                src={app.avatar ? `/api/v1/apps/${id}/avatar?t=${avatarUpdateKey}` : `/img/logo.png`}
+                src={app.avatar ? `/api/v1/apps/${id}/avatar?t=${avatarUpdateKey}` : `/img/logo.png?t=${avatarUpdateKey}`}
+                // src={`/api/v1/apps/${id}/avatar?t=${avatarUpdateKey}`}
                 sx={{
                   width: 200,
                   height: 200,
