@@ -191,7 +191,7 @@ services:
     POSTGRES_PASSWORD: postgres
     POSTGRES_DB: postgres
 - name: keycloak
-  image: registry.helixml.tech/helix/keycloak:latest
+  image: quay.io/keycloak/keycloak:23.0
   command: ["start-dev"]
   environment:
     KC_DB: postgres
