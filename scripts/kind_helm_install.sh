@@ -49,12 +49,15 @@ kind create cluster --name $CLUSTER_NAME
 echo "Setting kubectl context to $CLUSTER_NAME..."
 kubectl cluster-info --context kind-$CLUSTER_NAME
 
-# Install Keycloak using Helm
+# Install Keycloak using Helm with custom Helix image
+export KEYCLOAK_VERSION=${HELIX_VERSION:-$(curl -s https://get.helixml.tech/latest.txt)}
 helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
   --version "24.3.1" \
   --set auth.adminUser=admin \
   --set auth.adminPassword=oh-hallo-insecure-password \
-  --set image.tag="23.0.7" \
+  --set image.registry=registry.helixml.tech \
+  --set image.repository=helix/keycloak \
+  --set image.tag="${KEYCLOAK_VERSION}" \
   --set httpRelativePath="/auth/"
 
 # Wait for pod to exist

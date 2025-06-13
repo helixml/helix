@@ -128,7 +128,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-postgres}
   keycloak:
-    image: quay.io/keycloak/keycloak:23.0
+    image: registry.helixml.tech/helix/keycloak:latest
     restart: always
     environment:
       - KC_DB=postgres
