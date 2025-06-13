@@ -62,7 +62,7 @@ const App: FC = () => {
 
   const [searchParams, setSearchParams] = useState(() => new URLSearchParams(window.location.search));
   const [isSearchMode, setIsSearchMode] = useState(() => searchParams.get('isSearchMode') === 'true');
-  const [tabValue, setTabValue] = useState(() => searchParams.get('tab') || 'settings');
+  const [tabValue, setTabValue] = useState(() => searchParams.get('tab') || 'appearance');
 
   /**
    * Handles tab change in the app interface
