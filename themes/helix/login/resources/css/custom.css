@@ -976,17 +976,3 @@ body:has(#kc-logout) #kc-info-wrapper,
 body:has(#kc-logout) #kc-info-message {
     display: none !important;
 }
-
-/* Add a development indicator */
-body::before {
-    content: "🚧 DEVELOPMENT THEME ACTIVE 🚧";
-    position: fixed;
-    top: 0;
-    right: 0;
-    background: #ff6b6b;
-    color: white;
-    padding: 5px 10px;
-    font-size: 12px;
-    font-weight: bold;
-    z-index: 9999;
-} 
