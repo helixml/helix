@@ -624,15 +624,32 @@ hr {
 }
 
 /* Reset password form specific styling */
-#kc-reset-password-form .form-group {
+#kc-reset-password-form {
     width: 100% !important;
+    max-width: 100% !important;
+}
+
+#kc-reset-password-form .form-group {
+    width: 620px !important;
     margin-bottom: 30px !important;
 }
 
-#kc-reset-password-form input[type="text"] {
+#kc-reset-password-form input[type="text"],
+#kc-reset-password-form input[type="email"] {
     width: 100% !important;
     max-width: 100% !important;
     box-sizing: border-box !important;
+}
+
+#kc-reset-password-form .form-actions {
+    width: 100% !important;
+}
+
+#kc-reset-password-form .reset-password-actions {
+    width: 620px !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
 }
 
 /* Reset password page styling */
