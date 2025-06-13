@@ -27,8 +27,8 @@ type Browser struct {
 	cfg *config.ServerConfig
 
 	// Used when launcher is setup
-	pool     rod.Pool[rod.Browser]
-	launcher *launcher.Launcher
+	browserPool rod.Pool[rod.Browser]
+	launcher    *launcher.Launcher
 
 	// Used when launcher is not setup
 	browser *rod.Browser
@@ -47,14 +47,14 @@ func New(cfg *config.ServerConfig) (*Browser, error) {
 		pagePoolSize = defaultPagePoolSize
 	}
 
-	pool := rod.NewBrowserPool(browserPoolSize)
+	browserPool := rod.NewBrowserPool(browserPoolSize)
 	pagePool := rod.NewPagePool(pagePoolSize)
 
 	b := &Browser{
-		ctx:      context.Background(),
-		cfg:      cfg,
-		pool:     pool,
-		pagePool: pagePool,
+		ctx:         context.Background(),
+		cfg:         cfg,
+		browserPool: browserPool,
+		pagePool:    pagePool,
 	}
 
 	// If launcher is not enabled (using chrome directly, connect to existing browser)
@@ -77,6 +77,11 @@ func New(cfg *config.ServerConfig) (*Browser, error) {
 	return b, nil
 }
 
+// Close closes the browser and all associated pages
+func (b *Browser) Close() {
+	b.browserPool.Cleanup(func(browser *rod.Browser) { browser.MustClose() })
+}
+
 func (b *Browser) GetBrowser() (*rod.Browser, error) {
 	if b.cfg.RAG.Crawler.LauncherEnabled {
 		return b.getFromPool()
@@ -87,7 +92,7 @@ func (b *Browser) GetBrowser() (*rod.Browser, error) {
 
 func (b *Browser) getFromPool() (*rod.Browser, error) {
 	log.Info().Msg("Getting browser from pool")
-	browser, err := b.pool.Get(b.getBrowser)
+	browser, err := b.browserPool.Get(b.getBrowser)
 	if err != nil {
 		return nil, err
 	}
@@ -172,8 +177,8 @@ func (b *Browser) PutBrowser(browser *rod.Browser) error {
 		return nil
 	}
 
-	b.pool.Put(browser)
-	b.pool.Cleanup(func(browser *rod.Browser) { browser.MustClose() })
+	b.browserPool.Put(browser)
+	// b.browserPool.Cleanup(func(browser *rod.Browser) { browser.MustClose() })
 	return nil
 }
 

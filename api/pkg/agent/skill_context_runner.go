@@ -16,16 +16,18 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-func MessageWhenToolError(toolCallID string) *openai.ChatCompletionMessage {
+func MessageWhenToolError(errorString string, toolCallID string) *openai.ChatCompletionMessage {
 	// return openai.ToolMessage("Error occurred while running. Do not retry", toolCallID)
 	return &openai.ChatCompletionMessage{
+		Role:       openai.ChatMessageRoleTool,
 		ToolCallID: toolCallID,
-		Content:    "Error occurred while running. Do not retry",
+		Content:    fmt.Sprintf("Error '%s' occurred while running. Do not retry", errorString),
 	}
 }
 
 func MessageWhenToolErrorWithRetry(errorString string, toolCallID string) *openai.ChatCompletionMessage {
 	return &openai.ChatCompletionMessage{
+		Role:       openai.ChatMessageRoleTool,
 		ToolCallID: toolCallID,
 		Content:    fmt.Sprintf("Error: %s.\nRetry", errorString),
 	}
@@ -235,11 +237,11 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 				log.Error().Err(result.err).Msg("Error executing tool")
 				switch {
 				case errors.As(result.err, &ignErr):
-					messageHistory.Add(MessageWhenToolError(result.toolCall.ID))
+					messageHistory.Add(MessageWhenToolError(result.err.Error(), result.toolCall.ID))
 				case errors.As(result.err, &retErr):
 					messageHistory.Add(MessageWhenToolErrorWithRetry(result.err.Error(), skillToolCallID))
 				default:
-					messageHistory.Add(MessageWhenToolError(result.toolCall.ID))
+					messageHistory.Add(MessageWhenToolError(result.err.Error(), result.toolCall.ID))
 				}
 				continue
 			}
