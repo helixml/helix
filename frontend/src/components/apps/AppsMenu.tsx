@@ -1,4 +1,4 @@
-import React, { FC, useEffect } from 'react'
+import React, { FC, useEffect, useState } from 'react'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
@@ -6,12 +6,18 @@ import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import Avatar from '@mui/material/Avatar'
 import AppsIcon from '@mui/icons-material/Apps'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
+import IconButton from '@mui/material/IconButton'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
 import SlideMenuContainer from '../system/SlideMenuContainer'
 
 import useApps from '../../hooks/useApps'
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
+import useSnackbar from '../../hooks/useSnackbar'
+import useApi from '../../hooks/useApi'
 
 import {
   IApp,
@@ -25,13 +31,19 @@ export const AppsMenu: FC<{
 }> = ({
   onOpenApp,
 }) => {
-  const { apps, loadApps } = useApps()
+  const { apps, loadApps, deleteApp } = useApps()
   const account = useAccount()
   const lightTheme = useLightTheme()
+  const snackbar = useSnackbar()
+  const api = useApi()
   const {
     navigate,
     params,
   } = useRouter()
+
+  // State for the menu
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
+  const [selectedApp, setSelectedApp] = useState<IApp | null>(null)
 
   // Load apps when component mounts
   useEffect(() => {
@@ -57,12 +69,47 @@ export const AppsMenu: FC<{
     return <AppsIcon color="primary" />
   }
 
+  const handleMenuClick = (event: React.MouseEvent<HTMLElement>, app: IApp) => {
+    event.stopPropagation()
+    setMenuAnchorEl(event.currentTarget)
+    setSelectedApp(app)
+  }
+
+  const handleMenuClose = () => {
+    setMenuAnchorEl(null)
+    setSelectedApp(null)
+  }
+
+  const handleEdit = () => {
+    if (!selectedApp) return
+    account.orgNavigate('app', {
+      app_id: selectedApp.id,
+      resource_type: 'apps'
+    })
+    handleMenuClose()
+  }
+
+  const handleDelete = async () => {
+    if (!selectedApp) return
+    try {
+      await deleteApp(selectedApp.id)
+      snackbar.success('App deleted successfully')
+    } catch (error) {
+      snackbar.error('Failed to delete app')
+    }
+    handleMenuClose()
+  }
+
+  const isOwner = (app: IApp) => {
+    return account.user?.id === app.owner
+  }
+
   return (
     <SlideMenuContainer menuType={MENU_TYPE}>
       <List
         sx={{
           py: 1,
-          px: 2,
+          pl: 2,
         }}
       >
         {
@@ -74,6 +121,11 @@ export const AppsMenu: FC<{
                 sx={{
                   borderRadius: '20px',
                   cursor: 'pointer',
+                  '&:hover': {
+                    '.app-menu-button': {
+                      opacity: 1,
+                    },
+                  },
                 }}
                 key={app.id}
                 onClick={() => {
@@ -113,16 +165,38 @@ export const AppsMenu: FC<{
                     primary={app.config.helix.name || 'Unnamed App'}
                     id={app.id}
                   />
+                  {isOwner(app) && (
+                    <IconButton
+                      className="app-menu-button"
+                      size="small"
+                      onClick={(e) => handleMenuClick(e, app)}
+                      sx={{
+                        opacity: 0,
+                        transition: 'opacity 0.2s',
+                        color: lightTheme.textColorFaded,
+                        '&:hover': {
+                          color: '#fff',
+                        },
+                      }}
+                    >
+                      <MoreVertIcon fontSize="small" />
+                    </IconButton>
+                  )}
                 </ListItemButton>
               </ListItem>
             )
           })
         }
       </List>
-      {/* 
-        // Note: Pagination code removed as it appears the apps API doesn't use the same pagination model
-        // Can be added back if needed with appropriate implementation
-      */}
+      <Menu
+        anchorEl={menuAnchorEl}
+        open={Boolean(menuAnchorEl)}
+        onClose={handleMenuClose}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <MenuItem onClick={handleEdit}>Edit</MenuItem>
+        <MenuItem onClick={handleDelete}>Delete</MenuItem>
+      </Menu>
     </SlideMenuContainer>
   )
 }
