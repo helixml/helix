@@ -51,10 +51,8 @@ const PERSONAS = {
     icon: <BuildIcon />,
     prompt: `You are a specialized agent designed to [specific role]. Your key responsibilities include:
 1. [Primary responsibility]
-2. [Secondary responsibility]
-3. [Key behavior or approach]
-4. [Important guidelines or constraints]
-5. [How to handle edge cases or limitations]`,
+2. [Important guidelines or constraints]
+3. [How to handle edge cases or limitations]`,
     recommendedKnowledgeType: null,
     knowledgeMessage: ''
   }
