@@ -183,7 +183,6 @@ const NewAgent: FC = () => {
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                   You can add knowledge to your agent by providing a URL, text, or uploading files.
-                  Additional configuration like avatar, description, and skills can be set up after creation.
                 </Typography>
 
                 <Box sx={{ mb: 3 }}>
@@ -245,6 +244,9 @@ const NewAgent: FC = () => {
 
               {/* Submit Button */}
               <Grid item xs={12}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                 Additional configuration like avatar, description, and skills can be set up after creation.
+                </Typography>
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
                   <Button
                     type="submit"
