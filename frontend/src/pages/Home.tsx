@@ -184,16 +184,6 @@ const Home: FC = () => {
     }
   }
 
-  const handleDocumentUpload = () => {
-    router.navigate('new', {
-      model: currentModel,
-      type: currentType,
-      mode: SESSION_MODE_FINETUNE,
-      rag: true,
-    })
-    handleAttachmentMenuClose()
-  }
-
   return (
     <Page
       showTopbar={ isBigScreen ? false : true }
@@ -380,12 +370,6 @@ const Home: FC = () => {
                                 </ListItemIcon>
                                 <ListItemText primary="Upload image" />
                               </MenuItem>
-                              <MenuItem onClick={handleDocumentUpload}>
-                                <ListItemIcon>
-                                  <DescriptionIcon fontSize="small" sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                                </ListItemIcon>
-                                <ListItemText primary="Upload documents (.pdf, .docx, .md)" />
-                              </MenuItem>
                             </Menu>
                             <input
                               type="file"
@@ -463,7 +447,7 @@ const Home: FC = () => {
                     mb: 1,
                   }}
                 >
-                  Recent Apps
+                  Agents
                 </Row>
                 <Row
                   sx={{
@@ -556,7 +540,7 @@ const Home: FC = () => {
                           alignItems: 'flex-start',
                           gap: 1,
                         }}
-                        onClick={() => apps.createOrgApp()}
+                        onClick={() => account.orgNavigate('new-agent')}
                       >
                         <Box
                           sx={{
@@ -578,7 +562,7 @@ const Home: FC = () => {
                             lineHeight: 1.2,
                             fontWeight: 'bold',
                           }}>
-                            Create new app
+                            New agent
                           </Typography>
                           <Typography variant="caption" sx={{ 
                             color: 'rgba(255, 255, 255, 0.5)',

@@ -15,16 +15,12 @@ import ListItemButton from '@mui/material/ListItemButton'
 import ListItemText from '@mui/material/ListItemText'
 import { styled, keyframes } from '@mui/material/styles'
 
-import WebhookIcon from '@mui/icons-material/Webhook'
-import HomeIcon from '@mui/icons-material/Home'
 import DashboardIcon from '@mui/icons-material/Dashboard'
 import LoginIcon from '@mui/icons-material/Login'
 import LogoutIcon from '@mui/icons-material/Logout'
-import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import PolylineIcon from '@mui/icons-material/Polyline';
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import SchoolIcon from '@mui/icons-material/School'
 import AppsIcon from '@mui/icons-material/Apps'
 import CodeIcon from '@mui/icons-material/Code'
 import AddIcon from '@mui/icons-material/Add'
@@ -287,7 +283,7 @@ const SidebarContent: React.FC<{
     if (resourceType === 'chat') {
       account.orgNavigate('home')
     } else if (resourceType === 'apps') {
-      apps.createOrgApp()
+      account.orgNavigate('new-agent')
     }
   }
 
@@ -353,7 +349,7 @@ const SidebarContent: React.FC<{
                     />
                     <Tab 
                       key="apps" 
-                      label="Apps" 
+                      label="Agents" 
                       id="tab-apps"
                       aria-controls="tabpanel-apps"
                     />
@@ -383,7 +379,7 @@ const SidebarContent: React.FC<{
                       }}
                       primary={
                         RESOURCE_TYPES[activeTab] === 'apps' 
-                          ? 'New App' 
+                          ? 'New Agent' 
                           : `New ${RESOURCE_TYPES[activeTab].replace(/^\w/, (c) => c.toUpperCase())}`
                       }
                       primaryTypographyProps={{
@@ -536,7 +532,7 @@ const SidebarContent: React.FC<{
                             <ListItemIcon>
                               <AppsIcon fontSize="small" />
                             </ListItemIcon> 
-                            Apps
+                            Agents
                           </MenuItem>
                         )
                       }
