@@ -248,8 +248,8 @@ const NewAgent: FC = () => {
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
                   <Button
                     type="submit"
-                    variant="contained"
-                    color="primary"
+                    variant="outlined"
+                    color="secondary"
                     size="large"
                     disabled={isSubmitting}
                   >
