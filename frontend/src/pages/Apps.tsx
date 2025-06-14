@@ -244,6 +244,10 @@ const Apps: FC = () => {
     })
   }
 
+  const onNewAgent = () => {
+    account.orgNavigate('new-agent')
+  }
+
   const onDeleteApp = useCallback(async () => {
     if(!deletingApp) return
     const result = await apps.deleteApp(deletingApp.id)
@@ -291,7 +295,7 @@ const Apps: FC = () => {
             variant="contained"
             color="secondary"
             endIcon={<AddIcon />}
-            onClick={apps.createOrgApp}
+            onClick={onNewAgent}
             sx={{ mr: 2 }}
           >
             New Agent
