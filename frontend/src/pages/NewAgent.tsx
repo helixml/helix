@@ -6,24 +6,20 @@ import Grid from '@mui/material/Grid'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import Paper from '@mui/material/Paper'
-import Link from '@mui/material/Link'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import LinkIcon from '@mui/icons-material/Link'
 import TextFieldsIcon from '@mui/icons-material/TextFields'
 
 import Page from '../components/system/Page'
 import useAccount from '../hooks/useAccount'
-import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useApps from '../hooks/useApps'
-import { SESSION_TYPE_TEXT } from '../types'
 import { ICreateAgentParams } from '../contexts/apps'
-// import { generateKnowledgeID } from '../utils/system'
+
 
 const NewAgent: FC = () => {
-  const account = useAccount()
-  const router = useRouter()
+  const account = useAccount()  
   const snackbar = useSnackbar()
   const themeConfig = useThemeConfig()
   const apps = useApps()
@@ -105,8 +101,8 @@ const NewAgent: FC = () => {
         throw new Error('Failed to create agent')
       }
 
-      // Navigate to the agent page
-      router.navigate('app', { app_id: newApp.id })
+      // Navigate to the agent pages (org aware)
+      account.orgNavigate('app', { app_id: newApp.id })
       snackbar.success('Agent created successfully')
     } catch (error) {
       console.error('Error creating agent:', error)

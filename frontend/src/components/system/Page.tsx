@@ -60,7 +60,7 @@ const Page: React.FC<{
   }
 
   if(useBreadcrumbTitles.length > 0 && breadcrumbShowHome) {
-    if(orgBreadcrumbs) {   
+    if(orgBreadcrumbs && account.organizationTools.organization) {   
       useBreadcrumbTitles.unshift({
         title: account.organizationTools.organization?.name || '',
       })
