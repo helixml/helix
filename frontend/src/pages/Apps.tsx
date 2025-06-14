@@ -271,7 +271,7 @@ const Apps: FC = () => {
 
   return (
     <Page
-      breadcrumbTitle="Apps"
+      breadcrumbTitle="Agents"
       orgBreadcrumbs={ true }
       topbarContent={(
         <div>
@@ -294,7 +294,7 @@ const Apps: FC = () => {
             onClick={apps.createOrgApp}
             sx={{ mr: 2 }}
           >
-            New App
+            New Agent
           </Button>
         </div>
       )}

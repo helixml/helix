@@ -445,7 +445,7 @@ const AppSettings: FC<AppSettingsProps> = ({
     <Box sx={{ mt: 2, pr: 2 }}>
       <Box sx={{ mb: 3 }}>
         <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
-          App Configuration
+          Configuration
         </Typography>
         <Stack direction="row" alignItems="center">
           <Typography gutterBottom>System Instructions</Typography>
@@ -467,7 +467,7 @@ const AppSettings: FC<AppSettingsProps> = ({
           fullWidth
           multiline
           rows={8}
-          helperText="What does this app do? How does it behave? What should it avoid doing?"
+          helperText="What does this agent do? How does it behave? What should it avoid doing?"
         />           
       </Box>
 

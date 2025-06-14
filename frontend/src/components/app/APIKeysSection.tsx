@@ -29,10 +29,10 @@ const APIKeysSection: React.FC<APIKeysSectionProps> = ({
   return (
     <Box sx={{ mt: 2 }}>
       <Typography variant="subtitle1" sx={{mb: 1}}>
-        App-scoped API Keys
+        Agent-scoped API Keys
       </Typography>
       <Typography variant="caption" sx={{lineHeight: '3', color: '#999'}}>
-        Using this key will automatically force all requests to use this app.
+        Using this key will automatically force all requests to use this agent.
       </Typography>
       <Row>
         <Cell grow>

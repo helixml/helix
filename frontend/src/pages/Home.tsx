@@ -463,7 +463,7 @@ const Home: FC = () => {
                     mb: 1,
                   }}
                 >
-                  Recent Apps
+                  Agents
                 </Row>
                 <Row
                   sx={{
@@ -578,7 +578,7 @@ const Home: FC = () => {
                             lineHeight: 1.2,
                             fontWeight: 'bold',
                           }}>
-                            Create new app
+                            New agent
                           </Typography>
                           <Typography variant="caption" sx={{ 
                             color: 'rgba(255, 255, 255, 0.5)',
