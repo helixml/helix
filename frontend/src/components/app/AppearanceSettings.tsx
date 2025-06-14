@@ -159,7 +159,7 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
         <Grid item xs={12} md={6}>
           <Box sx={{ mb: 3 }}>
             <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
-              Application name
+              Agent name
             </Typography>
             <TextField
               sx={{ mb: 2 }}
@@ -187,7 +187,7 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
               fullWidth
               rows={2}
               label="Description"
-              helperText="Enter a short description of what this app does, e.g. 'Tax filing assistant'"
+              helperText="Enter a short description of what this agent does, e.g. 'Tax filing assistant'"
             />
           </Box>
         </Grid>
@@ -278,7 +278,7 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
         </Typography>
         <Box sx={{ mb: 2 }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Add example messages that users can click to start a conversation. These help showcase the app's capabilities.
+            Add example messages that users can click to start a conversation. These help showcase the agent's capabilities.
           </Typography>
           {conversationStarters.map((starter, index) => (
             <Box key={index} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>

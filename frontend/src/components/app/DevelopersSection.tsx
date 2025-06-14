@@ -23,7 +23,7 @@ const DevelopersSection: React.FC<DevelopersSectionProps> = ({
   return (
     <Box sx={{ mt: 2, mr: 4 }}>
       <Typography variant="h6" sx={{mb: 1}}>
-        App Configuration
+        Configuration File
       </Typography>
       <TextField
         error={showErrors && !schema}
@@ -54,7 +54,7 @@ const DevelopersSection: React.FC<DevelopersSectionProps> = ({
         CLI Access
       </Typography>
       <Typography variant="body2" sx={{ mt: 1, mb: 2 }}>
-        You can access this app configuration with the CLI command:
+        You can access this agent configuration with the CLI command:
       </Typography>
       <Box sx={{
         backgroundColor: '#1e1e2f',
@@ -66,7 +66,7 @@ const DevelopersSection: React.FC<DevelopersSectionProps> = ({
         helix app inspect {appId}
       </Box>
       <Typography variant="body2" sx={{ mt: 1, mb: 2 }}>
-        Write it to a file, then deploy the app with the CLI with the following command:
+        Write it to a file, then deploy the agent with the CLI with the following command:
       </Typography>
       <Box sx={{
         backgroundColor: '#1e1e2f',
