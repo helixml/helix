@@ -70,6 +70,266 @@ body {
     .helix-bg-charm {
         background-position: -15% center !important;
     }
+
+    /* Mobile responsive: Main container adjustments */
+    .login-pf .card-pf {
+        padding: 0 20px !important;
+        max-width: 100% !important;
+        width: calc(100% - 40px) !important;
+        margin: 20px auto !important;
+    }
+
+    /* Mobile responsive: Header text sizing */
+    .helix-main-heading,
+    .login-pf .card-pf h1,
+    #kc-page-title {
+        font-size: 32px !important;
+        line-height: 1.2 !important;
+        margin: 0 0 30px 0 !important;
+        white-space: normal !important;
+    }
+
+    /* Mobile responsive: Form group row becomes single column */
+    .form-group-row {
+        flex-direction: column !important;
+        gap: 20px !important;
+        margin-bottom: 20px !important;
+    }
+
+    .form-group-row .form-group {
+        width: 100% !important;
+    }
+
+    /* Mobile responsive: Form spacing adjustments */
+    .form-group {
+        margin-bottom: 20px !important;
+    }
+
+    /* Mobile responsive: Input field adjustments */
+    .form-group input[type="text"],
+    .form-group input[type="email"],
+    .form-group input[type="password"] {
+        padding: 16px 18px !important;
+        font-size: 16px !important;
+        height: 52px !important;
+    }
+
+    /* Mobile responsive: Label text sizing */
+    .form-group label {
+        font-size: 15px !important;
+        margin-bottom: 6px !important;
+    }
+
+    /* Mobile responsive: Form actions layout */
+    .form-actions {
+        flex-direction: column !important;
+        gap: 20px !important;
+        align-items: stretch !important;
+        margin: 30px 0 !important;
+    }
+
+    .form-links {
+        margin-left: 0 !important;
+        text-align: center !important;
+        order: 2 !important;
+    }
+
+    /* Mobile responsive: Submit button full width */
+    input[type="submit"],
+    .form-actions input[type="submit"] {
+        width: 100% !important;
+        min-width: auto !important;
+        padding: 18px 24px !important;
+        font-size: 16px !important;
+        height: 56px !important;
+        order: 1 !important;
+    }
+
+    /* Mobile responsive: Google sign-in button */
+    .google-signin-btn {
+        width: 100% !important;
+        min-width: auto !important;
+        max-width: none !important;
+        padding: 16px 24px !important;
+        font-size: 16px !important;
+    }
+
+    /* Mobile responsive: Social providers spacing */
+    #kc-social-providers {
+        margin-top: 24px !important;
+    }
+
+    #kc-social-providers hr {
+        margin: 20px 0 24px 0 !important;
+    }
+
+    /* Mobile responsive: Info and error messages */
+    #kc-info-message,
+    #kc-error-message,
+    .instruction {
+        font-size: 16px !important;
+        margin: 20px 0 !important;
+        line-height: 1.5 !important;
+    }
+
+    #kc-info-message p,
+    #kc-error-message p,
+    .instruction {
+        font-size: 16px !important;
+        margin: 15px 0 !important;
+    }
+
+    #kc-info-message a,
+    #kc-error-message a,
+    .instruction a {
+        font-size: 16px !important;
+        padding: 12px 24px !important;
+        width: 100% !important;
+        text-align: center !important;
+        box-sizing: border-box !important;
+    }
+
+    /* Mobile responsive: Error text sizing */
+    .kc-feedback-text,
+    #input-error,
+    .alert-error {
+        font-size: 14px !important;
+        margin-top: 6px !important;
+        padding: 6px 0 !important;
+    }
+
+    /* Mobile responsive: Back to app button */
+    .back-to-app-btn {
+        width: 100% !important;
+        padding: 16px 24px !important;
+        font-size: 16px !important;
+        text-align: center !important;
+        box-sizing: border-box !important;
+    }
+
+    /* Mobile responsive: Login links */
+    .login-links {
+        flex-direction: column !important;
+        gap: 15px !important;
+        text-align: center !important;
+    }
+
+    .login-links a {
+        font-size: 16px !important;
+        padding: 12px 24px !important;
+        border: 1px solid rgba(255, 255, 255, 0.3) !important;
+        border-radius: 8px !important;
+        background: rgba(255, 255, 255, 0.05) !important;
+        display: block !important;
+        text-align: center !important;
+        text-decoration: none !important;
+        transition: all 0.2s ease !important;
+    }
+
+    .login-links a:hover {
+        background: rgba(255, 255, 255, 0.1) !important;
+        border-color: rgba(255, 255, 255, 0.5) !important;
+    }
+}
+
+/* Extra small mobile devices */
+@media (max-width: 480px) {
+    /* Extra small mobile: Even more compact spacing */
+    .login-pf .card-pf {
+        padding: 0 15px !important;
+        width: calc(100% - 30px) !important;
+        margin: 15px auto !important;
+    }
+
+    /* Extra small mobile: Header text */
+    .helix-main-heading,
+    .login-pf .card-pf h1,
+    #kc-page-title {
+        font-size: 28px !important;
+        margin: 0 0 25px 0 !important;
+    }
+
+    /* Extra small mobile: Form spacing */
+    .form-group {
+        margin-bottom: 15px !important;
+    }
+
+    .form-group-row {
+        gap: 15px !important;
+        margin-bottom: 15px !important;
+    }
+
+    /* Extra small mobile: Input fields */
+    .form-group input[type="text"],
+    .form-group input[type="email"],
+    .form-group input[type="password"] {
+        padding: 14px 16px !important;
+        height: 48px !important;
+        font-size: 16px !important;
+    }
+
+    /* Extra small mobile: Buttons */
+    input[type="submit"],
+    .form-actions input[type="submit"] {
+        padding: 16px 20px !important;
+        height: 52px !important;
+        font-size: 16px !important;
+    }
+
+    .google-signin-btn {
+        padding: 14px 20px !important;
+        height: 52px !important;
+        font-size: 15px !important;
+        gap: 15px !important;
+    }
+
+    /* Extra small mobile: Form actions */
+    .form-actions {
+        margin: 25px 0 !important;
+        gap: 15px !important;
+    }
+
+    /* Extra small mobile: Social providers */
+    #kc-social-providers {
+        margin-top: 20px !important;
+    }
+
+    #kc-social-providers hr {
+        margin: 15px 0 20px 0 !important;
+    }
+}
+
+/* Landscape phone orientation adjustments */
+@media (max-width: 768px) and (orientation: landscape) {
+    body {
+        align-items: flex-start !important;
+        padding: 20px 0 !important;
+    }
+
+    #kc-container-wrapper {
+        min-height: auto !important;
+        align-items: flex-start !important;
+        padding: 20px 0 !important;
+    }
+
+    .helix-main-heading,
+    .login-pf .card-pf h1,
+    #kc-page-title {
+        font-size: 24px !important;
+        margin: 0 0 20px 0 !important;
+    }
+
+    .form-group {
+        margin-bottom: 15px !important;
+    }
+
+    .form-actions {
+        margin: 20px 0 !important;
+    }
+
+    #kc-social-providers {
+        margin-top: 15px !important;
+    }
 }
 
 /* .login-pf body {
@@ -975,4 +1235,71 @@ body:has(#kc-logout) #kc-info,
 body:has(#kc-logout) #kc-info-wrapper,
 body:has(#kc-logout) #kc-info-message {
     display: none !important;
+}
+
+/* Mobile touch optimization and accessibility */
+@media (max-width: 768px) {
+    /* Ensure touch targets are at least 44px for accessibility */
+    .password-visibility-toggle {
+        min-width: 44px !important;
+        min-height: 44px !important;
+        right: 15px !important;
+        font-size: 18px !important;
+    }
+
+    /* Improve touch interaction for form inputs */
+    .form-group input[type="text"]:focus,
+    .form-group input[type="email"]:focus,
+    .form-group input[type="password"]:focus {
+        transform: none !important; /* Remove transform on mobile to prevent layout shifts */
+    }
+
+    /* Prevent zoom on input focus (iOS) */
+    .form-group input[type="text"],
+    .form-group input[type="email"],
+    .form-group input[type="password"] {
+        font-size: 16px !important; /* Prevent iOS zoom */
+    }
+
+    /* Better mobile scrolling */
+    body {
+        -webkit-overflow-scrolling: touch !important;
+        overflow-x: hidden !important;
+    }
+
+    /* Prevent horizontal scroll */
+    html, body {
+        max-width: 100% !important;
+        overflow-x: hidden !important;
+    }
+
+    #kc-container-wrapper,
+    #kc-content-wrapper {
+        max-width: 100% !important;
+        overflow-x: hidden !important;
+    }
+}
+
+/* High DPI/Retina display optimizations */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+    /* Crisper text rendering on high DPI displays */
+    body {
+        -webkit-font-smoothing: antialiased !important;
+        -moz-osx-font-smoothing: grayscale !important;
+    }
+}
+
+/* Dark mode support for mobile users */
+@media (prefers-color-scheme: dark) {
+    /* Theme is already dark, but ensure proper contrast */
+    .form-group input::placeholder {
+        color: rgba(255, 255, 255, 0.7) !important;
+    }
+    
+    .form-group input[type="text"],
+    .form-group input[type="email"],
+    .form-group input[type="password"] {
+        background: rgba(255, 255, 255, 0.1) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
+    }
 }
