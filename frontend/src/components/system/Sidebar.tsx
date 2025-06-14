@@ -283,7 +283,7 @@ const SidebarContent: React.FC<{
     if (resourceType === 'chat') {
       account.orgNavigate('home')
     } else if (resourceType === 'apps') {
-      apps.createOrgApp()
+      account.orgNavigate('new-agent')
     }
   }
 
