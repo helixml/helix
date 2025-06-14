@@ -103,8 +103,8 @@ const NewAgent: FC = () => {
               urls: [knowledgeUrl],
               crawler: {
                 enabled: true,
-                max_depth: 1,
-                max_pages: 5,
+                max_depth: 10,
+                max_pages: 20,
                 readability: true
               }
             }
@@ -237,7 +237,7 @@ const NewAgent: FC = () => {
                   value={systemPrompt}
                   onChange={(e) => setSystemPrompt(e.target.value)}
                   helperText="Define how your agent should behave and what it should do"
-                  sx={{ mb: 2 }}
+                  sx={{ mb: 2, mt: 2 }}
                 />                
               </Grid>
 
@@ -358,7 +358,7 @@ const NewAgent: FC = () => {
                     variant="outlined"
                     color="secondary"
                     size="large"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || !name.trim()}
                   >
                     Create Agent
                   </Button>
