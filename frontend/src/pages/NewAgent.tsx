@@ -184,6 +184,7 @@ const NewAgent: FC = () => {
                 <Box sx={{ mb: 3 }}>
                   <Button
                     variant={knowledgeType === 'url' ? 'contained' : 'outlined'}
+                    color={knowledgeType === 'url' ? 'secondary' : 'primary'}
                     onClick={() => setKnowledgeType('url')}
                     startIcon={<LinkIcon />}
                     sx={{ mr: 2 }}
@@ -192,6 +193,7 @@ const NewAgent: FC = () => {
                   </Button>
                   <Button
                     variant={knowledgeType === 'text' ? 'contained' : 'outlined'}
+                    color={knowledgeType === 'text' ? 'secondary' : 'primary'}
                     onClick={() => setKnowledgeType('text')}
                     startIcon={<TextFieldsIcon />}
                     sx={{ mr: 2 }}
@@ -200,6 +202,7 @@ const NewAgent: FC = () => {
                   </Button>
                   <Button
                     variant={knowledgeType === 'file' ? 'contained' : 'outlined'}
+                    color={knowledgeType === 'file' ? 'secondary' : 'primary'}
                     onClick={() => setKnowledgeType('file')}
                     startIcon={<CloudUploadIcon />}
                   >
