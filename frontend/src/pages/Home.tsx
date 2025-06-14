@@ -79,10 +79,27 @@ const Home: FC = () => {
       setCurrentPrompt(dataString)
       localStorage.removeItem(LOGGED_OUT_PROMPT_KEY)
     }
+
+    // Load saved provider and model from local storage
+    const savedProvider = localStorage.getItem('helix_provider')
+    const savedModel = localStorage.getItem('helix_model')
+    if (savedProvider && savedModel) {
+      setCurrentProvider(savedProvider)
+      setCurrentModel(savedModel)
+    }
+
     if (textareaRef.current) {
       textareaRef.current.focus()
     }
   }, [])
+
+  // Save provider and model to local storage when they change
+  useEffect(() => {
+    if (currentProvider && currentModel) {
+      localStorage.setItem('helix_provider', currentProvider)
+      localStorage.setItem('helix_model', currentModel)
+    }
+  }, [currentProvider, currentModel])
 
   useEffect(() => {
     if (textareaRef.current) {
