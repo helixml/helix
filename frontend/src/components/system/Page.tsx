@@ -51,7 +51,7 @@ const Page: React.FC<{
 
   let useBreadcrumbTitles: IPageBreadcrumb[] = []
   
-  useBreadcrumbTitles = useBreadcrumbTitles.concat(breadcrumbs)
+  useBreadcrumbTitles = useBreadcrumbTitles.concat(breadcrumbs) 
 
   if(breadcrumbTitle) {
     useBreadcrumbTitles.push({
@@ -60,6 +60,11 @@ const Page: React.FC<{
   }
 
   if(useBreadcrumbTitles.length > 0 && breadcrumbShowHome) {
+    if(orgBreadcrumbs) {   
+      useBreadcrumbTitles.unshift({
+        title: account.organizationTools.organization?.name || '',
+      })
+    }
     useBreadcrumbTitles.unshift({
       title: 'Home',
       routeName: 'home',
