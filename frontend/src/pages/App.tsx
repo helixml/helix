@@ -127,11 +127,11 @@ const App: FC = () => {
       orgBreadcrumbs={true}
       breadcrumbs={[
         {
-          title: 'Apps',
+          title: 'Agents',
           routeName: 'apps'
         },
         {
-          title: appTools.flatApp?.name || 'App',
+          title: appTools.flatApp?.name || 'Agent',
         }
       ]}
       topbarContent={(
