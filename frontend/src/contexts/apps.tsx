@@ -99,6 +99,8 @@ export const useAppsContext = (): IAppsContext => {
             assistants: [{
               name: params.name,
               description: '',
+              agent_mode: true,
+              
               avatar: '',
               image: '',
               model: defaultModel,

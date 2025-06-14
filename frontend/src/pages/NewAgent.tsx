@@ -204,24 +204,12 @@ const NewAgent: FC = () => {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   helperText="Give your agent a descriptive name"
-                  sx={{ mb: 2 }}
+                  sx={{ mb: 1 }}
                 />
               </Grid>
 
               {/* System Prompt */}
               <Grid item xs={12}>
-                <TextField
-                  required
-                  fullWidth
-                  multiline
-                  rows={6}
-                  label="System Prompt"
-                  value={systemPrompt}
-                  onChange={(e) => setSystemPrompt(e.target.value)}
-                  helperText="Define how your agent should behave and what it should do"
-                  sx={{ mb: 2 }}
-                />
-
                 <Typography variant="h6" sx={{ mb: 2 }}>
                   Choose a Persona
                 </Typography>
@@ -239,6 +227,18 @@ const NewAgent: FC = () => {
                     </Button>
                   ))}
                 </Box>
+
+                <TextField
+                  required
+                  fullWidth
+                  multiline
+                  rows={6}
+                  label="System Prompt"
+                  value={systemPrompt}
+                  onChange={(e) => setSystemPrompt(e.target.value)}
+                  helperText="Define how your agent should behave and what it should do"
+                  sx={{ mb: 2 }}
+                />                
               </Grid>
 
               {/* Knowledge Section */}
