@@ -30,3 +30,6 @@ Stack: Golang API server, Docker, Postgres, PGVector or Typesense for RAG, NATS 
     Str("original_path", req.URL.Path).
 		Msg("User information from request")
   ```
+
+  Naming:
+  - Lots of places in the backend and frontend we have a name "App" which we are transitioning into "Agent". Those two are interchangable but all new code should be using "Agent" terminology when adding comments, titles, labels, etc. Over time all app code will be replaced by agent code.

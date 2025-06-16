@@ -87,8 +87,9 @@ const OrgTeams: FC = () => {
 
   return (
     <Page
-      breadcrumbTitle={ organization ? `${organization.display_name} : Teams` : 'Organization Teams' }
-      breadcrumbShowHome={ false }
+      breadcrumbTitle={ organization ? `Teams` : 'Organization Teams' }
+      orgBreadcrumbs={ true }
+      breadcrumbShowHome={ true }
       topbarContent={isOrgOwner ? (
         <Button
           variant="contained"

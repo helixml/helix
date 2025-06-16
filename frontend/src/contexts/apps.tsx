@@ -1,12 +1,12 @@
-import React, { useEffect, createContext, useMemo, useState, useCallback, useRef, ReactNode } from 'react'
+import React, { useEffect, createContext, useState, useCallback, useRef, ReactNode } from 'react'
 import useApi from '../hooks/useApi'
 import useAccount from '../hooks/useAccount'
 
 import {
   IApp,
   IAppUpdate,
-  IAppConfig,  
-  SESSION_TYPE_TEXT,
+  IKnowledgeSource,
+  SESSION_TYPE_TEXT,  
 } from '../types'
 
 // Apps context interface that mirrors the return value of the useApps hook
@@ -16,15 +16,23 @@ export interface IAppsContext {
   loadApps: (query?: IAppsQuery) => Promise<void>,
   loadApp: (id: string, showErrors?: boolean) => Promise<void>,
   setApp: React.Dispatch<React.SetStateAction<IApp | undefined>>,
-  createEmptyHelixApp: () => Promise<IApp | undefined>,
-  createOrgApp: () => Promise<IApp | undefined>,
-  createApp: (config: IAppConfig) => Promise<IApp | undefined>,
+  createAgent: (params: ICreateAgentParams) => Promise<IApp | undefined>,
   updateApp: (id: string, updatedApp: IAppUpdate) => Promise<IApp | undefined>,
   deleteApp: (id: string) => Promise<boolean | undefined>,
 }
 
 export interface IAppsQuery {
   org_id?: string,
+}
+
+// Add new interface for agent creation parameters
+export interface ICreateAgentParams {
+  name: string;
+  description?: string;
+  avatar?: string;
+  image?: string;
+  systemPrompt?: string;
+  knowledge?: IKnowledgeSource[];
 }
 
 // Default context values
@@ -34,9 +42,7 @@ export const AppsContext = createContext<IAppsContext>({
   loadApps: async () => {},
   loadApp: async () => {},
   setApp: () => {},
-  createEmptyHelixApp: async () => undefined,
-  createOrgApp: async () => undefined,
-  createApp: async () => undefined,
+  createAgent: async () => undefined,
   updateApp: async () => undefined,
   deleteApp: async () => undefined,
 })
@@ -76,32 +82,7 @@ export const useAppsContext = (): IAppsContext => {
     setApps(prevData => prevData.map(a => a.id === id ? result : a))
   }, [api])
 
-  const createApp = useCallback(async (
-    config: IAppConfig,
-  ): Promise<IApp | undefined> => {
-    try {
-      const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
-        config,
-      }, {}, {
-        snackbar: true, // We'll handle snackbar messages in the component
-      });
-      console.log("useApps: Create result:", result);
-      if (!result) {
-        console.log("useApps: No result returned from create");
-        return undefined;
-      }
-      await loadApps();
-      return result;
-    } catch (error) {
-      console.error("useApps: Error creating app:", error);
-      throw error; // Re-throw the error so it can be caught in the component
-    }
-  }, [api, loadApps])
-
-  // helper function to create a new empty helix app without any config
-  // this is so we can get a UUID from the server before we start to mess with the app form
-  const createEmptyHelixApp = useCallback(async (): Promise<IApp | undefined> => {
-    console.log("useApps: Creating new empty app");
+  const createAgent = useCallback(async (params: ICreateAgentParams): Promise<IApp | undefined> => {
     try {
       // Get the first available model
       const defaultModel = account.models && account.models.length > 0 ? account.models[0].id : '';
@@ -111,24 +92,27 @@ export const useAppsContext = (): IAppsContext => {
         config: {
           helix: {
             external_url: '',
-            name: '',
-            description: '',
-            avatar: '',
-            image: '',
+            name: params.name,
+            description: params.description || '',
+            avatar: params.avatar || '',
+            image: params.image || '',
             assistants: [{
-              name: 'Default Assistant',
+              name: params.name,
               description: '',
+              agent_mode: true,
+              
               avatar: '',
               image: '',
               model: defaultModel,
               type: SESSION_TYPE_TEXT,
-              system_prompt: '',
+              system_prompt: params.systemPrompt || '',
               apis: [],
               gptscripts: [],
               tools: [],
               rag_source_id: '',
               lora_id: '',
               is_actionable_template: '',
+              knowledge: params.knowledge || [],
             }],
           },
           secrets: {},
@@ -141,15 +125,15 @@ export const useAppsContext = (): IAppsContext => {
       }, {
         snackbar: true, // We'll handle snackbar messages in the component
       });
-      console.log("useApps: Create empty app result:", result);
+      console.log("useApps: Create agent result:", result);
       if (!result) {
-        console.log("useApps: No result returned from create empty app");
+        console.log("useApps: No result returned from create agent");
         return undefined;
       }
       await loadApps();
       return result;
     } catch (error) {
-      console.error("useApps: Error creating app:", error);
+      console.error("useApps: Error creating agent:", error);
       throw error; // Re-throw the error so it can be caught in the component
     }
   }, [
@@ -157,25 +141,6 @@ export const useAppsContext = (): IAppsContext => {
     loadApps,
     account.models,
     account.organizationTools.organization,
-  ])
-
-  // this is aware of the current org that we are in
-  const createOrgApp = useCallback(async (): Promise<IApp | undefined> => {
-    if (!account.user) {
-      account.setShowLoginWindow(true)
-      return
-    }
-    const newApp = await createEmptyHelixApp()
-    if(!newApp) return undefined
-    account.orgNavigate('app', {
-      app_id: newApp.id,
-    })
-    return newApp
-  }, [
-    api,
-    createEmptyHelixApp,
-    account.user,
-    account.orgNavigate,
   ])
 
   const updateApp = useCallback(async (id: string, updatedApp: IAppUpdate): Promise<IApp | undefined> => {
@@ -227,9 +192,7 @@ export const useAppsContext = (): IAppsContext => {
     loadApps,
     loadApp,
     setApp,
-    createEmptyHelixApp,
-    createOrgApp,
-    createApp,
+    createAgent,
     updateApp,
     deleteApp,
   }
