@@ -13,12 +13,13 @@ export LATEST_RELEASE=$(curl -s https://get.helixml.tech/latest.txt)
 
 helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
   --version "24.3.1" \
-  --set auth.adminUser=admin \
-  --set auth.adminPassword=oh-hallo-insecure-password \
+  --set global.security.allowInsecureImages=true \
   --set image.registry=registry.helixml.tech \
   --set image.repository=helix/keycloak \
-  --set image.tag="${LATEST_RELEASE}" \
-  --set httpRelativePath="/auth/" 
+  --set image.tag="${HELIX_VERSION}" \
+  --set auth.adminUser=admin \
+  --set auth.adminPassword=oh-hallo-insecure-password \
+  --set httpRelativePath="/auth/"
 ```
 
 By default it only has ClusterIP service, in order to expose it, you can either port-forward or create a load balancer to access it if you are on k3s or minikube:
