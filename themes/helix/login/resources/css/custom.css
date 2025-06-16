@@ -164,9 +164,9 @@ body {
     .helix-main-heading,
     .login-pf .card-pf h1,
     #kc-page-title {
-        font-size: 22px !important;
+        font-size: 18px !important; /* Reduced from 22px */
         line-height: 1.1 !important;
-        margin: 0 0 20px 0 !important;
+        margin: 0 0 16px 0 !important; /* Reduced from 20px */
         white-space: normal !important;
         text-align: center !important;
     }
@@ -174,8 +174,8 @@ body {
     /* Mobile responsive: Form group row becomes single column */
     .form-group-row {
         flex-direction: column !important;
-        gap: 12px !important;
-        margin-bottom: 12px !important;
+        gap: 10px !important; /* Reduced from 12px */
+        margin-bottom: 10px !important; /* Reduced from 12px */
     }
 
     .form-group-row .form-group {
@@ -184,7 +184,7 @@ body {
 
     /* Mobile responsive: Form spacing adjustments - NO HORIZONTAL SPACING */
     .form-group {
-        margin-bottom: 12px !important;
+        margin-bottom: 10px !important; /* Reduced from 12px */
         margin-left: 0 !important;
         margin-right: 0 !important;
         padding-left: 0 !important;
@@ -457,13 +457,15 @@ body {
     /* Mobile responsive: Password visibility toggle positioning */
     .password-visibility-toggle {
         position: absolute !important;
-        right: 12px !important;
+        right: 8px !important;
         top: 50% !important;
         transform: translateY(-50%) !important;
-        min-width: 44px !important;
-        min-height: 44px !important;
-        padding: 8px !important;
-        font-size: 16px !important;
+        min-width: 32px !important;
+        min-height: 32px !important;
+        width: 32px !important;
+        height: 32px !important;
+        padding: 4px !important;
+        font-size: 14px !important;
     }
 
     /* Mobile responsive: All buttons should be properly sized */
@@ -575,8 +577,8 @@ body {
     .helix-main-heading,
     .login-pf .card-pf h1,
     #kc-page-title {
-        font-size: 18px !important;
-        margin: 0 0 12px 0 !important;
+        font-size: 15px !important; /* Reduced from 18px */
+        margin: 0 0 10px 0 !important; /* Reduced from 12px */
         line-height: 1.3 !important;
     }
 
@@ -594,9 +596,9 @@ body {
     .form-group input[type="text"],
     .form-group input[type="email"],
     .form-group input[type="password"] {
-        padding: 8px 10px !important;
-        font-size: 16px !important;
-        height: 36px !important;
+        padding: 6px 8px !important; /* Reduced from 8px 10px */
+        font-size: 14px !important; /* Reduced from 16px */
+        height: 32px !important; /* Reduced from 36px */
     }
 
     /* Extra small mobile: Labels - smaller */
@@ -608,16 +610,16 @@ body {
     /* Extra small mobile: Submit buttons - MUCH smaller */
     input[type="submit"],
     .form-actions input[type="submit"] {
-        padding: 8px 12px !important;
-        font-size: 14px !important;
-        height: 36px !important;
+        padding: 6px 8px !important; /* Reduced from 8px 12px */
+        font-size: 12px !important; /* Reduced from 14px */
+        height: 32px !important; /* Reduced from 36px */
     }
 
     /* Extra small mobile: Google button - MUCH smaller */
     .google-signin-btn {
-        padding: 8px 12px !important;
-        font-size: 13px !important;
-        height: 36px !important;
+        padding: 6px 8px !important; /* Reduced from 8px 12px */
+        font-size: 12px !important; /* Reduced from 13px */
+        height: 32px !important; /* Reduced from 36px */
     }
 
     /* Extra small mobile: Form actions - ULTRA tight */
@@ -872,10 +874,10 @@ body {
 #kc-page-title {
     color: white !important;
     font-family: 'IBM Plex Sans', sans-serif !important;
-    font-size: 48px !important;
+    font-size: 36px !important;
     font-weight: 600 !important;
     text-align: left !important;
-    margin: 0 0 50px 0 !important;
+    margin: 0 0 30px 0 !important;
     line-height: 1.1 !important;
     letter-spacing: -1px !important;
     display: block !important;
@@ -921,11 +923,11 @@ body {
     width: 100% !important;
 }
 
-/* Form group styling for side-by-side layout - MAXIMUM gap */
+/* Form group styling for side-by-side layout - REDUCED gap */
 .form-group-row {
     display: flex !important;
-    gap: 60px !important;
-    margin-bottom: 30px !important;
+    gap: 40px !important;
+    margin-bottom: 20px !important;
 }
 
 .form-group-row .form-group {
@@ -934,33 +936,33 @@ body {
 }
 
 .form-group {
-    margin-bottom: 30px !important;
+    margin-bottom: 20px !important;
 }
 
 /* Label styling */
 .form-group label {
     display: block !important;
     color: rgba(255, 255, 255, 0.9) !important;
-    font-size: 16px !important;
+    font-size: 14px !important;
     font-weight: 400 !important;
-    margin-bottom: 8px !important;
+    margin-bottom: 6px !important;
 }
 
-/* Input styling - bold rounded edges with proper colors */
+/* Input styling - bold rounded edges with proper colors - REDUCED PADDING */
 .form-group input[type="text"],
 .form-group input[type="email"],
 .form-group input[type="password"] {
     width: 100% !important;
     box-sizing: border-box !important;
-    padding: 18px 20px !important;
+    padding: 12px 16px !important;
     background: rgba(255, 255, 255, 0.08) !important;
     border: 1px solid rgba(255, 255, 255, 0.15) !important;
     border-radius: 12px !important;
     color: white !important;
-    font-size: 16px !important;
+    font-size: 14px !important;
     outline: none !important;
     transition: all 0.3s ease !important;
-    height: 56px !important;
+    height: 44px !important;
     backdrop-filter: blur(10px) !important;
     -webkit-backdrop-filter: blur(10px) !important;
     box-shadow: 
@@ -977,8 +979,8 @@ body {
     body #kc-form-login input[type="text"],
     body #kc-form-login input[type="password"] {
         padding: 8px 10px !important;
-        height: 36px !important;
-        font-size: 16px !important;
+        height: 32px !important;
+        font-size: 14px !important;
     }
 }
 
@@ -1021,6 +1023,11 @@ body {
     padding: 6px !important;
     z-index: 10 !important;
     outline: none !important;
+    width: 24px !important;
+    height: 24px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
 }
 
 .password-visibility-toggle:hover {
@@ -1032,24 +1039,24 @@ body {
     display: flex !important;
     justify-content: space-between !important;
     align-items: center !important;
-    margin: 40px 0 !important;
+    margin: 30px 0 !important;
 }
 
-/* Sign up button styling - glass morphism with glowing border */
+/* Sign up button styling - glass morphism with glowing border - REDUCED PADDING */
 input[type="submit"],
 .form-actions input[type="submit"] {
     background: rgba(32, 178, 170, 0.1) !important;
     color: #20b2aa !important;
     border: 1px solid rgba(32, 178, 170, 0.4) !important;
     border-radius: 12px !important;
-    padding: 16px 28px !important;
-    font-size: 16px !important;
+    padding: 12px 24px !important;
+    font-size: 14px !important;
     font-weight: 500 !important;
     cursor: pointer !important;
     transition: all 0.3s ease !important;
     min-width: 100px !important;
     width: auto !important;
-    height: 56px !important;
+    height: 44px !important;
     backdrop-filter: blur(10px) !important;
     -webkit-backdrop-filter: blur(10px) !important;
     box-shadow: 
@@ -1111,73 +1118,100 @@ hr {
     color: transparent !important;
 }
 
-/* Google sign up button - narrower with more rounded edges */
+/* FIXED Google sign up button - proper text color and layout */
 .google-signin-btn {
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
-    gap: 20px !important;
+    gap: 12px !important;
     width: auto !important;
-    min-width: 280px !important;
-    max-width: 320px !important;
-    padding: 16px 32px !important;
+    min-width: 240px !important;
+    max-width: 280px !important;
+    padding: 12px 24px !important;
     background: white !important;
-    color: #333 !important;
+    color: #333333 !important;
     border: none !important;
     border-radius: 28px !important;
-    font-size: 16px !important;
+    font-size: 14px !important;
     font-weight: 500 !important;
     text-decoration: none !important;
     transition: all 0.2s ease !important;
     box-sizing: border-box !important;
-    height: 56px !important;
+    height: 44px !important;
     outline: none !important;
     box-shadow: none !important;
+    overflow: visible !important;
+    text-align: center !important;
+    line-height: 1 !important;
 }
 
-/* Google G logo styling */
+/* Ensure all text in Google button is dark */
+.google-signin-btn,
+.google-signin-btn * {
+    color: #333333 !important;
+}
+
+/* Google G logo styling - ensure it doesn't push text out */
 .google-signin-btn::before {
     content: "";
-    display: inline-block;
-    width: 20px;
-    height: 20px;
-    background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTgiIGhlaWdodD0iMTgiIHZpZXdCb3g9IjAgMCAxOCAxOCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTE3LjY0IDkuMjA0NTVDMTcuNjQgOC41NjYzNiAxNy41ODI3IDcuOTUyNzMgMTcuNDc2NCA3LjM2MzY0SDkuOTk5OTlWMTAuODQ1SDE0LjM1MzZDMTQuMjE4MyAxMS41NzU5IDEzLjczNTQgMTIuMTgxOCAxMy4wNDA5IDEyLjU5MDlWMTQuNzE0NUgxNS4zNzU3QzE2LjcyMDQgMTMuNDIyNyAxNy42NCAxMS41NDU1IDE3LjY0IDkuMjA0NTVaIiBmaWxsPSIjNDE2MEY0Ii8+CjxwYXRoIGQ9Ik05Ljk5OTk5IDE2LjVDMTIuNzA0NSAxNi41IDE0Ljk2MzYgMTUuNjYzNiAxNS4zNzU3IDE0LjcxNDVMMTMuMDQwOSAxMi41OTA5QzEyLjIyMjcgMTMuMDQwOSAxMS4yMjI3IDEzLjMxMzYgOS45OTk5OSAxMy4zMTM2QzcuMzg2MzYgMTMuMzEzNiA1LjIwNDU1IDEyLjAxMzYgNC40NjM2NCA5Ljk3NzI3SDIuMDM2MzZWMTIuMTk1NUMzLjM2MzY0IDE0LjgxMzYgNi41NTQ1NSAxNi41IDkuOTk5OTkgMTYuNVoiIGZpbGw9IiMzNEM1MTkiLz4KPHBhdGggZD0iTTQuNDYzNjQgOS45NzcyN0M0LjIzNjM2IDkuMzk1NDUgNC4xMTM2NCA4Ljc2MzY0IDQuMTEzNjQgOC4xMTM2NEM0LjExMzY0IDcuNDYzNjQgNC4yMzYzNiA2LjgzMTgyIDQuNDYzNjQgNi4yNVY0LjAzMTgySDIuMDM2MzZDMS4zMTM2NCA1LjQ0NTQ1IDAuOTc3MjczIDcuMDMxODIgMC45NzcyNzMgOC4xMTM2NEMwLjk3NzI3MyA5LjE5NTQ1IDEuMzEzNjQgMTAuNzgxOCAyLjAzNjM2IDEyLjE5NTVMNC40NjM2NCA5Ljk3NzI3WiIgZmlsbD0iI0ZCQkMwNCIvPgo8cGF0aCBkPSJNOS45OTk5OSAzLjU0MDkxQzExLjM0MDkgMy41NDA5MSAxMi41NDU1IDQuMzYzNjQgMTMuMTk1NSA1LjQ2MzY0SDE1LjU0NTVDMTMUOTQWOSAYLJE3NzI3IDEwLjgxODIgMC41IDkuOTk5OTkgMC41QzYuNTU0NTUgMC41IDMuMzYzNjQgMi4xODY4MiAyLjAzNjM2IDQuMDMxODJMNC40NjM2NCA2LjI1QzUuMjA0NTUgNC4yMTM2NCA3LjM4NjM2IDMuNDA5MDkgOS45OTk5OSAzLjU0MDkxWiIgZmlsbD0iI0VBNDMzNSIvPgo8L3N2Zz4=");
+    display: inline-flex !important;
+    width: 16px;
+    height: 16px;
+    background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTgiIGhlaWdodD0iMTgiIHZpZXdCb3g9IjAgMCAxOCAxOCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTE3LjY0IDkuMjA0NTVDMTcuNjQgOC41NjYzNiAxNy41ODI3IDcuOTUyNzMgMTcuNDc2NCA3LjM2MzY0SDkuOTk5OTlWMTAuODQ1SDE0LjM1MzZDMTQuMjE4MyAxMS41NzU5IDEzLjczNTQgMTIuMTgxOCAxMy4wNDA5IDEyLjU5MDlWMTQuNzE0NUgxNS4zNzU3QzE2LjcyMDQgMTMuNDIyNyAxNy42NCAxMS41NDU1IDE3LjY0IDkuMjA0NTVaIiBmaWxsPSIjNDE2MEY0Ii8+CjxwYXRoIGQ9Ik05Ljk5OTk5IDE2LjVDMTIuNzA0NSAxNi41IDE0Ljk2MzYgMTUuNjYzNiAxNS4zNzU3IDE0LjcxNDVMMTMuMDQwOSAxMi41OTA5QzEyLjIyMjcgMTMuMDQwOSAxMS4yMjI3IDEzLjMxMzYgOS45OTk5OSAxMy4zMTM2QzcuMzg2MzYgMTMuMzEzNiA1LjIwNDU1IDEyLjAxMzYgNC40NjM2NCA5Ljk3NzI3SDIuMDM2MzZWMTIuMTk1NUMzLjM2MzY0IDE0LjgxMzYgNi41NTQ1NSAxNi41IDkuOTk5OTkgMTYuNVoiIGZpbGw9IiMzNEM1MTkiLz4KPHBhdGggZD0iTTQuNDYzNjQgOS45NzcyN0M0LjIzNjM2IDkuMzk1NDUgNC4xMTM2NCA4Ljc2MzY0IDQuMTEzNjQgOC4xMTM2NEM0LjExMzY0IDcuNDYzNjQgNC4yMzYzNiA2LjgzMTgyIDQuNDYzNjQgNi4yNVY0LjAzMTgySDIuMDM2MzZDMS4zMTM2NCA1LjQ0NTQ1IDAuOTc3MjczIDcuMDMxODIgMC45NzcyNzMgOC4xMTM2NEMwLjk3NzI3MyA5LjE5NTQ1IDEuMzEzNjQgMTAuNzgxOCAyLjAzNjM2IDEyLjE5NTVMNC40NjM2NCA5Ljc3NzI3WiIgZmlsbD0iI0ZCQkMwNCIvPgo8cGF0aCBkPSJNOS45OTk5OSAzLjU0MDkxQzExLjM0MDkgMy41NDA5MSAxMi41NDU1IDQuMzYzNjQgMTMuMTk1NSA1LjQ2MzY0SDE1LjU0NTVDMTUOWQWOSAYLJE3NzI3IDEwLjgxODIgMC41IDkuOTk5OTkgMC41QzYuNTU0NTUlMC41IDMuMzYzNjQgMi4xODY4MiAyLjAzNjM2IDQuMDMxODJMNC40NjM2NCA2LjI1QzUuMjA0NTUgNC4yMTM2NCA3LjM4NjM2IDMuNDA5MDkgOS45OTk5OSAzLjU0MDkxWiIgZmlsbD0iI0VBNDMzNSIvPgo8L3N2Zz4=");
     background-size: contain;
     background-repeat: no-repeat;
     background-position: center;
     flex-shrink: 0;
+    margin: 0 !important;
+}
+
+/* Fix Google icon positioning - target the actual <i> tag */
+.google-signin-btn i.fa-google,
+.google-signin-btn .fa-google {
+    position: relative !important;
+    left: -20px !important;
 }
 
 .google-signin-btn:hover {
     background: #f8f9fa !important;
-    color: #333 !important;
+    color: #333333 !important;
     text-decoration: none !important;
     transform: translateY(-1px) !important;
     outline: none !important;
 }
 
-/* MOBILE FIX FOR GOOGLE BUTTON ICON */
+/* FIXED MOBILE GOOGLE BUTTON - proper layout to keep text with icon */
 @media (max-width: 768px) {
     .google-signin-btn {
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        gap: 8px !important;
-        padding: 8px 12px !important;
-        line-height: normal !important;
+        gap: 6px !important;
+        padding: 8px 10px !important;
+        font-size: 13px !important;
+        height: 32px !important;
+        min-width: 200px !important;
+        width: 100% !important;
+        white-space: nowrap !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        color: #333333 !important;
+        background: white !important;
+        position: relative !important;
     }
     
     .google-signin-btn::before {
-        width: 16px !important;
-        height: 16px !important;
+        width: 12px !important;
+        height: 12px !important;
         margin: 0 !important;
         flex-shrink: 0 !important;
+        position: relative !important;
     }
     
-    /* Fix text alignment next to icon */
-    .google-signin-btn span {
+    .google-signin-btn span,
+    .google-signin-btn {
         line-height: 1 !important;
-        display: block !important;
+        color: #333333 !important;
     }
 }
 
@@ -1396,13 +1430,29 @@ hr {
     width: 100% !important;
 }
 
-/* Google button styling for login - full width */
+/* FORCE Google button text color on all screen sizes */
+.google-signin-btn,
+.google-signin-btn:link,
+.google-signin-btn:visited,
+.google-signin-btn:hover,
+.google-signin-btn:active,
+.google-signin-btn:focus,
+a.google-signin-btn,
+#kc-social-providers .google-signin-btn {
+    color: #333333 !important;
+}
+
+/* Ensure Google button on login page works correctly */
 #kc-form-login + div #kc-social-providers .google-signin-btn,
 .login-pf #kc-social-providers .google-signin-btn {
     width: 100% !important;
     max-width: 100% !important;
     min-width: 100% !important;
     margin-bottom: 30px !important;
+    color: #333333 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
 }
 
 /* Force all forms to use full container width */
@@ -1780,26 +1830,34 @@ body:has(#kc-logout) #kc-info-message {
 
 /* Mobile touch optimization and accessibility */
 @media (max-width: 768px) {
-    /* Ensure touch targets are at least 44px for accessibility */
+    /* FIXED: Smaller password toggle to prevent input overlap */
     .password-visibility-toggle {
-        min-width: 44px !important;
-        min-height: 44px !important;
-        right: 15px !important;
-        font-size: 18px !important;
+        min-width: 32px !important;
+        min-height: 32px !important;
+        width: 32px !important;
+        height: 32px !important;
+        right: 8px !important;
+        font-size: 14px !important;
+        padding: 4px !important;
+    }
+    
+    /* Adjust password input padding to account for toggle */
+    .password-input-wrapper input[type="password"] {
+        padding-right: 40px !important;
     }
 
     /* Improve touch interaction for form inputs */
     .form-group input[type="text"]:focus,
     .form-group input[type="email"]:focus,
     .form-group input[type="password"]:focus {
-        transform: none !important; /* Remove transform on mobile to prevent layout shifts */
+        transform: none !important;
     }
 
     /* Prevent zoom on input focus (iOS) */
     .form-group input[type="text"],
     .form-group input[type="email"],
     .form-group input[type="password"] {
-        font-size: 16px !important; /* Prevent iOS zoom */
+        font-size: 16px !important;
     }
 
     /* Better mobile scrolling */
