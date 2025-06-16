@@ -13,36 +13,18 @@ export LATEST_RELEASE=$(curl -s https://get.helixml.tech/latest.txt)
 
 helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
   --version "24.3.1" \
-  --set auth.adminUser=admin \
-  --set auth.adminPassword=oh-hallo-insecure-password \
+  --set global.security.allowInsecureImages=true \
   --set image.registry=registry.helixml.tech \
   --set image.repository=helix/keycloak \
-  --set image.tag="${LATEST_RELEASE}" \
-  --set httpRelativePath="/auth/" 
-```
-
-By default it only has ClusterIP service, in order to expose it, you can either port-forward or create a load balancer to access it if you are on k3s or minikube:
-
-```
-kubectl expose pod keycloak-0 --port 8888 --target-port 8080 --name keycloak-ext --type=LoadBalancer
-```
-
-Alternatively, if you run on k3s:
-
-```
-export LATEST_RELEASE=$(curl -s https://get.helixml.tech/latest.txt)
-
-helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
-  --version "24.3.1" \
+  --set image.tag="${HELIX_VERSION}" \
   --set auth.adminUser=admin \
   --set auth.adminPassword=oh-hallo-insecure-password \
-  --set image.registry=registry.helixml.tech \
-  --set image.repository=helix/keycloak \
-  --set image.tag="${LATEST_RELEASE}" \
-  --set httpRelativePath="/auth/" \
-  --set service.type=LoadBalancer \
-  --set service.ports.http=8888
+  --set httpRelativePath="/auth/"
 ```
+
+Note the pinned version of the chart and the image tag. These are versions that we have tested and are known to work. Newer versions may work, but we have not tested them. [Raise an issue if you have any issues.](https://github.com/helixml/helix/issues)
+
+You do not need to expose a service to access Keycloak from outside the cluster - it is used as an internal implementation detail of Helix (and Helix manages the `helix` Keycloak realm via admin access).
 
 Wait until the Keycloak is running:
 
