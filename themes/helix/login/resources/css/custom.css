@@ -24,23 +24,88 @@ body {
     width: 100vw !important;
     height: 100vh !important;
     background-size: auto 70% !important;
-    background-position: -60% center !important;
+    background-position: -400px center !important; /* Fixed pixel position instead of percentage */
     background-repeat: no-repeat !important;
     opacity: 0.15 !important;
     pointer-events: none !important;
     z-index: -1 !important;
 }
 
+/* Mobile scrolling fix */
+@media (max-width: 768px) {
+    /* Enable proper scrolling on mobile */
+    html {
+        height: auto !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+    
+    body {
+        height: auto !important;
+        min-height: 100vh !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        position: relative !important;
+        display: block !important;
+        align-items: flex-start !important;
+        justify-content: flex-start !important;
+        padding: 0 !important;
+    }
+
+    /* Background stays fixed but allows content to scroll over it */
+    #helix-bg-image {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        z-index: -1 !important;
+    }
+
+    /* Main login container allows scrolling */
+    .login-pf {
+        position: relative !important;
+        z-index: 1 !important;
+        min-height: 100vh !important;
+        height: auto !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 20px 0 !important;
+        overflow-y: visible !important;
+    }
+
+    .login-pf .card-pf {
+        position: relative !important;
+        z-index: 2 !important;
+        height: auto !important;
+        min-height: auto !important;
+    }
+
+    /* Ensure all containers allow scrolling */
+    #kc-container-wrapper,
+    #kc-content-wrapper,
+    #kc-form-wrapper,
+    #kc-content {
+        position: relative !important;
+        height: auto !important;
+        min-height: auto !important;
+        overflow: visible !important;
+    }
+}
+
 /* Particle background for login and other pages */
 .helix-bg-particle {
     background-image: url('../img/particle.png') !important;
-    background-position: -40% center !important;
+    background-position: -400px center !important; /* Fixed pixel position - left part always off-screen */
 }
 
 /* Charm background for registration pages */
 .helix-bg-charm {
     background-image: url('../img/charm.png') !important;
-    background-position: -25% center !important; /* Less offset for charm since it's more centered */
+    background-position: -200px center !important; /* Fixed pixel position - charm is wider so less offset needed */
 }
 
 /* Responsive adjustments for smaller screens */
@@ -49,12 +114,13 @@ body {
         background-size: auto 60% !important;
     }
     
+    /* Keep fixed pixel positioning - no percentage-based movement */
     .helix-bg-particle {
-        background-position: -40% center !important;
+        background-position: -300px center !important;
     }
     
     .helix-bg-charm {
-        background-position: -20% center !important;
+        background-position: -150px center !important;
     }
 }
 
@@ -63,69 +129,105 @@ body {
         background-size: auto 50% !important;
     }
     
+    /* Keep fixed pixel positioning - no percentage-based movement */
     .helix-bg-particle {
-        background-position: -25% center !important;
+        background-position: -200px center !important;
     }
     
     .helix-bg-charm {
-        background-position: -15% center !important;
+        background-position: -100px center !important;
     }
 
-    /* Mobile responsive: Main container adjustments */
+    /* Mobile responsive: Main container adjustments - AGGRESSIVE SIZING */
     .login-pf .card-pf {
-        padding: 0 20px !important;
-        max-width: 100% !important;
-        width: calc(100% - 40px) !important;
-        margin: 20px auto !important;
+        padding: 0 12px !important;
+        max-width: 340px !important;
+        width: 100% !important;
+        margin: 8px auto !important;
+        min-height: auto !important;
+        box-sizing: border-box !important;
     }
 
-    /* Mobile responsive: Header text sizing */
+    /* AGGRESSIVE: Force all form elements to fit properly */
+    #kc-form,
+    #kc-form-wrapper,
+    #kc-form-login,
+    #kc-register-form,
+    #kc-reset-password-form {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+        overflow: visible !important;
+    }
+
+    /* Mobile responsive: Header text sizing - MUCH smaller */
     .helix-main-heading,
     .login-pf .card-pf h1,
     #kc-page-title {
-        font-size: 32px !important;
-        line-height: 1.2 !important;
-        margin: 0 0 30px 0 !important;
+        font-size: 22px !important;
+        line-height: 1.1 !important;
+        margin: 0 0 20px 0 !important;
         white-space: normal !important;
+        text-align: center !important;
     }
 
     /* Mobile responsive: Form group row becomes single column */
     .form-group-row {
         flex-direction: column !important;
-        gap: 20px !important;
-        margin-bottom: 20px !important;
+        gap: 12px !important;
+        margin-bottom: 12px !important;
     }
 
     .form-group-row .form-group {
         width: 100% !important;
     }
 
-    /* Mobile responsive: Form spacing adjustments */
+    /* Mobile responsive: Form spacing adjustments - NO HORIZONTAL SPACING */
     .form-group {
-        margin-bottom: 20px !important;
+        margin-bottom: 12px !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
     }
 
-    /* Mobile responsive: Input field adjustments */
+    /* Mobile responsive: Input field adjustments - FIXED WIDTH */
     .form-group input[type="text"],
     .form-group input[type="email"],
-    .form-group input[type="password"] {
-        padding: 16px 18px !important;
+    .form-group input[type="password"],
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    #username,
+    #password,
+    #email,
+    #firstName,
+    #lastName {
+        padding: 8px 10px !important;
         font-size: 16px !important;
-        height: 52px !important;
+        height: 36px !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+        border-radius: 8px !important;
+        margin: 0 !important;
     }
 
-    /* Mobile responsive: Label text sizing */
+    /* Mobile responsive: Label text sizing - smaller */
     .form-group label {
-        font-size: 15px !important;
-        margin-bottom: 6px !important;
+        font-size: 13px !important;
+        margin-bottom: 4px !important;
     }
 
-    /* Mobile responsive: Form actions layout */
+    /* Mobile responsive: Form actions layout - tighter spacing */
     .form-actions {
         flex-direction: column !important;
-        gap: 20px !important;
+        gap: 10px !important;
         align-items: stretch !important;
-        margin: 30px 0 !important;
+        margin: 16px 0 !important;
     }
 
     .form-links {
@@ -134,168 +236,568 @@ body {
         order: 2 !important;
     }
 
-    /* Mobile responsive: Submit button full width */
+    /* Mobile responsive: Submit button - FIXED WIDTH */
     input[type="submit"],
-    .form-actions input[type="submit"] {
+    .form-actions input[type="submit"],
+    button[type="submit"],
+    .btn,
+    .pf-c-button,
+    #kc-login {
         width: 100% !important;
-        min-width: auto !important;
-        padding: 18px 24px !important;
-        font-size: 16px !important;
-        height: 56px !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        padding: 8px 12px !important;
+        font-size: 14px !important;
+        height: 36px !important;
         order: 1 !important;
+        box-sizing: border-box !important;
+        border-radius: 8px !important;
+        margin: 0 !important;
     }
 
-    /* Mobile responsive: Google sign-in button */
-    .google-signin-btn {
+    /* Mobile responsive: Google sign-in button - FIXED WIDTH */
+    .google-signin-btn,
+    a.google-signin-btn,
+    #social-google,
+    a[id*="social-"],
+    .pf-c-button.google-signin-btn,
+    #kc-social-providers a {
         width: 100% !important;
-        min-width: auto !important;
-        max-width: none !important;
-        padding: 16px 24px !important;
-        font-size: 16px !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        padding: 8px 12px !important;
+        font-size: 14px !important;
+        height: 36px !important;
+        box-sizing: border-box !important;
+        display: block !important;
+        text-align: center !important;
+        border-radius: 20px !important;
+        margin: 0 !important;
     }
 
-    /* Mobile responsive: Social providers spacing */
+    /* Mobile responsive: Social providers spacing - tighter */
     #kc-social-providers {
-        margin-top: 24px !important;
+        margin-top: 12px !important;
     }
 
     #kc-social-providers hr {
-        margin: 20px 0 24px 0 !important;
+        margin: 10px 0 12px 0 !important;
     }
 
-    /* Mobile responsive: Info and error messages */
+    /* Mobile responsive: Info and error messages - MUCH smaller */
     #kc-info-message,
     #kc-error-message,
     .instruction {
-        font-size: 16px !important;
-        margin: 20px 0 !important;
-        line-height: 1.5 !important;
+        font-size: 12px !important;
+        margin: 10px 0 !important;
+        line-height: 1.3 !important;
+        padding: 8px 12px !important;
     }
 
     #kc-info-message p,
     #kc-error-message p,
     .instruction {
-        font-size: 16px !important;
-        margin: 15px 0 !important;
+        font-size: 12px !important;
+        margin: 4px 0 !important;
     }
 
     #kc-info-message a,
     #kc-error-message a,
     .instruction a {
-        font-size: 16px !important;
-        padding: 12px 24px !important;
+        font-size: 12px !important;
+        padding: 8px 12px !important;
         width: 100% !important;
         text-align: center !important;
         box-sizing: border-box !important;
+        min-height: 36px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
 
-    /* Mobile responsive: Error text sizing */
+    /* Mobile responsive: Error text sizing - smaller */
     .kc-feedback-text,
     #input-error,
     .alert-error {
-        font-size: 14px !important;
-        margin-top: 6px !important;
-        padding: 6px 0 !important;
+        font-size: 11px !important;
+        margin-top: 2px !important;
+        padding: 2px 0 !important;
     }
 
-    /* Mobile responsive: Back to app button */
+    /* Mobile responsive: Back to app button - smaller */
     .back-to-app-btn {
         width: 100% !important;
-        padding: 16px 24px !important;
-        font-size: 16px !important;
+        padding: 8px 16px !important;
+        font-size: 14px !important;
         text-align: center !important;
         box-sizing: border-box !important;
+        min-height: 36px !important;
     }
 
-    /* Mobile responsive: Login links */
+    /* Mobile responsive: Login links - MUCH smaller buttons */
     .login-links {
         flex-direction: column !important;
-        gap: 15px !important;
+        gap: 8px !important;
         text-align: center !important;
+        width: 100% !important;
     }
 
     .login-links a {
-        font-size: 16px !important;
-        padding: 12px 24px !important;
-        border: 1px solid rgba(255, 255, 255, 0.3) !important;
-        border-radius: 8px !important;
-        background: rgba(255, 255, 255, 0.05) !important;
-        display: block !important;
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        padding: 8px 12px !important;
+        border: 1px solid rgba(255, 255, 255, 0.25) !important;
+        border-radius: 6px !important;
+        background: rgba(255, 255, 255, 0.08) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
         text-align: center !important;
         text-decoration: none !important;
         transition: all 0.2s ease !important;
+        min-height: 36px !important;
+        box-sizing: border-box !important;
+        width: 100% !important;
+        color: rgba(255, 255, 255, 0.9) !important;
     }
 
     .login-links a:hover {
-        background: rgba(255, 255, 255, 0.1) !important;
-        border-color: rgba(255, 255, 255, 0.5) !important;
-    }
-}
-
-/* Extra small mobile devices */
-@media (max-width: 480px) {
-    /* Extra small mobile: Even more compact spacing */
-    .login-pf .card-pf {
-        padding: 0 15px !important;
-        width: calc(100% - 30px) !important;
-        margin: 15px auto !important;
+        background: rgba(255, 255, 255, 0.15) !important;
+        border-color: rgba(255, 255, 255, 0.4) !important;
+        color: #ffffff !important;
+        transform: translateY(-1px) !important;
     }
 
-    /* Extra small mobile: Header text */
-    .helix-main-heading,
-    .login-pf .card-pf h1,
-    #kc-page-title {
-        font-size: 28px !important;
-        margin: 0 0 25px 0 !important;
+    /* Mobile responsive: Reset password links - smaller */
+    .reset-password-links a {
+        font-size: 12px !important;
+        padding: 8px 12px !important;
+        border: 1px solid rgba(255, 255, 255, 0.25) !important;
+        border-radius: 6px !important;
+        background: rgba(255, 255, 255, 0.08) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center !important;
+        text-decoration: none !important;
+        transition: all 0.2s ease !important;
+        min-height: 36px !important;
+        box-sizing: border-box !important;
+        width: 100% !important;
+        color: rgba(255, 255, 255, 0.9) !important;
     }
 
-    /* Extra small mobile: Form spacing */
-    .form-group {
-        margin-bottom: 15px !important;
+    .reset-password-links a:hover {
+        background: rgba(255, 255, 255, 0.15) !important;
+        border-color: rgba(255, 255, 255, 0.4) !important;
+        color: #ffffff !important;
     }
 
-    .form-group-row {
-        gap: 15px !important;
-        margin-bottom: 15px !important;
+    /* Mobile responsive: Registration form adjustments */
+    #kc-register-form .form-group-row {
+        flex-direction: column !important;
+        gap: 16px !important;
     }
 
-    /* Extra small mobile: Input fields */
+    #kc-register-form .form-group-row .form-group {
+        width: 100% !important;
+    }
+
+    /* Mobile responsive: Better viewport handling */
+    body {
+        width: 100vw !important;
+        overflow-x: hidden !important;
+    }
+
+    /* Mobile responsive: Ensure all container elements are properly sized */
+    #kc-container-wrapper,
+    #kc-content-wrapper,
+    #kc-form-wrapper {
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow-x: hidden !important;
+        box-sizing: border-box !important;
+    }
+
+    /* Mobile responsive: Ensure all form inputs are properly contained */
     .form-group input[type="text"],
     .form-group input[type="email"],
     .form-group input[type="password"] {
-        padding: 14px 16px !important;
-        height: 48px !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+    }
+
+    /* Mobile responsive: Form groups and containers */
+    .form-group,
+    .form-group-row,
+    .form-actions,
+    .login-links,
+    .reset-password-links {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    /* Mobile responsive: Password input wrapper */
+    .password-input-wrapper {
+        position: relative !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    
+    /* Ensure password inputs don't overflow with the eye icon */
+    .password-input-wrapper input[type="password"] {
+        padding-right: 40px !important;
+    }
+
+    /* Mobile responsive: Password visibility toggle positioning */
+    .password-visibility-toggle {
+        position: absolute !important;
+        right: 12px !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
+        min-width: 44px !important;
+        min-height: 44px !important;
+        padding: 8px !important;
         font-size: 16px !important;
     }
 
-    /* Extra small mobile: Buttons */
+    /* Mobile responsive: All buttons should be properly sized */
+    button,
+    input[type="button"],
+    .btn,
+    a.btn {
+        min-height: 44px !important;
+        box-sizing: border-box !important;
+        text-align: center !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+
+    /* Mobile responsive: Links in registration/login sections */
+    #kc-registration-container a,
+    .form-links a,
+    .login-links a,
+    .reset-password-links a {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+        text-align: center !important;
+        display: block !important;
+        min-height: 36px !important;
+        padding: 8px 12px !important;
+        margin: 2px 0 !important;
+    }
+
+    /* NUCLEAR OPTION: Force everything to fit on narrow screens */
+    @media (max-width: 768px) {
+        * {
+            box-sizing: border-box !important;
+        }
+        
+        /* Override ALL input widths with proper box model */
+        input[type="text"],
+        input[type="email"],
+        input[type="password"],
+        input[type="submit"],
+        button,
+        a.google-signin-btn,
+        .google-signin-btn,
+        #social-google,
+        .form-group input,
+        #kc-form-login input,
+        #kc-reset-password-form input,
+        #username,
+        #password,
+        #email {
+            width: 100% !important;
+            max-width: 100% !important;
+            box-sizing: border-box !important;
+            margin: 0 !important;
+        }
+
+        /* Override the Google button specific width */
+        #kc-form-login + div #kc-social-providers .google-signin-btn,
+        .login-pf #kc-social-providers .google-signin-btn,
+        #kc-social-providers .google-signin-btn {
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: unset !important;
+            box-sizing: border-box !important;
+        }
+
+        /* Ensure form groups don't add extra spacing */
+        .form-group {
+            width: 100% !important;
+            max-width: 100% !important;
+            box-sizing: border-box !important;
+            padding: 0 !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+        }
+
+        /* Remove any fixed widths from desktop styles */
+        #kc-content-body,
+        .login-pf #kc-content-body {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+
+        #kc-reset-password-form .form-group {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+
+        #kc-reset-password-form .reset-password-actions {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+    }
+}
+
+/* Extra small mobile devices - iPhone 5/SE and similar */
+@media (max-width: 480px) {
+    /* Extra small mobile: ULTRA compact spacing */
+    .login-pf .card-pf {
+        padding: 0 12px !important;
+        max-width: 320px !important;
+        width: 100% !important;
+        margin: 8px auto !important;
+        box-sizing: border-box !important;
+    }
+
+    /* Extra small mobile: Header text - MUCH smaller */
+    .helix-main-heading,
+    .login-pf .card-pf h1,
+    #kc-page-title {
+        font-size: 18px !important;
+        margin: 0 0 12px 0 !important;
+        line-height: 1.3 !important;
+    }
+
+    /* Extra small mobile: ULTRA compact form spacing */
+    .form-group {
+        margin-bottom: 8px !important;
+    }
+
+    .form-group-row {
+        gap: 8px !important;
+        margin-bottom: 8px !important;
+    }
+
+    /* Extra small mobile: Input fields - MUCH smaller */
+    .form-group input[type="text"],
+    .form-group input[type="email"],
+    .form-group input[type="password"] {
+        padding: 8px 10px !important;
+        font-size: 16px !important;
+        height: 36px !important;
+    }
+
+    /* Extra small mobile: Labels - smaller */
+    .form-group label {
+        font-size: 11px !important;
+        margin-bottom: 2px !important;
+    }
+
+    /* Extra small mobile: Submit buttons - MUCH smaller */
     input[type="submit"],
     .form-actions input[type="submit"] {
-        padding: 16px 20px !important;
-        height: 52px !important;
-        font-size: 16px !important;
+        padding: 8px 12px !important;
+        font-size: 14px !important;
+        height: 36px !important;
     }
 
+    /* Extra small mobile: Google button - MUCH smaller */
     .google-signin-btn {
-        padding: 14px 20px !important;
-        height: 52px !important;
-        font-size: 15px !important;
-        gap: 15px !important;
+        padding: 8px 12px !important;
+        font-size: 13px !important;
+        height: 36px !important;
     }
 
-    /* Extra small mobile: Form actions */
+    /* Extra small mobile: Form actions - ULTRA tight */
     .form-actions {
-        margin: 25px 0 !important;
-        gap: 15px !important;
+        gap: 8px !important;
+        margin: 12px 0 !important;
     }
 
-    /* Extra small mobile: Social providers */
+    /* Extra small mobile: Login links - smaller gaps */
+    .login-links {
+        gap: 6px !important;
+    }
+
+    .login-links a {
+        font-size: 11px !important;
+        padding: 6px 10px !important;
+        min-height: 32px !important;
+    }
+
+    /* Extra small mobile: Reset password links - smaller */
+    .reset-password-links a {
+        font-size: 11px !important;
+        padding: 6px 10px !important;
+        min-height: 32px !important;
+    }
+
+    /* Extra small mobile: Social providers - tight spacing */
     #kc-social-providers {
-        margin-top: 20px !important;
+        margin-top: 8px !important;
     }
 
     #kc-social-providers hr {
-        margin: 15px 0 20px 0 !important;
+        margin: 6px 0 8px 0 !important;
+    }
+
+    /* Extra small mobile: Info messages - MUCH smaller */
+    #kc-info-message,
+    #kc-error-message,
+    .instruction {
+        font-size: 11px !important;
+        margin: 8px 0 !important;
+        padding: 6px 8px !important;
+    }
+
+    /* Extra small mobile: Error text - smaller */
+    .kc-feedback-text,
+    #input-error,
+    .alert-error {
+        font-size: 10px !important;
+        margin-top: 1px !important;
+        padding: 1px 0 !important;
+    }
+}
+
+/* Ultra small devices - phones with very small screens */
+@media (max-width: 320px) {
+    /* Ultra small: MAXIMUM compactness */
+    .login-pf .card-pf {
+        padding: 0 8px !important;
+        max-width: 280px !important;
+        width: 100% !important;
+        margin: 4px auto !important;
+        box-sizing: border-box !important;
+    }
+
+    /* Ultra small: Header - TINY */
+    .helix-main-heading,
+    .login-pf .card-pf h1,
+    #kc-page-title {
+        font-size: 16px !important;
+        margin: 0 0 8px 0 !important;
+        line-height: 1.2 !important;
+    }
+
+    /* Ultra small: Form spacing - MINIMAL */
+    .form-group {
+        margin-bottom: 6px !important;
+    }
+
+    .form-group-row {
+        gap: 6px !important;
+        margin-bottom: 6px !important;
+    }
+
+    /* Ultra small: Inputs - TINY */
+    .form-group input[type="text"],
+    .form-group input[type="email"],
+    .form-group input[type="password"] {
+        padding: 6px 8px !important;
+        height: 32px !important;
+        font-size: 16px !important;
+    }
+
+    /* Ultra small: Labels - TINY */
+    .form-group label {
+        font-size: 10px !important;
+        margin-bottom: 1px !important;
+    }
+
+    /* Ultra small: Buttons - TINY */
+    input[type="submit"],
+    .form-actions input[type="submit"],
+    .google-signin-btn {
+        padding: 6px 10px !important;
+        font-size: 13px !important;
+        height: 32px !important;
+    }
+
+    /* Ultra small: Form actions - MINIMAL */
+    .form-actions {
+        gap: 6px !important;
+        margin: 8px 0 !important;
+    }
+
+    /* Ultra small: Links - MINIMAL */
+    .login-links {
+        gap: 4px !important;
+    }
+
+    .login-links a,
+    .reset-password-links a {
+        font-size: 10px !important;
+        padding: 4px 8px !important;
+        min-height: 28px !important;
+    }
+
+    /* Ultra small: Info messages */
+    #kc-info-message,
+    #kc-error-message,
+    .instruction {
+        font-size: 12px !important;
+        margin: 12px 0 !important;
+        padding: 8px 10px !important;
+    }
+
+    /* Ultra small: Background adjustments for very small screens */
+    #helix-bg-image {
+        background-size: auto 40% !important;
+        background-position: -10% center !important;
+    }
+}
+
+/* Final safety net for extremely small screens */
+@media (max-width: 280px) {
+    .login-pf .card-pf {
+        padding: 0 6px !important;
+        max-width: 100% !important;
+        width: 100% !important;
+        margin: 4px auto !important;
+        box-sizing: border-box !important;
+    }
+
+    .helix-main-heading,
+    .login-pf .card-pf h1,
+    #kc-page-title {
+        font-size: 20px !important;
+        margin: 0 0 12px 0 !important;
+    }
+
+    .form-group input[type="text"],
+    .form-group input[type="email"],
+    .form-group input[type="password"] {
+        padding: 8px 10px !important;
+        height: 36px !important;
+        font-size: 16px !important;
+    }
+
+    input[type="submit"],
+    .form-actions input[type="submit"],
+    .google-signin-btn {
+        padding: 8px 12px !important;
+        font-size: 14px !important;
+        height: 36px !important;
+    }
+
+    .login-links a,
+    .reset-password-links a {
+        font-size: 11px !important;
+        padding: 6px 8px !important;
+        min-height: 32px !important;
     }
 }
 
@@ -350,9 +852,10 @@ body {
     border-radius: 0 !important;
     max-width: 700px !important;
     width: 100% !important;
-    margin: 0 !important;
+    margin: 0 auto !important;
     padding: 0 40px !important;
     position: relative !important;
+    box-sizing: border-box !important;
 }
 
 /* Hide the unwanted HELIX text completely */
@@ -464,6 +967,19 @@ body {
         0 8px 32px rgba(0, 0, 0, 0.1),
         inset 0 1px 0 rgba(255, 255, 255, 0.1),
         0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+/* MOBILE OVERRIDE WITH HIGHER SPECIFICITY - MUST COME AFTER BASE STYLES */
+@media (max-width: 768px) {
+    body .login-pf .form-group input[type="text"],
+    body .login-pf .form-group input[type="email"],
+    body .login-pf .form-group input[type="password"],
+    body #kc-form-login input[type="text"],
+    body #kc-form-login input[type="password"] {
+        padding: 8px 10px !important;
+        height: 36px !important;
+        font-size: 16px !important;
+    }
 }
 
 .form-group input[type="text"]:focus,
@@ -638,6 +1154,31 @@ hr {
     text-decoration: none !important;
     transform: translateY(-1px) !important;
     outline: none !important;
+}
+
+/* MOBILE FIX FOR GOOGLE BUTTON ICON */
+@media (max-width: 768px) {
+    .google-signin-btn {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 8px !important;
+        padding: 8px 12px !important;
+        line-height: normal !important;
+    }
+    
+    .google-signin-btn::before {
+        width: 16px !important;
+        height: 16px !important;
+        margin: 0 !important;
+        flex-shrink: 0 !important;
+    }
+    
+    /* Fix text alignment next to icon */
+    .google-signin-btn span {
+        line-height: 1 !important;
+        display: block !important;
+    }
 }
 
 /* Remove any default link outlines/borders on social providers - AGGRESSIVE */
@@ -1301,5 +1842,27 @@ body:has(#kc-logout) #kc-info-message {
     .form-group input[type="password"] {
         background: rgba(255, 255, 255, 0.1) !important;
         border-color: rgba(255, 255, 255, 0.2) !important;
+    }
+}
+
+/* FINAL MOBILE OVERRIDES - HIGHEST SPECIFICITY TO WIN CASCADE WAR */
+@media (max-width: 768px) {
+    html body .login-pf .card-pf .form-group input[type="text"],
+    html body .login-pf .card-pf .form-group input[type="email"],
+    html body .login-pf .card-pf .form-group input[type="password"],
+    html body #kc-form-login input,
+    html body #kc-reset-password-form input {
+        padding: 8px 10px !important;
+        height: 36px !important;
+    }
+    
+    /* Force Google button to behave */
+    html body #kc-social-providers .google-signin-btn,
+    html body .login-pf #kc-social-providers .google-signin-btn,
+    html body a.google-signin-btn {
+        padding: 8px 12px !important;
+        height: 36px !important;
+        width: 100% !important;
+        max-width: 100% !important;
     }
 }
