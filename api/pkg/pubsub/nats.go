@@ -253,6 +253,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 		AckPolicy:      jetstream.AckExplicitPolicy,
 		FilterSubjects: []string{getStreamSub(ScriptRunnerStream, AppQueue)},
 		AckWait:        5 * time.Second,
+		BackOff:        []time.Duration{1 * time.Second, 5 * time.Second, 30 * time.Second}, // Exponential backoff to prevent log spam
 		// MemoryStorage:  true,
 		ReplayPolicy: jetstream.ReplayInstantPolicy,
 	})
@@ -266,6 +267,7 @@ func NewNats(cfg *config.ServerConfig) (*Nats, error) {
 			info, err := stream.Info(ctx)
 			if err != nil {
 				log.Err(err).Msg("failed to get stream info")
+				time.Sleep(1 * time.Second) // Wait before retrying on error
 				continue
 			}
 			if info.State.Consumers == 0 {
@@ -592,6 +594,7 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, handle
 			AckPolicy:      jetstream.AckExplicitPolicy,
 			FilterSubjects: []string{getStreamSub(stream, subject)},
 			AckWait:        5 * time.Second,
+			BackOff:        []time.Duration{1 * time.Second, 5 * time.Second, 30 * time.Second}, // Exponential backoff to prevent log spam
 			ReplayPolicy:   jetstream.ReplayInstantPolicy,
 		})
 		if err != nil {
@@ -619,6 +622,7 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, handle
 				msg, err := mc.Next()
 				if err != nil {
 					log.Err(err).Msg("failed to fetch messages")
+					time.Sleep(1 * time.Second) // Prevent tight loop on connection errors
 					continue
 				}
 
