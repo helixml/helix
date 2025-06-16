@@ -628,7 +628,7 @@ func TestStreamFailOne(t *testing.T) {
 
 	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, func(msg *Message) error {
 		if string(msg.Data) == "work-0" {
-			// Don't ack or nack
+			// Don't ack or nack - let it timeout and use BackOff delays
 			t.Log("will not process this message")
 			return fmt.Errorf("failed to process")
 		}
