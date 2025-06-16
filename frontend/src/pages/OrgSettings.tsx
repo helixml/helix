@@ -117,8 +117,9 @@ const OrgSettings: FC = () => {
 
   return (
     <Page
-      breadcrumbTitle={ organization ? `${organization.display_name} : Settings` : 'Organization Settings' }
-      breadcrumbShowHome={ false }
+      breadcrumbTitle={ organization ? `Settings` : 'Organization Settings' }
+      breadcrumbShowHome={ true }
+      orgBreadcrumbs={ true }
     >
       <Container maxWidth="xl">
         <Box sx={{ mt: 3, p: 2 }}>

@@ -164,6 +164,12 @@ func (t *BrowserTool) Execute(ctx context.Context, meta agent.Meta, args map[str
 			return
 		}
 
+		// Wait until stable
+		err = page.WaitStable(5 * time.Second)
+		if err != nil {
+			log.Warn().Err(err).Str("url", url).Msg("error waiting for page to be stable")
+		}
+
 		html, err := page.HTML()
 		if err != nil {
 			errCh <- fmt.Errorf("error getting HTML for %s: %w", url, err)
