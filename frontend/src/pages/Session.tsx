@@ -84,8 +84,6 @@ interface IInteractionBlock {
 const VIRTUAL_SPACE_HEIGHT = 500 // pixels
 const INTERACTIONS_PER_BLOCK = 20
 const SCROLL_LOCK_DELAY = 500 // ms
-const VIEWPORT_BUFFER = 2 // Increased from 1 to 2 to keep more blocks rendered
-const MIN_SCROLL_DISTANCE = 200 // pixels
 
 // Define interface for MemoizedInteraction props
 interface MemoizedInteractionProps {
@@ -1212,13 +1210,13 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     session.data,
   ])
 
-  const onShare = useCallback(() => {
-    router.setParams({
-      sharing: 'yes',
-    })
-  }, [
-    session.data,
-  ])
+  // const onShare = useCallback(() => {
+  //   router.setParams({
+  //     sharing: 'yes',
+  //   })
+  // }, [
+  //   session.data,
+  // ])
 
   const retryFinetuneErrors = useCallback(async () => {
     if (!session.data) return
@@ -2019,7 +2017,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       </Box>
 
       {/* Windows/Modals */}
-      {router.params.cloneInteraction && (
+      {/* {router.params.cloneInteraction && (
         <Window
           open
           size="sm"
@@ -2052,16 +2050,16 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             }
           }}
         />
-      )}
+      )} */}
 
-      {router.params.sharing && session.data && (
+      {/* {router.params.sharing && session.data && (
         <ShareSessionWindow
           session={session.data}
           onCancel={() => {
             router.removeParams(['sharing'])
           }}
         />
-      )}
+      )} */}
     
       {showLoginWindow && (
         <Window
