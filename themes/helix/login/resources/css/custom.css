@@ -1,4 +1,5 @@
 /* Import IBM Plex Sans from Google Fonts */
+
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
 
 /* Helix Registration Theme - Matching Screenshot */
@@ -165,7 +166,6 @@ body {
     .login-pf .card-pf h1,
     #kc-page-title {
         font-size: 18px !important; /* Reduced from 22px */
-        line-height: 1.1 !important;
         margin: 0 0 16px 0 !important; /* Reduced from 20px */
         white-space: normal !important;
         text-align: center !important;
@@ -290,7 +290,6 @@ body {
     .instruction {
         font-size: 12px !important;
         margin: 10px 0 !important;
-        line-height: 1.3 !important;
         padding: 8px 12px !important;
     }
 
@@ -495,71 +494,6 @@ body {
         padding: 8px 12px !important;
         margin: 2px 0 !important;
     }
-
-    /* NUCLEAR OPTION: Force everything to fit on narrow screens */
-    @media (max-width: 768px) {
-        * {
-            box-sizing: border-box !important;
-        }
-        
-        /* Override ALL input widths with proper box model */
-        input[type="text"],
-        input[type="email"],
-        input[type="password"],
-        input[type="submit"],
-        button,
-        a.google-signin-btn,
-        .google-signin-btn,
-        #social-google,
-        .form-group input,
-        #kc-form-login input,
-        #kc-reset-password-form input,
-        #username,
-        #password,
-        #email {
-            width: 100% !important;
-            max-width: 100% !important;
-            box-sizing: border-box !important;
-            margin: 0 !important;
-        }
-
-        /* Override the Google button specific width */
-        #kc-form-login + div #kc-social-providers .google-signin-btn,
-        .login-pf #kc-social-providers .google-signin-btn,
-        #kc-social-providers .google-signin-btn {
-            width: 100% !important;
-            max-width: 100% !important;
-            min-width: unset !important;
-            box-sizing: border-box !important;
-        }
-
-        /* Ensure form groups don't add extra spacing */
-        .form-group {
-            width: 100% !important;
-            max-width: 100% !important;
-            box-sizing: border-box !important;
-            padding: 0 !important;
-            margin-left: 0 !important;
-            margin-right: 0 !important;
-        }
-
-        /* Remove any fixed widths from desktop styles */
-        #kc-content-body,
-        .login-pf #kc-content-body {
-            width: 100% !important;
-            max-width: 100% !important;
-        }
-
-        #kc-reset-password-form .form-group {
-            width: 100% !important;
-            max-width: 100% !important;
-        }
-
-        #kc-reset-password-form .reset-password-actions {
-            width: 100% !important;
-            max-width: 100% !important;
-        }
-    }
 }
 
 /* Extra small mobile devices - iPhone 5/SE and similar */
@@ -579,7 +513,6 @@ body {
     #kc-page-title {
         font-size: 15px !important; /* Reduced from 18px */
         margin: 0 0 10px 0 !important; /* Reduced from 12px */
-        line-height: 1.3 !important;
     }
 
     /* Extra small mobile: ULTRA compact form spacing */
@@ -691,7 +624,6 @@ body {
     #kc-page-title {
         font-size: 16px !important;
         margin: 0 0 8px 0 !important;
-        line-height: 1.2 !important;
     }
 
     /* Ultra small: Form spacing - MINIMAL */
@@ -878,10 +810,8 @@ body {
     font-weight: 600 !important;
     text-align: left !important;
     margin: 0 0 30px 0 !important;
-    line-height: 1.1 !important;
-    letter-spacing: -1px !important;
     display: block !important;
-    white-space: nowrap !important;
+    /* white-space: nowrap !important; */
     width: 100% !important;
 }
 
@@ -1142,7 +1072,6 @@ hr {
     box-shadow: none !important;
     overflow: visible !important;
     text-align: center !important;
-    line-height: 1 !important;
 }
 
 /* Ensure all text in Google button is dark */
@@ -1210,7 +1139,6 @@ hr {
     
     .google-signin-btn span,
     .google-signin-btn {
-        line-height: 1 !important;
         color: #333333 !important;
     }
 }
@@ -1291,8 +1219,7 @@ hr {
     color: white !important;
     font-size: 18px !important;
     font-weight: 400 !important;
-    line-height: 1.6 !important;
-    margin: 30px 0 !important;
+    margin: 20px 0 !important;
     text-align: left !important;
 }
 
@@ -1302,7 +1229,6 @@ hr {
     color: white !important;
     font-size: 18px !important;
     font-weight: 400 !important;
-    line-height: 1.6 !important;
     margin: 20px 0 !important;
 }
 
@@ -1458,7 +1384,6 @@ a.google-signin-btn,
 /* Force all forms to use full container width */
 #kc-content-body,
 .login-pf #kc-content-body {
-    width: 500px !important;
     max-width: 500px !important;
 }
 
@@ -1592,7 +1517,6 @@ p.instruction {
     color: rgba(255, 255, 255, 0.95) !important;
     font-size: 16px !important;
     font-weight: 400 !important;
-    line-height: 1.4 !important;
     margin: 0 !important;
     text-align: center !important;
     background: transparent !important;
