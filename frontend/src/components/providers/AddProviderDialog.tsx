@@ -121,7 +121,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 type="password"
-                autoComplete="off"
+                autoComplete="new-password"
                 error={!!error}
                 helperText={error}
                 sx={{ flex: 1 }}
