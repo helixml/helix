@@ -7,12 +7,16 @@ import {
   Typography,
   TextField,
   Alert,
+  IconButton,
+  InputAdornment,
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
 import { useCreateProviderEndpoint } from '../../services/providersService';
 import { TypesProviderEndpointType } from '../../api/api';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 
 interface AddProviderDialogProps {
   open: boolean;
@@ -57,6 +61,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
   const lightTheme = useLightTheme();
   const [error, setError] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
   const { mutate: createProviderEndpoint, isPending } = useCreateProviderEndpoint();
 
   const handleClose = () => {
@@ -120,11 +125,24 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
                 fullWidth
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                type="password"
+                type={showApiKey ? "text" : "password"}
                 autoComplete="new-password"
                 error={!!error}
                 helperText={error}
                 sx={{ flex: 1 }}
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        edge="end"
+                        size="small"
+                      >
+                        {showApiKey ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
               />
             </Box>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
