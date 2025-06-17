@@ -14,7 +14,7 @@ interface Provider {
   id: string;
   name: string;
   description: string;
-  logo: string | React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  logo: string | React.ComponentType<React.SVGProps<SVGSVGElement>> | React.ComponentType<any>;
 }
 
 const PROVIDERS: Provider[] = [

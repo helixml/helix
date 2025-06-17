@@ -6,11 +6,8 @@ interface CerebrasLogoProps {
   height?: number;
 }
 
-const CerebrasLogo: React.FC<CerebrasLogoProps> = ({ 
-  className = '', 
-  width = 132.6, 
-  height = 132.6 
-}) => {
+const CerebrasLogo = (props: CerebrasLogoProps) => {
+  const { className = '', width = 132.6, height = 132.6 } = props;
   return (
     <svg 
       xmlns="http://www.w3.org/2000/svg" 
