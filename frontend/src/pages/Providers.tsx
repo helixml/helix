@@ -33,7 +33,7 @@ const PROVIDERS: Provider[] = [
   },
   {
     id: 'google',
-    name: 'Google',
+    name: 'Google Gemini',
     description: 'Use Google AI models and services.',
     logo: googleLogo,
     // Gemini URL
