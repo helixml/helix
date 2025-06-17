@@ -37,7 +37,7 @@ const PROVIDERS: Provider[] = [
     description: 'Use Google AI models and services.',
     logo: googleLogo,
     // Gemini URL
-    base_url: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
     setup_instructions: "Get your API key from https://aistudio.google.com/apikey"
   },
   {
