@@ -5,6 +5,7 @@
 <head>
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="robots" content="noindex, nofollow">
 
     <#if properties.meta?has_content>
@@ -56,7 +57,7 @@
                 <#elseif .template_name?contains("login-reset-password") || .template_name?contains("reset-password") || .template_name?contains("forgot")>
                     <h1 class="helix-main-heading">Reset your password</h1>
                 <#elseif .template_name?contains("login") && !(.template_name?contains("register"))>
-                    <h1 class="helix-main-heading">Welcome to Helix!</h1>
+                    <h1 class="helix-main-heading">Get building with Helix<h1>
                 <#elseif .template_name?contains("logout")>
                     <h1 class="helix-main-heading">Ready to sign out?</h1>
                 <#elseif .template_name?contains("info")>

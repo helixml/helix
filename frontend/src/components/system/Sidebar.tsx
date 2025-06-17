@@ -109,7 +109,6 @@ const SidebarContent: React.FC<{
   const account = useAccount()
   const apps = useApps()
   const sessions = useSessions()
-  const { models } = useContext(AccountContext)
   const activeTab = useMemo(() => {
     // Always respect resource_type if it's present
     const activeIndex = RESOURCE_TYPES.findIndex((type) => type == router.params.resource_type)
@@ -168,16 +167,7 @@ const SidebarContent: React.FC<{
     }
 
     checkAuthAndLoad()
-  }, [activeTab, router.params])
-
-  const filteredModels = useMemo(() => {
-    return models.filter(m => m.type === "text" || m.type === "chat")
-  }, [models])
-
-  const defaultModel = useMemo(() => {
-    if(filteredModels.length <= 0) return ''
-    return filteredModels[0].id
-  }, [filteredModels])
+  }, [activeTab, router.params])  
   
   const [accountMenuAnchorEl, setAccountMenuAnchorEl] = useState<null | HTMLElement>(null)
 

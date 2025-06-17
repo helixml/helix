@@ -26,8 +26,6 @@ const Apps: FC = () => {
   
   const {
     params,
-    setParams,
-    removeParams,
     navigate,
   } = useRouter()  
 
@@ -317,7 +315,7 @@ const Apps: FC = () => {
       {
         deletingApp && (
           <DeleteConfirmWindow
-            title="this app"
+            title="this agent"
             onCancel={ () => setDeletingApp(undefined) }
             onSubmit={ onDeleteApp }
           />
