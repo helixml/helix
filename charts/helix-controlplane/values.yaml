@@ -148,10 +148,10 @@ controlplane:
     enabled: false
     image:
       repository: registry.helixml.tech/helix/haystack
-    embeddingsModel: "Alibaba-NLP/gte-Qwen2-7B-instruct"
+    embeddingsModel: "MrLight/dse-qwen2-2b-mrl-v1"
     # TODO: these settings should be configurable in the helix.yaml, not
     # globally
-    embeddingsDim: "3584"
+    embeddingsDim: "1536"
     chunkSize: "1000"
     chunkOverlap: "50"
   providers: {}

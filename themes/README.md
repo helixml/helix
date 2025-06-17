@@ -30,7 +30,6 @@ This setup ensures:
 ### helix
 - **Login theme**: Custom styling with gradient background, glass morphism effects, and modern UI
 - **Background images**: Context-aware (charm.png for registration, particle.png for login)
-- **Development indicator**: Shows "🚧 DEVELOPMENT THEME ACTIVE 🚧" in top-right corner
 - **Auto-configured**: The Keycloak reconciler automatically sets the realm's login theme to "helix"
 
 ## Testing Your Theme
@@ -88,7 +87,6 @@ The CI/CD pipeline in `.drone.yml` automatically:
 ## Customization Tips
 
 - Edit `themes/helix/login/resources/css/custom.css` for styling changes
-- The development indicator helps confirm your theme is active
 - Use browser developer tools to inspect elements and test CSS changes
 - Background images are automatically selected based on page type
 - Glass morphism effects are applied to forms and buttons for modern UI
