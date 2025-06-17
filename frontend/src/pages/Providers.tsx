@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Tooltip } from '@mui/material';
 import Container from '@mui/material/Container';
 import Page from '../components/system/Page';
-import AddIcon from '@mui/icons-material/Add';
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
 
 // Import SVGs as components
 import OpenAILogo from '../components/providers/logos/openai';
@@ -103,8 +103,8 @@ const Providers: React.FC = () => {
   };
 
   return (
-    <Page breadcrumbTitle="Providers" topbarContent={null}>
-      <Container maxWidth="md" sx={{ mt: 10, mb: 6, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+    <Page breadcrumbTitle="Providers" topbarContent={null}>      
+      <Container maxWidth="md" sx={{ mt: 10, mb: 6, display: 'flex', flexDirection: 'column', alignItems: 'left' }}>
         <Typography variant="h4" sx={{ mb: 2, fontWeight: 600 }}>
           AI Providers
         </Typography>
@@ -169,10 +169,11 @@ const Providers: React.FC = () => {
                     </CardContent>
                     <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
                       <Button
-                        variant={isConfigured ? 'outlined' : 'outlined'}
+                        size="small"
+                        variant={isConfigured ? 'outlined' : 'text'}
                         color={isConfigured ? 'success' : 'secondary'}
                         onClick={() => handleOpenDialog(provider)}
-                        startIcon={!isConfigured && <AddIcon />}
+                        startIcon={!isConfigured && <AddCircleOutlineIcon />}
                       >
                         {isConfigured ? 'Edit' : 'Connect'}
                       </Button>
