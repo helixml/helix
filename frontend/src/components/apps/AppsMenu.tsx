@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useState } from 'react'
+import React, { FC, useEffect, useState, useCallback } from 'react'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
@@ -11,6 +11,7 @@ import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import SlideMenuContainer from '../system/SlideMenuContainer'
+import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
 
 import useApps from '../../hooks/useApps'
 import useAccount from '../../hooks/useAccount'
@@ -44,11 +45,12 @@ export const AppsMenu: FC<{
   // State for the menu
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null)
   const [selectedApp, setSelectedApp] = useState<IApp | null>(null)
+  const [deletingApp, setDeletingApp] = useState<IApp>()
 
   // Load apps when component mounts
   useEffect(() => {
     loadApps()
-  }, [])
+  }, [loadApps])
 
   // Helper function to get the icon for an app
   const getAppIcon = (app: IApp) => {
@@ -89,16 +91,25 @@ export const AppsMenu: FC<{
     handleMenuClose()
   }
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!selectedApp) return
-    try {
-      await deleteApp(selectedApp.id)
-      snackbar.success('App deleted successfully')
-    } catch (error) {
-      snackbar.error('Failed to delete app')
-    }
+    setDeletingApp(selectedApp)
     handleMenuClose()
   }
+
+  const onDeleteApp = useCallback(async () => {
+    if(!deletingApp) return
+    const result = await deleteApp(deletingApp.id)
+    if(!result) return
+    setDeletingApp(undefined)
+    loadApps()
+    snackbar.success('app deleted')
+  }, [
+    deletingApp,
+    deleteApp,
+    loadApps,
+    snackbar,
+  ])
 
   const isOwner = (app: IApp) => {
     return account.user?.id === app.owner
@@ -113,7 +124,7 @@ export const AppsMenu: FC<{
         }}
       >
         {
-          apps.map((app, i) => {
+          apps.map((app: IApp) => {
             const isActive = app.id === params["app_id"]
             const isCurrentApp = app.id === params["app_id"]
             return (
@@ -197,6 +208,13 @@ export const AppsMenu: FC<{
         <MenuItem onClick={handleEdit}>Edit</MenuItem>
         <MenuItem onClick={handleDelete}>Delete</MenuItem>
       </Menu>
+      {deletingApp && (
+        <DeleteConfirmWindow
+          title={`agent '${deletingApp.config?.helix?.name || 'unnamed'}'`}
+          onCancel={() => setDeletingApp(undefined)}
+          onSubmit={onDeleteApp}
+        />
+      )}
     </SlideMenuContainer>
   )
 }
