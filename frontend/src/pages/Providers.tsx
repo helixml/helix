@@ -3,7 +3,10 @@ import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typograp
 import Container from '@mui/material/Container';
 import Page from '../components/system/Page';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import AddProviderDialog from '../components/providers/AddProviderDialog';
+
+import { useListProviders } from '../services/providersService';
 
 // Import SVGs as components
 import OpenAILogo from '../components/providers/logos/openai';
@@ -85,6 +88,8 @@ const Providers: React.FC = () => {
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
+  const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders(false);
+
   const handleOpenDialog = (provider: Provider) => {
     setSelectedProvider(provider);
     setDialogOpen(true);
@@ -94,6 +99,9 @@ const Providers: React.FC = () => {
     setDialogOpen(false);
     setSelectedProvider(null);
   };
+
+  // Filter for user endpoints only
+  const userEndpoints = providerEndpoints.filter(endpoint => endpoint.endpoint_type === 'user');
 
   return (
     <Page breadcrumbTitle="Providers" topbarContent={null}>      
@@ -106,7 +114,7 @@ const Providers: React.FC = () => {
         </Typography>
         <Grid container spacing={3} justifyContent="center">
           {PROVIDERS.map((provider) => {
-            const isConfigured = !!configs[provider.id];
+            const isConfigured = userEndpoints.some(endpoint => endpoint.name === provider.id);
             return (
               <Grid item xs={12} sm={6} md={4} key={provider.id} display="flex" justifyContent="center">
                 <Tooltip
@@ -166,9 +174,9 @@ const Providers: React.FC = () => {
                         variant={isConfigured ? 'outlined' : 'text'}
                         color={isConfigured ? 'success' : 'secondary'}
                         onClick={() => handleOpenDialog(provider)}
-                        startIcon={!isConfigured && <AddCircleOutlineIcon />}
+                        startIcon={isConfigured ? <CheckCircleIcon /> : <AddCircleOutlineIcon />}
                       >
-                        {isConfigured ? 'Edit' : 'Connect'}
+                        {isConfigured ? 'Connected' : 'Connect'}
                       </Button>
                     </CardActions>
                   </Card>
