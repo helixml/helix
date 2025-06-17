@@ -13,7 +13,6 @@
   <a href="https://discord.gg/VJftd844GE">Discord</a>
 </p>
 
-
 # HelixML
 
 [👥 Discord](https://discord.gg/VJftd844GE)
