@@ -14,12 +14,12 @@ const OAuthConnectionsPage: React.FC = () => {
       <Container
         maxWidth="md"
         sx={{
-          mt: 12,
+          mt: 10,
           height: 'calc(100% - 100px)',
         }}
       >
         <Box sx={{ mb: 4 }}>
-          <Typography variant="h4" gutterBottom>
+          <Typography variant="h4" gutterBottom sx={{ mb: 2, fontWeight: 600 }}>
             Connected Services
           </Typography>
           <Typography variant="body1" color="textSecondary">
