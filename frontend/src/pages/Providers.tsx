@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
 import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Tooltip } from '@mui/material';
+import Container from '@mui/material/Container';
+import Page from '../components/system/Page';
+import AddIcon from '@mui/icons-material/Add';
 
 // Import SVGs as components
 import OpenAILogo from '../components/providers/logos/openai';
 import AnthropicLogo from '../components/providers/logos/anthropic';
 import GroqLogo from '../components/providers/logos/groq';
 import CerebrasLogo from '../components/providers/logos/cerebras';
-
+import AWSLogo from '../components/providers/logos/aws';
 import googleLogo from '../../assets/img/providers/google.svg';
 
 
@@ -35,6 +38,12 @@ const PROVIDERS: Provider[] = [
     name: 'Anthropic',
     description: 'Access Anthropic Claude models for advanced language tasks.',
     logo: AnthropicLogo,
+  },
+  {
+    id: 'aws',
+    name: 'AWS',
+    description: 'Use AWS for AI models and services.',
+    logo: AWSLogo,
   },
   {
     id: 'groq',
@@ -94,111 +103,115 @@ const Providers: React.FC = () => {
   };
 
   return (
-    <Box sx={{ mt: 4, mx: 4 }}>
-      <Typography variant="h4" sx={{ mb: 2 }}>
-        AI Providers
-      </Typography>
-      <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
-        Add your own API keys to use with your Helix agents.
-      </Typography>
-      <Grid container spacing={3}>
-        {PROVIDERS.map((provider) => {
-          const isConfigured = !!configs[provider.id];
-          return (
-            <Grid item xs={12} sm={6} md={4} lg={3} key={provider.id}>
-              <Tooltip
-                title={
-                  <Box sx={{ p: 1 }}>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
-                      {provider.name}
-                    </Typography>
-                    <Typography variant="body2">{provider.description}</Typography>
-                  </Box>
-                }
-                arrow
-                placement="bottom"
-              >
-                <Card
-                  sx={{
-                    height: '100%',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    boxShadow: 2,
-                    borderStyle: 'dashed',
-                    borderWidth: 1,
-                    borderColor: 'divider',
-                    opacity: isConfigured ? 1 : 0.85,
-                    transition: 'all 0.2s',
-                    '&:hover': {
-                      boxShadow: 4,
-                      transform: 'translateY(-4px)',
-                    },
-                  }}
+    <Page breadcrumbTitle="Providers" topbarContent={null}>
+      <Container maxWidth="md" sx={{ mt: 10, mb: 6, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <Typography variant="h4" sx={{ mb: 2, textAlign: 'center', fontWeight: 600 }}>
+          AI Providers
+        </Typography>
+        <Typography variant="body1" color="text.secondary" sx={{ mb: 4, textAlign: 'center' }}>
+          Add your own API keys to use with your Helix agents.
+        </Typography>
+        <Grid container spacing={3} justifyContent="center">
+          {PROVIDERS.map((provider) => {
+            const isConfigured = !!configs[provider.id];
+            return (
+              <Grid item xs={12} sm={6} md={4} key={provider.id} display="flex" justifyContent="center">
+                <Tooltip
+                  title={
+                    <Box sx={{ p: 1 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                        {provider.name}
+                      </Typography>
+                      <Typography variant="body2">{provider.description}</Typography>
+                    </Box>
+                  }
+                  arrow
+                  placement="bottom"
                 >
-                  <CardHeader
-                    avatar={
-                      <Avatar sx={{ bgcolor: 'white', width: 56, height: 56 }}>
-                        {typeof provider.logo === 'string' ? (
-                          <img src={provider.logo} alt={provider.name} style={{ width: 40, height: 40 }} />
-                        ) : (
-                          <provider.logo style={{ width: 40, height: 40 }} />
-                        )}
-                      </Avatar>
-                    }
-                    title={provider.name}
-                    titleTypographyProps={{ variant: 'h6', align: 'center' }}
-                  />
-                  <CardContent sx={{ flexGrow: 1, textAlign: 'center' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {provider.description}
-                    </Typography>
-                  </CardContent>
-                  <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
-                    <Button
-                      variant={isConfigured ? 'outlined' : 'contained'}
-                      color={isConfigured ? 'success' : 'primary'}
-                      onClick={() => handleOpenDialog(provider)}
-                    >
-                      {isConfigured ? 'Edit' : 'Add'}
-                    </Button>
-                  </CardActions>
-                </Card>
-              </Tooltip>
-            </Grid>
-          );
-        })}
-      </Grid>
-
-      <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="xs" fullWidth>
-        <DialogTitle>
-          {selectedProvider ? `${configs[selectedProvider.id] ? 'Edit' : 'Add'} ${selectedProvider.name} Provider` : ''}
-        </DialogTitle>
-        <DialogContent>
-          <TextField
-            label="API Key"
-            fullWidth
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            margin="normal"
-            autoFocus
-            type="password"
-          />
-        </DialogContent>
-        <DialogActions>
-          {selectedProvider && configs[selectedProvider.id] && (
-            <Button onClick={handleDelete} color="error">
-              Delete
+                  <Card
+                    sx={{
+                      width: 320,
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: 2,
+                      borderStyle: 'dashed',
+                      borderWidth: 1,
+                      borderColor: 'divider',
+                      opacity: isConfigured ? 1 : 0.85,
+                      transition: 'all 0.2s',
+                      '&:hover': {
+                        boxShadow: 4,
+                        transform: 'translateY(-4px)',
+                        borderColor: 'primary.main',
+                      },
+                    }}
+                  >
+                    <CardHeader
+                      avatar={
+                        <Avatar sx={{ bgcolor: 'white', width: 56, height: 56 }}>
+                          {typeof provider.logo === 'string' ? (
+                            <img src={provider.logo} alt={provider.name} style={{ width: 40, height: 40 }} />
+                          ) : (
+                            <provider.logo style={{ width: 40, height: 40 }} />
+                          )}
+                        </Avatar>
+                      }
+                      title={provider.name}
+                      titleTypographyProps={{ variant: 'h6', align: 'center' }}
+                    />
+                    <CardContent sx={{ flexGrow: 1, textAlign: 'center' }}>
+                      <Typography variant="body2" color="text.secondary">
+                        {provider.description}
+                      </Typography>
+                    </CardContent>
+                    <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
+                      <Button
+                        variant={isConfigured ? 'outlined' : 'outlined'}
+                        color={isConfigured ? 'success' : 'secondary'}
+                        onClick={() => handleOpenDialog(provider)}
+                        startIcon={!isConfigured && <AddIcon />}
+                      >
+                        {isConfigured ? 'Edit' : 'Connect'}
+                      </Button>
+                    </CardActions>
+                  </Card>
+                </Tooltip>
+              </Grid>
+            );
+          })}
+        </Grid>
+        <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="xs" fullWidth>
+          <DialogTitle>
+            {selectedProvider ? `${configs[selectedProvider.id] ? 'Edit' : 'Add'} ${selectedProvider.name} Provider` : ''}
+          </DialogTitle>
+          <DialogContent>
+            <TextField
+              label="API Key"
+              fullWidth
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              margin="normal"
+              autoFocus
+              type="password"
+            />
+          </DialogContent>
+          <DialogActions>
+            {selectedProvider && configs[selectedProvider.id] && (
+              <Button onClick={handleDelete} color="error">
+                Delete
+              </Button>
+            )}
+            <Button onClick={handleCloseDialog}>Cancel</Button>
+            <Button onClick={handleSave} variant="contained" color="primary" disabled={!apiKey}>
+              Save
             </Button>
-          )}
-          <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button onClick={handleSave} variant="contained" color="primary" disabled={!apiKey}>
-            Save
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
+          </DialogActions>
+        </Dialog>
+      </Container>
+    </Page>
   );
 };
 
