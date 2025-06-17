@@ -128,7 +128,22 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
               />
             </Box>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-              {provider.setup_instructions}
+              {provider.setup_instructions.split(/(https?:\/\/[^\s]+)/).map((part, index) => {
+                if (part.match(/^https?:\/\//)) {
+                  return (
+                    <a
+                      key={index}
+                      href={part}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: '#6366F1', textDecoration: 'none' }}
+                    >
+                      {part}
+                    </a>
+                  );
+                }
+                return part;
+              })}
             </Typography>
           </SectionCard>
         </Box>
