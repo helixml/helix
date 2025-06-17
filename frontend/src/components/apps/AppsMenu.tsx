@@ -185,8 +185,11 @@ export const AppsMenu: FC<{
                         opacity: 0,
                         transition: 'opacity 0.2s',
                         color: lightTheme.textColorFaded,
+                        background: 'none',
                         '&:hover': {
                           color: '#fff',
+                          backgroundColor: 'transparent',
+                          background: 'none',
                         },
                       }}
                     >
