@@ -41,7 +41,7 @@ const PROVIDERS: Provider[] = [
   },
   {
     id: 'aws',
-    name: 'AWS',
+    name: 'Amazon Bedrock',
     description: 'Use AWS for AI models and services.',
     logo: AWSLogo,
   },
@@ -105,10 +105,10 @@ const Providers: React.FC = () => {
   return (
     <Page breadcrumbTitle="Providers" topbarContent={null}>
       <Container maxWidth="md" sx={{ mt: 10, mb: 6, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <Typography variant="h4" sx={{ mb: 2, textAlign: 'center', fontWeight: 600 }}>
+        <Typography variant="h4" sx={{ mb: 2, fontWeight: 600 }}>
           AI Providers
         </Typography>
-        <Typography variant="body1" color="text.secondary" sx={{ mb: 4, textAlign: 'center' }}>
+        <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
           Add your own API keys to use with your Helix agents.
         </Typography>
         <Grid container spacing={3} justifyContent="center">
