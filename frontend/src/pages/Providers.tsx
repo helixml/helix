@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Tooltip } from '@mui/material';
+import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip } from '@mui/material';
 import Container from '@mui/material/Container';
 import Page from '../components/system/Page';
-import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import AddProviderDialog from '../components/providers/AddProviderDialog';
 
 // Import SVGs as components
 import OpenAILogo from '../components/providers/logos/openai';
@@ -12,12 +13,13 @@ import CerebrasLogo from '../components/providers/logos/cerebras';
 import AWSLogo from '../components/providers/logos/aws';
 import googleLogo from '../../assets/img/providers/google.svg';
 
-
 interface Provider {
   id: string;
   name: string;
   description: string;
   logo: string | React.ComponentType<React.SVGProps<SVGSVGElement>> | React.ComponentType<any>;
+  base_url: string;
+  setup_instructions: string;
 }
 
 const PROVIDERS: Provider[] = [
@@ -26,36 +28,49 @@ const PROVIDERS: Provider[] = [
     name: 'OpenAI',
     description: 'Connect to OpenAI for GPT models, image generation, and more.',
     logo: OpenAILogo,
+    base_url: "https://api.openai.com/v1",
+    setup_instructions: "Get your API key from https://platform.openai.com/settings/organization/api-keys"
   },
   {
     id: 'google',
     name: 'Google',
     description: 'Use Google AI models and services.',
     logo: googleLogo,
+    // Gemini URL
+    base_url: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    setup_instructions: "Get your API key from https://aistudio.google.com/apikey"
   },
   {
     id: 'anthropic',
     name: 'Anthropic',
     description: 'Access Anthropic Claude models for advanced language tasks.',
     logo: AnthropicLogo,
+    base_url: "https://api.anthropic.com/v1",
+    setup_instructions: "Get your API key from https://console.anthropic.com/api-keys"
   },
   {
     id: 'aws',
     name: 'Amazon Bedrock',
     description: 'Use AWS for AI models and services.',
     logo: AWSLogo,
+    base_url: "https://bedrock.us-east-1.amazonaws.com",
+    setup_instructions: "Get your API key from https://console.aws.amazon.com/bedrock/home?region=us-east-1#/providers"
   },
   {
     id: 'groq',
     name: 'Groq',
     description: 'Integrate with Groq for ultra-fast LLM inference.',
     logo: GroqLogo,
+    base_url: "https://api.groq.com/v1",
+    setup_instructions: "Get your API key from https://console.groq.com/"
   },
   {
     id: 'cerebras',
     name: 'Cerebras',
     description: 'Integrate with Cerebras for ultra-fast LLM inference.',
     logo: CerebrasLogo,
+    base_url: "https://api.cerebras.ai/v1",
+    setup_instructions: "Get your API key from https://cloud.cerebras.ai/"
   },
 ];
 
@@ -67,39 +82,17 @@ type ProviderConfigs = Record<string, ProviderConfig>;
 
 const Providers: React.FC = () => {
   const [configs, setConfigs] = useState<ProviderConfigs>({});
-  const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
-  const [apiKey, setApiKey] = useState('');
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   const handleOpenDialog = (provider: Provider) => {
     setSelectedProvider(provider);
-    setApiKey(configs[provider.id]?.apiKey || '');
     setDialogOpen(true);
   };
 
   const handleCloseDialog = () => {
     setDialogOpen(false);
     setSelectedProvider(null);
-    setApiKey('');
-  };
-
-  const handleSave = () => {
-    if (selectedProvider) {
-      setConfigs({
-        ...configs,
-        [selectedProvider.id]: { apiKey },
-      });
-    }
-    handleCloseDialog();
-  };
-
-  const handleDelete = () => {
-    if (selectedProvider) {
-      const newConfigs = { ...configs };
-      delete newConfigs[selectedProvider.id];
-      setConfigs(newConfigs);
-    }
-    handleCloseDialog();
   };
 
   return (
@@ -184,33 +177,13 @@ const Providers: React.FC = () => {
             );
           })}
         </Grid>
-        <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="xs" fullWidth>
-          <DialogTitle>
-            {selectedProvider ? `${configs[selectedProvider.id] ? 'Edit' : 'Add'} ${selectedProvider.name} Provider` : ''}
-          </DialogTitle>
-          <DialogContent>
-            <TextField
-              label="API Key"
-              fullWidth
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              margin="normal"
-              autoFocus
-              type="password"
-            />
-          </DialogContent>
-          <DialogActions>
-            {selectedProvider && configs[selectedProvider.id] && (
-              <Button onClick={handleDelete} color="error">
-                Delete
-              </Button>
-            )}
-            <Button onClick={handleCloseDialog}>Cancel</Button>
-            <Button onClick={handleSave} variant="contained" color="primary" disabled={!apiKey}>
-              Save
-            </Button>
-          </DialogActions>
-        </Dialog>
+        {selectedProvider && (
+          <AddProviderDialog
+            open={dialogOpen}
+            onClose={handleCloseDialog}
+            provider={selectedProvider}
+          />
+        )}
       </Container>
     </Page>
   );
