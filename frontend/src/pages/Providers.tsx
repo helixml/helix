@@ -14,6 +14,7 @@ import AnthropicLogo from '../components/providers/logos/anthropic';
 import GroqLogo from '../components/providers/logos/groq';
 import CerebrasLogo from '../components/providers/logos/cerebras';
 import AWSLogo from '../components/providers/logos/aws';
+import togetheraiLogo from '../../assets/img/together-logo.png'
 import googleLogo from '../../assets/img/providers/google.svg';
 
 interface Provider {
@@ -75,6 +76,14 @@ const PROVIDERS: Provider[] = [
     base_url: "https://api.cerebras.ai/v1",
     setup_instructions: "Get your API key from https://cloud.cerebras.ai/"
   },
+  {
+    id: 'user/togetherai',
+    name: 'TogetherAI',
+    description: 'Integrate with TogetherAI for ultra-fast LLM inference.',
+    logo: togetheraiLogo, 
+    base_url: "https://api.together.xyz/v1",
+    setup_instructions: "Get your API key from https://api.together.xyz/"
+  }
 ];
 
 interface ProviderConfig {
@@ -112,7 +121,7 @@ const Providers: React.FC = () => {
         <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
           Add your own API keys to use with your Helix agents.
         </Typography>
-        <Grid container spacing={3} justifyContent="center">
+        <Grid container spacing={3} justifyContent="left">
           {PROVIDERS.map((provider) => {
             const isConfigured = userEndpoints.some(endpoint => endpoint.name === provider.id);
             return (
