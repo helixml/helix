@@ -64,3 +64,20 @@ export function useUpdateProviderEndpoint(id: string) {
     }
   });
 }
+
+export function useDeleteProviderEndpoint() {
+  const api = useApi()
+  const apiClient = api.getApiClient()  
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const result = await apiClient.v1ProviderEndpointsDelete(id)
+      return result.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: providersQueryKey() })
+      queryClient.invalidateQueries({ queryKey: providersQueryKey(true) })
+    }
+  });
+}
