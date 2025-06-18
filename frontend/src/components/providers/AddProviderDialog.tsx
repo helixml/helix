@@ -13,10 +13,12 @@ import {
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
-import { useCreateProviderEndpoint } from '../../services/providersService';
+import { useCreateProviderEndpoint, useUpdateProviderEndpoint } from '../../services/providersService';
 import { TypesProviderEndpointType } from '../../api/api';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+
+import { TypesProviderEndpoint } from '../../api/api';
 
 interface AddProviderDialogProps {
   open: boolean;
@@ -29,6 +31,8 @@ interface AddProviderDialogProps {
     base_url: string;
     setup_instructions: string;
   };
+  // Only set if we are editing an existing provider
+  existingProvider?: TypesProviderEndpoint;
 }
 
 const NameTypography = styled(Typography)(({ theme }) => ({
@@ -57,39 +61,87 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
   onClose,
   onClosed,
   provider,
+  existingProvider,
 }) => {
   const lightTheme = useLightTheme();
   const [error, setError] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
-  const { mutate: createProviderEndpoint, isPending } = useCreateProviderEndpoint();
+  const [isFieldFocused, setIsFieldFocused] = useState(false);
+  const { mutate: createProviderEndpoint, isPending: isCreating } = useCreateProviderEndpoint();
+  const { mutate: updateProviderEndpoint, isPending: isUpdating } = useUpdateProviderEndpoint(existingProvider?.id || '');
+
+  const isEditing = !!existingProvider;
+  const isPending = isCreating || isUpdating;
+
+  // Generate masked API key for display
+  const getMaskedApiKey = () => {
+    if (!existingProvider?.api_key) return '';
+    const key = existingProvider.api_key;
+    if (key.length <= 8) return '•'.repeat(key.length);
+    return key.substring(0, 4) + '•'.repeat(key.length - 8) + key.substring(key.length - 4);
+  };
+
+  // Get the display value for the text field
+  const getDisplayValue = () => {
+    if (isEditing && !isFieldFocused && !apiKey) {
+      return getMaskedApiKey();
+    }
+    return apiKey;
+  };
 
   const handleClose = () => {
     setApiKey('');
     setError(null);
+    setIsFieldFocused(false);
     onClose();
+  };
+
+  const handleFieldFocus = () => {
+    setIsFieldFocused(true);
+    if (isEditing && !apiKey) {
+      setApiKey('');
+    }
+  };
+
+  const handleFieldBlur = () => {
+    setIsFieldFocused(false);
   };
 
   const handleSubmit = async () => {
     try {
       setError(null);
       
-      if (!apiKey.trim()) {
+      // For editing, if no new API key is provided, use the existing one
+      const apiKeyToUse = isEditing && !apiKey.trim() ? existingProvider?.api_key || '' : apiKey;
+      
+      if (!apiKeyToUse.trim()) {
         setError('API key is required');
         return;
       }
 
-      await createProviderEndpoint({
-        name: provider.id,
-        base_url: provider.base_url,
-        api_key: apiKey,
-        endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
-        description: provider.description,
-      });
+      if (isEditing && existingProvider) {
+        // Update existing provider
+        await updateProviderEndpoint({
+          base_url: provider.base_url,
+          api_key: apiKeyToUse,
+          endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
+          description: provider.description,
+        });
+      } else {
+        // Create new provider
+        await createProviderEndpoint({
+          name: provider.id,
+          base_url: provider.base_url,
+          api_key: apiKey,
+          endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
+          description: provider.description,
+        });
+      }
 
       handleClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create provider');
+      setError(err instanceof Error ? err.message : `Failed to ${isEditing ? 'update' : 'create'} provider`);
     }
   };
 
@@ -103,6 +155,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
         onExited: () => {
           setApiKey('');
           setError(null);
+          setIsFieldFocused(false);
           onClosed?.();
         }
       }}
@@ -110,7 +163,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
       <DialogContent sx={lightTheme.scrollbar}>
         <Box sx={{ mt: 2 }}>
           <NameTypography>
-            {provider.name}
+            {isEditing ? `Update ${provider.name}` : provider.name}
           </NameTypography>
           <DescriptionTypography>
             {provider.description}
@@ -123,13 +176,15 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
               </Typography>
               <TextField
                 fullWidth
-                value={apiKey}
+                value={getDisplayValue()}
                 onChange={(e) => setApiKey(e.target.value)}
                 type={showApiKey ? "text" : "password"}
                 autoComplete="new-password"
                 error={!!error}
                 helperText={error}
                 sx={{ flex: 1 }}
+                onFocus={handleFieldFocus}
+                onBlur={handleFieldBlur}
                 InputProps={{
                   endAdornment: (
                     <InputAdornment position="end">
@@ -189,9 +244,9 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
             size="small"
             variant="outlined"
             color="secondary"
-            disabled={isPending || !apiKey.trim()}
+            disabled={isPending || (!apiKey.trim() && !isEditing)}
           >
-            Connect
+            {isEditing ? 'Update' : 'Connect'}
           </Button>
         </Box>
       </DialogActions>
