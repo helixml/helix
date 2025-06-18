@@ -151,12 +151,12 @@ const Providers: React.FC = () => {
                       borderStyle: 'dashed',
                       borderWidth: 1,
                       borderColor: 'divider',
-                      opacity: isConfigured ? 1 : 0.85,
+                      opacity: isLoadingProviders ? 0.5 : (isConfigured ? 1 : 0.85),
                       transition: 'all 0.2s',
                       '&:hover': {
-                        boxShadow: 4,
-                        transform: 'translateY(-4px)',
-                        borderColor: 'primary.main',
+                        boxShadow: isLoadingProviders ? 2 : 4,
+                        transform: isLoadingProviders ? 'none' : 'translateY(-4px)',
+                        borderColor: isLoadingProviders ? 'divider' : 'primary.main',
                       },
                     }}
                   >
