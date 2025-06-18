@@ -124,6 +124,7 @@ const Providers: React.FC = () => {
         <Grid container spacing={3} justifyContent="left">
           {PROVIDERS.map((provider) => {
             const isConfigured = userEndpoints.some(endpoint => endpoint.name === provider.id);
+            const existingProvider = userEndpoints.find(endpoint => endpoint.name === provider.id);
             return (
               <Grid item xs={12} sm={6} md={4} key={provider.id} display="flex" justifyContent="center">
                 <Tooltip
@@ -185,7 +186,7 @@ const Providers: React.FC = () => {
                         onClick={() => handleOpenDialog(provider)}
                         startIcon={isConfigured ? <CheckCircleIcon /> : <AddCircleOutlineIcon />}
                       >
-                        {isConfigured ? 'Connected' : 'Connect'}
+                        {isConfigured ? 'Update' : 'Connect'}
                       </Button>
                     </CardActions>
                   </Card>
@@ -199,6 +200,7 @@ const Providers: React.FC = () => {
             open={dialogOpen}
             onClose={handleCloseDialog}
             provider={selectedProvider}
+            existingProvider={userEndpoints.find(endpoint => endpoint.name === selectedProvider.id)}
           />
         )}
       </Container>
