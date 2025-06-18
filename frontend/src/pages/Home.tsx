@@ -589,7 +589,6 @@ const Home: FC = () => {
           component="footer"
           sx={{
             py: 2,
-            mt: 'auto',
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
