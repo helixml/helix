@@ -59,9 +59,7 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
   onClose,
   refreshData,
 }) => {
-  // const { updateEndpoint } = useEndpointProviders();
   const account = useAccount();
-  const { mutate: updateProviderEndpoint } = useUpdateProviderEndpoint(endpoint?.id || '');
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -72,6 +70,10 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
     auth_type: getEndpointAuthType(endpoint),
   });
 
+  // Only initialize the mutation hook if we have a valid endpoint ID
+  const { mutate: updateProviderEndpoint } = useUpdateProviderEndpoint(endpoint?.id || '');
+
+  // Reset form data when endpoint changes
   React.useEffect(() => {
     if (endpoint) {
       setFormData({       
@@ -81,6 +83,7 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
         endpoint_type: endpoint.endpoint_type,
         auth_type: getEndpointAuthType(endpoint),
       });
+      setError('');
     }
   }, [endpoint]);
 
@@ -135,17 +138,21 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
   }, [formData]);
 
   const handleSubmit = async () => {
-    if (!validateForm() || !endpoint) return;
+    if (!validateForm() || !endpoint?.id) {
+      setError('Invalid endpoint or missing endpoint ID');
+      return;
+    }
 
     setLoading(true);
     try {
-      await updateProviderEndpoint({
-          base_url: formData.base_url,
-          api_key: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key' ? formData.api_key : undefined,
-          api_key_file: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key_file' ? formData.api_key_file : undefined,
-          endpoint_type: (formData.endpoint_type as TypesProviderEndpointType),        
-      });
-      // refreshData();
+      const body = {
+        base_url: formData.base_url,
+        api_key: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key' ? formData.api_key : undefined,
+        api_key_file: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key_file' ? formData.api_key_file : undefined,
+        endpoint_type: (formData.endpoint_type as TypesProviderEndpointType),        
+      }
+      await updateProviderEndpoint(body);
+      refreshData();
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update endpoint');
@@ -166,7 +173,8 @@ const EditProviderEndpointDialog: React.FC<EditProviderEndpointDialogProps> = ({
     onClose();
   };
 
-  if (!endpoint) return null;
+  // Don't render anything if we don't have an endpoint
+  if (!endpoint?.id) return null;
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>

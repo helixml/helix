@@ -132,6 +132,14 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 
 	// Re-sort the endpoints with default first, then by name
 	sort.Slice(providerEndpoints, func(i, j int) bool {
+		// User endpoints come to the top
+		if providerEndpoints[i].EndpointType == types.ProviderEndpointTypeUser && providerEndpoints[j].EndpointType != types.ProviderEndpointTypeUser {
+			return true
+		}
+		if providerEndpoints[j].EndpointType == types.ProviderEndpointTypeUser && providerEndpoints[i].EndpointType != types.ProviderEndpointTypeUser {
+			return false
+		}
+
 		// If i is default and j is not, i comes first
 		if providerEndpoints[i].Default && !providerEndpoints[j].Default {
 			return true

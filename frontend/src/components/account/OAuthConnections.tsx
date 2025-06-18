@@ -704,7 +704,7 @@ const OAuthConnections: React.FC<{}> = () => {
           {/* Connected Services Section */}
           {connections.length > 0 && (
             <Box sx={{ mb: 6 }}>
-              <Typography variant="h5" sx={{ mb: 2 }}>
+              <Typography variant="h4" sx={{ mb: 2 }}>
                 Your Connected Services
               </Typography>
               
