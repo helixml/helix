@@ -13,7 +13,7 @@ import {
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
-import { useCreateProviderEndpoint, useUpdateProviderEndpoint } from '../../services/providersService';
+import { useCreateProviderEndpoint, useUpdateProviderEndpoint, useDeleteProviderEndpoint } from '../../services/providersService';
 import { TypesProviderEndpointType } from '../../api/api';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
@@ -70,9 +70,10 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
   const [isFieldFocused, setIsFieldFocused] = useState(false);
   const { mutate: createProviderEndpoint, isPending: isCreating } = useCreateProviderEndpoint();
   const { mutate: updateProviderEndpoint, isPending: isUpdating } = useUpdateProviderEndpoint(existingProvider?.id || '');
+  const { mutate: deleteProviderEndpoint, isPending: isDeleting } = useDeleteProviderEndpoint();
 
   const isEditing = !!existingProvider;
-  const isPending = isCreating || isUpdating;
+  const isPending = isCreating || isUpdating || isDeleting;
 
   // Generate masked API key for display
   const getMaskedApiKey = () => {
@@ -142,6 +143,18 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
       handleClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to ${isEditing ? 'update' : 'create'} provider`);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!existingProvider?.id) return;
+    
+    try {
+      setError(null);
+      await deleteProviderEndpoint(existingProvider.id);
+      handleClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to disconnect provider');
     }
   };
 
@@ -239,6 +252,18 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
             Cancel
           </Button>
           <Box sx={{ flex: 1 }} />
+          {isEditing && (
+            <Button
+              onClick={handleDisconnect}
+              size="small"
+              variant="outlined"
+              color="error"
+              disabled={isPending}
+              sx={{ mr: 1 }}
+            >
+              Disconnect
+            </Button>
+          )}
           <Button
             onClick={handleSubmit}
             size="small"
