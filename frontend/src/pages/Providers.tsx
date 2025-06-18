@@ -186,7 +186,7 @@ const Providers: React.FC = () => {
                         onClick={() => handleOpenDialog(provider)}
                         startIcon={isConfigured ? <CheckCircleIcon /> : <AddCircleOutlineIcon />}
                       >
-                        {isConfigured ? 'Update' : 'Connect'}
+                        {isConfigured ? 'Connected' : 'Connect'}
                       </Button>
                     </CardActions>
                   </Card>
