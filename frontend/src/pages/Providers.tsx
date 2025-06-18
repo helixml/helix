@@ -65,7 +65,7 @@ const PROVIDERS: Provider[] = [
     name: 'Groq',
     description: 'Integrate with Groq for ultra-fast LLM inference.',
     logo: GroqLogo,
-    base_url: "https://api.groq.com/v1",
+    base_url: "https://api.groq.com/openai/v1",
     setup_instructions: "Get your API key from https://console.groq.com/"
   },
   {
