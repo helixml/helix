@@ -24,6 +24,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import AppsIcon from '@mui/icons-material/Apps'
 import CodeIcon from '@mui/icons-material/Code'
 import AddIcon from '@mui/icons-material/Add'
+import PsychologyIcon from '@mui/icons-material/Psychology'
 
 import UserOrgSelector from '../orgs/UserOrgSelector'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -552,6 +553,15 @@ const SidebarContent: React.FC<{
                           <CodeIcon fontSize="small" />
                         </ListItemIcon> 
                         API Reference
+                      </MenuItem>
+
+                      <MenuItem onClick={ () => {
+                        navigateTo('user-providers')
+                      }}>
+                        <ListItemIcon>
+                          <PsychologyIcon fontSize="small" />
+                        </ListItemIcon> 
+                        AI Providers
                       </MenuItem>
 
                       {

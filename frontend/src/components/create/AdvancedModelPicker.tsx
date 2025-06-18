@@ -33,6 +33,7 @@ import openaiLogo from '../../../assets/img/openai-logo.png'
 import togetheraiLogo from '../../../assets/img/together-logo.png'
 import vllmLogo from '../../../assets/img/vllm-logo.png'
 import helixLogo from '../../../assets/img/logo.png'
+import googleLogo from '../../../assets/img/providers/google.svg'
 
 interface AdvancedModelPickerProps {
   selectedModelId?: string;
@@ -52,6 +53,10 @@ const ProviderIcon: React.FC<{ provider: TypesProviderEndpoint }> = ({ provider 
     return <Avatar src={openaiLogo} sx={{ width: 32, height: 32 }} variant="square" />;
   } else if (provider.base_url?.startsWith('https://api.together.xyz/')) {
     return <Avatar src={togetheraiLogo} sx={{ width: 32, height: 32, bgcolor: '#fff' }} variant="square" />;
+  }
+
+  if (provider.base_url?.startsWith('https://generativelanguage.googleapis.com/')) {
+    return <Avatar src={googleLogo} sx={{ width: 32, height: 32, bgcolor: '#fff' }} variant="square" />;
   }
 
   // Check provider models, if it has more than 1 and "owned_by" = "vllm", then show vllm logo

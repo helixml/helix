@@ -5,6 +5,7 @@ import browserPlugin from 'router5-plugin-browser'
 import Session from './pages/Session'
 import Account from './pages/Account'
 import Apps from './pages/Apps'
+import Providers from './pages/Providers'
 import Orgs from './pages/Orgs'
 import OrgSettings from './pages/OrgSettings'
 import OrgTeams from './pages/OrgTeams'
@@ -193,6 +194,15 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <Dashboard />
+  ),
+}, {
+  name: 'user-providers',
+  path: '/providers',
+  meta: {
+    drawer: true,
+  },
+  render: () => (
+    <Providers />
   ),
 }, {
   name: 'account',

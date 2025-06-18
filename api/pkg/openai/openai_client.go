@@ -128,46 +128,23 @@ func (c *RetryableClient) validateModel(model string) error {
 
 // TODO: just use OpenAI client's ListModels function and separate this from TogetherAI
 func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, error) {
-	url := c.baseURL + "/models"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request to provider's models endpoint: %w", err)
-	}
+	var (
+		models []types.OpenAIModel
+		err    error
+	)
 
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request to provider's models endpoint: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get models from provider: %s", resp.Status)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response from provider's models endpoint: %w", err)
-	}
-
-	// Log the response body for debugging purposes
-	log.Trace().Str("base_url", c.baseURL).Msg("Response from provider's models endpoint")
-	log.Trace().RawJSON("response_body", body).Msg("Models response")
-
-	var models []types.OpenAIModel
-	var rawResponse struct {
-		Data []types.OpenAIModel `json:"data"`
-	}
-	err = json.Unmarshal(body, &rawResponse)
-	if err == nil && len(rawResponse.Data) > 0 {
-		models = rawResponse.Data
-	} else {
-		// If unmarshaling into the struct with "data" field fails, try unmarshaling directly into the slice
-		// This is how together.ai returns their models
-		err = json.Unmarshal(body, &models)
+	switch {
+	case isGoogleProvider(c.baseURL):
+		models, err = c.listGoogleModels(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal response from provider's models endpoint (%s): %w, %s", url, err, string(body))
+			log.Error().Err(err).Msg("failed to list models from Google")
+			return nil, err
+		}
+	default:
+		models, err = c.listOpenAIModels(ctx)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to list models from OpenAI compatible API")
+			return nil, err
 		}
 	}
 
@@ -267,6 +244,53 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]types.OpenAIModel, 
 	// Set the enabled field to true if the model is in the list of allowed models
 	for i := range models {
 		models[i].Enabled = modelEnabled(models[i], c.models)
+	}
+
+	return models, nil
+}
+
+func (c *RetryableClient) listOpenAIModels(ctx context.Context) ([]types.OpenAIModel, error) {
+	url := c.baseURL + "/models"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request to provider's models endpoint: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request to provider's models endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get models from '%s' provider: %s", url, resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response from provider's models endpoint: %w", err)
+	}
+
+	// Log the response body for debugging purposes
+	log.Trace().Str("base_url", c.baseURL).Msg("Response from provider's models endpoint")
+	log.Trace().RawJSON("response_body", body).Msg("Models response")
+
+	var models []types.OpenAIModel
+	var rawResponse struct {
+		Data []types.OpenAIModel `json:"data"`
+	}
+	err = json.Unmarshal(body, &rawResponse)
+	if err == nil && len(rawResponse.Data) > 0 {
+		models = rawResponse.Data
+	} else {
+		// If unmarshaling into the struct with "data" field fails, try unmarshaling directly into the slice
+		// This is how together.ai returns their models
+		err = json.Unmarshal(body, &models)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal response from provider's models endpoint (%s): %w, %s", url, err, string(body))
+		}
 	}
 
 	return models, nil
