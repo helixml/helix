@@ -19,7 +19,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 
 import { TypesProviderEndpoint } from '../../api/api';
-
+import useSnackbar from '../../hooks/useSnackbar';
 interface AddProviderDialogProps {
   open: boolean;
   onClose: () => void;
@@ -71,6 +71,8 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
   const { mutate: createProviderEndpoint, isPending: isCreating } = useCreateProviderEndpoint();
   const { mutate: updateProviderEndpoint, isPending: isUpdating } = useUpdateProviderEndpoint(existingProvider?.id || '');
   const { mutate: deleteProviderEndpoint, isPending: isDeleting } = useDeleteProviderEndpoint();
+
+  const { success: snackbarSuccess } = useSnackbar();
 
   const isEditing = !!existingProvider;
   const isPending = isCreating || isUpdating || isDeleting;
@@ -129,6 +131,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
           description: provider.description,
         });
+        snackbarSuccess('Provider updated successfully');
       } else {
         // Create new provider
         await createProviderEndpoint({
@@ -138,6 +141,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
           description: provider.description,
         });
+        snackbarSuccess('Provider connected successfully');
       }
 
       handleClose();
@@ -152,6 +156,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
     try {
       setError(null);
       await deleteProviderEndpoint(existingProvider.id);
+      snackbarSuccess('Provider disconnected successfully');
       handleClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to disconnect provider');
