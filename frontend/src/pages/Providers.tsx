@@ -27,7 +27,7 @@ interface Provider {
 
 const PROVIDERS: Provider[] = [
   {
-    id: 'openai',
+    id: 'user/openai',
     name: 'OpenAI',
     description: 'Connect to OpenAI for GPT models, image generation, and more.',
     logo: OpenAILogo,
@@ -35,7 +35,7 @@ const PROVIDERS: Provider[] = [
     setup_instructions: "Get your API key from https://platform.openai.com/settings/organization/api-keys"
   },
   {
-    id: 'google',
+    id: 'user/google',
     name: 'Google Gemini',
     description: 'Use Google AI models and services.',
     logo: googleLogo,
@@ -44,7 +44,7 @@ const PROVIDERS: Provider[] = [
     setup_instructions: "Get your API key from https://aistudio.google.com/apikey"
   },
   {
-    id: 'anthropic',
+    id: 'user/anthropic',
     name: 'Anthropic',
     description: 'Access Anthropic Claude models for advanced language tasks.',
     logo: AnthropicLogo,
@@ -52,7 +52,7 @@ const PROVIDERS: Provider[] = [
     setup_instructions: "Get your API key from https://console.anthropic.com/api-keys"
   },
   {
-    id: 'aws',
+    id: 'user/aws',
     name: 'Amazon Bedrock',
     description: 'Use AWS for AI models and services.',
     logo: AWSLogo,
@@ -60,7 +60,7 @@ const PROVIDERS: Provider[] = [
     setup_instructions: "Get your API key from https://console.aws.amazon.com/bedrock/home?region=us-east-1#/providers"
   },
   {
-    id: 'groq',
+    id: 'user/groq',
     name: 'Groq',
     description: 'Integrate with Groq for ultra-fast LLM inference.',
     logo: GroqLogo,
@@ -68,7 +68,7 @@ const PROVIDERS: Provider[] = [
     setup_instructions: "Get your API key from https://console.groq.com/"
   },
   {
-    id: 'cerebras',
+    id: 'user/cerebras',
     name: 'Cerebras',
     description: 'Integrate with Cerebras for ultra-fast LLM inference.',
     logo: CerebrasLogo,
