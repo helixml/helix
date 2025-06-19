@@ -16,6 +16,7 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import Card from '@mui/material/Card'
 import Avatar from '@mui/material/Avatar'
 import Tooltip from '@mui/material/Tooltip'
+import InfoIcon from '@mui/icons-material/Info'
 
 import Page from '../components/system/Page'
 import useAccount from '../hooks/useAccount'
@@ -481,24 +482,60 @@ const NewAgent: FC = () => {
                   <Box sx={{ mt: 3, p: 2, bgcolor: 'transparent', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
                     <Grid container spacing={2}>
                       <Grid item xs={12} sm={6}>
-                        <Typography variant="body2" color="text.secondary">
-                          <strong>Reasoning Model:</strong> {reasoningModel} {reasoningModelEffort !== 'none' && `(${reasoningModelEffort} effort)`}
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Reasoning Model:</strong> {reasoningModel} {reasoningModelEffort !== 'none' && `(${reasoningModelEffort} effort)`}
+                          </Typography>
+                          <Tooltip 
+                            title="Planning how to use a particular skill and preparing parameters. Requires strong, smart model"
+                            arrow
+                            placement="top"
+                          >
+                            <InfoIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                          </Tooltip>
+                        </Box>
                       </Grid>
                       <Grid item xs={12} sm={6}>
-                        <Typography variant="body2" color="text.secondary">
-                          <strong>Generation Model:</strong> {generationModel}
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Generation Model:</strong> {generationModel}
+                          </Typography>
+                          <Tooltip 
+                            title="Overall planning, this model runs the high level agent loop. Requires strong model"
+                            arrow
+                            placement="top"
+                          >
+                            <InfoIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                          </Tooltip>
+                        </Box>
                       </Grid>
                       <Grid item xs={12} sm={6}>
-                        <Typography variant="body2" color="text.secondary">
-                          <strong>Small Reasoning Model:</strong> {smallReasoningModel} {smallReasoningModelEffort !== 'none' && `(${smallReasoningModelEffort} effort)`}
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Small Reasoning Model:</strong> {smallReasoningModel} {smallReasoningModelEffort !== 'none' && `(${smallReasoningModelEffort} effort)`}
+                          </Typography>
+                          <Tooltip 
+                            title="Used for skill response interpretation or re-running the skill multiple times, this can be a smaller model"
+                            arrow
+                            placement="top"
+                          >
+                            <InfoIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                          </Tooltip>
+                        </Box>
                       </Grid>
                       <Grid item xs={12} sm={6}>
-                        <Typography variant="body2" color="text.secondary">
-                          <strong>Small Generation Model:</strong> {smallGenerationModel}
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Small Generation Model:</strong> {smallGenerationModel}
+                          </Typography>
+                          <Tooltip 
+                            title="Describes tool usage, strategy for the user. Use small models for this task"
+                            arrow
+                            placement="top"
+                          >
+                            <InfoIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                          </Tooltip>
+                        </Box>
                       </Grid>
                     </Grid>
                   </Box>
