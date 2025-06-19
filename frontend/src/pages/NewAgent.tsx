@@ -12,6 +12,7 @@ import TextFieldsIcon from '@mui/icons-material/TextFields'
 import SupportIcon from '@mui/icons-material/Support'
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart'
 import BuildIcon from '@mui/icons-material/Build'
+import SettingsIcon from '@mui/icons-material/Settings'
 import Card from '@mui/material/Card'
 import Avatar from '@mui/material/Avatar'
 import Tooltip from '@mui/material/Tooltip'
@@ -421,6 +422,47 @@ const NewAgent: FC = () => {
                     )
                   })}
                   
+                  {/* Custom Provider Tile */}
+                  <Tooltip
+                    title="Custom Models"
+                    arrow
+                    placement="top"
+                  >
+                    <Card
+                      onClick={() => handleProviderSelect('custom')}
+                      sx={{
+                        width: 80,
+                        height: 80,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        boxShadow: selectedProvider === 'custom' ? 4 : 2,
+                        borderStyle: 'solid',
+                        borderWidth: selectedProvider === 'custom' ? 2 : 1,
+                        borderColor: selectedProvider === 'custom' ? 'secondary.main' : 'divider',
+                        transition: 'all 0.2s',
+                        '&:hover': {
+                          boxShadow: 4,
+                          transform: 'translateY(-2px)',
+                          borderColor: 'primary.main',
+                        },
+                      }}
+                    >
+                      <Avatar 
+                        sx={{ 
+                          bgcolor: 'transparent', 
+                          width: 40, 
+                          height: 40,
+                          mb: 1
+                        }}
+                      >
+                        <SettingsIcon sx={{ width: 32, height: 32, color: 'white' }} />
+                      </Avatar>
+                    </Card>
+                  </Tooltip>
+                  
                   {mainProviders.length === 0 && !isLoadingProviders && (
                     <Typography variant="body2" color="text.secondary">
                       No main providers (OpenAI, Google, Anthropic) are currently available.
@@ -435,7 +477,7 @@ const NewAgent: FC = () => {
                 </Box>
                 
                 {/* Show selected models when provider is chosen */}
-                {selectedProvider && (
+                {selectedProvider && selectedProvider !== 'custom' && (
                   <Box sx={{ mt: 3, p: 2, bgcolor: 'transparent', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
                     <Grid container spacing={2}>
                       <Grid item xs={12} sm={6}>
@@ -459,6 +501,15 @@ const NewAgent: FC = () => {
                         </Typography>
                       </Grid>
                     </Grid>
+                  </Box>
+                )}
+                
+                {/* Custom provider message */}
+                {selectedProvider === 'custom' && (
+                  <Box sx={{ mt: 3, p: 2, bgcolor: 'transparent', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      You will be able to choose models in the settings page after creating your agent.
+                    </Typography>
                   </Box>
                 )}
                 
