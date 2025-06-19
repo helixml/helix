@@ -12,13 +12,18 @@ import TextFieldsIcon from '@mui/icons-material/TextFields'
 import SupportIcon from '@mui/icons-material/Support'
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart'
 import BuildIcon from '@mui/icons-material/Build'
+import Card from '@mui/material/Card'
+import Avatar from '@mui/material/Avatar'
+import Tooltip from '@mui/material/Tooltip'
 
 import Page from '../components/system/Page'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useApps from '../hooks/useApps'
+import { useListProviders } from '../services/providersService'
 import { ICreateAgentParams } from '../contexts/apps'
+import { PROVIDERS, Provider } from '../components/providers/types'
 
 const PERSONAS = {
   IT_SUPPORT: {
@@ -63,6 +68,7 @@ const NewAgent: FC = () => {
   const snackbar = useSnackbar()
   const themeConfig = useThemeConfig()
   const apps = useApps()
+  const { data: providerEndpoints = [], isLoading: isLoadingProviders } = useListProviders(false)
 
   const [name, setName] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')
@@ -71,6 +77,14 @@ const NewAgent: FC = () => {
   const [knowledgeText, setKnowledgeText] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [selectedPersona, setSelectedPersona] = useState<keyof typeof PERSONAS | null>(null)
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
+
+  // Filter for main providers (OpenAI, Google, Anthropic)
+  const mainProviders = providerEndpoints.filter(endpoint => 
+    endpoint.name?.toLowerCase().includes('openai') ||
+    endpoint.name?.toLowerCase().includes('google') ||
+    endpoint.name?.toLowerCase().includes('anthropic')
+  )
 
   const handlePersonaSelect = (persona: keyof typeof PERSONAS) => {
     setSelectedPersona(persona)
@@ -78,6 +92,12 @@ const NewAgent: FC = () => {
     if (PERSONAS[persona].recommendedKnowledgeType) {
       setKnowledgeType(PERSONAS[persona].recommendedKnowledgeType as 'url' | 'text' | 'file')
     }
+  }
+
+  const handleProviderSelect = (providerName: string) => {
+    // Placeholder function for provider selection
+    console.log('Provider selected:', providerName)
+    setSelectedProvider(providerName)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -343,6 +363,99 @@ const NewAgent: FC = () => {
                     </Typography>
                   </Box>
                 )}
+              </Grid>
+
+              {/* Provider Selection Section */}
+              <Grid item xs={12}>
+                <Typography variant="h6" sx={{ mb: 2 }}>
+                  AI Provider
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                  Select a specific AI provider for your agent. If none is selected, the system will use the default provider.
+                </Typography>
+
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                  {mainProviders.map((provider) => {
+                    const isSelected = selectedProvider === provider.name
+                    
+                    // Find the matching provider from PROVIDERS list either by id or alias
+                    const providerInfo = PROVIDERS.find(p => {                      
+                      return p.id === provider.name || (p.alias?.includes(provider.name || '') || false)
+                    })
+                    
+                    return (
+                      <Tooltip
+                        key={provider.id || provider.name}
+                        title={provider.name}
+                        arrow
+                        placement="top"
+                      >
+                        <Card
+                          onClick={() => handleProviderSelect(provider.name || '')}
+                          sx={{
+                            width: 80,
+                            height: 80,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            boxShadow: isSelected ? 4 : 2,
+                            borderStyle: 'solid',
+                            borderWidth: isSelected ? 2 : 1,
+                            borderColor: isSelected ? 'secondary.main' : 'divider',
+                            transition: 'all 0.2s',
+                            '&:hover': {
+                              boxShadow: 4,
+                              transform: 'translateY(-2px)',
+                              borderColor: 'primary.main',
+                            },
+                            opacity: isLoadingProviders ? 0.5 : 1,
+                          }}
+                        >
+                          <Avatar 
+                            sx={{ 
+                              bgcolor: 'white', 
+                              width: 40, 
+                              height: 40,
+                              mb: 1
+                            }}
+                          >
+                            {providerInfo?.logo ? (
+                              typeof providerInfo.logo === 'string' ? (
+                                <img src={providerInfo.logo} alt={provider.name} style={{ width: 32, height: 32 }} />
+                              ) : (
+                                <providerInfo.logo style={{ width: 32, height: 32 }} />
+                              )
+                            ) : (
+                              <Typography 
+                                variant="caption" 
+                                sx={{ 
+                                  fontWeight: 'bold',
+                                  color: 'text.primary'
+                                }}
+                              >
+                                {provider.name?.charAt(0).toUpperCase()}
+                              </Typography>
+                            )}
+                          </Avatar>
+                        </Card>
+                      </Tooltip>
+                    )
+                  })}
+                  
+                  {mainProviders.length === 0 && !isLoadingProviders && (
+                    <Typography variant="body2" color="text.secondary">
+                      No main providers (OpenAI, Google, Anthropic) are currently available.
+                    </Typography>
+                  )}
+                  
+                  {isLoadingProviders && (
+                    <Typography variant="body2" color="text.secondary">
+                      Loading providers...
+                    </Typography>
+                  )}
+                </Box>
               </Grid>
 
               {/* Submit Button */}
