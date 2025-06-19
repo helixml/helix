@@ -4,7 +4,7 @@ const AnthropicLogo = (props: React.SVGProps<SVGSVGElement>) => (
   <svg 
     data-testid="geist-icon" 
     height="78" 
-    stroke-linejoin="round" 
+    strokeLinejoin="round" 
     viewBox="0 0 16 16" 
     width="78" 
     style={{ color: 'currentcolor' }}

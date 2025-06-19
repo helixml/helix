@@ -11,6 +11,7 @@ import googleLogo from '../../../assets/img/providers/google.svg';
 
 export interface Provider {
   id: string;
+  alias: string[];
   name: string;
   description: string;
   logo: string | React.ComponentType<React.SVGProps<SVGSVGElement>> | React.ComponentType<any>;
@@ -21,6 +22,7 @@ export interface Provider {
 export const PROVIDERS: Provider[] = [
   {
     id: 'user/openai',
+    alias: ['openai', 'openai-api'],
     name: 'OpenAI',
     description: 'Connect to OpenAI for GPT models, image generation, and more.',
     logo: OpenAILogo,
@@ -29,6 +31,7 @@ export const PROVIDERS: Provider[] = [
   },
   {
     id: 'user/google',
+    alias: ['google', 'google-api'],
     name: 'Google Gemini',
     description: 'Use Google AI models and services.',
     logo: googleLogo,
@@ -38,6 +41,7 @@ export const PROVIDERS: Provider[] = [
   },
   {
     id: 'user/anthropic',
+    alias: ['anthropic', 'anthropic-api'],
     name: 'Anthropic',
     description: 'Access Anthropic Claude models for advanced language tasks.',
     logo: AnthropicLogo,
@@ -46,6 +50,7 @@ export const PROVIDERS: Provider[] = [
   },
   {
     id: 'user/aws',
+    alias: ['aws', 'aws-api'],
     name: 'Amazon Bedrock',
     description: 'Use AWS for AI models and services.',
     logo: AWSLogo,
@@ -54,6 +59,7 @@ export const PROVIDERS: Provider[] = [
   },
   {
     id: 'user/groq',
+    alias: ['groq', 'groq-api'],
     name: 'Groq',
     description: 'Integrate with Groq for ultra-fast LLM inference.',
     logo: GroqLogo,
@@ -62,6 +68,7 @@ export const PROVIDERS: Provider[] = [
   },
   {
     id: 'user/cerebras',
+    alias: ['cerebras', 'cerebras-api'],
     name: 'Cerebras',
     description: 'Integrate with Cerebras for ultra-fast LLM inference.',
     logo: CerebrasLogo,
@@ -70,6 +77,7 @@ export const PROVIDERS: Provider[] = [
   },
   {
     id: 'user/togetherai',
+    alias: ['togetherai', 'togetherai-api'],
     name: 'TogetherAI',
     description: 'Integrate with TogetherAI for ultra-fast LLM inference.',
     logo: togetheraiLogo, 
