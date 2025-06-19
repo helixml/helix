@@ -279,10 +279,10 @@ const Layout: FC<{
                 }}
               >
                 <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: '#00E5FF' }}>
-                  Please Login to View Apps
+                  Please Login to View Agents
                 </Typography>
                 <Typography variant="body1" sx={{ mb: 4, maxWidth: 600, color: 'text.secondary' }}>
-                  You need to be logged in to view and manage applications. Please login or register to continue.
+                  You need to be logged in to view and manage agents. Please login or register to continue.
                 </Typography>
               </Box>
             ) : children }
