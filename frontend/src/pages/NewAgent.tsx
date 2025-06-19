@@ -94,12 +94,18 @@ const PROVIDER_MODEL_PRESETS: Record<string, ProviderModelPreset> = {
   // TODO: Match anthropic models by prefix
   'anthropic': {
     reasoningModel: 'claude-3-5-sonnet-20241022',
-    reasoningModelEffort: 'medium',
+    reasoningModelEffort: 'none',
     generationModel: 'claude-3-5-sonnet-20241022',
     smallReasoningModel: 'claude-3-5-sonnet-20241022',
-    smallReasoningModelEffort: 'small',
+    smallReasoningModelEffort: 'none',
     smallGenerationModel: 'claude-3-5-haiku-20241022',
   }
+}
+
+function getModelPreset(provider: string): ProviderModelPreset {
+  // if provider has prefix user/ - remove it
+  const providerName = provider.replace('user/', '')
+  return PROVIDER_MODEL_PRESETS[providerName.toLowerCase()]
 }
 
 const NewAgent: FC = () => {
@@ -117,6 +123,18 @@ const NewAgent: FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [selectedPersona, setSelectedPersona] = useState<keyof typeof PERSONAS | null>(null)
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
+  
+  // Add state variables for model fields
+  const [reasoningModelProvider, setReasoningModelProvider] = useState('')
+  const [reasoningModel, setReasoningModel] = useState('')
+  const [reasoningModelEffort, setReasoningModelEffort] = useState('')
+  const [generationModelProvider, setGenerationModelProvider] = useState('')
+  const [generationModel, setGenerationModel] = useState('')
+  const [smallReasoningModelProvider, setSmallReasoningModelProvider] = useState('')
+  const [smallReasoningModel, setSmallReasoningModel] = useState('')
+  const [smallReasoningModelEffort, setSmallReasoningModelEffort] = useState('')
+  const [smallGenerationModelProvider, setSmallGenerationModelProvider] = useState('')
+  const [smallGenerationModel, setSmallGenerationModel] = useState('')
 
   // Filter for main providers (OpenAI, Google, Anthropic)
   const mainProviders = providerEndpoints.filter(endpoint => 
@@ -134,9 +152,25 @@ const NewAgent: FC = () => {
   }
 
   const handleProviderSelect = (providerName: string) => {
-    // Placeholder function for provider selection
     console.log('Provider selected:', providerName)
     setSelectedProvider(providerName)
+    
+    // Auto-populate model fields based on provider selection
+    const preset = getModelPreset(providerName)
+    if (preset) {
+      // Set the model fields in the form state
+      // Note: We'll need to add state variables for these fields
+      setReasoningModelProvider(providerName)
+      setReasoningModel(preset.reasoningModel)
+      setReasoningModelEffort(preset.reasoningModelEffort)
+      setGenerationModelProvider(providerName)
+      setGenerationModel(preset.generationModel)
+      setSmallReasoningModelProvider(providerName)
+      setSmallReasoningModel(preset.smallReasoningModel)
+      setSmallReasoningModelEffort(preset.smallReasoningModelEffort)
+      setSmallGenerationModelProvider(providerName)
+      setSmallGenerationModel(preset.smallGenerationModel)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -201,6 +235,16 @@ const NewAgent: FC = () => {
         name,
         systemPrompt,
         knowledge: knowledge.length > 0 ? knowledge : undefined,
+        reasoningModelProvider,
+        reasoningModel,
+        reasoningModelEffort,
+        generationModelProvider,
+        generationModel,
+        smallReasoningModelProvider,
+        smallReasoningModel,
+        smallReasoningModelEffort,
+        smallGenerationModelProvider,
+        smallGenerationModel,
       }
 
       const newApp = await apps.createAgent(agentParams)
@@ -389,6 +433,34 @@ const NewAgent: FC = () => {
                     </Typography>
                   )}
                 </Box>
+                
+                {/* Show selected models when provider is chosen */}
+                {selectedProvider && (
+                  <Box sx={{ mt: 3, p: 2, bgcolor: 'transparent', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="body2" color="text.secondary">
+                          <strong>Reasoning Model:</strong> {reasoningModel} {reasoningModelEffort !== 'none' && `(${reasoningModelEffort} effort)`}
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="body2" color="text.secondary">
+                          <strong>Generation Model:</strong> {generationModel}
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="body2" color="text.secondary">
+                          <strong>Small Reasoning Model:</strong> {smallReasoningModel} {smallReasoningModelEffort !== 'none' && `(${smallReasoningModelEffort} effort)`}
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="body2" color="text.secondary">
+                          <strong>Small Generation Model:</strong> {smallGenerationModel}
+                        </Typography>
+                      </Grid>
+                    </Grid>
+                  </Box>
+                )}
                 
                 <Typography 
                   variant="body2" 
