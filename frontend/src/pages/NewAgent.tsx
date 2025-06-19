@@ -12,13 +12,20 @@ import TextFieldsIcon from '@mui/icons-material/TextFields'
 import SupportIcon from '@mui/icons-material/Support'
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart'
 import BuildIcon from '@mui/icons-material/Build'
+import SettingsIcon from '@mui/icons-material/Settings'
+import Card from '@mui/material/Card'
+import Avatar from '@mui/material/Avatar'
+import Tooltip from '@mui/material/Tooltip'
+import InfoIcon from '@mui/icons-material/Info'
 
 import Page from '../components/system/Page'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useApps from '../hooks/useApps'
+import { useListProviders } from '../services/providersService'
 import { ICreateAgentParams } from '../contexts/apps'
+import { PROVIDERS, Provider } from '../components/providers/types'
 
 const PERSONAS = {
   IT_SUPPORT: {
@@ -58,11 +65,57 @@ const PERSONAS = {
   }
 } as const
 
+
+interface ProviderModelPreset {
+  reasoningModel: string       // Used for reasoning about tool calling
+  reasoningModelEffort: string
+  generationModel: string      // Strategy/plan
+  smallReasoningModel: string  // Skill result interpretation
+  smallReasoningModelEffort: string
+  smallGenerationModel: string // Used for thoughts about tools/strategy
+}
+
+const PROVIDER_MODEL_PRESETS: Record<string, ProviderModelPreset> = {
+  'openai': {
+    reasoningModel: 'o3-mini',
+    reasoningModelEffort: 'medium',
+    generationModel: 'gpt-4o',
+    smallReasoningModel: 'o3-mini',
+    smallReasoningModelEffort: 'small',
+    smallGenerationModel: 'gpt-4o-mini',
+  },
+  // TODO: fix google models
+  'google': {
+    reasoningModel: 'gemini-2.0-flash-001',
+    reasoningModelEffort: 'none',
+    generationModel: 'gemini-2.0-flash-001',
+    smallReasoningModel: 'gemini-2.0-flash-001',
+    smallReasoningModelEffort: 'none',
+    smallGenerationModel: 'gemini-2.0-flash-001',
+  },
+  // TODO: Match anthropic models by prefix
+  'anthropic': {
+    reasoningModel: 'claude-3-5-sonnet-20241022',
+    reasoningModelEffort: 'none',
+    generationModel: 'claude-3-5-sonnet-20241022',
+    smallReasoningModel: 'claude-3-5-sonnet-20241022',
+    smallReasoningModelEffort: 'none',
+    smallGenerationModel: 'claude-3-5-haiku-20241022',
+  }
+}
+
+function getModelPreset(provider: string): ProviderModelPreset {
+  // if provider has prefix user/ - remove it
+  const providerName = provider.replace('user/', '')
+  return PROVIDER_MODEL_PRESETS[providerName.toLowerCase()]
+}
+
 const NewAgent: FC = () => {
   const account = useAccount()  
   const snackbar = useSnackbar()
   const themeConfig = useThemeConfig()
   const apps = useApps()
+  const { data: providerEndpoints = [], isLoading: isLoadingProviders } = useListProviders(false)
 
   const [name, setName] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')
@@ -71,12 +124,54 @@ const NewAgent: FC = () => {
   const [knowledgeText, setKnowledgeText] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [selectedPersona, setSelectedPersona] = useState<keyof typeof PERSONAS | null>(null)
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
+  
+  // Add state variables for model fields
+  const [reasoningModelProvider, setReasoningModelProvider] = useState('')
+  const [reasoningModel, setReasoningModel] = useState('')
+  const [reasoningModelEffort, setReasoningModelEffort] = useState('')
+  const [generationModelProvider, setGenerationModelProvider] = useState('')
+  const [generationModel, setGenerationModel] = useState('')
+  const [smallReasoningModelProvider, setSmallReasoningModelProvider] = useState('')
+  const [smallReasoningModel, setSmallReasoningModel] = useState('')
+  const [smallReasoningModelEffort, setSmallReasoningModelEffort] = useState('')
+  const [smallGenerationModelProvider, setSmallGenerationModelProvider] = useState('')
+  const [smallGenerationModel, setSmallGenerationModel] = useState('')
+
+  // Filter for main providers (OpenAI, Google, Anthropic)
+  const mainProviders = providerEndpoints.filter(endpoint => 
+    endpoint.name?.toLowerCase().includes('openai') ||
+    endpoint.name?.toLowerCase().includes('google') ||
+    endpoint.name?.toLowerCase().includes('anthropic')
+  )
 
   const handlePersonaSelect = (persona: keyof typeof PERSONAS) => {
     setSelectedPersona(persona)
     setSystemPrompt(PERSONAS[persona].prompt)
     if (PERSONAS[persona].recommendedKnowledgeType) {
       setKnowledgeType(PERSONAS[persona].recommendedKnowledgeType as 'url' | 'text' | 'file')
+    }
+  }
+
+  const handleProviderSelect = (providerName: string) => {
+    console.log('Provider selected:', providerName)
+    setSelectedProvider(providerName)
+    
+    // Auto-populate model fields based on provider selection
+    const preset = getModelPreset(providerName)
+    if (preset) {
+      // Set the model fields in the form state
+      // Note: We'll need to add state variables for these fields
+      setReasoningModelProvider(providerName)
+      setReasoningModel(preset.reasoningModel)
+      setReasoningModelEffort(preset.reasoningModelEffort)
+      setGenerationModelProvider(providerName)
+      setGenerationModel(preset.generationModel)
+      setSmallReasoningModelProvider(providerName)
+      setSmallReasoningModel(preset.smallReasoningModel)
+      setSmallReasoningModelEffort(preset.smallReasoningModelEffort)
+      setSmallGenerationModelProvider(providerName)
+      setSmallGenerationModel(preset.smallGenerationModel)
     }
   }
 
@@ -142,6 +237,16 @@ const NewAgent: FC = () => {
         name,
         systemPrompt,
         knowledge: knowledge.length > 0 ? knowledge : undefined,
+        reasoningModelProvider,
+        reasoningModel,
+        reasoningModelEffort,
+        generationModelProvider,
+        generationModel,
+        smallReasoningModelProvider,
+        smallReasoningModel,
+        smallReasoningModelEffort,
+        smallGenerationModelProvider,
+        smallGenerationModel,
       }
 
       const newApp = await apps.createAgent(agentParams)
@@ -237,6 +342,237 @@ const NewAgent: FC = () => {
                   helperText="Define how your agent should behave and what it should do"
                   sx={{ mb: 2, mt: 2 }}
                 />                
+              </Grid>
+
+              {/* Provider Selection Section */}
+              <Grid item xs={12}>
+                <Typography variant="h6" sx={{ mb: 2 }}>
+                  AI Provider
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                  Select a specific AI provider for your agent. If none is selected, the system will use the default provider.
+                </Typography>
+
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                  {mainProviders.map((provider) => {
+                    const isSelected = selectedProvider === provider.name
+                    
+                    // Find the matching provider from PROVIDERS list either by id or alias
+                    const providerInfo = PROVIDERS.find(p => {                      
+                      return p.id === provider.name || (p.alias?.includes(provider.name || '') || false)
+                    })
+                    
+                    return (
+                      <Tooltip
+                        key={provider.id || provider.name}
+                        title={provider.name}
+                        arrow
+                        placement="top"
+                      >
+                        <Card
+                          onClick={() => handleProviderSelect(provider.name || '')}
+                          sx={{
+                            width: 80,
+                            height: 80,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            boxShadow: isSelected ? 4 : 2,
+                            borderStyle: 'solid',
+                            borderWidth: isSelected ? 2 : 1,
+                            borderColor: isSelected ? 'secondary.main' : 'divider',
+                            transition: 'all 0.2s',
+                            '&:hover': {
+                              boxShadow: 4,
+                              transform: 'translateY(-2px)',
+                              borderColor: 'primary.main',
+                            },
+                            opacity: isLoadingProviders ? 0.5 : 1,
+                          }}
+                        >
+                          <Avatar 
+                            sx={{ 
+                              bgcolor: 'white', 
+                              width: 40, 
+                              height: 40,
+                              mb: 1
+                            }}
+                          >
+                            {providerInfo?.logo ? (
+                              typeof providerInfo.logo === 'string' ? (
+                                <img src={providerInfo.logo} alt={provider.name} style={{ width: 32, height: 32 }} />
+                              ) : (
+                                <providerInfo.logo style={{ width: 32, height: 32 }} />
+                              )
+                            ) : (
+                              <Typography 
+                                variant="caption" 
+                                sx={{ 
+                                  fontWeight: 'bold',
+                                  color: 'text.primary'
+                                }}
+                              >
+                                {provider.name?.charAt(0).toUpperCase()}
+                              </Typography>
+                            )}
+                          </Avatar>
+                        </Card>
+                      </Tooltip>
+                    )
+                  })}
+                  
+                  {/* Custom Provider Tile */}
+                  <Tooltip
+                    title="Custom Models"
+                    arrow
+                    placement="top"
+                  >
+                    <Card
+                      onClick={() => handleProviderSelect('custom')}
+                      sx={{
+                        width: 80,
+                        height: 80,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        boxShadow: selectedProvider === 'custom' ? 4 : 2,
+                        borderStyle: 'solid',
+                        borderWidth: selectedProvider === 'custom' ? 2 : 1,
+                        borderColor: selectedProvider === 'custom' ? 'secondary.main' : 'divider',
+                        transition: 'all 0.2s',
+                        '&:hover': {
+                          boxShadow: 4,
+                          transform: 'translateY(-2px)',
+                          borderColor: 'primary.main',
+                        },
+                      }}
+                    >
+                      <Avatar 
+                        sx={{ 
+                          bgcolor: 'transparent', 
+                          width: 40, 
+                          height: 40,
+                          mb: 1
+                        }}
+                      >
+                        <SettingsIcon sx={{ width: 32, height: 32, color: 'white' }} />
+                      </Avatar>
+                    </Card>
+                  </Tooltip>
+                  
+                  {mainProviders.length === 0 && !isLoadingProviders && (
+                    <Typography variant="body2" color="text.secondary">
+                      No main providers (OpenAI, Google, Anthropic) are currently available.
+                    </Typography>
+                  )}
+                  
+                  {isLoadingProviders && (
+                    <Typography variant="body2" color="text.secondary">
+                      Loading providers...
+                    </Typography>
+                  )}
+                </Box>
+                
+                {/* Show selected models when provider is chosen */}
+                {selectedProvider && selectedProvider !== 'custom' && (
+                  <Box sx={{ mt: 3, p: 2, bgcolor: 'transparent', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={6}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Reasoning Model:</strong> {reasoningModel} {reasoningModelEffort !== 'none' && `(${reasoningModelEffort} effort)`}
+                          </Typography>
+                          <Tooltip 
+                            title="Planning how to use a particular skill and preparing parameters. Requires strong, smart model"
+                            arrow
+                            placement="top"
+                          >
+                            <InfoIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                          </Tooltip>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Generation Model:</strong> {generationModel}
+                          </Typography>
+                          <Tooltip 
+                            title="Overall planning, this model runs the high level agent loop. Requires strong model"
+                            arrow
+                            placement="top"
+                          >
+                            <InfoIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                          </Tooltip>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Small Reasoning Model:</strong> {smallReasoningModel} {smallReasoningModelEffort !== 'none' && `(${smallReasoningModelEffort} effort)`}
+                          </Typography>
+                          <Tooltip 
+                            title="Used for skill response interpretation or re-running the skill multiple times, this can be a smaller model"
+                            arrow
+                            placement="top"
+                          >
+                            <InfoIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                          </Tooltip>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Small Generation Model:</strong> {smallGenerationModel}
+                          </Typography>
+                          <Tooltip 
+                            title="Describes tool usage, strategy for the user. Use small models for this task"
+                            arrow
+                            placement="top"
+                          >
+                            <InfoIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                          </Tooltip>
+                        </Box>
+                      </Grid>
+                    </Grid>
+                  </Box>
+                )}
+                
+                {/* Custom provider message */}
+                {selectedProvider === 'custom' && (
+                  <Box sx={{ mt: 3, p: 2, bgcolor: 'transparent', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      You will be able to choose models in the settings page after creating your agent.
+                    </Typography>
+                  </Box>
+                )}
+                
+                <Typography 
+                  variant="body2" 
+                  color="text.secondary" 
+                  sx={{ mt: 2 }}
+                >
+                  Enable more providers{' '}
+                  <Typography
+                    component="span"
+                    variant="body2"
+                    onClick={() => account.orgNavigate('user-providers')}
+                    sx={{ 
+                      color: 'primary.main',
+                      cursor: 'pointer',
+                      textDecoration: 'underline',
+                      '&:hover': {
+                        textDecoration: 'underline',
+                        opacity: 0.8
+                      }
+                    }}
+                  >
+                    here
+                  </Typography>
+                </Typography>
               </Grid>
 
               {/* Knowledge Section */}
