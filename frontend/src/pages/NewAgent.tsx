@@ -63,6 +63,45 @@ const PERSONAS = {
   }
 } as const
 
+
+interface ProviderModelPreset {
+  reasoningModel: string       // Used for reasoning about tool calling
+  reasoningModelEffort: string
+  generationModel: string      // Strategy/plan
+  smallReasoningModel: string  // Skill result interpretation
+  smallReasoningModelEffort: string
+  smallGenerationModel: string // Used for thoughts about tools/strategy
+}
+
+const PROVIDER_MODEL_PRESETS: Record<string, ProviderModelPreset> = {
+  'openai': {
+    reasoningModel: 'o3-mini',
+    reasoningModelEffort: 'medium',
+    generationModel: 'gpt-4o',
+    smallReasoningModel: 'o3-mini',
+    smallReasoningModelEffort: 'small',
+    smallGenerationModel: 'gpt-4o-mini',
+  },
+  // TODO: fix google models
+  'google': {
+    reasoningModel: 'gemini-2.0-flash-001',
+    reasoningModelEffort: 'none',
+    generationModel: 'gemini-2.0-flash-001',
+    smallReasoningModel: 'gemini-2.0-flash-001',
+    smallReasoningModelEffort: 'none',
+    smallGenerationModel: 'gemini-2.0-flash-001',
+  },
+  // TODO: Match anthropic models by prefix
+  'anthropic': {
+    reasoningModel: 'claude-3-5-sonnet-20241022',
+    reasoningModelEffort: 'medium',
+    generationModel: 'claude-3-5-sonnet-20241022',
+    smallReasoningModel: 'claude-3-5-sonnet-20241022',
+    smallReasoningModelEffort: 'small',
+    smallGenerationModel: 'claude-3-5-haiku-20241022',
+  }
+}
+
 const NewAgent: FC = () => {
   const account = useAccount()  
   const snackbar = useSnackbar()
