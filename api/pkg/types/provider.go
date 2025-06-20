@@ -11,6 +11,7 @@ type Provider string
 const (
 	ProviderOpenAI     Provider = "openai"
 	ProviderTogetherAI Provider = "togetherai"
+	ProviderAnthropic  Provider = "anthropic"
 	ProviderHelix      Provider = "helix"
 	ProviderVLLM       Provider = "vllm"
 )

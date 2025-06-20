@@ -128,6 +128,16 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
+            {{- if .Values.controlplane.providers.anthropic }}
+            {{- with (default "" .Values.controlplane.providers.anthropic.baseUrl) }}
+            - name: ANTHROPIC_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with (default "" .Values.controlplane.providers.anthropic.apiKey) }}
+            - name: ANTHROPIC_API_KEY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.controlplane.providers.togetherai }}
             {{- with (default "" .Values.controlplane.providers.togetherai.baseUrl) }}
             - name: TOGETHER_BASE_URL
