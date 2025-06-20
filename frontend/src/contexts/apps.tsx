@@ -33,6 +33,20 @@ export interface ICreateAgentParams {
   image?: string;
   systemPrompt?: string;
   knowledge?: IKnowledgeSource[];
+  // Models and providers
+  reasoningModelProvider: string;
+  reasoningModel: string;
+  reasoningModelEffort: string;
+
+  generationModelProvider: string;
+  generationModel: string;
+  
+  smallReasoningModelProvider: string;
+  smallReasoningModel: string;
+  smallReasoningModelEffort: string;
+  
+  smallGenerationModelProvider: string;
+  smallGenerationModel: string;
 }
 
 // Default context values
@@ -100,7 +114,16 @@ export const useAppsContext = (): IAppsContext => {
               name: params.name,
               description: '',
               agent_mode: true,
-              
+              reasoning_model_provider: params.reasoningModelProvider,
+              reasoning_model: params.reasoningModel,
+              reasoning_model_effort: params.reasoningModelEffort,
+              generation_model_provider: params.generationModelProvider,
+              generation_model: params.generationModel,
+              small_reasoning_model_provider: params.smallReasoningModelProvider,
+              small_reasoning_model: params.smallReasoningModel,
+              small_reasoning_model_effort: params.smallReasoningModelEffort,
+              small_generation_model_provider: params.smallGenerationModelProvider,
+              small_generation_model: params.smallGenerationModel,
               avatar: '',
               image: '',
               model: defaultModel,
