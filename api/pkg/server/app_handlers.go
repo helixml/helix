@@ -15,6 +15,7 @@ import (
 
 	"encoding/base64"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/oauth"
@@ -161,26 +162,54 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 
 // createApp godoc
 // @Summary Create new app
-// @Description Create new app. Helix apps are configured with tools and knowledge.
+// @Description Create new app. Helix apps are configured with tools and knowledge. Supports both legacy format and new structured format with YAML config.
 // @Tags    apps
 
 // @Success 200 {object} types.App
-// @Param request    body types.App true "Request body with app configuration.")
+// @Param request    body types.App true "Request body with app configuration. Can be legacy App format or structured format with organization_id, global, and yaml_config fields.")
 // @Router /api/v1/apps [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
 	user := getRequestUser(r)
 	ctx := r.Context()
 
-	var app *types.App
 	body, err := io.ReadAll(r.Body)
-
 	if err != nil {
 		return nil, system.NewHTTPError400(fmt.Sprintf("failed to read request body, error: %s", err))
 	}
-	err = json.Unmarshal(body, &app)
-	if err != nil {
-		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body 1, error: %s, body: %s", err, string(body)))
+
+	// Try to unmarshal as structured request first
+	var structuredReq struct {
+		OrganizationID string                 `json:"organization_id"`
+		Global         bool                   `json:"global"`
+		YamlConfig     map[string]interface{} `json:"yaml_config"`
+	}
+
+	var app *types.App
+
+	// Try structured format first
+	if err := json.Unmarshal(body, &structuredReq); err == nil && structuredReq.YamlConfig != nil {
+		// Use shared config processor
+		helixConfig, err := config.ProcessJSONConfig(structuredReq.YamlConfig)
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to process YAML config: %s", err))
+		}
+
+		// Build the app structure
+		app = &types.App{
+			OrganizationID: structuredReq.OrganizationID,
+			Global:         structuredReq.Global,
+			Config: types.AppConfig{
+				Helix:          *helixConfig,
+				Secrets:        make(map[string]string),
+				AllowedDomains: []string{},
+			},
+		}
+	} else {
+		// Fall back to legacy format
+		if err := json.Unmarshal(body, &app); err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body as JSON, error: %s", err))
+		}
 	}
 
 	// If organization ID is set, authorize the user to the organization,

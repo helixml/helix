@@ -27,6 +27,7 @@ import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useApps from '../hooks/useApps'
 import { ICreateAgentParams } from '../contexts/apps'
+import useApi from '../hooks/useApi'
 
 const CodeBlock = styled('pre')(({ theme }) => ({
   backgroundColor: '#0f0f0f',
@@ -466,30 +467,28 @@ const ImportAgent: FC = () => {
 
     setImporting(true)
     try {
-      // Parse model configuration from the imported config
-      const modelConfig = getModelConfiguration()
+      const api = useApi()
       
-      // Convert the config to the format expected by the apps context
-      const agentParams: ICreateAgentParams = {
-        name: getAgentName(),
-        description: getAgentDescription(),
-        avatar: getAgentAvatar() || undefined,
-        image: getAgentImage() || undefined,
-        systemPrompt: getSystemPrompt(),
-        // TODO: Extract knowledge sources from config if present
-        knowledge: undefined,
-        // Model configuration parsed from the imported config
-        ...modelConfig,
+      // Send structured request with YAML config
+      const appData = {
+        organization_id: account.organizationTools.organization?.id || '',
+        global: false,
+        yaml_config: configData, // Pass the parsed YAML as-is
       }
+      
+      // Post to the API with structured format
+      const result = await api.post('/api/v1/apps', appData, {
+        params: {
+          create: true,
+        }
+      })
 
-      const newApp = await apps.createAgent(agentParams)
-
-      if (!newApp) {
+      if (!result) {
         throw new Error('Failed to create agent')
       }
 
       // Navigate to the agent editor
-      account.orgNavigate('app', { app_id: newApp.id })
+      account.orgNavigate('app', { app_id: result.id })
       snackbar.success('Agent imported successfully')
     } catch (error) {
       console.error('Error importing agent:', error)
