@@ -50,6 +50,9 @@ controlplane:
     openai:
       baseUrl: "http://vllm-llama.default.svc.cluster.local/v1"
       apiKey: "EMPTY"
+    # anthropic:
+    #   baseUrl: "https://api.anthropic.com/v1"
+    #   apiKey: "YOUR_ANTHROPIC_API_KEY"
 
 # Environment variables that will be added to the configmap
 envVariables:
