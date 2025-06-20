@@ -27,6 +27,7 @@ import AddIcon from '@mui/icons-material/Add'
 import PsychologyIcon from '@mui/icons-material/Psychology'
 
 import UserOrgSelector from '../orgs/UserOrgSelector'
+import TokenUsageDisplay from './TokenUsageDisplay'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
@@ -304,6 +305,7 @@ const SidebarContent: React.FC<{
                   account.user && (
                     <>
                       <UserOrgSelector />
+                      <TokenUsageDisplay />
                       <Divider />
                     </>
                   )
