@@ -140,6 +140,14 @@ type UserSearchResponse struct {
 	Offset     int     `json:"offset"`
 }
 
+type UserTokenUsageResponse struct {
+	QuotasEnabled   bool    `json:"quotas_enabled"`
+	MonthlyUsage    int     `json:"monthly_usage"`
+	MonthlyLimit    int     `json:"monthly_limit"`
+	IsProTier       bool    `json:"is_pro_tier"`
+	UsagePercentage float64 `json:"usage_percentage"`
+}
+
 // CreateAccessGrantRequest - request to create an access grant for a team or user
 type CreateAccessGrantRequest struct {
 	UserReference string   `json:"user_reference"` // User ID or email

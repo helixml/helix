@@ -46,6 +46,11 @@ type ChatCompletionOptions struct {
 // Runs the OpenAI with tools/app configuration and returns the response.
 // Returns the updated request because the controller mutates it when doing e.g. tools calls and RAG
 func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, *openai.ChatCompletionRequest, error) {
+	// Check token quota before processing
+	if err := c.CheckInferenceTokenQuota(ctx, user.ID); err != nil {
+		return nil, nil, err
+	}
+
 	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {
 		log.Info().Msg("no assistant found")
@@ -172,6 +177,11 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		Int("oauth_token_count", len(opts.OAuthTokens)).
 		Bool("has_oauth_manager", c.Options.OAuthManager != nil).
 		Msg("ChatCompletionStream called")
+
+	// Check token quota before processing
+	if err := c.CheckInferenceTokenQuota(ctx, user.ID); err != nil {
+		return nil, nil, err
+	}
 
 	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {

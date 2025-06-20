@@ -421,6 +421,17 @@ type SubscriptionQuotas struct {
 			MaxChunks     int  `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_PRO_MAX_CHUNKS" default:"100"`
 		}
 	}
+	Inference struct {
+		Enabled bool `envconfig:"SUBSCRIPTION_QUOTAS_INFERENCE_ENABLED" default:"false"` // Must be explicitly enabled
+		Free    struct {
+			MaxMonthlyTokens int  `envconfig:"SUBSCRIPTION_QUOTAS_INFERENCE_FREE_MAX_MONTHLY_TOKENS" default:"50000"` // 50K tokens/month for free users
+			Strict           bool `envconfig:"SUBSCRIPTION_QUOTAS_INFERENCE_FREE_STRICT" default:"true"`
+		}
+		Pro struct {
+			MaxMonthlyTokens int  `envconfig:"SUBSCRIPTION_QUOTAS_INFERENCE_PRO_MAX_MONTHLY_TOKENS" default:"2500000"` // 2.5M tokens/month for pro users
+			Strict           bool `envconfig:"SUBSCRIPTION_QUOTAS_INFERENCE_PRO_STRICT" default:"true"`
+		}
+	}
 }
 
 type GitHub struct {
