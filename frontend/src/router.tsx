@@ -18,6 +18,7 @@ import Home from './pages/Home'
 import OpenAPI from './pages/OpenAPI'
 import Secrets from './pages/Secrets'
 import NewAgent from './pages/NewAgent'
+import ImportAgent from './pages/ImportAgent'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
@@ -106,6 +107,16 @@ const routes: IApplicationRoute[] = [
   ...getOrgRoutes(),
   ...getOrgRoutes('org_', '/org/:org_id'),
 {
+  name: 'import-agent',
+  path: '/import-agent',
+  meta: {
+    drawer: false,
+    title: 'Import Agent',
+  },
+  render: () => (
+    <ImportAgent />
+  ),
+}, {
   name: 'orgs',
   path: '/orgs',
   meta: {

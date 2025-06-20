@@ -3,8 +3,10 @@ import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
+import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
+import SearchIcon from '@mui/icons-material/Search'
 import Tooltip from '@mui/material/Tooltip'
 import Avatar from '@mui/material/Avatar'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
@@ -14,8 +16,10 @@ import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
+import { styled } from '@mui/material/styles'
 
 import Page from '../components/system/Page'
+import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
 import Row from '../components/widgets/Row'
 import SessionTypeButton from '../components/create/SessionTypeButton'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
@@ -23,7 +27,6 @@ import ExamplePrompts from '../components/create/ExamplePrompts'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import { ISessionType, SESSION_TYPE_TEXT } from '../types'
 import { useAccount } from '../contexts/account'
-import OAuthAppTemplates from '../components/home/OAuthAppTemplates'
 
 import useLightTheme from '../hooks/useLightTheme'
 import useIsBigScreen from '../hooks/useIsBigScreen'
@@ -31,6 +34,7 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useSessions from '../hooks/useSessions'
 import useApps from '../hooks/useApps'
+import useThemeConfig from '../hooks/useThemeConfig'
 import { useStreaming } from '../contexts/streaming'
 
 import {
@@ -55,6 +59,7 @@ const LOGGED_OUT_PROMPT_KEY = 'logged-out-prompt'
 const Home: FC = () => {
   const isBigScreen = useIsBigScreen()
   const lightTheme = useLightTheme()
+  const themeConfig = useThemeConfig()
   const router = useRouter()
   const snackbar = useSnackbar()
   const sessions = useSessions()
@@ -577,8 +582,24 @@ const Home: FC = () => {
                   </Grid>
                 </Row>
                 
-                {/* Add the OAuthAppTemplates below Recent Apps section */}
-                <OAuthAppTemplates />
+                {/* Find Agents CTA Section */}
+                <Row
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    mb: 3,
+                    mt: 3,
+                  }}
+                >
+                  <Box
+                    sx={{
+                      textAlign: 'left',
+                    }}
+                  >
+                    <LaunchpadCTAButton />
+                  </Box>
+                </Row>
               </Grid>
             </Grid>
           </Container>
