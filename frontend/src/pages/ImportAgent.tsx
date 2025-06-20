@@ -315,6 +315,9 @@ interface ParsedConfig {
   description?: string
   avatar?: string
   image?: string
+  metadata?: {
+    name?: string
+  }
   spec?: {
     description?: string
     avatar?: string
@@ -338,21 +341,6 @@ interface ParsedConfig {
     avatar?: string
     image?: string
   }>
-  helix?: {
-    name?: string
-    description?: string
-    avatar?: string
-    image?: string
-    assistants?: Array<{
-      name?: string
-      description?: string
-      system_prompt?: string
-      model?: string
-      provider?: string
-      avatar?: string
-      image?: string
-    }>
-  }
   [key: string]: any
 }
 
@@ -408,7 +396,6 @@ const ImportAgent: FC = () => {
   }, [])
 
   const getAgentName = () => {
-    if (configData?.helix?.name) return configData.helix.name
     if (configData?.metadata?.name) return configData.metadata.name
     if (configData?.name) return configData.name
     if (configData?.spec?.assistants?.[0]?.name) return configData.spec.assistants[0].name
@@ -418,7 +405,6 @@ const ImportAgent: FC = () => {
 
   const getAgentDescription = () => {
     // Prioritize top-level app description over system prompt
-    if (configData?.helix?.description) return configData.helix.description
     if (configData?.spec?.description) return configData.spec.description
     if (configData?.description) return configData.description
     if (configData?.spec?.assistants?.[0]?.description) return configData.spec.assistants[0].description
@@ -430,7 +416,6 @@ const ImportAgent: FC = () => {
   }
 
   const getAgentAvatar = () => {
-    if (configData?.helix?.avatar) return configData.helix.avatar
     if (configData?.spec?.avatar) return configData.spec.avatar
     if (configData?.avatar) return configData.avatar
     if (configData?.spec?.assistants?.[0]?.avatar) return configData.spec.assistants[0].avatar
@@ -439,7 +424,6 @@ const ImportAgent: FC = () => {
   }
 
   const getAgentImage = () => {
-    if (configData?.helix?.image) return configData.helix.image
     if (configData?.spec?.image) return configData.spec.image
     if (configData?.image) return configData.image
     if (configData?.spec?.assistants?.[0]?.image) return configData.spec.assistants[0].image
@@ -447,20 +431,55 @@ const ImportAgent: FC = () => {
     return null
   }
 
+  const getModelConfiguration = () => {
+    // Let backend handle all model defaults - don't auto-populate from general provider/model
+    return {
+      reasoningModelProvider: '',
+      reasoningModel: '',
+      reasoningModelEffort: '',
+      generationModelProvider: '',
+      generationModel: '',
+      smallReasoningModelProvider: '',
+      smallReasoningModel: '',
+      smallReasoningModelEffort: '',
+      smallGenerationModelProvider: '',
+      smallGenerationModel: '',
+    }
+  }
+
+  const getSystemPrompt = () => {
+    if (!configData) return ''
+    
+    // Try to get system prompt from assistant configurations first
+    // Support both old-style (top-level assistants) and new-style (spec.assistants)
+    const systemPrompt = configData.assistants?.[0]?.system_prompt ||
+                        configData.spec?.assistants?.[0]?.system_prompt
+    
+    if (systemPrompt) return systemPrompt
+    
+    // Fall back to description if no system prompt is found
+    return getAgentDescription()
+  }
+
   const handleImport = async () => {
     if (!configData || !account.user) return
 
     setImporting(true)
     try {
+      // Parse model configuration from the imported config
+      const modelConfig = getModelConfiguration()
+      
       // Convert the config to the format expected by the apps context
       const agentParams: ICreateAgentParams = {
         name: getAgentName(),
         description: getAgentDescription(),
         avatar: getAgentAvatar() || undefined,
         image: getAgentImage() || undefined,
-        systemPrompt: getAgentDescription(),
+        systemPrompt: getSystemPrompt(),
         // TODO: Extract knowledge sources from config if present
         knowledge: undefined,
+        // Model configuration parsed from the imported config
+        ...modelConfig,
       }
 
       const newApp = await apps.createAgent(agentParams)
