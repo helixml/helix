@@ -89,7 +89,6 @@ func (apiServer *HelixAPIServer) determineModels() ([]types.OpenAIModel, error) 
 		}
 
 		apiKey = provider.APIKey()
-
 	case string(types.ProviderTogetherAI):
 		baseURL = apiServer.Cfg.Providers.TogetherAI.BaseURL
 
@@ -98,6 +97,17 @@ func (apiServer *HelixAPIServer) determineModels() ([]types.OpenAIModel, error) 
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to get togetherai client: %w", err)
+		}
+
+		apiKey = provider.APIKey()
+	case string(types.ProviderAnthropic):
+		baseURL = apiServer.Cfg.Providers.Anthropic.BaseURL
+
+		provider, err := apiServer.providerManager.GetClient(context.Background(), &manager.GetClientRequest{
+			Provider: string(types.ProviderAnthropic),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get anthropic client: %w", err)
 		}
 
 		apiKey = provider.APIKey()
