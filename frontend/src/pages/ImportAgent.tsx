@@ -311,37 +311,44 @@ const CancelButton = styled(Button)<{ themeConfig: any }>(({ themeConfig }) => (
   },
 }))
 
+// Minimal interface for frontend preview - only fields needed for display
 interface ParsedConfig {
+  // Top-level fields
   name?: string
   description?: string
   avatar?: string
   image?: string
+  
+  // CRD metadata
   metadata?: {
     name?: string
   }
+  
+  // CRD spec format
   spec?: {
+    name?: string
     description?: string
     avatar?: string
     image?: string
     assistants?: Array<{
       name?: string
       description?: string
-      system_prompt?: string
-      model?: string
-      provider?: string
+      system_prompt?: string // Fallback for description
       avatar?: string
       image?: string
     }>
   }
+  
+  // Direct assistants format
   assistants?: Array<{
     name?: string
     description?: string
-    system_prompt?: string
-    model?: string
-    provider?: string
+    system_prompt?: string // Fallback for description
     avatar?: string
     image?: string
   }>
+  
+  // Keep this for passing full parsed config to backend
   [key: string]: any
 }
 
@@ -349,7 +356,7 @@ const ImportAgent: FC = () => {
   const account = useAccount()
   const snackbar = useSnackbar()
   const themeConfig = useThemeConfig()
-  const apps = useApps()
+  const api = useApi()
   const [configData, setConfigData] = useState<ParsedConfig | null>(null)
   const [yamlString, setYamlString] = useState<string>('')
   const [loading, setLoading] = useState(true)
@@ -432,43 +439,11 @@ const ImportAgent: FC = () => {
     return null
   }
 
-  const getModelConfiguration = () => {
-    // Let backend handle all model defaults - don't auto-populate from general provider/model
-    return {
-      reasoningModelProvider: '',
-      reasoningModel: '',
-      reasoningModelEffort: '',
-      generationModelProvider: '',
-      generationModel: '',
-      smallReasoningModelProvider: '',
-      smallReasoningModel: '',
-      smallReasoningModelEffort: '',
-      smallGenerationModelProvider: '',
-      smallGenerationModel: '',
-    }
-  }
-
-  const getSystemPrompt = () => {
-    if (!configData) return ''
-    
-    // Try to get system prompt from assistant configurations first
-    // Support both old-style (top-level assistants) and new-style (spec.assistants)
-    const systemPrompt = configData.assistants?.[0]?.system_prompt ||
-                        configData.spec?.assistants?.[0]?.system_prompt
-    
-    if (systemPrompt) return systemPrompt
-    
-    // Fall back to description if no system prompt is found
-    return getAgentDescription()
-  }
-
   const handleImport = async () => {
     if (!configData || !account.user) return
 
     setImporting(true)
     try {
-      const api = useApi()
-      
       // Send structured request with YAML config
       const appData = {
         organization_id: account.organizationTools.organization?.id || '',
@@ -743,9 +718,9 @@ const ImportAgent: FC = () => {
                     Configuration
                   </Typography>
                 </Box>
-                                 <ConfigCard themeConfig={themeConfig}>
-                   <CodeBlock>{yamlString}</CodeBlock>
-                 </ConfigCard>
+                <ConfigCard themeConfig={themeConfig}>
+                  <CodeBlock>{yamlString}</CodeBlock>
+                </ConfigCard>
               </Box>
             </Box>
 
