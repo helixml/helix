@@ -83,3 +83,60 @@ func (apiServer *HelixAPIServer) searchUsers(rw http.ResponseWriter, r *http.Req
 		Offset:     query.Offset,
 	}, http.StatusOK)
 }
+
+// getUserTokenUsage godoc
+// @Summary Get user token usage
+// @Description Get current user's monthly token usage and limits
+// @Tags    users
+// @Success 200 {object} types.UserTokenUsageResponse
+// @Router /api/v1/users/token-usage [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getUserTokenUsage(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	if user == nil {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Skip if quotas are disabled
+	if !apiServer.Cfg.SubscriptionQuotas.Enabled || !apiServer.Cfg.SubscriptionQuotas.Inference.Enabled {
+		writeResponse(rw, &types.UserTokenUsageResponse{
+			QuotasEnabled: false,
+		}, http.StatusOK)
+		return
+	}
+
+	// Get current monthly usage
+	monthlyTokens, err := apiServer.Store.GetUserMonthlyTokenUsage(r.Context(), user.ID)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("error getting token usage: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Check if user is pro tier
+	usermeta, err := apiServer.Store.GetUserMeta(r.Context(), user.ID)
+	if err != nil && err != store.ErrNotFound {
+		http.Error(rw, fmt.Sprintf("error getting user meta: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	isProTier := false
+	if usermeta != nil && usermeta.Config.StripeSubscriptionActive {
+		isProTier = true
+	}
+
+	var limit int
+	if isProTier {
+		limit = apiServer.Cfg.SubscriptionQuotas.Inference.Pro.MaxMonthlyTokens
+	} else {
+		limit = apiServer.Cfg.SubscriptionQuotas.Inference.Free.MaxMonthlyTokens
+	}
+
+	writeResponse(rw, &types.UserTokenUsageResponse{
+		QuotasEnabled:   true,
+		MonthlyUsage:    monthlyTokens,
+		MonthlyLimit:    limit,
+		IsProTier:       isProTier,
+		UsagePercentage: float64(monthlyTokens) / float64(limit) * 100,
+	}, http.StatusOK)
+}

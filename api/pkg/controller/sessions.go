@@ -152,6 +152,13 @@ func (c *Controller) StartSession(ctx context.Context, user *types.User, req typ
 		}
 	}
 
+	// Check inference token quota for inference sessions
+	if newSession.Mode == types.SessionModeInference {
+		if err := c.CheckInferenceTokenQuota(ctx, req.Owner); err != nil {
+			return nil, err
+		}
+	}
+
 	// create session in database
 	sessionData, err := c.Options.Store.CreateSession(ctx, newSession)
 	if err != nil {
@@ -192,6 +199,56 @@ func (c *Controller) isUserProTier(ctx context.Context, owner string) (bool, err
 	}
 
 	return false, nil
+}
+
+// CheckInferenceTokenQuota checks if the user has exceeded their monthly token quota
+func (c *Controller) CheckInferenceTokenQuota(ctx context.Context, userID string) error {
+	// Skip quota check if inference quotas are disabled
+	if !c.Options.Config.SubscriptionQuotas.Enabled || !c.Options.Config.SubscriptionQuotas.Inference.Enabled {
+		return nil
+	}
+
+	// Get user's current monthly usage
+	monthlyTokens, err := c.Options.Store.GetUserMonthlyTokenUsage(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to get user token usage: %w", err)
+	}
+
+	// Check if user is pro tier
+	pro, err := c.isUserProTier(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to check user tier: %w", err)
+	}
+
+	var limit int
+	var strict bool
+
+	if pro {
+		limit = c.Options.Config.SubscriptionQuotas.Inference.Pro.MaxMonthlyTokens
+		strict = c.Options.Config.SubscriptionQuotas.Inference.Pro.Strict
+	} else {
+		limit = c.Options.Config.SubscriptionQuotas.Inference.Free.MaxMonthlyTokens
+		strict = c.Options.Config.SubscriptionQuotas.Inference.Free.Strict
+	}
+
+	if monthlyTokens >= limit {
+		if strict {
+			tierName := "free"
+			if pro {
+				tierName = "pro"
+			}
+			return fmt.Errorf("monthly token limit exceeded for %s tier (%d/%d tokens used). Please upgrade your plan or wait until next month to continue", tierName, monthlyTokens, limit)
+		}
+		// Log warning for soft limits
+		log.Warn().
+			Str("user_id", userID).
+			Int("usage", monthlyTokens).
+			Int("limit", limit).
+			Bool("pro_tier", pro).
+			Msg("user approaching token limit")
+	}
+
+	return nil
 }
 
 func (c *Controller) UpdateSession(ctx context.Context, user *types.User, req types.UpdateSessionRequest) (*types.Session, error) {
