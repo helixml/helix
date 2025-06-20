@@ -1,26 +1,46 @@
 import React from 'react'
 import Button from '@mui/material/Button'
-import SearchIcon from '@mui/icons-material/Search'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import { styled } from '@mui/material/styles'
 
 import useThemeConfig from '../../hooks/useThemeConfig'
+import useAccount from '../../hooks/useAccount'
 
-const StyledCTAButton = styled(Button)<{ themeConfig: any }>(({ themeConfig }) => ({
-  background: `linear-gradient(135deg, ${themeConfig.tealRoot} 0%, ${themeConfig.magentaRoot} 100%)`,
-  border: 'none',
+const StyledCTAButton = styled(Button)<{ themeConfig: any; isLoggedOut: boolean }>(({ themeConfig, isLoggedOut }) => ({
+  background: 'transparent',
+  border: `2px solid transparent`,
   borderRadius: '16px',
   padding: '16px 32px',
-  fontSize: '1.1rem',
+  fontSize: isLoggedOut ? '1rem' : '1.1rem',
   fontWeight: 600,
   textTransform: 'none',
-  boxShadow: `0 8px 32px ${themeConfig.tealRoot}30`,
-  transition: 'all 0.3s ease',
-  color: 'white',
+  color: themeConfig.darkText,
   minHeight: '56px',
+  position: 'relative',
+  transition: 'all 0.3s ease',
+  opacity: isLoggedOut ? 0.8 : 1,
+  
+  // Gradient border effect
+  '&::before': {
+    content: '""',
+    position: 'absolute',
+    inset: 0,
+    padding: '2px',
+    background: `linear-gradient(135deg, ${themeConfig.tealRoot} 0%, ${themeConfig.magentaRoot} 100%)`,
+    borderRadius: '16px',
+    mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+    maskComposite: 'xor',
+    WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+    WebkitMaskComposite: 'xor',
+  },
+  
   '&:hover': {
-    background: `linear-gradient(135deg, ${themeConfig.tealDark} 0%, ${themeConfig.magentaDark} 100%)`,
-    transform: 'translateY(-2px)',
-    boxShadow: `0 12px 40px ${themeConfig.tealRoot}40`,
+    background: 'rgba(255, 255, 255, 0.05)',
+    transform: 'translateY(-1px)',
+    opacity: 1,
+    '&::before': {
+      background: `linear-gradient(135deg, ${themeConfig.tealDark} 0%, ${themeConfig.magentaDark} 100%)`,
+    },
   },
   '&:active': {
     transform: 'translateY(0px)',
@@ -39,6 +59,9 @@ const LaunchpadCTAButton: React.FC<LaunchpadCTAButtonProps> = ({
   fullWidth = false,
 }) => {
   const themeConfig = useThemeConfig()
+  const account = useAccount()
+  
+  const isLoggedOut = !account.user
 
   const handleClick = () => {
     const currentUrl = window.location.origin
@@ -49,8 +72,9 @@ const LaunchpadCTAButton: React.FC<LaunchpadCTAButtonProps> = ({
   return (
     <StyledCTAButton
       themeConfig={themeConfig}
-      variant="contained"
-      startIcon={<SearchIcon />}
+      isLoggedOut={isLoggedOut}
+      variant="outlined"
+      startIcon={<OpenInNewIcon />}
       size={size}
       onClick={handleClick}
       sx={{ 
@@ -59,7 +83,7 @@ const LaunchpadCTAButton: React.FC<LaunchpadCTAButtonProps> = ({
         ...sx,
       }}
     >
-      Find & Deploy Agents from Launchpad
+      Launchpad: Find &amp; Deploy Agents
     </StyledCTAButton>
   )
 }
