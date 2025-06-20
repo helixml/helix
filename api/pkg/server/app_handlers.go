@@ -1,6 +1,7 @@
 package server
 
 import (
+	"archive/zip"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -9,6 +10,8 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -408,15 +411,24 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 	foundKnowledge := make(map[string]bool)
 
 	for _, k := range knowledge {
+		var scopedPath string
+
 		// Scope the filestore path to the app's directory if it exists
-		if k.Source.Filestore != nil && k.Source.Filestore.Path != "" {
+		if k.Source.Filestore != nil && (k.Source.Filestore.Path != "" || k.Source.Filestore.SeedZipURL != "") {
 			// Translate simple paths like "pdfs" to "apps/:app_id/pdfs"
 			ownerCtx := types.OwnerContext{
 				Owner:     app.Owner,
 				OwnerType: app.OwnerType,
 			}
 
-			scopedPath, err := s.Controller.GetFilestoreAppKnowledgePath(ownerCtx, app.ID, k.Source.Filestore.Path)
+			// Use provided path or default to "files" if only zip URL is provided
+			knowledgePath := k.Source.Filestore.Path
+			if knowledgePath == "" && k.Source.Filestore.SeedZipURL != "" {
+				knowledgePath = "files"
+			}
+
+			var err error
+			scopedPath, err = s.Controller.GetFilestoreAppKnowledgePath(ownerCtx, app.ID, knowledgePath)
 			if err != nil {
 				return fmt.Errorf("failed to generate scoped path for knowledge '%s': %w", k.Name, err)
 			}
@@ -434,8 +446,28 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 			AppID: app.ID,
 			Name:  k.Name,
 		})
+
+		var zipDownloadErr error
+		if k.Source.Filestore != nil && k.Source.Filestore.SeedZipURL != "" {
+			zipDownloadErr = s.downloadAndExtractZipToKnowledge(ctx, k.Source.Filestore.SeedZipURL, scopedPath)
+		}
+
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
+				// Determine initial state - if zip download fails, start as error state
+				initialState := determineInitialState(k.Source)
+				var errorMessage string
+
+				if zipDownloadErr != nil {
+					log.Error().
+						Err(zipDownloadErr).
+						Str("knowledge_name", k.Name).
+						Str("zip_url", k.Source.Filestore.SeedZipURL).
+						Msg("Failed to download and extract zip file, marking knowledge as failed")
+					initialState = types.KnowledgeStateError
+					errorMessage = fmt.Sprintf("Failed to download files from zip URL: %s", zipDownloadErr.Error())
+				}
+
 				// Create new knowledge
 				created, err := s.Store.CreateKnowledge(ctx, &types.Knowledge{
 					AppID:           app.ID,
@@ -443,7 +475,8 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 					Description:     k.Description,
 					Owner:           app.Owner,
 					OwnerType:       app.OwnerType,
-					State:           determineInitialState(k.Source),
+					State:           initialState,
+					Message:         errorMessage,
 					RAGSettings:     k.RAGSettings,
 					Source:          k.Source,
 					RefreshEnabled:  k.RefreshEnabled,
@@ -1328,4 +1361,148 @@ func (s *HelixAPIServer) getAppAvatar(rw http.ResponseWriter, r *http.Request) {
 
 func getAvatarKey(id string) string {
 	return fmt.Sprintf("/app-avatars/%s", id)
+}
+
+// downloadAndExtractZipToKnowledge downloads a zip file from a URL and extracts its contents
+// to the specified knowledge filestore path. It handles air-gapped scenarios by marking
+// knowledge as failed if the download fails.
+func (s *HelixAPIServer) downloadAndExtractZipToKnowledge(ctx context.Context, zipURL, knowledgeStorePath string) error {
+	log.Info().
+		Str("zip_url", zipURL).
+		Str("destination_path", knowledgeStorePath).
+		Msg("Starting zip file download and extraction")
+
+	// Download the zip file with a timeout
+	client := &http.Client{
+		Timeout: 10 * time.Minute, // Allow up to 10 minutes for large zip files
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", zipURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request for zip URL: %w", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to download zip file from %s: %w - this may indicate the system is air-gapped or the URL is not accessible", zipURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to download zip file from %s: HTTP %d %s", zipURL, resp.StatusCode, resp.Status)
+	}
+
+	// Check content length if provided by server
+	const maxZipSize = 1024 * 1024 * 1024 // 1GB limit
+	if resp.ContentLength > maxZipSize {
+		return fmt.Errorf("zip file is too large: %d bytes (max allowed: %d bytes)", resp.ContentLength, maxZipSize)
+	}
+
+	// Create a temporary file to store the zip
+	tempFile, err := os.CreateTemp("", "helix-knowledge-seed-*.zip")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary file for zip download: %w", err)
+	}
+	defer os.Remove(tempFile.Name()) // Clean up temp file
+	defer tempFile.Close()
+
+	log.Debug().
+		Str("temp_file", tempFile.Name()).
+		Msg("Created temporary file for zip download")
+
+	// Copy the response body to the temp file with size limit
+	limitedReader := io.LimitReader(resp.Body, maxZipSize+1) // +1 to detect if size exceeded
+	bytesWritten, err := io.Copy(tempFile, limitedReader)
+	if err != nil {
+		return fmt.Errorf("failed to download zip file to temporary storage: %w", err)
+	}
+
+	if bytesWritten > maxZipSize {
+		return fmt.Errorf("zip file exceeded maximum size limit: %d bytes (max allowed: %d bytes)", bytesWritten, maxZipSize)
+	}
+
+	log.Info().
+		Int64("bytes_downloaded", bytesWritten).
+		Msg("Successfully downloaded zip file to temporary storage")
+
+	// Close the temp file to ensure all data is written
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("failed to close temporary file: %w", err)
+	}
+
+	// Open the zip file for reading
+	zipReader, err := zip.OpenReader(tempFile.Name())
+	if err != nil {
+		return fmt.Errorf("failed to open zip file: %w", err)
+	}
+	defer zipReader.Close()
+
+	log.Info().
+		Int("file_count", len(zipReader.File)).
+		Msg("Extracting files from zip archive")
+
+	// Extract each file from the zip
+	for _, file := range zipReader.File {
+		err := s.extractZipFile(ctx, file, knowledgeStorePath)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("filename", file.Name).
+				Msg("Failed to extract file from zip")
+			return fmt.Errorf("failed to extract file %s: %w", file.Name, err)
+		}
+	}
+
+	log.Info().
+		Int("extracted_files", len(zipReader.File)).
+		Str("destination_path", knowledgeStorePath).
+		Int64("total_size", bytesWritten).
+		Msg("Successfully extracted all files from zip archive")
+
+	return nil
+}
+
+// extractZipFile extracts a single file from a zip archive to the filestore
+func (s *HelixAPIServer) extractZipFile(ctx context.Context, file *zip.File, basePath string) error {
+	// Skip directories
+	if file.FileInfo().IsDir() {
+		return nil
+	}
+
+	// Open the file in the zip
+	fileReader, err := file.Open()
+	if err != nil {
+		return fmt.Errorf("failed to open file %s in zip: %w", file.Name, err)
+	}
+	defer fileReader.Close()
+
+	// Create the destination path
+	destPath := filepath.Join(basePath, file.Name)
+
+	// Ensure the destination directory exists
+	destDir := filepath.Dir(destPath)
+	if destDir != "." && destDir != "/" {
+		// Create the directory structure
+		_, err = s.Controller.Options.Filestore.CreateFolder(ctx, destDir)
+		if err != nil {
+			log.Debug().
+				Err(err).
+				Str("directory", destDir).
+				Msg("Directory might already exist, continuing")
+		}
+	}
+
+	// Write the file to the filestore
+	_, err = s.Controller.Options.Filestore.WriteFile(ctx, destPath, fileReader)
+	if err != nil {
+		return fmt.Errorf("failed to write file %s to filestore: %w", destPath, err)
+	}
+
+	log.Debug().
+		Str("source_file", file.Name).
+		Str("destination_path", destPath).
+		Int64("file_size", file.FileInfo().Size()).
+		Msg("Successfully extracted file from zip")
+
+	return nil
 }
