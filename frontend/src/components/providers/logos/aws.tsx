@@ -4,7 +4,7 @@ const AWSLogo = (props: React.SVGProps<SVGSVGElement>) => (
   <svg 
     data-testid="geist-icon" 
     height="78" 
-    stroke-linejoin="round" 
+    strokeLinejoin="round" 
     viewBox="0 0 181 108" 
     width="78" 
     style={{ color: 'currentcolor' }}
