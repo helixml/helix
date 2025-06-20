@@ -262,6 +262,7 @@ type Store interface {
 	GetAppUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsageMetric, error)
 	GetAppDailyUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.AggregatedUsageMetric, error)
 	DeleteUsageMetrics(ctx context.Context, appID string) error
+	GetUserMonthlyTokenUsage(ctx context.Context, userID string) (int, error)
 
 	GetProviderDailyUsageMetrics(ctx context.Context, providerID string, from time.Time, to time.Time) ([]*types.AggregatedUsageMetric, error)
 

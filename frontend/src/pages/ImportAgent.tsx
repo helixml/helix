@@ -391,8 +391,15 @@ const ImportAgent: FC = () => {
         // Parse YAML
         const parsed = yaml.parse(decompressed) as ParsedConfig
         
+        // Extract just the yaml_config content for display, or use the entire parsed data if it's legacy format
+        let displayYaml = decompressed
+        if (parsed.yaml_config) {
+          // For new structured format, show only the yaml_config content
+          displayYaml = yaml.stringify(parsed.yaml_config, { indent: 2, lineWidth: 0 })
+        }
+        
         setConfigData(parsed)
-        setYamlString(decompressed)
+        setYamlString(displayYaml)
         setLoading(false)
       } catch (err) {
         console.error('Error parsing config:', err)
