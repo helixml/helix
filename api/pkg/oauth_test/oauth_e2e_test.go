@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,9 +31,14 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+// Global counter for test schema uniqueness
+var testCounter int64
+
 // This test demonstrates the issue with app ID not being properly propagated
 // through the context chain in streaming sessions. It creates a full end-to-end
 // test that follows the production code path for streaming sessions and OAuth token usage.
+//
+// This test uses a unique database schema to avoid migration conflicts with concurrent tests.
 func TestOAuthAppIDPropagationProduction(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -88,10 +94,19 @@ func TestOAuthAppIDPropagationProduction(t *testing.T) {
 	cfg, err := config.LoadServerConfig()
 	require.NoError(t, err, "Failed to load server config")
 
+	// Use a unique schema for this test to avoid migration conflicts
+	testSchema := fmt.Sprintf("oauth_test_%d_%d", time.Now().UnixNano(), atomic.AddInt64(&testCounter, 1))
+
+	// Modify the store config to use the unique schema
+	testStoreCfg := cfg.Store
+	testStoreCfg.Schema = testSchema
+
 	// Use database configuration from environment variables (provided by the test harness)
-	db, err := store.NewPostgresStore(cfg.Store)
+	db, err := store.NewPostgresStore(testStoreCfg)
 	require.NoError(t, err, "Failed to create store connection")
 	defer db.Close()
+
+	t.Logf("Using test schema: %s", testSchema)
 
 	// 3. Create test user
 	testUserID := fmt.Sprintf("user_%d", time.Now().UnixNano())
