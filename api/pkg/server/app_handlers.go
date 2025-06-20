@@ -30,6 +30,100 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// AlternativeModelOption represents a provider/model combination for fallback substitution
+type AlternativeModelOption struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+}
+
+// applyModelSubstitutions attempts to substitute unavailable models with available alternatives
+func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *types.User, app *types.App, alternativeModels map[string][]AlternativeModelOption) error {
+	// Get available providers for this user
+	availableProviders, err := s.providerManager.ListProviders(ctx, user.ID)
+	if err != nil {
+		return fmt.Errorf("failed to list available providers: %w", err)
+	}
+
+	// Create a set of available providers for fast lookup
+	providerSet := make(map[types.Provider]bool)
+	for _, provider := range availableProviders {
+		providerSet[provider] = true
+	}
+
+	// Check each assistant's model and substitute if necessary
+	for i := range app.Config.Helix.Assistants {
+		assistant := &app.Config.Helix.Assistants[i]
+
+		// Check if current provider/model combination is available
+		if assistant.Provider != "" && assistant.Model != "" {
+			currentProvider := types.Provider(assistant.Provider)
+
+			// If the current provider is not available, try to find a substitution
+			if !providerSet[currentProvider] {
+				log.Info().
+					Str("assistant_name", assistant.Name).
+					Str("original_provider", assistant.Provider).
+					Str("original_model", assistant.Model).
+					Msg("Original provider not available, attempting model substitution")
+
+				// Try to find a substitution based on model class
+				substituted := s.findModelSubstitution(assistant.Model, alternativeModels, providerSet)
+				if substituted != nil {
+					log.Info().
+						Str("assistant_name", assistant.Name).
+						Str("original_provider", assistant.Provider).
+						Str("original_model", assistant.Model).
+						Str("substituted_provider", substituted.Provider).
+						Str("substituted_model", substituted.Model).
+						Msg("Successfully substituted model")
+
+					assistant.Provider = substituted.Provider
+					assistant.Model = substituted.Model
+				} else {
+					log.Warn().
+						Str("assistant_name", assistant.Name).
+						Str("original_provider", assistant.Provider).
+						Str("original_model", assistant.Model).
+						Msg("No suitable model substitution found")
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// findModelSubstitution finds the first available model from the alternatives list
+func (s *HelixAPIServer) findModelSubstitution(originalModel string, alternativeModels map[string][]AlternativeModelOption, availableProviders map[types.Provider]bool) *AlternativeModelOption {
+	// Try to find alternatives for each model class
+	for modelClass, alternatives := range alternativeModels {
+		// Check if the original model matches this class (simple string contains check)
+		// This could be enhanced with more sophisticated matching logic
+		if strings.Contains(strings.ToLower(originalModel), strings.ToLower(modelClass)) ||
+			strings.Contains(strings.ToLower(modelClass), strings.ToLower(originalModel)) {
+
+			// Try each alternative in order of preference
+			for _, alt := range alternatives {
+				if availableProviders[types.Provider(alt.Provider)] {
+					return &alt
+				}
+			}
+		}
+	}
+
+	// If no class-specific match found, try to find any available alternative
+	// by checking all alternatives and returning the first available one
+	for _, alternatives := range alternativeModels {
+		for _, alt := range alternatives {
+			if availableProviders[types.Provider(alt.Provider)] {
+				return &alt
+			}
+		}
+	}
+
+	return nil
+}
+
 // listApps godoc
 // @Summary List apps
 // @Description List apps for the user. Apps are pre-configured to spawn sessions with specific tools and config.
@@ -183,12 +277,14 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 	// Try to unmarshal as structured request first
 	var structuredReq struct {
-		OrganizationID string                 `json:"organization_id"`
-		Global         bool                   `json:"global"`
-		YamlConfig     map[string]interface{} `json:"yaml_config"`
+		OrganizationID    string                              `json:"organization_id"`
+		Global            bool                                `json:"global"`
+		YamlConfig        map[string]interface{}              `json:"yaml_config"`
+		AlternativeModels map[string][]AlternativeModelOption `json:"alternative_models"`
 	}
 
 	var app *types.App
+	var alternativeModels map[string][]AlternativeModelOption
 
 	// Try structured format first
 	if err := json.Unmarshal(body, &structuredReq); err == nil && structuredReq.YamlConfig != nil {
@@ -208,6 +304,10 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 				AllowedDomains: []string{},
 			},
 		}
+
+		// Store alternative models for later use
+		alternativeModels = structuredReq.AlternativeModels
+
 	} else {
 		// Fall back to legacy format
 		if err := json.Unmarshal(body, &app); err != nil {
@@ -237,6 +337,17 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	app.Owner = user.ID
 	app.OwnerType = user.Type
 	app.Updated = time.Now()
+
+	// Apply model substitutions BEFORE validation if provided
+	if len(alternativeModels) > 0 {
+		err = s.applyModelSubstitutions(ctx, user, app, alternativeModels)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("app_name", app.Config.Helix.Name).
+				Msg("Failed to apply model substitutions, proceeding with original models")
+		}
+	}
 
 	err = s.validateProviderAndModel(ctx, user, app)
 	if err != nil {

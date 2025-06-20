@@ -28,6 +28,7 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import useApps from '../hooks/useApps'
 import { ICreateAgentParams } from '../contexts/apps'
 import useApi from '../hooks/useApi'
+import { extractErrorMessage } from '../hooks/useErrorCallback'
 
 const CodeBlock = styled('pre')(({ theme }) => ({
   backgroundColor: '#0f0f0f',
@@ -404,38 +405,50 @@ const ImportAgent: FC = () => {
   }, [])
 
   const getAgentName = () => {
-    if (configData?.metadata?.name) return configData.metadata.name
-    if (configData?.name) return configData.name
-    if (configData?.spec?.assistants?.[0]?.name) return configData.spec.assistants[0].name
-    if (configData?.assistants?.[0]?.name) return configData.assistants[0].name
+    // Handle new structured format
+    const yamlConfig = configData?.yaml_config || configData
+    
+    if (yamlConfig?.metadata?.name) return yamlConfig.metadata.name
+    if (yamlConfig?.name) return yamlConfig.name
+    if (yamlConfig?.spec?.assistants?.[0]?.name) return yamlConfig.spec.assistants[0].name
+    if (yamlConfig?.assistants?.[0]?.name) return yamlConfig.assistants[0].name
     return 'Unnamed Agent'
   }
 
   const getAgentDescription = () => {
+    // Handle new structured format
+    const yamlConfig = configData?.yaml_config || configData
+    
     // Prioritize top-level app description over system prompt
-    if (configData?.spec?.description) return configData.spec.description
-    if (configData?.description) return configData.description
-    if (configData?.spec?.assistants?.[0]?.description) return configData.spec.assistants[0].description
-    if (configData?.assistants?.[0]?.description) return configData.assistants[0].description
+    if (yamlConfig?.spec?.description) return yamlConfig.spec.description
+    if (yamlConfig?.description) return yamlConfig.description
+    if (yamlConfig?.spec?.assistants?.[0]?.description) return yamlConfig.spec.assistants[0].description
+    if (yamlConfig?.assistants?.[0]?.description) return yamlConfig.assistants[0].description
     // Fall back to system prompt only if no description is available
-    if (configData?.spec?.assistants?.[0]?.system_prompt) return configData.spec.assistants[0].system_prompt
-    if (configData?.assistants?.[0]?.system_prompt) return configData.assistants[0].system_prompt
+    if (yamlConfig?.spec?.assistants?.[0]?.system_prompt) return yamlConfig.spec.assistants[0].system_prompt
+    if (yamlConfig?.assistants?.[0]?.system_prompt) return yamlConfig.assistants[0].system_prompt
     return 'No description available'
   }
 
   const getAgentAvatar = () => {
-    if (configData?.spec?.avatar) return configData.spec.avatar
-    if (configData?.avatar) return configData.avatar
-    if (configData?.spec?.assistants?.[0]?.avatar) return configData.spec.assistants[0].avatar
-    if (configData?.assistants?.[0]?.avatar) return configData.assistants[0].avatar
+    // Handle new structured format
+    const yamlConfig = configData?.yaml_config || configData
+    
+    if (yamlConfig?.spec?.avatar) return yamlConfig.spec.avatar
+    if (yamlConfig?.avatar) return yamlConfig.avatar
+    if (yamlConfig?.spec?.assistants?.[0]?.avatar) return yamlConfig.spec.assistants[0].avatar
+    if (yamlConfig?.assistants?.[0]?.avatar) return yamlConfig.assistants[0].avatar
     return null
   }
 
   const getAgentImage = () => {
-    if (configData?.spec?.image) return configData.spec.image
-    if (configData?.image) return configData.image
-    if (configData?.spec?.assistants?.[0]?.image) return configData.spec.assistants[0].image
-    if (configData?.assistants?.[0]?.image) return configData.assistants[0].image
+    // Handle new structured format
+    const yamlConfig = configData?.yaml_config || configData
+    
+    if (yamlConfig?.spec?.image) return yamlConfig.spec.image
+    if (yamlConfig?.image) return yamlConfig.image
+    if (yamlConfig?.spec?.assistants?.[0]?.image) return yamlConfig.spec.assistants[0].image
+    if (yamlConfig?.assistants?.[0]?.image) return yamlConfig.assistants[0].image
     return null
   }
 
@@ -443,34 +456,46 @@ const ImportAgent: FC = () => {
     if (!configData || !account.user) return
 
     setImporting(true)
-    try {
-      // Send structured request with YAML config
-      const appData = {
+    
+    // Check if configData has the structured format with alternative_models
+    let appData
+    if (configData.alternative_models && configData.yaml_config) {
+      // This is the new structured format from Launchpad
+      appData = {
+        organization_id: account.organizationTools.organization?.id || configData.organization_id || '',
+        global: configData.global || false,
+        yaml_config: configData.yaml_config,
+        alternative_models: configData.alternative_models || {}
+      }
+    } else {
+      // Legacy format - treat the entire configData as yaml_config
+      appData = {
         organization_id: account.organizationTools.organization?.id || '',
         global: false,
         yaml_config: configData, // Pass the parsed YAML as-is
       }
-      
-      // Post to the API with structured format
-      const result = await api.post('/api/v1/apps', appData, {
-        params: {
-          create: true,
-        }
-      })
-
-      if (!result) {
-        throw new Error('Failed to create agent')
+    }
+    
+    // Post to the API with structured format
+    const result = await api.post('/api/v1/apps', appData, {
+      params: {
+        create: true,
       }
+    }, {
+      snackbar: false, // Disable automatic error snackbar so we can handle it ourselves
+      errorCapture: (errorMessage) => {
+        snackbar.error(`Failed to import agent: ${errorMessage}`)
+        setImporting(false)
+      }
+    })
 
+    if (result) {
       // Navigate to the agent editor
       account.orgNavigate('app', { app_id: result.id })
       snackbar.success('Agent imported successfully')
-    } catch (error) {
-      console.error('Error importing agent:', error)
-      snackbar.error('Failed to import agent')
-    } finally {
-      setImporting(false)
     }
+    
+    setImporting(false)
   }
 
   if (loading) {
