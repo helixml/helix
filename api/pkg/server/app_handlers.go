@@ -211,9 +211,39 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError400(err.Error())
 	}
 
-	for _, a := range existingApps {
-		if app.Config.Helix.Name != "" && a.Config.Helix.Name == app.Config.Helix.Name {
-			return nil, system.NewHTTPError400(fmt.Sprintf("app (%s) with name %s already exists", a.ID, a.Config.Helix.Name))
+	// Handle duplicate names by adding suffixes like (1), (2), etc.
+	if app.Config.Helix.Name != "" {
+		originalName := app.Config.Helix.Name
+		finalName := originalName
+		counter := 1
+
+		// Keep checking until we find an available name
+		for {
+			nameExists := false
+			for _, a := range existingApps {
+				if a.Config.Helix.Name == finalName {
+					nameExists = true
+					break
+				}
+			}
+
+			if !nameExists {
+				break
+			}
+
+			// Try the next suffix
+			finalName = fmt.Sprintf("%s (%d)", originalName, counter)
+			counter++
+		}
+
+		// Update the app name to the final available name
+		app.Config.Helix.Name = finalName
+
+		// Also update the assistant name to match if it was the same as app name
+		for i := range app.Config.Helix.Assistants {
+			if app.Config.Helix.Assistants[i].Name == originalName {
+				app.Config.Helix.Assistants[i].Name = finalName
+			}
 		}
 	}
 
