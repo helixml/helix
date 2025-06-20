@@ -33,29 +33,6 @@ export interface ICreateAgentParams {
   image?: string;
   systemPrompt?: string;
   knowledge?: IKnowledgeSource[];
-  // Model configuration properties
-  reasoningModel?: string;
-  reasoningModelProvider?: string;
-  reasoningModelEffort?: string;
-  generationModel?: string;
-  generationModelProvider?: string;
-  smallReasoningModel?: string;
-  smallReasoningModelProvider?: string;
-  smallReasoningModelEffort?: string;
-  smallGenerationModel?: string;
-  smallGenerationModelProvider?: string;
-  // Additional optional properties
-  model?: string;
-  provider?: string;
-  agentMode?: boolean;
-  maxIterations?: number;
-  contextLimit?: number;
-  frequencyPenalty?: number;
-  maxTokens?: number;
-  presencePenalty?: number;
-  reasoningEffort?: string;
-  temperature?: number;
-  topP?: number;
 }
 
 // Default context values
@@ -122,31 +99,13 @@ export const useAppsContext = (): IAppsContext => {
             assistants: [{
               name: params.name,
               description: '',
-              agent_mode: params.agentMode ?? true,
-              max_iterations: params.maxIterations,
+              agent_mode: true,
+              
               avatar: '',
               image: '',
-              model: params.model || defaultModel,
-              provider: params.provider,
+              model: defaultModel,
               type: SESSION_TYPE_TEXT,
               system_prompt: params.systemPrompt || '',
-              reasoning_model: params.reasoningModel,
-              reasoning_model_provider: params.reasoningModelProvider,
-              reasoning_model_effort: params.reasoningModelEffort,
-              generation_model: params.generationModel,
-              generation_model_provider: params.generationModelProvider,
-              small_reasoning_model: params.smallReasoningModel,
-              small_reasoning_model_provider: params.smallReasoningModelProvider,
-              small_reasoning_model_effort: params.smallReasoningModelEffort,
-              small_generation_model: params.smallGenerationModel,
-              small_generation_model_provider: params.smallGenerationModelProvider,
-              context_limit: params.contextLimit,
-              frequency_penalty: params.frequencyPenalty,
-              max_tokens: params.maxTokens,
-              presence_penalty: params.presencePenalty,
-              reasoning_effort: params.reasoningEffort,
-              temperature: params.temperature,
-              top_p: params.topP,
               apis: [],
               gptscripts: [],
               tools: [],
