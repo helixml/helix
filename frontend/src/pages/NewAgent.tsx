@@ -14,6 +14,7 @@ import ShoppingCartIcon from '@mui/icons-material/ShoppingCart'
 import BuildIcon from '@mui/icons-material/Build'
 
 import Page from '../components/system/Page'
+import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
@@ -187,9 +188,12 @@ const NewAgent: FC = () => {
             boxShadow: '0 4px 24px 0 rgba(0,0,0,0.12)'
           }}
         >
-          <Typography variant="h4" sx={{ mb: 4, fontWeight: 'bold' }}>
-            Create New Agent
-          </Typography>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+            <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
+              Create New Agent
+            </Typography>
+            <LaunchpadCTAButton size="medium" />
+          </Box>
 
           <form onSubmit={handleSubmit}>
             <Grid container spacing={3}>
