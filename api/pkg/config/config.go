@@ -64,6 +64,7 @@ type Inference struct {
 type Providers struct {
 	OpenAI                    OpenAI
 	TogetherAI                TogetherAI
+	Anthropic                 Anthropic
 	Helix                     Helix
 	VLLM                      VLLM
 	EnableCustomUserProviders bool `envconfig:"ENABLE_CUSTOM_USER_PROVIDERS" default:"false"` // Allow users to configure their own providers, if "false" then only admins can add them
@@ -91,6 +92,14 @@ type TogetherAI struct {
 	APIKeyFromFile        string        `envconfig:"TOGETHER_API_KEY_FILE"` // i.e. /run/secrets/together-api-key
 	APIKeyRefreshInterval time.Duration `envconfig:"TOGETHER_API_KEY_REFRESH_INTERVAL" default:"3s"`
 	Models                []string      `envconfig:"TOGETHER_MODELS"` // If set, only these models will be used
+}
+
+type Anthropic struct {
+	BaseURL               string        `envconfig:"ANTHROPIC_BASE_URL" default:"https://api.anthropic.com/v1"`
+	APIKey                string        `envconfig:"ANTHROPIC_API_KEY"`
+	APIKeyFromFile        string        `envconfig:"ANTHROPIC_API_KEY_FILE"` // i.e. /run/secrets/anthropic-api-key
+	APIKeyRefreshInterval time.Duration `envconfig:"ANTHROPIC_API_KEY_REFRESH_INTERVAL" default:"3s"`
+	Models                []string      `envconfig:"ANTHROPIC_MODELS"` // If set, only these models will be used
 }
 
 type Helix struct {

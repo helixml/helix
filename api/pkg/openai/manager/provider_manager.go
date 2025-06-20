@@ -88,6 +88,21 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 		clients[types.ProviderTogetherAI] = &providerClient{client: loggedClient}
 	}
 
+	if cfg.Providers.Anthropic.APIKey != "" {
+		log.Info().
+			Str("base_url", cfg.Providers.Anthropic.BaseURL).
+			Msg("using Anthropic provider for controller inference")
+
+		anthropicClient := openai.New(
+			cfg.Providers.Anthropic.APIKey,
+			cfg.Providers.Anthropic.BaseURL,
+			cfg.Providers.Anthropic.Models...)
+
+		loggedClient := logger.Wrap(cfg, types.ProviderAnthropic, anthropicClient, logStores...)
+
+		clients[types.ProviderAnthropic] = &providerClient{client: loggedClient}
+	}
+
 	// For VLLM, as long as the base URL is set, we can use it
 	if cfg.Providers.VLLM.BaseURL != "" {
 		log.Info().
@@ -133,6 +148,13 @@ func (m *MultiClientManager) StartRefresh(ctx context.Context) {
 		err := m.watchAndUpdateClient(ctx, types.ProviderTogetherAI, m.cfg.Providers.TogetherAI.APIKeyRefreshInterval, m.cfg.Providers.TogetherAI.BaseURL, m.cfg.Providers.TogetherAI.APIKeyFromFile)
 		if err != nil {
 			log.Error().Err(err).Msg("error watching and updating TogetherAI client")
+		}
+	}
+
+	if m.cfg.Providers.Anthropic.APIKeyFromFile != "" {
+		err := m.watchAndUpdateClient(ctx, types.ProviderAnthropic, m.cfg.Providers.Anthropic.APIKeyRefreshInterval, m.cfg.Providers.Anthropic.BaseURL, m.cfg.Providers.Anthropic.APIKeyFromFile)
+		if err != nil {
+			log.Error().Err(err).Msg("error watching and updating Anthropic client")
 		}
 	}
 
