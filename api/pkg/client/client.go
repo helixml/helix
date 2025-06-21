@@ -25,6 +25,8 @@ type Client interface {
 	DeleteApp(ctx context.Context, appID string, deleteKnowledge bool) error
 	ListApps(ctx context.Context, f *AppFilter) ([]*types.App, error)
 
+	GetAppAPIKeys(ctx context.Context, appID string) ([]*types.ApiKey, error)
+
 	// Sessions
 	ListSessions(ctx context.Context, f *SessionFilter) (*types.SessionsList, error)
 

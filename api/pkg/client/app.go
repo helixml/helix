@@ -41,6 +41,15 @@ func (c *HelixClient) GetApp(ctx context.Context, appID string) (*types.App, err
 	return &app, nil
 }
 
+func (c *HelixClient) GetAppAPIKeys(ctx context.Context, appID string) ([]*types.ApiKey, error) {
+	var apiKeys []*types.ApiKey
+	err := c.makeRequest(ctx, http.MethodGet, "/api_keys?types=app&app_id="+appID, nil, &apiKeys)
+	if err != nil {
+		return nil, err
+	}
+	return apiKeys, nil
+}
+
 func (c *HelixClient) CreateApp(ctx context.Context, app *types.App) (*types.App, error) {
 	bts, err := json.Marshal(app)
 	if err != nil {
