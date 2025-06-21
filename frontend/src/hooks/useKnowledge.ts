@@ -539,6 +539,60 @@ export const useKnowledge = ({
     }
   };
 
+  const handleDownloadKnowledge = async (id: string) => {
+    const source = knowledge.find(k => k.id === id)
+    if (!source) {
+      snackbar.error('Knowledge source not found')
+      return
+    }
+    
+    // Only allow download for filestore-backed knowledge
+    if (!source.source.filestore) {
+      snackbar.error('Knowledge is not filestore-backed')
+      return
+    }
+    
+    try {
+      if (!account.token) {
+        snackbar.error('Must be logged in to download files')
+        return
+      }
+
+      // Create a temporary link to trigger the download
+      const downloadUrl = `/api/v1/knowledge/${id}/download`
+      const link = document.createElement('a')
+      link.href = downloadUrl
+      link.setAttribute('download', `${source.name}-files.zip`)
+      
+      // Set auth header by creating a fetch request instead of direct link
+      const response = await fetch(downloadUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${account.token}`,
+        },
+      })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      // Create blob from response and download
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      
+      link.href = url
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      
+      snackbar.success(`Downloaded files from "${source.name}"`)
+    } catch (error) {
+      console.error('Error downloading knowledge files:', error)
+      snackbar.error('Failed to download knowledge files')
+    }
+  };
+
   useEffect(() => {
     validateSources()
   }, [knowledge])
@@ -584,6 +638,7 @@ export const useKnowledge = ({
     handleCompleteKnowledgePreparation,
     handleAddSource,
     handleDeleteSource,
+    handleDownloadKnowledge,
 
     // UI state
     expanded,

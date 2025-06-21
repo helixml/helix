@@ -186,7 +186,8 @@ type KnowledgeSourceWebAuth struct {
 }
 
 type KnowledgeSourceHelixFilestore struct {
-	Path string `json:"path" yaml:"path"`
+	Path       string `json:"path" yaml:"path"`
+	SeedZipURL string `json:"seed_zip_url,omitempty" yaml:"seed_zip_url,omitempty"`
 }
 
 // KnowledgeSourceS3 authentication through AWS IAM role

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"archive/zip"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -9,12 +10,15 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"encoding/base64"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/oauth"
@@ -25,6 +29,100 @@ import (
 	"github.com/robfig/cron/v3"
 	"github.com/rs/zerolog/log"
 )
+
+// AlternativeModelOption represents a provider/model combination for fallback substitution
+type AlternativeModelOption struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+}
+
+// applyModelSubstitutions attempts to substitute unavailable models with available alternatives
+func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *types.User, app *types.App, alternativeModels map[string][]AlternativeModelOption) error {
+	// Get available providers for this user
+	availableProviders, err := s.providerManager.ListProviders(ctx, user.ID)
+	if err != nil {
+		return fmt.Errorf("failed to list available providers: %w", err)
+	}
+
+	// Create a set of available providers for fast lookup
+	providerSet := make(map[types.Provider]bool)
+	for _, provider := range availableProviders {
+		providerSet[provider] = true
+	}
+
+	// Check each assistant's model and substitute if necessary
+	for i := range app.Config.Helix.Assistants {
+		assistant := &app.Config.Helix.Assistants[i]
+
+		// Check if current provider/model combination is available
+		if assistant.Provider != "" && assistant.Model != "" {
+			currentProvider := types.Provider(assistant.Provider)
+
+			// If the current provider is not available, try to find a substitution
+			if !providerSet[currentProvider] {
+				log.Info().
+					Str("assistant_name", assistant.Name).
+					Str("original_provider", assistant.Provider).
+					Str("original_model", assistant.Model).
+					Msg("Original provider not available, attempting model substitution")
+
+				// Try to find a substitution based on model class
+				substituted := s.findModelSubstitution(assistant.Model, alternativeModels, providerSet)
+				if substituted != nil {
+					log.Info().
+						Str("assistant_name", assistant.Name).
+						Str("original_provider", assistant.Provider).
+						Str("original_model", assistant.Model).
+						Str("substituted_provider", substituted.Provider).
+						Str("substituted_model", substituted.Model).
+						Msg("Successfully substituted model")
+
+					assistant.Provider = substituted.Provider
+					assistant.Model = substituted.Model
+				} else {
+					log.Warn().
+						Str("assistant_name", assistant.Name).
+						Str("original_provider", assistant.Provider).
+						Str("original_model", assistant.Model).
+						Msg("No suitable model substitution found")
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// findModelSubstitution finds the first available model from the alternatives list
+func (s *HelixAPIServer) findModelSubstitution(originalModel string, alternativeModels map[string][]AlternativeModelOption, availableProviders map[types.Provider]bool) *AlternativeModelOption {
+	// Try to find alternatives for each model class
+	for modelClass, alternatives := range alternativeModels {
+		// Check if the original model matches this class (simple string contains check)
+		// This could be enhanced with more sophisticated matching logic
+		if strings.Contains(strings.ToLower(originalModel), strings.ToLower(modelClass)) ||
+			strings.Contains(strings.ToLower(modelClass), strings.ToLower(originalModel)) {
+
+			// Try each alternative in order of preference
+			for _, alt := range alternatives {
+				if availableProviders[types.Provider(alt.Provider)] {
+					return &alt
+				}
+			}
+		}
+	}
+
+	// If no class-specific match found, try to find any available alternative
+	// by checking all alternatives and returning the first available one
+	for _, alternatives := range alternativeModels {
+		for _, alt := range alternatives {
+			if availableProviders[types.Provider(alt.Provider)] {
+				return &alt
+			}
+		}
+	}
+
+	return nil
+}
 
 // listApps godoc
 // @Summary List apps
@@ -161,26 +259,60 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 
 // createApp godoc
 // @Summary Create new app
-// @Description Create new app. Helix apps are configured with tools and knowledge.
+// @Description Create new app. Helix apps are configured with tools and knowledge. Supports both legacy format and new structured format with YAML config.
 // @Tags    apps
 
 // @Success 200 {object} types.App
-// @Param request    body types.App true "Request body with app configuration.")
+// @Param request    body types.App true "Request body with app configuration. Can be legacy App format or structured format with organization_id, global, and yaml_config fields.")
 // @Router /api/v1/apps [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
 	user := getRequestUser(r)
 	ctx := r.Context()
 
-	var app *types.App
 	body, err := io.ReadAll(r.Body)
-
 	if err != nil {
 		return nil, system.NewHTTPError400(fmt.Sprintf("failed to read request body, error: %s", err))
 	}
-	err = json.Unmarshal(body, &app)
-	if err != nil {
-		return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body 1, error: %s, body: %s", err, string(body)))
+
+	// Try to unmarshal as structured request first
+	var structuredReq struct {
+		OrganizationID    string                              `json:"organization_id"`
+		Global            bool                                `json:"global"`
+		YamlConfig        map[string]interface{}              `json:"yaml_config"`
+		AlternativeModels map[string][]AlternativeModelOption `json:"alternative_models"`
+	}
+
+	var app *types.App
+	var alternativeModels map[string][]AlternativeModelOption
+
+	// Try structured format first
+	if err := json.Unmarshal(body, &structuredReq); err == nil && structuredReq.YamlConfig != nil {
+		// Use shared config processor
+		helixConfig, err := config.ProcessJSONConfig(structuredReq.YamlConfig)
+		if err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to process YAML config: %s", err))
+		}
+
+		// Build the app structure
+		app = &types.App{
+			OrganizationID: structuredReq.OrganizationID,
+			Global:         structuredReq.Global,
+			Config: types.AppConfig{
+				Helix:          *helixConfig,
+				Secrets:        make(map[string]string),
+				AllowedDomains: []string{},
+			},
+		}
+
+		// Store alternative models for later use
+		alternativeModels = structuredReq.AlternativeModels
+
+	} else {
+		// Fall back to legacy format
+		if err := json.Unmarshal(body, &app); err != nil {
+			return nil, system.NewHTTPError400(fmt.Sprintf("failed to decode request body as JSON, error: %s", err))
+		}
 	}
 
 	// If organization ID is set, authorize the user to the organization,
@@ -206,14 +338,55 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	app.OwnerType = user.Type
 	app.Updated = time.Now()
 
+	// Apply model substitutions BEFORE validation if provided
+	if len(alternativeModels) > 0 {
+		err = s.applyModelSubstitutions(ctx, user, app, alternativeModels)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("app_name", app.Config.Helix.Name).
+				Msg("Failed to apply model substitutions, proceeding with original models")
+		}
+	}
+
 	err = s.validateProviderAndModel(ctx, user, app)
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
 
-	for _, a := range existingApps {
-		if app.Config.Helix.Name != "" && a.Config.Helix.Name == app.Config.Helix.Name {
-			return nil, system.NewHTTPError400(fmt.Sprintf("app (%s) with name %s already exists", a.ID, a.Config.Helix.Name))
+	// Handle duplicate names by adding suffixes like (1), (2), etc.
+	if app.Config.Helix.Name != "" {
+		originalName := app.Config.Helix.Name
+		finalName := originalName
+		counter := 1
+
+		// Keep checking until we find an available name
+		for {
+			nameExists := false
+			for _, a := range existingApps {
+				if a.Config.Helix.Name == finalName {
+					nameExists = true
+					break
+				}
+			}
+
+			if !nameExists {
+				break
+			}
+
+			// Try the next suffix
+			finalName = fmt.Sprintf("%s (%d)", originalName, counter)
+			counter++
+		}
+
+		// Update the app name to the final available name
+		app.Config.Helix.Name = finalName
+
+		// Also update the assistant name to match if it was the same as app name
+		for i := range app.Config.Helix.Assistants {
+			if app.Config.Helix.Assistants[i].Name == originalName {
+				app.Config.Helix.Assistants[i].Name = finalName
+			}
 		}
 	}
 
@@ -349,15 +522,24 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 	foundKnowledge := make(map[string]bool)
 
 	for _, k := range knowledge {
+		var scopedPath string
+
 		// Scope the filestore path to the app's directory if it exists
-		if k.Source.Filestore != nil && k.Source.Filestore.Path != "" {
+		if k.Source.Filestore != nil && (k.Source.Filestore.Path != "" || k.Source.Filestore.SeedZipURL != "") {
 			// Translate simple paths like "pdfs" to "apps/:app_id/pdfs"
 			ownerCtx := types.OwnerContext{
 				Owner:     app.Owner,
 				OwnerType: app.OwnerType,
 			}
 
-			scopedPath, err := s.Controller.GetFilestoreAppKnowledgePath(ownerCtx, app.ID, k.Source.Filestore.Path)
+			// Use provided path or default to "files" if only zip URL is provided
+			knowledgePath := k.Source.Filestore.Path
+			if knowledgePath == "" && k.Source.Filestore.SeedZipURL != "" {
+				knowledgePath = "files"
+			}
+
+			var err error
+			scopedPath, err = s.Controller.GetFilestoreAppKnowledgePath(ownerCtx, app.ID, knowledgePath)
 			if err != nil {
 				return fmt.Errorf("failed to generate scoped path for knowledge '%s': %w", k.Name, err)
 			}
@@ -375,8 +557,35 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 			AppID: app.ID,
 			Name:  k.Name,
 		})
+
+		var zipDownloadErr error
+		if k.Source.Filestore != nil && k.Source.Filestore.SeedZipURL != "" {
+			zipDownloadErr = s.downloadAndExtractZipToKnowledge(ctx, k.Source.Filestore.SeedZipURL, scopedPath)
+		}
+
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
+				// Determine initial state - if zip download fails, start as error state
+				initialState := determineInitialState(k.Source)
+				var errorMessage string
+
+				if zipDownloadErr != nil {
+					log.Error().
+						Err(zipDownloadErr).
+						Str("knowledge_name", k.Name).
+						Str("zip_url", k.Source.Filestore.SeedZipURL).
+						Msg("Failed to download and extract zip file, marking knowledge as failed")
+					initialState = types.KnowledgeStateError
+					errorMessage = fmt.Sprintf("Failed to download files from zip URL: %s", zipDownloadErr.Error())
+				} else if k.Source.Filestore != nil && k.Source.Filestore.SeedZipURL != "" {
+					// If we have a seed zip URL and it was successfully downloaded, start in pending state for indexing
+					log.Info().
+						Str("knowledge_name", k.Name).
+						Str("zip_url", k.Source.Filestore.SeedZipURL).
+						Msg("Successfully seeded knowledge from zip URL, moving to pending state for indexing")
+					initialState = types.KnowledgeStatePending
+				}
+
 				// Create new knowledge
 				created, err := s.Store.CreateKnowledge(ctx, &types.Knowledge{
 					AppID:           app.ID,
@@ -384,7 +593,8 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 					Description:     k.Description,
 					Owner:           app.Owner,
 					OwnerType:       app.OwnerType,
-					State:           determineInitialState(k.Source),
+					State:           initialState,
+					Message:         errorMessage,
 					RAGSettings:     k.RAGSettings,
 					Source:          k.Source,
 					RefreshEnabled:  k.RefreshEnabled,
@@ -406,6 +616,27 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 		existing.Source = k.Source
 		existing.RefreshEnabled = k.RefreshEnabled
 		existing.RefreshSchedule = k.RefreshSchedule
+
+		// If this is an existing knowledge with a seed zip URL, check if we need to re-download and move to pending
+		if existing.Source.Filestore != nil && existing.Source.Filestore.SeedZipURL != "" {
+			if zipDownloadErr != nil {
+				log.Error().
+					Err(zipDownloadErr).
+					Str("knowledge_name", existing.Name).
+					Str("zip_url", existing.Source.Filestore.SeedZipURL).
+					Msg("Failed to download and extract zip file for existing knowledge, marking as error")
+				existing.State = types.KnowledgeStateError
+				existing.Message = fmt.Sprintf("Failed to download files from zip URL: %s", zipDownloadErr.Error())
+			} else if existing.State == types.KnowledgeStatePreparing || existing.State == types.KnowledgeStateError {
+				// If existing knowledge was in preparing or error state and zip download succeeded, move to pending
+				log.Info().
+					Str("knowledge_name", existing.Name).
+					Str("zip_url", existing.Source.Filestore.SeedZipURL).
+					Msg("Successfully seeded existing knowledge from zip URL, moving to pending state for indexing")
+				existing.State = types.KnowledgeStatePending
+				existing.Message = ""
+			}
+		}
 
 		_, err = s.Store.UpdateKnowledge(ctx, existing)
 		if err != nil {
@@ -1269,4 +1500,148 @@ func (s *HelixAPIServer) getAppAvatar(rw http.ResponseWriter, r *http.Request) {
 
 func getAvatarKey(id string) string {
 	return fmt.Sprintf("/app-avatars/%s", id)
+}
+
+// downloadAndExtractZipToKnowledge downloads a zip file from a URL and extracts its contents
+// to the specified knowledge filestore path. It handles air-gapped scenarios by marking
+// knowledge as failed if the download fails.
+func (s *HelixAPIServer) downloadAndExtractZipToKnowledge(ctx context.Context, zipURL, knowledgeStorePath string) error {
+	log.Info().
+		Str("zip_url", zipURL).
+		Str("destination_path", knowledgeStorePath).
+		Msg("Starting zip file download and extraction")
+
+	// Download the zip file with a timeout
+	client := &http.Client{
+		Timeout: 10 * time.Minute, // Allow up to 10 minutes for large zip files
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", zipURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request for zip URL: %w", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to download zip file from %s: %w - this may indicate the system is air-gapped or the URL is not accessible", zipURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to download zip file from %s: HTTP %d %s", zipURL, resp.StatusCode, resp.Status)
+	}
+
+	// Check content length if provided by server
+	const maxZipSize = 1024 * 1024 * 1024 // 1GB limit
+	if resp.ContentLength > maxZipSize {
+		return fmt.Errorf("zip file is too large: %d bytes (max allowed: %d bytes)", resp.ContentLength, maxZipSize)
+	}
+
+	// Create a temporary file to store the zip
+	tempFile, err := os.CreateTemp("", "helix-knowledge-seed-*.zip")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary file for zip download: %w", err)
+	}
+	defer os.Remove(tempFile.Name()) // Clean up temp file
+	defer tempFile.Close()
+
+	log.Debug().
+		Str("temp_file", tempFile.Name()).
+		Msg("Created temporary file for zip download")
+
+	// Copy the response body to the temp file with size limit
+	limitedReader := io.LimitReader(resp.Body, maxZipSize+1) // +1 to detect if size exceeded
+	bytesWritten, err := io.Copy(tempFile, limitedReader)
+	if err != nil {
+		return fmt.Errorf("failed to download zip file to temporary storage: %w", err)
+	}
+
+	if bytesWritten > maxZipSize {
+		return fmt.Errorf("zip file exceeded maximum size limit: %d bytes (max allowed: %d bytes)", bytesWritten, maxZipSize)
+	}
+
+	log.Info().
+		Int64("bytes_downloaded", bytesWritten).
+		Msg("Successfully downloaded zip file to temporary storage")
+
+	// Close the temp file to ensure all data is written
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("failed to close temporary file: %w", err)
+	}
+
+	// Open the zip file for reading
+	zipReader, err := zip.OpenReader(tempFile.Name())
+	if err != nil {
+		return fmt.Errorf("failed to open zip file: %w", err)
+	}
+	defer zipReader.Close()
+
+	log.Info().
+		Int("file_count", len(zipReader.File)).
+		Msg("Extracting files from zip archive")
+
+	// Extract each file from the zip
+	for _, file := range zipReader.File {
+		err := s.extractZipFile(ctx, file, knowledgeStorePath)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("filename", file.Name).
+				Msg("Failed to extract file from zip")
+			return fmt.Errorf("failed to extract file %s: %w", file.Name, err)
+		}
+	}
+
+	log.Info().
+		Int("extracted_files", len(zipReader.File)).
+		Str("destination_path", knowledgeStorePath).
+		Int64("total_size", bytesWritten).
+		Msg("Successfully extracted all files from zip archive")
+
+	return nil
+}
+
+// extractZipFile extracts a single file from a zip archive to the filestore
+func (s *HelixAPIServer) extractZipFile(ctx context.Context, file *zip.File, basePath string) error {
+	// Skip directories
+	if file.FileInfo().IsDir() {
+		return nil
+	}
+
+	// Open the file in the zip
+	fileReader, err := file.Open()
+	if err != nil {
+		return fmt.Errorf("failed to open file %s in zip: %w", file.Name, err)
+	}
+	defer fileReader.Close()
+
+	// Create the destination path
+	destPath := filepath.Join(basePath, file.Name)
+
+	// Ensure the destination directory exists
+	destDir := filepath.Dir(destPath)
+	if destDir != "." && destDir != "/" {
+		// Create the directory structure
+		_, err = s.Controller.Options.Filestore.CreateFolder(ctx, destDir)
+		if err != nil {
+			log.Debug().
+				Err(err).
+				Str("directory", destDir).
+				Msg("Directory might already exist, continuing")
+		}
+	}
+
+	// Write the file to the filestore
+	_, err = s.Controller.Options.Filestore.WriteFile(ctx, destPath, fileReader)
+	if err != nil {
+		return fmt.Errorf("failed to write file %s to filestore: %w", destPath, err)
+	}
+
+	log.Debug().
+		Str("source_file", file.Name).
+		Str("destination_path", destPath).
+		Int64("file_size", file.FileInfo().Size()).
+		Msg("Successfully extracted file from zip")
+
+	return nil
 }
