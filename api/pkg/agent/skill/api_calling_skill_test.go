@@ -1,8 +1,6 @@
 package skill
 
 import (
-	"encoding/json"
-	"fmt"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -250,14 +248,7 @@ func Test_CurrencyExchangeRates(t *testing.T) {
 
 	tool := skill.Tools[0].OpenAI()
 
-	bts, err := json.MarshalIndent(tool, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	fmt.Println(string(bts))
-
-	t.Error("aa")
+	assert.Equal(t, "getExchangeRates", tool[0].Function.Name)
 }
 
 const currencyExchangeRatesAPISpec = `openapi: 3.0.0
