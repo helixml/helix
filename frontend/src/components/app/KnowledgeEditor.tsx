@@ -20,6 +20,7 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CloseIcon from '@mui/icons-material/Close';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import DownloadIcon from '@mui/icons-material/Download';
 
 import CrawledUrlsDialog from './CrawledUrlsDialog';
 import AddKnowledgeDialog from './AddKnowledgeDialog';
@@ -449,7 +450,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
                   })}
                 </Box>
                 {knowledge.source.filestore?.path && (
-                  <Box sx={{ display: 'flex', mt: 1 }}>
+                  <Box sx={{ display: 'flex', mt: 1, flexWrap: 'wrap', gap: 1 }}>
                     <Button
                       size="small"
                       startIcon={<RefreshIcon />}
@@ -461,9 +462,21 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({
                       size="small"
                       startIcon={<FolderOpenIcon />}
                       onClick={() => openInFilestore(knowledge.source.filestore?.path || '')}
-                      sx={{ ml: 1 }}
                     >
                       Open in Filestore
+                    </Button>
+                    <Button
+                      size="small"
+                      startIcon={<DownloadIcon />}
+                      onClick={() => knowledgeHelpers.handleDownloadKnowledge(knowledge.id)}
+                      sx={{ 
+                        color: 'primary.main',
+                        '&:hover': {
+                          bgcolor: 'rgba(25, 118, 210, 0.08)'
+                        }
+                      }}
+                    >
+                      Download All Files
                     </Button>
                   </Box>
                 )}
