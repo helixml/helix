@@ -12,11 +12,19 @@ type Config struct {
 	OpenAIAPIKey string `envconfig:"OPENAI_API_KEY"`
 	BaseURL      string `envconfig:"OPENAI_BASE_URL" default:"https://api.openai.com/v1"`
 
-	ReasoningModel  string `envconfig:"REASONING_MODEL" default:"o3-mini"`
-	GenerationModel string `envconfig:"GENERATION_MODEL" default:"gpt-4o"`
+	ReasoningModelProvider string `envconfig:"REASONING_MODEL_PROVIDER" default:"openai"`
+	ReasoningModel         string `envconfig:"REASONING_MODEL" default:"o3-mini"`
+	ReasoningModelEffort   string `envconfig:"REASONING_MODEL_EFFORT" default:"none"`
 
-	SmallReasoningModel  string `envconfig:"SMALL_REASONING_MODEL" default:"o3-mini"`
-	SmallGenerationModel string `envconfig:"SMALL_GENERATION_MODEL" default:"gpt-4o-mini"`
+	GenerationModelProvider string `envconfig:"GENERATION_MODEL_PROVIDER" default:"openai"`
+	GenerationModel         string `envconfig:"GENERATION_MODEL" default:"gpt-4o"`
+
+	SmallReasoningModelProvider string `envconfig:"SMALL_REASONING_MODEL_PROVIDER" default:"openai"`
+	SmallReasoningModel         string `envconfig:"SMALL_REASONING_MODEL" default:"o3-mini"`
+	SmallReasoningModelEffort   string `envconfig:"SMALL_REASONING_MODEL_EFFORT" default:"none"`
+
+	SmallGenerationModelProvider string `envconfig:"SMALL_GENERATION_MODEL_PROVIDER" default:"openai"`
+	SmallGenerationModel         string `envconfig:"SMALL_GENERATION_MODEL" default:"gpt-4o-mini"`
 
 	DisableAgentTests bool `envconfig:"DISABLE_AGENT_TESTS" default:"false"`
 }
