@@ -26,35 +26,45 @@ var serverCmd *exec.Cmd
 func TestMain(m *testing.M) {
 	// Load file
 	_ = godotenv.Load(".test.env")
-	// Start server
-	buf := startAPIServer()
 
-	// Wait for server to be ready
-	if err := waitForAPIServer(); err != nil {
-		log.Fatalf("Failed to start API server: %v", err)
+	startServer := os.Getenv("START_HELIX_TEST_SERVER") == "true"
+	// Accumulate server logs
+	var buf *bytes.Buffer
+
+	if startServer {
+		// Start server
+		buf = startAPIServer()
+
+		// Wait for server to be ready
+		if err := waitForAPIServer(); err != nil {
+			log.Fatalf("Failed to start API server: %v", err)
+		}
 	}
 
 	runTests := m.Run()
 
-	// Clean up the server process
-	if serverCmd != nil && serverCmd.Process != nil {
-		if err := serverCmd.Process.Kill(); err != nil {
-			log.Printf("Failed to kill server process: %v", err)
+	if startServer {
+		// Clean up the server process
+		if serverCmd != nil && serverCmd.Process != nil {
+			if err := serverCmd.Process.Kill(); err != nil {
+				log.Printf("Failed to kill server process: %v", err)
+			}
 		}
+		// Print the server logs
+		log.Printf("Server logs: %s", buf.String())
 	}
-	// Print the server logs
-	log.Printf("Server logs: %s", buf.String())
 
 	os.Exit(runTests)
 }
 
 func startAPIServer() *bytes.Buffer {
+
 	buf := bytes.NewBuffer(nil)
 	serverCmd = exec.Command("helix", "serve")
 	go func() {
 		cmd := exec.Command("helix", "serve")
 
-		cmd.Stdout = buf
+		cmd.Stdout = os.Stdout
 		cmd.Stderr = buf
 
 		// Get the main env variables for keycloak, database, etc.
@@ -69,10 +79,14 @@ func startAPIServer() *bytes.Buffer {
 			"SERVER_URL=http://localhost:8080",
 			"FILESTORE_LOCALFS_PATH=/tmp",
 			"FRONTEND_URL=/tmp", // No frontend here but doesn't matter for API integration tests
+			"FILESTORE_AVATARS_PATH=/tmp/avatars",
 		)
 
+		fmt.Println("Starting API server on port 8080")
+
 		if err := cmd.Start(); err != nil {
-			log.Printf("Failed to start API server: %v", err)
+			log.Printf("Failed to start API server: %v (%s)", err, buf.String())
+			os.Exit(1)
 			return
 		}
 	}()
@@ -176,4 +190,15 @@ func createUser(t *testing.T, db *store.PostgresStore, kc *auth.KeycloakAuthenti
 	}
 
 	return user, apiKey, nil
+}
+
+func createApp(t *testing.T, apiClient *client.HelixClient, agentConfig *types.App) (*types.App, error) {
+	t.Helper()
+
+	app, err := apiClient.CreateApp(context.Background(), agentConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return app, nil
 }
