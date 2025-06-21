@@ -27,6 +27,9 @@ type Config struct {
 	SmallGenerationModel         string `envconfig:"SMALL_GENERATION_MODEL" default:"gpt-4o-mini"`
 
 	DisableAgentTests bool `envconfig:"DISABLE_AGENT_TESTS" default:"false"`
+
+	TestUserCreate bool   `envconfig:"TEST_USER_CREATE" default:"true"`
+	TestUserAPIKey string `envconfig:"TEST_USER_API_KEY" default:""`
 }
 
 func LoadConfig() (*Config, error) {
