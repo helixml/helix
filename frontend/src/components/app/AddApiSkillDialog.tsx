@@ -27,7 +27,7 @@ import useLightTheme from '../../hooks/useLightTheme'
 import yaml from 'js-yaml';
 
 // Example skills
-import { coindeskTool } from './examples/coindeskApi';
+
 import { jobVacanciesTool } from './examples/jobVacanciesApi';
 import { productsTool } from './examples/productsApi';
 import { climateTool } from './examples/climateApi';
@@ -522,7 +522,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
                 },
               }}
             >
-              <MenuItem onClick={() => handleExampleSelect(coindeskTool)}>CoinDesk API</MenuItem>
+              
               <MenuItem onClick={() => handleExampleSelect(climateTool)}>Climate API</MenuItem>
               <MenuItem onClick={() => handleExampleSelect(jobVacanciesTool)}>Job Vacancies API</MenuItem>
               <MenuItem onClick={() => handleExampleSelect(exchangeRatesTool)}>Exchange Rates API</MenuItem>
