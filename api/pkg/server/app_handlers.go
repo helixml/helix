@@ -577,6 +577,13 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 						Msg("Failed to download and extract zip file, marking knowledge as failed")
 					initialState = types.KnowledgeStateError
 					errorMessage = fmt.Sprintf("Failed to download files from zip URL: %s", zipDownloadErr.Error())
+				} else if k.Source.Filestore != nil && k.Source.Filestore.SeedZipURL != "" {
+					// If we have a seed zip URL and it was successfully downloaded, start in pending state for indexing
+					log.Info().
+						Str("knowledge_name", k.Name).
+						Str("zip_url", k.Source.Filestore.SeedZipURL).
+						Msg("Successfully seeded knowledge from zip URL, moving to pending state for indexing")
+					initialState = types.KnowledgeStatePending
 				}
 
 				// Create new knowledge
@@ -609,6 +616,27 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 		existing.Source = k.Source
 		existing.RefreshEnabled = k.RefreshEnabled
 		existing.RefreshSchedule = k.RefreshSchedule
+
+		// If this is an existing knowledge with a seed zip URL, check if we need to re-download and move to pending
+		if existing.Source.Filestore != nil && existing.Source.Filestore.SeedZipURL != "" {
+			if zipDownloadErr != nil {
+				log.Error().
+					Err(zipDownloadErr).
+					Str("knowledge_name", existing.Name).
+					Str("zip_url", existing.Source.Filestore.SeedZipURL).
+					Msg("Failed to download and extract zip file for existing knowledge, marking as error")
+				existing.State = types.KnowledgeStateError
+				existing.Message = fmt.Sprintf("Failed to download files from zip URL: %s", zipDownloadErr.Error())
+			} else if existing.State == types.KnowledgeStatePreparing || existing.State == types.KnowledgeStateError {
+				// If existing knowledge was in preparing or error state and zip download succeeded, move to pending
+				log.Info().
+					Str("knowledge_name", existing.Name).
+					Str("zip_url", existing.Source.Filestore.SeedZipURL).
+					Msg("Successfully seeded existing knowledge from zip URL, moving to pending state for indexing")
+				existing.State = types.KnowledgeStatePending
+				existing.Message = ""
+			}
+		}
 
 		_, err = s.Store.UpdateKnowledge(ctx, existing)
 		if err != nil {
