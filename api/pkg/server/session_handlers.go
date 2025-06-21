@@ -141,6 +141,12 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	// If more than one message - session regeneration
 	if len(startReq.Messages) > 1 {
 		log.Info().Msg("session regeneration requested")
+
+		// Check token quota for regeneration requests
+		if err := s.Controller.CheckInferenceTokenQuota(ctx, user.ID); err != nil {
+			http.Error(rw, err.Error(), http.StatusTooManyRequests)
+			return
+		}
 	}
 
 	// For finetunes, legacy route

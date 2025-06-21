@@ -1218,6 +1218,7 @@ export interface TypesPaginatedLLMCalls {
 export enum TypesProvider {
   ProviderOpenAI = "openai",
   ProviderTogetherAI = "togetherai",
+  ProviderAnthropic = "anthropic",
   ProviderHelix = "helix",
   ProviderVLLM = "vllm",
 }

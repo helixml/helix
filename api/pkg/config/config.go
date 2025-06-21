@@ -64,6 +64,7 @@ type Inference struct {
 type Providers struct {
 	OpenAI                    OpenAI
 	TogetherAI                TogetherAI
+	Anthropic                 Anthropic
 	Helix                     Helix
 	VLLM                      VLLM
 	EnableCustomUserProviders bool `envconfig:"ENABLE_CUSTOM_USER_PROVIDERS" default:"false"` // Allow users to configure their own providers, if "false" then only admins can add them
@@ -91,6 +92,14 @@ type TogetherAI struct {
 	APIKeyFromFile        string        `envconfig:"TOGETHER_API_KEY_FILE"` // i.e. /run/secrets/together-api-key
 	APIKeyRefreshInterval time.Duration `envconfig:"TOGETHER_API_KEY_REFRESH_INTERVAL" default:"3s"`
 	Models                []string      `envconfig:"TOGETHER_MODELS"` // If set, only these models will be used
+}
+
+type Anthropic struct {
+	BaseURL               string        `envconfig:"ANTHROPIC_BASE_URL" default:"https://api.anthropic.com/v1"`
+	APIKey                string        `envconfig:"ANTHROPIC_API_KEY"`
+	APIKeyFromFile        string        `envconfig:"ANTHROPIC_API_KEY_FILE"` // i.e. /run/secrets/anthropic-api-key
+	APIKeyRefreshInterval time.Duration `envconfig:"ANTHROPIC_API_KEY_REFRESH_INTERVAL" default:"3s"`
+	Models                []string      `envconfig:"ANTHROPIC_MODELS"` // If set, only these models will be used
 }
 
 type Helix struct {
@@ -419,6 +428,17 @@ type SubscriptionQuotas struct {
 			Strict        bool `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_PRO_STRICT" default:"false"` // If set, will now allow any finetuning if the user is over quota
 			MaxConcurrent int  `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_PRO_MAX_CONCURRENT" default:"3"`
 			MaxChunks     int  `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_PRO_MAX_CHUNKS" default:"100"`
+		}
+	}
+	Inference struct {
+		Enabled bool `envconfig:"SUBSCRIPTION_QUOTAS_INFERENCE_ENABLED" default:"false"` // Must be explicitly enabled
+		Free    struct {
+			MaxMonthlyTokens int  `envconfig:"SUBSCRIPTION_QUOTAS_INFERENCE_FREE_MAX_MONTHLY_TOKENS" default:"50000"` // 50K tokens/month for free users
+			Strict           bool `envconfig:"SUBSCRIPTION_QUOTAS_INFERENCE_FREE_STRICT" default:"true"`
+		}
+		Pro struct {
+			MaxMonthlyTokens int  `envconfig:"SUBSCRIPTION_QUOTAS_INFERENCE_PRO_MAX_MONTHLY_TOKENS" default:"2500000"` // 2.5M tokens/month for pro users
+			Strict           bool `envconfig:"SUBSCRIPTION_QUOTAS_INFERENCE_PRO_STRICT" default:"true"`
 		}
 	}
 }

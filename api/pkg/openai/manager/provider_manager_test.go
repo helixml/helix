@@ -56,6 +56,11 @@ func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient() {
 	err := os.WriteFile(keyFile, []byte("initial-key"), 0644)
 	suite.NoError(err)
 
+	// Set up mock expectations for store calls
+	suite.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).
+		Return([]*types.ProviderEndpoint{}, nil).
+		AnyTimes() // Allow multiple calls since we check for client availability multiple times
+
 	// Create manager with initial key
 	manager := NewProviderManager(suite.cfg, suite.store, nil)
 
@@ -63,78 +68,161 @@ func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient() {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Start watching the file with a short interval
-	interval := 20 * time.Millisecond
+	interval := 50 * time.Millisecond // Increased interval to avoid tight loops
 
 	err = manager.watchAndUpdateClient(ctx, types.ProviderOpenAI, interval, "https://api.openai.com/v1", keyFile)
 	suite.NoError(err)
 
-	defer manager.wg.Wait()
+	// Helper function to wait for API key update with timeout
+	waitForKeyUpdate := func(expectedKey string, maxRetries int) bool {
+		for i := 0; i < maxRetries; i++ {
+			client, err := manager.GetClient(ctx, &GetClientRequest{Provider: string(types.ProviderOpenAI)})
+			if err != nil {
+				suite.T().Logf("Attempt %d: Failed to get client: %v", i+1, err)
+				time.Sleep(interval)
+				continue
+			}
 
-	// Write new keys to the file
+			openaiClient, ok := client.(*logger.LoggingMiddleware)
+			if !ok {
+				suite.T().Logf("Attempt %d: Client is not LoggingMiddleware", i+1)
+				time.Sleep(interval)
+				continue
+			}
+
+			actualKey := openaiClient.APIKey()
+			suite.T().Logf("Attempt %d: Expected key '%s', got key '%s'", i+1, expectedKey, actualKey)
+
+			if actualKey == expectedKey {
+				return true
+			}
+
+			time.Sleep(interval)
+		}
+		return false
+	}
+
+	// Test sequential key updates
 	expectedKeys := []string{"key1", "key2", "key3"}
-	for _, key := range expectedKeys {
-		time.Sleep(interval * 2) // Wait for two intervals to ensure the file is read
+	for i, key := range expectedKeys {
+		suite.T().Logf("Testing key update %d: %s", i+1, key)
+
+		// Write the new key to the file
 		err := os.WriteFile(keyFile, []byte(key), 0644)
 		suite.NoError(err)
 
-		// Wait for the key to be updated
+		// Wait for the file system change to be detected (give the file watcher a chance)
 		time.Sleep(interval * 2)
 
-		// Get the client and verify the API key
+		// Wait for the key to be updated with reasonable retries
+		maxRetries := 20 // Allow up to 20 attempts
+		success := waitForKeyUpdate(key, maxRetries)
+		suite.True(success, "Expected key '%s' (iteration %d) was not updated within %d retries", key, i, maxRetries)
+
+		// Verify the client has the correct API key
 		client, err := manager.GetClient(ctx, &GetClientRequest{Provider: string(types.ProviderOpenAI)})
 		suite.NoError(err)
 
-		// Type assert to access the underlying client
-		// Note: This assumes the client implements a way to get the API key
-		// You might need to modify your openai.Client interface to expose this
 		openaiClient, ok := client.(*logger.LoggingMiddleware)
 		suite.Require().True(ok)
-
-		suite.Equal(key, openaiClient.APIKey())
+		suite.Equal(key, openaiClient.APIKey(), "API key mismatch for key '%s' (iteration %d)", key, i)
 	}
 
+	// Cancel the context and wait for cleanup
 	cancel()
+
+	// Wait for the background goroutine to finish with a timeout
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		manager.wg.Wait()
+	}()
+
+	select {
+	case <-done:
+		// Successfully cleaned up
+	case <-time.After(5 * time.Second):
+		suite.T().Fatal("Timeout waiting for background goroutines to finish")
+	}
 }
 
 func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient_MissingFile() {
-	// Create a temporary file for testing
+	// Create a temporary directory for testing (file doesn't exist initially)
 	tmpDir := suite.T().TempDir()
 	keyFile := filepath.Join(tmpDir, "api-key")
 
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		err := os.WriteFile(keyFile, []byte("initial-key"), 0644)
-		suite.NoError(err)
-	}()
+	// Set up mock expectations for store calls
+	suite.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).
+		Return([]*types.ProviderEndpoint{}, nil).
+		AnyTimes() // Allow multiple calls since we check for client availability multiple times
 
-	// Create manager with initial key
+	// Create manager
 	manager := NewProviderManager(suite.cfg, suite.store, nil)
 
 	// Create context with cancel
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Start watching the file with a short interval
-	interval := 20 * time.Millisecond
+	interval := 50 * time.Millisecond
 
 	err := manager.watchAndUpdateClient(ctx, types.ProviderOpenAI, interval, "https://api.openai.com/v1", keyFile)
 	suite.NoError(err)
 
-	defer manager.wg.Wait()
+	// Helper function to wait for client availability with timeout
+	waitForClientWithKey := func(expectedKey string, maxRetries int) bool {
+		for i := 0; i < maxRetries; i++ {
+			client, err := manager.GetClient(ctx, &GetClientRequest{Provider: string(types.ProviderOpenAI)})
+			if err == nil {
+				if openaiClient, ok := client.(*logger.LoggingMiddleware); ok {
+					if openaiClient.APIKey() == expectedKey {
+						return true
+					}
+				}
+			}
+			time.Sleep(interval)
+		}
+		return false
+	}
 
-	// Wait for the file to be updated
-	time.Sleep(time.Second)
+	// Initially, the client should not be available (file doesn't exist)
+	// Wait a bit to ensure the watcher has had a chance to try reading the file
+	time.Sleep(interval * 3)
 
-	// Get the client and verify the API key
+	_, err = manager.GetClient(ctx, &GetClientRequest{Provider: string(types.ProviderOpenAI)})
+	suite.Error(err, "Client should not be available when file doesn't exist")
+
+	// Create the file with the initial key after some delay
+	time.Sleep(50 * time.Millisecond) // Small delay to simulate file creation
+	err = os.WriteFile(keyFile, []byte("initial-key"), 0644)
+	suite.NoError(err)
+
+	// Wait for the client to be created and have the correct API key
+	maxRetries := 30 // Allow extra time for file creation detection
+	success := waitForClientWithKey("initial-key", maxRetries)
+	suite.True(success, "Expected client with key 'initial-key' was not created within %d retries", maxRetries)
+
+	// Verify the client has the correct API key
 	client, err := manager.GetClient(ctx, &GetClientRequest{Provider: string(types.ProviderOpenAI)})
 	suite.NoError(err)
 
-	// Type assert to access the underlying client
-	// Note: This assumes the client implements a way to get the API key
-	// You might need to modify your openai.Client interface to expose this
 	openaiClient, ok := client.(*logger.LoggingMiddleware)
 	suite.Require().True(ok)
-
 	suite.Equal("initial-key", openaiClient.APIKey())
 
+	// Cancel the context and wait for cleanup
 	cancel()
+
+	// Wait for the background goroutine to finish with a timeout
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		manager.wg.Wait()
+	}()
+
+	select {
+	case <-done:
+		// Successfully cleaned up
+	case <-time.After(5 * time.Second):
+		suite.T().Fatal("Timeout waiting for background goroutines to finish")
+	}
 }

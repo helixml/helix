@@ -31,6 +31,7 @@ RUNNER_TOKEN=""
 TOGETHER_API_KEY=""
 OPENAI_API_KEY=""
 OPENAI_BASE_URL=""
+ANTHROPIC_API_KEY=""
 AUTO_APPROVE=false
 OLDER_GPU=false
 HF_TOKEN=""
@@ -90,6 +91,7 @@ Options:
   --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
   --openai-api-key <key>   Specify the OpenAI API key for any OpenAI compatible API
   --openai-base-url <url>  Specify the base URL for the OpenAI API
+  --anthropic-api-key <key> Specify the Anthropic API key for Claude models
   --older-gpu              Disable axolotl and sdxl models (which don't work on older GPUs) on the runner
   --hf-token <token>       Specify the Hugging Face token for downloading models
   -y                       Auto approve the installation
@@ -194,6 +196,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --openai-base-url)
             OPENAI_BASE_URL="$2"
+            shift 2
+            ;;
+        --anthropic-api-key=*)
+            ANTHROPIC_API_KEY="${1#*=}"
+            shift
+            ;;
+        --anthropic-api-key)
+            ANTHROPIC_API_KEY="$2"
             shift 2
             ;;
         --older-gpu)
@@ -647,7 +657,10 @@ EOF
                 echo "│ 3. USE TOGETHER.AI"
                 echo "│    You can re-run the installer with --together-api-key (see --help for details)"
                 echo "│ "
-                echo "│ 4. USE EXTERNAL OPENAI COMPATIBLE LLM"
+                echo "│ 4. USE ANTHROPIC"
+                echo "│    You can re-run the installer with --anthropic-api-key (see --help for details)"
+                echo "│ "
+                echo "│ 5. USE EXTERNAL OPENAI COMPATIBLE LLM"
                 echo "│    You can re-run the installer with --openai-api-key and --openai-base-url (see --help for details)"
                 echo "└────────────────────────────────────────────────────────────────────────────────────────────────────────"
                 echo
@@ -678,8 +691,15 @@ EOF
 OPENAI_BASE_URL=$OPENAI_BASE_URL
 EOF
     fi
+
+    # Add Anthropic configuration if API key is provided
+    if [ -n "$ANTHROPIC_API_KEY" ]; then
+        cat << EOF >> "$ENV_FILE"
+ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
+EOF
+    fi
+
     # Set default FINETUNING_PROVIDER to helix if neither OpenAI nor TogetherAI are specified
-    # TODO: fix this by making the default FINETUNING_PROVIDER to helix in helix itself
     if [ -z "$OPENAI_API_KEY" ] && [ -z "$TOGETHER_API_KEY" ] && [ "$AUTODETECTED_LLM" = false ]; then
         cat << EOF >> "$ENV_FILE"
 FINETUNING_PROVIDER=helix
