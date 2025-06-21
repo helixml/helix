@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/kelseyhightower/envconfig"
+	"github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -22,9 +23,10 @@ func TestAgentTestSuite(t *testing.T) {
 
 type AgentTestSuite struct {
 	suite.Suite
-	ctx      context.Context
-	db       *store.PostgresStore
-	keycloak *auth.KeycloakAuthenticator
+	ctx context.Context
+	db  *store.PostgresStore
+
+	userApiKey string
 
 	agentConfig *tests.Config
 }
@@ -44,37 +46,46 @@ func (suite *AgentTestSuite) SetupTest() {
 	err = envconfig.Process("", &keycloakCfg)
 	suite.NoError(err)
 
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&config.Keycloak{
-		KeycloakURL:         keycloakCfg.KeycloakURL,
-		KeycloakFrontEndURL: keycloakCfg.KeycloakFrontEndURL,
-		ServerURL:           keycloakCfg.ServerURL,
-		APIClientID:         keycloakCfg.APIClientID,
-		FrontEndClientID:    keycloakCfg.FrontEndClientID,
-		AdminRealm:          keycloakCfg.AdminRealm,
-		Realm:               keycloakCfg.Realm,
-		Username:            keycloakCfg.Username,
-		Password:            keycloakCfg.Password,
-	}, suite.db)
-	suite.Require().NoError(err)
+	if suite.agentConfig.TestUserCreate {
+		keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&config.Keycloak{
+			KeycloakURL:         keycloakCfg.KeycloakURL,
+			KeycloakFrontEndURL: keycloakCfg.KeycloakFrontEndURL,
+			ServerURL:           keycloakCfg.ServerURL,
+			APIClientID:         keycloakCfg.APIClientID,
+			FrontEndClientID:    keycloakCfg.FrontEndClientID,
+			AdminRealm:          keycloakCfg.AdminRealm,
+			Realm:               keycloakCfg.Realm,
+			Username:            keycloakCfg.Username,
+			Password:            keycloakCfg.Password,
+		}, suite.db)
+		suite.Require().NoError(err)
 
-	suite.keycloak = keycloakAuthenticator
+		// Create a user
+		emailID := uuid.New().String()
+		userEmail := fmt.Sprintf("test-create-agent-%s@test.com", emailID)
+
+		user, apiKey, err := createUser(suite.T(), suite.db, keycloakAuthenticator, userEmail)
+		suite.Require().NoError(err)
+		suite.Require().NotNil(user)
+		suite.Require().NotNil(apiKey)
+
+		suite.userApiKey = apiKey
+	} else {
+		// Check if we have a test user API key
+		if suite.agentConfig.TestUserAPIKey == "" {
+			suite.T().Fatalf("TEST_USER_CREATE is false but TEST_USER_API_KEY is not set")
+		}
+		suite.userApiKey = suite.agentConfig.TestUserAPIKey
+	}
 }
 
 func (suite *AgentTestSuite) TestCreateAgent_NoSkills() {
-	// Create a user
-	emailID := uuid.New().String()
-	userEmail := fmt.Sprintf("test-create-agent-%s@test.com", emailID)
 
-	user, apiKey, err := createUser(suite.T(), suite.db, suite.keycloak, userEmail)
-	suite.Require().NoError(err)
-	suite.Require().NotNil(user)
-	suite.Require().NotNil(apiKey)
-
-	apiCLient, err := getAPIClient(apiKey)
+	apiCLient, err := getAPIClient(suite.userApiKey)
 	suite.Require().NoError(err)
 
-	name := "AgentTestSuite" + uuid.New().String()
-	description := "AgentTestSuite" + uuid.New().String()
+	name := "TestCreateAgent_NoSkills" + uuid.New().String()
+	description := "TestCreateAgent_NoSkills" + uuid.New().String()
 
 	app := &types.App{
 		Config: types.AppConfig{
@@ -102,7 +113,7 @@ func (suite *AgentTestSuite) TestCreateAgent_NoSkills() {
 		},
 	}
 
-	createdApp, err := createApp(suite.T(), apiCLient, user, app)
+	createdApp, err := createApp(suite.T(), apiCLient, app)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(app)
 
@@ -118,3 +129,166 @@ func (suite *AgentTestSuite) TestCreateAgent_NoSkills() {
 	}
 	suite.Require().True(found, "App not found")
 }
+
+func (suite *AgentTestSuite) TestAgent_CurrencyExchange() {
+	apiCLient, err := getAPIClient(suite.userApiKey)
+	suite.Require().NoError(err)
+
+	name := "TestAgent_CurrencyExchange" + uuid.New().String()
+	description := "TestAgent_CurrencyExchange" + uuid.New().String()
+
+	app := &types.App{
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Name:        name,
+				Description: description,
+				Assistants: []types.AssistantConfig{
+					{
+						Name:                         name,
+						Description:                  description,
+						AgentMode:                    true,
+						SystemPrompt:                 `Use getExchangeRates tool when asked about converting currencies, do not try to guess the rate`,
+						ReasoningModelProvider:       suite.agentConfig.ReasoningModelProvider,
+						ReasoningModel:               suite.agentConfig.ReasoningModel,
+						ReasoningModelEffort:         suite.agentConfig.ReasoningModelEffort,
+						GenerationModelProvider:      suite.agentConfig.GenerationModelProvider,
+						GenerationModel:              suite.agentConfig.GenerationModel,
+						SmallReasoningModelProvider:  suite.agentConfig.SmallReasoningModelProvider,
+						SmallReasoningModel:          suite.agentConfig.SmallReasoningModel,
+						SmallReasoningModelEffort:    suite.agentConfig.SmallReasoningModelEffort,
+						SmallGenerationModelProvider: suite.agentConfig.SmallGenerationModelProvider,
+						SmallGenerationModel:         suite.agentConfig.SmallGenerationModel,
+						APIs: []types.AssistantAPI{
+							{
+								Name:   "Exchange Rates API",
+								Schema: currencyExchangeRatesAPISpec,
+								Description: `Get latest currency exchange rates.
+  
+  Example Queries:
+  - "What is the exchange rate for EUR to USD?"
+  - "What is the exchange rate for EUR to GBP?"
+  - "What is the exchange rate for EUR to JPY?"
+  - "What is the exchange rate for EUR to AUD?"`,
+								SystemPrompt: `You are an expert at using the Exchange Rates API to get the latest currency exchange
+   rates. When the user asks for the latest rates, you should use this API. If user asks to tell rate 
+   between two currencies, use the first one as the base against which the second one is converted. 
+   If you are not sure about the currency code, ask the user for it. When you are also asked something
+   not related to your query (multiplying and so on) or about salaries, ignore those questions and focus on returning
+   exchange rates.`,
+								URL: "https://open.er-api.com/v6",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	createdApp, err := createApp(suite.T(), apiCLient, app)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(app)
+
+	// Get API key for the app
+	apiKeys, err := apiCLient.GetAppAPIKeys(suite.ctx, createdApp.ID)
+	suite.Require().NoError(err)
+	suite.Require().Equal(1, len(apiKeys))
+
+	resp, err := chatCompletions(suite.T(), apiKeys[0].Key, createdApp.ID, &openai.ChatCompletionRequest{
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    "user",
+				Content: "How many GBP is one euro?",
+			},
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Require().Equal("assistant", resp.Choices[0].Message.Role)
+
+	// Get exchange rates directly
+	currencyResponse, err := getExchangeRates("EUR")
+	suite.Require().NoError(err)
+	suite.Require().Equal("success", currencyResponse.Result)
+
+	rate := currencyResponse.Rates.Gbp
+	suite.Require().Greater(rate, 0.0)
+	suite.Require().Less(rate, 10.0)
+
+	// Now check for this rate in our LLM response
+	// Convert rate to string with reduced precision for more flexible matching
+	rateStr := fmt.Sprintf("%.4f", rate)
+	suite.Require().Contains(resp.Choices[0].Message.Content, rateStr, "expected rate to be in the response")
+
+}
+
+func chatCompletions(t *testing.T, apiKey string, appID string, request *openai.ChatCompletionRequest) (*openai.ChatCompletionResponse, error) {
+	config := openai.DefaultConfig(apiKey)
+	config.BaseURL = "http://localhost:8080/v1"
+
+	client := openai.NewClientWithConfig(config)
+
+	response, err := client.CreateChatCompletion(context.Background(), *request)
+	if err != nil {
+		return nil, err
+	}
+
+	return &response, nil
+}
+
+const currencyExchangeRatesAPISpec = `openapi: 3.0.0
+info:
+  title: Exchange Rates API
+  description: Get latest currency exchange rates
+  version: "1.0.0"
+servers:
+  - url: https://open.er-api.com/v6
+paths:
+  /latest/{currency}:
+    get:
+      operationId: getExchangeRates
+      summary: Get latest exchange rates
+      description: Get current exchange rates for a base currency
+      parameters:
+        - name: currency
+          in: path
+          required: true
+          description: Base currency code (e.g., USD, EUR, GBP)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response with exchange rates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: string
+                    example: "success"
+                  provider:
+                    type: string
+                    example: "Open Exchange Rates"
+                  base_code:
+                    type: string
+                    example: "USD"
+                  time_last_update_utc:
+                    type: string
+                    example: "2024-01-19 00:00:01"
+                  rates:
+                    type: object
+                    properties:
+                      EUR:
+                        type: number
+                        example: 0.91815
+                      GBP:
+                        type: number
+                        example: 0.78543
+                      JPY:
+                        type: number
+                        example: 148.192
+                      AUD:
+                        type: number
+                        example: 1.51234
+                      CAD:
+                        type: number
+                        example: 1.34521`
