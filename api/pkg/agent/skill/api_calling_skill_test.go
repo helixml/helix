@@ -1,12 +1,14 @@
 package skill
 
 import (
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/util/jsonschema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tmc/langchaingo/jsonschema"
 )
 
 func TestInitializeApiCallingSkill(t *testing.T) {
@@ -220,3 +222,99 @@ components:
         message:
           type: string
 `
+
+func Test_CurrencyExchangeRates(t *testing.T) {
+	currencyExchangeRatesTool := &types.Tool{
+		Name:         "currencyExchangeRates",
+		Description:  "Get latest currency exchange rates",
+		SystemPrompt: "You are an expert in the currency exchange rates API. You can use it to get the latest currency exchange rates",
+		ToolType:     types.ToolTypeAPI,
+		Config: types.ToolConfig{
+			API: &types.ToolAPIConfig{
+				URL:    "https://open.er-api.com/v6",
+				Schema: currencyExchangeRatesAPISpec,
+				Actions: []*types.ToolAPIAction{
+					{
+						Name:        "getExchangeRates",
+						Description: "Get latest currency exchange rates",
+						Method:      "GET",
+						Path:        "/latest/{currency}",
+					},
+				},
+			},
+		},
+	}
+
+	skill := NewAPICallingSkill(nil, currencyExchangeRatesTool)
+	assert.NotNil(t, skill)
+
+	tool := skill.Tools[0].OpenAI()
+
+	bts, err := json.MarshalIndent(tool, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fmt.Println(string(bts))
+
+	t.Error("aa")
+}
+
+const currencyExchangeRatesAPISpec = `openapi: 3.0.0
+info:
+  title: Exchange Rates API
+  description: Get latest currency exchange rates
+  version: "1.0.0"
+servers:
+  - url: https://open.er-api.com/v6
+paths:
+  /latest/{currency}:
+    get:
+      operationId: getExchangeRates
+      summary: Get latest exchange rates
+      description: Get current exchange rates for a base currency
+      parameters:
+        - name: currency
+          in: path
+          required: true
+          description: Base currency code (e.g., USD, EUR, GBP)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response with exchange rates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: string
+                    example: "success"
+                  provider:
+                    type: string
+                    example: "Open Exchange Rates"
+                  base_code:
+                    type: string
+                    example: "USD"
+                  time_last_update_utc:
+                    type: string
+                    example: "2024-01-19 00:00:01"
+                  rates:
+                    type: object
+                    properties:
+                      EUR:
+                        type: number
+                        example: 0.91815
+                      GBP:
+                        type: number
+                        example: 0.78543
+                      JPY:
+                        type: number
+                        example: 148.192
+                      AUD:
+                        type: number
+                        example: 1.51234
+                      CAD:
+                        type: number
+                        example: 1.34521`

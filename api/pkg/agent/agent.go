@@ -18,7 +18,6 @@ import (
 	pkg_errors "github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
-	"github.com/tmc/langchaingo/jsonschema"
 )
 
 const defaultMaxIterations = 10
@@ -148,11 +147,11 @@ func (a *Agent) ConvertSkillsToTools() []openai.Tool {
 			Function: &openai.FunctionDefinition{
 				Name:        skill.Name,
 				Description: skill.Description,
-				Parameters: jsonschema.Definition{
-					Type:       jsonschema.Object,
-					Required:   []string{""},
-					Properties: map[string]jsonschema.Definition{},
-				},
+				// Parameters: jsonschema.Definition{
+				// 	Type: jsonschema.Object,
+				// 	// Required:   []string{""},
+				// 	// Properties: map[string]jsonschema.Definition{},
+				// },
 			},
 		})
 	}

@@ -7,10 +7,10 @@ import (
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/util/jsonschema"
 
 	"github.com/rs/zerolog/log"
 	"github.com/sashabaranov/go-openai"
-	"github.com/tmc/langchaingo/jsonschema"
 )
 
 // NewAPICallingSkill converts an API tool into a list of API calling tools for the
