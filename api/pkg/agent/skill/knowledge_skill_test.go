@@ -5,9 +5,9 @@ import (
 
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/util/jsonschema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tmc/langchaingo/jsonschema"
 )
 
 func TestNewKnowledgeSkill(t *testing.T) {

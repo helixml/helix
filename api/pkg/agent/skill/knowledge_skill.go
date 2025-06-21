@@ -8,8 +8,8 @@ import (
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/util/jsonschema"
 	"github.com/sashabaranov/go-openai"
-	"github.com/tmc/langchaingo/jsonschema"
 )
 
 const knowledgeBaseMainPrompt = `You are an expert at retrieving and synthesizing information from knowledge bases. Your role is to help users find relevant information by crafting effective search queries and presenting the results in a clear, organized manner.

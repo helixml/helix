@@ -275,8 +275,14 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 	log.Error().Str("type", fmt.Sprintf("%T", lastMessage)).Msg("Unexpected message type in SkillContextRunner result")
 
 	return &openai.ChatCompletionMessage{
-		Role:       openai.ChatMessageRoleTool,
-		Content:    "Error: The skill execution did not produce a valid response",
+		Role: openai.ChatMessageRoleTool,
+		// Content:    "Error: The skill execution did not produce a valid response",
+		MultiContent: []openai.ChatMessagePart{
+			{
+				Type: openai.ChatMessagePartTypeText,
+				Text: "Error: The skill execution did not produce a valid response",
+			},
+		},
 		ToolCallID: skillToolCallID,
 	}, nil
 }

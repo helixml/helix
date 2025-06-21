@@ -11,22 +11,40 @@ import (
 // TODO Remove all three and use openai functions directly
 func UserMessage(content string) *openai.ChatCompletionMessage {
 	return &openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleUser,
-		Content: content,
+		Role: openai.ChatMessageRoleUser,
+		// Content: content,
+		MultiContent: []openai.ChatMessagePart{
+			{
+				Type: openai.ChatMessagePartTypeText,
+				Text: content,
+			},
+		},
 	}
 }
 
 func AssistantMessage(content string) *openai.ChatCompletionMessage {
 	return &openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleAssistant,
-		Content: content,
+		Role: openai.ChatMessageRoleAssistant,
+		// Content: content,
+		MultiContent: []openai.ChatMessagePart{
+			{
+				Type: openai.ChatMessagePartTypeText,
+				Text: content,
+			},
+		},
 	}
 }
 
 func DeveloperMessage(content string) *openai.ChatCompletionMessage {
 	return &openai.ChatCompletionMessage{
-		Role:    "developer",
-		Content: content,
+		Role: openai.ChatMessageRoleDeveloper,
+		// Content: content,
+		MultiContent: []openai.ChatMessagePart{
+			{
+				Type: openai.ChatMessagePartTypeText,
+				Text: content,
+			},
+		},
 	}
 }
 
