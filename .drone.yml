@@ -101,7 +101,18 @@ steps:
     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
     KEYCLOAK_PASSWORD: REPLACE_ME
     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
-    
+    # Agent configuration
+    REASONING_MODEL_PROVIDER: openai
+    REASONING_MODEL: o3-mini    
+    REASONING_MODEL_EFFORT: none
+    GENERATION_MODEL_PROVIDER: openai
+    GENERATION_MODEL: gpt-4o
+    SMALL_REASONING_MODEL_PROVIDER: openai
+    SMALL_REASONING_MODEL: o3-mini
+    SMALL_REASONING_MODEL_EFFORT: none
+    SMALL_GENERATION_MODEL_PROVIDER: openai
+    SMALL_GENERATION_MODEL: gpt-4o-mini
+
   commands:
     # Build API server
     - go install ./api/..
@@ -690,6 +701,7 @@ steps:
     HELIX_USER: phil+smoketest@helix.ml
     HELIX_PASSWORD:
       from_secret: smoke_test_helix_password
+    # Test setup
   volumes:
   - name: integration-test
     path: /integration-test
