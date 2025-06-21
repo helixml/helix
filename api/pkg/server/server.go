@@ -405,6 +405,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/knowledge/{id}/refresh", system.Wrapper(apiServer.refreshKnowledge)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/knowledge/{id}/complete", system.Wrapper(apiServer.completeKnowledgePreparation)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/knowledge/{id}/versions", system.Wrapper(apiServer.listKnowledgeVersions)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/knowledge/{id}/download", apiServer.downloadKnowledgeFiles).Methods(http.MethodGet)
 
 	// UI @ functionality
 	authRouter.HandleFunc("/context-menu", system.Wrapper(apiServer.contextMenuHandler)).Methods(http.MethodGet)
