@@ -32,7 +32,7 @@ import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
 import useApi from '../../hooks/useApi';
 import Link from '@mui/material/Link';
 
-import { coindeskTool } from './examples/coindeskApi';
+
 import { jobVacanciesTool } from './examples/jobVacanciesApi';
 import { exchangeRatesTool } from './examples/exchangeRatesApi';
 import { productsTool } from './examples/productsApi';
@@ -201,9 +201,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   const handleSchemaTemplateChange = (selectedTemplate: string) => {
     setSchemaTemplate(selectedTemplate);
 
-    if (selectedTemplate === 'coindesk') {
-      updateEditingTool(coindeskTool);
-    } else if (selectedTemplate === 'climate') {
+    if (selectedTemplate === 'climate') {
       updateEditingTool(climateTool);
     } else if (selectedTemplate === 'jobvacancies') {
       updateEditingTool(jobVacanciesTool);
@@ -375,7 +373,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                     </MenuItem>
                     <MenuItem value="climate">Climate</MenuItem>                    
                     <MenuItem value="exchangerates">Exchange Rates</MenuItem>
-                    <MenuItem value="coindesk">CoinDesk</MenuItem>
+
                     <MenuItem value="jobvacancies">Job Vacancies</MenuItem>
                     <MenuItem value="productStore">Laptops Store</MenuItem>
                   </Select>
