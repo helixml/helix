@@ -102,7 +102,13 @@ func (p *PubSubStepInfoEmitter) EmitStepInfo(ctx context.Context, info *types.St
 	// Saving step info to the database
 	_, err = p.store.CreateStepInfo(ctx, info)
 	if err != nil {
-		log.Error().Msgf("failed to create step info: %v", err)
+		log.Error().
+			Str("session_id", vals.SessionID).
+			Str("interaction_id", vals.InteractionID).
+			Str("step_id", info.ID).
+			Str("step_name", info.Name).
+			Str("step_type", string(info.Type)).
+			Msgf("failed to create step info: %v", err)
 	}
 
 	log.Info().
