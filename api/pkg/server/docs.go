@@ -58,7 +58,7 @@ const docTemplate = `{
                 ],
                 "parameters": [
                     {
-                        "description": "Request body with app configuration.",
+                        "description": "Request body with app configuration. Can be legacy App format or structured format with organization_id, global, and yaml_config fields.",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -1073,6 +1073,31 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.Knowledge"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/knowledge/{id}/download": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Download all files from a filestore-backed knowledge as a zip file",
+                "produces": [
+                    "application/zip"
+                ],
+                "tags": [
+                    "knowledge"
+                ],
+                "summary": "Download knowledge files as zip",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
                         }
                     }
                 }
@@ -2199,68 +2224,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/template-apps": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List available template apps configurations.",
-                "tags": [
-                    "template_apps"
-                ],
-                "summary": "List template apps",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.TemplateAppConfig"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/template-apps/{type}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get template app configuration by type.",
-                "tags": [
-                    "template_apps"
-                ],
-                "summary": "Get template app by type",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Template app type",
-                        "name": "type",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.TemplateAppConfig"
-                        }
-                    },
-                    "404": {
-                        "description": "Template not found",
-                        "schema": {
-                            "$ref": "#/definitions/system.HTTPError"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/users/search": {
             "get": {
                 "security": [
@@ -2305,6 +2268,28 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.UserSearchResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/token-usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get current user's monthly token usage and limits",
+                "tags": [
+                    "users"
+                ],
+                "summary": "Get user token usage",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.UserTokenUsageResponse"
                         }
                     }
                 }
@@ -2450,13 +2435,15 @@ const docTemplate = `{
                 "api",
                 "browser",
                 "gptscript",
-                "zapier"
+                "zapier",
+                "calculator"
             ],
             "x-enum-varnames": [
                 "ToolTypeAPI",
                 "ToolTypeBrowser",
                 "ToolTypeGPTScript",
-                "ToolTypeZapier"
+                "ToolTypeZapier",
+                "ToolTypeCalculator"
             ]
         },
         "github_com_helixml_helix_api_pkg_types.Usage": {
@@ -3376,6 +3363,14 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AssistantCalculator": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                }
+            }
+        },
         "types.AssistantConfig": {
             "type": "object",
             "properties": {
@@ -3394,6 +3389,9 @@ const docTemplate = `{
                 },
                 "browser": {
                     "$ref": "#/definitions/types.AssistantBrowser"
+                },
+                "calculator": {
+                    "$ref": "#/definitions/types.AssistantCalculator"
                 },
                 "context_limit": {
                     "description": "ContextLimit - the number of messages to include in the context for the AI assistant.\nWhen set to 1, the AI assistant will only see and remember the most recent message.",
@@ -4379,6 +4377,9 @@ const docTemplate = `{
             "properties": {
                 "path": {
                     "type": "string"
+                },
+                "seed_zip_url": {
+                    "type": "string"
                 }
             }
         },
@@ -4671,6 +4672,10 @@ const docTemplate = `{
                 },
                 "runtime": {
                     "$ref": "#/definitions/types.Runtime"
+                },
+                "sort_order": {
+                    "description": "Order for sorting models in UI (lower numbers appear first)",
+                    "type": "integer"
                 },
                 "type": {
                     "$ref": "#/definitions/types.ModelType"
@@ -5171,12 +5176,14 @@ const docTemplate = `{
             "enum": [
                 "openai",
                 "togetherai",
+                "anthropic",
                 "helix",
                 "vllm"
             ],
             "x-enum-varnames": [
                 "ProviderOpenAI",
                 "ProviderTogetherAI",
+                "ProviderAnthropic",
                 "ProviderHelix",
                 "ProviderVLLM"
             ]
@@ -6117,49 +6124,6 @@ const docTemplate = `{
                 }
             }
         },
-        "types.TemplateAppConfig": {
-            "type": "object",
-            "properties": {
-                "api_url": {
-                    "description": "Base API URL for the provider",
-                    "type": "string"
-                },
-                "assistants": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.AssistantConfig"
-                    }
-                },
-                "description": {
-                    "type": "string"
-                },
-                "metadata": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "name": {
-                    "type": "string"
-                },
-                "type": {
-                    "$ref": "#/definitions/types.TemplateAppType"
-                }
-            }
-        },
-        "types.TemplateAppType": {
-            "type": "string",
-            "enum": [
-                "github",
-                "jira",
-                "slack",
-                "google"
-            ],
-            "x-enum-varnames": [
-                "TemplateAppTypeGitHub",
-                "TemplateAppTypeJira",
-                "TemplateAppTypeSlack",
-                "TemplateAppTypeGoogle"
-            ]
-        },
         "types.TestStep": {
             "type": "object",
             "properties": {
@@ -6316,6 +6280,14 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ToolCalculatorConfig": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                }
+            }
+        },
         "types.ToolConfig": {
             "type": "object",
             "properties": {
@@ -6324,6 +6296,9 @@ const docTemplate = `{
                 },
                 "browser": {
                     "$ref": "#/definitions/types.ToolBrowserConfig"
+                },
+                "calculator": {
+                    "$ref": "#/definitions/types.ToolCalculatorConfig"
                 },
                 "gptscript": {
                     "$ref": "#/definitions/types.ToolGPTScriptConfig"
@@ -6524,6 +6499,26 @@ const docTemplate = `{
                 }
             }
         },
+        "types.UserTokenUsageResponse": {
+            "type": "object",
+            "properties": {
+                "is_pro_tier": {
+                    "type": "boolean"
+                },
+                "monthly_limit": {
+                    "type": "integer"
+                },
+                "monthly_usage": {
+                    "type": "integer"
+                },
+                "quotas_enabled": {
+                    "type": "boolean"
+                },
+                "usage_percentage": {
+                    "type": "number"
+                }
+            }
+        },
         "types.UsersAggregatedUsageMetric": {
             "type": "object",
             "properties": {
@@ -6602,7 +6597,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "",
 	Schemes:          []string{"https"},
 	Title:            "HelixML API reference",
-	Description:      "This is a HelixML AI API.",
+	Description:      "This is the HelixML API.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

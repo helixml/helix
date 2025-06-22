@@ -31,12 +31,14 @@ definitions:
     - browser
     - gptscript
     - zapier
+    - calculator
     type: string
     x-enum-varnames:
     - ToolTypeAPI
     - ToolTypeBrowser
     - ToolTypeGPTScript
     - ToolTypeZapier
+    - ToolTypeCalculator
   github_com_helixml_helix_api_pkg_types.Usage:
     properties:
       completion_tokens:
@@ -694,6 +696,11 @@ definitions:
         description: If true, the browser will return the HTML as markdown
         type: boolean
     type: object
+  types.AssistantCalculator:
+    properties:
+      enabled:
+        type: boolean
+    type: object
   types.AssistantConfig:
     properties:
       agent_mode:
@@ -707,6 +714,8 @@ definitions:
         type: string
       browser:
         $ref: '#/definitions/types.AssistantBrowser'
+      calculator:
+        $ref: '#/definitions/types.AssistantCalculator'
       context_limit:
         description: |-
           ContextLimit - the number of messages to include in the context for the AI assistant.
@@ -1426,6 +1435,8 @@ definitions:
     properties:
       path:
         type: string
+      seed_zip_url:
+        type: string
     type: object
   types.KnowledgeSourceS3:
     properties:
@@ -1628,6 +1639,9 @@ definitions:
         type: string
       runtime:
         $ref: '#/definitions/types.Runtime'
+      sort_order:
+        description: Order for sorting models in UI (lower numbers appear first)
+        type: integer
       type:
         $ref: '#/definitions/types.ModelType'
       updated:
@@ -1972,12 +1986,14 @@ definitions:
     enum:
     - openai
     - togetherai
+    - anthropic
     - helix
     - vllm
     type: string
     x-enum-varnames:
     - ProviderOpenAI
     - ProviderTogetherAI
+    - ProviderAnthropic
     - ProviderHelix
     - ProviderVLLM
   types.ProviderEndpoint:
@@ -2645,37 +2661,6 @@ definitions:
         description: composite key
         type: string
     type: object
-  types.TemplateAppConfig:
-    properties:
-      api_url:
-        description: Base API URL for the provider
-        type: string
-      assistants:
-        items:
-          $ref: '#/definitions/types.AssistantConfig'
-        type: array
-      description:
-        type: string
-      metadata:
-        additionalProperties: true
-        type: object
-      name:
-        type: string
-      type:
-        $ref: '#/definitions/types.TemplateAppType'
-    type: object
-  types.TemplateAppType:
-    enum:
-    - github
-    - jira
-    - slack
-    - google
-    type: string
-    x-enum-varnames:
-    - TemplateAppTypeGitHub
-    - TemplateAppTypeJira
-    - TemplateAppTypeSlack
-    - TemplateAppTypeGoogle
   types.TestStep:
     properties:
       expected_output:
@@ -2791,12 +2776,19 @@ definitions:
         description: If true, the browser will return the HTML as markdown
         type: boolean
     type: object
+  types.ToolCalculatorConfig:
+    properties:
+      enabled:
+        type: boolean
+    type: object
   types.ToolConfig:
     properties:
       api:
         $ref: '#/definitions/types.ToolAPIConfig'
       browser:
         $ref: '#/definitions/types.ToolBrowserConfig'
+      calculator:
+        $ref: '#/definitions/types.ToolCalculatorConfig'
       gptscript:
         $ref: '#/definitions/types.ToolGPTScriptConfig'
       zapier:
@@ -2927,6 +2919,19 @@ definitions:
           $ref: '#/definitions/types.User'
         type: array
     type: object
+  types.UserTokenUsageResponse:
+    properties:
+      is_pro_tier:
+        type: boolean
+      monthly_limit:
+        type: integer
+      monthly_usage:
+        type: integer
+      quotas_enabled:
+        type: boolean
+      usage_percentage:
+        type: number
+    type: object
   types.UsersAggregatedUsageMetric:
     properties:
       metrics:
@@ -2978,7 +2983,7 @@ info:
     email: info@helixml.tech
     name: Helix support
     url: https://app.tryhelix.ai/
-  description: This is a HelixML AI API.
+  description: This is the HelixML API.
   title: HelixML API reference
   version: "0.1"
   x-logo:
@@ -3003,7 +3008,8 @@ paths:
       - BearerAuth: []
     post:
       parameters:
-      - description: Request body with app configuration.
+      - description: Request body with app configuration. Can be legacy App format
+          or structured format with organization_id, global, and yaml_config fields.
         in: body
         name: request
         required: true
@@ -3645,6 +3651,21 @@ paths:
       security:
       - BearerAuth: []
       summary: Complete knowledge preparation
+      tags:
+      - knowledge
+  /api/v1/knowledge/{id}/download:
+    get:
+      description: Download all files from a filestore-backed knowledge as a zip file
+      produces:
+      - application/zip
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      security:
+      - BearerAuth: []
+      summary: Download knowledge files as zip
       tags:
       - knowledge
   /api/v1/knowledge/{id}/refresh:
@@ -4329,44 +4350,6 @@ paths:
             $ref: '#/definitions/types.Session'
       security:
       - BearerAuth: []
-  /api/v1/template-apps:
-    get:
-      description: List available template apps configurations.
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/types.TemplateAppConfig'
-            type: array
-      security:
-      - BearerAuth: []
-      summary: List template apps
-      tags:
-      - template_apps
-  /api/v1/template-apps/{type}:
-    get:
-      description: Get template app configuration by type.
-      parameters:
-      - description: Template app type
-        in: path
-        name: type
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.TemplateAppConfig'
-        "404":
-          description: Template not found
-          schema:
-            $ref: '#/definitions/system.HTTPError'
-      security:
-      - BearerAuth: []
-      summary: Get template app by type
-      tags:
-      - template_apps
   /api/v1/users/search:
     get:
       description: Search users by email, name, or username
@@ -4396,6 +4379,19 @@ paths:
       security:
       - BearerAuth: []
       summary: Search users
+      tags:
+      - users
+  /api/v1/users/token-usage:
+    get:
+      description: Get current user's monthly token usage and limits
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UserTokenUsageResponse'
+      security:
+      - BearerAuth: []
+      summary: Get user token usage
       tags:
       - users
   /v1/chat/completions:
