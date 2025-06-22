@@ -12,6 +12,7 @@ import (
 type Meta struct {
 	AppID         string
 	UserID        string
+	UserEmail     string
 	SessionID     string
 	InteractionID string
 	Extra         map[string]string
