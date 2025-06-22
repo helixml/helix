@@ -3407,6 +3407,9 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "email": {
+                    "$ref": "#/definitions/types.AssistantEmail"
+                },
                 "frequency_penalty": {
                     "description": "How much to penalize new tokens based on their frequency in the text so far.\nIncreases the model's likelihood to talk about new topics\n0 - balanced\n2 - less repetitive",
                     "type": "number"
@@ -3535,6 +3538,14 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.AssistantZapier"
                     }
+                }
+            }
+        },
+        "types.AssistantEmail": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
                 }
             }
         },
@@ -6300,11 +6311,22 @@ const docTemplate = `{
                 "calculator": {
                     "$ref": "#/definitions/types.ToolCalculatorConfig"
                 },
+                "email": {
+                    "$ref": "#/definitions/types.ToolEmailConfig"
+                },
                 "gptscript": {
                     "$ref": "#/definitions/types.ToolGPTScriptConfig"
                 },
                 "zapier": {
                     "$ref": "#/definitions/types.ToolZapierConfig"
+                }
+            }
+        },
+        "types.ToolEmailConfig": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
                 }
             }
         },
