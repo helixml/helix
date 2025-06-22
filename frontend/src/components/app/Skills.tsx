@@ -6,10 +6,12 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import LanguageIcon from '@mui/icons-material/Language';
 import CalculateIcon from '@mui/icons-material/Calculate';
+import EmailIcon from '@mui/icons-material/Email';
 import { IAppFlatState, IAgentSkill } from '../../types';
 import AddApiSkillDialog from './AddApiSkillDialog';
 import BrowserSkill from './BrowserSkill';
 import CalculatorSkill from './CalculatorSkill';
+import EmailSkill from './EmailSkill';
 import ApiIcon from '@mui/icons-material/Api';
 
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
@@ -28,6 +30,7 @@ interface ISkill {
 const SKILL_TYPE_HTTP_API = 'HTTP API';
 const SKILL_TYPE_BROWSER = 'Browser';
 const SKILL_TYPE_CALCULATOR = 'Calculator';
+const SKILL_TYPE_EMAIL = 'Email';
 
 // Base static skills/plugins data
 const BASE_SKILLS: ISkill[] = [
@@ -58,6 +61,24 @@ const BASE_SKILLS: ISkill[] = [
     skill: {
       name: 'Calculator',
       description: 'Enable the AI to perform math calculations.',
+      systemPrompt: '',
+      apiSkill: {
+        schema: '',
+        url: '',
+        requiredParameters: [],
+      },
+      configurable: true,
+    },
+  },
+  {
+    id: 'email',
+    icon: <EmailIcon />,
+    name: 'Email',
+    description: 'Allow agent to send emails to you. Instruct it to send summaries, reminders, or other information via email.',
+    type: SKILL_TYPE_EMAIL,
+    skill: {
+      name: 'Email',
+      description: 'Enable the AI to send emails to the user.',
       systemPrompt: '',
       apiSkill: {
         schema: '',
@@ -179,6 +200,9 @@ const Skills: React.FC<SkillsProps> = ({
     if (skillName === 'Calculator') {
       return app.calculatorTool?.enabled ?? false;
     }
+    if (skillName === 'Email') {
+      return app.emailTool?.enabled ?? false;
+    }
     return app.apiTools?.some(tool => tool.name === skillName) ?? false;
   };
 
@@ -208,6 +232,13 @@ const Skills: React.FC<SkillsProps> = ({
           await onUpdate({
             ...app,
             calculatorTool: { enabled: false },
+          });
+          return
+        }
+        if (skill.name === 'Email') {
+          await onUpdate({
+            ...app,
+            emailTool: { enabled: false },
           });
           return
         }
@@ -291,6 +322,23 @@ const Skills: React.FC<SkillsProps> = ({
           app={app}
           onUpdate={onUpdate}
           isEnabled={isSkillEnabled('Calculator')}
+        />
+      );
+    }
+
+    if (selectedSkill.name === 'Email') {
+      return (
+        <EmailSkill
+          open={isDialogOpen}
+          onClose={() => {
+            setIsDialogOpen(false);
+          }}
+          onClosed={() => {
+            setSelectedSkill(null);
+          }}
+          app={app}
+          onUpdate={onUpdate}
+          isEnabled={isSkillEnabled('Email')}
         />
       );
     }
