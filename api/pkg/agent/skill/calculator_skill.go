@@ -120,11 +120,12 @@ func (t *CalculatorTool) Execute(ctx context.Context, meta agent.Meta, args map[
 		Str("app_id", meta.AppID).
 		Msg("Executing calculator tool")
 
+	if expression == "" {
+		return "", fmt.Errorf("expression is required")
+	}
+
 	// Create a new JavaScript runtime
 	vm := goja.New()
-
-	// Add Math object to the runtime
-	vm.Set("Math", vm.NewObject())
 
 	// Evaluate the expression
 	result, err := vm.RunString(expression)

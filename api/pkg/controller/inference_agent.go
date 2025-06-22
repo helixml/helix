@@ -105,6 +105,10 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		if assistantTool.ToolType == types.ToolTypeBrowser {
 			skills = append(skills, skill.NewBrowserSkill(assistantTool.Config.Browser, c.Options.Browser))
 		}
+
+		if assistantTool.ToolType == types.ToolTypeCalculator {
+			skills = append(skills, skill.NewCalculatorSkill())
+		}
 	}
 
 	// Get assistant knowledge

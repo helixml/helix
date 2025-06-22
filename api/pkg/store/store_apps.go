@@ -176,6 +176,19 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 			})
 		}
 
+		if assistant.Calculator.Enabled {
+			tools = append(tools, &types.Tool{
+				Name:        "Calculator",
+				Description: "Use the calculator to perform calculations",
+				ToolType:    types.ToolTypeCalculator,
+				Config: types.ToolConfig{
+					Calculator: &types.ToolCalculatorConfig{
+						Enabled: assistant.Calculator.Enabled,
+					},
+				},
+			})
+		}
+
 		// Convert APIs to Tools
 		for _, api := range assistant.APIs {
 			t, err := ConvertAPIToTool(api)
