@@ -1228,7 +1228,7 @@ type AssistantConfig struct {
 
 	Browser AssistantBrowser `json:"browser,omitempty" yaml:"browser,omitempty"`
 
-	Calculator *AssistantCalculator `json:"calculator,omitempty" yaml:"calculator,omitempty"`
+	Calculator AssistantCalculator `json:"calculator,omitempty" yaml:"calculator,omitempty"`
 
 	Tools []*Tool `json:"tools,omitempty" yaml:"tools,omitempty"`
 
