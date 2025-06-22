@@ -58,6 +58,7 @@ const EmailSkill: React.FC<EmailSkillProps> = ({
     template_example: '',
   });
   const [template, setTemplate] = useState('');
+  const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
     if (app.emailTool) {
@@ -70,14 +71,17 @@ const EmailSkill: React.FC<EmailSkillProps> = ({
       });
       setTemplate('');
     }
+    setIsDirty(false);
   }, [app.emailTool]);
 
   const handleTemplateChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setTemplate(event.target.value);
+    const newTemplate = event.target.value;
+    setTemplate(newTemplate);
+    setIsDirty(newTemplate !== (app.emailTool?.template_example || ''));
   };
   
-  const handleTemplateBlur = async () => {
-    if (template === (app.emailTool?.template_example || '')) {
+  const handleUpdate = async () => {
+    if (!isDirty) {
       return;
     }
     
@@ -91,6 +95,7 @@ const EmailSkill: React.FC<EmailSkillProps> = ({
       await onUpdate(appCopy);
       
       setEmailConfig(appCopy.emailTool);
+      setIsDirty(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update email template');
     }
@@ -186,7 +191,6 @@ const EmailSkill: React.FC<EmailSkillProps> = ({
                 rows={4}
                 value={template}
                 onChange={handleTemplateChange}
-                onBlur={handleTemplateBlur}
                 variant="outlined"
                 fullWidth
                 disabled={!emailConfig.enabled}
@@ -226,15 +230,26 @@ const EmailSkill: React.FC<EmailSkillProps> = ({
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1, mr: 2 }}>
             <Box sx={{ display: 'flex', gap: 1 }}>
               {emailConfig.enabled ? (
-                <Button
-                  onClick={handleDisable}
-                  size="small"
-                  variant="outlined"
-                  color="error"
-                  sx={{ borderColor: '#EF4444', color: '#EF4444', '&:hover': { borderColor: '#DC2626', color: '#DC2626' } }}
-                >
-                  Disable
-                </Button>
+                <>                  
+                  <Button
+                    onClick={handleDisable}
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    sx={{ borderColor: '#EF4444', color: '#EF4444', '&:hover': { borderColor: '#DC2626', color: '#DC2626' } }}
+                  >
+                    Disable
+                  </Button>
+                  <Button
+                    onClick={handleUpdate}
+                    size="small"
+                    color="secondary"
+                    variant="outlined"
+                    disabled={!isDirty}
+                  >
+                    Save
+                  </Button>
+                </>
               ) : (
                 <Button
                   onClick={handleEnable}
