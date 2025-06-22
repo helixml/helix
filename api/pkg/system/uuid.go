@@ -30,6 +30,7 @@ const (
 	AccessGrantPrefix         = "ag_"
 	UsageMetricPrefix         = "um_"
 	StepInfoPrefix            = "step_"
+	CallPrefix                = "call_"
 )
 
 func GenerateUUID() string {
@@ -129,4 +130,8 @@ func GenerateProviderEndpointID() string {
 
 func GenerateUsageMetricID() string {
 	return fmt.Sprintf("%s%s", UsageMetricPrefix, newID())
+}
+
+func GenerateCallID() string {
+	return fmt.Sprintf("%s%s", CallPrefix, newID())
 }

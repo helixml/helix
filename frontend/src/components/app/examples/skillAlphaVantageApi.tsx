@@ -89,8 +89,7 @@ export const alphaVantageTool: IAgentSkill = {
   Example Queries:
   - "Give me market news about Apple stock"
   - "Show me the latest news about Bitcoin"
-  - "Give me news about the IPO and earnings in the finance sector from last week"  
-  `,
+  - "Give me news about the IPO and earnings in the finance sector from last week"`,
   systemPrompt: `You are an expert at using the Alpha Vantage API to get the latest market news and sentiment data.
   
   This API returns live and historical market news & sentiment data from a large & growing selection of premier news 
@@ -99,8 +98,7 @@ export const alphaVantageTool: IAgentSkill = {
   can provide you with a 360-degree view of the financial market and the broader economy.
   
   function to be used: "NEWS_SENTIMENT", then you can either use the tickers or topics to search. DO NOT USE BOTH AT THE SAME TIME.
-  Be super careful when using the tickers parameter, it's very easy to get the wrong ticker.
-  `,
+  Be super careful when using the tickers parameter, it's very easy to get the wrong ticker.`,
   apiSkill: {
     schema: schema,
     url: "https://www.alphavantage.co",

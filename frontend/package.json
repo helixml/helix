@@ -2,7 +2,7 @@
   "name": "@helixml/frontend",
   "private": true,
   "type": "module",
-  "description": "helix dashboard app",
+  "description": "helix UI",
   "version": "1.0.1",
   "scripts": {
     "dev": "vite",

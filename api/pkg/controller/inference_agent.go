@@ -216,6 +216,7 @@ func (c *Controller) runAgentBlocking(ctx context.Context, req *runAgentRequest)
 		Choices: []openai.ChatCompletionChoice{
 			{
 				Message: openai.ChatCompletionMessage{
+					Role:    openai.ChatMessageRoleAssistant,
 					Content: response,
 				},
 			},

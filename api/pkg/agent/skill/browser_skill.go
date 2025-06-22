@@ -9,12 +9,12 @@ import (
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/readability"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/util/jsonschema"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/rs/zerolog/log"
 	"github.com/sashabaranov/go-openai"
-	"github.com/tmc/langchaingo/jsonschema"
 )
 
 const browserMainPrompt = `You are an expert at browsing the web to find and synthesize information. Your role is to help users by visiting relevant websites and presenting the information in a clear, organized manner.

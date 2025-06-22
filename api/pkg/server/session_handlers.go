@@ -507,7 +507,7 @@ func (s *HelixAPIServer) getTemporarySessionName(prompt string) string {
 }
 
 func (s *HelixAPIServer) generateSessionName(user *types.User, sessionID, provider, model, prompt string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	ownerID := user.ID
