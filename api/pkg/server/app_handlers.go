@@ -469,12 +469,12 @@ func (s *HelixAPIServer) validateProviderAndModel(ctx context.Context, user *typ
 
 	// Validate providers
 	for _, assistant := range app.Config.Helix.Assistants {
-		if assistant.Model == "" {
+		if assistant.Model == "" && !assistant.AgentMode {
 			return fmt.Errorf("assistant '%s' must have a model", assistant.Name)
 		}
 
 		// If provider set, check if we have it
-		if assistant.Provider != "" {
+		if assistant.Provider != "" && !assistant.AgentMode {
 			if !slices.Contains(providers, types.Provider(assistant.Provider)) {
 				return fmt.Errorf("provider '%s' is not available", assistant.Provider)
 			}
