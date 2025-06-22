@@ -26,7 +26,7 @@ type AgentTestSuite struct {
 	ctx context.Context
 	db  *store.PostgresStore
 
-	userApiKey string
+	userAPIKey string
 
 	agentConfig *tests.Config
 }
@@ -69,19 +69,19 @@ func (suite *AgentTestSuite) SetupTest() {
 		suite.Require().NotNil(user)
 		suite.Require().NotNil(apiKey)
 
-		suite.userApiKey = apiKey
+		suite.userAPIKey = apiKey
 	} else {
 		// Check if we have a test user API key
 		if suite.agentConfig.TestUserAPIKey == "" {
 			suite.T().Fatalf("TEST_USER_CREATE is false but TEST_USER_API_KEY is not set")
 		}
-		suite.userApiKey = suite.agentConfig.TestUserAPIKey
+		suite.userAPIKey = suite.agentConfig.TestUserAPIKey
 	}
 }
 
 func (suite *AgentTestSuite) TestCreateAgent_NoSkills() {
 
-	apiCLient, err := getAPIClient(suite.userApiKey)
+	apiCLient, err := getAPIClient(suite.userAPIKey)
 	suite.Require().NoError(err)
 
 	name := "TestCreateAgent_NoSkills" + uuid.New().String()
@@ -131,7 +131,7 @@ func (suite *AgentTestSuite) TestCreateAgent_NoSkills() {
 }
 
 func (suite *AgentTestSuite) TestAgent_CurrencyExchange() {
-	apiCLient, err := getAPIClient(suite.userApiKey)
+	apiCLient, err := getAPIClient(suite.userAPIKey)
 	suite.Require().NoError(err)
 
 	name := "TestAgent_CurrencyExchange" + uuid.New().String()
