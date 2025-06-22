@@ -64,7 +64,7 @@ func startAPIServer() *bytes.Buffer {
 	go func() {
 		cmd := exec.Command("helix", "serve")
 
-		cmd.Stdout = os.Stdout
+		cmd.Stdout = buf
 		cmd.Stderr = buf
 
 		// Get the main env variables for keycloak, database, etc.

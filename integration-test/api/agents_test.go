@@ -79,7 +79,7 @@ func (suite *AgentTestSuite) SetupTest() {
 	}
 }
 
-func (suite *AgentTestSuite) TestCreateAgent_NoSkills() {
+func (suite *AgentTestSuite) TestAgent_NoSkills() {
 
 	apiCLient, err := getAPIClient(suite.userAPIKey)
 	suite.Require().NoError(err)
