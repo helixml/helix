@@ -135,14 +135,14 @@ func (t *SendEmailTool) Execute(ctx context.Context, meta agent.Meta, args map[s
 			opts = append(opts, mailgun.WithEurope())
 		}
 
-		mg := mailgun.New(t.cfg.Mailgun.Domain, t.cfg.Mailgun.APIKey, t.cfg.SenderAddress, opts...)
+		mg := mailgun.New(t.cfg.Mailgun.Domain, t.cfg.Mailgun.APIKey, t.cfg.AgentSkillSenderAddress, opts...)
 		mg.AddReceivers(meta.UserEmail)
 
 		ntf.UseServices(mg)
 	}
 
 	if t.cfg.SMTP.Host != "" {
-		smtp := mail.New(t.cfg.SenderAddress, t.cfg.SMTP.Host+":"+t.cfg.SMTP.Port)
+		smtp := mail.New(t.cfg.AgentSkillSenderAddress, t.cfg.SMTP.Host+":"+t.cfg.SMTP.Port)
 		smtp.AuthenticateSMTP(t.cfg.SMTP.Identity, t.cfg.SMTP.Username, t.cfg.SMTP.Password, t.cfg.SMTP.Host)
 
 		smtp.AddReceivers(meta.UserEmail)
