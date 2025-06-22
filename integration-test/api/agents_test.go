@@ -193,7 +193,7 @@ func (suite *AgentTestSuite) TestAgent_CurrencyExchange() {
 	suite.Require().NoError(err)
 	suite.Require().Equal(1, len(apiKeys))
 
-	resp, err := chatCompletions(suite.T(), apiKeys[0].Key, createdApp.ID, &openai.ChatCompletionRequest{
+	resp, err := chatCompletions(suite.T(), apiKeys[0].Key, &openai.ChatCompletionRequest{
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role:    "user",
@@ -220,7 +220,7 @@ func (suite *AgentTestSuite) TestAgent_CurrencyExchange() {
 
 }
 
-func chatCompletions(t *testing.T, apiKey string, appID string, request *openai.ChatCompletionRequest) (*openai.ChatCompletionResponse, error) {
+func chatCompletions(t *testing.T, apiKey string, request *openai.ChatCompletionRequest) (*openai.ChatCompletionResponse, error) {
 	t.Helper()
 
 	config := openai.DefaultConfig(apiKey)
