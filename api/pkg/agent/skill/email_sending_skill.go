@@ -34,21 +34,27 @@ If the user says "send me an email with the results of our conversation", you sh
 
 Remember: Your goal is to send helpful and relevant emails to the user. Always ensure the subject and message are appropriate for the user's request.`
 
-func NewSendEmailSkill(cfg *config.EmailConfig) agent.Skill {
+func NewSendEmailSkill(cfg *config.EmailConfig, templateExample string) agent.Skill {
+	prompt := emailMainPrompt
+	if templateExample != "" {
+		prompt += "\n\nWhen composing the email message, you MUST adhere to the following template that the user has provided:\n\n" + templateExample
+	}
 	return agent.Skill{
 		Name:         "SendEmail",
 		Description:  "Send email to the current user (with whom we are currently interacting)",
-		SystemPrompt: emailMainPrompt,
+		SystemPrompt: prompt,
 		Tools: []agent.Tool{
 			&SendEmailTool{
-				cfg: cfg,
+				cfg:             cfg,
+				templateExample: templateExample,
 			},
 		},
 	}
 }
 
 type SendEmailTool struct {
-	cfg *config.EmailConfig
+	cfg             *config.EmailConfig
+	templateExample string
 }
 
 func (t *SendEmailTool) Name() string {
