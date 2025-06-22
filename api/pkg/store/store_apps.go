@@ -189,6 +189,19 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 			})
 		}
 
+		if assistant.Email.Enabled {
+			tools = append(tools, &types.Tool{
+				Name:        "Email",
+				Description: "Send an email to the user",
+				ToolType:    types.ToolTypeEmail,
+				Config: types.ToolConfig{
+					Email: &types.ToolEmailConfig{
+						Enabled: assistant.Email.Enabled,
+					},
+				},
+			})
+		}
+
 		// Convert APIs to Tools
 		for _, api := range assistant.APIs {
 			t, err := ConvertAPIToTool(api)
