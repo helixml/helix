@@ -5,9 +5,11 @@ import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import LanguageIcon from '@mui/icons-material/Language';
+import CalculateIcon from '@mui/icons-material/Calculate';
 import { IAppFlatState, IAgentSkill } from '../../types';
 import AddApiSkillDialog from './AddApiSkillDialog';
 import BrowserSkill from './BrowserSkill';
+import CalculatorSkill from './CalculatorSkill';
 import ApiIcon from '@mui/icons-material/Api';
 
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
@@ -25,6 +27,7 @@ interface ISkill {
 
 const SKILL_TYPE_HTTP_API = 'HTTP API';
 const SKILL_TYPE_BROWSER = 'Browser';
+const SKILL_TYPE_CALCULATOR = 'Calculator';
 
 // Base static skills/plugins data
 const BASE_SKILLS: ISkill[] = [
@@ -37,6 +40,24 @@ const BASE_SKILLS: ISkill[] = [
     skill: {
       name: 'Browser',
       description: 'Enable the AI to browse websites and extract information from them.',
+      systemPrompt: '',
+      apiSkill: {
+        schema: '',
+        url: '',
+        requiredParameters: [],
+      },
+      configurable: true,
+    },
+  },
+  {
+    id: 'calculator',
+    icon: <CalculateIcon />,
+    name: 'Calculator',
+    description: 'Enable the AI to perform math calculations using javascript expressions.',
+    type: SKILL_TYPE_CALCULATOR,
+    skill: {
+      name: 'Calculator',
+      description: 'Enable the AI to perform math calculations.',
       systemPrompt: '',
       apiSkill: {
         schema: '',
@@ -155,6 +176,9 @@ const Skills: React.FC<SkillsProps> = ({
     if (skillName === 'Browser') {
       return app.browserTool?.enabled ?? false;
     }
+    if (skillName === 'Calculator') {
+      return app.calculatorTool?.enabled ?? false;
+    }
     return app.apiTools?.some(tool => tool.name === skillName) ?? false;
   };
 
@@ -177,6 +201,13 @@ const Skills: React.FC<SkillsProps> = ({
           await onUpdate({
             ...app,
             browserTool: { enabled: false, markdown_post_processing: false },
+          });
+          return
+        }
+        if (skill.name === 'Calculator') {
+          await onUpdate({
+            ...app,
+            calculatorTool: { enabled: false },
           });
           return
         }
@@ -243,6 +274,23 @@ const Skills: React.FC<SkillsProps> = ({
           app={app}
           onUpdate={onUpdate}
           isEnabled={isSkillEnabled('Browser')}
+        />
+      );
+    }
+
+    if (selectedSkill.name === 'Calculator') {
+      return (
+        <CalculatorSkill
+          open={isDialogOpen}
+          onClose={() => {
+            setIsDialogOpen(false);
+          }}
+          onClosed={() => {
+            setSelectedSkill(null);
+          }}
+          app={app}
+          onUpdate={onUpdate}
+          isEnabled={isSkillEnabled('Calculator')}
         />
       );
     }
