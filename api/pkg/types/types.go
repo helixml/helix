@@ -1047,7 +1047,8 @@ type ToolBrowserConfig struct {
 }
 
 type ToolEmailConfig struct {
-	Enabled bool `json:"enabled" yaml:"enabled"`
+	Enabled         bool   `json:"enabled" yaml:"enabled"`
+	TemplateExample string `json:"template_example" yaml:"template_example"`
 }
 
 type ToolCalculatorConfig struct {
@@ -1256,7 +1257,8 @@ type AssistantCalculator struct {
 // AssistantEmail - email sending tool, will use default email provider
 // configured in helix
 type AssistantEmail struct {
-	Enabled bool `json:"enabled" yaml:"enabled"`
+	Enabled         bool   `json:"enabled" yaml:"enabled"`
+	TemplateExample string `json:"template_example" yaml:"template_example"`
 }
 
 const ReasoningEffortNone = "none" // Don't set

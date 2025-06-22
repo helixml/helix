@@ -405,6 +405,10 @@ export const useApp = (appId: string) => {
     if (updates.calculatorTool !== undefined) {
       assistants[0].calculator = updates.calculatorTool
     }
+
+    if (updates.emailTool !== undefined) {
+      assistants[0].email = updates.emailTool
+    }
     
     return updatedApp
   }, [])

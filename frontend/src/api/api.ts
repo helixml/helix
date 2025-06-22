@@ -30,6 +30,7 @@ export enum GithubComHelixmlHelixApiPkgTypesToolType {
   ToolTypeGPTScript = "gptscript",
   ToolTypeZapier = "zapier",
   ToolTypeCalculator = "calculator",
+  ToolTypeEmail = "email",
 }
 
 export interface GithubComHelixmlHelixApiPkgTypesUsage {
@@ -541,6 +542,7 @@ export interface TypesAssistantConfig {
 
 export interface TypesAssistantEmail {
   enabled?: boolean;
+  template_example?: string;
 }
 
 export interface TypesAssistantGPTScript {
@@ -1713,6 +1715,7 @@ export interface TypesToolConfig {
 
 export interface TypesToolEmailConfig {
   enabled?: boolean;
+  template_example?: string;
 }
 
 export interface TypesToolGPTScriptConfig {

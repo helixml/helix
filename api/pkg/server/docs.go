@@ -2436,14 +2436,16 @@ const docTemplate = `{
                 "browser",
                 "gptscript",
                 "zapier",
-                "calculator"
+                "calculator",
+                "email"
             ],
             "x-enum-varnames": [
                 "ToolTypeAPI",
                 "ToolTypeBrowser",
                 "ToolTypeGPTScript",
                 "ToolTypeZapier",
-                "ToolTypeCalculator"
+                "ToolTypeCalculator",
+                "ToolTypeEmail"
             ]
         },
         "github_com_helixml_helix_api_pkg_types.Usage": {
@@ -3546,6 +3548,9 @@ const docTemplate = `{
             "properties": {
                 "enabled": {
                     "type": "boolean"
+                },
+                "template_example": {
+                    "type": "string"
                 }
             }
         },
@@ -6327,6 +6332,9 @@ const docTemplate = `{
             "properties": {
                 "enabled": {
                     "type": "boolean"
+                },
+                "template_example": {
+                    "type": "string"
                 }
             }
         },

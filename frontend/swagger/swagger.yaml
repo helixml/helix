@@ -32,6 +32,7 @@ definitions:
     - gptscript
     - zapier
     - calculator
+    - email
     type: string
     x-enum-varnames:
     - ToolTypeAPI
@@ -39,6 +40,7 @@ definitions:
     - ToolTypeGPTScript
     - ToolTypeZapier
     - ToolTypeCalculator
+    - ToolTypeEmail
   github_com_helixml_helix_api_pkg_types.Usage:
     properties:
       completion_tokens:
@@ -843,6 +845,8 @@ definitions:
     properties:
       enabled:
         type: boolean
+      template_example:
+        type: string
     type: object
   types.AssistantGPTScript:
     properties:
@@ -2807,6 +2811,8 @@ definitions:
     properties:
       enabled:
         type: boolean
+      template_example:
+        type: string
     type: object
   types.ToolGPTScriptConfig:
     properties:

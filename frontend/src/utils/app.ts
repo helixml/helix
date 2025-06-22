@@ -63,6 +63,7 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
       flatState.is_actionable_history_length = assistant.is_actionable_history_length
       flatState.browserTool = assistant.browser || undefined
       flatState.calculatorTool = assistant.calculator || undefined
+      flatState.emailTool = assistant.email || undefined
     }
   }
   
