@@ -107,7 +107,7 @@ func (t *CalculatorTool) OpenAI() []openai.Tool {
 	}
 }
 
-func (t *CalculatorTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
+func (t *CalculatorTool) Execute(_ context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
 	expression, ok := args["expression"].(string)
 	if !ok {
 		return "", fmt.Errorf("expression is required")
