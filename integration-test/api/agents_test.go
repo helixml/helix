@@ -221,6 +221,8 @@ func (suite *AgentTestSuite) TestAgent_CurrencyExchange() {
 }
 
 func chatCompletions(t *testing.T, apiKey string, appID string, request *openai.ChatCompletionRequest) (*openai.ChatCompletionResponse, error) {
+	t.Helper()
+
 	config := openai.DefaultConfig(apiKey)
 	config.BaseURL = "http://localhost:8080/v1"
 
