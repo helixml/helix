@@ -109,6 +109,10 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		if assistantTool.ToolType == types.ToolTypeCalculator {
 			skills = append(skills, skill.NewCalculatorSkill())
 		}
+
+		if assistantTool.ToolType == types.ToolTypeEmail {
+			skills = append(skills, skill.NewSendEmailSkill(&c.Options.Config.Notifications.Email))
+		}
 	}
 
 	// Get assistant knowledge
@@ -157,6 +161,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	session := agent.NewSession(ctx, c.stepInfoEmitter, llm, mem, helixAgent, messageHistory, agent.Meta{
 		AppID:         appID,
 		UserID:        req.User.ID,
+		UserEmail:     req.User.Email,
 		SessionID:     vals.SessionID,
 		InteractionID: vals.InteractionID,
 		Extra:         map[string]string{},
