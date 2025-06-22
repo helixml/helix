@@ -111,7 +111,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		}
 
 		if assistantTool.ToolType == types.ToolTypeEmail {
-			skills = append(skills, skill.NewSendEmailSkill(&c.Options.Config.Notifications.Email))
+			skills = append(skills, skill.NewSendEmailSkill(&c.Options.Config.Notifications.Email, assistantTool.Config.Email.TemplateExample))
 		}
 	}
 
