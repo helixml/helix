@@ -1018,6 +1018,7 @@ const (
 	ToolTypeGPTScript  ToolType = "gptscript"
 	ToolTypeZapier     ToolType = "zapier"
 	ToolTypeCalculator ToolType = "calculator"
+	ToolTypeEmail      ToolType = "email"
 )
 
 type Tool struct {
@@ -1036,12 +1037,17 @@ type ToolConfig struct {
 	Zapier     *ToolZapierConfig     `json:"zapier"`
 	Browser    *ToolBrowserConfig    `json:"browser"`
 	Calculator *ToolCalculatorConfig `json:"calculator"`
+	Email      *ToolEmailConfig      `json:"email"`
 }
 
 type ToolBrowserConfig struct {
 	Enabled                bool `json:"enabled" yaml:"enabled"`
 	MarkdownPostProcessing bool `json:"markdown_post_processing" yaml:"markdown_post_processing"` // If true, the browser will return the HTML as markdown
 	// TODO: whitelist URLs?
+}
+
+type ToolEmailConfig struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
 }
 
 type ToolCalculatorConfig struct {
@@ -1226,11 +1232,10 @@ type AssistantConfig struct {
 	GPTScripts []AssistantGPTScript `json:"gptscripts,omitempty" yaml:"gptscripts,omitempty"`
 	Zapier     []AssistantZapier    `json:"zapier,omitempty" yaml:"zapier,omitempty"`
 
-	Browser AssistantBrowser `json:"browser,omitempty" yaml:"browser,omitempty"`
-
+	Browser    AssistantBrowser    `json:"browser,omitempty" yaml:"browser,omitempty"`
 	Calculator AssistantCalculator `json:"calculator,omitempty" yaml:"calculator,omitempty"`
-
-	Tools []*Tool `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Email      AssistantEmail      `json:"email,omitempty" yaml:"email,omitempty"`
+	Tools      []*Tool             `json:"tools,omitempty" yaml:"tools,omitempty"`
 
 	Tests []struct {
 		Name  string     `json:"name,omitempty" yaml:"name,omitempty"`
@@ -1245,6 +1250,12 @@ type AssistantBrowser struct {
 }
 
 type AssistantCalculator struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
+}
+
+// AssistantEmail - email sending tool, will use default email provider
+// configured in helix
+type AssistantEmail struct {
 	Enabled bool `json:"enabled" yaml:"enabled"`
 }
 

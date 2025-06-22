@@ -730,6 +730,8 @@ definitions:
         type: array
       description:
         type: string
+      email:
+        $ref: '#/definitions/types.AssistantEmail'
       frequency_penalty:
         description: |-
           How much to penalize new tokens based on their frequency in the text so far.
@@ -836,6 +838,11 @@ definitions:
         items:
           $ref: '#/definitions/types.AssistantZapier'
         type: array
+    type: object
+  types.AssistantEmail:
+    properties:
+      enabled:
+        type: boolean
     type: object
   types.AssistantGPTScript:
     properties:
@@ -2789,10 +2796,17 @@ definitions:
         $ref: '#/definitions/types.ToolBrowserConfig'
       calculator:
         $ref: '#/definitions/types.ToolCalculatorConfig'
+      email:
+        $ref: '#/definitions/types.ToolEmailConfig'
       gptscript:
         $ref: '#/definitions/types.ToolGPTScriptConfig'
       zapier:
         $ref: '#/definitions/types.ToolZapierConfig'
+    type: object
+  types.ToolEmailConfig:
+    properties:
+      enabled:
+        type: boolean
     type: object
   types.ToolGPTScriptConfig:
     properties:

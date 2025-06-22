@@ -473,6 +473,7 @@ export interface TypesAssistantConfig {
    */
   conversation_starters?: string[];
   description?: string;
+  email?: TypesAssistantEmail;
   /**
    * How much to penalize new tokens based on their frequency in the text so far.
    * Increases the model's likelihood to talk about new topics
@@ -536,6 +537,10 @@ export interface TypesAssistantConfig {
    */
   top_p?: number;
   zapier?: TypesAssistantZapier[];
+}
+
+export interface TypesAssistantEmail {
+  enabled?: boolean;
 }
 
 export interface TypesAssistantGPTScript {
@@ -1701,8 +1706,13 @@ export interface TypesToolConfig {
   api?: TypesToolAPIConfig;
   browser?: TypesToolBrowserConfig;
   calculator?: TypesToolCalculatorConfig;
+  email?: TypesToolEmailConfig;
   gptscript?: TypesToolGPTScriptConfig;
   zapier?: TypesToolZapierConfig;
+}
+
+export interface TypesToolEmailConfig {
+  enabled?: boolean;
 }
 
 export interface TypesToolGPTScriptConfig {
