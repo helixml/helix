@@ -126,7 +126,7 @@ const EmailSkill: React.FC<EmailSkillProps> = ({
       appCopy.emailTool = {
         enabled: false,
         template_example: app.emailTool?.template_example,
-      };
+      };      
       
       await onUpdate(appCopy);
       
