@@ -498,12 +498,17 @@ export interface IToolBrowserConfig {
   markdown_post_processing: boolean,
 }
 
+export interface IToolCalculatorConfig {
+  enabled: boolean,
+}
+
 export interface IToolConfig {
   api?: IToolApiConfig,
   gptscript?: IToolGptScriptConfig,
   zapier?: IToolZapierConfig,
   helix?: IAppHelixConfig,
   browser?: IToolBrowserConfig,
+  calculator?: IToolCalculatorConfig,
 }
 
 export interface ITool {
@@ -557,6 +562,10 @@ export interface IAssistantApi {
 export interface IAssistantBrowser {  
   enabled: boolean,
   markdown_post_processing: boolean,
+}
+
+export interface IAssistantCalculator {
+  enabled: boolean,
 }
 
 export interface IAssistantGPTScript {
@@ -644,6 +653,7 @@ export interface IAssistantConfig {
   gptscripts?: IAssistantGPTScript[];
   zapier?: IAssistantZapier[];
   browser?: IAssistantBrowser;
+  calculator?: IAssistantCalculator;
   tools?: ITool[];
   knowledge?: IKnowledgeSource[];
 }
@@ -815,7 +825,7 @@ export interface IAppFlatState {
   zapierTools?: IAssistantZapier[]
   gptscriptTools?: IAssistantGPTScript[]
   browserTool?: IAssistantBrowser
-
+  calculatorTool?: IAssistantCalculator
   conversation_starters?: string[];
 }
 
