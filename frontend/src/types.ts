@@ -7,6 +7,8 @@ import {
   TypesToolCalculatorConfig,
   TypesAssistantBrowser,
   TypesToolBrowserConfig,
+  TypesAssistantEmail,
+  TypesToolEmailConfig,
 } from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
@@ -509,6 +511,7 @@ export interface IToolConfig {
   helix?: IAppHelixConfig,
   browser?: TypesToolBrowserConfig,
   calculator?: TypesToolCalculatorConfig,
+  email?: TypesToolEmailConfig,
 }
 
 export interface ITool {
@@ -645,6 +648,8 @@ export interface IAssistantConfig {
   zapier?: IAssistantZapier[];
   browser?: TypesAssistantBrowser;
   calculator?: TypesAssistantCalculator;
+  email?: TypesAssistantEmail;
+  
   tools?: ITool[];
   knowledge?: IKnowledgeSource[];
 }
@@ -817,6 +822,7 @@ export interface IAppFlatState {
   gptscriptTools?: IAssistantGPTScript[]
   browserTool?: TypesAssistantBrowser
   calculatorTool?: TypesAssistantCalculator
+  emailTool?: TypesAssistantEmail
   conversation_starters?: string[];
 }
 
