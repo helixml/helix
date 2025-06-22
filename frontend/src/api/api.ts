@@ -29,6 +29,7 @@ export enum GithubComHelixmlHelixApiPkgTypesToolType {
   ToolTypeBrowser = "browser",
   ToolTypeGPTScript = "gptscript",
   ToolTypeZapier = "zapier",
+  ToolTypeCalculator = "calculator",
 }
 
 export interface GithubComHelixmlHelixApiPkgTypesUsage {
@@ -450,12 +451,17 @@ export interface TypesAssistantBrowser {
   markdown_post_processing?: boolean;
 }
 
+export interface TypesAssistantCalculator {
+  enabled?: boolean;
+}
+
 export interface TypesAssistantConfig {
   /** AgentMode triggers the use of the agent loop */
   agent_mode?: boolean;
   apis?: TypesAssistantAPI[];
   avatar?: string;
   browser?: TypesAssistantBrowser;
+  calculator?: TypesAssistantCalculator;
   /**
    * ContextLimit - the number of messages to include in the context for the AI assistant.
    * When set to 1, the AI assistant will only see and remember the most recent message.
@@ -899,6 +905,7 @@ export interface TypesKnowledgeSourceGCS {
 
 export interface TypesKnowledgeSourceHelixFilestore {
   path?: string;
+  seed_zip_url?: string;
 }
 
 export interface TypesKnowledgeSourceS3 {
@@ -1027,6 +1034,8 @@ export interface TypesModel {
   memory?: number;
   name?: string;
   runtime?: TypesRuntime;
+  /** Order for sorting models in UI (lower numbers appear first) */
+  sort_order?: number;
   type?: TypesModelType;
   updated?: string;
 }
@@ -1616,23 +1625,6 @@ export interface TypesTeamMembership {
   user_id?: string;
 }
 
-export interface TypesTemplateAppConfig {
-  /** Base API URL for the provider */
-  api_url?: string;
-  assistants?: TypesAssistantConfig[];
-  description?: string;
-  metadata?: Record<string, any>;
-  name?: string;
-  type?: TypesTemplateAppType;
-}
-
-export enum TypesTemplateAppType {
-  TemplateAppTypeGitHub = "github",
-  TemplateAppTypeJira = "jira",
-  TemplateAppTypeSlack = "slack",
-  TemplateAppTypeGoogle = "google",
-}
-
 export interface TypesTestStep {
   expected_output?: string;
   prompt?: string;
@@ -1701,9 +1693,14 @@ export interface TypesToolBrowserConfig {
   markdown_post_processing?: boolean;
 }
 
+export interface TypesToolCalculatorConfig {
+  enabled?: boolean;
+}
+
 export interface TypesToolConfig {
   api?: TypesToolAPIConfig;
   browser?: TypesToolBrowserConfig;
+  calculator?: TypesToolCalculatorConfig;
   gptscript?: TypesToolGPTScriptConfig;
   zapier?: TypesToolZapierConfig;
 }
@@ -1787,6 +1784,14 @@ export interface TypesUserSearchResponse {
   offset?: number;
   total_count?: number;
   users?: TypesUser[];
+}
+
+export interface TypesUserTokenUsageResponse {
+  is_pro_tier?: boolean;
+  monthly_limit?: number;
+  monthly_usage?: number;
+  quotas_enabled?: boolean;
+  usage_percentage?: number;
 }
 
 export interface TypesUsersAggregatedUsageMetric {
@@ -1956,7 +1961,7 @@ export class HttpClient<SecurityDataType = unknown> {
  * @baseUrl https://app.tryhelix.ai
  * @contact Helix support <info@helixml.tech> (https://app.tryhelix.ai/)
  *
- * This is a HelixML AI API.
+ * This is the HelixML API.
  */
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
@@ -1995,6 +2000,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "POST",
         body: request,
         secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -2041,6 +2047,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "PUT",
         body: request,
         secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -2547,6 +2554,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesKnowledge, any>({
         path: `/api/v1/knowledge/${id}/complete`,
         method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Download all files from a filestore-backed knowledge as a zip file
+     *
+     * @tags knowledge
+     * @name V1KnowledgeDownloadDetail
+     * @summary Download knowledge files as zip
+     * @request GET:/api/v1/knowledge/{id}/download
+     * @secure
+     */
+    v1KnowledgeDownloadDetail: (id: string, params: RequestParams = {}) =>
+      this.request<File, any>({
+        path: `/api/v1/knowledge/${id}/download`,
+        method: "GET",
         secure: true,
         ...params,
       }),
@@ -3291,40 +3315,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description List available template apps configurations.
-     *
-     * @tags template_apps
-     * @name V1TemplateAppsList
-     * @summary List template apps
-     * @request GET:/api/v1/template-apps
-     * @secure
-     */
-    v1TemplateAppsList: (params: RequestParams = {}) =>
-      this.request<TypesTemplateAppConfig[], any>({
-        path: `/api/v1/template-apps`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Get template app configuration by type.
-     *
-     * @tags template_apps
-     * @name V1TemplateAppsDetail
-     * @summary Get template app by type
-     * @request GET:/api/v1/template-apps/{type}
-     * @secure
-     */
-    v1TemplateAppsDetail: (type: string, params: RequestParams = {}) =>
-      this.request<TypesTemplateAppConfig, SystemHTTPError>({
-        path: `/api/v1/template-apps/${type}`,
-        method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
      * @description Search users by email, name, or username
      *
      * @tags users
@@ -3350,6 +3340,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/users/search`,
         method: "GET",
         query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get current user's monthly token usage and limits
+     *
+     * @tags users
+     * @name V1UsersTokenUsageList
+     * @summary Get user token usage
+     * @request GET:/api/v1/users/token-usage
+     * @secure
+     */
+    v1UsersTokenUsageList: (params: RequestParams = {}) =>
+      this.request<TypesUserTokenUsageResponse, any>({
+        path: `/api/v1/users/token-usage`,
+        method: "GET",
         secure: true,
         ...params,
       }),
