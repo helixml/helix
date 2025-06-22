@@ -107,41 +107,27 @@ export const SessionsMenu: FC<{
 
     return (
       <Fragment key={title}>
-        <ListItem sx={{ px: 0, py: 1 }}>
+        <ListItem>
           <Typography
             variant="subtitle2"
             sx={{
-              color: 'rgba(255, 255, 255, 0.6)',
-              fontSize: '0.75rem',
+              color: lightTheme.textColorFaded,
+              fontSize: '0.8em',
               textTransform: 'uppercase',
-              letterSpacing: '1px',
-              fontWeight: 700,
-              ml: 2,
-              position: 'relative',
-              '&::after': {
-                content: '""',
-                position: 'absolute',
-                left: 0,
-                bottom: -2,
-                width: '24px',
-                height: '2px',
-                background: 'linear-gradient(90deg, #00E5FF 0%, #9333EA 100%)',
-                borderRadius: '1px',
-              },
+              letterSpacing: '0.5px',
             }}
           >
             {title}
           </Typography>
         </ListItem>
-        {sessions.map((session, index) => {
+        {sessions.map((session) => {
           const sessionId = 'session_id' in session ? session.session_id : session.id
           const isActive = sessionId === params["session_id"]
           return (
             <ListItem
               sx={{
-                px: 1,
-                py: 0.5,
-                mb: 0.5,
+                borderRadius: '20px',
+                cursor: 'pointer',
               }}
               key={sessionId}
               onClick={() => {
@@ -152,146 +138,32 @@ export const SessionsMenu: FC<{
               <ListItemButton
                 selected={isActive}
                 sx={{
-                  borderRadius: '16px',
-                  minHeight: '56px',
-                  background: isActive 
-                    ? 'linear-gradient(135deg, rgba(0, 229, 255, 0.15) 0%, rgba(147, 51, 234, 0.15) 100%)'
-                    : 'linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0.01) 100%)',
-                  backdropFilter: 'blur(10px)',
-                  border: isActive 
-                    ? '1px solid rgba(0, 229, 255, 0.3)'
-                    : '1px solid rgba(255, 255, 255, 0.05)',
+                  borderRadius: '4px',
+                  backgroundColor: isActive ? '#1a1a2f' : 'transparent',
                   cursor: 'pointer',
-                  position: 'relative',
-                  overflow: 'hidden',
-                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                  '&::before': {
-                    content: '""',
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%)',
-                    opacity: 0,
-                    transition: 'opacity 0.3s ease',
-                    borderRadius: '16px',
-                  },
                   '&:hover': {
-                    transform: 'translateY(-2px)',
-                    boxShadow: '0 8px 25px rgba(0, 0, 0, 0.2)',
-                    background: isActive 
-                      ? 'linear-gradient(135deg, rgba(0, 229, 255, 0.25) 0%, rgba(147, 51, 234, 0.25) 100%)'
-                      : 'linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.04) 100%)',
-                    borderColor: isActive 
-                      ? 'rgba(0, 229, 255, 0.5)'
-                      : 'rgba(255, 255, 255, 0.15)',
-                    '&::before': {
-                      opacity: 1,
-                    },
-                    '.MuiListItemText-root .MuiTypography-root': { 
-                      color: '#FFFFFF' 
-                    },
-                    '.session-icon': {
-                      transform: 'scale(1.1)',
-                    },
+                    '.MuiListItemText-root .MuiTypography-root': { color: '#fff' },
+                    '.MuiListItemIcon-root': { color: '#fff' },
                   },
-                  // Active state styling
-                  ...(isActive && {
-                    '&::after': {
-                      content: '""',
-                      position: 'absolute',
-                      left: 0,
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      width: '4px',
-                      height: '60%',
-                      background: 'linear-gradient(180deg, #00E5FF 0%, #9333EA 100%)',
-                      borderRadius: '0 2px 2px 0',
-                    },
-                  }),
                 }}
               >
                 <ListItemIcon
-                  className="session-icon"
-                  sx={{
-                    minWidth: '48px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    mr: 1,
-                    transition: 'all 0.3s ease',
-                  }}
+                  sx={{color:'red'}}
                 >
-                  <Box
-                    sx={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: '12px',
-                      background: isActive 
-                        ? 'linear-gradient(135deg, #00E5FF 0%, #9333EA 100%)'
-                        : 'linear-gradient(135deg, rgba(0, 229, 255, 0.2) 0%, rgba(147, 51, 234, 0.2) 100%)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      '& .MuiSvgIcon-root': {
-                        fontSize: 18,
-                        color: isActive ? 'white' : 'rgba(255, 255, 255, 0.8)',
-                      },
-                    }}
-                  >
-                    {getSessionIcon(session)}
-                  </Box>
+                  {getSessionIcon(session)}
                 </ListItemIcon>
                 <ListItemText
-                  sx={{ 
-                    ml: 0,
-                    flex: 1,
-                    '& .MuiTypography-root': {
-                      transition: 'color 0.3s ease',
-                    },
-                  }}
+                  sx={{marginLeft: "-15px"}}
                   primaryTypographyProps={{
-                    fontSize: '0.875rem',
-                    fontWeight: isActive ? 700 : 500,
+                    fontSize: 'small',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
-                    color: isActive ? '#FFFFFF' : 'rgba(255, 255, 255, 0.8)',
-                    lineHeight: 1.3,
+                    color: isActive ? '#fff' : lightTheme.textColorFaded,
                   }}
                   primary={session.name}
                   id={sessionId}
                 />
-                
-                {/* Optional: Add a subtle indicator for recent activity */}
-                {index === 0 && title === 'Today' && (
-                  <Box
-                    sx={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      background: 'linear-gradient(135deg, #00E5FF 0%, #9333EA 100%)',
-                      mr: 1,
-                      animation: 'pulse 2s ease-in-out infinite',
-                      '@keyframes pulse': {
-                        '0%': {
-                          transform: 'scale(1)',
-                          opacity: 1,
-                        },
-                        '50%': {
-                          transform: 'scale(1.2)',
-                          opacity: 0.7,
-                        },
-                        '100%': {
-                          transform: 'scale(1)',
-                          opacity: 1,
-                        },
-                      },
-                    }}
-                  />
-                )}
               </ListItemButton>
             </ListItem>
           )
@@ -306,29 +178,8 @@ export const SessionsMenu: FC<{
     <SlideMenuContainer menuType={MENU_TYPE}>
       <List
         sx={{
-          py: 2,
-          px: 0,
-          height: '100%',
-          overflow: 'auto',
-          // Custom scrollbar styling
-          '&::-webkit-scrollbar': {
-            width: '6px',
-          },
-          '&::-webkit-scrollbar-track': {
-            background: 'rgba(255, 255, 255, 0.05)',
-            borderRadius: '3px',
-            margin: '8px',
-          },
-          '&::-webkit-scrollbar-thumb': {
-            background: 'linear-gradient(180deg, #00E5FF 0%, #9333EA 100%)',
-            borderRadius: '3px',
-            '&:hover': {
-              background: 'linear-gradient(180deg, #00B8CC 0%, #7C2D92 100%)',
-            },
-          },
-          // Firefox scrollbar styling
-          scrollbarWidth: 'thin',
-          scrollbarColor: '#00E5FF rgba(255, 255, 255, 0.05)',
+          py: 1,
+          px: 2,
         }}
       >
         {renderSessionGroup(groupedSessions.today, "Today")}
@@ -359,23 +210,6 @@ export const SessionsMenu: FC<{
               {
                 !sessions.loading && sessions.hasMoreSessions && (
                   <ClickLink
-                    sx={{
-                      padding: '8px 16px',
-                      borderRadius: '12px',
-                      background: 'linear-gradient(135deg, rgba(0, 229, 255, 0.1) 0%, rgba(147, 51, 234, 0.1) 100%)',
-                      backdropFilter: 'blur(10px)',
-                      border: '1px solid rgba(0, 229, 255, 0.2)',
-                      color: 'rgba(255, 255, 255, 0.9)',
-                      fontSize: '0.875rem',
-                      fontWeight: 600,
-                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                      '&:hover': {
-                        background: 'linear-gradient(135deg, rgba(0, 229, 255, 0.2) 0%, rgba(147, 51, 234, 0.2) 100%)',
-                        borderColor: 'rgba(0, 229, 255, 0.4)',
-                        transform: 'translateY(-1px)',
-                        boxShadow: '0 4px 12px rgba(0, 229, 255, 0.2)',
-                      },
-                    }}
                     onClick={ () => {
                       sessions.advancePage()
                     }}
