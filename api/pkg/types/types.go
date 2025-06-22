@@ -1013,10 +1013,11 @@ type PaginatedLLMCalls struct {
 type ToolType string
 
 const (
-	ToolTypeAPI       ToolType = "api"
-	ToolTypeBrowser   ToolType = "browser"
-	ToolTypeGPTScript ToolType = "gptscript"
-	ToolTypeZapier    ToolType = "zapier"
+	ToolTypeAPI        ToolType = "api"
+	ToolTypeBrowser    ToolType = "browser"
+	ToolTypeGPTScript  ToolType = "gptscript"
+	ToolTypeZapier     ToolType = "zapier"
+	ToolTypeCalculator ToolType = "calculator"
 )
 
 type Tool struct {
@@ -1030,16 +1031,21 @@ type Tool struct {
 }
 
 type ToolConfig struct {
-	API       *ToolAPIConfig       `json:"api"`
-	GPTScript *ToolGPTScriptConfig `json:"gptscript"`
-	Zapier    *ToolZapierConfig    `json:"zapier"`
-	Browser   *ToolBrowserConfig   `json:"browser"`
+	API        *ToolAPIConfig        `json:"api"`
+	GPTScript  *ToolGPTScriptConfig  `json:"gptscript"`
+	Zapier     *ToolZapierConfig     `json:"zapier"`
+	Browser    *ToolBrowserConfig    `json:"browser"`
+	Calculator *ToolCalculatorConfig `json:"calculator"`
 }
 
 type ToolBrowserConfig struct {
 	Enabled                bool `json:"enabled" yaml:"enabled"`
 	MarkdownPostProcessing bool `json:"markdown_post_processing" yaml:"markdown_post_processing"` // If true, the browser will return the HTML as markdown
 	// TODO: whitelist URLs?
+}
+
+type ToolCalculatorConfig struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
 }
 
 func (t ToolConfig) Value() (driver.Value, error) {
@@ -1222,6 +1228,8 @@ type AssistantConfig struct {
 
 	Browser AssistantBrowser `json:"browser,omitempty" yaml:"browser,omitempty"`
 
+	Calculator *AssistantCalculator `json:"calculator,omitempty" yaml:"calculator,omitempty"`
+
 	Tools []*Tool `json:"tools,omitempty" yaml:"tools,omitempty"`
 
 	Tests []struct {
@@ -1234,6 +1242,10 @@ type AssistantBrowser struct {
 	Enabled                bool `json:"enabled" yaml:"enabled"`
 	MarkdownPostProcessing bool `json:"markdown_post_processing" yaml:"markdown_post_processing"` // If true, the browser will return the HTML as markdown
 	// TODO: whitelist URLs?
+}
+
+type AssistantCalculator struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
 }
 
 const ReasoningEffortNone = "none" // Don't set
