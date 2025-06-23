@@ -26,6 +26,7 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
     flatState.description = app.config.helix.description
     flatState.avatar = app.config.helix.avatar
     flatState.image = app.config.helix.image
+    flatState.triggers = app.config.helix.triggers || []
     
     // Extract assistant properties if available
     const assistant = app.config.helix.assistants?.[0]

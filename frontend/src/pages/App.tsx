@@ -16,6 +16,7 @@ import BarChartIcon from '@mui/icons-material/BarChart';
 import CloudDownloadIcon from '@mui/icons-material/CloudDownload';
 import GroupIcon from '@mui/icons-material/Group';
 import PaletteIcon from '@mui/icons-material/Palette';
+import ScheduleIcon from '@mui/icons-material/Schedule';
 
 import APIKeysSection from '../components/app/APIKeysSection'
 import AppSettings from '../components/app/AppSettings'
@@ -25,6 +26,7 @@ import CodeExamples from '../components/app/CodeExamples'
 import DevelopersSection from '../components/app/DevelopersSection'
 import KnowledgeEditor from '../components/app/KnowledgeEditor'
 import PreviewPanel from '../components/app/PreviewPanel'
+import Triggers from '../components/app/Triggers'
 import Page from '../components/system/Page'
 import AccessDenied from '../components/system/AccessDenied'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
@@ -200,6 +202,7 @@ const App: FC = () => {
                 <Tab icon={<CodeIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="MCP" value="mcp" />
                 <Tab icon={<BarChartIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Usage" value="usage" />
                 <Tab icon={<CloudDownloadIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Export" value="developers" />
+                <Tab icon={<ScheduleIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Triggers" value="triggers" />
                 {
                   appTools.app?.organization_id && userAccess.isAdmin && (
                     <Tab icon={<GroupIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Access" value="access" />
@@ -252,6 +255,16 @@ const App: FC = () => {
                       <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
                         <IdeIntegrationSection
                           appId={appTools.id}
+                        />
+                      </Box>
+                    </Grid>
+                  ) : tabValue === 'triggers' ? (
+                    <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                        <Triggers
+                          triggers={appTools.flatApp?.triggers || []}
+                          onUpdate={(triggers) => appTools.saveFlatApp({ triggers })}
+                          readOnly={isReadOnly}
                         />
                       </Box>
                     </Grid>
