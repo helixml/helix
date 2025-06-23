@@ -25,3 +25,24 @@ helm upgrade --install helix-3090-runner helix/helix-runner \
   --set replicaCount=4 \
   --set nodeSelector."nvidia\.com/gpu\.product"="NVIDIA-GeForce-RTX-3090-Ti"
 ```
+
+## Troubleshooting
+
+### Single GPU Upgrade Deadlocks
+
+If you're running with a single GPU (`nvidia.com/gpu: 1`) and experiencing deadlocks during upgrades, this is caused by Kubernetes' default RollingUpdate strategy trying to start a new pod before terminating the old one. Since both pods compete for the same GPU resource, the deployment gets stuck.
+
+**Solution**: The chart automatically detects single GPU configurations and uses the `Recreate` deployment strategy to prevent this issue. You can also manually control this behavior:
+
+```yaml
+# In your values file
+deploymentStrategy: "Recreate"  # Force recreate strategy
+# or
+deploymentStrategy: "auto"      # Auto-detect (default)
+# or  
+deploymentStrategy: "RollingUpdate"  # Force rolling update
+```
+
+The `auto` setting (default) will:
+- Use `Recreate` strategy when `nvidia.com/gpu: 1` 
+- Use `RollingUpdate` strategy for multi-GPU setups

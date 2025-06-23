@@ -8,6 +8,27 @@ spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
+  {{- if eq .Values.deploymentStrategy "Recreate" }}
+  strategy:
+    type: Recreate
+  {{- else if eq .Values.deploymentStrategy "RollingUpdate" }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  {{- else if eq .Values.deploymentStrategy "auto" }}
+    {{- if and .Values.resources.limits (eq (.Values.resources.limits."nvidia.com/gpu" | toString) "1") }}
+  strategy:
+    type: Recreate
+    {{- else }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+    {{- end }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "helix-runner.selectorLabels" . | nindent 6 }}

@@ -4,6 +4,11 @@
 
 replicaCount: 1
 
+# Deployment strategy configuration
+# Options: "auto", "RollingUpdate", "Recreate"
+# "auto" will use Recreate for single GPU setups, RollingUpdate otherwise
+deploymentStrategy: "auto"
+
 image:
   repository: registry.helixml.tech/helix/runner
   pullPolicy: IfNotPresent
