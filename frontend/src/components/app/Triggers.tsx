@@ -34,6 +34,9 @@ const DAYS_OF_WEEK = [
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
 const MINUTES = Array.from({ length: 60 }, (_, i) => i)
+const INTERVAL_MINUTES = [5, 10, 15, 30, 60, 120, 240] // 5min to 4h
+
+type ScheduleMode = 'intervals' | 'specific_time'
 
 // Helper functions to parse cron expressions
 const parseCronDays = (cronExpression: string): number[] => {
@@ -84,12 +87,38 @@ const parseCronTimezone = (cronExpression: string): string => {
   return getUserTimezone() // Use user's timezone as default instead of hardcoded UTC
 }
 
+const parseCronInterval = (cronExpression: string): number => {
+  const parts = cronExpression.split(' ')
+  // For interval mode, the expression should be like "*/5 * * * *" (every 5 minutes)
+  if (parts.length >= 5) {
+    const minutePart = parts[0]
+    if (minutePart.startsWith('*/')) {
+      return parseInt(minutePart.substring(2)) || 5
+    }
+  }
+  return 5
+}
+
+const isIntervalCron = (cronExpression: string): boolean => {
+  const parts = cronExpression.split(' ')
+  if (parts.length >= 5) {
+    const minutePart = parts[0]
+    return minutePart.startsWith('*/')
+  }
+  return false
+}
+
 const getUserTimezone = () => {
   const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   return timezones.includes(userTimezone) ? userTimezone : 'UTC'
 }
 
 const formatCronSchedule = (schedule: string): string => {
+  if (isIntervalCron(schedule)) {
+    const interval = parseCronInterval(schedule)
+    return `Every ${interval} minute${interval > 1 ? 's' : ''}`
+  }
+  
   const days = parseCronDays(schedule)
   const hour = parseCronHour(schedule)
   const minute = parseCronMinute(schedule)
@@ -109,18 +138,28 @@ const Triggers: FC<TriggersProps> = ({
   const hasCronTrigger = triggers.some(t => t.cron)
   const cronTrigger = triggers.find(t => t.cron)?.cron
 
+  // Determine initial schedule mode
+  const getInitialScheduleMode = (): ScheduleMode => {
+    if (!cronTrigger?.schedule) return 'specific_time'
+    return isIntervalCron(cronTrigger.schedule) ? 'intervals' : 'specific_time'
+  }
+
   // State for inline schedule configuration
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(getInitialScheduleMode())
   const [selectedDays, setSelectedDays] = useState<number[]>(
-    cronTrigger ? parseCronDays(cronTrigger.schedule || '') : [1] // Default to Monday
+    cronTrigger && !isIntervalCron(cronTrigger.schedule || '') ? parseCronDays(cronTrigger.schedule || '') : [1] // Default to Monday
   )
   const [selectedHour, setSelectedHour] = useState<number>(
-    cronTrigger ? parseCronHour(cronTrigger.schedule || '') : 9
+    cronTrigger && !isIntervalCron(cronTrigger.schedule || '') ? parseCronHour(cronTrigger.schedule || '') : 9
   )
   const [selectedMinute, setSelectedMinute] = useState<number>(
-    cronTrigger ? parseCronMinute(cronTrigger.schedule || '') : 0
+    cronTrigger && !isIntervalCron(cronTrigger.schedule || '') ? parseCronMinute(cronTrigger.schedule || '') : 0
   )
   const [selectedTimezone, setSelectedTimezone] = useState<string>(
-    cronTrigger ? parseCronTimezone(cronTrigger.schedule || '') : getUserTimezone()
+    cronTrigger && !isIntervalCron(cronTrigger.schedule || '') ? parseCronTimezone(cronTrigger.schedule || '') : getUserTimezone()
+  )
+  const [selectedInterval, setSelectedInterval] = useState<number>(
+    cronTrigger && isIntervalCron(cronTrigger.schedule || '') ? parseCronInterval(cronTrigger.schedule || '') : 5
   )
   const [scheduleInput, setScheduleInput] = useState<string>(
     cronTrigger?.input || ''
@@ -129,23 +168,52 @@ const Triggers: FC<TriggersProps> = ({
   // Update state when triggers change
   useEffect(() => {
     if (cronTrigger) {
-      setSelectedDays(parseCronDays(cronTrigger.schedule || ''))
-      setSelectedHour(parseCronHour(cronTrigger.schedule || ''))
-      setSelectedMinute(parseCronMinute(cronTrigger.schedule || ''))
-      setSelectedTimezone(parseCronTimezone(cronTrigger.schedule || ''))
+      const isInterval = isIntervalCron(cronTrigger.schedule || '')
+      setScheduleMode(isInterval ? 'intervals' : 'specific_time')
+      
+      if (isInterval) {
+        setSelectedInterval(parseCronInterval(cronTrigger.schedule || ''))
+      } else {
+        setSelectedDays(parseCronDays(cronTrigger.schedule || ''))
+        setSelectedHour(parseCronHour(cronTrigger.schedule || ''))
+        setSelectedMinute(parseCronMinute(cronTrigger.schedule || ''))
+        setSelectedTimezone(parseCronTimezone(cronTrigger.schedule || ''))
+      }
       setScheduleInput(cronTrigger.input || '')
     }
   }, [cronTrigger])
 
   const handleCronToggle = (enabled: boolean) => {
     if (enabled) {
-      // Add a default cron trigger (Monday at 9:00 AM in user's timezone)
+      // Add a default cron trigger based on current mode
       const userTz = getUserTimezone()
-      const newTriggers = [...triggers.filter(t => !t.cron), { cron: { schedule: `CRON_TZ=${userTz} 0 9 * * 1`, input: '' } }]
+      let schedule: string
+      if (scheduleMode === 'intervals') {
+        schedule = `*/${selectedInterval} * * * *`
+      } else {
+        schedule = `CRON_TZ=${userTz} 0 9 * * 1`
+      }
+      const newTriggers = [...triggers.filter(t => !t.cron), { cron: { schedule, input: '' } }]
       onUpdate(newTriggers)
     } else {
       // Remove cron trigger
       const newTriggers = triggers.filter(t => !t.cron)
+      onUpdate(newTriggers)
+    }
+  }
+
+  const handleScheduleModeChange = (mode: ScheduleMode) => {
+    setScheduleMode(mode)
+    if (mode === 'intervals') {
+      // Switch to interval mode - create interval cron expression
+      const schedule = `*/${selectedInterval} * * * *`
+      const newTriggers = [...triggers.filter(t => !t.cron), { cron: { schedule, input: scheduleInput } }]
+      onUpdate(newTriggers)
+    } else {
+      // Switch to specific time mode - create specific time cron expression
+      const userTz = getUserTimezone()
+      const schedule = `CRON_TZ=${userTz} ${selectedMinute} ${selectedHour} * * ${selectedDays.join(',')}`
+      const newTriggers = [...triggers.filter(t => !t.cron), { cron: { schedule, input: scheduleInput } }]
       onUpdate(newTriggers)
     }
   }
@@ -174,15 +242,30 @@ const Triggers: FC<TriggersProps> = ({
     updateCronTrigger(selectedDays, selectedHour, selectedMinute, timezone, scheduleInput)
   }
 
+  const handleIntervalChange = (interval: number) => {
+    setSelectedInterval(interval)
+    updateIntervalCronTrigger(interval, scheduleInput)
+  }
+
   const handleInputChange = (input: string) => {
     setScheduleInput(input)
-    updateCronTrigger(selectedDays, selectedHour, selectedMinute, selectedTimezone, input)
+    if (scheduleMode === 'intervals') {
+      updateIntervalCronTrigger(selectedInterval, input)
+    } else {
+      updateCronTrigger(selectedDays, selectedHour, selectedMinute, selectedTimezone, input)
+    }
   }
 
   const updateCronTrigger = (days: number[], hour: number, minute: number, timezone: string, input: string) => {
     if (days.length === 0) return
     
     const cronExpression = `CRON_TZ=${timezone} ${minute} ${hour} * * ${days.join(',')}`
+    const newTriggers = [...triggers.filter(t => !t.cron), { cron: { schedule: cronExpression, input } }]
+    onUpdate(newTriggers)
+  }
+
+  const updateIntervalCronTrigger = (interval: number, input: string) => {
+    const cronExpression = `*/${interval} * * * *`
     const newTriggers = [...triggers.filter(t => !t.cron), { cron: { schedule: cronExpression, input } }]
     onUpdate(newTriggers)
   }
@@ -241,84 +324,128 @@ const Triggers: FC<TriggersProps> = ({
 
         {hasCronTrigger && (
           <Box sx={{ mt: 2, p: 2, borderRadius: 1 }}>
-            {/* Days of the week */}
+            {/* Schedule Mode Selection */}
             <Box sx={{ mb: 2 }}>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Days of the week
+              <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
+                Schedule Type
               </Typography>
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'left' }}>
-                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mr: 2 }}>
-                  {DAYS_OF_WEEK.map((day) => (
-                    <Button
-                      key={day.value}
-                      variant={selectedDays.includes(day.value) ? "contained" : "outlined"}
-                      color={selectedDays.includes(day.value) ? "secondary" : "secondary"}
-                      size="small"
-                      onClick={() => handleDayToggle(day.value)}
-                      disabled={readOnly}
-                      sx={{ 
-                        minWidth: 'auto', 
-                        px: 1.5,
-                        py: 0.5,
-                        fontSize: '0.75rem'
-                      }}
-                    >
-                      {day.label}
-                    </Button>
-                  ))}
-                </Box>
-                
-                {/* Time selection - moved to the right side */}
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                  <FormControl size="small" sx={{ minWidth: 120 }}>
-                    <InputLabel>Timezone</InputLabel>
-                    <Select
-                      value={selectedTimezone}
-                      label="Timezone"
-                      onChange={(e) => handleTimezoneChange(e.target.value as string)}
-                      disabled={readOnly}
-                    >
-                      {timezones.map((timezone) => (
-                        <MenuItem key={timezone} value={timezone}>
-                          {timezone}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  <FormControl size="small" sx={{ minWidth: 80 }}>
-                    <InputLabel>Hour</InputLabel>
-                    <Select
-                      value={selectedHour}
-                      label="Hour"
-                      onChange={(e) => handleHourChange(e.target.value as number)}
-                      disabled={readOnly}
-                    >
-                      {HOURS.map((hour) => (
-                        <MenuItem key={hour} value={hour}>
-                          {hour.toString().padStart(2, '0')}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  <Typography variant="body2" color="text.secondary">:</Typography>
-                  <FormControl size="small" sx={{ minWidth: 80 }}>
-                    <InputLabel>Minute</InputLabel>
-                    <Select
-                      value={selectedMinute}
-                      label="Minute"
-                      onChange={(e) => handleMinuteChange(e.target.value as number)}
-                      disabled={readOnly}
-                    >
-                      {MINUTES.map((minute) => (
-                        <MenuItem key={minute} value={minute}>
-                          {minute.toString().padStart(2, '0')}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+              <FormControl size="small" sx={{ minWidth: 200 }}>
+                {/* <InputLabel>Schedule Type</InputLabel> */}
+                <Select
+                  value={scheduleMode}
+                  // label="Schedule Type"
+                  onChange={(e) => handleScheduleModeChange(e.target.value as ScheduleMode)}
+                  disabled={readOnly}
+                >
+                  <MenuItem value="intervals">Intervals</MenuItem>
+                  <MenuItem value="specific_time">Specific Time</MenuItem>
+                </Select>
+              </FormControl>
+            </Box>
+
+            {scheduleMode === 'intervals' ? (
+              /* Interval Mode */
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
+                  Interval
+                </Typography>
+                <FormControl size="small" sx={{ minWidth: 200 }}>
+                  {/* <InputLabel>Every</InputLabel> */}
+                  <Select
+                    value={selectedInterval}
+                    // label="Every"
+                    onChange={(e) => handleIntervalChange(e.target.value as number)}
+                    disabled={readOnly}
+                  >
+                    {INTERVAL_MINUTES.map((interval) => (
+                      <MenuItem key={interval} value={interval}>
+                        {interval} minute{interval > 1 ? 's' : ''}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
+            ) : (
+              /* Specific Time Mode */
+              <Box sx={{ mb: 2 }}>
+                {/* Days of the week */}
+                <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
+                  Days of the week
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'left' }}>
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mr: 2 }}>
+                    {DAYS_OF_WEEK.map((day) => (
+                      <Button
+                        key={day.value}
+                        variant={selectedDays.includes(day.value) ? "contained" : "outlined"}
+                        color={selectedDays.includes(day.value) ? "secondary" : "secondary"}
+                        size="small"
+                        onClick={() => handleDayToggle(day.value)}
+                        disabled={readOnly}
+                        sx={{ 
+                          minWidth: 'auto', 
+                          px: 1.5,
+                          py: 0.5,
+                          fontSize: '0.75rem'
+                        }}
+                      >
+                        {day.label}
+                      </Button>
+                    ))}
+                  </Box>
+                  
+                  {/* Time selection - moved to the right side */}
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <FormControl size="small" sx={{ minWidth: 120 }}>
+                      <InputLabel>Timezone</InputLabel>
+                      <Select
+                        value={selectedTimezone}
+                        label="Timezone"
+                        onChange={(e) => handleTimezoneChange(e.target.value as string)}
+                        disabled={readOnly}
+                      >
+                        {timezones.map((timezone) => (
+                          <MenuItem key={timezone} value={timezone}>
+                            {timezone}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <FormControl size="small" sx={{ minWidth: 80 }}>
+                      <InputLabel>Hour</InputLabel>
+                      <Select
+                        value={selectedHour}
+                        label="Hour"
+                        onChange={(e) => handleHourChange(e.target.value as number)}
+                        disabled={readOnly}
+                      >
+                        {HOURS.map((hour) => (
+                          <MenuItem key={hour} value={hour}>
+                            {hour.toString().padStart(2, '0')}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <Typography variant="body2" color="text.secondary">:</Typography>
+                    <FormControl size="small" sx={{ minWidth: 80 }}>
+                      <InputLabel>Minute</InputLabel>
+                      <Select
+                        value={selectedMinute}
+                        label="Minute"
+                        onChange={(e) => handleMinuteChange(e.target.value as number)}
+                        disabled={readOnly}
+                      >
+                        {MINUTES.map((minute) => (
+                          <MenuItem key={minute} value={minute}>
+                            {minute.toString().padStart(2, '0')}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Box>
                 </Box>
               </Box>
-            </Box>
+            )}
 
             {/* Input field */}
             <Box sx={{ mb: 2 }}>
@@ -340,9 +467,11 @@ const Triggers: FC<TriggersProps> = ({
             {/* Schedule summary */}
             <Box>
               <Typography variant="body2" color="text.secondary">
-                <strong>Summary:</strong> {selectedDays.length > 0 
-                  ? `Every ${selectedDays.map(d => DAYS_OF_WEEK[d].fullLabel).join(', ')} at ${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')} (${selectedTimezone})`
-                  : 'No days selected'
+                <strong>Summary:</strong> {scheduleMode === 'intervals' 
+                  ? `Every ${selectedInterval} minute${selectedInterval > 1 ? 's' : ''}`
+                  : selectedDays.length > 0 
+                    ? `Every ${selectedDays.map(d => DAYS_OF_WEEK[d].fullLabel).join(', ')} at ${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')} (${selectedTimezone})`
+                    : 'No days selected'
                 }
               </Typography>
             </Box>
