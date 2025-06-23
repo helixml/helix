@@ -24,6 +24,7 @@ import EditIcon from '@mui/icons-material/Edit'
 import ScheduleIcon from '@mui/icons-material/Schedule'
 import ApiIcon from '@mui/icons-material/Api'
 import { TypesTrigger, TypesCronTrigger } from '../../api/api'
+import useThemeConfig from '../../hooks/useThemeConfig'
 
 interface TriggersProps {
   triggers?: TypesTrigger[]
@@ -228,6 +229,8 @@ const Triggers: FC<TriggersProps> = ({
   const hasCronTrigger = triggers.some(t => t.cron)
   const cronTrigger = triggers.find(t => t.cron)?.cron
 
+  const themeConfig = useThemeConfig()
+
   const handleCronToggle = (enabled: boolean) => {
     if (enabled) {
       // Add a default cron trigger (Monday at 9:00 AM)
@@ -263,6 +266,8 @@ const Triggers: FC<TriggersProps> = ({
     onUpdate(newTriggers)
   }
 
+
+
   return (
     <Box sx={{ mt: 2, mr: 2}}>
       <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
@@ -273,7 +278,7 @@ const Triggers: FC<TriggersProps> = ({
       </Typography>
 
       {/* Sessions/API Trigger - Always enabled and read-only */}
-      <Card sx={{ mb: 3 }}>
+      <Card sx={{ mb: 3, backgroundColor: themeConfig.darkPanel, boxShadow: 'none' }}>
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -294,13 +299,13 @@ const Triggers: FC<TriggersProps> = ({
       </Card>
 
       {/* Recurring Trigger */}
-      <Card>
+      <Card sx={{ backgroundColor: themeConfig.darkPanel, boxShadow: 'none' }}>
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
               <ScheduleIcon sx={{ mr: 2, color: 'primary.main' }} />
               <Box>
-                <Typography variant="h6">Recurring</Typography>
+                <Typography variant="h6">Scheduled</Typography>
                 <Typography variant="body2" color="text.secondary">
                   Run your agent on a schedule
                 </Typography>
@@ -319,7 +324,7 @@ const Triggers: FC<TriggersProps> = ({
           </Box>
 
           {hasCronTrigger && cronTrigger && (
-            <Box sx={{ mt: 2, p: 2, bgcolor: 'background.paper', borderRadius: 1 }}>
+            <Box sx={{ mt: 2, p: 2, borderRadius: 1 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Box>
                   <Typography variant="subtitle1" gutterBottom>
