@@ -81,7 +81,12 @@ const parseCronTimezone = (cronExpression: string): string => {
       return tzMatch[1]
     }
   }
-  return 'UTC' // Default timezone
+  return getUserTimezone() // Use user's timezone as default instead of hardcoded UTC
+}
+
+const getUserTimezone = () => {
+  const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  return timezones.includes(userTimezone) ? userTimezone : 'UTC'
 }
 
 const formatCronSchedule = (schedule: string): string => {
@@ -115,7 +120,7 @@ const Triggers: FC<TriggersProps> = ({
     cronTrigger ? parseCronMinute(cronTrigger.schedule || '') : 0
   )
   const [selectedTimezone, setSelectedTimezone] = useState<string>(
-    cronTrigger ? parseCronTimezone(cronTrigger.schedule || '') : 'UTC'
+    cronTrigger ? parseCronTimezone(cronTrigger.schedule || '') : getUserTimezone()
   )
   const [scheduleInput, setScheduleInput] = useState<string>(
     cronTrigger?.input || ''
@@ -134,8 +139,9 @@ const Triggers: FC<TriggersProps> = ({
 
   const handleCronToggle = (enabled: boolean) => {
     if (enabled) {
-      // Add a default cron trigger (Monday at 9:00 AM UTC)
-      const newTriggers = [...triggers.filter(t => !t.cron), { cron: { schedule: 'CRON_TZ=UTC 0 9 * * 1', input: '' } }]
+      // Add a default cron trigger (Monday at 9:00 AM in user's timezone)
+      const userTz = getUserTimezone()
+      const newTriggers = [...triggers.filter(t => !t.cron), { cron: { schedule: `CRON_TZ=${userTz} 0 9 * * 1`, input: '' } }]
       onUpdate(newTriggers)
     } else {
       // Remove cron trigger
