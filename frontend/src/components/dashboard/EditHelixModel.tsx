@@ -55,6 +55,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
     enabled: true,
     hide: false,
     auto_pull: false, // Add auto_pull state
+    prewarm: false, // Add prewarm state
   });
 
   // Initialize form data when the dialog opens or the model changes
@@ -72,6 +73,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
           enabled: model.enabled !== undefined ? model.enabled : false, // Default to false if undefined
           hide: model.hide || false,
           auto_pull: model.auto_pull || false, // Initialize auto_pull
+          prewarm: model.prewarm || false, // Initialize prewarm
         });
       } else {
         // Reset for creating a new model
@@ -86,6 +88,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
           enabled: true,
           hide: false,
           auto_pull: false, // Default auto_pull to false
+          prewarm: false, // Default prewarm to false
         });
       }
       setError(''); // Clear errors when dialog opens/changes mode
@@ -180,6 +183,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
       context_length: formData.context_length > 0 ? formData.context_length : undefined,
       enabled: formData.enabled,
       auto_pull: formData.auto_pull,
+      prewarm: formData.prewarm,
       hide: formData.hide,
     };
 
@@ -358,6 +362,14 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                    label="Auto Pull"
                 />
                  <FormHelperText>Automatically pull this model when it's not already downloaded.</FormHelperText>
+          </Stack>
+
+           <Stack direction="row" spacing={2} justifyContent="start" alignItems="center">
+               <FormControlLabel                  
+                   control={<Switch checked={formData.prewarm} onChange={handleSwitchChange} name="prewarm" disabled={loading} />}
+                   label="Prewarm"
+                />
+                 <FormHelperText>Fill free GPU memory on runners with this model when available.</FormHelperText>
           </Stack>
 
         </Stack>

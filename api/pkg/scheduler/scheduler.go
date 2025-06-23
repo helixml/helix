@@ -3,17 +3,19 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"slices"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"golang.org/x/exp/rand"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 const (
@@ -21,6 +23,7 @@ const (
 	runnerReconcileInterval   = 5 * time.Second
 	activityReconcileInterval = 100 * time.Millisecond
 	queueReconcileInterval    = 100 * time.Millisecond
+	prewarmReconcileInterval  = 30 * time.Second // How often to check for prewarming opportunities
 )
 
 // TimeoutFunc defines a function type that determines if a runner has timed out based on the last activity.
@@ -116,6 +119,9 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 
 	// Start the runner reconciler
 	go s.reconcileRunners(ctx)
+
+	// Start the prewarming reconciler
+	go s.reconcilePrewarming(ctx)
 
 	return s, nil
 }
@@ -702,8 +708,9 @@ func (s *Scheduler) warmSlots(req *Workload) []*Slot {
 			return true
 		}
 
-		// Add available slots to the list.
+		// Add available slots to the list - this includes both regular and prewarming slots
 		cosyWarm = append(cosyWarm, slot)
+
 		return true
 	})
 	return cosyWarm
@@ -959,4 +966,279 @@ func withSlotContext(l *zerolog.Logger, s *Slot) *zerolog.Logger {
 
 func withSlotAndWorkContext(l *zerolog.Logger, s *Slot, w *Workload) *zerolog.Logger {
 	return withSlotContext(withWorkContext(l, w), s)
+}
+
+// reconcilePrewarming runs in a goroutine to create prewarmed slots to fill free GPU memory.
+func (s *Scheduler) reconcilePrewarming(ctx context.Context) {
+	log.Debug().Msg("starting prewarming reconciler")
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(prewarmReconcileInterval):
+			s.reconcilePrewarmingOnce(ctx)
+		}
+	}
+}
+
+func (s *Scheduler) reconcilePrewarmingOnce(ctx context.Context) {
+	// Get all models that should be prewarmed from the database
+	enabled := true
+	allModels, err := s.controller.store.ListModels(ctx, &store.ListModelsQuery{
+		Enabled: &enabled, // Only enabled models
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("failed to get models from database")
+		return
+	}
+
+	// Filter to only prewarming models
+	var prewarmModels []*types.Model
+	for _, model := range allModels {
+		if model.Prewarm {
+			prewarmModels = append(prewarmModels, model)
+		}
+	}
+
+	if len(prewarmModels) == 0 {
+		log.Trace().Msg("no prewarming models configured")
+		return
+	}
+
+	// Get all runners
+	runnerIDs := s.controller.RunnerIDs()
+	if len(runnerIDs) == 0 {
+		return
+	}
+
+	log.Trace().
+		Int("prewarm_models", len(prewarmModels)).
+		Strs("runner_ids", runnerIDs).
+		Msg("Starting prewarming reconciliation")
+
+	// Use global balancing to distribute prewarmed models across all runners
+	s.globalPrewarmBalancing(runnerIDs, prewarmModels)
+}
+
+// runnerCapacity holds memory and model information for a runner during prewarming
+type runnerCapacity struct {
+	id              string
+	totalMemory     uint64
+	allocatedMemory uint64
+	freeMemory      uint64
+	availableMemory uint64          // free - reserved
+	existingModels  map[string]bool // models already on this runner
+}
+
+// globalPrewarmBalancing distributes prewarming models across all runners using global balancing.
+// This ensures equal distribution of prewarm models across the entire cluster.
+func (s *Scheduler) globalPrewarmBalancing(runnerIDs []string, prewarmModels []*types.Model) {
+	// Count how many instances of each prewarm model are currently running globally
+	modelCounts := make(map[string]int)
+	for _, model := range prewarmModels {
+		modelCounts[model.ID] = 0
+	}
+
+	// Count existing slots for each prewarm model
+	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		modelName := slot.InitialWork().ModelName().String()
+		if _, isPrewarm := modelCounts[modelName]; isPrewarm {
+			modelCounts[modelName]++
+		}
+		return true
+	})
+
+	// Find the minimum count to determine how many more instances we should add
+	minCount := int(^uint(0) >> 1) // Max int
+	for _, count := range modelCounts {
+		if count < minCount {
+			minCount = count
+		}
+	}
+
+	// Only add more instances if we can increase the minimum count
+	targetCount := minCount + 1
+
+	// Build a list of runner capacities
+	runners := make([]*runnerCapacity, 0, len(runnerIDs))
+	for _, runnerID := range runnerIDs {
+		totalMemory := s.controller.TotalMemory(runnerID)
+		if totalMemory == 0 {
+			log.Debug().Str("runner_id", runnerID).Msg("skipping runner with no memory info")
+			continue
+		}
+
+		// Calculate currently allocated memory
+		var allocatedMemory uint64
+		existingModels := make(map[string]bool)
+		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+			if slot.RunnerID == runnerID {
+				allocatedMemory += slot.Memory()
+				existingModels[slot.InitialWork().ModelName().String()] = true
+			}
+			return true
+		})
+
+		freeMemory := totalMemory - allocatedMemory
+
+		runners = append(runners, &runnerCapacity{
+			id:              runnerID,
+			totalMemory:     totalMemory,
+			allocatedMemory: allocatedMemory,
+			freeMemory:      freeMemory,
+			availableMemory: freeMemory, // No reservation, use all free memory
+			existingModels:  existingModels,
+		})
+
+		log.Trace().
+			Str("runner_id", runnerID).
+			Uint64("total_memory", totalMemory).
+			Uint64("allocated_memory", allocatedMemory).
+			Uint64("free_memory", freeMemory).
+			Int("existing_models", len(existingModels)).
+			Msg("Runner capacity for global prewarming")
+	}
+
+	if len(runners) == 0 {
+		log.Debug().Msg("no runners available for prewarming")
+		return
+	}
+
+	// Create a list of models that need more instances (models with count < targetCount)
+	var modelsToAdd []*types.Model
+	for _, model := range prewarmModels {
+		if modelCounts[model.ID] < targetCount {
+			// Add as many instances as needed to reach targetCount
+			needed := targetCount - modelCounts[model.ID]
+			for i := 0; i < needed; i++ {
+				modelsToAdd = append(modelsToAdd, model)
+			}
+		}
+	}
+
+	if len(modelsToAdd) == 0 {
+		log.Trace().
+			Interface("model_counts", modelCounts).
+			Int("target_count", targetCount).
+			Msg("all prewarm models already have equal distribution")
+		return
+	}
+
+	log.Debug().
+		Interface("model_counts", modelCounts).
+		Int("target_count", targetCount).
+		Int("models_to_add", len(modelsToAdd)).
+		Msg("equalizing prewarm model distribution")
+
+	// Sort models by memory requirement (largest first for better distribution)
+	slices.SortFunc(modelsToAdd, func(a, b *types.Model) int {
+		return int(b.Memory - a.Memory) // Largest first
+	})
+
+	// Global allocation: for each model instance, find the best runner to place it on
+	for _, model := range modelsToAdd {
+		bestRunner := s.findBestRunnerForModel(runners, model)
+		if bestRunner == nil {
+			log.Debug().
+				Str("model", model.ID).
+				Uint64("model_memory", model.Memory).
+				Msg("no runner available for prewarming model")
+			continue
+		}
+
+		// Create prewarming slot
+		prewarmWorkload := s.createPrewarmWorkload(model)
+		slot := NewSlot(bestRunner.id, prewarmWorkload, s.modelStaleFunc, s.slotTimeoutFunc)
+		s.slots.Store(slot.ID, slot)
+
+		// Update runner capacity
+		bestRunner.availableMemory -= model.Memory
+		bestRunner.allocatedMemory += model.Memory
+		bestRunner.freeMemory -= model.Memory
+		bestRunner.existingModels[model.ID] = true
+
+		log.Info().
+			Str("runner_id", bestRunner.id).
+			Str("model", model.ID).
+			Uint64("model_memory", model.Memory).
+			Uint64("remaining_available", bestRunner.availableMemory).
+			Str("slot_id", slot.ID.String()).
+			Msg("created prewarming slot for equal distribution")
+	}
+}
+
+// findBestRunnerForModel finds the best runner to place a model on for global balancing.
+// Prioritizes runners with:
+// 1. Enough available memory for the model
+// 2. Highest available memory (to balance load)
+// 3. Lowest current utilization ratio
+func (s *Scheduler) findBestRunnerForModel(runners []*runnerCapacity, model *types.Model) *runnerCapacity {
+	var bestRunner *runnerCapacity
+	var bestScore float64
+
+	for _, runner := range runners {
+		// Skip if not enough memory
+		if runner.availableMemory < model.Memory {
+			continue
+		}
+
+		// Calculate utilization ratio (lower is better for balancing)
+		utilizationRatio := float64(runner.allocatedMemory) / float64(runner.totalMemory)
+
+		// Score based on available memory (higher is better) and low utilization (lower is better)
+		// Normalize available memory to 0-1 scale and invert utilization ratio
+		availableScore := float64(runner.availableMemory) / float64(runner.totalMemory)
+		utilizationScore := 1.0 - utilizationRatio
+
+		// Weight available memory more heavily to prefer runners with more free space
+		score := 0.7*availableScore + 0.3*utilizationScore
+
+		if bestRunner == nil || score > bestScore {
+			bestRunner = runner
+			bestScore = score
+		}
+	}
+
+	return bestRunner
+}
+
+// createPrewarmWorkload creates a workload for prewarming the given model
+func (s *Scheduler) createPrewarmWorkload(model *types.Model) *Workload {
+	// Handle different model types appropriately
+	switch model.Type {
+	case types.ModelTypeImage:
+		// Create a minimal session for image models
+		session := &types.Session{
+			ID:           fmt.Sprintf("prewarm-%s-%d", model.ID, time.Now().UnixNano()),
+			Name:         fmt.Sprintf("Prewarm %s", model.ID),
+			ModelName:    model.ID,
+			Mode:         types.SessionModeInference,
+			Type:         types.SessionTypeImage,
+			Created:      time.Now(),
+			Updated:      time.Now(),
+			Interactions: []*types.Interaction{},
+		}
+
+		return &Workload{
+			WorkloadType: WorkloadTypeSession,
+			session:      session,
+			model:        model,
+		}
+	default:
+		// Create a minimal LLM inference request for text/chat models
+		llmRequest := &types.RunnerLLMInferenceRequest{
+			RequestID: fmt.Sprintf("prewarm-%s-%d", model.ID, time.Now().UnixNano()),
+			Request: &openai.ChatCompletionRequest{
+				Model:    model.ID,
+				Messages: []openai.ChatCompletionMessage{},
+			},
+			CreatedAt: time.Now(),
+		}
+
+		return &Workload{
+			WorkloadType:        WorkloadTypeLLMInferenceRequest,
+			llmInferenceRequest: llmRequest,
+			model:               model,
+		}
+	}
 }

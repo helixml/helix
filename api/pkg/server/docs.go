@@ -4670,6 +4670,10 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "prewarm": {
+                    "description": "Whether to prewarm this model to fill free GPU memory on runners",
+                    "type": "boolean"
+                },
                 "runtime": {
                     "$ref": "#/definitions/types.Runtime"
                 },

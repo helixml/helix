@@ -203,6 +203,30 @@ const HelixModelsTable: FC = () => {
     });
   };
 
+  // Placeholder for the API call to update the model's prewarm status
+  const handleTogglePrewarm = (model: TypesModel) => {
+    if (!model.id) {
+      console.error("Cannot toggle model prewarm status: model ID is missing.");
+      return;
+    }
+    const updatedModel = {
+      ...model,
+      prewarm: !(model.prewarm ?? false), // Toggle prewarm, default to false if undefined
+    };
+
+    // Call updateModel with id and data
+    updateModel({ id: model.id, helixModel: updatedModel }, {
+      onSuccess: () => {
+        refetch();
+        console.log(`Model ${model.id} prewarm status updated successfully.`);
+      },
+      onError: (error) => {
+        console.error(`Failed to update model ${model.id} prewarm status:`, error);
+        // TODO: Add user feedback for the error (e.g., Snackbar)
+      },
+    });
+  };
+
   // Filter models based on search query
   const filteredModels = helixModels.filter((model) => {
     const query = searchQuery.toLowerCase();
@@ -276,6 +300,7 @@ const HelixModelsTable: FC = () => {
               <TableCell>Type</TableCell>
               <TableCell>Enabled</TableCell>
               <TableCell>Auto pull</TableCell>
+              <TableCell>Prewarm</TableCell>
               <TableCell>Created At</TableCell>
               <TableCell>Actions</TableCell>
             </TableRow>
@@ -321,6 +346,14 @@ const HelixModelsTable: FC = () => {
                         disabled={isUpdating || model.runtime !== TypesRuntime.RuntimeOllama}
                       />
                     </span>
+                  </Tooltip>
+                </TableCell>
+                <TableCell>
+                  <Tooltip title={model.prewarm ? "Model is prewarmed" : "Model is not prewarmed"}>
+                    <Switch
+                      checked={model.prewarm ?? false}
+                      onChange={() => handleTogglePrewarm(model)}
+                    />
                   </Tooltip>
                 </TableCell>
                 <TableCell>
