@@ -3,27 +3,16 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Switch from '@mui/material/Switch'
 import FormControlLabel from '@mui/material/FormControlLabel'
-import Card from '@mui/material/Card'
-import CardContent from '@mui/material/CardContent'
 import Grid from '@mui/material/Grid'
-import Chip from '@mui/material/Chip'
 import Button from '@mui/material/Button'
-import Dialog from '@mui/material/Dialog'
-import DialogTitle from '@mui/material/DialogTitle'
-import DialogContent from '@mui/material/DialogContent'
-import DialogActions from '@mui/material/DialogActions'
 import TextField from '@mui/material/TextField'
-import FormGroup from '@mui/material/FormGroup'
-import Checkbox from '@mui/material/Checkbox'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
-import IconButton from '@mui/material/IconButton'
-import EditIcon from '@mui/icons-material/Edit'
 import ScheduleIcon from '@mui/icons-material/Schedule'
 import ApiIcon from '@mui/icons-material/Api'
-import { TypesTrigger, TypesCronTrigger } from '../../api/api'
+import { TypesTrigger } from '../../api/api'
 import useThemeConfig from '../../hooks/useThemeConfig'
 
 interface TriggersProps {
@@ -32,154 +21,18 @@ interface TriggersProps {
   readOnly?: boolean
 }
 
-interface CronScheduleDialogProps {
-  open: boolean
-  onClose: () => void
-  onSave: (schedule: TypesCronTrigger) => void
-  initialSchedule?: TypesCronTrigger
-}
-
 const DAYS_OF_WEEK = [
-  { value: 0, label: 'Sunday' },
-  { value: 1, label: 'Monday' },
-  { value: 2, label: 'Tuesday' },
-  { value: 3, label: 'Wednesday' },
-  { value: 4, label: 'Thursday' },
-  { value: 5, label: 'Friday' },
-  { value: 6, label: 'Saturday' },
+  { value: 0, label: 'SUN', fullLabel: 'Sunday' },
+  { value: 1, label: 'MON', fullLabel: 'Monday' },
+  { value: 2, label: 'TUE', fullLabel: 'Tuesday' },
+  { value: 3, label: 'WED', fullLabel: 'Wednesday' },
+  { value: 4, label: 'THU', fullLabel: 'Thursday' },
+  { value: 5, label: 'FRI', fullLabel: 'Friday' },
+  { value: 6, label: 'SAT', fullLabel: 'Saturday' },
 ]
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
 const MINUTES = Array.from({ length: 60 }, (_, i) => i)
-
-const CronScheduleDialog: FC<CronScheduleDialogProps> = ({
-  open,
-  onClose,
-  onSave,
-  initialSchedule
-}) => {
-  const [selectedDays, setSelectedDays] = useState<number[]>(initialSchedule ? parseCronDays(initialSchedule.schedule || '') : [])
-  const [selectedHour, setSelectedHour] = useState<number>(initialSchedule ? parseCronHour(initialSchedule.schedule || '') : 9)
-  const [selectedMinute, setSelectedMinute] = useState<number>(initialSchedule ? parseCronMinute(initialSchedule.schedule || '') : 0)
-  const [input, setInput] = useState<string>(initialSchedule?.input || '')
-
-  const handleDayToggle = (day: number) => {
-    setSelectedDays(prev => 
-      prev.includes(day) 
-        ? prev.filter(d => d !== day)
-        : [...prev, day].sort()
-    )
-  }
-
-  const handleSave = () => {
-    if (selectedDays.length === 0) return
-    
-    // Standard cron format: minute hour day month weekday
-    // For weekly schedules, we use 0 for day and month (meaning "every day/month")
-    // and specify the weekday(s) in the last field
-    const cronExpression = `${selectedMinute} ${selectedHour} * * ${selectedDays.join(',')}`
-    onSave({
-      schedule: cronExpression,
-      input: input
-    })
-    onClose()
-  }
-
-  const isValid = selectedDays.length > 0
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Configure Recurring Schedule</DialogTitle>
-      <DialogContent>
-        <Box sx={{ mt: 2 }}>
-          <Typography variant="h6" gutterBottom>
-            Days of the Week
-          </Typography>
-          <FormGroup row>
-            {DAYS_OF_WEEK.map((day) => (
-              <FormControlLabel
-                key={day.value}
-                control={
-                  <Checkbox
-                    checked={selectedDays.includes(day.value)}
-                    onChange={() => handleDayToggle(day.value)}
-                  />
-                }
-                label={day.label}
-              />
-            ))}
-          </FormGroup>
-
-          <Box sx={{ mt: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Time
-            </Typography>
-            <Grid container spacing={2}>
-              <Grid item xs={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Hour</InputLabel>
-                  <Select
-                    value={selectedHour}
-                    label="Hour"
-                    onChange={(e) => setSelectedHour(e.target.value as number)}
-                  >
-                    {HOURS.map((hour) => (
-                      <MenuItem key={hour} value={hour}>
-                        {hour.toString().padStart(2, '0')}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Minute</InputLabel>
-                  <Select
-                    value={selectedMinute}
-                    label="Minute"
-                    onChange={(e) => setSelectedMinute(e.target.value as number)}
-                  >
-                    {MINUTES.map((minute) => (
-                      <MenuItem key={minute} value={minute}>
-                        {minute.toString().padStart(2, '0')}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
-          </Box>
-
-          <Box sx={{ mt: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Input (Optional)
-            </Typography>
-            <TextField
-              fullWidth
-              multiline
-              rows={3}
-              placeholder="Enter the input that will be sent to the agent when triggered..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-            />
-          </Box>
-
-          <Box sx={{ mt: 2 }}>
-            <Typography variant="body2" color="text.secondary">
-              Schedule: {selectedDays.length > 0 ? `Every ${selectedDays.map(d => DAYS_OF_WEEK[d].label).join(', ')} at ${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')}` : 'No days selected'}
-            </Typography>
-          </Box>
-        </Box>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={handleSave} variant="contained" disabled={!isValid}>
-          Save Schedule
-        </Button>
-      </DialogActions>
-    </Dialog>
-  )
-}
 
 // Helper functions to parse cron expressions
 const parseCronDays = (cronExpression: string): number[] => {
@@ -214,7 +67,7 @@ const formatCronSchedule = (schedule: string): string => {
   
   if (days.length === 0) return 'Invalid schedule'
   
-  const dayLabels = days.map(d => DAYS_OF_WEEK[d].label)
+  const dayLabels = days.map(d => DAYS_OF_WEEK[d].fullLabel)
   return `Every ${dayLabels.join(', ')} at ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
 }
 
@@ -223,13 +76,34 @@ const Triggers: FC<TriggersProps> = ({
   onUpdate,
   readOnly = false
 }) => {
-  const [cronDialogOpen, setCronDialogOpen] = useState(false)
-  const [editingCronIndex, setEditingCronIndex] = useState<number | null>(null)
-
   const hasCronTrigger = triggers.some(t => t.cron)
   const cronTrigger = triggers.find(t => t.cron)?.cron
 
   const themeConfig = useThemeConfig()
+
+  // State for inline schedule configuration
+  const [selectedDays, setSelectedDays] = useState<number[]>(
+    cronTrigger ? parseCronDays(cronTrigger.schedule || '') : [1] // Default to Monday
+  )
+  const [selectedHour, setSelectedHour] = useState<number>(
+    cronTrigger ? parseCronHour(cronTrigger.schedule || '') : 9
+  )
+  const [selectedMinute, setSelectedMinute] = useState<number>(
+    cronTrigger ? parseCronMinute(cronTrigger.schedule || '') : 0
+  )
+  const [scheduleInput, setScheduleInput] = useState<string>(
+    cronTrigger?.input || ''
+  )
+
+  // Update state when triggers change
+  useEffect(() => {
+    if (cronTrigger) {
+      setSelectedDays(parseCronDays(cronTrigger.schedule || ''))
+      setSelectedHour(parseCronHour(cronTrigger.schedule || ''))
+      setSelectedMinute(parseCronMinute(cronTrigger.schedule || ''))
+      setScheduleInput(cronTrigger.input || '')
+    }
+  }, [cronTrigger])
 
   const handleCronToggle = (enabled: boolean) => {
     if (enabled) {
@@ -243,30 +117,37 @@ const Triggers: FC<TriggersProps> = ({
     }
   }
 
-  const handleCronEdit = (index: number) => {
-    setEditingCronIndex(index)
-    setCronDialogOpen(true)
+  const handleDayToggle = (day: number) => {
+    const newSelectedDays = selectedDays.includes(day) 
+      ? selectedDays.filter(d => d !== day)
+      : [...selectedDays, day].sort()
+    
+    setSelectedDays(newSelectedDays)
+    updateCronTrigger(newSelectedDays, selectedHour, selectedMinute, scheduleInput)
   }
 
-  const handleCronSave = (schedule: TypesCronTrigger) => {
-    const newTriggers = [...triggers]
-    const cronIndex = newTriggers.findIndex(t => t.cron)
+  const handleHourChange = (hour: number) => {
+    setSelectedHour(hour)
+    updateCronTrigger(selectedDays, hour, selectedMinute, scheduleInput)
+  }
+
+  const handleMinuteChange = (minute: number) => {
+    setSelectedMinute(minute)
+    updateCronTrigger(selectedDays, selectedHour, minute, scheduleInput)
+  }
+
+  const handleInputChange = (input: string) => {
+    setScheduleInput(input)
+    updateCronTrigger(selectedDays, selectedHour, selectedMinute, input)
+  }
+
+  const updateCronTrigger = (days: number[], hour: number, minute: number, input: string) => {
+    if (days.length === 0) return
     
-    if (cronIndex >= 0) {
-      newTriggers[cronIndex] = { cron: schedule }
-    } else {
-      newTriggers.push({ cron: schedule })
-    }
-    
+    const cronExpression = `${minute} ${hour} * * ${days.join(',')}`
+    const newTriggers = [...triggers.filter(t => !t.cron), { cron: { schedule: cronExpression, input } }]
     onUpdate(newTriggers)
   }
-
-  const handleCronDelete = () => {
-    const newTriggers = triggers.filter(t => !t.cron)
-    onUpdate(newTriggers)
-  }
-
-
 
   return (
     <Box sx={{ mt: 2, mr: 2}}>
@@ -278,89 +159,149 @@ const Triggers: FC<TriggersProps> = ({
       </Typography>
 
       {/* Sessions/API Trigger - Always enabled and read-only */}
-      <Card sx={{ mb: 3, backgroundColor: themeConfig.darkPanel, boxShadow: 'none' }}>
-        <CardContent>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-              <ApiIcon sx={{ mr: 2, color: 'primary.main' }} />
-              <Box>
-                <Typography variant="h6">Sessions & API</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Allow users to interact with your agent through the web interface or API
-                </Typography>
-              </Box>
+      <Box sx={{ mb: 3, p: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <ApiIcon sx={{ mr: 2, color: 'primary.main' }} />
+            <Box>
+              <Typography variant="h6">Sessions & API</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Allow users to interact with your agent through the web interface or API
+              </Typography>
             </Box>
-            <FormControlLabel
-              control={<Switch checked={true} disabled />}
-              label=""
-            />
           </Box>
-        </CardContent>
-      </Card>
+          <FormControlLabel
+            control={<Switch checked={true} disabled />}
+            label=""
+          />
+        </Box>
+      </Box>
 
       {/* Recurring Trigger */}
-      <Card sx={{ backgroundColor: themeConfig.darkPanel, boxShadow: 'none' }}>
-        <CardContent>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-              <ScheduleIcon sx={{ mr: 2, color: 'primary.main' }} />
-              <Box>
-                <Typography variant="h6">Scheduled</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Run your agent on a schedule
-                </Typography>
-              </Box>
+      <Box sx={{ p: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <ScheduleIcon sx={{ mr: 2, color: 'primary.main' }} />
+            <Box>
+              <Typography variant="h6">Scheduled</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Run your agent on a schedule
+              </Typography>
             </Box>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={hasCronTrigger}
-                  onChange={(e) => handleCronToggle(e.target.checked)}
-                  disabled={readOnly}
-                />
-              }
-              label=""
-            />
           </Box>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={hasCronTrigger}
+                onChange={(e) => handleCronToggle(e.target.checked)}
+                disabled={readOnly}
+              />
+            }
+            label=""
+          />
+        </Box>
 
-          {hasCronTrigger && cronTrigger && (
-            <Box sx={{ mt: 2, p: 2, borderRadius: 1 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Box>
-                  <Typography variant="subtitle1" gutterBottom>
-                    Schedule
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {formatCronSchedule(cronTrigger.schedule || '')}
-                  </Typography>
-                  {cronTrigger.input && (
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      Input: {cronTrigger.input}
-                    </Typography>
-                  )}
-                </Box>
-                <IconButton
-                  onClick={() => handleCronEdit(0)}
-                  disabled={readOnly}
-                  size="small"
-                >
-                  <EditIcon />
-                </IconButton>
+        {hasCronTrigger && (
+          <Box sx={{ mt: 2, p: 2, borderRadius: 1 }}>
+            {/* Days of the week */}
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                Days of the week
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                {DAYS_OF_WEEK.map((day) => (
+                  <Button
+                    key={day.value}
+                    variant={selectedDays.includes(day.value) ? "contained" : "outlined"}
+                    color={selectedDays.includes(day.value) ? "secondary" : "secondary"}
+                    size="small"
+                    onClick={() => handleDayToggle(day.value)}
+                    disabled={readOnly}
+                    sx={{ 
+                      minWidth: 'auto', 
+                      px: 1.5,
+                      py: 0.5,
+                      fontSize: '0.75rem'
+                    }}
+                  >
+                    {day.label}
+                  </Button>
+                ))}
               </Box>
             </Box>
-          )}
-        </CardContent>
-      </Card>
 
-      <CronScheduleDialog
-        open={cronDialogOpen}
-        onClose={() => {
-          setCronDialogOpen(false)
-          setEditingCronIndex(null)
-        }}
-        onSave={handleCronSave}
-        initialSchedule={editingCronIndex !== null ? triggers[editingCronIndex]?.cron : undefined}
-      />
+            {/* Time selection */}
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                Time
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={6}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Hour</InputLabel>
+                    <Select
+                      value={selectedHour}
+                      label="Hour"
+                      onChange={(e) => handleHourChange(e.target.value as number)}
+                      disabled={readOnly}
+                    >
+                      {HOURS.map((hour) => (
+                        <MenuItem key={hour} value={hour}>
+                          {hour.toString().padStart(2, '0')}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={6}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Minute</InputLabel>
+                    <Select
+                      value={selectedMinute}
+                      label="Minute"
+                      onChange={(e) => handleMinuteChange(e.target.value as number)}
+                      disabled={readOnly}
+                    >
+                      {MINUTES.map((minute) => (
+                        <MenuItem key={minute} value={minute}>
+                          {minute.toString().padStart(2, '0')}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+              </Grid>
+            </Box>
+
+            {/* Input field */}
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                Input (Optional)
+              </Typography>
+              <TextField
+                fullWidth
+                multiline
+                rows={2}
+                size="small"
+                placeholder="Enter the input that will be sent to the agent when triggered..."
+                value={scheduleInput}
+                onChange={(e) => handleInputChange(e.target.value)}
+                disabled={readOnly}
+              />
+            </Box>
+
+            {/* Schedule summary */}
+            <Box>
+              <Typography variant="body2" color="text.secondary">
+                <strong>Summary:</strong> {selectedDays.length > 0 
+                  ? `Every ${selectedDays.map(d => DAYS_OF_WEEK[d].fullLabel).join(', ')} at ${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')}`
+                  : 'No days selected'
+                }
+              </Typography>
+            </Box>
+          </Box>
+        )}
+      </Box>
     </Box>
   )
 }
