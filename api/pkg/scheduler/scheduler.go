@@ -1017,7 +1017,7 @@ func (s *Scheduler) reconcilePrewarmingOnce(ctx context.Context) {
 		Msg("Starting prewarming reconciliation")
 
 	// Use global balancing to distribute prewarmed models across all runners
-	s.globalPrewarmBalancing(ctx, runnerIDs, prewarmModels)
+	s.globalPrewarmBalancing(runnerIDs, prewarmModels)
 }
 
 // runnerCapacity holds memory and model information for a runner during prewarming
@@ -1032,7 +1032,7 @@ type runnerCapacity struct {
 
 // globalPrewarmBalancing distributes prewarming models across all runners using global balancing.
 // This ensures equal distribution of prewarm models across the entire cluster.
-func (s *Scheduler) globalPrewarmBalancing(ctx context.Context, runnerIDs []string, prewarmModels []*types.Model) {
+func (s *Scheduler) globalPrewarmBalancing(runnerIDs []string, prewarmModels []*types.Model) {
 	// Count how many instances of each prewarm model are currently running globally
 	modelCounts := make(map[string]int)
 	for _, model := range prewarmModels {
@@ -1202,20 +1202,6 @@ func (s *Scheduler) findBestRunnerForModel(runners []*runnerCapacity, model *typ
 	return bestRunner
 }
 
-// hasModelSlot checks if the runner already has a slot for the given model
-func (s *Scheduler) hasModelSlot(runnerID string, modelID string) bool {
-	found := false
-	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
-		if slot.RunnerID == runnerID &&
-			slot.InitialWork().ModelName().String() == modelID {
-			found = true
-			return false // stop iteration
-		}
-		return true
-	})
-	return found
-}
-
 // createPrewarmWorkload creates a workload for prewarming the given model
 func (s *Scheduler) createPrewarmWorkload(model *types.Model) *Workload {
 	// Create a minimal LLM inference request for prewarming
@@ -1233,19 +1219,4 @@ func (s *Scheduler) createPrewarmWorkload(model *types.Model) *Workload {
 		llmInferenceRequest: llmRequest,
 		model:               model,
 	}
-}
-
-// getMinimumModelMemory returns the memory requirement of the smallest model in the list
-func (s *Scheduler) getMinimumModelMemory(models []*types.Model) uint64 {
-	if len(models) == 0 {
-		return 0
-	}
-
-	minMemory := models[0].Memory
-	for _, model := range models[1:] {
-		if model.Memory < minMemory {
-			minMemory = model.Memory
-		}
-	}
-	return minMemory
 }
