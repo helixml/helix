@@ -332,7 +332,7 @@ const Dashboard: FC = () => {
                     }}
                   >
                     Queue
-                    {dashboardData && dashboardData?.queue?.length && dashboardData?.queue?.length > 0 && (
+                    {dashboardData && dashboardData.queue && dashboardData.queue.length > 0 && (
                       <Chip
                         size="small"
                         label={dashboardData.queue.length}
