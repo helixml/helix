@@ -312,83 +312,37 @@ const SidebarContent: React.FC<{
                 }
                 
                 {/* Tabs for CHATS and APPS */}
-                <Box sx={{ width: '100%', borderBottom: 'none', px: 1, mt: 1 }}>
+                <Box sx={{ width: '100%', borderBottom: 1, borderColor: 'divider' }}>
                   <Tabs 
                     value={activeTab} 
                     onChange={handleTabChange}
                     aria-label="content tabs"
                     sx={{ 
-                      '& .MuiTabs-root': {
-                        minHeight: 'auto',
-                      },
                       '& .MuiTab-root': {
                         minWidth: 'auto',
                         flex: 1,
-                        color: 'rgba(255, 255, 255, 0.6)',
-                        fontSize: '0.875rem',
-                        fontWeight: 600,
-                        textTransform: 'none',
-                        borderRadius: '12px 12px 0 0',
-                        minHeight: '48px',
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                        position: 'relative',
-                        overflow: 'hidden',
-                        '&::before': {
-                          content: '""',
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%)',
-                          opacity: 0,
-                          transition: 'opacity 0.3s ease',
-                          borderRadius: '12px 12px 0 0',
-                        },
-                        '&:hover': {
-                          color: 'rgba(255, 255, 255, 0.9)',
-                          '&::before': {
-                            opacity: 1,
-                          },
-                        },
+                        color: lightTheme.textColorFaded,
+                        fontSize: '16px',
                       },
                       '& .Mui-selected': {
-                        color: '#FFFFFF',
-                        fontWeight: 700,
-                        background: 'linear-gradient(135deg, rgba(0, 229, 255, 0.15) 0%, rgba(147, 51, 234, 0.15) 100%)',
-                        backdropFilter: 'blur(10px)',
-                        border: '1px solid rgba(0, 229, 255, 0.3)',
-                        borderBottom: 'none',
-                        '&::before': {
-                          opacity: 1,
-                          background: 'linear-gradient(135deg, rgba(0, 229, 255, 0.1) 0%, rgba(147, 51, 234, 0.1) 100%)',
-                        },
-                        '&::after': {
-                          content: '""',
-                          position: 'absolute',
-                          bottom: 0,
-                          left: '50%',
-                          transform: 'translateX(-50%)',
-                          width: '60%',
-                          height: '3px',
-                          background: 'linear-gradient(90deg, #00E5FF 0%, #9333EA 100%)',
-                          borderRadius: '2px',
-                        },
+                        color: '#00E5FF',
+                        fontWeight: 'bold',
                       },
                       '& .MuiTabs-indicator': {
-                        display: 'none',
+                        backgroundColor: '#00E5FF',
+                        height: 3,
                       },
                     }}
                   >
                     <Tab 
                       key="chat" 
-                      label="CHAT" 
+                      label="Chat" 
                       id="tab-chat"
                       aria-controls="tabpanel-chat"
                     />
                     <Tab 
                       key="apps" 
-                      label="AGENTS" 
+                      label="Agents" 
                       id="tab-apps"
                       aria-controls="tabpanel-apps"
                     />
@@ -399,78 +353,45 @@ const SidebarContent: React.FC<{
                 <ListItem
                   disablePadding
                   dense
-                  sx={{ px: 1, mt: 2 }}
                 >
                   <ListItemButton
                     id="create-link"
                     onClick={handleCreateNew}
                     sx={{
-                      borderRadius: '16px',
-                      background: 'linear-gradient(135deg, rgba(0, 229, 255, 0.1) 0%, rgba(147, 51, 234, 0.1) 100%)',
-                      backdropFilter: 'blur(10px)',
-                      border: '1px solid rgba(0, 229, 255, 0.2)',
-                      minHeight: '56px',
+                      height: '64px',
                       display: 'flex',
-                      alignItems: 'center',
-                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                      position: 'relative',
-                      overflow: 'hidden',
-                      '&::before': {
-                        content: '""',
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%)',
-                        opacity: 0,
-                        transition: 'opacity 0.3s ease',
-                        borderRadius: '16px',
-                      },
                       '&:hover': {
-                        transform: 'translateY(-2px)',
-                        boxShadow: '0 8px 25px rgba(0, 229, 255, 0.3)',
-                        background: 'linear-gradient(135deg, rgba(0, 229, 255, 0.2) 0%, rgba(147, 51, 234, 0.2) 100%)',
-                        borderColor: 'rgba(0, 229, 255, 0.4)',
-                        '&::before': {
-                          opacity: 1,
-                        },
-                        '.MuiListItemText-root .MuiTypography-root': { 
-                          color: '#FFFFFF',
-                        },
-                        '.create-icon': {
-                          background: 'linear-gradient(135deg, #00E5FF 0%, #9333EA 100%)',
-                          transform: 'rotate(90deg) scale(1.1)',
-                        },
+                        '.MuiListItemText-root .MuiTypography-root': { color: '#FFFFFF' },
                       },
                     }}
                   >
                     <ListItemText
                       sx={{
                         ml: 2,
-                        flexGrow: 1,
+                        p: 1,
                       }}
-                      primary={`New ${RESOURCE_TYPES[activeTab] === 'apps' ? 'Agent' : 'Chat'}`}
+                      primary={
+                        RESOURCE_TYPES[activeTab] === 'apps' 
+                          ? 'New Agent' 
+                          : `New ${RESOURCE_TYPES[activeTab].replace(/^\w/, (c) => c.toUpperCase())}`
+                      }
                       primaryTypographyProps={{
-                        fontWeight: 700,
-                        color: 'rgba(255, 255, 255, 0.9)',
-                        fontSize: '0.875rem',
-                        letterSpacing: '0.5px',
+                        fontWeight: 'bold',
+                        color: '#FFFFFF',
+                        fontSize: '16px',
                       }}
                     />
                     <Box 
-                      className="create-icon"
                       sx={{
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        background: 'linear-gradient(135deg, rgba(0, 229, 255, 0.3) 0%, rgba(147, 51, 234, 0.3) 100%)',
-                        border: '2px solid rgba(0, 229, 255, 0.4)',
-                        borderRadius: '12px',
-                        width: 36,
-                        height: 36,
+                        backgroundColor: 'transparent',
+                        border: '2px solid #00E5FF',
+                        borderRadius: '50%',
+                        width: 32,
+                        height: 32,
                         mr: 2,
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                       }}
                     >
                       <AddIcon sx={{ color: '#00E5FF', fontSize: 20 }}/>
@@ -560,137 +481,27 @@ const SidebarContent: React.FC<{
               {
                 account.user ? (
                   <>
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        flex: 1,
-                        background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%)',
-                        backdropFilter: 'blur(10px)',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                        borderRadius: '16px',
-                        p: 1.5,
-                        ml: 1,
-                        position: 'relative',
-                        overflow: 'hidden',
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                        '&::before': {
-                          content: '""',
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          background: 'linear-gradient(135deg, rgba(0, 229, 255, 0.1) 0%, rgba(147, 51, 234, 0.1) 100%)',
-                          opacity: 0,
-                          transition: 'opacity 0.3s ease',
-                          borderRadius: '16px',
-                        },
-                        '&:hover': {
-                          '&::before': {
-                            opacity: 1,
-                          },
-                        },
-                      }}
-                    >
-                      {/* User Avatar */}
-                      <Box
-                        sx={{
-                          width: 40,
-                          height: 40,
-                          borderRadius: '12px',
-                          background: 'linear-gradient(135deg, #00E5FF 0%, #9333EA 100%)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          mr: 1.5,
-                          position: 'relative',
-                          overflow: 'hidden',
-                          border: '2px solid rgba(255, 255, 255, 0.2)',
-                          '&::after': {
-                            content: '""',
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.1) 100%)',
-                            borderRadius: '10px',
-                          },
-                        }}
-                      >
-                        <Typography
-                          sx={{
-                            color: 'white',
-                            fontWeight: 800,
-                            fontSize: '1.1rem',
-                            zIndex: 1,
-                            position: 'relative',
-                          }}
-                        >
-                          {account.user.name?.charAt(0).toUpperCase() || account.user.email?.charAt(0).toUpperCase() || 'U'}
-                        </Typography>
-                      </Box>
-
-                      {/* User Info */}
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography 
-                          variant="subtitle2" 
-                          sx={{
-                            fontWeight: 700,
-                            color: 'rgba(255, 255, 255, 0.95)',
-                            fontSize: '0.875rem',
-                            lineHeight: 1.2,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {account.user.name || 'User'}
-                        </Typography>
-                        <Typography 
-                          variant="caption" 
-                          sx={{
-                            color: 'rgba(255, 255, 255, 0.6)',
-                            fontSize: '0.75rem',
-                            lineHeight: 1.2,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            display: 'block',
-                          }}
-                        >
-                          {account.user.email}
-                        </Typography>
-                      </Box>
-
-                      {/* Menu Button */}
-                      <IconButton
-                        size="small"
-                        aria-label="account of current user"
-                        aria-controls="menu-appbar"
-                        aria-haspopup="true"
-                        onClick={(event: React.MouseEvent<HTMLElement>) => {
-                          setAccountMenuAnchorEl(event.currentTarget)
-                        }}
-                        sx={{
-                          color: 'rgba(255, 255, 255, 0.7)',
-                          width: 32,
-                          height: 32,
-                          borderRadius: '8px',
-                          transition: 'all 0.2s ease',
-                          '&:hover': {
-                            backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                            color: 'rgba(255, 255, 255, 1)',
-                            transform: 'rotate(90deg)',
-                          },
-                        }}
-                      >
-                        <MoreVertIcon sx={{ fontSize: 18 }} />
-                      </IconButton>
+                    <Box>
+                      <Typography variant="body2" sx={{fontWeight: 'bold'}}>
+                        {account.user.name}
+                      </Typography>
+                      <Typography variant="caption" sx={{color: lightTheme.textColorFaded}}>
+                        {account.user.email}
+                      </Typography>
                     </Box>
-
-                    {/* Enhanced Menu */}
+                    <IconButton
+                      size="large"
+                      aria-label="account of current user"
+                      aria-controls="menu-appbar"
+                      aria-haspopup="true"
+                      onClick={(event: React.MouseEvent<HTMLElement>) => {
+                        setAccountMenuAnchorEl(event.currentTarget)
+                      }}
+                      
+                      sx={{marginLeft: "auto", color: lightTheme.textColorFaded}}
+                    >
+                      <MoreVertIcon />
+                    </IconButton>
                     <Menu
                       id="menu-appbar"
                       anchorEl={accountMenuAnchorEl}
@@ -705,36 +516,7 @@ const SidebarContent: React.FC<{
                       }}
                       open={Boolean(accountMenuAnchorEl)}
                       onClose={() => setAccountMenuAnchorEl(null)}
-                      sx={{
-                        '& .MuiPaper-root': {
-                          background: 'rgba(26, 27, 38, 0.95)',
-                          backdropFilter: 'blur(20px)',
-                          border: '1px solid rgba(255, 255, 255, 0.1)',
-                          borderRadius: '16px',
-                          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-                          minWidth: '200px',
-                          mt: 1,
-                        },
-                        '& .MuiMenuItem-root': {
-                          borderRadius: '8px',
-                          mx: 1,
-                          my: 0.5,
-                          transition: 'all 0.2s ease',
-                          '&:hover': {
-                            background: 'linear-gradient(135deg, rgba(0, 229, 255, 0.1) 0%, rgba(147, 51, 234, 0.1) 100%)',
-                            transform: 'translateX(4px)',
-                          },
-                          '& .MuiListItemIcon-root': {
-                            minWidth: '36px',
-                            color: 'rgba(255, 255, 255, 0.7)',
-                          },
-                          '& .MuiTypography-root': {
-                            color: 'rgba(255, 255, 255, 0.9)',
-                            fontWeight: 500,
-                          },
-                        },
-                      }}
-                    >
+                    >                      
                       {
                         account.serverConfig.apps_enabled && (
                           <MenuItem onClick={ () => {
