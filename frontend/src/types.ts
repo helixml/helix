@@ -9,6 +9,7 @@ import {
   TypesToolBrowserConfig,
   TypesAssistantEmail,
   TypesToolEmailConfig,
+  TypesTrigger,
 } from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
@@ -749,7 +750,7 @@ export interface IAppHelixConfig {
   avatar?: string;
   image?: string;
   assistants?: IAssistantConfig[];
-  // TODO: add triggers
+  triggers?: TypesTrigger[];
   external_url: string;
   // Add any other properties that might be part of the helix config
 }
@@ -824,6 +825,7 @@ export interface IAppFlatState {
   calculatorTool?: TypesAssistantCalculator
   emailTool?: TypesAssistantEmail
   conversation_starters?: string[];
+  triggers?: TypesTrigger[];
 }
 
 export interface IGptScriptRequest {

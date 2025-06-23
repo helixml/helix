@@ -263,6 +263,10 @@ export const useApp = (appId: string) => {
       updatedApp.config.helix.image = updates.image
     }
 
+    if (updates.triggers !== undefined) {
+      updatedApp.config.helix.triggers = updates.triggers
+    }
+
     if (updates.global !== undefined) {
       updatedApp.global = updates.global
     }
