@@ -1204,19 +1204,41 @@ func (s *Scheduler) findBestRunnerForModel(runners []*runnerCapacity, model *typ
 
 // createPrewarmWorkload creates a workload for prewarming the given model
 func (s *Scheduler) createPrewarmWorkload(model *types.Model) *Workload {
-	// Create a minimal LLM inference request for prewarming
-	llmRequest := &types.RunnerLLMInferenceRequest{
-		RequestID: fmt.Sprintf("prewarm-%s-%d", model.ID, time.Now().UnixNano()),
-		Request: &openai.ChatCompletionRequest{
-			Model:    model.ID,
-			Messages: []openai.ChatCompletionMessage{},
-		},
-		CreatedAt: time.Now(),
-	}
+	// Handle different model types appropriately
+	switch model.Type {
+	case types.ModelTypeImage:
+		// Create a minimal session for image models
+		session := &types.Session{
+			ID:           fmt.Sprintf("prewarm-%s-%d", model.ID, time.Now().UnixNano()),
+			Name:         fmt.Sprintf("Prewarm %s", model.ID),
+			ModelName:    model.ID,
+			Mode:         types.SessionModeInference,
+			Type:         types.SessionTypeImage,
+			Created:      time.Now(),
+			Updated:      time.Now(),
+			Interactions: []*types.Interaction{},
+		}
 
-	return &Workload{
-		WorkloadType:        WorkloadTypeLLMInferenceRequest,
-		llmInferenceRequest: llmRequest,
-		model:               model,
+		return &Workload{
+			WorkloadType: WorkloadTypeSession,
+			session:      session,
+			model:        model,
+		}
+	default:
+		// Create a minimal LLM inference request for text/chat models
+		llmRequest := &types.RunnerLLMInferenceRequest{
+			RequestID: fmt.Sprintf("prewarm-%s-%d", model.ID, time.Now().UnixNano()),
+			Request: &openai.ChatCompletionRequest{
+				Model:    model.ID,
+				Messages: []openai.ChatCompletionMessage{},
+			},
+			CreatedAt: time.Now(),
+		}
+
+		return &Workload{
+			WorkloadType:        WorkloadTypeLLMInferenceRequest,
+			llmInferenceRequest: llmRequest,
+			model:               model,
+		}
 	}
 }
