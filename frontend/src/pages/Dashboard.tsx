@@ -328,6 +328,7 @@ const Dashboard: FC = () => {
                       fontWeight: 600,
                       display: 'flex',
                       alignItems: 'center',
+                      gap: 2,
                     }}
                   >
                     Queue
@@ -336,7 +337,6 @@ const Dashboard: FC = () => {
                         size="small"
                         label={dashboardData.queue.length}
                         sx={{
-                          ml: 2,
                           height: 22,
                           minWidth: 20,
                           backgroundColor: 'rgba(128, 90, 213, 0.15)',
