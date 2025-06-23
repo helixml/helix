@@ -201,6 +201,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			ContextLength: 32768, // goes up to 128k, but then uses 35GB
 			Description:   "Fast and good for everyday tasks, from Meta - 8bit quantized, 32K context",
 			Hide:          false,
+			Prewarm:       true,
 		},
 		{
 			ID:            "llama3.3:70b-instruct-q4_K_M", // https://ollama.com/library/llama3.1:70b-instruct-q4_K_M
@@ -341,6 +342,7 @@ type VLLMGenericText struct {
 	Description   string
 	Args          []string
 	Hide          bool
+	Prewarm       bool
 }
 
 func (o *VLLMGenericText) GetMemoryRequirements(_ types.SessionMode) uint64 {
@@ -416,7 +418,8 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 				"--gpu-memory-utilization", "0.9",
 				"--limit-mm-per-prompt", "image=10",
 			},
-			Hide: false,
+			Hide:    false,
+			Prewarm: true,
 		},
 		{
 			ID:            "Qwen/Qwen2.5-VL-7B-Instruct",
@@ -430,7 +433,8 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 				"--gpu-memory-utilization", "0.9",
 				"--limit-mm-per-prompt", "image=10",
 			},
-			Hide: false,
+			Hide:    false,
+			Prewarm: true,
 		},
 		{
 			ID:            "MrLight/dse-qwen2-2b-mrl-v1",
@@ -444,7 +448,8 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 				"--trust-remote-code",
 				"--chat-template", "examples/template_dse_qwen2_vl.jinja",
 			},
-			Hide: false,
+			Hide:    false,
+			Prewarm: true,
 		},
 	}, nil
 }
