@@ -186,9 +186,17 @@ const EmailSkill: React.FC<EmailSkillProps> = ({
                 {"Provide an example of the email you want the agent to receive. This will help the agent understand the format of the email you expect."}
             </Typography>
             <TextField
-                label="Email Template"
+                placeholder={`Hello,
+
+Here are top 5 news articles about TSLA:
+- [article 1]
+- [article 2]
+- [article 3]
+- [article 4]
+
+General sentiment is good, stock price is going up.`}
                 multiline
-                rows={4}
+                rows={10}
                 value={template}
                 onChange={handleTemplateChange}
                 variant="outlined"
