@@ -50,13 +50,8 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 
 		if existingModel != nil {
 			// Update existing model if it doesn't have sort_order set
-			needsUpdate := false
 			if existingModel.SortOrder == 0 {
 				existingModel.SortOrder = sortOrder
-				needsUpdate = true
-			}
-
-			if needsUpdate {
 				_, err = s.UpdateModel(ctx, existingModel)
 				if err != nil {
 					log.Err(err).Str("model_id", model.ID).Msg("failed to update existing ollama model")
@@ -101,13 +96,8 @@ func (s *PostgresStore) seedDiffusersModels(ctx context.Context) error {
 
 		if existingModel != nil {
 			// Update existing model if it doesn't have sort_order set
-			needsUpdate := false
 			if existingModel.SortOrder == 0 {
 				existingModel.SortOrder = i + 200 // Diffusers models get 200+ range
-				needsUpdate = true
-			}
-
-			if needsUpdate {
 				_, err = s.UpdateModel(ctx, existingModel)
 				if err != nil {
 					log.Err(err).Str("model_id", model.ID).Msg("failed to update existing diffusers model")
