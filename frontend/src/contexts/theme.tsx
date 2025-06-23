@@ -26,7 +26,7 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         },
       },
       typography: {
-        fontFamily: "Assistant, Helvetica, Arial, sans-serif",
+        fontFamily: "IBM Plex Sans, Helvetica, Arial, sans-serif",
         fontSize: 14,
       },
       chartGradientStart: themeConfig.chartGradientStart,
