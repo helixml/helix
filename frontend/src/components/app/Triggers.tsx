@@ -14,6 +14,7 @@ import ScheduleIcon from '@mui/icons-material/Schedule'
 import ApiIcon from '@mui/icons-material/Api'
 import { TypesTrigger } from '../../api/api'
 import useThemeConfig from '../../hooks/useThemeConfig'
+import { timezones } from '../../utils/timezones'
 
 interface TriggersProps {
   triggers?: TypesTrigger[]
@@ -37,8 +38,12 @@ const MINUTES = Array.from({ length: 60 }, (_, i) => i)
 // Helper functions to parse cron expressions
 const parseCronDays = (cronExpression: string): number[] => {
   const parts = cronExpression.split(' ')
-  if (parts.length >= 5) {
-    const dayPart = parts[4] // weekday is the 5th field (index 4)
+  // Check if it has timezone prefix
+  const hasTimezone = cronExpression.startsWith('CRON_TZ=')
+  const dayIndex = hasTimezone ? 5 : 4 // weekday field is shifted by 1 if timezone is present
+  
+  if (parts.length >= (hasTimezone ? 6 : 5)) {
+    const dayPart = parts[dayIndex]
     return dayPart.split(',').map(d => parseInt(d)).filter(d => !isNaN(d))
   }
   return []
@@ -46,29 +51,49 @@ const parseCronDays = (cronExpression: string): number[] => {
 
 const parseCronHour = (cronExpression: string): number => {
   const parts = cronExpression.split(' ')
-  if (parts.length >= 2) {
-    return parseInt(parts[1]) || 9 // hour is the 2nd field (index 1)
+  // Check if it has timezone prefix
+  const hasTimezone = cronExpression.startsWith('CRON_TZ=')
+  const hourIndex = hasTimezone ? 2 : 1 // hour field is shifted by 1 if timezone is present
+  
+  if (parts.length >= (hasTimezone ? 6 : 5)) {
+    return parseInt(parts[hourIndex]) || 9
   }
   return 9
 }
 
 const parseCronMinute = (cronExpression: string): number => {
   const parts = cronExpression.split(' ')
-  if (parts.length >= 1) {
-    return parseInt(parts[0]) || 0 // minute is the 1st field (index 0)
+  // Check if it has timezone prefix
+  const hasTimezone = cronExpression.startsWith('CRON_TZ=')
+  const minuteIndex = hasTimezone ? 1 : 0 // minute field is shifted by 1 if timezone is present
+  
+  if (parts.length >= (hasTimezone ? 6 : 5)) {
+    return parseInt(parts[minuteIndex]) || 0
   }
   return 0
+}
+
+const parseCronTimezone = (cronExpression: string): string => {
+  // Check if the cron expression starts with CRON_TZ=
+  if (cronExpression.startsWith('CRON_TZ=')) {
+    const tzMatch = cronExpression.match(/^CRON_TZ=([^\s]+)\s/)
+    if (tzMatch) {
+      return tzMatch[1]
+    }
+  }
+  return 'UTC' // Default timezone
 }
 
 const formatCronSchedule = (schedule: string): string => {
   const days = parseCronDays(schedule)
   const hour = parseCronHour(schedule)
   const minute = parseCronMinute(schedule)
+  const timezone = parseCronTimezone(schedule)
   
   if (days.length === 0) return 'Invalid schedule'
   
   const dayLabels = days.map(d => DAYS_OF_WEEK[d].fullLabel)
-  return `Every ${dayLabels.join(', ')} at ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
+  return `Every ${dayLabels.join(', ')} at ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')} (${timezone})`
 }
 
 const Triggers: FC<TriggersProps> = ({
@@ -78,8 +103,6 @@ const Triggers: FC<TriggersProps> = ({
 }) => {
   const hasCronTrigger = triggers.some(t => t.cron)
   const cronTrigger = triggers.find(t => t.cron)?.cron
-
-  const themeConfig = useThemeConfig()
 
   // State for inline schedule configuration
   const [selectedDays, setSelectedDays] = useState<number[]>(
@@ -91,6 +114,9 @@ const Triggers: FC<TriggersProps> = ({
   const [selectedMinute, setSelectedMinute] = useState<number>(
     cronTrigger ? parseCronMinute(cronTrigger.schedule || '') : 0
   )
+  const [selectedTimezone, setSelectedTimezone] = useState<string>(
+    cronTrigger ? parseCronTimezone(cronTrigger.schedule || '') : 'UTC'
+  )
   const [scheduleInput, setScheduleInput] = useState<string>(
     cronTrigger?.input || ''
   )
@@ -101,14 +127,15 @@ const Triggers: FC<TriggersProps> = ({
       setSelectedDays(parseCronDays(cronTrigger.schedule || ''))
       setSelectedHour(parseCronHour(cronTrigger.schedule || ''))
       setSelectedMinute(parseCronMinute(cronTrigger.schedule || ''))
+      setSelectedTimezone(parseCronTimezone(cronTrigger.schedule || ''))
       setScheduleInput(cronTrigger.input || '')
     }
   }, [cronTrigger])
 
   const handleCronToggle = (enabled: boolean) => {
     if (enabled) {
-      // Add a default cron trigger (Monday at 9:00 AM)
-      const newTriggers = [...triggers.filter(t => !t.cron), { cron: { schedule: '0 9 * * 1', input: '' } }]
+      // Add a default cron trigger (Monday at 9:00 AM UTC)
+      const newTriggers = [...triggers.filter(t => !t.cron), { cron: { schedule: 'CRON_TZ=UTC 0 9 * * 1', input: '' } }]
       onUpdate(newTriggers)
     } else {
       // Remove cron trigger
@@ -123,28 +150,33 @@ const Triggers: FC<TriggersProps> = ({
       : [...selectedDays, day].sort()
     
     setSelectedDays(newSelectedDays)
-    updateCronTrigger(newSelectedDays, selectedHour, selectedMinute, scheduleInput)
+    updateCronTrigger(newSelectedDays, selectedHour, selectedMinute, selectedTimezone, scheduleInput)
   }
 
   const handleHourChange = (hour: number) => {
     setSelectedHour(hour)
-    updateCronTrigger(selectedDays, hour, selectedMinute, scheduleInput)
+    updateCronTrigger(selectedDays, hour, selectedMinute, selectedTimezone, scheduleInput)
   }
 
   const handleMinuteChange = (minute: number) => {
     setSelectedMinute(minute)
-    updateCronTrigger(selectedDays, selectedHour, minute, scheduleInput)
+    updateCronTrigger(selectedDays, selectedHour, minute, selectedTimezone, scheduleInput)
+  }
+
+  const handleTimezoneChange = (timezone: string) => {
+    setSelectedTimezone(timezone)
+    updateCronTrigger(selectedDays, selectedHour, selectedMinute, timezone, scheduleInput)
   }
 
   const handleInputChange = (input: string) => {
     setScheduleInput(input)
-    updateCronTrigger(selectedDays, selectedHour, selectedMinute, input)
+    updateCronTrigger(selectedDays, selectedHour, selectedMinute, selectedTimezone, input)
   }
 
-  const updateCronTrigger = (days: number[], hour: number, minute: number, input: string) => {
+  const updateCronTrigger = (days: number[], hour: number, minute: number, timezone: string, input: string) => {
     if (days.length === 0) return
     
-    const cronExpression = `${minute} ${hour} * * ${days.join(',')}`
+    const cronExpression = `CRON_TZ=${timezone} ${minute} ${hour} * * ${days.join(',')}`
     const newTriggers = [...triggers.filter(t => !t.cron), { cron: { schedule: cronExpression, input } }]
     onUpdate(newTriggers)
   }
@@ -208,36 +240,46 @@ const Triggers: FC<TriggersProps> = ({
               <Typography variant="body2" color="text.secondary" gutterBottom>
                 Days of the week
               </Typography>
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                {DAYS_OF_WEEK.map((day) => (
-                  <Button
-                    key={day.value}
-                    variant={selectedDays.includes(day.value) ? "contained" : "outlined"}
-                    color={selectedDays.includes(day.value) ? "secondary" : "secondary"}
-                    size="small"
-                    onClick={() => handleDayToggle(day.value)}
-                    disabled={readOnly}
-                    sx={{ 
-                      minWidth: 'auto', 
-                      px: 1.5,
-                      py: 0.5,
-                      fontSize: '0.75rem'
-                    }}
-                  >
-                    {day.label}
-                  </Button>
-                ))}
-              </Box>
-            </Box>
-
-            {/* Time selection */}
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
-                Time
-              </Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
-                  <FormControl fullWidth size="small">
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'left' }}>
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mr: 2 }}>
+                  {DAYS_OF_WEEK.map((day) => (
+                    <Button
+                      key={day.value}
+                      variant={selectedDays.includes(day.value) ? "contained" : "outlined"}
+                      color={selectedDays.includes(day.value) ? "secondary" : "secondary"}
+                      size="small"
+                      onClick={() => handleDayToggle(day.value)}
+                      disabled={readOnly}
+                      sx={{ 
+                        minWidth: 'auto', 
+                        px: 1.5,
+                        py: 0.5,
+                        fontSize: '0.75rem'
+                      }}
+                    >
+                      {day.label}
+                    </Button>
+                  ))}
+                </Box>
+                
+                {/* Time selection - moved to the right side */}
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                  <FormControl size="small" sx={{ minWidth: 120 }}>
+                    <InputLabel>Timezone</InputLabel>
+                    <Select
+                      value={selectedTimezone}
+                      label="Timezone"
+                      onChange={(e) => handleTimezoneChange(e.target.value as string)}
+                      disabled={readOnly}
+                    >
+                      {timezones.map((timezone) => (
+                        <MenuItem key={timezone} value={timezone}>
+                          {timezone}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <FormControl size="small" sx={{ minWidth: 80 }}>
                     <InputLabel>Hour</InputLabel>
                     <Select
                       value={selectedHour}
@@ -252,9 +294,8 @@ const Triggers: FC<TriggersProps> = ({
                       ))}
                     </Select>
                   </FormControl>
-                </Grid>
-                <Grid item xs={6}>
-                  <FormControl fullWidth size="small">
+                  <Typography variant="body2" color="text.secondary">:</Typography>
+                  <FormControl size="small" sx={{ minWidth: 80 }}>
                     <InputLabel>Minute</InputLabel>
                     <Select
                       value={selectedMinute}
@@ -269,8 +310,8 @@ const Triggers: FC<TriggersProps> = ({
                       ))}
                     </Select>
                   </FormControl>
-                </Grid>
-              </Grid>
+                </Box>
+              </Box>
             </Box>
 
             {/* Input field */}
@@ -294,7 +335,7 @@ const Triggers: FC<TriggersProps> = ({
             <Box>
               <Typography variant="body2" color="text.secondary">
                 <strong>Summary:</strong> {selectedDays.length > 0 
-                  ? `Every ${selectedDays.map(d => DAYS_OF_WEEK[d].fullLabel).join(', ')} at ${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')}`
+                  ? `Every ${selectedDays.map(d => DAYS_OF_WEEK[d].fullLabel).join(', ')} at ${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')} (${selectedTimezone})`
                   : 'No days selected'
                 }
               </Typography>
