@@ -28,6 +28,7 @@ When using the 'SendEmail' tool:
 *   You must provide a 'subject' for the email.
 *   You must provide a 'message' for the email body.
 *   The tool will automatically handle sending the email to the user.
+*   Use HTML formatting for the email body. If user has supplied the template, use it as is. For new lines, use <br/>.
 
 Example:
 If the user says "send me an email with the results of our conversation", you should summarize the conversation and use the 'SendEmail' tool with a relevant subject and the summary as the message.
