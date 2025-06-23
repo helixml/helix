@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -216,7 +217,14 @@ func (suite *AgentTestSuite) TestAgent_CurrencyExchange() {
 	// Now check for this rate in our LLM response
 	// Convert rate to string with reduced precision for more flexible matching
 	rateStr := fmt.Sprintf("%.4f", rate)
-	suite.Require().Contains(resp.Choices[0].Message.Content, rateStr, "expected rate to be in the response")
+	// Also check for the original precision in case the LLM returns more decimal places
+	rateStrPrecise := fmt.Sprintf("%.5f", rate)
+
+	// Check if either the 4-decimal or 5-decimal precision rate is in the response
+	responseContent := resp.Choices[0].Message.Content
+	if !strings.Contains(responseContent, rateStr) && !strings.Contains(responseContent, rateStrPrecise) {
+		suite.Require().Fail("expected rate to be in the response", "expected either %s or %s in response: %s", rateStr, rateStrPrecise, responseContent)
+	}
 
 }
 

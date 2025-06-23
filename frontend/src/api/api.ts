@@ -1033,6 +1033,8 @@ export interface TypesModel {
   /** in bytes, required */
   memory?: number;
   name?: string;
+  /** Whether to prewarm this model to fill free GPU memory on runners */
+  prewarm?: boolean;
   runtime?: TypesRuntime;
   /** Order for sorting models in UI (lower numbers appear first) */
   sort_order?: number;

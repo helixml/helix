@@ -54,7 +54,7 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 				existingModel.SortOrder = sortOrder
 				_, err = s.UpdateModel(ctx, existingModel)
 				if err != nil {
-					log.Err(err).Str("model_id", model.ID).Msg("failed to update existing ollama model sort_order")
+					log.Err(err).Str("model_id", model.ID).Msg("failed to update existing ollama model")
 				}
 			}
 			continue
@@ -72,6 +72,7 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 			Hide:          model.Hide,
 			Enabled:       true,
 			SortOrder:     sortOrder,
+			Prewarm:       model.Prewarm,
 		}
 
 		_, err = s.CreateModel(ctx, m)
@@ -99,7 +100,7 @@ func (s *PostgresStore) seedDiffusersModels(ctx context.Context) error {
 				existingModel.SortOrder = i + 200 // Diffusers models get 200+ range
 				_, err = s.UpdateModel(ctx, existingModel)
 				if err != nil {
-					log.Err(err).Str("model_id", model.ID).Msg("failed to update existing diffusers model sort_order")
+					log.Err(err).Str("model_id", model.ID).Msg("failed to update existing diffusers model")
 				}
 			}
 			continue
@@ -117,6 +118,7 @@ func (s *PostgresStore) seedDiffusersModels(ctx context.Context) error {
 			Enabled:       true,
 			ContextLength: 0,       // Image models don't have context length
 			SortOrder:     i + 200, // Diffusers models get 200+ range
+			Prewarm:       model.Prewarm,
 		}
 
 		_, err = s.CreateModel(ctx, m)
@@ -186,6 +188,7 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 			Hide:          model.Hide,
 			Enabled:       true,
 			SortOrder:     sortOrder,
+			Prewarm:       model.Prewarm,
 		}
 
 		_, err = s.CreateModel(ctx, m)
