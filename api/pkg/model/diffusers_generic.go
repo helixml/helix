@@ -16,6 +16,7 @@ type DiffusersGenericImage struct {
 	Memory      uint64
 	Description string
 	Hide        bool
+	Prewarm     bool // Whether to prewarm this model (usually false for image models due to high memory usage)
 }
 
 func (i *DiffusersGenericImage) GetMemoryRequirements(_ types.SessionMode) uint64 {

@@ -28,4 +28,5 @@ type Model struct {
 	Enabled       bool      `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	AutoPull      bool      `json:"auto_pull,omitempty" yaml:"auto_pull,omitempty"`   // Whether to automatically pull the model if missing in the runner
 	SortOrder     int       `json:"sort_order,omitempty" yaml:"sort_order,omitempty"` // Order for sorting models in UI (lower numbers appear first)
+	Prewarm       bool      `json:"prewarm,omitempty" yaml:"prewarm,omitempty"`       // Whether to prewarm this model to fill free GPU memory on runners
 }
