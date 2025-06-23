@@ -1130,9 +1130,9 @@ func (s *Scheduler) globalPrewarmBalancing(runnerIDs []string, prewarmModels []*
 		Int("models_to_add", len(modelsToAdd)).
 		Msg("equalizing prewarm model distribution")
 
-	// Sort models by memory requirement (largest first for better distribution)
+	// Sort models by memory requirement (smallest first to maximize model packing)
 	slices.SortFunc(modelsToAdd, func(a, b *types.Model) int {
-		return int(b.Memory - a.Memory) // Largest first
+		return int(a.Memory - b.Memory) // Smallest first
 	})
 
 	// Global allocation: for each model instance, find the best runner to place it on
