@@ -159,8 +159,8 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
   return (
     <Box sx={{ mt: 2, mr: 2 }}>
       {/* Basic Information Card */}
-      <Card sx={{ mb: 3, backgroundColor: themeConfig.darkPanel }}>
-        <CardContent>
+      {/* <Card sx={{ mb: 3, backgroundColor: themeConfig.darkPanel }}>
+        <CardContent> */}
           <Grid container spacing={3}>
             {/* Left column - Name and Description */}
             <Grid item xs={12} md={6}>
@@ -277,12 +277,12 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
               </Box>
             </Grid>
           </Grid>
-        </CardContent>
-      </Card>
+        {/* </CardContent>
+      </Card> */}
 
       {/* Conversation Starters Card */}
-      <Card sx={{ backgroundColor: themeConfig.darkPanel, boxShadow: 'none' }}>
-        <CardContent>
+      {/* <Card sx={{ backgroundColor: themeConfig.darkPanel, boxShadow: 'none' }}>
+        <CardContent> */}
           <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>
             Conversation Starters
           </Typography>
@@ -339,8 +339,8 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
               </IconButton>
             </Box>
           </Box>
-        </CardContent>
-      </Card>
+        {/* </CardContent>
+      </Card> */}
     </Box>
   )
 }

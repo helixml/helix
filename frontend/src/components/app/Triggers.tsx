@@ -164,7 +164,7 @@ const Triggers: FC<TriggersProps> = ({
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
             <ApiIcon sx={{ mr: 2, color: 'primary.main' }} />
             <Box>
-              <Typography variant="h6">Sessions & API</Typography>
+              <Typography gutterBottom>Sessions & API</Typography>
               <Typography variant="body2" color="text.secondary">
                 Allow users to interact with your agent through the web interface or API
               </Typography>
@@ -183,7 +183,7 @@ const Triggers: FC<TriggersProps> = ({
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
             <ScheduleIcon sx={{ mr: 2, color: 'primary.main' }} />
             <Box>
-              <Typography variant="h6">Scheduled</Typography>
+              <Typography gutterBottom>Recurring</Typography>
               <Typography variant="body2" color="text.secondary">
                 Run your agent on a schedule
               </Typography>
@@ -232,7 +232,7 @@ const Triggers: FC<TriggersProps> = ({
 
             {/* Time selection */}
             <Box sx={{ mb: 2 }}>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
+              <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
                 Time
               </Typography>
               <Grid container spacing={2}>
@@ -275,15 +275,15 @@ const Triggers: FC<TriggersProps> = ({
 
             {/* Input field */}
             <Box sx={{ mb: 2 }}>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Input (Optional)
+              <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2  }}>
+                Agent Input
               </Typography>
               <TextField
                 fullWidth
                 multiline
-                rows={2}
+                rows={4}
                 size="small"
-                placeholder="Enter the input that will be sent to the agent when triggered..."
+                placeholder="'Check the news and send me an email with the summary', 'Check the weather in Tokyo'"
                 value={scheduleInput}
                 onChange={(e) => handleInputChange(e.target.value)}
                 disabled={readOnly}
