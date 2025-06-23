@@ -7,6 +7,10 @@ import Tooltip from '@mui/material/Tooltip'
 import Chip from '@mui/material/Chip'
 import GitHubIcon from '@mui/icons-material/GitHub'
 import SchoolIcon from '@mui/icons-material/School'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
+import IconButton from '@mui/material/IconButton'
 import { LineChart } from '@mui/x-charts';
 
 import SimpleTable from '../widgets/SimpleTable'
@@ -53,6 +57,32 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
   const lightTheme = useLightTheme()
   // Add state for usage data with proper typing
   const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({})
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [currentApp, setCurrentApp] = useState<IApp | null>(null);
+
+  const handleMenuClick = (event: React.MouseEvent<HTMLElement>, app: any) => {
+    setAnchorEl(event.currentTarget);
+    setCurrentApp(app._data as IApp);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+    setCurrentApp(null);
+  };
+
+  const handleEdit = () => {
+    if (currentApp) {
+      onEdit(currentApp);
+    }
+    handleMenuClose();
+  };
+
+  const handleDelete = () => {
+    if (currentApp) {
+      onDelete(currentApp);
+    }
+    handleMenuClose();
+  };
 
   // Fetch usage data for all apps
   useEffect(() => {
@@ -279,60 +309,48 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
 
   const getActions = useCallback((app: any) => {
     return (
-      <Box
-        sx={{
-          width: '100%',
-          display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'flex-end',
-          justifyContent: 'flex-end',
-          pl: 2,
-          pr: 2,
-        }}
+      <IconButton
+        aria-label="more"
+        aria-controls="long-menu"
+        aria-haspopup="true"
+        onClick={(e) => handleMenuClick(e, app)}
       >
-        <ClickLink
-          sx={{mr:2}}
-          onClick={ () => {
-            onDelete(app._data)
-          }}
-        >
-          <Tooltip title="Delete">
-            <DeleteIcon />
-          </Tooltip>
-        </ClickLink>
-      
-        <ClickLink
-          onClick={ () => {
-            onEdit(app._data)
-          }}
-        >
-          <Tooltip title="Edit">
-            <EditIcon />
-          </Tooltip>
-        </ClickLink>
-      </Box>
+        <MoreVertIcon />
+      </IconButton>
     )
-  }, [
-    onDelete,
-    onEdit,
-  ])
+  }, [])
 
   return (
-    <SimpleTable
-      fields={[
-      {
-          name: 'name',
-          title: 'Name',
-      }, {
-        name: 'actions',
-        title: 'Skills',
-      }, {
-        name: 'usage',
-        title: 'Token Usage',
-      }]}
-      data={ tableData }
-      getActions={ getActions }
-    />
+    <>
+      <SimpleTable
+        fields={[
+        {
+            name: 'name',
+            title: 'Name',
+        }, {
+          name: 'actions',
+          title: 'Skills',
+        }, {
+          name: 'usage',
+          title: 'Token Usage',
+        }]}
+        data={ tableData }
+        getActions={ getActions }
+      />
+      <Menu
+        id="long-menu"
+        anchorEl={anchorEl}
+        open={Boolean(anchorEl)}
+        onClose={handleMenuClose}        
+      >
+        <MenuItem onClick={handleEdit}>          
+          Edit
+        </MenuItem>
+        <MenuItem onClick={handleDelete}>          
+          Delete
+        </MenuItem>
+      </Menu>
+    </>
   )
 }
 
