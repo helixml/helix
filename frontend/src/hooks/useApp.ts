@@ -414,6 +414,10 @@ export const useApp = (appId: string) => {
       assistants[0].email = updates.emailTool
     }
     
+    if (updates.tests !== undefined) {
+      assistants[0].tests = updates.tests
+    }
+    
     return updatedApp
   }, [])
   

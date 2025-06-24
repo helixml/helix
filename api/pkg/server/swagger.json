@@ -8,7 +8,7 @@
         "title": "HelixML API reference",
         "contact": {
             "name": "Helix support",
-            "url": "https://app.tryhelix.ai/",
+            "url": "https://app.helix.ml/",
             "email": "info@helixml.tech"
         },
         "version": "0.1",
@@ -17,7 +17,7 @@
             "url": "https://avatars.githubusercontent.com/u/149581110?s=200\u0026v=4"
         }
     },
-    "host": "app.tryhelix.ai",
+    "host": "app.helix.ml",
     "paths": {
         "/api/v1/apps": {
             "get": {
@@ -183,11 +183,11 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Grant access to an app to a team or organization member (organization owners can grant access to teams and organization members)",
+                "description": "Grant access to an agent to a team or organization member (organization owners can grant access to teams and organization members)",
                 "tags": [
                     "apps"
                 ],
-                "summary": "Grant access to an app to a team or organization member",
+                "summary": "Grant access to an agent to a team or organization member",
                 "parameters": [
                     {
                         "description": "Request body with team or organization member ID and role",
@@ -4684,6 +4684,10 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "prewarm": {
+                    "description": "Whether to prewarm this model to fill free GPU memory on runners",
+                    "type": "boolean"
                 },
                 "runtime": {
                     "$ref": "#/definitions/types.Runtime"

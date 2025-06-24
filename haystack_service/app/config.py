@@ -29,7 +29,7 @@ class Settings:
     VLLM_API_KEY: str = os.getenv("VLLM_API_KEY", "EMPTY")
 
     # Vision model settings
-    VISION_ENABLED: bool = os.getenv("RAG_VISION_ENABLED", "false").lower() == "true"
+    VISION_ENABLED: bool = os.getenv("RAG_VISION_ENABLED", "true").lower() == "true"
     VISION_EMBEDDING_DIM: int = int(os.getenv("RAG_VISION_EMBEDDINGS_DIM", "1536"))
     VISION_EMBEDDINGS_MODEL: str = os.getenv(
         "RAG_VISION_EMBEDDINGS_MODEL", "MrLight/dse-qwen2-2b-mrl-v1"

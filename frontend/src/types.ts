@@ -653,6 +653,7 @@ export interface IAssistantConfig {
   
   tools?: ITool[];
   knowledge?: IKnowledgeSource[];
+  tests?: ITest[];
 }
 
 export interface IKnowledgeProgress {
@@ -826,6 +827,7 @@ export interface IAppFlatState {
   emailTool?: TypesAssistantEmail
   conversation_starters?: string[];
   triggers?: TypesTrigger[];
+  tests?: ITest[];
 }
 
 export interface IGptScriptRequest {
@@ -1061,4 +1063,15 @@ export interface IUserAppAccessState {
   isAdmin: boolean
   canWrite: boolean
   canRead: boolean
+}
+
+// Test interfaces
+export interface ITestStep {
+  prompt?: string;
+  expected_output?: string;
+}
+
+export interface ITest {
+  name?: string;
+  steps?: ITestStep[];
 }

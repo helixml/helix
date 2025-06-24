@@ -46,7 +46,7 @@ export interface IAccountContext {
   fetchModels: (provider?: string) => Promise<void>,  
   // an org aware navigate function that will prepend `org_` to the route name
   // and include the org_id in the params if we are currently looking at an org
-  orgNavigate: (routeName: string, params?: Record<string, string | undefined>) => void,
+  orgNavigate: (routeName: string, params?: Record<string, string | undefined>, queryParams?: Record<string, string>) => void,
 }
 
 export const AccountContext = createContext<IAccountContext>({
@@ -383,7 +383,7 @@ export const useAccountContext = (): IAccountContext => {
     }
   }, [api])
 
-  const orgNavigate = (routeName: string, params: Record<string, string | undefined> = {}) => {
+  const orgNavigate = (routeName: string, params: Record<string, string | undefined> = {}, queryParams?: Record<string, string>) => {
     // Current menu type for triggering animations
     const currentResourceType = router.params.resource_type || 'chat'
     const isOrgRoute = routeName.startsWith('org_')
@@ -409,9 +409,12 @@ export const useAccountContext = (): IAccountContext => {
       }
     }
     
+    // Add query params if provided
+    const finalParams = queryParams ? { ...targetParams, ...queryParams } : targetParams
+    
     // Navigate first, then trigger animations after a very small delay
     // This ensures components are mounted before animations run
-    router.navigate(targetRouteName, targetParams)
+    router.navigate(targetRouteName, finalParams)
     
     // If this is an org transition, trigger animation after a small delay
     if (isOrgTransition) {

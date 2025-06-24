@@ -6,7 +6,7 @@ import puppeteer from 'puppeteer'
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 800 });
 
-  await page.goto('http://app.tryhelix.ai');
+  await page.goto('http://app.helix.ml');
  
 
   await page.waitForSelector('#login-button', { visible: true });
@@ -211,7 +211,7 @@ import puppeteer from 'puppeteer'
   
 
     // Run the curl command using the API key
-  // const curlCommand = `curl -s -i -H "Authorization: Bearer ${apiKey}" https://app.tryhelix.ai/v1/chat/completions --data-raw '{"messages":[{"role":"user","content":"Using the Coinbase API, what is the live Bitcoin price in GBP"}], "model":"llama3:instruct", "stream":false}'`;
+  // const curlCommand = `curl -s -i -H "Authorization: Bearer ${apiKey}" https://app.helix.ml/v1/chat/completions --data-raw '{"messages":[{"role":"user","content":"Using the Coinbase API, what is the live Bitcoin price in GBP"}], "model":"llama3:instruct", "stream":false}'`;
 
   // exec(curlCommand, (error, stdout, stderr) => {
   //   if (error) {

@@ -15,6 +15,7 @@ type OllamaGenericText struct {
 	ContextLength int64
 	Description   string
 	Hide          bool
+	Prewarm       bool // Whether to prewarm this model to fill free GPU memory on runners
 }
 
 func (i *OllamaGenericText) GetMemoryRequirements(_ types.SessionMode) uint64 {

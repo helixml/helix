@@ -9,6 +9,10 @@ runner:
 # How many runners do you want to run?
 replicaCount: 1
 
+# Deployment strategy - use "Recreate" for single GPU to avoid deadlocks
+# Options: "auto" (default), "RollingUpdate", "Recreate"
+deploymentStrategy: "auto"
+
 # Select your GPU count
 resources:
   limits:

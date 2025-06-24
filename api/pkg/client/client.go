@@ -97,7 +97,7 @@ type HelixClient struct {
 }
 
 const (
-	DefaultURL = "https://app.tryhelix.ai"
+	DefaultURL = "https://app.helix.ml"
 )
 
 func NewClientFromEnv() (*HelixClient, error) {

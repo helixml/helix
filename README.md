@@ -1,5 +1,5 @@
 <div align="center">
-<img alt="logo" src="https://tryhelix.ai/assets/img/CDfWIfha3--900.webp" width="250px">
+<img alt="logo" src="https://helix.ml/assets/img/CDfWIfha3--900.webp" width="250px">
 
 <br/>
 <br/>
@@ -7,7 +7,7 @@
 </div>
 
 <p align="center">
-  <a href="https://app.tryhelix.ai/">SaaS</a> •
+  <a href="https://app.helix.ml/">SaaS</a> •
   <a href="https://docs.helixml.tech/docs/controlplane">Private Deployment</a> •
   <a href="https://docs.helixml.tech/docs/overview">Docs</a> •
   <a href="https://discord.gg/VJftd844GE">Discord</a>
