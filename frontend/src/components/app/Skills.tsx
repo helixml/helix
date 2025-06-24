@@ -16,6 +16,7 @@ import CalculatorSkill from './CalculatorSkill';
 import ApiIcon from '@mui/icons-material/Api';
 import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
+import useRouter from '../../hooks/useRouter';
 
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
 import { airQualityTool } from './examples/skillAirQualityApi';
@@ -220,6 +221,7 @@ const Skills: React.FC<SkillsProps> = ({
   const theme = useTheme();
   const api = useApi();
   const account = useAccount();
+  const router = useRouter();
 
   const [selectedSkill, setSelectedSkill] = useState<IAgentSkill | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -582,14 +584,13 @@ const Skills: React.FC<SkillsProps> = ({
               <>
                 Administrators can configure OAuth providers in{' '}
                 <Link
-                  href="/admin/oauth"
                   sx={{ textDecoration: 'underline', cursor: 'pointer' }}
                   onClick={(e) => {
                     e.preventDefault();
-                    window.location.href = '/admin/oauth';
+                    router.navigate('dashboard', { tab: 'oauth_providers' });
                   }}
                 >
-                  Admin Settings
+                  Dashboard
                 </Link>
                 .{' '}
               </>
@@ -738,7 +739,7 @@ const Skills: React.FC<SkillsProps> = ({
                           startIcon={<SettingsIcon />}
                           onClick={(e) => {
                             e.stopPropagation();
-                            window.open('/dashboard/oauth', '_blank');
+                            router.navigate('dashboard', { tab: 'oauth_providers' });
                           }}
                           sx={{ 
                             fontSize: '0.75rem',
