@@ -243,6 +243,9 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		return
 	}
 
+	//  Will instruct the agent to send thoughts about tools and decisions
+	options.Conversational = true
+
 	// Streaming request, receive and write the stream in chunks
 	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {

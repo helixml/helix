@@ -38,7 +38,7 @@ type Session struct {
 }
 
 // NewSession constructs a session with references to shared LLM & memory, but isolated state.
-func NewSession(ctx context.Context, stepInfoEmitter StepInfoEmitter, llm *LLM, mem Memory, ag *Agent, messageHistory *MessageList, meta Meta) *Session {
+func NewSession(ctx context.Context, stepInfoEmitter StepInfoEmitter, llm *LLM, mem Memory, ag *Agent, messageHistory *MessageList, meta Meta, conversational bool) *Session {
 	ctx, cancel := context.WithCancel(ctx)
 	ctx = context.WithValue(ctx, ContextKey("userID"), meta.UserID)
 	ctx = context.WithValue(ctx, ContextKey("sessionID"), meta.SessionID)
@@ -60,7 +60,7 @@ func NewSession(ctx context.Context, stepInfoEmitter StepInfoEmitter, llm *LLM, 
 		stepInfoEmitter: stepInfoEmitter,
 		meta:            meta,
 
-		isConversational: true,
+		isConversational: conversational,
 	}
 	go s.run()
 	return s

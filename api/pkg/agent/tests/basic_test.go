@@ -172,7 +172,7 @@ func TestSimpleConversation(t *testing.T) {
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
-	})
+	}, true)
 	convSession.In("test confirmed")
 
 	var finalContent string
@@ -231,7 +231,7 @@ func TestConversationWithSkills(t *testing.T) {
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
-	})
+	}, true)
 
 	convSession.In("Which apple is the best?")
 	var finalContent string
@@ -280,7 +280,7 @@ func TestConversationWithHistory(t *testing.T) {
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
-	})
+	}, true)
 
 	convSession.In("is it a fruit or a vegetable? Answer in one word without extra punctuation.")
 
@@ -345,7 +345,7 @@ func TestConversationWithSkills_WithHistory_NoSkillsToBeUsed(t *testing.T) {
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
-	})
+	}, true)
 
 	convSession.In("How much euros is that per year?")
 
@@ -397,7 +397,7 @@ func TestConversationWithHistory_WithQuestionAboutPast(t *testing.T) {
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
-	})
+	}, true)
 
 	convSession.In("what fruit did I ask you about? answer in one word without extra punctuation.")
 
@@ -456,7 +456,7 @@ func TestMemoryRetrieval(t *testing.T) {
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
-	})
+	}, true)
 
 	convSession.In("Which country am I from?")
 

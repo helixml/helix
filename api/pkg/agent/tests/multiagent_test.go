@@ -250,7 +250,7 @@ func testRestaurantRecommendation(t *testing.T, prompt string) {
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID, "domain": "test"},
-	})
+	}, true)
 
 	restaurantSession.In(prompt)
 	var response string
