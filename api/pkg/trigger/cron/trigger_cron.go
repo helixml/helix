@@ -14,7 +14,9 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -248,6 +250,17 @@ func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
 				Content: trigger.Input,
 			},
 		}
+
+		responseID := system.GenerateOpenAIResponseID()
+
+		ctx := oai.SetContextValues(ctx, &oai.ContextValues{
+			OwnerID:         app.Owner,
+			SessionID:       responseID,
+			InteractionID:   "n/a",
+			OriginalRequest: []byte(""), // TODO: verify if needed
+		})
+
+		ctx = oai.SetContextAppID(ctx, app.ID)
 
 		resp, _, err := c.controller.ChatCompletion(ctx, &types.User{
 			ID: app.Owner,
