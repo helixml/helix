@@ -18,7 +18,7 @@ spec:
       maxUnavailable: 1
       maxSurge: 1
   {{- else if eq .Values.deploymentStrategy "auto" }}
-    {{- if and .Values.resources.limits (eq (.Values.resources.limits."nvidia.com/gpu" | toString) "1") }}
+    {{- if and .Values.resources.limits (eq (index .Values.resources.limits "nvidia.com/gpu" | toString) "1") }}
   strategy:
     type: Recreate
     {{- else }}
