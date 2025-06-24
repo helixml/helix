@@ -503,12 +503,21 @@ const ImportAgent: FC = () => {
       const hasSeedZipUrl = (actualConfig as any)?.assistants?.[0]?.knowledge?.some((k: any) => k.source?.filestore?.seed_zip_url) ||
                            (actualConfig as any)?.spec?.assistants?.[0]?.knowledge?.some((k: any) => k.source?.filestore?.seed_zip_url)
       
+      // Check if the imported config has OAuth skills
+      const hasOAuthSkills = (actualConfig as any)?.assistants?.[0]?.apis?.some((api: any) => api.oauth_provider) ||
+                            (actualConfig as any)?.spec?.assistants?.[0]?.apis?.some((api: any) => api.oauth_provider)
+      
       console.log('Import detection - configData:', configData)
       console.log('Import detection - actualConfig:', actualConfig)
       console.log('Import detection - hasSeedZipUrl:', hasSeedZipUrl)
+      console.log('Import detection - hasOAuthSkills:', hasOAuthSkills)
 
-      // Navigate to the agent editor, jumping to knowledge tab if data was imported
-      if (hasSeedZipUrl) {
+      // Navigate to the agent editor, jumping to appropriate tab based on what was imported
+      if (hasOAuthSkills) {
+        // Navigate directly to the skills tab since OAuth skills were imported
+        account.orgNavigate('app', { app_id: result.id }, { tab: 'skills' })
+        snackbar.success('Agent imported successfully! Please review OAuth skills and enable any required providers.')
+      } else if (hasSeedZipUrl) {
         // Navigate directly to the knowledge tab since data was imported
         account.orgNavigate('app', { app_id: result.id }, { tab: 'knowledge' })
         snackbar.success('Agent imported successfully! Knowledge data is being processed.')

@@ -177,7 +177,11 @@ Examples of what you can help with:
     url: "https://slack.com/api",
     requiredParameters: [],
     oauth_provider: "Slack",
-    oauth_scopes: ["channels:read", "chat:write", "groups:read"]
+    oauth_scopes: ["channels:read", "chat:write", "groups:read"],
+    headers: {
+      "Authorization": "Bearer {token}",
+      "Content-Type": "application/json"
+    }
   },
   configurable: false,
 } 

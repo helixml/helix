@@ -306,7 +306,10 @@ Examples of what you can help with:
     oauth_provider: "Google",
     oauth_scopes: [
       "https://www.googleapis.com/auth/drive.file"
-    ]
+    ],
+    headers: {
+      "Authorization": "Bearer {token}"
+    }
   },
   configurable: false,
 }; 

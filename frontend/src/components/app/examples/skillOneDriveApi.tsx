@@ -11,25 +11,35 @@ servers:
 paths:
   /me/drive/root/children:
     get:
-      summary: List OneDrive files
-      operationId: listOneDriveFiles
+      summary: List OneDrive files and folders
+      operationId: listOneDriveItems
       security:
         - BearerAuth: []
       parameters:
+        - name: $filter
+          in: query
+          schema:
+            type: string
+          description: Filter items (e.g., "folder ne null" for folders only)
         - name: $top
           in: query
           schema:
             type: integer
-            default: 200
-            maximum: 999
+            default: 100
+            maximum: 1000
         - name: $orderby
           in: query
           schema:
             type: string
             default: "lastModifiedDateTime desc"
+        - name: $select
+          in: query
+          schema:
+            type: string
+            default: "id,name,size,lastModifiedDateTime,folder,file,webUrl"
       responses:
         '200':
-          description: List of OneDrive files
+          description: List of OneDrive items
           content:
             application/json:
               schema:
@@ -48,8 +58,94 @@ paths:
                           type: integer
                         lastModifiedDateTime:
                           type: string
+                        folder:
+                          type: object
+                        file:
+                          type: object
+                          properties:
+                            mimeType:
+                              type: string
                         webUrl:
                           type: string
+  /me/drive/items/{item-id}:
+    get:
+      summary: Get OneDrive item by ID
+      operationId: getOneDriveItem
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: item-id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: $select
+          in: query
+          schema:
+            type: string
+            default: "id,name,size,lastModifiedDateTime,folder,file,webUrl"
+      responses:
+        '200':
+          description: OneDrive item details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  size:
+                    type: integer
+                  lastModifiedDateTime:
+                    type: string
+                  folder:
+                    type: object
+                  file:
+                    type: object
+                  webUrl:
+                    type: string
+  /me/drive/root:/{item-path}:/children:
+    post:
+      summary: Create OneDrive folder
+      operationId: createOneDriveFolder
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: item-path
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Path where to create the folder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, folder]
+              properties:
+                name:
+                  type: string
+                folder:
+                  type: object
+                  properties: {}
+      responses:
+        '201':
+          description: Folder created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  webUrl:
+                    type: string
 components:
   securitySchemes:
     BearerAuth:
@@ -103,7 +199,10 @@ Examples of what you can help with:
     oauth_provider: "Microsoft",
     oauth_scopes: [
       "Files.ReadWrite"
-    ]
+    ],
+    headers: {
+      "Authorization": "Bearer {token}"
+    }
   },
   configurable: false,
 }; 

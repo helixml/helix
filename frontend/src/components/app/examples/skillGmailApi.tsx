@@ -214,7 +214,10 @@ Examples of what you can help with:
     oauth_scopes: [
       "https://www.googleapis.com/auth/gmail.readonly",
       "https://www.googleapis.com/auth/gmail.send"
-    ]
+    ],
+    headers: {
+      "Authorization": "Bearer {token}"
+    }
   },
   configurable: false,
 }; 
