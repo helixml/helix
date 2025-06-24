@@ -16,6 +16,7 @@ import BarChartIcon from '@mui/icons-material/BarChart';
 import CloudDownloadIcon from '@mui/icons-material/CloudDownload';
 import GroupIcon from '@mui/icons-material/Group';
 import PaletteIcon from '@mui/icons-material/Palette';
+import BugReportIcon from '@mui/icons-material/BugReport';
 
 import APIKeysSection from '../components/app/APIKeysSection'
 import AppSettings from '../components/app/AppSettings'
@@ -24,6 +25,7 @@ import AccessManagement from '../components/app/AccessManagement'
 import CodeExamples from '../components/app/CodeExamples'
 import DevelopersSection from '../components/app/DevelopersSection'
 import KnowledgeEditor from '../components/app/KnowledgeEditor'
+import TestsEditor from '../components/app/TestsEditor'
 import PreviewPanel from '../components/app/PreviewPanel'
 import Page from '../components/system/Page'
 import AccessDenied from '../components/system/AccessDenied'
@@ -196,6 +198,7 @@ const App: FC = () => {
                 <Tab icon={<SettingsIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Settings" value="settings" />
                 <Tab icon={<MenuBookIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Knowledge" value="knowledge" />
                 <Tab icon={<EmojiObjectsIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Skills" value="skills" />                
+                <Tab icon={<BugReportIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Tests" value="tests" />
                 <Tab icon={<VpnKeyIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Keys" value="apikeys" />
                 <Tab icon={<CodeIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="MCP" value="mcp" />
                 <Tab icon={<BarChartIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Usage" value="usage" />
@@ -231,6 +234,19 @@ const App: FC = () => {
                           <Skills
                             app={appTools.flatApp}
                             onUpdate={appTools.saveFlatApp}
+                          />
+                        )}
+                      </Box>
+                    </Grid>
+                  ) : tabValue === 'tests' ? (
+                    <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                        { appTools.flatApp && (
+                          <TestsEditor
+                            app={appTools.flatApp}
+                            onUpdate={appTools.saveFlatApp}
+                            appId={appTools.id}
+                            navigate={navigate}
                           />
                         )}
                       </Box>
