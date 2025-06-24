@@ -96,7 +96,7 @@ func TestHelixCLIApply(t *testing.T) {
 		appName := strings.TrimPrefix(matches[0], "name:")
 		appName = strings.TrimSpace(appName)
 
-		// Use helix app list to get the most recent marvin app id
+		// Use helix agent list to get the most recent marvin app id
 		output := cli.ListApps(t, apiKey)
 
 		re = regexp.MustCompile(`\s*(app_[a-zA-Z0-9_]+)\s+` + regexp.QuoteMeta(appName) + `\s+`)

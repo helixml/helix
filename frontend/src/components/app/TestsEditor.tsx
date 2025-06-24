@@ -11,10 +11,15 @@ import Link from '@mui/material/Link';
 import Accordion from '@mui/material/Accordion';
 import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
+import Tooltip from '@mui/material/Tooltip';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import CheckIcon from '@mui/icons-material/Check';
 import { IAppFlatState, ITest, ITestStep } from '../../types';
+import { generateYamlFilename } from '../../utils/format';
+import useSnackbar from '../../hooks/useSnackbar';
 
 interface TestsEditorProps {
   app: IAppFlatState;
@@ -30,6 +35,9 @@ const TestsEditor: React.FC<TestsEditorProps> = ({
   navigate,
 }) => {
   const tests = app.tests || [];
+  const yamlFilename = generateYamlFilename(app.name || 'app');
+  const snackbar = useSnackbar();
+  const [testCopied, setTestCopied] = React.useState(false);
 
   const handleAddTest = () => {
     const newTest: ITest = {
@@ -71,6 +79,21 @@ const TestsEditor: React.FC<TestsEditorProps> = ({
     );
     handleUpdateTest(testIndex, { steps: updatedSteps });
   };
+
+  const handleCopyCommand = (command: string) => {
+    navigator.clipboard.writeText(command)
+      .then(() => {
+        setTestCopied(true);
+        setTimeout(() => setTestCopied(false), 2000);
+        snackbar.success('Command copied to clipboard');
+      })
+      .catch((error) => {
+        console.error('Failed to copy:', error);
+        snackbar.error('Failed to copy to clipboard');
+      });
+  };
+
+  const testCommand = `helix agent inspect ${appId} > ${yamlFilename} && helix test -f ${yamlFilename}`;
 
   return (
     <Box sx={{ mt: 2, mr: 4 }}>
@@ -181,7 +204,7 @@ const TestsEditor: React.FC<TestsEditorProps> = ({
         </Typography>
         
         <Typography variant="body2" sx={{ mb: 2 }}>
-          To run your tests, first export your app configuration to a YAML file:
+          Export your app configuration and run tests with this one-liner:
         </Typography>
         
         <Box sx={{
@@ -190,26 +213,31 @@ const TestsEditor: React.FC<TestsEditorProps> = ({
           borderRadius: '4px',
           fontFamily: 'monospace',
           fontSize: '0.9rem',
-          mb: 2
+          mb: 2,
+          position: 'relative',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between'
         }}>
-          helix app inspect {appId} &gt; my-app.yaml
+          <span>{testCommand}</span>
+          <Tooltip title={testCopied ? "Copied!" : "Copy command"} placement="top">
+            <IconButton
+              onClick={() => handleCopyCommand(testCommand)}
+              sx={{
+                color: 'white',
+                padding: '4px',
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                },
+              }}
+              size="small"
+            >
+              {testCopied ? <CheckIcon sx={{ fontSize: 16 }} /> : <ContentCopyIcon sx={{ fontSize: 16 }} />}
+            </IconButton>
+          </Tooltip>
         </Box>
 
         <Typography variant="body2" sx={{ mb: 2 }}>
-          Then run your tests with:
-        </Typography>
-        
-        <Box sx={{
-          backgroundColor: '#1e1e2f',
-          padding: '10px',
-          borderRadius: '4px',
-          fontFamily: 'monospace',
-          fontSize: '0.9rem',
-          mb: 3
-        }}>
-          helix test --file my-app.yaml
-        </Box>
-        <Typography variant="body2" sx={{ mb: 3 }}>
           Don't have the CLI installed? 
           <Link 
             onClick={() => navigate('account')}
@@ -248,21 +276,54 @@ const TestsEditor: React.FC<TestsEditorProps> = ({
               whiteSpace: 'pre',
               lineHeight: 1.4
             }}>
-{`name: Test Helix App
-on: [push, pull_request]
+{`name: CI for GenAI
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  HELIX_URL: \${{ vars.HELIX_URL }}
+  HELIX_API_KEY: \${{ secrets.HELIX_API_KEY }}
+
 jobs:
-  test:
+  test-and-comment:
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
-      - name: Install Helix CLI
-        run: |
-          curl -L "https://helixml.tech/install.sh" | bash
-          echo "$HOME/.helix/bin" >> $GITHUB_PATH
-      - name: Run Tests
-        env:
-          HELIX_API_KEY: \${{ secrets.HELIX_API_KEY }}
-        run: helix test --file my-app.yaml`}
+
+      - name: Install helix CLI
+        run: curl -sL -O https://get.helix.ml/install.sh && bash install.sh --cli -y
+
+      - name: Test the helix agent
+        run: helix test -f ${yamlFilename}
+
+      - name: PR comment with file
+        if: always()
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          file-path: summary_latest.md
+
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install helix CLI
+        run: curl -sL -O https://get.helix.ml/install.sh && bash install.sh --cli -y
+
+      - name: Test the helix agent
+        run: helix test -f ${yamlFilename}
+
+      - name: Apply changes
+        if: success()
+        run: helix apply -f ${yamlFilename}`}
             </Box>
           </AccordionDetails>
         </Accordion>
@@ -288,17 +349,56 @@ jobs:
               whiteSpace: 'pre',
               lineHeight: 1.4
             }}>
-{`test-helix:
+{`stages:
+  - test
+  - apply
+
+variables:
+  HELIX_URL: \${HELIX_URL}
+  HELIX_API_KEY: \${HELIX_API_KEY}
+
+test_job:
   stage: test
   image: ubuntu:latest
-  before_script:
-    - apt-get update && apt-get install -y curl
-    - curl -L "https://helixml.tech/install.sh" | bash
-    - export PATH="$HOME/.helix/bin:$PATH"
   script:
-    - helix test --file my-app.yaml
-  variables:
-    HELIX_API_KEY: $HELIX_API_KEY`}
+    - apt-get update && apt-get install -y curl sudo
+    - curl -sL -O https://get.helix.ml/install.sh && bash install.sh --cli -y
+    - helix test
+  artifacts:
+    paths:
+      - summary_latest.md
+    when: always
+
+apply_job:
+  stage: apply
+  image: ubuntu:latest
+  script:
+    - apt-get update && apt-get install -y curl sudo
+    - curl -sL -O https://get.helix.ml/install.sh && bash install.sh --cli -y
+    - helix apply -f ${yamlFilename}
+  only:
+    - main
+    - pushes
+    - web
+
+comment_job:
+  stage: apply
+  image: ubuntu:latest
+  script:
+    - echo "Commenting on merge request with test results"
+    - |
+      if [ -f summary_latest.md ]; then
+        comment=\$(cat summary_latest.md)
+        curl --request POST \\
+          --header "PRIVATE-TOKEN: \${GITLAB_API_TOKEN}" \\
+          --header "Content-Type: application/json" \\
+          --data "{\\"body\\": \\"\${comment}\\"}" \\
+          "\${CI_API_V4_URL}/projects/\${CI_PROJECT_ID}/merge_requests/\${CI_MERGE_REQUEST_IID}/notes"
+      else
+        echo "summary_latest.md not found"
+      fi
+  only:
+    - merge_requests`}
             </Box>
           </AccordionDetails>
         </Accordion>

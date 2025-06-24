@@ -259,6 +259,7 @@ const App: FC = () => {
                           setSchema={appTools.setAppSchema}
                           showErrors={appTools.showErrors}
                           appId={appTools.id}
+                          appName={appTools.flatApp?.name}
                           navigate={navigate}
                         />
                       </Box>
