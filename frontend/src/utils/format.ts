@@ -40,3 +40,21 @@ export const formatDate = (dateString: string): string => {
   
   return new Intl.DateTimeFormat('en-US', options).format(date);
 };
+
+/**
+ * Generate a YAML filename from an app name
+ * Converts "David - Financial Sentiment Analyst" to "david-financial-sentiment-analyst.yaml"
+ * @param appName The app name to convert
+ * @returns YAML filename
+ */
+export const generateYamlFilename = (appName: string): string => {
+  if (!appName || typeof appName !== 'string') return 'app.yaml';
+  
+  return appName
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '') // Remove special characters except spaces and hyphens
+    .replace(/\s+/g, '-') // Replace spaces with hyphens
+    .replace(/-+/g, '-') // Replace multiple hyphens with single hyphen
+    .replace(/^-|-$/g, '') // Remove leading/trailing hyphens
+    .concat('.yaml');
+};

@@ -656,6 +656,7 @@ export interface IAssistantConfig {
   calculator?: IAssistantCalculator;
   tools?: ITool[];
   knowledge?: IKnowledgeSource[];
+  tests?: ITest[];
 }
 
 export interface IKnowledgeProgress {
@@ -827,6 +828,7 @@ export interface IAppFlatState {
   browserTool?: IAssistantBrowser
   calculatorTool?: IAssistantCalculator
   conversation_starters?: string[];
+  tests?: ITest[];
 }
 
 export interface IGptScriptRequest {
@@ -1062,4 +1064,15 @@ export interface IUserAppAccessState {
   isAdmin: boolean
   canWrite: boolean
   canRead: boolean
+}
+
+// Test interfaces
+export interface ITestStep {
+  prompt?: string;
+  expected_output?: string;
+}
+
+export interface ITest {
+  name?: string;
+  steps?: ITestStep[];
 }
