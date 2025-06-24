@@ -8,7 +8,7 @@ import {
 } from '../../types'
 
 import {
-  getAppAvatar,
+  getAppAvatarUrl,
   getAppName,
   getAppDescription,
 } from '../../utils/apps'
@@ -20,7 +20,7 @@ const CreateHeader: FC<{
   app,
   avatarSx = {},
 }) => {
-  const avatar = getAppAvatar(app) || '/img/logo.png'
+  const avatar = getAppAvatarUrl(app)
   const name = getAppName(app)
   const description = getAppDescription(app)
 

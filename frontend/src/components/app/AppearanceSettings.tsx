@@ -9,6 +9,7 @@ import Avatar from '@mui/material/Avatar'
 import Grid from '@mui/material/Grid'
 import { IAppFlatState } from '../../types'
 import { useUpdateAppAvatar, useDeleteAppAvatar } from '../../services/appService'
+import { getFlatStateAvatarUrl } from '../../utils/app'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever'
 import useApps from '../../hooks/useApps'
@@ -215,8 +216,7 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
               onClick={handleAvatarClick}
             >              
               <Avatar
-                src={app.avatar ? `/api/v1/apps/${id}/avatar?t=${avatarUpdateKey}` : `/img/logo.png?t=${avatarUpdateKey}`}
-                // src={`/api/v1/apps/${id}/avatar?t=${avatarUpdateKey}`}
+                src={`${getFlatStateAvatarUrl(app, id)}${getFlatStateAvatarUrl(app, id).includes('?') ? '&' : '?'}t=${avatarUpdateKey}`}
                 sx={{
                   width: 200,
                   height: 200,
