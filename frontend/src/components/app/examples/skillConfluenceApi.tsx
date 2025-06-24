@@ -1,4 +1,5 @@
 import { IAgentSkill } from '../../../types';
+import atlassianLogo from '../../../../assets/img/atlassian-logo.png';
 
 const schema = `openapi: 3.0.3
 info:
@@ -408,7 +409,7 @@ components:
 
 export const confluenceTool: IAgentSkill = {
   name: 'Confluence',
-  icon: <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDEyQzEyIDEyIDEyIDEyIDEyIDEyQzEyIDEyIDEyIDEyIDEyIDEyWiIgZmlsbD0iIzAwNTJDQyIvPgo8L3N2Zz4=" alt="Confluence" style={{ width: '24px', height: '24px' }} />,
+  icon: <img src={atlassianLogo} alt="Confluence" style={{ width: '24px', height: '24px' }} />,
   description: 'Access Confluence spaces, pages, and content management. Search, create, update, and organize documentation.',
   systemPrompt: `You are a Confluence documentation specialist. Your role is to help users interact with their Confluence wiki spaces, pages, and content.
 

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, IconButton, Menu, MenuItem, useTheme, Tooltip, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Alert, Collapse, Link, Chip } from '@mui/material';
-import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
+import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, IconButton, Menu, MenuItem, useTheme, Tooltip, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Alert, Collapse, Link, Chip, FormControl, InputLabel, Select, SelectChangeEvent, Tabs, Tab, TextField, InputAdornment } from '@mui/material';
+import { PROVIDER_ICONS, PROVIDER_COLORS, SlackLogo } from '../icons/ProviderIcons';
+import atlassianLogo from '../../../assets/img/atlassian-logo.png';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
@@ -9,6 +10,13 @@ import CalculateIcon from '@mui/icons-material/Calculate';
 import WarningIcon from '@mui/icons-material/Warning';
 import CloseIcon from '@mui/icons-material/Close';
 import SettingsIcon from '@mui/icons-material/Settings';
+import GoogleIcon from '@mui/icons-material/Google';
+import MicrosoftIcon from '@mui/icons-material/Microsoft';
+import GitHubIcon from '@mui/icons-material/GitHub';
+import LinkedInIcon from '@mui/icons-material/LinkedIn';
+import BusinessIcon from '@mui/icons-material/Business';
+import StorageIcon from '@mui/icons-material/Storage';
+import SearchIcon from '@mui/icons-material/Search';
 import { IAppFlatState, IAgentSkill } from '../../types';
 import AddApiSkillDialog from './AddApiSkillDialog';
 import BrowserSkill from './BrowserSkill';
@@ -24,8 +32,11 @@ import { exchangeRatesSkill } from './examples/skillExchangeRatesApi';
 
 // OAuth Provider Skills
 import { githubTool } from './examples/skillGithubApi';
-import { googleTool } from './examples/skillGoogleApi';
-import { microsoftTool } from './examples/skillMicrosoftApi';
+import { gmailTool } from './examples/skillGmailApi';
+import { googleDriveTool } from './examples/skillGoogleDriveApi';
+import { googleCalendarTool } from './examples/skillGoogleCalendarApi';
+import { outlookTool } from './examples/skillOutlookApi';
+import { oneDriveTool } from './examples/skillOneDriveApi';
 import { slackTool } from './examples/skillSlackApi';
 import { linkedInTool } from './examples/skillLinkedInApi';
 import { atlassianTool } from './examples/skillAtlassianApi';
@@ -57,12 +68,48 @@ interface ISkill {
   name: string;
   description: string;
   type: string;
+  category?: string;
   skill: IAgentSkill;
 }
 
 const SKILL_TYPE_HTTP_API = 'HTTP API';
 const SKILL_TYPE_BROWSER = 'Browser';
 const SKILL_TYPE_CALCULATOR = 'Calculator';
+
+const SKILL_CATEGORY_CORE = 'Core';
+const SKILL_CATEGORY_DATA = 'Data & APIs';
+const SKILL_CATEGORY_GOOGLE = 'Google';
+const SKILL_CATEGORY_MICROSOFT = 'Microsoft';
+const SKILL_CATEGORY_GITHUB = 'GitHub';
+const SKILL_CATEGORY_SLACK = 'Slack';
+const SKILL_CATEGORY_LINKEDIN = 'LinkedIn';
+const SKILL_CATEGORY_ATLASSIAN = 'Atlassian';
+
+// Function to get category icon
+const getCategoryIcon = (category: string) => {
+  switch (category) {
+    case 'All':
+      return <SettingsIcon sx={{ fontSize: 16 }} />;
+    case SKILL_CATEGORY_CORE:
+      return <SettingsIcon sx={{ fontSize: 16 }} />;
+    case SKILL_CATEGORY_DATA:
+      return <StorageIcon sx={{ fontSize: 16 }} />;
+    case SKILL_CATEGORY_GOOGLE:
+      return <GoogleIcon sx={{ fontSize: 16, color: '#4285F4' }} />;
+    case SKILL_CATEGORY_MICROSOFT:
+      return <MicrosoftIcon sx={{ fontSize: 16, color: '#00A1F1' }} />;
+    case SKILL_CATEGORY_GITHUB:
+      return <GitHubIcon sx={{ fontSize: 16 }} />;
+    case SKILL_CATEGORY_SLACK:
+      return <SlackLogo sx={{ fontSize: 16 }} />;
+    case SKILL_CATEGORY_LINKEDIN:
+      return <LinkedInIcon sx={{ fontSize: 16, color: '#0077B5' }} />;
+    case SKILL_CATEGORY_ATLASSIAN:
+      return <img src={atlassianLogo} style={{ width: 16, height: 16 }} alt="Atlassian" />;
+    default:
+      return <SettingsIcon sx={{ fontSize: 16 }} />;
+  }
+};
 
 // Base static skills/plugins data
 const BASE_SKILLS: ISkill[] = [
@@ -72,6 +119,7 @@ const BASE_SKILLS: ISkill[] = [
     name: 'Browser',
     description: 'Enable the AI to browse websites and extract information from them. The AI can visit URLs and process their content.',
     type: SKILL_TYPE_BROWSER,
+    category: SKILL_CATEGORY_CORE,
     skill: {
       name: 'Browser',
       description: 'Enable the AI to browse websites and extract information from them.',
@@ -90,6 +138,7 @@ const BASE_SKILLS: ISkill[] = [
     name: 'Calculator',
     description: 'Enable the AI to perform math calculations using javascript expressions.',
     type: SKILL_TYPE_CALCULATOR,
+    category: SKILL_CATEGORY_CORE,
     skill: {
       name: 'Calculator',
       description: 'Enable the AI to perform math calculations.',
@@ -108,6 +157,7 @@ const BASE_SKILLS: ISkill[] = [
     name: alphaVantageTool.name,
     description: alphaVantageTool.description,
     type: SKILL_TYPE_HTTP_API,
+    category: SKILL_CATEGORY_DATA,
     skill: alphaVantageTool,
   },
   {
@@ -116,6 +166,7 @@ const BASE_SKILLS: ISkill[] = [
     name: airQualityTool.name,
     description: airQualityTool.description,
     type: SKILL_TYPE_HTTP_API,
+    category: SKILL_CATEGORY_DATA,
     skill: airQualityTool,
   },
   {
@@ -124,6 +175,7 @@ const BASE_SKILLS: ISkill[] = [
     name: exchangeRatesSkill.name,
     description: exchangeRatesSkill.description,
     type: SKILL_TYPE_HTTP_API,
+    category: SKILL_CATEGORY_DATA,
     skill: exchangeRatesSkill,
   },
   // OAuth Provider Skills
@@ -133,23 +185,53 @@ const BASE_SKILLS: ISkill[] = [
     name: githubTool.name,
     description: githubTool.description,
     type: SKILL_TYPE_HTTP_API,
+    category: SKILL_CATEGORY_GITHUB,
     skill: githubTool,
   },
   {
-    id: 'google-api',
-    icon: googleTool.icon,
-    name: googleTool.name,
-    description: googleTool.description,
+    id: 'gmail-api',
+    icon: gmailTool.icon,
+    name: gmailTool.name,
+    description: gmailTool.description,
     type: SKILL_TYPE_HTTP_API,
-    skill: googleTool,
+    category: SKILL_CATEGORY_GOOGLE,
+    skill: gmailTool,
   },
   {
-    id: 'microsoft-api',
-    icon: microsoftTool.icon,
-    name: microsoftTool.name,
-    description: microsoftTool.description,
+    id: 'google-drive-api',
+    icon: googleDriveTool.icon,
+    name: googleDriveTool.name,
+    description: googleDriveTool.description,
     type: SKILL_TYPE_HTTP_API,
-    skill: microsoftTool,
+    category: SKILL_CATEGORY_GOOGLE,
+    skill: googleDriveTool,
+  },
+  {
+    id: 'google-calendar-api',
+    icon: googleCalendarTool.icon,
+    name: googleCalendarTool.name,
+    description: googleCalendarTool.description,
+    type: SKILL_TYPE_HTTP_API,
+    category: SKILL_CATEGORY_GOOGLE,
+    skill: googleCalendarTool,
+  },
+  {
+    id: 'outlook-api',
+    icon: outlookTool.icon,
+    name: outlookTool.name,
+    description: outlookTool.description,
+    type: SKILL_TYPE_HTTP_API,
+    category: SKILL_CATEGORY_MICROSOFT,
+    skill: outlookTool,
+  },
+  {
+    id: 'onedrive-api',
+    icon: oneDriveTool.icon,
+    name: oneDriveTool.name,
+    description: oneDriveTool.description,
+    type: SKILL_TYPE_HTTP_API,
+    category: SKILL_CATEGORY_MICROSOFT,
+    skill: oneDriveTool,
   },
   {
     id: 'slack-api',
@@ -157,6 +239,7 @@ const BASE_SKILLS: ISkill[] = [
     name: slackTool.name,
     description: slackTool.description,
     type: SKILL_TYPE_HTTP_API,
+    category: SKILL_CATEGORY_SLACK,
     skill: slackTool,
   },
   {
@@ -165,6 +248,7 @@ const BASE_SKILLS: ISkill[] = [
     name: linkedInTool.name,
     description: linkedInTool.description,
     type: SKILL_TYPE_HTTP_API,
+    category: SKILL_CATEGORY_LINKEDIN,
     skill: linkedInTool,
   },
   {
@@ -173,6 +257,7 @@ const BASE_SKILLS: ISkill[] = [
     name: atlassianTool.name,
     description: atlassianTool.description,
     type: SKILL_TYPE_HTTP_API,
+    category: SKILL_CATEGORY_ATLASSIAN,
     skill: atlassianTool,
   },
   {
@@ -181,6 +266,7 @@ const BASE_SKILLS: ISkill[] = [
     name: confluenceTool.name,
     description: confluenceTool.description,
     type: SKILL_TYPE_HTTP_API,
+    category: SKILL_CATEGORY_ATLASSIAN,
     skill: confluenceTool,
   },
 ];
@@ -191,6 +277,7 @@ const CUSTOM_API_SKILL: ISkill = {
   name: 'New API',
   description: 'Add your own OpenAPI based integration. Any HTTP endpoint can become a skill for your agent.',
   type: SKILL_TYPE_HTTP_API,
+  category: SKILL_CATEGORY_CORE,
   skill: {
     name: 'Custom API',
     icon: <ApiIcon />,
@@ -228,7 +315,9 @@ const Skills: React.FC<SkillsProps> = ({
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedSkillForMenu, setSelectedSkillForMenu] = useState<string | null>(null);
   const [isDisableConfirmOpen, setIsDisableConfirmOpen] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string>(SKILL_CATEGORY_CORE);
   const [skillToDisable, setSkillToDisable] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
   
   // OAuth warning state
   const [oauthProviders, setOAuthProviders] = useState<OAuthProvider[]>([]);
@@ -316,29 +405,59 @@ const Skills: React.FC<SkillsProps> = ({
     // Filter out any API tools that match predefined skills
     return app.apiTools
       .filter(api => !BASE_SKILLS.some(skill => skill.name === api.name))
-      .map(api => ({
-        id: `custom-api-${api.name}`,
-        icon: <ApiIcon />,
-        name: api.name,
-        description: api.description,
-        type: SKILL_TYPE_HTTP_API,
-        skill: {
-          name: api.name,
+      .map(api => {
+        // Determine category based on OAuth provider
+        let category = SKILL_CATEGORY_DATA;
+        if (api.oauth_provider) {
+          switch (api.oauth_provider.toLowerCase()) {
+            case 'google':
+              category = SKILL_CATEGORY_GOOGLE;
+              break;
+            case 'microsoft':
+              category = SKILL_CATEGORY_MICROSOFT;
+              break;
+            case 'github':
+              category = SKILL_CATEGORY_GITHUB;
+              break;
+            case 'slack':
+              category = SKILL_CATEGORY_SLACK;
+              break;
+            case 'linkedin':
+              category = SKILL_CATEGORY_LINKEDIN;
+              break;
+            case 'atlassian':
+              category = SKILL_CATEGORY_ATLASSIAN;
+              break;
+            default:
+              category = SKILL_CATEGORY_DATA;
+          }
+        }
+
+        return {
+          id: `custom-api-${api.name}`,
           icon: <ApiIcon />,
+          name: api.name,
           description: api.description,
-          systemPrompt: api.system_prompt || '',
-          apiSkill: {
-            schema: api.schema,
-            url: api.url,
-            requiredParameters: [],
-            headers: api.headers || {},
-            query: api.query || {},
-            oauth_provider: api.oauth_provider || '',
-            oauth_scopes: api.oauth_scopes || [],
+          type: SKILL_TYPE_HTTP_API,
+          category,
+          skill: {
+            name: api.name,
+            icon: <ApiIcon />,
+            description: api.description,
+            systemPrompt: api.system_prompt || '',
+            apiSkill: {
+              schema: api.schema,
+              url: api.url,
+              requiredParameters: [],
+              headers: api.headers || {},
+              query: api.query || {},
+              oauth_provider: api.oauth_provider || '',
+              oauth_scopes: api.oauth_scopes || [],
+            },
+            configurable: true,
           },
-          configurable: true,
-        },
-      }));
+        };
+      });
   }, [app.apiTools]);
 
   // Helper function to determine if an OAuth skill should be shown
@@ -351,6 +470,92 @@ const Skills: React.FC<SkillsProps> = ({
   const allSkills = useMemo(() => {
     return [...BASE_SKILLS, ...customApiSkills, CUSTOM_API_SKILL];
   }, [customApiSkills]);
+
+  const availableCategories = useMemo(() => {
+    const categories = new Set<string>();
+    allSkills.forEach(skill => {
+      if ('category' in skill && skill.category) {
+        categories.add(skill.category);
+      }
+    });
+    return ['All', ...Array.from(categories).sort()];
+  }, [allSkills]);
+
+  const filteredSkills = useMemo(() => {
+    let skills = allSkills;
+    
+    // Apply search filter first
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      skills = skills.filter(skill => 
+        skill.name.toLowerCase().includes(query) ||
+        skill.description.toLowerCase().includes(query) ||
+        (skill.skill.apiSkill?.oauth_provider && skill.skill.apiSkill.oauth_provider.toLowerCase().includes(query))
+      );
+    }
+    
+    // Then apply category filter (but not when searching)
+    if (!searchQuery.trim() && selectedCategory !== 'All') {
+      return skills.filter(skill => 'category' in skill && skill.category === selectedCategory);
+    }
+    
+    return skills;
+  }, [allSkills, selectedCategory, searchQuery]);
+
+  // Auto-switch to category with search results
+  useEffect(() => {
+    if (searchQuery.trim() && filteredSkills.length > 0) {
+      // Find which categories have matching skills
+      const categoriesWithResults = new Set(
+        filteredSkills
+          .filter(skill => skill.category)
+          .map(skill => skill.category!)
+      );
+      
+      // If all results are in one category, switch to it
+      if (categoriesWithResults.size === 1) {
+        const singleCategory = Array.from(categoriesWithResults)[0];
+        if (singleCategory !== selectedCategory) {
+          setSelectedCategory(singleCategory);
+        }
+      } else if (categoriesWithResults.size > 1) {
+        // Multiple categories have results, switch to "All" to show everything
+        if (selectedCategory !== 'All') {
+          setSelectedCategory('All');
+        }
+      }
+    }
+  }, [searchQuery, filteredSkills, selectedCategory]);
+
+  // Helper function to check if a category has enabled skills for this agent
+  const getCategorySkillStatus = (category: string) => {
+    const categorySkills = allSkills.filter(skill => skill.category === category);
+    const enabledSkills = categorySkills.filter(skill => isSkillEnabled(skill.name));
+    
+    if (enabledSkills.length === categorySkills.length) {
+      // All skills in category are enabled - green
+      return 'all-enabled';
+    } else if (enabledSkills.length > 0) {
+      // Some skills in category are enabled - orange
+      return 'some-enabled';
+    } else {
+      // No skills in category are enabled - default blue
+      return 'none-enabled';
+    }
+  };
+
+  // Helper function to get badge colors based on skill enablement status
+  const getBadgeColors = (status: string) => {
+    switch (status) {
+      case 'all-enabled':
+        return { bgcolor: '#4caf50', color: '#fff' }; // Green - all skills enabled
+      case 'some-enabled':
+        return { bgcolor: '#ff9800', color: '#fff' }; // Orange - some skills enabled
+      case 'none-enabled':
+      default:
+        return { bgcolor: 'primary.main', color: 'primary.contrastText' }; // Default blue
+    }
+  };
 
   // State for OAuth provider dialog
   const [showOAuthProviderDialog, setShowOAuthProviderDialog] = useState(false);
@@ -518,6 +723,203 @@ const Skills: React.FC<SkillsProps> = ({
         Extend the capabilities of the AI with custom functions, APIs and workflows.
       </Typography>
 
+      {/* Search and Category Tabs */}
+      <Box sx={{ mb: 3 }}>
+        {/* Search Bar */}
+        <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+          <TextField
+            size="small"
+            placeholder="Search skills..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ fontSize: 20 }} />
+                </InputAdornment>
+              ),
+            }}
+            sx={{ 
+              flexGrow: 1,
+              maxWidth: 400,
+              '& .MuiOutlinedInput-root': {
+                bgcolor: 'background.paper',
+              },
+            }}
+          />
+          {searchQuery && (
+            <Typography variant="body2" color="text.secondary">
+              {filteredSkills.length === 0 ? 'No results found' : `${filteredSkills.length} result${filteredSkills.length === 1 ? '' : 's'}`}
+            </Typography>
+          )}
+        </Box>
+
+        {/* No Results Suggestion */}
+        {searchQuery && filteredSkills.length === 0 && (
+          <Alert 
+            severity="info" 
+            sx={{ mb: 2 }}
+            action={
+              <Button 
+                size="small" 
+                onClick={() => handleOpenDialog(CUSTOM_API_SKILL)}
+                sx={{ textTransform: 'none' }}
+              >
+                Add Custom API
+              </Button>
+            }
+          >
+            <Typography variant="body2">
+              Can't find what you're looking for? Try adding a custom API integration for "{searchQuery}".
+            </Typography>
+          </Alert>
+        )}
+
+        {/* Category Tabs */}
+        {!searchQuery.trim() && (
+          <Tabs
+            value={selectedCategory}
+            onChange={(event, newValue) => setSelectedCategory(newValue)}
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{
+              '& .MuiTabs-flexContainer': {
+                gap: 0.75,
+              },
+              '& .MuiTab-root': {
+                textTransform: 'none',
+                minHeight: 44,
+                minWidth: 60,
+                fontWeight: 500,
+                fontSize: '0.85rem',
+                px: 1.5,
+                '&.Mui-selected': {
+                  fontWeight: 600,
+                },
+              },
+            }}
+          >
+          {/* Core tab first (default) */}
+          <Tab
+            key={SKILL_CATEGORY_CORE}
+            value={SKILL_CATEGORY_CORE}
+            label={
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                {getCategoryIcon(SKILL_CATEGORY_CORE)}
+                <Typography variant="body2" sx={{ fontWeight: 'inherit' }}>
+                  Core
+                </Typography>
+                <Chip 
+                  label={allSkills.filter(skill => skill.category === SKILL_CATEGORY_CORE).length} 
+                  size="small" 
+                  sx={{ 
+                    minWidth: '18px',
+                    height: '18px',
+                    fontSize: '0.65rem',
+                    ...getBadgeColors(getCategorySkillStatus(SKILL_CATEGORY_CORE)),
+                    '& .MuiChip-label': { px: 0.6 }
+                  }} 
+                />
+              </Box>
+            }
+          />
+          
+          {/* Data & APIs second */}
+          <Tab
+            key={SKILL_CATEGORY_DATA}
+            value={SKILL_CATEGORY_DATA}
+            label={
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                {getCategoryIcon(SKILL_CATEGORY_DATA)}
+                <Typography variant="body2" sx={{ fontWeight: 'inherit' }}>
+                  Data & APIs
+                </Typography>
+                <Chip 
+                  label={allSkills.filter(skill => skill.category === SKILL_CATEGORY_DATA).length} 
+                  size="small" 
+                  sx={{ 
+                    minWidth: '18px',
+                    height: '18px',
+                    fontSize: '0.65rem',
+                    ...getBadgeColors(getCategorySkillStatus(SKILL_CATEGORY_DATA)),
+                    '& .MuiChip-label': { px: 0.6 }
+                  }} 
+                />
+              </Box>
+            }
+          />
+
+          {/* All tab third */}
+          <Tab
+            key="All"
+            value="All"
+            label={
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                <SettingsIcon sx={{ fontSize: 16 }} />
+                <Typography variant="body2" sx={{ fontWeight: 'inherit' }}>
+                  All
+                </Typography>
+                <Chip 
+                  label={allSkills.length} 
+                  size="small" 
+                  sx={{ 
+                    minWidth: '18px',
+                    height: '18px',
+                    fontSize: '0.65rem',
+                    bgcolor: 'primary.main',
+                    color: 'primary.contrastText',
+                    '& .MuiChip-label': { px: 0.6 }
+                  }} 
+                />
+              </Box>
+            }
+          />
+          
+          {/* Provider-specific categories */}
+          {availableCategories
+            .filter(cat => cat !== 'All' && cat !== SKILL_CATEGORY_CORE && cat !== SKILL_CATEGORY_DATA)
+            .map(category => {
+              const skillCount = allSkills.filter(skill => skill.category === category).length;
+              // Shorten category names for better fit
+              const shortName = category === SKILL_CATEGORY_ATLASSIAN ? 'Atlassian' : category;
+              return (
+                <Tab
+                  key={category}
+                  value={category}
+                  label={
+                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                       {getCategoryIcon(category)}
+                       <Typography variant="body2" sx={{ fontWeight: 'inherit' }}>
+                         {shortName}
+                       </Typography>
+                       <Chip 
+                         label={skillCount} 
+                         size="small" 
+                         sx={{ 
+                           minWidth: '18px',
+                           height: '18px',
+                           fontSize: '0.65rem',
+                           ...getBadgeColors(getCategorySkillStatus(category)),
+                           '& .MuiChip-label': { px: 0.6 }
+                         }} 
+                       />
+                     </Box>
+                   }
+                 />
+               );
+             })}
+          </Tabs>
+        )}
+        
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1, ml: 1 }}>
+          {searchQuery ? (
+            `Showing ${filteredSkills.length} result${filteredSkills.length === 1 ? '' : 's'} for "${searchQuery}"`
+          ) : (
+            selectedCategory === 'All' ? `${filteredSkills.length} skills total` : `${filteredSkills.length} skills in ${selectedCategory}`
+          )}
+        </Typography>
+      </Box>
+
       {/* OAuth Provider Warning Banner */}
       <Collapse in={showWarning}>
         <Alert
@@ -601,7 +1003,7 @@ const Skills: React.FC<SkillsProps> = ({
       </Collapse>
 
       <Grid container spacing={2}>
-        {allSkills.map((skill) => {
+        {filteredSkills.map((skill) => {
           const defaultIcon = PROVIDER_ICONS[skill.type] || PROVIDER_ICONS['custom'];
           const color = PROVIDER_COLORS[skill.type] || PROVIDER_COLORS['custom'];
           const isEnabled = isSkillEnabled(skill.name);
