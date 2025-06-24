@@ -6,7 +6,7 @@ import (
 )
 
 type CliConfig struct {
-	URL    string `envconfig:"HELIX_URL" default:"https://app.tryhelix.ai"`
+	URL    string `envconfig:"HELIX_URL" default:"https://app.helix.ml"`
 	APIKey string `envconfig:"HELIX_API_KEY"`
 }
 

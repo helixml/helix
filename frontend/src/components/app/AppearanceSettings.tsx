@@ -11,6 +11,7 @@ import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import { IAppFlatState } from '../../types'
 import { useUpdateAppAvatar, useDeleteAppAvatar } from '../../services/appService'
+import { getFlatStateAvatarUrl } from '../../utils/app'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever'
 import useApps from '../../hooks/useApps'
@@ -222,7 +223,7 @@ const AppearanceSettings: FC<AppearanceSettingsProps> = ({
                   onClick={handleAvatarClick}
                 >              
                   <Avatar
-                    src={app.avatar ? `/api/v1/apps/${id}/avatar?t=${avatarUpdateKey}` : `/img/logo.png?t=${avatarUpdateKey}`}
+                    src={`${getFlatStateAvatarUrl(app, id)}${getFlatStateAvatarUrl(app, id).includes('?') ? '&' : '?'}t=${avatarUpdateKey}`}
                     // src={`/api/v1/apps/${id}/avatar?t=${avatarUpdateKey}`}
                     sx={{
                       width: 200,

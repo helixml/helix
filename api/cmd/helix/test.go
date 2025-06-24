@@ -688,7 +688,7 @@ func NewTestCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "test",
-		Short: "Run tests for Helix app",
+		Short: "Run tests for Helix agent",
 		Long:  `This command runs tests defined in helix.yaml or a specified YAML file and evaluates the results.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runTest(cmd, yamlFile, evaluationModel, syncFiles, deleteExtraFiles, knowledgeTimeout, skipCleanup)
@@ -964,7 +964,7 @@ func getAPIKey() (string, error) {
 func getHelixURL() string {
 	helixURL := os.Getenv("HELIX_URL")
 	if helixURL == "" {
-		return "https://app.tryhelix.ai"
+		return "https://app.helix.ml"
 	}
 	return helixURL
 }

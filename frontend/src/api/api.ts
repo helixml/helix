@@ -1041,6 +1041,8 @@ export interface TypesModel {
   /** in bytes, required */
   memory?: number;
   name?: string;
+  /** Whether to prewarm this model to fill free GPU memory on runners */
+  prewarm?: boolean;
   runtime?: TypesRuntime;
   /** Order for sorting models in UI (lower numbers appear first) */
   sort_order?: number;
@@ -1880,7 +1882,7 @@ export class HttpClient<SecurityDataType = unknown> {
   private format?: ResponseType;
 
   constructor({ securityWorker, secure, format, ...axiosConfig }: ApiConfig<SecurityDataType> = {}) {
-    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "https://app.tryhelix.ai" });
+    this.instance = axios.create({ ...axiosConfig, baseURL: axiosConfig.baseURL || "https://app.helix.ml" });
     this.secure = secure;
     this.format = format;
     this.securityWorker = securityWorker;
@@ -1972,8 +1974,8 @@ export class HttpClient<SecurityDataType = unknown> {
 /**
  * @title HelixML API reference
  * @version 0.1
- * @baseUrl https://app.tryhelix.ai
- * @contact Helix support <info@helixml.tech> (https://app.tryhelix.ai/)
+ * @baseUrl https://app.helix.ml
+ * @contact Helix support <info@helixml.tech> (https://app.helix.ml/)
  *
  * This is the HelixML API.
  */
@@ -2083,11 +2085,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Grant access to an app to a team or organization member (organization owners can grant access to teams and organization members)
+     * @description Grant access to an agent to a team or organization member (organization owners can grant access to teams and organization members)
      *
      * @tags apps
      * @name V1AppsAccessGrantsCreate
-     * @summary Grant access to an app to a team or organization member
+     * @summary Grant access to an agent to a team or organization member
      * @request POST:/api/v1/apps/{id}/access-grants
      * @secure
      */

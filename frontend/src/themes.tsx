@@ -85,7 +85,7 @@ export const THEMES: Record<string, ITheme> = {
     drawerWidth: 320,
     smallDrawerWidth: 240,
     company: 'Helix',
-    url: 'https://tryhelix.ai/',
+    url: 'https://helix.ml/',
     // primary: '#5d5d7b',
     // secondary: '#00d5ff',
     primary: '#8989a5',

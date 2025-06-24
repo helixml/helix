@@ -383,7 +383,7 @@ steps:
       # Runner with no baked models = empty
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2025-04-29a-empty
+      - TAG=2025-06-23a-empty
       - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
@@ -425,7 +425,7 @@ steps:
       # Runner with small models = small
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2025-04-29a-small
+      - TAG=2025-06-23a-small
       - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
@@ -451,7 +451,7 @@ steps:
       # Runner with small models = small
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2025-04-29a-small
+      - TAG=2025-06-23a-small
       - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
@@ -496,7 +496,7 @@ steps:
       # Runner with large models = large
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2025-04-29a-large
+      - TAG=2025-06-23a-large
       - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
@@ -522,7 +522,7 @@ steps:
       # Runner with large models = large
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2025-04-29a-large
+      - TAG=2025-06-23a-large
       - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
@@ -698,7 +698,7 @@ steps:
   image: golang:1.24-alpine3.21
   environment:
     BROWSER_URL: http://chrome:7317
-    SERVER_URL: https://app.tryhelix.ai
+    SERVER_URL: https://app.helix.ml
     HELIX_USER: phil+smoketest@helix.ml
     HELIX_PASSWORD:
       from_secret: smoke_test_helix_password

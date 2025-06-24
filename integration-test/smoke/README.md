@@ -21,7 +21,7 @@ with a special tag to prevent them from running by default.
 First, export the following required environment variables:
 
 ```bash
-export SERVER_URL=https://app.tryhelix.ai # The server to run the tests against
+export SERVER_URL=https://app.helix.ml # The server to run the tests against
 export HELIX_USER=phil+smoketest@helix.ml # A user that has access to the server
 export HELIX_PASSWORD=xxxxx-xxxxx-xxxxx # The user's actual login password
 ```

@@ -156,7 +156,7 @@ type OIDC struct {
 // Notifications is used for sending notifications to users when certain events happen
 // such as finetuning starting or completing.
 type Notifications struct {
-	AppURL string `envconfig:"APP_URL" default:"https://app.tryhelix.ai"`
+	AppURL string `envconfig:"APP_URL" default:"https://app.helix.ml"`
 	Email  EmailConfig
 	// TODO: Slack, Discord, etc.
 }

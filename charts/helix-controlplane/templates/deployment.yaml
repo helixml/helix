@@ -235,6 +235,8 @@ spec:
           env:
             - name: HELIX_EMBEDDINGS_SOCKET
               value: /socket/embeddings.sock
+            - name: RAG_VISION_EMBEDDINGS_SOCKET
+              value: /socket/embeddings.sock
             {{- with (default "" .Values.controlplane.haystack.embeddingsModel) }}
             - name: RAG_HAYSTACK_EMBEDDINGS_MODEL
               value: {{ . | quote }}

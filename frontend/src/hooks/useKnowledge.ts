@@ -63,6 +63,13 @@ export const useKnowledge = ({
   // * version
   const [serverKnowledge, setServerKnowledge] = useState<IKnowledgeSource[]>([])
 
+  // Auto-expand when there's only one knowledge source
+  useEffect(() => {
+    if (knowledge.length === 1 && !expanded) {
+      setExpanded(`panel${knowledge[0].id}`)
+    }
+  }, [knowledge.length, knowledge, expanded])
+
   const [directoryFiles, setDirectoryFiles] = useState<Record<string, IFileStoreItem[]>>({})
   const [deletingFiles, setDeletingFiles] = useState<Record<string, boolean>>({});  
 

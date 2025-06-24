@@ -76,7 +76,7 @@ func (suite *AppAccessGrantSuite) TestListAppAccessGrants_NoOrg() {
 
 	suite.Equal(http.StatusBadRequest, rec.Code)
 	// check the response body
-	suite.Contains(rec.Body.String(), `app is not associated with an organization`)
+	suite.Contains(rec.Body.String(), `agent is not associated with an organization`)
 }
 
 func (suite *AppAccessGrantSuite) TestListAppAccessGrants_OrgOwner() {

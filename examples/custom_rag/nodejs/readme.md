@@ -9,7 +9,7 @@ Custom RAG servers can help you with:
 
 ## Prerequisites
 
-- [Helix account](https://app.tryhelix.ai/) or self-hosted controlplane
+- [Helix account](https://app.helix.ml/) or self-hosted controlplane
 - Node.js
 - npm
 - [Webhook Relay account](https://webhookrelay.com/) for development. When running in production, we recommend exposing your server to Helix directly as a sidecar container similarly to how we expose our Llamaindex based default implementation.
@@ -58,7 +58,7 @@ assistants:
 
 ## Creating the Helix app with a custom RAG server:
 
-Login to the Helix CLI by copying he "CLI login" command from https://app.tryhelix.ai/account.
+Login to the Helix CLI by copying he "CLI login" command from https://app.helix.ml/account.
 
 Once you are ready, create the Helix app:
 

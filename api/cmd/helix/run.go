@@ -29,7 +29,7 @@ type RunOptions struct {
 
 func NewRunOptions() *RunOptions {
 	return &RunOptions{
-		APIURL: getDefaultServeOptionString("HELIX_API_URL", "https://app.tryhelix.ai"),
+		APIURL: getDefaultServeOptionString("HELIX_API_URL", "https://app.helix.ml"),
 		APIKey: getDefaultServeOptionString("HELIX_API_KEY", ""),
 		// e.g. export HELIX_ACTIVE_TOOLS=tool_01hsdm1n7ftba0s0vtejrjf0k2,tool_01hsdmasz3sp16qep1v2mm7enm,tool_01hsdmj3ntya23dmd2qdr1eyhn
 		ActiveTools: getDefaultServeOptionString("HELIX_ACTIVE_TOOLS", ""),

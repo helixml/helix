@@ -498,7 +498,11 @@ const Home: FC = () => {
                                   fontWeight: 'bold',
                                   border: (theme) => app.config.helix.avatar ? '2px solid rgba(255, 255, 255, 0.8)' : 'none',
                                 }}
-                                src={app.config.helix.avatar}
+                                src={app.config.helix.avatar ? (
+                                  app.config.helix.avatar.startsWith('http://') || app.config.helix.avatar.startsWith('https://')
+                                    ? app.config.helix.avatar
+                                    : `/api/v1/apps/${app.id}/avatar`
+                                ) : undefined}
                               >
                                 {app.config.helix.name && app.config.helix.name.length > 0 
                                   ? app.config.helix.name[0].toUpperCase() 

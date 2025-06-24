@@ -56,5 +56,5 @@ export const jobVacanciesTool = {
   description: "Get latest job vacancies and candidate statuses",
   system_prompt: "You are an expert at using the Job Vacancies API to get the latest job vacancies and candidate statuses. This API can retrieve names, job descriptions, emails and salary (in USD)",
   schema: schema,
-  url: "https://demos.tryhelix.ai"
+  url: "https://demos.helix.ml"
 }

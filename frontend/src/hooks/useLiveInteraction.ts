@@ -18,7 +18,7 @@ const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction 
   const [isStale, setIsStale] = useState(false);
 
   const isAppTryHelixDomain = useMemo(() => {
-    return window.location.hostname === 'app.tryhelix.ai';
+    return window.location.hostname === 'app.helix.ml';
   }, []);
 
   useEffect(() => {
