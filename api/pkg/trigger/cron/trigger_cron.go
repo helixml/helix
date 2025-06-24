@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/data"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -244,6 +246,63 @@ func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
 			return
 		}
 
+		triggerInteractionID := system.GenerateUUID()
+		assistantResponseID := system.GenerateUUID()
+
+		// Prepare new session
+		newSession := &types.Session{
+			ID:             system.GenerateSessionID(),
+			Name:           "Recurring Trigger",
+			Created:        time.Now(),
+			Updated:        time.Now(),
+			Mode:           types.SessionModeInference,
+			Type:           types.SessionTypeText,
+			ParentApp:      app.ID,
+			OrganizationID: app.OrganizationID,
+			Owner:          app.Owner,
+			OwnerType:      app.OwnerType,
+			Metadata: types.SessionMetadata{
+				Stream:       false,
+				SystemPrompt: "",
+				AssistantID:  "",
+				Origin: types.SessionOrigin{
+					Type: types.SessionOriginTypeUserCreated,
+				},
+				HelixVersion: data.GetHelixVersion(),
+			},
+			Interactions: []*types.Interaction{
+				{
+					ID:        triggerInteractionID,
+					Created:   time.Now(),
+					Updated:   time.Now(),
+					Scheduled: time.Now(),
+					Completed: time.Now(),
+					Mode:      types.SessionModeInference,
+					Creator:   types.CreatorTypeUser,
+					State:     types.InteractionStateComplete,
+					Finished:  true,
+					Message:   trigger.Input,
+					Content: types.MessageContent{
+						ContentType: types.MessageContentTypeText,
+						Parts:       []any{trigger.Input},
+					},
+				},
+				{
+					ID:       assistantResponseID,
+					Created:  time.Now(),
+					Updated:  time.Now(),
+					Creator:  types.CreatorTypeAssistant,
+					Mode:     types.SessionModeInference,
+					Message:  "",
+					State:    types.InteractionStateWaiting,
+					Finished: false,
+					Metadata: map[string]string{},
+				},
+			},
+		}
+
+		ctx = oai.SetContextSessionID(ctx, newSession.ID)
+
 		messages := []openai.ChatCompletionMessage{
 			{
 				Role:    openai.ChatMessageRoleUser,
@@ -251,23 +310,51 @@ func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
 			},
 		}
 
-		responseID := system.GenerateOpenAIResponseID()
+		request := openai.ChatCompletionRequest{
+			Stream:   false,
+			Messages: messages,
+		}
+
+		bts, err := json.MarshalIndent(request, "", "  ")
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("app_id", app.ID).
+				Msg("failed to marshal request")
+		}
 
 		ctx := oai.SetContextValues(ctx, &oai.ContextValues{
 			OwnerID:         app.Owner,
-			SessionID:       responseID,
-			InteractionID:   "n/a",
-			OriginalRequest: []byte(""), // TODO: verify if needed
+			SessionID:       newSession.ID,
+			InteractionID:   assistantResponseID,
+			OriginalRequest: bts,
 		})
 
 		ctx = oai.SetContextAppID(ctx, app.ID)
 
-		resp, _, err := c.controller.ChatCompletion(ctx, &types.User{
+		// Write session to the database
+		err = c.controller.WriteSession(ctx, newSession)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("app_id", app.ID).
+				Msg("failed to create session")
+			return
+		}
+
+		user, err := c.store.GetUser(ctx, &store.GetUserQuery{
 			ID: app.Owner,
-		}, openai.ChatCompletionRequest{
-			Stream:   false,
-			Messages: messages,
-		},
+		})
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("app_id", app.ID).
+				Msg("failed to get user")
+			return
+		}
+
+		resp, _, err := c.controller.ChatCompletion(ctx, user,
+			request,
 			&controller.ChatCompletionOptions{
 				AppID: app.ID,
 			})
