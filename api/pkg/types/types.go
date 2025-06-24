@@ -1391,7 +1391,7 @@ type App struct {
 	Created        time.Time `json:"created"`
 	Updated        time.Time `json:"updated"`
 	OrganizationID string    `json:"organization_id" gorm:"index"`
-	// uuid of owner entity
+	// uuid of user ID
 	Owner string `json:"owner" gorm:"index"`
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
