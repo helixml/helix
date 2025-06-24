@@ -2980,12 +2980,12 @@ definitions:
       updated:
         type: string
     type: object
-host: app.tryhelix.ai
+host: app.helix.ml
 info:
   contact:
     email: info@helixml.tech
     name: Helix support
-    url: https://app.tryhelix.ai/
+    url: https://app.helix.ml/
   description: This is the HelixML API.
   title: HelixML API reference
   version: "0.1"
@@ -3089,7 +3089,7 @@ paths:
       tags:
       - apps
     post:
-      description: Grant access to an app to a team or organization member (organization
+      description: Grant access to an agent to a team or organization member (organization
         owners can grant access to teams and organization members)
       parameters:
       - description: Request body with team or organization member ID and role
@@ -3105,7 +3105,7 @@ paths:
             $ref: '#/definitions/types.AccessGrant'
       security:
       - BearerAuth: []
-      summary: Grant access to an app to a team or organization member
+      summary: Grant access to an agent to a team or organization member
       tags:
       - apps
   /api/v1/apps/{id}/api-actions:

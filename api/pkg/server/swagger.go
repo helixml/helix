@@ -10,10 +10,10 @@ import (
 // @description This is the HelixML API.
 
 // @contact.name Helix support
-// @contact.url https://app.tryhelix.ai/
+// @contact.url https://app.helix.ml/
 // @contact.email info@helixml.tech
 // @x-logo {"url": "https://avatars.githubusercontent.com/u/149581110?s=200&v=4", "altText": "Helix logo"}
-// @host app.tryhelix.ai
+// @host app.helix.ml
 // @Schemes https
 
 // @securityDefinitions.bearer BearerAuth

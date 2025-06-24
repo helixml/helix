@@ -11,7 +11,7 @@ const docTemplate = `{
         "title": "{{.Title}}",
         "contact": {
             "name": "Helix support",
-            "url": "https://app.tryhelix.ai/",
+            "url": "https://app.helix.ml/",
             "email": "info@helixml.tech"
         },
         "version": "{{.Version}}",
@@ -187,11 +187,11 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Grant access to an app to a team or organization member (organization owners can grant access to teams and organization members)",
+                "description": "Grant access to an agent to a team or organization member (organization owners can grant access to teams and organization members)",
                 "tags": [
                     "apps"
                 ],
-                "summary": "Grant access to an app to a team or organization member",
+                "summary": "Grant access to an agent to a team or organization member",
                 "parameters": [
                     {
                         "description": "Request body with team or organization member ID and role",
@@ -6597,7 +6597,7 @@ const docTemplate = `{
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
 	Version:          "0.1",
-	Host:             "app.tryhelix.ai",
+	Host:             "app.helix.ml",
 	BasePath:         "",
 	Schemes:          []string{"https"},
 	Title:            "HelixML API reference",
