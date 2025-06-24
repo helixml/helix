@@ -68,7 +68,7 @@ const LaunchpadCTAButton: React.FC<LaunchpadCTAButtonProps> = ({
   const handleClick = () => {
     const currentUrl = window.location.origin
     const launchpadUrl = `https://deploy.helix.ml/agents?helix_url=${encodeURIComponent(currentUrl)}`
-    window.open(launchpadUrl, '_blank')
+    window.location.href = launchpadUrl
   }
 
   return (
