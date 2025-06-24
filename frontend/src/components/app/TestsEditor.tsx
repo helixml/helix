@@ -93,7 +93,7 @@ const TestsEditor: React.FC<TestsEditorProps> = ({
       });
   };
 
-  const testCommand = `helix agent inspect ${appId} > ${yamlFilename} && helix test -f ${yamlFilename}`;
+  const testCommand = `helix agent inspect ${appId} > ${yamlFilename}\nhelix test -f ${yamlFilename}`;
 
   return (
     <Box sx={{ mt: 2, mr: 4 }}>
@@ -216,10 +216,10 @@ const TestsEditor: React.FC<TestsEditorProps> = ({
           mb: 2,
           position: 'relative',
           display: 'flex',
-          alignItems: 'center',
+          alignItems: 'flex-start',
           justifyContent: 'space-between'
         }}>
-          <span>{testCommand}</span>
+          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', flex: 1 }}>{testCommand}</pre>
           <Tooltip title={testCopied ? "Copied!" : "Copy command"} placement="top">
             <IconButton
               onClick={() => handleCopyCommand(testCommand)}
@@ -252,7 +252,7 @@ const TestsEditor: React.FC<TestsEditorProps> = ({
         </Typography>
 
         <Typography variant="body2" sx={{ mb: 2 }}>
-          Integrate testing into your CI/CD pipeline for continuous validation:
+          Integrate testing into your CI/CD pipeline for continuous validation. Start by adding your agent yaml to your git repo, then add configuration to your CI/CD pipeline:
         </Typography>
 
         <Accordion sx={{ mb: 2, backgroundColor: '#1e1e2f' }}>
@@ -262,7 +262,7 @@ const TestsEditor: React.FC<TestsEditorProps> = ({
             id="github-actions-header"
           >
             <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-              GitHub Actions Example
+              GitHub Actions Example (<span style={{ fontFamily: 'monospace' }}>.github/workflows/helix.yml</span>)
             </Typography>
           </AccordionSummary>
           <AccordionDetails>
@@ -335,7 +335,7 @@ jobs:
             id="gitlab-ci-header"
           >
             <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-              GitLab CI Example
+              GitLab CI Example (<span style={{ fontFamily: 'monospace' }}>.gitlab-ci.yml</span>)
             </Typography>
           </AccordionSummary>
           <AccordionDetails>
