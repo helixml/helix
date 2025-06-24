@@ -250,7 +250,7 @@ func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
 		assistantResponseID := system.GenerateUUID()
 
 		// Prepare new session
-		newSession := &types.Session{
+		session := &types.Session{
 			ID:             system.GenerateSessionID(),
 			Name:           "Recurring Trigger",
 			Created:        time.Now(),
@@ -301,7 +301,7 @@ func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
 			},
 		}
 
-		ctx = oai.SetContextSessionID(ctx, newSession.ID)
+		ctx = oai.SetContextSessionID(ctx, session.ID)
 
 		messages := []openai.ChatCompletionMessage{
 			{
@@ -325,7 +325,7 @@ func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
 
 		ctx := oai.SetContextValues(ctx, &oai.ContextValues{
 			OwnerID:         app.Owner,
-			SessionID:       newSession.ID,
+			SessionID:       session.ID,
 			InteractionID:   assistantResponseID,
 			OriginalRequest: bts,
 		})
@@ -333,7 +333,7 @@ func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
 		ctx = oai.SetContextAppID(ctx, app.ID)
 
 		// Write session to the database
-		err = c.controller.WriteSession(ctx, newSession)
+		err = c.controller.WriteSession(ctx, session)
 		if err != nil {
 			log.Error().
 				Err(err).
@@ -349,6 +349,7 @@ func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
 			log.Error().
 				Err(err).
 				Str("app_id", app.ID).
+				Str("user_id", app.Owner).
 				Msg("failed to get user")
 			return
 		}
@@ -363,12 +364,43 @@ func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
 				Err(err).
 				Str("app_id", app.ID).
 				Msg("failed to run app cron job")
+
+			// Update session with error
+			session.Interactions[len(session.Interactions)-1].Error = err.Error()
+			session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
+			session.Interactions[len(session.Interactions)-1].Finished = true
+			session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+			err = c.controller.WriteSession(ctx, session)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("app_id", app.ID).
+					Str("user_id", app.Owner).
+					Str("session_id", session.ID).
+					Msg("failed to update session")
+			}
+
 			return
 		}
 
 		var respContent string
 		if len(resp.Choices) > 0 {
 			respContent = resp.Choices[0].Message.Content
+		}
+
+		// Update session with response
+		session.Interactions[len(session.Interactions)-1].Message = respContent
+		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
+		session.Interactions[len(session.Interactions)-1].Finished = true
+		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+		err = c.controller.WriteSession(ctx, session)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("app_id", app.ID).
+				Str("user_id", app.Owner).
+				Str("session_id", session.ID).
+				Msg("failed to update session")
 		}
 
 		log.Info().

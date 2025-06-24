@@ -694,6 +694,9 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		log.Error().Err(err).Msg("failed to write chunk")
 	}
 
+	// Instruct the agent to send thoughts about tools and decisions
+	options.Conversational = true
+
 	// Call the LLM
 	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {

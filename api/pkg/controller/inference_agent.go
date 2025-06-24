@@ -165,7 +165,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		SessionID:     vals.SessionID,
 		InteractionID: vals.InteractionID,
 		Extra:         map[string]string{},
-	})
+	}, req.Options.Conversational)
 
 	// Get user message, could be in the part or content
 	session.In(getLastMessage(req.Request))
