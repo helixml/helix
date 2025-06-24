@@ -3,10 +3,12 @@ import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import Container from '@mui/material/Container'
 import LockIcon from '@mui/icons-material/Lock'
+import Box from '@mui/material/Box'
 
 import Page from '../components/system/Page'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import AppsTable from '../components/apps/AppsTable'
+import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
 
 import useApps from '../hooks/useApps'
 import useAccount from '../hooks/useAccount'
@@ -107,6 +109,18 @@ const Apps: FC = () => {
           onEdit={ onEditApp }
           onDelete={ setDeletingApp }
         />
+        
+        {/* Find Agents CTA */}
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'flex-start',
+            mt: 6,
+            mb: 2,
+          }}
+        >
+          <LaunchpadCTAButton />
+        </Box>
       </Container>
       {
         deletingApp && (

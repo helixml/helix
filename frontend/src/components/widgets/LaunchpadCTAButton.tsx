@@ -6,7 +6,9 @@ import { styled } from '@mui/material/styles'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useAccount from '../../hooks/useAccount'
 
-const StyledCTAButton = styled(Button)<{ themeConfig: any; isLoggedOut: boolean }>(({ themeConfig, isLoggedOut }) => ({
+const StyledCTAButton = styled(Button, {
+  shouldForwardProp: (prop) => prop !== 'themeConfig' && prop !== 'isLoggedOut',
+})<{ themeConfig: any; isLoggedOut: boolean }>(({ themeConfig, isLoggedOut }) => ({
   background: 'transparent',
   border: `2px solid transparent`,
   borderRadius: '16px',
