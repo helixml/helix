@@ -698,7 +698,7 @@ steps:
   image: golang:1.24-alpine3.21
   environment:
     BROWSER_URL: http://chrome:7317
-    SERVER_URL: https://app.tryhelix.ai
+    SERVER_URL: https://app.helix.ml
     HELIX_USER: phil+smoketest@helix.ml
     HELIX_PASSWORD:
       from_secret: smoke_test_helix_password
