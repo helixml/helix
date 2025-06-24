@@ -17,14 +17,23 @@ import {
   MenuItem,
   Grid,
   Tooltip,
+  FormControl,
+  InputLabel,
+  Select,
+  Avatar,
+  Chip,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
+import SettingsIcon from '@mui/icons-material/Settings';
 import { IAgentSkill, IRequiredApiParameter, IAppFlatState, IAssistantApi } from '../../types';
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme'
+import useApi from '../../hooks/useApi';
+import useAccount from '../../hooks/useAccount';
 import yaml from 'js-yaml';
+import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
 
 // Example skills
 
@@ -32,6 +41,14 @@ import { jobVacanciesTool } from './examples/jobVacanciesApi';
 import { productsTool } from './examples/productsApi';
 import { climateTool } from './examples/climateApi';
 import { exchangeRatesTool } from './examples/exchangeRatesApi';
+
+// Interface for OAuth provider objects from the API
+interface OAuthProvider {
+  id: string;
+  type: string;
+  name: string;
+  enabled: boolean;
+}
 
 interface AddApiSkillDialogProps {
   open: boolean;
@@ -91,6 +108,13 @@ const DarkButton = styled(Button)(({ theme }) => ({
   },
 }));
 
+const DisabledProviderMenuItem = styled(MenuItem)(({ theme }) => ({
+  opacity: 0.6,
+  '& .MuiChip-root': {
+    marginLeft: theme.spacing(1),
+  },
+}));
+
 const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   open,
   onClose,  
@@ -101,6 +125,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   isEnabled: initialIsEnabled,
 }) => {
   const lightTheme = useLightTheme();
+  const api = useApi();
+  const account = useAccount();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
   const [skill, setSkill] = useState<IAgentSkill>({
@@ -123,6 +149,32 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [urlError, setUrlError] = useState<string | null>(null);
+  
+  // OAuth state
+  const [allOAuthProviders, setAllOAuthProviders] = useState<OAuthProvider[]>([]);
+  const [oauthProvider, setOAuthProvider] = useState<string>('');
+  const [oauthScopes, setOAuthScopes] = useState<string[]>([]);
+
+  // State for OAuth provider error
+  const [oauthProviderError, setOAuthProviderError] = useState<string>('');
+
+  // Fetch ALL OAuth providers from the API
+  useEffect(() => {
+    const fetchOAuthProviders = async () => {
+      try {
+        const providers = await api.get('/api/v1/oauth/providers');
+        const allProviders = Array.isArray(providers) ? providers : [];
+        
+        // Now show all providers to everyone - we'll handle access control at selection time
+        setAllOAuthProviders(allProviders);
+      } catch (error) {
+        console.error('Error fetching OAuth providers:', error);
+        setAllOAuthProviders([]);
+      }
+    };
+
+    fetchOAuthProviders();
+  }, []);
 
   useEffect(() => {
     if (initialSkill) {
@@ -133,6 +185,11 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
           ...initialSkill.apiSkill,
         },
       });
+      
+      // Set OAuth configuration from existing skill
+      setOAuthProvider(initialSkill.apiSkill.oauth_provider || '');
+      setOAuthScopes(initialSkill.apiSkill.oauth_scopes || []);
+      
       // Find existing skill in app.apiTools
       const existingIndex = app.apiTools?.findIndex(tool => tool.name === initialSkill.name) ?? -1;
       if (existingIndex !== -1) {
@@ -156,6 +213,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
       });
       setExistingSkill(null);
       setExistingSkillIndex(null);
+      setOAuthProvider('');
+      setOAuthScopes([]);
     }
   }, [initialSkill, open, initialIsEnabled, app.apiTools]);
 
@@ -295,7 +354,23 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   };  
 
   const handleParameterValueChange = (name: string, value: string) => {
-    setParameterValues(prev => ({ ...prev, [name]: value }));
+    setParameterValues((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const addScope = () => {
+    setOAuthScopes([...oauthScopes, '']);
+  };
+
+  const removeScope = (index: number) => {
+    const newScopes = [...oauthScopes];
+    newScopes.splice(index, 1);
+    setOAuthScopes(newScopes);
+  };
+
+  const handleScopeChange = (index: number, value: string) => {
+    const newScopes = [...oauthScopes];
+    newScopes[index] = value;
+    setOAuthScopes(newScopes);
   };
 
   // Check if all required parameters have values, used to ensure
@@ -332,6 +407,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         url: skill.apiSkill.url,      
         headers: skill.apiSkill.headers || {},
         query: skill.apiSkill.query || {},
+        oauth_provider: oauthProvider || undefined,
+        oauth_scopes: oauthScopes.filter(s => s.trim() !== '')
       };
 
       // Go through required parameters based on parameter type add it to either
@@ -447,6 +524,28 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         </React.Fragment>
       );
     });
+  };
+
+  // Handle OAuth provider selection
+  const handleOAuthProviderChange = (providerName: string) => {
+    setOAuthProviderError(''); // Clear any previous error
+    
+    if (!providerName) {
+      setOAuthProvider('');
+      return;
+    }
+
+    // Find the provider
+    const provider = allOAuthProviders.find(p => p.name === providerName);
+    
+    // If user is not admin and provider is disabled, show error
+    if (!account.admin && provider && !provider.enabled) {
+      setOAuthProviderError(`The ${providerName} OAuth provider is not currently enabled. Please ask your administrator to enable it.`);
+      return;
+    }
+
+    // Otherwise, set the provider normally
+    setOAuthProvider(providerName);
   };
 
   return (
@@ -731,6 +830,112 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
                 </Grid>
               </Box>
 
+              {/* OAuth Configuration Section */}
+              <Box sx={{ mt: 3 }}>
+                <Typography variant="h6" sx={{ mb: 2, color: '#F8FAFC' }}>
+                  OAuth Configuration
+                </Typography>
+                <FormControl fullWidth sx={{ mb: 2 }}>
+                  <InputLabel id="oauth-provider-label" sx={{ color: '#A0AEC0' }}>OAuth Provider</InputLabel>
+                  <Select
+                    labelId="oauth-provider-label"
+                    id="oauth-provider"
+                    value={oauthProvider}
+                    label="OAuth Provider"
+                    onChange={(e) => handleOAuthProviderChange(e.target.value)}
+                    sx={{
+                      '& .MuiInputBase-root': {
+                        color: '#F1F1F1',
+                      },
+                      '& .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#353945',
+                      },
+                      '&:hover .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#6366F1',
+                      },
+                      '& .MuiSvgIcon-root': {
+                        color: '#A0AEC0',
+                      },
+                    }}
+                  >
+                    <MenuItem value="">None</MenuItem>
+                    {allOAuthProviders.map((provider) => (
+                      <MenuItem key={provider.id} value={provider.name}>
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          <Avatar 
+                            sx={{ 
+                              bgcolor: PROVIDER_COLORS[provider.type] || PROVIDER_COLORS.custom,
+                              color: 'white',
+                              mr: 1,
+                              width: 24,
+                              height: 24
+                            }}
+                          >
+                            {PROVIDER_ICONS[provider.type] || PROVIDER_ICONS.custom}
+                          </Avatar>
+                          <span>{provider.name}</span>
+                        </Box>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                {/* OAuth Provider Error Message */}
+                {oauthProviderError && (
+                  <Alert severity="warning" sx={{ mt: 2, mb: 2 }}>
+                    {oauthProviderError}
+                  </Alert>
+                )}
+
+                {oauthProvider && (
+                  <Box sx={{ mb: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="subtitle1" sx={{ color: '#F8FAFC' }}>Required Scopes</Typography>
+                      <Button 
+                        startIcon={<AddIcon />} 
+                        onClick={addScope}
+                        variant="outlined"
+                        size="small"
+                        sx={{
+                          borderColor: '#353945',
+                          color: '#A0AEC0',
+                          '&:hover': {
+                            borderColor: '#6366F1',
+                            color: '#6366F1',
+                          },
+                        }}
+                      >
+                        Add Scope
+                      </Button>
+                    </Box>
+                    
+                    {oauthScopes.length === 0 ? (
+                      <Typography variant="body2" sx={{ color: '#A0AEC0' }}>
+                        No scopes defined. Add scopes to request specific permissions.
+                      </Typography>
+                    ) : (
+                      oauthScopes.map((scope, index) => (
+                        <Box key={index} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                          <DarkTextField
+                            value={scope}
+                            onChange={(e) => handleScopeChange(index, e.target.value)}
+                            fullWidth
+                            placeholder="Enter scope"
+                            size="small"
+                          />
+                          <IconButton 
+                            onClick={() => removeScope(index)}
+                            sx={{ ml: 1, color: '#F87171' }}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Box>
+                      ))
+                    )}
+                  </Box>
+                )}
+              </Box>
+
               <DarkTextField
                 fullWidth
                 label="OpenAPI Schema"
@@ -859,6 +1064,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
           </Box>
         </Box>
       </DialogActions>
+
+
     </DarkDialog>
   );
 };
