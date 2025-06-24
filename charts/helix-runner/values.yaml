@@ -21,7 +21,7 @@ fullnameOverride: ""
 
 runner:
   # Your helix control-plane's URL
-  host: https://app.tryhelix.ai
+  host: https://app.helix.ml
   token: oh-hallo
   # Models to pull on start
   models: "llama3:instruct,llama3.1:8b-instruct-q8_0,llama3.2:1b-instruct-q8_0,llama3.2:3b-instruct-q8_0,phi3.5:3.8b-mini-instruct-q8_0"

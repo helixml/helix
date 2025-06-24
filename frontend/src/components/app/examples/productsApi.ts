@@ -98,5 +98,5 @@ export const productsTool = {
   system_prompt: `You are an expert at using the Computers Store API to get the latest products, prices and purchase laptops. 
    This API can retrieve names, descriptions, prices and availability.`,
   schema: schema,
-  url: "https://demos.tryhelix.ai"
+  url: "https://demos.helix.ml"
 }
