@@ -220,7 +220,24 @@ func (s *HelixAPIServer) callback(w http.ResponseWriter, r *http.Request) {
 
 	oauth2Token, err := s.oidcClient.Exchange(ctx, code)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to exchange token")
+		// Determine which OIDC provider is configured and log the relevant URL
+		var providerURL string
+		var providerType string
+		if s.Cfg.OIDC.Enabled {
+			providerURL = s.Cfg.OIDC.URL
+			providerType = "OIDC"
+		} else if s.Cfg.Keycloak.KeycloakEnabled {
+			providerURL = fmt.Sprintf("%s/realms/%s", s.Cfg.Keycloak.KeycloakFrontEndURL, s.Cfg.Keycloak.Realm)
+			providerType = "Keycloak"
+		}
+
+		log.Error().
+			Err(err).
+			Str("provider_type", providerType).
+			Str("provider_url", providerURL).
+			Str("callback_url", fmt.Sprintf("%s/api/v1/auth/callback", s.Cfg.WebServer.URL)).
+			Str("auth_code", code).
+			Msg("Failed to exchange token")
 		http.Error(w, "Failed to exchange token: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
