@@ -25,7 +25,7 @@ const (
 	MEGABYTE
 )
 
-// POST https://app.tryhelix.ai/v1/chat/completions
+// POST https://app.helix.ml/v1/chat/completions
 
 // createChatCompletion godoc
 // @Summary Stream responses for chat
