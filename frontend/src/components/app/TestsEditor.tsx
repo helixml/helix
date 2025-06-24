@@ -38,6 +38,8 @@ const TestsEditor: React.FC<TestsEditorProps> = ({
   const yamlFilename = generateYamlFilename(app.name || 'app');
   const snackbar = useSnackbar();
   const [testCopied, setTestCopied] = React.useState(false);
+  const [githubCopied, setGithubCopied] = React.useState(false);
+  const [gitlabCopied, setGitlabCopied] = React.useState(false);
 
   const handleAddTest = () => {
     const newTest: ITest = {
@@ -93,7 +95,120 @@ const TestsEditor: React.FC<TestsEditorProps> = ({
       });
   };
 
+  const handleCopyConfig = (config: string, setCopied: (value: boolean) => void, configType: string) => {
+    navigator.clipboard.writeText(config)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+        snackbar.success(`${configType} config copied to clipboard`);
+      })
+      .catch((error) => {
+        console.error('Failed to copy:', error);
+        snackbar.error('Failed to copy to clipboard');
+      });
+  };
+
   const testCommand = `helix agent inspect ${appId} > ${yamlFilename}\nhelix test -f ${yamlFilename}`;
+
+  const githubActionsConfig = `name: CI for GenAI
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  HELIX_URL: \${{ vars.HELIX_URL }}
+  HELIX_API_KEY: \${{ secrets.HELIX_API_KEY }}
+
+jobs:
+  test-and-comment:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install helix CLI
+        run: curl -sL -O https://get.helix.ml/install.sh && bash install.sh --cli -y
+
+      - name: Test the helix agent
+        run: helix test -f ${yamlFilename}
+
+      - name: PR comment with file
+        if: always()
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          file-path: summary_latest.md
+
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install helix CLI
+        run: curl -sL -O https://get.helix.ml/install.sh && bash install.sh --cli -y
+
+      - name: Test the helix agent
+        run: helix test -f ${yamlFilename}
+
+      - name: Apply changes
+        if: success()
+        run: helix apply -f ${yamlFilename}`;
+
+  const gitlabCiConfig = `stages:
+  - test
+  - apply
+
+variables:
+  HELIX_URL: \${HELIX_URL}
+  HELIX_API_KEY: \${HELIX_API_KEY}
+
+test_job:
+  stage: test
+  image: ubuntu:latest
+  script:
+    - apt-get update && apt-get install -y curl sudo
+    - curl -sL -O https://get.helix.ml/install.sh && bash install.sh --cli -y
+    - helix test
+  artifacts:
+    paths:
+      - summary_latest.md
+    when: always
+
+apply_job:
+  stage: apply
+  image: ubuntu:latest
+  script:
+    - apt-get update && apt-get install -y curl sudo
+    - curl -sL -O https://get.helix.ml/install.sh && bash install.sh --cli -y
+    - helix apply -f ${yamlFilename}
+  only:
+    - main
+    - pushes
+    - web
+
+comment_job:
+  stage: apply
+  image: ubuntu:latest
+  script:
+    - echo "Commenting on merge request with test results"
+    - |
+      if [ -f summary_latest.md ]; then
+        comment=\$(cat summary_latest.md)
+        curl --request POST \\
+          --header "PRIVATE-TOKEN: \${GITLAB_API_TOKEN}" \\
+          --header "Content-Type: application/json" \\
+          --data "{\\"body\\": \\"\${comment}\\"}" \\
+          "\${CI_API_V4_URL}/projects/\${CI_PROJECT_ID}/merge_requests/\${CI_MERGE_REQUEST_IID}/notes"
+      else
+        echo "summary_latest.md not found"
+      fi
+  only:
+    - merge_requests`;
 
   return (
     <Box sx={{ mt: 2, mr: 4 }}>
@@ -274,56 +389,28 @@ const TestsEditor: React.FC<TestsEditorProps> = ({
               fontSize: '0.75rem',
               overflow: 'auto',
               whiteSpace: 'pre',
-              lineHeight: 1.4
+              lineHeight: 1.4,
+              position: 'relative'
             }}>
-{`name: CI for GenAI
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-  workflow_dispatch:
-
-env:
-  HELIX_URL: \${{ vars.HELIX_URL }}
-  HELIX_API_KEY: \${{ secrets.HELIX_API_KEY }}
-
-jobs:
-  test-and-comment:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    permissions:
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install helix CLI
-        run: curl -sL -O https://get.helix.ml/install.sh && bash install.sh --cli -y
-
-      - name: Test the helix agent
-        run: helix test -f ${yamlFilename}
-
-      - name: PR comment with file
-        if: always()
-        uses: thollander/actions-comment-pull-request@v3
-        with:
-          file-path: summary_latest.md
-
-  deploy:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install helix CLI
-        run: curl -sL -O https://get.helix.ml/install.sh && bash install.sh --cli -y
-
-      - name: Test the helix agent
-        run: helix test -f ${yamlFilename}
-
-      - name: Apply changes
-        if: success()
-        run: helix apply -f ${yamlFilename}`}
+              <Tooltip title={githubCopied ? "Copied!" : "Copy config"} placement="top">
+                <IconButton
+                  onClick={() => handleCopyConfig(githubActionsConfig, setGithubCopied, 'GitHub Actions')}
+                  sx={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    color: 'white',
+                    padding: '4px',
+                    '&:hover': {
+                      backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    },
+                  }}
+                  size="small"
+                >
+                  {githubCopied ? <CheckIcon sx={{ fontSize: 16 }} /> : <ContentCopyIcon sx={{ fontSize: 16 }} />}
+                </IconButton>
+              </Tooltip>
+              {githubActionsConfig}
             </Box>
           </AccordionDetails>
         </Accordion>
@@ -347,58 +434,28 @@ jobs:
               fontSize: '0.75rem',
               overflow: 'auto',
               whiteSpace: 'pre',
-              lineHeight: 1.4
+              lineHeight: 1.4,
+              position: 'relative'
             }}>
-{`stages:
-  - test
-  - apply
-
-variables:
-  HELIX_URL: \${HELIX_URL}
-  HELIX_API_KEY: \${HELIX_API_KEY}
-
-test_job:
-  stage: test
-  image: ubuntu:latest
-  script:
-    - apt-get update && apt-get install -y curl sudo
-    - curl -sL -O https://get.helix.ml/install.sh && bash install.sh --cli -y
-    - helix test
-  artifacts:
-    paths:
-      - summary_latest.md
-    when: always
-
-apply_job:
-  stage: apply
-  image: ubuntu:latest
-  script:
-    - apt-get update && apt-get install -y curl sudo
-    - curl -sL -O https://get.helix.ml/install.sh && bash install.sh --cli -y
-    - helix apply -f ${yamlFilename}
-  only:
-    - main
-    - pushes
-    - web
-
-comment_job:
-  stage: apply
-  image: ubuntu:latest
-  script:
-    - echo "Commenting on merge request with test results"
-    - |
-      if [ -f summary_latest.md ]; then
-        comment=\$(cat summary_latest.md)
-        curl --request POST \\
-          --header "PRIVATE-TOKEN: \${GITLAB_API_TOKEN}" \\
-          --header "Content-Type: application/json" \\
-          --data "{\\"body\\": \\"\${comment}\\"}" \\
-          "\${CI_API_V4_URL}/projects/\${CI_PROJECT_ID}/merge_requests/\${CI_MERGE_REQUEST_IID}/notes"
-      else
-        echo "summary_latest.md not found"
-      fi
-  only:
-    - merge_requests`}
+              <Tooltip title={gitlabCopied ? "Copied!" : "Copy config"} placement="top">
+                <IconButton
+                  onClick={() => handleCopyConfig(gitlabCiConfig, setGitlabCopied, 'GitLab CI')}
+                  sx={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    color: 'white',
+                    padding: '4px',
+                    '&:hover': {
+                      backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    },
+                  }}
+                  size="small"
+                >
+                  {gitlabCopied ? <CheckIcon sx={{ fontSize: 16 }} /> : <ContentCopyIcon sx={{ fontSize: 16 }} />}
+                </IconButton>
+              </Tooltip>
+              {gitlabCiConfig}
             </Box>
           </AccordionDetails>
         </Accordion>
