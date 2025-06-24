@@ -492,7 +492,7 @@ func (s *HelixAPIServer) validateKnowledge(k *types.AssistantKnowledge) error {
 func (s *HelixAPIServer) validateTriggers(triggers []types.Trigger) error {
 	// If it's cron, check that it runs not more than once every 90 seconds
 	for _, trigger := range triggers {
-		if trigger.Cron != nil && trigger.Cron.Schedule != "" {
+		if trigger.Cron != nil && trigger.Cron.Schedule != "" && trigger.Cron.Enabled {
 			cronSchedule, err := cron.ParseStandard(trigger.Cron.Schedule)
 			if err != nil {
 				return fmt.Errorf("invalid cron schedule: %w", err)

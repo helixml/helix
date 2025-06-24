@@ -62,6 +62,11 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		}
 	}
 
+	var (
+		generateSessionNameProvider string
+		generateSessionNameModel    string
+	)
+
 	ctx = oai.SetContextAppID(ctx, startReq.AppID)
 
 	if ragSourceID := req.URL.Query().Get("rag_source_id"); ragSourceID != "" {
@@ -129,6 +134,12 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 			if assistant.ContextLimit > 0 {
 				messageContextLimit = assistant.ContextLimit
+			}
+
+			// If agent mode is enabled, used small generation model for session name generation
+			if assistant.AgentMode {
+				generateSessionNameProvider = assistant.SmallGenerationModelProvider
+				generateSessionNameModel = assistant.SmallGenerationModel
 			}
 		}
 	}
@@ -271,7 +282,21 @@ If the user asks for information about Helix or installing Helix, refer them to 
 
 	if newSession {
 		go func() {
-			name, err := s.generateSessionName(user, session.ID, string(startReq.Provider), modelName, message)
+
+			var (
+				provider string
+				model    string
+			)
+
+			if generateSessionNameProvider != "" && generateSessionNameModel != "" {
+				provider = generateSessionNameProvider
+				model = generateSessionNameModel
+			} else {
+				provider = string(startReq.Provider)
+				model = modelName
+			}
+
+			name, err := s.generateSessionName(user, session.ID, provider, model, message)
 			if err != nil {
 				log.Error().Err(err).Msg("error generating session name")
 				return
@@ -668,6 +693,9 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	if err := writeChunk(rw, bts); err != nil {
 		log.Error().Err(err).Msg("failed to write chunk")
 	}
+
+	// Instruct the agent to send thoughts about tools and decisions
+	options.Conversational = true
 
 	// Call the LLM
 	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)

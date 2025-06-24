@@ -16,6 +16,7 @@ import BarChartIcon from '@mui/icons-material/BarChart';
 import CloudDownloadIcon from '@mui/icons-material/CloudDownload';
 import GroupIcon from '@mui/icons-material/Group';
 import PaletteIcon from '@mui/icons-material/Palette';
+import ApiIcon from '@mui/icons-material/Api'
 import BugReportIcon from '@mui/icons-material/BugReport';
 
 import APIKeysSection from '../components/app/APIKeysSection'
@@ -27,6 +28,7 @@ import DevelopersSection from '../components/app/DevelopersSection'
 import KnowledgeEditor from '../components/app/KnowledgeEditor'
 import TestsEditor from '../components/app/TestsEditor'
 import PreviewPanel from '../components/app/PreviewPanel'
+import Triggers from '../components/app/Triggers'
 import Page from '../components/system/Page'
 import AccessDenied from '../components/system/AccessDenied'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
@@ -196,13 +198,14 @@ const App: FC = () => {
               >
                 <Tab icon={<PaletteIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Appearance" value="appearance" />
                 <Tab icon={<SettingsIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Settings" value="settings" />
+                <Tab icon={<ApiIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Triggers" value="triggers" />
                 <Tab icon={<MenuBookIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Knowledge" value="knowledge" />
                 <Tab icon={<EmojiObjectsIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Skills" value="skills" />                
                 <Tab icon={<BugReportIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Tests" value="tests" />
                 <Tab icon={<VpnKeyIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Keys" value="apikeys" />
                 <Tab icon={<CodeIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="MCP" value="mcp" />
                 <Tab icon={<BarChartIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Usage" value="usage" />
-                <Tab icon={<CloudDownloadIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Export" value="developers" />
+                <Tab icon={<CloudDownloadIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Export" value="developers" />                
                 {
                   appTools.app?.organization_id && userAccess.isAdmin && (
                     <Tab icon={<GroupIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Access" value="access" />
@@ -272,6 +275,16 @@ const App: FC = () => {
                         />
                       </Box>
                     </Grid>
+                  ) : tabValue === 'triggers' ? (
+                    <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                      <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
+                        <Triggers
+                          triggers={appTools.flatApp?.triggers || []}
+                          onUpdate={(triggers) => appTools.saveFlatApp({ triggers })}
+                          readOnly={isReadOnly}
+                        />
+                      </Box>
+                    </Grid>
                   ) : (
                     <>
                       <Grid item xs={12} md={6} sx={{
@@ -320,7 +333,7 @@ const App: FC = () => {
                           )}
 
                           {tabValue === 'knowledge' && (
-                            <Box sx={{ height: 'calc(100vh - 200px)', overflow: 'auto' }}>
+                            <Box sx={{ height: 'calc(100vh - 200px)', overflow: 'auto', mr: 2 }}>
                               <Typography variant="h6" sx={{ mb: 2, mt: 2 }}>
                                 Knowledge Sources
                               </Typography>

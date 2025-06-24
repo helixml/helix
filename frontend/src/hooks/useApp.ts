@@ -263,6 +263,10 @@ export const useApp = (appId: string) => {
       updatedApp.config.helix.image = updates.image
     }
 
+    if (updates.triggers !== undefined) {
+      updatedApp.config.helix.triggers = updates.triggers
+    }
+
     if (updates.global !== undefined) {
       updatedApp.global = updates.global
     }
@@ -406,6 +410,10 @@ export const useApp = (appId: string) => {
       assistants[0].calculator = updates.calculatorTool
     }
 
+    if (updates.emailTool !== undefined) {
+      assistants[0].email = updates.emailTool
+    }
+    
     if (updates.tests !== undefined) {
       assistants[0].tests = updates.tests
     }

@@ -9,7 +9,8 @@ import {
   FormControlLabel,
   Alert,
 } from '@mui/material';
-import { IAppFlatState, IAssistantBrowser } from '../../types';
+import { IAppFlatState } from '../../types';
+import { TypesAssistantBrowser } from '../../api/api';
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
@@ -54,7 +55,7 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
 }) => {
   const lightTheme = useLightTheme();
   const [error, setError] = useState<string | null>(null);
-  const [browserConfig, setBrowserConfig] = useState<IAssistantBrowser>({
+  const [browserConfig, setBrowserConfig] = useState<TypesAssistantBrowser>({
     enabled: false,
     markdown_post_processing: false,
   });
@@ -70,7 +71,7 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
     }
   }, [app.browserTool]);
 
-  const handleChange = async (field: keyof IAssistantBrowser, value: boolean) => {
+  const handleChange = async (field: keyof TypesAssistantBrowser, value: boolean) => {
     try {
       setError(null);
       

@@ -34,12 +34,13 @@ import (
 )
 
 type ChatCompletionOptions struct {
-	AppID       string
-	AssistantID string
-	RAGSourceID string
-	Provider    string
-	QueryParams map[string]string
-	OAuthTokens map[string]string // OAuth tokens mapped by provider name
+	AppID          string
+	AssistantID    string
+	RAGSourceID    string
+	Provider       string
+	QueryParams    map[string]string
+	OAuthTokens    map[string]string // OAuth tokens mapped by provider name
+	Conversational bool              // Whether to send thoughts about tools and decisions
 }
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.

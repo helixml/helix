@@ -2436,14 +2436,16 @@ const docTemplate = `{
                 "browser",
                 "gptscript",
                 "zapier",
-                "calculator"
+                "calculator",
+                "email"
             ],
             "x-enum-varnames": [
                 "ToolTypeAPI",
                 "ToolTypeBrowser",
                 "ToolTypeGPTScript",
                 "ToolTypeZapier",
-                "ToolTypeCalculator"
+                "ToolTypeCalculator",
+                "ToolTypeEmail"
             ]
         },
         "github_com_helixml_helix_api_pkg_types.Usage": {
@@ -3407,6 +3409,9 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "email": {
+                    "$ref": "#/definitions/types.AssistantEmail"
+                },
                 "frequency_penalty": {
                     "description": "How much to penalize new tokens based on their frequency in the text so far.\nIncreases the model's likelihood to talk about new topics\n0 - balanced\n2 - less repetitive",
                     "type": "number"
@@ -3535,6 +3540,17 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.AssistantZapier"
                     }
+                }
+            }
+        },
+        "types.AssistantEmail": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "template_example": {
+                    "type": "string"
                 }
             }
         },
@@ -3816,6 +3832,9 @@ const docTemplate = `{
         "types.CronTrigger": {
             "type": "object",
             "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
                 "input": {
                     "type": "string"
                 },
@@ -6304,11 +6323,25 @@ const docTemplate = `{
                 "calculator": {
                     "$ref": "#/definitions/types.ToolCalculatorConfig"
                 },
+                "email": {
+                    "$ref": "#/definitions/types.ToolEmailConfig"
+                },
                 "gptscript": {
                     "$ref": "#/definitions/types.ToolGPTScriptConfig"
                 },
                 "zapier": {
                     "$ref": "#/definitions/types.ToolZapierConfig"
+                }
+            }
+        },
+        "types.ToolEmailConfig": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "template_example": {
+                    "type": "string"
                 }
             }
         },
