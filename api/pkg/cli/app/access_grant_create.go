@@ -18,7 +18,7 @@ func init() {
 }
 
 var grantAccessCmd = &cobra.Command{
-	Use:   "grant-access [app ID] --user [user ID] --team [team ID] --roles [roles]",
+	Use:   "grant-access [agent ID] --user [user ID] --team [team ID] --roles [roles]",
 	Short: "Grant access to a user or team",
 	Long:  `Grant access to a user or team.`,
 	Args:  cobra.ExactArgs(1),
@@ -35,11 +35,11 @@ var grantAccessCmd = &cobra.Command{
 
 		app, err := lookupApp(cmd.Context(), apiClient, organization, args[0])
 		if err != nil {
-			return fmt.Errorf("failed to lookup app: %w", err)
+			return fmt.Errorf("failed to lookup agent: %w", err)
 		}
 
 		if app.OrganizationID == "" {
-			return fmt.Errorf("app is not associated with an organization")
+			return fmt.Errorf("agent is not associated with an organization")
 		}
 
 		user, err := cmd.Flags().GetString("user")

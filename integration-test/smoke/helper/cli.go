@@ -105,7 +105,7 @@ func (c *CLI) ListApps(t *testing.T, apiKey string) string {
 	helixAppListCmd.Env = append(os.Environ(), "HELIX_API_KEY="+apiKey, "HELIX_URL="+GetServerURL())
 	helixAppListCmd.Dir = c.tmpDir
 	output, err := helixAppListCmd.CombinedOutput()
-	require.NoError(t, err, "Helix app list failed: %s", string(output))
+	require.NoError(t, err, "Helix agent list failed: %s", string(output))
 	return string(output)
 }
 

@@ -19,7 +19,7 @@ func init() {
 var listCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls"},
-	Short:   "List helix apps",
+	Short:   "List helix agents",
 	Long:    ``,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		apiClient, err := client.NewClientFromEnv()
@@ -45,7 +45,7 @@ var listCmd = &cobra.Command{
 
 		apps, err := apiClient.ListApps(cmd.Context(), filter)
 		if err != nil {
-			return fmt.Errorf("failed to list apps: %w", err)
+			return fmt.Errorf("failed to list agents: %w", err)
 		}
 
 		table := tablewriter.NewWriter(cmd.OutOrStdout())

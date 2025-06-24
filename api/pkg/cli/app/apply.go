@@ -34,7 +34,7 @@ func NewApplyCmd() *cobra.Command {
 // applyCmd represents the apply command
 var applyCmd = &cobra.Command{
 	Use:   "apply",
-	Short: "Apply a Helix app configuration",
+	Short: "Apply a Helix agent configuration",
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		// Get flags
 		yamlFile, err := cmd.Flags().GetString("filename")
