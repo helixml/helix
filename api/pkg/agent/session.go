@@ -59,8 +59,9 @@ func NewSession(ctx context.Context, stepInfoEmitter StepInfoEmitter, llm *LLM, 
 		messageHistory:  messageHistory,
 		stepInfoEmitter: stepInfoEmitter,
 		meta:            meta,
-
-		isConversational: conversational,
+		// TODO: make this configurable, when off, this should just
+		// not send thoughts but response - yes
+		isConversational: true,
 	}
 	go s.run()
 	return s
