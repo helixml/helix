@@ -12,7 +12,7 @@ func init() {
 }
 
 var removeAccessCmd = &cobra.Command{
-	Use:   "remove-access [app ID] [access grant ID]",
+	Use:   "remove-access [agent ID] [access grant ID]",
 	Short: "Remove access from a user or team",
 	Long:  `Remove access from a user or team.`,
 	Args:  cobra.ExactArgs(2),
@@ -29,7 +29,7 @@ var removeAccessCmd = &cobra.Command{
 
 		app, err := lookupApp(cmd.Context(), apiClient, organization, args[0])
 		if err != nil {
-			return fmt.Errorf("failed to lookup app: %w", err)
+			return fmt.Errorf("failed to lookup agent: %w", err)
 		}
 
 		grants, err := apiClient.ListAppAccessGrants(cmd.Context(), &client.AppAccessGrantsFilter{

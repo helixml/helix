@@ -14,9 +14,9 @@ func init() {
 }
 
 var listAccessGrantsCmd = &cobra.Command{
-	Use:   "list-access-grants [app ID]",
-	Short: "List access grants for an app",
-	Long:  `List access grants for an app.`,
+	Use:   "list-access-grants [agent ID]",
+	Short: "List access grants for an agent",
+	Long:  `List access grants for an agent.`,
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		apiClient, err := client.NewClientFromEnv()
@@ -31,7 +31,7 @@ var listAccessGrantsCmd = &cobra.Command{
 
 		app, err := lookupApp(cmd.Context(), apiClient, organization, args[0])
 		if err != nil {
-			return fmt.Errorf("failed to lookup app: %w", err)
+			return fmt.Errorf("failed to lookup agent: %w", err)
 		}
 
 		grants, err := apiClient.ListAppAccessGrants(cmd.Context(), &client.AppAccessGrantsFilter{
