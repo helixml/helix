@@ -1330,6 +1330,7 @@ type DiscordTrigger struct {
 }
 
 type CronTrigger struct {
+	Enabled  bool   `json:"enabled,omitempty"`
 	Schedule string `json:"schedule,omitempty"`
 	Input    string `json:"input,omitempty"`
 }
