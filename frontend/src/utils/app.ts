@@ -5,6 +5,24 @@ import {
 } from '../types'
 
 /**
+ * Gets the avatar URL for a flat state app, handling both external URLs and uploaded avatars
+ * @param app - The flat state app
+ * @param appId - The app ID for API endpoint construction
+ * @returns The appropriate avatar URL or fallback
+ */
+export const getFlatStateAvatarUrl = (app: IAppFlatState, appId: string): string => {
+  if (!app.avatar) return '/img/logo.png'
+  
+  // If it's already a full URL, use it directly
+  if (app.avatar.startsWith('http://') || app.avatar.startsWith('https://')) {
+    return app.avatar
+  }
+  
+  // Otherwise, assume it's an uploaded avatar and use the API endpoint
+  return `/api/v1/apps/${appId}/avatar`
+}
+
+/**
  * Extracts properties from an IApp object and flattens them into an IAppFlatState object
  * Works with both GitHub and Helix app configurations
  * @param app - The app to flatten

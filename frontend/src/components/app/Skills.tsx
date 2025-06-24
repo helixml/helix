@@ -1,20 +1,54 @@
-import React, { useState, useMemo } from 'react';
-import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, IconButton, Menu, MenuItem, useTheme, Tooltip, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions } from '@mui/material';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, IconButton, Menu, MenuItem, useTheme, Tooltip, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Alert, Collapse, Link, Chip } from '@mui/material';
 import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import LanguageIcon from '@mui/icons-material/Language';
 import CalculateIcon from '@mui/icons-material/Calculate';
+import WarningIcon from '@mui/icons-material/Warning';
+import CloseIcon from '@mui/icons-material/Close';
+import SettingsIcon from '@mui/icons-material/Settings';
 import { IAppFlatState, IAgentSkill } from '../../types';
 import AddApiSkillDialog from './AddApiSkillDialog';
 import BrowserSkill from './BrowserSkill';
 import CalculatorSkill from './CalculatorSkill';
 import ApiIcon from '@mui/icons-material/Api';
+import useApi from '../../hooks/useApi';
+import useAccount from '../../hooks/useAccount';
 
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
 import { airQualityTool } from './examples/skillAirQualityApi';
 import { exchangeRatesSkill } from './examples/skillExchangeRatesApi';
+
+// OAuth Provider Skills
+import { githubTool } from './examples/skillGithubApi';
+import { googleTool } from './examples/skillGoogleApi';
+import { microsoftTool } from './examples/skillMicrosoftApi';
+import { slackTool } from './examples/skillSlackApi';
+import { linkedInTool } from './examples/skillLinkedInApi';
+import { atlassianTool } from './examples/skillAtlassianApi';
+import { confluenceTool } from './examples/skillConfluenceApi';
+
+// Interface for OAuth provider objects from the API
+interface OAuthProvider {
+  id: string;
+  type: string;
+  name: string;
+  enabled: boolean;
+}
+
+// Interface for OAuth connection objects from the API
+interface OAuthConnection {
+  id: string;
+  providerId: string;
+  userId: string;
+  expiresAt: string;
+  provider?: {
+    name: string;
+    type: string;
+  };
+}
 
 interface ISkill {
   id: string;
@@ -91,6 +125,63 @@ const BASE_SKILLS: ISkill[] = [
     type: SKILL_TYPE_HTTP_API,
     skill: exchangeRatesSkill,
   },
+  // OAuth Provider Skills
+  {
+    id: 'github-api',
+    icon: githubTool.icon,
+    name: githubTool.name,
+    description: githubTool.description,
+    type: SKILL_TYPE_HTTP_API,
+    skill: githubTool,
+  },
+  {
+    id: 'google-api',
+    icon: googleTool.icon,
+    name: googleTool.name,
+    description: googleTool.description,
+    type: SKILL_TYPE_HTTP_API,
+    skill: googleTool,
+  },
+  {
+    id: 'microsoft-api',
+    icon: microsoftTool.icon,
+    name: microsoftTool.name,
+    description: microsoftTool.description,
+    type: SKILL_TYPE_HTTP_API,
+    skill: microsoftTool,
+  },
+  {
+    id: 'slack-api',
+    icon: slackTool.icon,
+    name: slackTool.name,
+    description: slackTool.description,
+    type: SKILL_TYPE_HTTP_API,
+    skill: slackTool,
+  },
+  {
+    id: 'linkedin-api',
+    icon: linkedInTool.icon,
+    name: linkedInTool.name,
+    description: linkedInTool.description,
+    type: SKILL_TYPE_HTTP_API,
+    skill: linkedInTool,
+  },
+  {
+    id: 'atlassian-api',
+    icon: atlassianTool.icon,
+    name: atlassianTool.name,
+    description: atlassianTool.description,
+    type: SKILL_TYPE_HTTP_API,
+    skill: atlassianTool,
+  },
+  {
+    id: 'confluence-api',
+    icon: confluenceTool.icon,
+    name: confluenceTool.name,
+    description: confluenceTool.description,
+    type: SKILL_TYPE_HTTP_API,
+    skill: confluenceTool,
+  },
 ];
 
 const CUSTOM_API_SKILL: ISkill = {
@@ -127,6 +218,8 @@ const Skills: React.FC<SkillsProps> = ({
   onUpdate,
 }) => {
   const theme = useTheme();
+  const api = useApi();
+  const account = useAccount();
 
   const [selectedSkill, setSelectedSkill] = useState<IAgentSkill | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -134,6 +227,85 @@ const Skills: React.FC<SkillsProps> = ({
   const [selectedSkillForMenu, setSelectedSkillForMenu] = useState<string | null>(null);
   const [isDisableConfirmOpen, setIsDisableConfirmOpen] = useState(false);
   const [skillToDisable, setSkillToDisable] = useState<string | null>(null);
+  
+  // OAuth warning state
+  const [oauthProviders, setOAuthProviders] = useState<OAuthProvider[]>([]);
+  const [oauthConnections, setOAuthConnections] = useState<OAuthConnection[]>([]);
+  const [missingProviders, setMissingProviders] = useState<string[]>([]);
+  const [showWarning, setShowWarning] = useState(false);
+
+  // Fetch OAuth providers and connections
+  useEffect(() => {
+    const fetchOAuthData = async () => {
+      try {
+        const [providersResponse, connectionsResponse] = await Promise.all([
+          api.get('/api/v1/oauth/providers'),
+          api.get('/api/v1/oauth/connections')
+        ]);
+        
+        const providers = Array.isArray(providersResponse) ? providersResponse : [];
+        const connections = Array.isArray(connectionsResponse) ? connectionsResponse : [];
+        
+        setOAuthProviders(providers);
+        setOAuthConnections(connections);
+      } catch (error) {
+        console.error('Error fetching OAuth data:', error);
+        setOAuthProviders([]);
+        setOAuthConnections([]);
+      }
+    };
+
+    fetchOAuthData();
+  }, []);
+
+  // Check for missing OAuth providers whenever app.apiTools changes
+  useEffect(() => {
+    if (!app.apiTools || app.apiTools.length === 0) {
+      setMissingProviders([]);
+      setShowWarning(false);
+      return;
+    }
+
+    const requiredProviders = new Set<string>();
+    
+    // Collect all OAuth providers required by API tools
+    app.apiTools.forEach(tool => {
+      if (tool.oauth_provider && tool.oauth_provider.trim() !== '') {
+        requiredProviders.add(tool.oauth_provider);
+      }
+    });
+
+    if (requiredProviders.size === 0) {
+      setMissingProviders([]);
+      setShowWarning(false);
+      return;
+    }
+
+    const enabledProviderNames = new Set(
+      oauthProviders.filter(p => p.enabled).map(p => p.name)
+    );
+    
+    const connectedProviderNames = new Set(
+      oauthConnections.map(c => {
+        const provider = oauthProviders.find(p => p.id === c.providerId);
+        return provider?.name || '';
+      }).filter(name => name !== '')
+    );
+
+    const missing: string[] = [];
+    
+    requiredProviders.forEach(providerName => {
+      const isProviderEnabled = enabledProviderNames.has(providerName);
+      const isUserConnected = connectedProviderNames.has(providerName);
+      
+      if (!isProviderEnabled || !isUserConnected) {
+        missing.push(providerName);
+      }
+    });
+
+    setMissingProviders(missing);
+    setShowWarning(missing.length > 0);
+  }, [app.apiTools, oauthProviders, oauthConnections]);
 
   // Convert custom APIs to skills
   const customApiSkills = useMemo(() => {
@@ -167,10 +339,20 @@ const Skills: React.FC<SkillsProps> = ({
       }));
   }, [app.apiTools]);
 
-  // Combine base skills with custom API skills
+  // Helper function to determine if an OAuth skill should be shown
+  const shouldShowOAuthSkill = (skill: ISkill): boolean => {
+    // Show all skills to all users - we'll handle disabled providers at click time
+    return true;
+  };
+
+  // All skills are now shown to everyone
   const allSkills = useMemo(() => {
     return [...BASE_SKILLS, ...customApiSkills, CUSTOM_API_SKILL];
   }, [customApiSkills]);
+
+  // State for OAuth provider dialog
+  const [showOAuthProviderDialog, setShowOAuthProviderDialog] = useState(false);
+  const [selectedOAuthProvider, setSelectedOAuthProvider] = useState<string>('');
 
   const isSkillEnabled = (skillName: string): boolean => {
     if (skillName === 'Browser') {
@@ -233,6 +415,18 @@ const Skills: React.FC<SkillsProps> = ({
   };
 
   const handleOpenDialog = (skill: ISkill) => {
+    // Check if this is an OAuth skill with disabled provider for regular users
+    const oauthProvider = skill.skill.apiSkill?.oauth_provider;
+    if (oauthProvider && !account.admin) {
+      const provider = oauthProviders.find(p => p.name === oauthProvider);
+      if (!provider || !provider.enabled) {
+        // Show OAuth provider dialog for regular users
+        setSelectedOAuthProvider(oauthProvider);
+        setShowOAuthProviderDialog(true);
+        return;
+      }
+    }
+
     // For custom API tile, don't pass the skill template
     if (skill.id === 'new-custom-api') {
       setSelectedSkill(null);
@@ -321,12 +515,103 @@ const Skills: React.FC<SkillsProps> = ({
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Extend the capabilities of the AI with custom functions, APIs and workflows.
       </Typography>
+
+      {/* OAuth Provider Warning Banner */}
+      <Collapse in={showWarning}>
+        <Alert
+          severity="warning"
+          icon={<WarningIcon />}
+          action={
+            <IconButton
+              aria-label="close"
+              color="inherit"
+              size="small"
+              onClick={() => setShowWarning(false)}
+            >
+              <CloseIcon fontSize="inherit" />
+            </IconButton>
+          }
+          sx={{ mb: 2 }}
+        >
+          <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
+            OAuth Configuration Required
+          </Typography>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            This agent requires OAuth providers that are not properly configured:
+          </Typography>
+          <Box sx={{ mb: 1 }}>
+            {missingProviders.map((providerName, index) => {
+              const provider = oauthProviders.find(p => p.name === providerName);
+              const isProviderEnabled = provider?.enabled || false;
+              const isUserConnected = oauthConnections.some(c => {
+                const connectedProvider = oauthProviders.find(p => p.id === c.providerId);
+                return connectedProvider?.name === providerName;
+              });
+
+              return (
+                <Box key={providerName} sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                  <Typography variant="body2" sx={{ mr: 1 }}>
+                    • <strong>{providerName}</strong>:
+                  </Typography>
+                  {!isProviderEnabled ? (
+                    <Typography variant="body2" color="error.main">
+                      Not configured by administrator
+                    </Typography>
+                  ) : !isUserConnected ? (
+                    <Link
+                      href="/account#oauth"
+                      sx={{ textDecoration: 'underline', cursor: 'pointer' }}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        // Navigate to account page OAuth section
+                        window.location.href = '/account#oauth';
+                      }}
+                    >
+                      Connect your account
+                    </Link>
+                  ) : null}
+                </Box>
+              );
+            })}
+          </Box>
+          <Typography variant="body2">
+            {missingProviders.some(name => {
+              const provider = oauthProviders.find(p => p.name === name);
+              return !provider?.enabled;
+            }) && (
+              <>
+                Administrators can configure OAuth providers in{' '}
+                <Link
+                  href="/admin/oauth"
+                  sx={{ textDecoration: 'underline', cursor: 'pointer' }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    window.location.href = '/admin/oauth';
+                  }}
+                >
+                  Admin Settings
+                </Link>
+                .{' '}
+              </>
+            )}
+            You can test this agent once all required OAuth providers are properly configured and connected.
+          </Typography>
+        </Alert>
+      </Collapse>
+
       <Grid container spacing={2}>
         {allSkills.map((skill) => {
           const defaultIcon = PROVIDER_ICONS[skill.type] || PROVIDER_ICONS['custom'];
           const color = PROVIDER_COLORS[skill.type] || PROVIDER_COLORS['custom'];
           const isEnabled = isSkillEnabled(skill.name);
           const isCustomApiTile = skill.id === 'new-custom-api';
+          
+          // Check OAuth provider status for this skill (admin-only warnings)
+          const oauthProvider = skill.skill.apiSkill?.oauth_provider;
+          const provider = oauthProvider ? oauthProviders.find(p => p.name === oauthProvider) : null;
+          const isOAuthSkill = !!oauthProvider;
+          const isProviderDisabled = isOAuthSkill && (!provider || !provider.enabled);
+          const showProviderWarning = isOAuthSkill && isProviderDisabled && account.admin;
           
           return (
             <Grid item xs={12} sm={6} md={4} lg={3} key={skill.id}>
@@ -433,6 +718,40 @@ const Skills: React.FC<SkillsProps> = ({
                     <Typography variant="body2" color="text.secondary">
                       {getFirstLine(skill.description)}
                     </Typography>
+                    
+                    {/* OAuth Provider Warning for Admins */}
+                    {showProviderWarning && (
+                      <Box sx={{ mt: 2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                          <Chip 
+                            label="OAuth Provider Disabled" 
+                            color="warning" 
+                            size="small"
+                            sx={{ mr: 1 }}
+                          />
+                        </Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                          Provider "{oauthProvider}" needs to be configured
+                        </Typography>
+                        <Button
+                          size="small"
+                          startIcon={<SettingsIcon />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            window.open('/dashboard/oauth', '_blank');
+                          }}
+                          sx={{ 
+                            fontSize: '0.75rem',
+                            color: '#6366F1',
+                            minHeight: 'auto',
+                            py: 0.5,
+                            px: 1,
+                          }}
+                        >
+                          Configure Provider
+                        </Button>
+                      </Box>
+                    )}
                   </CardContent>
                   <CardActions sx={{ justifyContent: 'center', px: 2, pb: 2 }}>
                     {isEnabled ? (
@@ -497,6 +816,41 @@ const Skills: React.FC<SkillsProps> = ({
           }}>Cancel</Button>
           <Button onClick={handleDisableSkill} color="error" variant="contained">
             Disable
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* OAuth Provider Request Dialog for Regular Users */}
+      <Dialog
+        open={showOAuthProviderDialog}
+        onClose={() => {
+          setShowOAuthProviderDialog(false);
+          setSelectedOAuthProvider('');
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center' }}>
+          <WarningIcon sx={{ mr: 1, color: 'warning.main' }} />
+          OAuth Provider Required
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 2 }}>
+            This skill requires the <strong>{selectedOAuthProvider}</strong> OAuth provider to be enabled by an administrator.
+          </DialogContentText>
+          <DialogContentText>
+            Please ask your admin to enable the OAuth provider for this skill. Once enabled, you'll be able to use this skill after connecting your account.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => {
+              setShowOAuthProviderDialog(false);
+              setSelectedOAuthProvider('');
+            }}
+            variant="contained"
+          >
+            Got it
           </Button>
         </DialogActions>
       </Dialog>
