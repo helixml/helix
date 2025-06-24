@@ -454,7 +454,11 @@ Examples of what you can help with:
     url: "https://api.github.com",
     requiredParameters: [],
     oauth_provider: "GitHub",
-    oauth_scopes: ["repo", "user:read"]
+    oauth_scopes: ["repo", "user:read"],
+    headers: {
+      "Accept": "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28"
+    }
   },
   configurable: false,
 } 

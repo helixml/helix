@@ -312,7 +312,10 @@ Examples of what you can help with:
     oauth_scopes: [
       "Mail.Read",
       "Mail.Send"
-    ]
+    ],
+    headers: {
+      "Authorization": "Bearer {token}"
+    }
   },
   configurable: false,
 }; 

@@ -325,7 +325,12 @@ Examples of what you can help with:
     url: "https://api.linkedin.com/v2",
     requiredParameters: [],
     oauth_provider: "LinkedIn",
-    oauth_scopes: ["r_liteprofile", "r_emailaddress", "w_member_social"]
+    oauth_scopes: ["r_liteprofile", "r_emailaddress", "w_member_social"],
+    headers: {
+      "Authorization": "Bearer {token}",
+      "Content-Type": "application/json",
+      "X-Restli-Protocol-Version": "2.0.0"
+    }
   },
   configurable: false,
 } 

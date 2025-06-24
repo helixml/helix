@@ -826,12 +826,7 @@ if [ "$RUNNER" = true ]; then
         exit 1
     fi
 
-    # Determine GPU memory
-    GPU_MEMORY=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | awk '{print int($1/1024)}' || echo "")
-    if [ -z "$GPU_MEMORY" ]; then
-        echo "Failed to determine GPU memory."
-        read -p "Please specify the GPU memory in GB: " GPU_MEMORY
-    fi
+
 
     # Determine runner tag
     if [ "$LARGE" = true ]; then
@@ -858,7 +853,6 @@ if [ "$RUNNER" = true ]; then
 # Configuration variables
 RUNNER_TAG="${RUNNER_TAG}"
 API_HOST="${API_HOST}"
-GPU_MEMORY="${GPU_MEMORY}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
 OLDER_GPU="${OLDER_GPU:-false}"
 HF_TOKEN="${HF_TOKEN}"
@@ -911,9 +905,7 @@ docker run --privileged --gpus all --shm-size=10g \\
     \${EXTRA_OLLAMA_MODELS_PARAM} \\
     registry.helixml.tech/helix/runner:\${RUNNER_TAG} \\
     --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\
-    --runner-id \$(hostname) \\
-    --memory \${GPU_MEMORY}GB \\
-    --allow-multiple-copies
+    --runner-id \$(hostname)
 EOF
 
     sudo chmod +x $INSTALL_DIR/runner.sh

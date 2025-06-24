@@ -7,7 +7,7 @@ info:
   description: Access Jira issues and projects with OAuth authentication
   version: "3"
 servers:
-  - url: https://api.atlassian.com/ex/jira/{cloudid}/rest/api/3
+  - url: https://your-domain.atlassian.net/rest/api/3
 paths:
   /myself:
     get:
@@ -51,25 +51,35 @@ paths:
                       type: string
                     name:
                       type: string
-                    description:
+                    projectTypeKey:
                       type: string
   /search:
     get:
       summary: Search for issues using JQL
-      operationId: searchIssues
+      operationId: searchForIssuesUsingJql
       security:
         - BearerAuth: []
       parameters:
         - name: jql
           in: query
-          required: true
           schema:
             type: string
+          description: JQL query string
+        - name: startAt
+          in: query
+          schema:
+            type: integer
+            default: 0
         - name: maxResults
           in: query
           schema:
             type: integer
             default: 50
+        - name: fields
+          in: query
+          schema:
+            type: string
+          description: Comma-separated list of fields to return
       responses:
         '200':
           description: Search results
@@ -78,8 +88,6 @@ paths:
               schema:
                 type: object
                 properties:
-                  total:
-                    type: integer
                   issues:
                     type: array
                     items:
@@ -94,7 +102,14 @@ paths:
                           properties:
                             summary:
                               type: string
+                            description:
+                              type: string
                             status:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                            priority:
                               type: object
                               properties:
                                 name:
@@ -104,11 +119,129 @@ paths:
                               properties:
                                 displayName:
                                   type: string
+                            reporter:
+                              type: object
+                              properties:
+                                displayName:
+                                  type: string
+                            created:
+                              type: string
+                            updated:
+                              type: string
+                  total:
+                    type: integer
+  /issue:
+    post:
+      summary: Create issue
+      operationId: createIssue
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - fields
+              properties:
+                fields:
+                  type: object
+                  required:
+                    - project
+                    - summary
+                    - issuetype
+                  properties:
+                    project:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                    summary:
+                      type: string
+                    description:
+                      type: string
+                    issuetype:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                    priority:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                    labels:
+                      type: array
+                      items:
+                        type: string
+      responses:
+        '201':
+          description: Issue created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  key:
+                    type: string
+  /issue/{issueIdOrKey}:
+    get:
+      summary: Get issue
+      operationId: getIssue
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: issueIdOrKey
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Issue details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  key:
+                    type: string
+                  fields:
+                    type: object
+    put:
+      summary: Update issue
+      operationId: editIssue
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: issueIdOrKey
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fields:
+                  type: object
+      responses:
+        '204':
+          description: Issue updated successfully
 components:
   securitySchemes:
     BearerAuth:
       type: http
-      scheme: bearer`;
+      scheme: bearer
+      bearerFormat: JWT`;
 
 export const atlassianTool: IAgentSkill = {
   name: "Atlassian Jira",
@@ -150,15 +283,14 @@ Examples of what you can help with:
 - "Show me what projects I have access to"`,
   apiSkill: {
     schema: schema,
-    url: "https://api.atlassian.com/ex/jira/{cloudid}/rest/api/3",
-    requiredParameters: [{
-      name: 'cloudid',
-      description: 'Your Atlassian cloud site ID (replace {cloudid} in URL)',
-      type: 'query',
-      required: true,
-    }],
+    url: "https://your-domain.atlassian.net/rest/api/3",
+    requiredParameters: [],
     oauth_provider: "Atlassian",
-    oauth_scopes: ["read:jira-user", "read:jira-work"]
+    oauth_scopes: ["read:jira-user", "read:jira-work"],
+    headers: {
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    }
   },
   configurable: false,
 } 
