@@ -1011,12 +1011,12 @@ const Skills: React.FC<SkillsProps> = ({
                     </Typography>
                   ) : !isUserConnected ? (
                     <Link
-                      href="/account#oauth"
+                      href="/oauth-connections"
                       sx={{ textDecoration: 'underline', cursor: 'pointer' }}
                       onClick={(e) => {
                         e.preventDefault();
                         // Navigate to account page OAuth section
-                        window.location.href = '/account#oauth';
+                        window.location.href = '/oauth-connections';
                       }}
                     >
                       Connect your account
