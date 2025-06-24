@@ -301,7 +301,7 @@ func (c *Cron) listApps(ctx context.Context) ([]*types.App, error) {
 
 	for _, app := range apps {
 		for _, trigger := range app.Config.Helix.Triggers {
-			if trigger.Cron != nil && trigger.Cron.Schedule != "" {
+			if trigger.Cron != nil && trigger.Cron.Schedule != "" && trigger.Cron.Enabled {
 				filteredApps = append(filteredApps, app)
 			}
 		}
@@ -314,7 +314,7 @@ func (c *Cron) getCronAppOptions(app *types.App) []gocron.JobOption {
 	var schedule string
 
 	for _, trigger := range app.Config.Helix.Triggers {
-		if trigger.Cron != nil && trigger.Cron.Schedule != "" {
+		if trigger.Cron != nil && trigger.Cron.Schedule != "" && trigger.Cron.Enabled {
 			schedule = trigger.Cron.Schedule
 			break
 		}
@@ -328,7 +328,7 @@ func (c *Cron) getCronAppOptions(app *types.App) []gocron.JobOption {
 
 func getAppSchedule(app *types.App) (*types.CronTrigger, bool) {
 	for _, trigger := range app.Config.Helix.Triggers {
-		if trigger.Cron != nil && trigger.Cron.Schedule != "" {
+		if trigger.Cron != nil && trigger.Cron.Schedule != "" && trigger.Cron.Enabled {
 			return trigger.Cron, true
 		}
 	}

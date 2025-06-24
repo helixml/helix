@@ -16,7 +16,7 @@ import BarChartIcon from '@mui/icons-material/BarChart';
 import CloudDownloadIcon from '@mui/icons-material/CloudDownload';
 import GroupIcon from '@mui/icons-material/Group';
 import PaletteIcon from '@mui/icons-material/Palette';
-import ScheduleIcon from '@mui/icons-material/Schedule';
+import ApiIcon from '@mui/icons-material/Api'
 
 import APIKeysSection from '../components/app/APIKeysSection'
 import AppSettings from '../components/app/AppSettings'
@@ -196,7 +196,7 @@ const App: FC = () => {
               >
                 <Tab icon={<PaletteIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Appearance" value="appearance" />
                 <Tab icon={<SettingsIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Settings" value="settings" />
-                <Tab icon={<ScheduleIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Triggers" value="triggers" />
+                <Tab icon={<ApiIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Triggers" value="triggers" />
                 <Tab icon={<MenuBookIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Knowledge" value="knowledge" />
                 <Tab icon={<EmojiObjectsIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Skills" value="skills" />                
                 <Tab icon={<VpnKeyIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Keys" value="apikeys" />

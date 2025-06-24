@@ -3,7 +3,6 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Switch from '@mui/material/Switch'
 import FormControlLabel from '@mui/material/FormControlLabel'
-import Grid from '@mui/material/Grid'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
 import FormControl from '@mui/material/FormControl'
@@ -13,8 +12,8 @@ import MenuItem from '@mui/material/MenuItem'
 import ScheduleIcon from '@mui/icons-material/Schedule'
 import ApiIcon from '@mui/icons-material/Api'
 import { TypesTrigger } from '../../api/api'
-import useThemeConfig from '../../hooks/useThemeConfig'
 import { timezones } from '../../utils/timezones'
+import Alert from '@mui/material/Alert'
 
 interface TriggersProps {
   triggers?: TypesTrigger[]
@@ -135,7 +134,7 @@ const Triggers: FC<TriggersProps> = ({
   onUpdate,
   readOnly = false
 }) => {
-  const hasCronTrigger = triggers.some(t => t.cron)
+  const hasCronTrigger = triggers.some(t => t.cron && t.cron.enabled === true)
   const cronTrigger = triggers.find(t => t.cron)?.cron
 
   // Determine initial schedule mode
@@ -185,20 +184,47 @@ const Triggers: FC<TriggersProps> = ({
 
   const handleCronToggle = (enabled: boolean) => {
     if (enabled) {
-      // Add a default cron trigger based on current mode
-      const userTz = getUserTimezone()
-      let schedule: string
-      if (scheduleMode === 'intervals') {
-        schedule = `*/${selectedInterval} * * * *`
+      // Enable the existing cron trigger or create a default one if none exists
+      const currentCronTrigger = triggers.find(t => t.cron)?.cron
+      if (currentCronTrigger) {
+        // Preserve existing configuration but set enabled to true
+        const newTriggers = [...triggers.filter(t => !t.cron), { 
+          cron: { 
+            enabled: true, 
+            schedule: currentCronTrigger.schedule || '', 
+            input: currentCronTrigger.input || '' 
+          } 
+        }]
+        onUpdate(newTriggers)
       } else {
-        schedule = `CRON_TZ=${userTz} 0 9 * * 1`
+        // Create a default cron trigger based on current mode
+        const userTz = getUserTimezone()
+        let schedule: string
+        if (scheduleMode === 'intervals') {
+          schedule = `*/${selectedInterval} * * * *`
+        } else {
+          schedule = `CRON_TZ=${userTz} 0 9 * * 1`
+        }
+        const newTriggers = [...triggers.filter(t => !t.cron), { cron: { enabled: true, schedule, input: '' } }]
+        onUpdate(newTriggers)
       }
-      const newTriggers = [...triggers.filter(t => !t.cron), { cron: { schedule, input: '' } }]
-      onUpdate(newTriggers)
     } else {
-      // Remove cron trigger
-      const newTriggers = triggers.filter(t => !t.cron)
-      onUpdate(newTriggers)
+      // Keep the cron trigger but set enabled to false, preserving schedule and input
+      const currentCronTrigger = triggers.find(t => t.cron)?.cron
+      if (currentCronTrigger) {
+        const updatedTriggers = [...triggers.filter(t => !t.cron), { 
+          cron: { 
+            enabled: false, 
+            schedule: currentCronTrigger.schedule || '', 
+            input: currentCronTrigger.input || '' 
+          } 
+        }]
+        onUpdate(updatedTriggers)
+      } else {
+        // Fallback: remove cron trigger if none exists
+        const removedTriggers = triggers.filter(t => !t.cron)
+        onUpdate(removedTriggers)
+      }
     }
   }
 
@@ -207,13 +233,13 @@ const Triggers: FC<TriggersProps> = ({
     if (mode === 'intervals') {
       // Switch to interval mode - create interval cron expression
       const schedule = `*/${selectedInterval} * * * *`
-      const newTriggers = [...triggers.filter(t => !t.cron), { cron: { schedule, input: scheduleInput } }]
+      const newTriggers = [...triggers.filter(t => !t.cron), { cron: { enabled: true, schedule, input: scheduleInput } }]
       onUpdate(newTriggers)
     } else {
       // Switch to specific time mode - create specific time cron expression
       const userTz = getUserTimezone()
       const schedule = `CRON_TZ=${userTz} ${selectedMinute} ${selectedHour} * * ${selectedDays.join(',')}`
-      const newTriggers = [...triggers.filter(t => !t.cron), { cron: { schedule, input: scheduleInput } }]
+      const newTriggers = [...triggers.filter(t => !t.cron), { cron: { enabled: true, schedule, input: scheduleInput } }]
       onUpdate(newTriggers)
     }
   }
@@ -260,13 +286,13 @@ const Triggers: FC<TriggersProps> = ({
     if (days.length === 0) return
     
     const cronExpression = `CRON_TZ=${timezone} ${minute} ${hour} * * ${days.join(',')}`
-    const newTriggers = [...triggers.filter(t => !t.cron), { cron: { schedule: cronExpression, input } }]
+    const newTriggers = [...triggers.filter(t => !t.cron), { cron: { enabled: true, schedule: cronExpression, input } }]
     onUpdate(newTriggers)
   }
 
   const updateIntervalCronTrigger = (interval: number, input: string) => {
     const cronExpression = `*/${interval} * * * *`
-    const newTriggers = [...triggers.filter(t => !t.cron), { cron: { schedule: cronExpression, input } }]
+    const newTriggers = [...triggers.filter(t => !t.cron), { cron: { enabled: true, schedule: cronExpression, input } }]
     onUpdate(newTriggers)
   }
 
@@ -322,8 +348,13 @@ const Triggers: FC<TriggersProps> = ({
           />
         </Box>
 
-        {hasCronTrigger && (
-          <Box sx={{ mt: 2, p: 2, borderRadius: 1 }}>
+        {(hasCronTrigger || cronTrigger) && (
+          <Box sx={{ mt: 2, p: 2, borderRadius: 1, opacity: hasCronTrigger ? 1 : 0.6 }}>
+            {!hasCronTrigger && cronTrigger && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Cron trigger is disabled. Enable it above to activate the schedule.
+              </Alert>
+            )}
             {/* Schedule Mode Selection */}
             <Box sx={{ mb: 2 }}>
               <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
@@ -335,7 +366,7 @@ const Triggers: FC<TriggersProps> = ({
                   value={scheduleMode}
                   // label="Schedule Type"
                   onChange={(e) => handleScheduleModeChange(e.target.value as ScheduleMode)}
-                  disabled={readOnly}
+                  disabled={readOnly || !hasCronTrigger}
                 >
                   <MenuItem value="intervals">Intervals</MenuItem>
                   <MenuItem value="specific_time">Specific Time</MenuItem>
@@ -355,7 +386,7 @@ const Triggers: FC<TriggersProps> = ({
                     value={selectedInterval}
                     // label="Every"
                     onChange={(e) => handleIntervalChange(e.target.value as number)}
-                    disabled={readOnly}
+                    disabled={readOnly || !hasCronTrigger}
                   >
                     {INTERVAL_MINUTES.map((interval) => (
                       <MenuItem key={interval} value={interval}>
@@ -381,7 +412,7 @@ const Triggers: FC<TriggersProps> = ({
                         color={selectedDays.includes(day.value) ? "secondary" : "secondary"}
                         size="small"
                         onClick={() => handleDayToggle(day.value)}
-                        disabled={readOnly}
+                        disabled={readOnly || !hasCronTrigger}
                         sx={{ 
                           minWidth: 'auto', 
                           px: 1.5,
@@ -402,7 +433,7 @@ const Triggers: FC<TriggersProps> = ({
                         value={selectedTimezone}
                         label="Timezone"
                         onChange={(e) => handleTimezoneChange(e.target.value as string)}
-                        disabled={readOnly}
+                        disabled={readOnly || !hasCronTrigger}
                       >
                         {timezones.map((timezone) => (
                           <MenuItem key={timezone} value={timezone}>
@@ -417,7 +448,7 @@ const Triggers: FC<TriggersProps> = ({
                         value={selectedHour}
                         label="Hour"
                         onChange={(e) => handleHourChange(e.target.value as number)}
-                        disabled={readOnly}
+                        disabled={readOnly || !hasCronTrigger}
                       >
                         {HOURS.map((hour) => (
                           <MenuItem key={hour} value={hour}>
@@ -433,7 +464,7 @@ const Triggers: FC<TriggersProps> = ({
                         value={selectedMinute}
                         label="Minute"
                         onChange={(e) => handleMinuteChange(e.target.value as number)}
-                        disabled={readOnly}
+                        disabled={readOnly || !hasCronTrigger}
                       >
                         {MINUTES.map((minute) => (
                           <MenuItem key={minute} value={minute}>
@@ -460,7 +491,7 @@ const Triggers: FC<TriggersProps> = ({
                 placeholder="'Check the news and send me an email with the summary', 'Check the weather in Tokyo'"
                 value={scheduleInput}
                 onChange={(e) => handleInputChange(e.target.value)}
-                disabled={readOnly}
+                disabled={readOnly || !hasCronTrigger}
               />
             </Box>
 
