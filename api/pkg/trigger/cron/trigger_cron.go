@@ -357,7 +357,8 @@ func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
 		resp, _, err := c.controller.ChatCompletion(ctx, user,
 			request,
 			&controller.ChatCompletionOptions{
-				AppID: app.ID,
+				AppID:          app.ID,
+				Conversational: true,
 			})
 		if err != nil {
 			log.Warn().
@@ -393,6 +394,7 @@ func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
 		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
 		session.Interactions[len(session.Interactions)-1].Finished = true
 		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+
 		err = c.controller.WriteSession(ctx, session)
 		if err != nil {
 			log.Error().
