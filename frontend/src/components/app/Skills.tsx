@@ -12,6 +12,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import SettingsIcon from '@mui/icons-material/Settings';
 import GoogleIcon from '@mui/icons-material/Google';
 import MicrosoftIcon from '@mui/icons-material/Microsoft';
+import EmailIcon from '@mui/icons-material/Email';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import LinkedInIcon from '@mui/icons-material/LinkedIn';
 import BusinessIcon from '@mui/icons-material/Business';
@@ -21,6 +22,7 @@ import { IAppFlatState, IAgentSkill } from '../../types';
 import AddApiSkillDialog from './AddApiSkillDialog';
 import BrowserSkill from './BrowserSkill';
 import CalculatorSkill from './CalculatorSkill';
+import EmailSkill from './EmailSkill';
 import ApiIcon from '@mui/icons-material/Api';
 import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
@@ -75,6 +77,7 @@ interface ISkill {
 const SKILL_TYPE_HTTP_API = 'HTTP API';
 const SKILL_TYPE_BROWSER = 'Browser';
 const SKILL_TYPE_CALCULATOR = 'Calculator';
+const SKILL_TYPE_EMAIL = 'Email';
 
 const SKILL_CATEGORY_CORE = 'Core';
 const SKILL_CATEGORY_DATA = 'Data & APIs';
@@ -142,6 +145,24 @@ const BASE_SKILLS: ISkill[] = [
     skill: {
       name: 'Calculator',
       description: 'Enable the AI to perform math calculations.',
+      systemPrompt: '',
+      apiSkill: {
+        schema: '',
+        url: '',
+        requiredParameters: [],
+      },
+      configurable: true,
+    },
+  },
+  {
+    id: 'email',
+    icon: <EmailIcon />,
+    name: 'Email',
+    description: 'Allow agent to send emails to you. Instruct it to send summaries, reminders, or other information via email.',
+    type: SKILL_TYPE_EMAIL,
+    skill: {
+      name: 'Email',
+      description: 'Enable the AI to send emails to the user.',
       systemPrompt: '',
       apiSkill: {
         schema: '',
@@ -568,6 +589,9 @@ const Skills: React.FC<SkillsProps> = ({
     if (skillName === 'Calculator') {
       return app.calculatorTool?.enabled ?? false;
     }
+    if (skillName === 'Email') {
+      return app.emailTool?.enabled ?? false;
+    }
     return app.apiTools?.some(tool => tool.name === skillName) ?? false;
   };
 
@@ -597,6 +621,13 @@ const Skills: React.FC<SkillsProps> = ({
           await onUpdate({
             ...app,
             calculatorTool: { enabled: false },
+          });
+          return
+        }
+        if (skill.name === 'Email') {
+          await onUpdate({
+            ...app,
+            emailTool: { enabled: false },
           });
           return
         }
@@ -692,6 +723,23 @@ const Skills: React.FC<SkillsProps> = ({
           app={app}
           onUpdate={onUpdate}
           isEnabled={isSkillEnabled('Calculator')}
+        />
+      );
+    }
+
+    if (selectedSkill.name === 'Email') {
+      return (
+        <EmailSkill
+          open={isDialogOpen}
+          onClose={() => {
+            setIsDialogOpen(false);
+          }}
+          onClosed={() => {
+            setSelectedSkill(null);
+          }}
+          app={app}
+          onUpdate={onUpdate}
+          isEnabled={isSkillEnabled('Email')}
         />
       );
     }
@@ -963,12 +1011,12 @@ const Skills: React.FC<SkillsProps> = ({
                     </Typography>
                   ) : !isUserConnected ? (
                     <Link
-                      href="/account#oauth"
+                      href="/oauth-connections"
                       sx={{ textDecoration: 'underline', cursor: 'pointer' }}
                       onClick={(e) => {
                         e.preventDefault();
                         // Navigate to account page OAuth section
-                        window.location.href = '/account#oauth';
+                        window.location.href = '/oauth-connections';
                       }}
                     >
                       Connect your account

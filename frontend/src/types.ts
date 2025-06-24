@@ -1,4 +1,16 @@
-import { TypesUserAppAccessResponse, TypesAssistantConfig, TypesStepInfo, TypesMessage, TypesMessageContent } from './api/api'
+import { 
+  TypesUserAppAccessResponse,
+  TypesStepInfo,
+  TypesMessage,
+  TypesMessageContent,
+  TypesAssistantCalculator,
+  TypesToolCalculatorConfig,
+  TypesAssistantBrowser,
+  TypesToolBrowserConfig,
+  TypesAssistantEmail,
+  TypesToolEmailConfig,
+  TypesTrigger,
+} from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
 // SYSTEM means the system prompt, NOT an assistant message (as it previously
@@ -493,22 +505,14 @@ export interface IToolZapierConfig {
   max_iterations?: number,
 }
 
-export interface IToolBrowserConfig {
-  enabled: boolean,
-  markdown_post_processing: boolean,
-}
-
-export interface IToolCalculatorConfig {
-  enabled: boolean,
-}
-
 export interface IToolConfig {
   api?: IToolApiConfig,
   gptscript?: IToolGptScriptConfig,
   zapier?: IToolZapierConfig,
   helix?: IAppHelixConfig,
-  browser?: IToolBrowserConfig,
-  calculator?: IToolCalculatorConfig,
+  browser?: TypesToolBrowserConfig,
+  calculator?: TypesToolCalculatorConfig,
+  email?: TypesToolEmailConfig,
 }
 
 export interface ITool {
@@ -557,15 +561,6 @@ export interface IAssistantApi {
   system_prompt?: string,
   oauth_provider?: string,
   oauth_scopes?: string[],
-}
-
-export interface IAssistantBrowser {  
-  enabled: boolean,
-  markdown_post_processing: boolean,
-}
-
-export interface IAssistantCalculator {
-  enabled: boolean,
 }
 
 export interface IAssistantGPTScript {
@@ -652,8 +647,10 @@ export interface IAssistantConfig {
   apis?: IAssistantApi[];
   gptscripts?: IAssistantGPTScript[];
   zapier?: IAssistantZapier[];
-  browser?: IAssistantBrowser;
-  calculator?: IAssistantCalculator;
+  browser?: TypesAssistantBrowser;
+  calculator?: TypesAssistantCalculator;
+  email?: TypesAssistantEmail;
+  
   tools?: ITool[];
   knowledge?: IKnowledgeSource[];
   tests?: ITest[];
@@ -754,7 +751,7 @@ export interface IAppHelixConfig {
   avatar?: string;
   image?: string;
   assistants?: IAssistantConfig[];
-  // TODO: add triggers
+  triggers?: TypesTrigger[];
   external_url: string;
   // Add any other properties that might be part of the helix config
 }
@@ -825,9 +822,11 @@ export interface IAppFlatState {
   apiTools?: IAssistantApi[]
   zapierTools?: IAssistantZapier[]
   gptscriptTools?: IAssistantGPTScript[]
-  browserTool?: IAssistantBrowser
-  calculatorTool?: IAssistantCalculator
+  browserTool?: TypesAssistantBrowser
+  calculatorTool?: TypesAssistantCalculator
+  emailTool?: TypesAssistantEmail
   conversation_starters?: string[];
+  triggers?: TypesTrigger[];
   tests?: ITest[];
 }
 

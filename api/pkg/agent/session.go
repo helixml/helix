@@ -12,6 +12,7 @@ import (
 type Meta struct {
 	AppID         string
 	UserID        string
+	UserEmail     string
 	SessionID     string
 	InteractionID string
 	Extra         map[string]string
@@ -37,7 +38,7 @@ type Session struct {
 }
 
 // NewSession constructs a session with references to shared LLM & memory, but isolated state.
-func NewSession(ctx context.Context, stepInfoEmitter StepInfoEmitter, llm *LLM, mem Memory, ag *Agent, messageHistory *MessageList, meta Meta) *Session {
+func NewSession(ctx context.Context, stepInfoEmitter StepInfoEmitter, llm *LLM, mem Memory, ag *Agent, messageHistory *MessageList, meta Meta, conversational bool) *Session { //nolint:revive
 	ctx, cancel := context.WithCancel(ctx)
 	ctx = context.WithValue(ctx, ContextKey("userID"), meta.UserID)
 	ctx = context.WithValue(ctx, ContextKey("sessionID"), meta.SessionID)
@@ -58,7 +59,8 @@ func NewSession(ctx context.Context, stepInfoEmitter StepInfoEmitter, llm *LLM, 
 		messageHistory:  messageHistory,
 		stepInfoEmitter: stepInfoEmitter,
 		meta:            meta,
-
+		// TODO: make this configurable, when off, this should just
+		// not send thoughts but response - yes
 		isConversational: true,
 	}
 	go s.run()

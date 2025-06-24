@@ -84,7 +84,7 @@ const DevelopersSection: React.FC<DevelopersSectionProps> = ({
           style: { fontFamily: 'monospace' }
         }}
       />
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1, mt: 2 }}>
         <Button
           startIcon={<DownloadIcon />}
           onClick={handleDownloadYaml}

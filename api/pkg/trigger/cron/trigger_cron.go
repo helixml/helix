@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -14,7 +15,10 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/data"
+	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -242,6 +246,63 @@ func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
 			return
 		}
 
+		triggerInteractionID := system.GenerateUUID()
+		assistantResponseID := system.GenerateUUID()
+
+		// Prepare new session
+		session := &types.Session{
+			ID:             system.GenerateSessionID(),
+			Name:           "Recurring Trigger",
+			Created:        time.Now(),
+			Updated:        time.Now(),
+			Mode:           types.SessionModeInference,
+			Type:           types.SessionTypeText,
+			ParentApp:      app.ID,
+			OrganizationID: app.OrganizationID,
+			Owner:          app.Owner,
+			OwnerType:      app.OwnerType,
+			Metadata: types.SessionMetadata{
+				Stream:       false,
+				SystemPrompt: "",
+				AssistantID:  "",
+				Origin: types.SessionOrigin{
+					Type: types.SessionOriginTypeUserCreated,
+				},
+				HelixVersion: data.GetHelixVersion(),
+			},
+			Interactions: []*types.Interaction{
+				{
+					ID:        triggerInteractionID,
+					Created:   time.Now(),
+					Updated:   time.Now(),
+					Scheduled: time.Now(),
+					Completed: time.Now(),
+					Mode:      types.SessionModeInference,
+					Creator:   types.CreatorTypeUser,
+					State:     types.InteractionStateComplete,
+					Finished:  true,
+					Message:   trigger.Input,
+					Content: types.MessageContent{
+						ContentType: types.MessageContentTypeText,
+						Parts:       []any{trigger.Input},
+					},
+				},
+				{
+					ID:       assistantResponseID,
+					Created:  time.Now(),
+					Updated:  time.Now(),
+					Creator:  types.CreatorTypeAssistant,
+					Mode:     types.SessionModeInference,
+					Message:  "",
+					State:    types.InteractionStateWaiting,
+					Finished: false,
+					Metadata: map[string]string{},
+				},
+			},
+		}
+
+		ctx = oai.SetContextSessionID(ctx, session.ID)
+
 		messages := []openai.ChatCompletionMessage{
 			{
 				Role:    openai.ChatMessageRoleUser,
@@ -249,26 +310,99 @@ func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
 			},
 		}
 
-		resp, _, err := c.controller.ChatCompletion(ctx, &types.User{
-			ID: app.Owner,
-		}, openai.ChatCompletionRequest{
+		request := openai.ChatCompletionRequest{
 			Stream:   false,
 			Messages: messages,
-		},
+		}
+
+		bts, err := json.MarshalIndent(request, "", "  ")
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("app_id", app.ID).
+				Msg("failed to marshal request")
+		}
+
+		ctx := oai.SetContextValues(ctx, &oai.ContextValues{
+			OwnerID:         app.Owner,
+			SessionID:       session.ID,
+			InteractionID:   assistantResponseID,
+			OriginalRequest: bts,
+		})
+
+		ctx = oai.SetContextAppID(ctx, app.ID)
+
+		// Write session to the database
+		err = c.controller.WriteSession(ctx, session)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("app_id", app.ID).
+				Msg("failed to create session")
+			return
+		}
+
+		user, err := c.store.GetUser(ctx, &store.GetUserQuery{
+			ID: app.Owner,
+		})
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("app_id", app.ID).
+				Str("user_id", app.Owner).
+				Msg("failed to get user")
+			return
+		}
+
+		resp, _, err := c.controller.ChatCompletion(ctx, user,
+			request,
 			&controller.ChatCompletionOptions{
-				AppID: app.ID,
+				AppID:          app.ID,
+				Conversational: true,
 			})
 		if err != nil {
 			log.Warn().
 				Err(err).
 				Str("app_id", app.ID).
 				Msg("failed to run app cron job")
+
+			// Update session with error
+			session.Interactions[len(session.Interactions)-1].Error = err.Error()
+			session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
+			session.Interactions[len(session.Interactions)-1].Finished = true
+			session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+			err = c.controller.WriteSession(ctx, session)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("app_id", app.ID).
+					Str("user_id", app.Owner).
+					Str("session_id", session.ID).
+					Msg("failed to update session")
+			}
+
 			return
 		}
 
 		var respContent string
 		if len(resp.Choices) > 0 {
 			respContent = resp.Choices[0].Message.Content
+		}
+
+		// Update session with response
+		session.Interactions[len(session.Interactions)-1].Message = respContent
+		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
+		session.Interactions[len(session.Interactions)-1].Finished = true
+		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+
+		err = c.controller.WriteSession(ctx, session)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("app_id", app.ID).
+				Str("user_id", app.Owner).
+				Str("session_id", session.ID).
+				Msg("failed to update session")
 		}
 
 		log.Info().
@@ -288,7 +422,7 @@ func (c *Cron) listApps(ctx context.Context) ([]*types.App, error) {
 
 	for _, app := range apps {
 		for _, trigger := range app.Config.Helix.Triggers {
-			if trigger.Cron != nil && trigger.Cron.Schedule != "" {
+			if trigger.Cron != nil && trigger.Cron.Schedule != "" && trigger.Cron.Enabled {
 				filteredApps = append(filteredApps, app)
 			}
 		}
@@ -301,7 +435,7 @@ func (c *Cron) getCronAppOptions(app *types.App) []gocron.JobOption {
 	var schedule string
 
 	for _, trigger := range app.Config.Helix.Triggers {
-		if trigger.Cron != nil && trigger.Cron.Schedule != "" {
+		if trigger.Cron != nil && trigger.Cron.Schedule != "" && trigger.Cron.Enabled {
 			schedule = trigger.Cron.Schedule
 			break
 		}
@@ -315,7 +449,7 @@ func (c *Cron) getCronAppOptions(app *types.App) []gocron.JobOption {
 
 func getAppSchedule(app *types.App) (*types.CronTrigger, bool) {
 	for _, trigger := range app.Config.Helix.Triggers {
-		if trigger.Cron != nil && trigger.Cron.Schedule != "" {
+		if trigger.Cron != nil && trigger.Cron.Schedule != "" && trigger.Cron.Enabled {
 			return trigger.Cron, true
 		}
 	}

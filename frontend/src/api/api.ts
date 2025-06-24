@@ -30,6 +30,7 @@ export enum GithubComHelixmlHelixApiPkgTypesToolType {
   ToolTypeGPTScript = "gptscript",
   ToolTypeZapier = "zapier",
   ToolTypeCalculator = "calculator",
+  ToolTypeEmail = "email",
 }
 
 export interface GithubComHelixmlHelixApiPkgTypesUsage {
@@ -473,6 +474,7 @@ export interface TypesAssistantConfig {
    */
   conversation_starters?: string[];
   description?: string;
+  email?: TypesAssistantEmail;
   /**
    * How much to penalize new tokens based on their frequency in the text so far.
    * Increases the model's likelihood to talk about new topics
@@ -536,6 +538,11 @@ export interface TypesAssistantConfig {
    */
   top_p?: number;
   zapier?: TypesAssistantZapier[];
+}
+
+export interface TypesAssistantEmail {
+  enabled?: boolean;
+  template_example?: string;
 }
 
 export interface TypesAssistantGPTScript {
@@ -673,6 +680,7 @@ export enum TypesCreatorType {
 }
 
 export interface TypesCronTrigger {
+  enabled?: boolean;
   input?: string;
   schedule?: string;
 }
@@ -1703,8 +1711,14 @@ export interface TypesToolConfig {
   api?: TypesToolAPIConfig;
   browser?: TypesToolBrowserConfig;
   calculator?: TypesToolCalculatorConfig;
+  email?: TypesToolEmailConfig;
   gptscript?: TypesToolGPTScriptConfig;
   zapier?: TypesToolZapierConfig;
+}
+
+export interface TypesToolEmailConfig {
+  enabled?: boolean;
+  template_example?: string;
 }
 
 export interface TypesToolGPTScriptConfig {

@@ -44,6 +44,7 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
     flatState.description = app.config.helix.description
     flatState.avatar = app.config.helix.avatar
     flatState.image = app.config.helix.image
+    flatState.triggers = app.config.helix.triggers || []
     
     // Extract assistant properties if available
     const assistant = app.config.helix.assistants?.[0]
@@ -81,6 +82,7 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
       flatState.is_actionable_history_length = assistant.is_actionable_history_length
       flatState.browserTool = assistant.browser || undefined
       flatState.calculatorTool = assistant.calculator || undefined
+      flatState.emailTool = assistant.email || undefined
       flatState.tests = assistant.tests || []
     }
   }

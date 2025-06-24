@@ -7,7 +7,8 @@ import {
   Typography,
   Alert,
 } from '@mui/material';
-import { IAppFlatState, IAssistantCalculator } from '../../types';
+import { IAppFlatState } from '../../types';
+import { TypesAssistantCalculator } from '../../api/api';
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
@@ -43,7 +44,7 @@ const CalculatorSkill: React.FC<CalculatorSkillProps> = ({
 }) => {
   const lightTheme = useLightTheme();
   const [error, setError] = useState<string | null>(null);
-  const [calculatorConfig, setCalculatorConfig] = useState<IAssistantCalculator>({
+  const [calculatorConfig, setCalculatorConfig] = useState<TypesAssistantCalculator>({
     enabled: false,
   });
 
