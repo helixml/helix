@@ -3832,6 +3832,9 @@ const docTemplate = `{
         "types.CronTrigger": {
             "type": "object",
             "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
                 "input": {
                     "type": "string"
                 },

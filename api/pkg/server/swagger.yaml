@@ -1048,6 +1048,8 @@ definitions:
     - CreatorTypeTool
   types.CronTrigger:
     properties:
+      enabled:
+        type: boolean
       input:
         type: string
       schedule:

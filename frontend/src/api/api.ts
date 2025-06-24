@@ -680,6 +680,7 @@ export enum TypesCreatorType {
 }
 
 export interface TypesCronTrigger {
+  enabled?: boolean;
   input?: string;
   schedule?: string;
 }
