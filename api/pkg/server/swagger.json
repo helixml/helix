@@ -3969,6 +3969,12 @@
                     "items": {
                         "$ref": "#/definitions/types.DashboardRunner"
                     }
+                },
+                "scheduling_decisions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SchedulingDecision"
+                    }
                 }
             }
         },
@@ -5650,6 +5656,10 @@
                 "error": {
                     "type": "string"
                 },
+                "memory": {
+                    "description": "Memory requirement in bytes",
+                    "type": "integer"
+                },
                 "model_id": {
                     "type": "string"
                 },
@@ -5706,6 +5716,92 @@
                 "RuntimeDiffusers",
                 "RuntimeAxolotl",
                 "RuntimeVLLM"
+            ]
+        },
+        "types.SchedulingDecision": {
+            "type": "object",
+            "properties": {
+                "available_runners": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "created": {
+                    "type": "string"
+                },
+                "decision_type": {
+                    "$ref": "#/definitions/types.SchedulingDecisionType"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "memory_available": {
+                    "type": "integer"
+                },
+                "memory_required": {
+                    "type": "integer"
+                },
+                "mode": {
+                    "$ref": "#/definitions/types.SessionMode"
+                },
+                "model_name": {
+                    "type": "string"
+                },
+                "processing_time_ms": {
+                    "type": "integer"
+                },
+                "queue_position": {
+                    "type": "integer"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "runner_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "slot_id": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "total_slot_count": {
+                    "type": "integer"
+                },
+                "warm_slot_count": {
+                    "type": "integer"
+                },
+                "workload_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SchedulingDecisionType": {
+            "type": "string",
+            "enum": [
+                "queued",
+                "reuse_warm_slot",
+                "create_new_slot",
+                "rejected",
+                "error"
+            ],
+            "x-enum-comments": {
+                "SchedulingDecisionTypeCreateNewSlot": "Started new model instance",
+                "SchedulingDecisionTypeError": "Error during scheduling",
+                "SchedulingDecisionTypeQueued": "Added to queue",
+                "SchedulingDecisionTypeRejected": "Rejected (insufficient resources, etc.)",
+                "SchedulingDecisionTypeReuseWarmSlot": "Reused existing warm model instance"
+            },
+            "x-enum-varnames": [
+                "SchedulingDecisionTypeQueued",
+                "SchedulingDecisionTypeReuseWarmSlot",
+                "SchedulingDecisionTypeCreateNewSlot",
+                "SchedulingDecisionTypeRejected",
+                "SchedulingDecisionTypeError"
             ]
         },
         "types.Secret": {

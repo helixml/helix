@@ -11,6 +11,7 @@ import Cell from '../widgets/Cell'
 import ClickLink from '../widgets/ClickLink'
 import Paper from '@mui/material/Paper'
 import Grid from '@mui/material/Grid'
+import CircularProgress from '@mui/material/CircularProgress'
 
 import {
   IModelInstanceState,
@@ -19,7 +20,7 @@ import {
   SESSION_MODE_INFERENCE
 } from '../../types'
 
-import { TypesRunnerSlot } from '../../api/api'
+import { TypesRunnerSlot, TypesRunnerModelStatus } from '../../api/api'
 
 import {
   getColor,
@@ -32,11 +33,13 @@ import {
 
 export const ModelInstanceSummary: FC<{
   slot: TypesRunnerSlot,
+  models?: TypesRunnerModelStatus[], // Available models with memory info
   onViewSession: {
     (id: string): void,
   }
 }> = ({
   slot,
+  models = [],
   onViewSession,
 }) => {
 
@@ -71,6 +74,14 @@ export const ModelInstanceSummary: FC<{
     // Default fallback color if runtime doesn't match
     return statusColor;
   }, [slot.runtime, statusColor]);
+
+  // Look up memory for this slot's model
+  const modelMemory = useMemo(() => {
+    if (!slot.model || !models.length) return null;
+    
+    const modelData = models.find(m => m.model_id === slot.model);
+    return modelData?.memory || null;
+  }, [slot.model, models]);
 
   // Enhanced gradient border based on status
   const borderGradient = useMemo(() => {
@@ -124,6 +135,24 @@ export const ModelInstanceSummary: FC<{
                 }} 
               />
               { slot.runtime }: { slot.model }
+              {modelMemory && (
+                <Typography 
+                  variant="caption" 
+                  sx={{ 
+                    ml: 2,
+                    color: 'rgba(255, 255, 255, 0.7)',
+                    backgroundColor: 'rgba(114, 201, 154, 0.1)',
+                    border: '1px solid rgba(114, 201, 154, 0.3)',
+                    px: 1,
+                    py: 0.3,
+                    borderRadius: '3px',
+                    fontFamily: 'monospace',
+                    fontSize: '0.7rem'
+                  }}
+                >
+                  {prettyBytes(modelMemory)}
+                </Typography>
+              )}
             </Typography>
           </Grid>
           <Grid item>
@@ -143,23 +172,32 @@ export const ModelInstanceSummary: FC<{
           </Grid>
         </Grid>
         
-        <Typography 
-          variant="caption" 
-          sx={{ 
-            display: 'inline-block', 
-            mt: 1.5,
-            color: slot.active ? statusColor : 'rgba(255, 255, 255, 0.6)',
-            fontWeight: slot.active ? 500 : 400,
-            px: 1.5,
-            py: 0.7,
-            borderRadius: '3px',
-            border: '1px solid',
-            borderColor: slot.active ? `${statusColor}40` : 'transparent',
-            backgroundColor: slot.active ? `${statusColor}10` : 'transparent'
-          }}
-        >
-          { slot.status }
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', mt: 1.5, gap: 1 }}>
+          <Typography 
+            variant="caption" 
+            sx={{ 
+              color: slot.active ? statusColor : 'rgba(255, 255, 255, 0.6)',
+              fontWeight: slot.active ? 500 : 400,
+              px: 1.5,
+              py: 0.7,
+              borderRadius: '3px',
+              border: '1px solid',
+              borderColor: slot.active ? `${statusColor}40` : 'transparent',
+              backgroundColor: slot.active ? `${statusColor}10` : 'transparent'
+            }}
+          >
+            { slot.status }
+          </Typography>
+          {!slot.ready && !slot.active && (
+            <CircularProgress 
+              size={14} 
+              thickness={4}
+              sx={{ 
+                color: '#E28000'
+              }} 
+            />
+          )}
+        </Box>
       </Box>
     </Paper>
   )
