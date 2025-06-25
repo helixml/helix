@@ -200,3 +200,72 @@ func TestSubstituteVLLMArgsPlaceholders(t *testing.T) {
 	require.NotEqual(t, "{{.DynamicMemoryUtilizationRatio}}", substitutedArgs[3])
 	require.Equal(t, substitutedArgs[1], substitutedArgs[3]) // Both should be the same calculated value
 }
+
+func TestVLLMMemoryUtilizationRealWorldScenarios(t *testing.T) {
+	ctrl := &RunnerController{
+		statusCache: NewLockingRunnerMap[types.RunnerStatus](),
+	}
+
+	runnerID := "test-runner"
+
+	scenarios := []struct {
+		name                 string
+		gpuMemoryGB          uint64
+		modelMemoryGB        uint64
+		expectedRatioMin     float64
+		expectedRatioMax     float64
+		expectedSafetyMargin float64
+	}{
+		// Tiny models on large GPUs
+		{"1GB model on 80GB GPU (A100)", 80, 1, 0.05, 0.05, 0.10}, // Should hit minimum
+		{"2GB model on 80GB GPU (A100)", 80, 2, 0.05, 0.05, 0.10}, // Should hit minimum
+		{"4GB model on 80GB GPU (A100)", 80, 4, 0.05, 0.05, 0.10}, // Should hit minimum
+
+		// Small models on large GPUs
+		{"8GB model on 80GB GPU (A100)", 80, 8, 0.08, 0.10, 0.10},
+		{"16GB model on 80GB GPU (A100)", 80, 16, 0.16, 0.20, 0.10},
+
+		// Medium models on medium GPUs
+		{"8GB model on 24GB GPU (RTX 4090)", 24, 8, 0.28, 0.32, 0.10},
+		{"16GB model on 24GB GPU (RTX 4090)", 24, 16, 0.58, 0.62, 0.10},
+
+		// Large models (>70% usage - smaller safety margin)
+		{"20GB model on 24GB GPU (RTX 4090)", 24, 20, 0.78, 0.82, 0.05},
+		{"32GB model on 40GB GPU (A100 40GB)", 40, 32, 0.75, 0.80, 0.05},
+		{"60GB model on 80GB GPU (A100 80GB)", 80, 60, 0.70, 0.75, 0.05},
+
+		// Edge cases
+		{"12GB model on 12GB GPU (RTX 3060)", 12, 12, 0.90, 0.95, 0.05},   // Should use 95% with 5% margin
+		{"16GB model on 12GB GPU (impossible)", 12, 16, 0.95, 0.95, 0.05}, // Should hit maximum
+	}
+
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			// Set up GPU memory
+			ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
+				return types.RunnerStatus{
+					TotalMemory: scenario.gpuMemoryGB * 1024 * 1024 * 1024,
+				}, nil
+			}, CacheConfig{updateInterval: 5 * time.Second}))
+
+			// Calculate ratio
+			ratio := ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, scenario.modelMemoryGB*1024*1024*1024)
+
+			// Verify ratio is in expected range
+			require.GreaterOrEqual(t, ratio, scenario.expectedRatioMin,
+				"Ratio %.3f should be >= %.3f for %s", ratio, scenario.expectedRatioMin, scenario.name)
+			require.LessOrEqual(t, ratio, scenario.expectedRatioMax,
+				"Ratio %.3f should be <= %.3f for %s", ratio, scenario.expectedRatioMax, scenario.name)
+
+			// Calculate what this means in actual memory usage
+			actualMemoryUsageGB := float64(scenario.gpuMemoryGB) * ratio
+
+			t.Logf("%s: %.1f%% utilization = %.1fGB actual usage (%.1fGB model + %.1fGB overhead)",
+				scenario.name,
+				ratio*100,
+				actualMemoryUsageGB,
+				float64(scenario.modelMemoryGB),
+				actualMemoryUsageGB-float64(scenario.modelMemoryGB))
+		})
+	}
+}
