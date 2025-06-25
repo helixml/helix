@@ -1268,6 +1268,97 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/oauth/connections/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a specific OAuth connection by ID. Users can only access their own connections unless they are admin.",
+                "tags": [
+                    "oauth"
+                ],
+                "summary": "Get an OAuth connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.OAuthConnection"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete an OAuth connection. Users can only delete their own connections unless they are admin.",
+                "tags": [
+                    "oauth"
+                ],
+                "summary": "Delete an OAuth connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/oauth/connections/{id}/refresh": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Manually refresh an OAuth connection",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "oauth"
+                ],
+                "summary": "Refresh an OAuth connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.OAuthConnection"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/oauth/providers": {
             "get": {
                 "security": [
@@ -1320,6 +1411,34 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/types.OAuthProvider"
                         }
+                    }
+                }
+            }
+        },
+        "/api/v1/oauth/providers/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete an existing OAuth provider for the user.",
+                "tags": [
+                    "oauth"
+                ],
+                "summary": "Delete an OAuth provider",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
                     }
                 }
             }
@@ -1425,10 +1544,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.Organization"
-                        }
+                        "description": "OK"
                     }
                 }
             }
@@ -3222,7 +3338,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "owner": {
-                    "description": "uuid of owner entity",
+                    "description": "uuid of user ID",
                     "type": "string"
                 },
                 "owner_type": {
@@ -4781,6 +4897,22 @@ const docTemplate = `{
                 },
                 "user_id": {
                     "type": "string"
+                }
+            }
+        },
+        "types.OAuthConnectionTestResult": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "provider_details": {
+                    "description": "Returned from the provider itself",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "success": {
+                    "type": "boolean"
                 }
             }
         },

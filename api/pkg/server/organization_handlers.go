@@ -194,7 +194,7 @@ func (apiServer *HelixAPIServer) seedOrganizationRoles(ctx context.Context, org 
 // @Description Delete an organization, must be an owner of the organization
 // @Tags    organizations
 
-// @Success 200 {object} types.Organization
+// @Success 200
 // @Router /api/v1/organizations/{id} [delete]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) deleteOrganization(rw http.ResponseWriter, r *http.Request) {

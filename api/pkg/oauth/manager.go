@@ -584,7 +584,7 @@ func (m *Manager) TestGitHubConnection(ctx context.Context, connection *types.OA
 	}
 
 	// Return success with repo count
-	return map[string]interface{}{
+	return map[string]any{
 		"success":     true,
 		"repos_count": len(repos),
 		"repos":       repos,

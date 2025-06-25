@@ -37,6 +37,12 @@ import {
   PROVIDER_TYPES,
   BUILT_IN_PROVIDERS
 } from '../icons/ProviderIcons'
+import { 
+  useListOAuthConnections, 
+  useListOAuthProviders, 
+  useDeleteOAuthConnection, 
+  useRefreshOAuthConnection 
+} from '../../services/oauthProvidersService'
 
 interface OAuthProvider {
   id: string
@@ -69,31 +75,34 @@ const OAuthConnections: React.FC<{}> = () => {
   const { error, success } = useSnackbar()
   const api = useApi()
   
+  // React Query hooks
+  const { 
+    data: connectionsData, 
+    isLoading: connectionsLoading, 
+    error: connectionsError 
+  } = useListOAuthConnections()
+  
+  const { 
+    data: providersData, 
+    isLoading: providersLoading, 
+    error: providersError 
+  } = useListOAuthProviders()
+  
+  const deleteConnectionMutation = useDeleteOAuthConnection()
+  const refreshConnectionMutation = useRefreshOAuthConnection()
+  
   const [connections, setConnections] = useState<OAuthConnection[]>([])
   const [providers, setProviders] = useState<OAuthProvider[]>([])
-  const [loading, setLoading] = useState(true)
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false)
   const [connectionToDelete, setConnectionToDelete] = useState<string | null>(null)
   const [connectDialogOpen, setConnectDialogOpen] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState<any>(null)
   
+  // Process data when it changes
   useEffect(() => {
-    loadData()
-  }, [])
-  
-  const loadData = async () => {
-    try {
-      setLoading(true)
-      const [connectionsResponse, providersResponse] = await Promise.all([
-        api.get('/api/v1/oauth/connections'),
-        api.get('/api/v1/oauth/providers')
-      ])
-      
-      console.log('🍅 TOMATO: Raw Providers API response:', JSON.stringify(providersResponse, null, 2))
-      console.log('🍅 TOMATO: Raw Connections API response:', JSON.stringify(connectionsResponse, null, 2))
-      
+    if (connectionsData) {    
       // Convert snake_case to camelCase for connections
-      const formattedConnections = (connectionsResponse || []).map((conn: any) => ({
+      const formattedConnections = (connectionsData || []).map((conn: any) => ({
         id: conn.id,
         createdAt: conn.created_at, // Map from snake_case to camelCase
         updatedAt: conn.updated_at,
@@ -105,19 +114,46 @@ const OAuthConnections: React.FC<{}> = () => {
         profile: conn.profile
       }));
       
-      // Extract data with proper format
       setConnections(formattedConnections)
-      setProviders(providersResponse || [])
-    } catch (err) {
-      error('Failed to load OAuth connections')
-      console.error('Error loading OAuth data:', err)
-      // Ensure we have empty arrays if API calls fail
-      setConnections([])
-      setProviders([])
-    } finally {
-      setLoading(false)
     }
-  }
+  }, [connectionsData])
+  
+  useEffect(() => {
+    if (providersData) {
+      console.log('🍅 TOMATO: Raw Providers API response:', JSON.stringify(providersData, null, 2))
+      
+      // Map TypesOAuthProvider to component's OAuthProvider interface
+      const mappedProviders = (providersData || []).map((provider: any) => ({
+        id: provider.id,
+        name: provider.name,
+        description: provider.description,
+        type: provider.type,
+        version: '1.0', // Default version since it's not in the API response
+        enabled: provider.enabled
+      }));
+      
+      setProviders(mappedProviders)
+    }
+  }, [providersData])
+  
+  // Handle errors
+  useEffect(() => {
+    if (connectionsError) {
+      error('Failed to load OAuth connections')
+      console.error('Error loading OAuth connections:', connectionsError)
+      setConnections([])
+    }
+  }, [connectionsError, error])
+  
+  useEffect(() => {
+    if (providersError) {
+      error('Failed to load OAuth providers')
+      console.error('Error loading OAuth providers:', providersError)
+      setProviders([])
+    }
+  }, [providersError, error])
+  
+  const loading = connectionsLoading || providersLoading
   
   // Helper function to guess the provider type from a provider ID
   const guessProviderType = (providerId: string): string => {
@@ -155,9 +191,10 @@ const OAuthConnections: React.FC<{}> = () => {
     if (!connectionToDelete) return
     
     try {
-      await api.delete(`/api/v1/oauth/connections/${connectionToDelete}`)
+      await deleteConnectionMutation.mutateAsync(connectionToDelete)
       success('Connection removed')
-      loadData()
+      // Reload the connections data
+      // Note: This is handled by the useListOAuthConnections hook
       handleCloseConfirmDialog()
     } catch (err) {
       error('Failed to remove connection')
@@ -167,9 +204,10 @@ const OAuthConnections: React.FC<{}> = () => {
   
   const handleRefreshConnection = async (id: string) => {
     try {
-      await api.post(`/api/v1/oauth/connections/${id}/refresh`, {})
+      await refreshConnectionMutation.mutateAsync(id)
       success('Connection refreshed')
-      loadData()
+      // Reload the connections data
+      // Note: This is handled by the useListOAuthConnections hook
     } catch (err) {
       error('Failed to refresh connection')
       console.error(err)
@@ -281,7 +319,7 @@ const OAuthConnections: React.FC<{}> = () => {
           // Clean up the event listener
           window.removeEventListener('message', handleOAuthMessage);
           // Reload the connections data
-          loadData();
+          // Note: This is handled by the useListOAuthConnections hook
           // Show success message
           success('Successfully connected to provider!');
         }
@@ -529,11 +567,11 @@ const OAuthConnections: React.FC<{}> = () => {
         />
         <CardContent sx={{ flexGrow: 1 }}>
           {connection.createdAt ? (
-            <Typography variant="body2" color="text.secondary" gutterBottom>
+            <Typography variant="body2" fontSize="12px" color="text.secondary" gutterBottom>
               Connected on {formatDate(connection.createdAt)}
             </Typography>
           ) : (
-            <Typography variant="body2" color="text.secondary" gutterBottom>
+            <Typography variant="body2" fontSize="12px" color="text.secondary" gutterBottom>
               Connection date unknown
             </Typography>
           )}
@@ -544,7 +582,7 @@ const OAuthConnections: React.FC<{}> = () => {
           </Typography> */}
           
           {connection.expiresAt && new Date(connection.expiresAt).getFullYear() > 1970 && (
-            <Typography variant="body2" color={expired ? "error" : "text.secondary"}>
+            <Typography variant="body2" fontSize="12px" color={expired ? "error" : "text.secondary"}>
               {expired ? 'Expired on' : 'Expires on'} {formatDate(connection.expiresAt)}
             </Typography>
           )}
@@ -579,7 +617,7 @@ const OAuthConnections: React.FC<{}> = () => {
             <IconButton 
               onClick={() => confirmDeleteConnection(connection.id)} 
               size="small"
-              color="default"
+              color="primary"
             >
               <DeleteIcon />
             </IconButton>
@@ -653,9 +691,9 @@ const OAuthConnections: React.FC<{}> = () => {
         </CardContent>
         <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
           <Button 
-            startIcon={<AddCircleOutlineIcon />}
-            color="primary"
-            variant={(notConfigured || isDisabled) ? "text" : "contained"}
+            startIcon={<AddCircleOutlineIcon sx={{ color: 'secondary.main' }} />}
+            color="secondary"
+            variant={(notConfigured || isDisabled) ? "outlined" : "outlined"}
             size="small"
             disabled={(notConfigured || isDisabled)}
             onClick={(e) => {
@@ -704,8 +742,8 @@ const OAuthConnections: React.FC<{}> = () => {
           {/* Connected Services Section */}
           {connections.length > 0 && (
             <Box sx={{ mb: 6 }}>
-              <Typography variant="h4" sx={{ mb: 2 }}>
-                Your Connected Services
+              <Typography variant="h5" sx={{ mb: 2 }}>
+                Connected
               </Typography>
               
               <Grid container spacing={3}>
@@ -796,18 +834,18 @@ const OAuthConnections: React.FC<{}> = () => {
             </DialogContentText>
           </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseConnectDialog} color="inherit">Cancel</Button>
+        <DialogActions sx={{ justifyContent: 'space-between' }}>
+          <Button onClick={handleCloseConnectDialog} color="primary" size="small">Cancel</Button>
           <Button 
             onClick={() => {
               handleCloseConnectDialog();
               startOAuthFlow(selectedProvider.id);
             }} 
-            color="primary" 
-            variant="contained"
-            startIcon={<AddCircleOutlineIcon />}
+            color="secondary" 
+            variant="outlined"
+            size="small"
           >
-            Connect with {selectedProvider?.name}
+            Connect
           </Button>
         </DialogActions>
       </Dialog>

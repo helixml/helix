@@ -17,20 +17,18 @@ import (
 // setupOAuthRoutes configures the OAuth routes
 func (s *HelixAPIServer) setupOAuthRoutes(r *mux.Router) {
 	// OAuth provider management routes
-	providerRouter := r.PathPrefix("/oauth/providers").Subrouter()
-	providerRouter.HandleFunc("", system.DefaultWrapper(s.handleListOAuthProviders)).Methods("GET")
-	providerRouter.HandleFunc("", system.DefaultWrapper(s.handleCreateOAuthProvider)).Methods("POST")
-	providerRouter.HandleFunc("/{id}", system.DefaultWrapper(s.handleGetOAuthProvider)).Methods("GET")
-	providerRouter.HandleFunc("/{id}", system.DefaultWrapper(s.handleUpdateOAuthProvider)).Methods("PUT")
-	providerRouter.HandleFunc("/{id}", system.DefaultWrapper(s.handleDeleteOAuthProvider)).Methods("DELETE")
+	r.HandleFunc("/oauth/providers", system.DefaultWrapper(s.handleListOAuthProviders)).Methods("GET")
+	r.HandleFunc("/oauth/providers", system.DefaultWrapper(s.handleCreateOAuthProvider)).Methods("POST")
+	r.HandleFunc("/oauth/providers/{id}", system.DefaultWrapper(s.handleGetOAuthProvider)).Methods("GET")
+	r.HandleFunc("/oauth/providers/{id}", system.DefaultWrapper(s.handleUpdateOAuthProvider)).Methods("PUT")
+	r.HandleFunc("/oauth/providers/{id}", system.DefaultWrapper(s.handleDeleteOAuthProvider)).Methods("DELETE")
 
 	// OAuth connection management routes
-	connectionRouter := r.PathPrefix("/oauth/connections").Subrouter()
-	connectionRouter.HandleFunc("", system.DefaultWrapper(s.handleListOAuthConnections)).Methods("GET")
-	connectionRouter.HandleFunc("/{id}", system.DefaultWrapper(s.handleGetOAuthConnection)).Methods("GET")
-	connectionRouter.HandleFunc("/{id}", system.DefaultWrapper(s.handleDeleteOAuthConnection)).Methods("DELETE")
-	connectionRouter.HandleFunc("/{id}/refresh", system.DefaultWrapper(s.handleRefreshOAuthConnection)).Methods("POST")
-	connectionRouter.HandleFunc("/{id}/test", system.DefaultWrapper(s.handleTestOAuthConnection)).Methods("GET")
+	r.HandleFunc("/oauth/connections", system.DefaultWrapper(s.handleListOAuthConnections)).Methods("GET")
+	r.HandleFunc("/oauth/connections/{id}", system.DefaultWrapper(s.handleGetOAuthConnection)).Methods("GET")
+	r.HandleFunc("/oauth/connections/{id}", system.DefaultWrapper(s.handleDeleteOAuthConnection)).Methods("DELETE")
+	r.HandleFunc("/oauth/connections/{id}/refresh", system.DefaultWrapper(s.handleRefreshOAuthConnection)).Methods("POST")
+	r.HandleFunc("/oauth/connections/{id}/test", system.DefaultWrapper(s.handleTestOAuthConnection)).Methods("GET")
 
 	// OAuth flow routes (except callback which is registered in insecureRouter)
 	flowRouter := r.PathPrefix("/oauth/flow").Subrouter()
@@ -237,6 +235,13 @@ func (s *HelixAPIServer) handleGetOAuthProvider(_ http.ResponseWriter, r *http.R
 }
 
 // handleUpdateOAuthProvider updates an existing OAuth provider
+// updateOAuthProvider godoc
+// @Summary Update an OAuth provider
+// @Description Update an existing OAuth provider for the user.
+// @Tags    oauth
+// @Param   id path     string  true  "Provider ID"
+// @Param   request body types.OAuthProvider true "Request body with OAuth provider configuration."
+// @Success 200 {object} types.OAuthProvider
 func (s *HelixAPIServer) handleUpdateOAuthProvider(_ http.ResponseWriter, r *http.Request) (*types.OAuthProvider, error) {
 	user := getRequestUser(r)
 
@@ -281,6 +286,14 @@ func (s *HelixAPIServer) handleUpdateOAuthProvider(_ http.ResponseWriter, r *htt
 }
 
 // handleDeleteOAuthProvider deletes an OAuth provider
+// deleteOAuthProvider godoc
+// @Summary Delete an OAuth provider
+// @Description Delete an existing OAuth provider for the user.
+// @Tags    oauth
+// @Param   id path     string  true  "Provider ID"
+// @Success 200
+// @Router /api/v1/oauth/providers/{id} [delete]
+// @Security BearerAuth
 func (s *HelixAPIServer) handleDeleteOAuthProvider(_ http.ResponseWriter, r *http.Request) (interface{}, error) {
 	user := getRequestUser(r)
 
@@ -303,6 +316,14 @@ func (s *HelixAPIServer) handleDeleteOAuthProvider(_ http.ResponseWriter, r *htt
 }
 
 // handleGetOAuthConnection returns a specific OAuth connection
+// getOAuthConnection godoc
+// @Summary Get an OAuth connection
+// @Description Get a specific OAuth connection by ID. Users can only access their own connections unless they are admin.
+// @Tags    oauth
+// @Param   id path     string  true  "Connection ID"
+// @Success 200 {object} types.OAuthConnection
+// @Router /api/v1/oauth/connections/{id} [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) handleGetOAuthConnection(_ http.ResponseWriter, r *http.Request) (*types.OAuthConnection, error) {
 	user := getRequestUser(r)
 
@@ -331,6 +352,14 @@ func (s *HelixAPIServer) handleGetOAuthConnection(_ http.ResponseWriter, r *http
 }
 
 // handleDeleteOAuthConnection deletes an OAuth connection
+// deleteOAuthConnection godoc
+// @Summary Delete an OAuth connection
+// @Description Delete an OAuth connection. Users can only delete their own connections unless they are admin.
+// @Tags    oauth
+// @Param   id path     string  true  "Connection ID"
+// @Success 200
+// @Router /api/v1/oauth/connections/{id} [delete]
+// @Security BearerAuth
 func (s *HelixAPIServer) handleDeleteOAuthConnection(_ http.ResponseWriter, r *http.Request) (interface{}, error) {
 	user := getRequestUser(r)
 
@@ -358,7 +387,14 @@ func (s *HelixAPIServer) handleDeleteOAuthConnection(_ http.ResponseWriter, r *h
 	return nil, nil
 }
 
-// handleRefreshOAuthConnection manually refreshes an OAuth connection
+// @Summary Refresh an OAuth connection
+// @Description Manually refresh an OAuth connection
+// @Tags    oauth
+// @Produce json
+// @Param   id path     string  true  "Connection ID"
+// @Success 200 {object} types.OAuthConnection
+// @Router /api/v1/oauth/connections/{id}/refresh [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) handleRefreshOAuthConnection(_ http.ResponseWriter, r *http.Request) (*types.OAuthConnection, error) {
 	user := getRequestUser(r)
 
@@ -405,6 +441,8 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 	state := r.URL.Query().Get("state")
 	errorMsg := r.URL.Query().Get("error")
 
+	log.Error().Str("code", code).Str("state", state).Str("error", errorMsg).Msg("OAuth callback failed")
+
 	// Check for errors
 	if errorMsg != "" {
 		// Create a user-friendly error page based on the error type
@@ -437,7 +475,7 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 					type: 'oauth-failure', 
 					error: '%s'
 				}, '*');
-				setTimeout(() => window.close(), 5000);
+				// setTimeout(() => window.close(), 5000);
 			</script>
 		</body></html>`, errorTitle, errorColor, errorColor, errorTitle, errorMessage, errorMessage)
 
@@ -469,6 +507,13 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 	// Complete the OAuth flow
 	connection, err := s.oauthManager.CompleteOAuthFlow(r.Context(), requestToken.UserID, requestToken.ProviderID, code)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("provider_id", requestToken.ProviderID).
+			Str("user_id", requestToken.UserID).
+			Str("code", code).
+			Str("state", state).
+			Msg("OAuth callback failed")
 		// Create a user-friendly error page based on the error type
 		errorTitle := "Authentication Error"
 		errorMessage := fmt.Sprintf("%v", err)
@@ -499,7 +544,7 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 					type: 'oauth-failure', 
 					error: '%s'
 				}, '*');
-				setTimeout(() => window.close(), 5000);
+				// setTimeout(() => window.close(), 5000);
 			</script>
 		</body></html>`, errorTitle, errorColor, errorColor, errorTitle, errorMessage, errorMessage)
 
@@ -555,7 +600,14 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 }
 
 // handleTestOAuthConnection tests an OAuth connection by making an API call to the provider
-func (s *HelixAPIServer) handleTestOAuthConnection(_ http.ResponseWriter, r *http.Request) (map[string]interface{}, error) {
+// testOAuthConnection godoc
+// @Summary Test an OAuth connection
+// @Description Test an OAuth connection by making an API call to the provider
+// @Tags    oauth
+// @Produce json
+// @Param   id path     string  true  "Connection ID"
+// @Success 200 {object} types.OAuthConnectionTestResult
+func (s *HelixAPIServer) handleTestOAuthConnection(_ http.ResponseWriter, r *http.Request) (*types.OAuthConnectionTestResult, error) {
 	ctx := r.Context()
 
 	// Get the connection ID from the URL
@@ -592,23 +644,23 @@ func (s *HelixAPIServer) handleTestOAuthConnection(_ http.ResponseWriter, r *htt
 	connectionWithProvider := *connection
 	connectionWithProvider.Provider = *provider
 
-	// Depending on the provider type, test the connection
-	var result map[string]interface{}
-
-	if provider.Type == types.OAuthProviderTypeGitHub {
+	switch provider.Type {
+	case types.OAuthProviderTypeGitHub:
 		// Test GitHub connection
-		result, err = s.oauthManager.TestGitHubConnection(ctx, &connectionWithProvider)
+		result, err := s.oauthManager.TestGitHubConnection(ctx, &connectionWithProvider)
 		if err != nil {
 			return nil, fmt.Errorf("failed to test GitHub connection: %w", err)
 		}
-	} else {
+		return &types.OAuthConnectionTestResult{
+			Success:         true,
+			Message:         "Connection is valid",
+			ProviderDetails: result,
+		}, nil
+	default:
 		// For other providers, return a generic success response
-		result = map[string]interface{}{
-			"success": true,
-			"message": "Connection is valid but testing is not implemented for this provider type",
-		}
+		return &types.OAuthConnectionTestResult{
+			Success: true,
+			Message: "Connection is valid but testing is not implemented for this provider type",
+		}, nil
 	}
-
-	// Return the result
-	return result, nil
 }
