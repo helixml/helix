@@ -76,6 +76,13 @@ type OAuthConnection struct {
 	Metadata          string         `json:"metadata" gorm:"type:text"`
 }
 
+type OAuthConnectionTestResult struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+
+	ProviderDetails map[string]any `json:"provider_details"` // Returned from the provider itself
+}
+
 // OAuthRequestToken temporarily stores OAuth state parameters during authorization code flow
 type OAuthRequestToken struct {
 	ID          string    `json:"id" gorm:"primaryKey;type:uuid"`

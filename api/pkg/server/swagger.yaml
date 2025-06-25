@@ -606,7 +606,7 @@ definitions:
       organization_id:
         type: string
       owner:
-        description: uuid of owner entity
+        description: uuid of user ID
         type: string
       owner_type:
         allOf:
@@ -1713,6 +1713,17 @@ definitions:
         type: string
       user_id:
         type: string
+    type: object
+  types.OAuthConnectionTestResult:
+    properties:
+      message:
+        type: string
+      provider_details:
+        additionalProperties: {}
+        description: Returned from the provider itself
+        type: object
+      success:
+        type: boolean
     type: object
   types.OAuthProvider:
     properties:
@@ -3793,6 +3804,27 @@ paths:
       summary: List OAuth connections
       tags:
       - oauth
+  /api/v1/oauth/connections/{id}/refresh:
+    post:
+      description: Manually refresh an OAuth connection
+      parameters:
+      - description: Connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.OAuthConnection'
+      security:
+      - BearerAuth: []
+      summary: Refresh an OAuth connection
+      tags:
+      - oauth
   /api/v1/oauth/providers:
     get:
       description: List OAuth providers for the user.
@@ -3825,6 +3857,23 @@ paths:
       security:
       - BearerAuth: []
       summary: Create a new OAuth provider
+      tags:
+      - oauth
+  /api/v1/oauth/providers/{id}:
+    delete:
+      description: Delete an existing OAuth provider for the user.
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
+      summary: Delete an OAuth provider
       tags:
       - oauth
   /api/v1/organizations:
@@ -3862,8 +3911,6 @@ paths:
       responses:
         "200":
           description: OK
-          schema:
-            $ref: '#/definitions/types.Organization'
       security:
       - BearerAuth: []
     get:
