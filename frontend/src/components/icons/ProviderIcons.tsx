@@ -175,7 +175,7 @@ export const PROVIDER_DEFAULTS: Record<string, {
     auth_url: 'https://accounts.google.com/o/oauth2/v2/auth',
     token_url: 'https://oauth2.googleapis.com/token',
     user_info_url: 'https://www.googleapis.com/oauth2/v3/userinfo',
-    scopes: ['email', 'profile']
+    scopes: ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email']
   },
   microsoft: {
     auth_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
