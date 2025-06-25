@@ -403,7 +403,7 @@ export interface TypesApp {
   global?: boolean;
   id?: string;
   organization_id?: string;
-  /** uuid of owner entity */
+  /** uuid of user ID */
   owner?: string;
   /** e.g. user, system, org */
   owner_type?: TypesOwnerType;
@@ -1076,6 +1076,13 @@ export interface TypesOAuthConnection {
   scopes?: string[];
   updated_at?: string;
   user_id?: string;
+}
+
+export interface TypesOAuthConnectionTestResult {
+  message?: string;
+  /** Returned from the provider itself */
+  provider_details?: Record<string, any>;
+  success?: boolean;
 }
 
 export interface TypesOAuthProvider {
@@ -2708,6 +2715,58 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Delete an OAuth connection. Users can only delete their own connections unless they are admin.
+     *
+     * @tags oauth
+     * @name V1OauthConnectionsDelete
+     * @summary Delete an OAuth connection
+     * @request DELETE:/api/v1/oauth/connections/{id}
+     * @secure
+     */
+    v1OauthConnectionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/oauth/connections/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get a specific OAuth connection by ID. Users can only access their own connections unless they are admin.
+     *
+     * @tags oauth
+     * @name V1OauthConnectionsDetail
+     * @summary Get an OAuth connection
+     * @request GET:/api/v1/oauth/connections/{id}
+     * @secure
+     */
+    v1OauthConnectionsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesOAuthConnection, any>({
+        path: `/api/v1/oauth/connections/${id}`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Manually refresh an OAuth connection
+     *
+     * @tags oauth
+     * @name V1OauthConnectionsRefreshCreate
+     * @summary Refresh an OAuth connection
+     * @request POST:/api/v1/oauth/connections/{id}/refresh
+     * @secure
+     */
+    v1OauthConnectionsRefreshCreate: (id: string, params: RequestParams = {}) =>
+      this.request<TypesOAuthConnection, any>({
+        path: `/api/v1/oauth/connections/${id}/refresh`,
+        method: "POST",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List OAuth providers for the user.
      *
      * @tags oauth
@@ -2740,6 +2799,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Delete an existing OAuth provider for the user.
+     *
+     * @tags oauth
+     * @name V1OauthProvidersDelete
+     * @summary Delete an OAuth provider
+     * @request DELETE:/api/v1/oauth/providers/{id}
+     * @secure
+     */
+    v1OauthProvidersDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/oauth/providers/${id}`,
+        method: "DELETE",
+        secure: true,
         ...params,
       }),
 
@@ -2784,7 +2860,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1OrganizationsDelete: (id: string, params: RequestParams = {}) =>
-      this.request<TypesOrganization, any>({
+      this.request<void, any>({
         path: `/api/v1/organizations/${id}`,
         method: "DELETE",
         secure: true,
