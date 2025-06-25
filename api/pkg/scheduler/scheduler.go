@@ -23,7 +23,7 @@ const (
 	runnerReconcileInterval   = 1 * time.Second // Reduced from 5s for more responsive dashboard updates
 	activityReconcileInterval = 100 * time.Millisecond
 	queueReconcileInterval    = 100 * time.Millisecond
-	prewarmReconcileInterval  = 1 * time.Second // Reduced from 5s for more responsive dashboard updates
+	prewarmReconcileInterval  = 5 * time.Second // Keep at 5s to avoid test flakiness, prewarming doesn't need to be as responsive
 )
 
 // TimeoutFunc defines a function type that determines if a runner has timed out based on the last activity.
@@ -1327,7 +1327,7 @@ func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types
 	// Count warm slots for this workload
 	warmSlots := s.warmSlots(workload)
 	totalSlots := 0
-	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+	s.slots.Range(func(_ uuid.UUID, _ *Slot) bool {
 		totalSlots++
 		return true
 	})
