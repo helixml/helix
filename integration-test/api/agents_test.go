@@ -3,7 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
-	"strings"
+	"strconv"
 	"testing"
 
 	"github.com/google/uuid"
@@ -198,7 +198,7 @@ func (suite *AgentTestSuite) TestAgent_CurrencyExchange() {
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role:    "user",
-				Content: "How many GBP is one euro?",
+				Content: "How many GBP is one euro? You must return only the rate (number), no other text.",
 			},
 		},
 	})
@@ -215,16 +215,17 @@ func (suite *AgentTestSuite) TestAgent_CurrencyExchange() {
 	suite.Require().Less(rate, 10.0)
 
 	// Now check for this rate in our LLM response
-	// Convert rate to string with reduced precision for more flexible matching
-	rateStr := fmt.Sprintf("%.4f", rate)
-	// Also check for the original precision in case the LLM returns more decimal places
-	rateStrPrecise := fmt.Sprintf("%.5f", rate)
 
 	// Check if either the 4-decimal or 5-decimal precision rate is in the response
 	responseContent := resp.Choices[0].Message.Content
-	if !strings.Contains(responseContent, rateStr) && !strings.Contains(responseContent, rateStrPrecise) {
-		suite.Require().Fail("expected rate to be in the response", "expected either %s or %s in response: %s", rateStr, rateStrPrecise, responseContent)
-	}
+
+	// Convert to float
+	rateFloat, err := strconv.ParseFloat(responseContent, 64)
+	suite.Require().NoError(err)
+	suite.Require().Equal(rate, rateFloat)
+
+	// Compare the rate with the response, not too strict, but close
+	suite.Require().InDelta(rate, rateFloat, 0.00001)
 
 }
 
