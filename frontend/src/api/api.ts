@@ -688,6 +688,7 @@ export interface TypesCronTrigger {
 export interface TypesDashboardData {
   queue?: TypesWorkloadSummary[];
   runners?: TypesDashboardRunner[];
+  scheduling_decisions?: TypesSchedulingDecision[];
 }
 
 export interface TypesDashboardRunner {
@@ -1375,6 +1376,8 @@ export interface TypesRunnerModelStatus {
   download_in_progress?: boolean;
   download_percent?: number;
   error?: string;
+  /** Memory requirement in bytes */
+  memory?: number;
   model_id?: string;
   runtime?: TypesRuntime;
 }
@@ -1398,6 +1401,35 @@ export enum TypesRuntime {
   RuntimeDiffusers = "diffusers",
   RuntimeAxolotl = "axolotl",
   RuntimeVLLM = "vllm",
+}
+
+export interface TypesSchedulingDecision {
+  available_runners?: string[];
+  created?: string;
+  decision_type?: TypesSchedulingDecisionType;
+  id?: string;
+  memory_available?: number;
+  memory_required?: number;
+  mode?: TypesSessionMode;
+  model_name?: string;
+  processing_time_ms?: number;
+  queue_position?: number;
+  reason?: string;
+  runner_id?: string;
+  session_id?: string;
+  slot_id?: string;
+  success?: boolean;
+  total_slot_count?: number;
+  warm_slot_count?: number;
+  workload_id?: string;
+}
+
+export enum TypesSchedulingDecisionType {
+  SchedulingDecisionTypeQueued = "queued",
+  SchedulingDecisionTypeReuseWarmSlot = "reuse_warm_slot",
+  SchedulingDecisionTypeCreateNewSlot = "create_new_slot",
+  SchedulingDecisionTypeRejected = "rejected",
+  SchedulingDecisionTypeError = "error",
 }
 
 export interface TypesSecret {

@@ -36,6 +36,11 @@ import {
   StreamingContextProvider,
 } from './streaming'
 
+// Import the FloatingRunnerStateProvider
+import {
+  FloatingRunnerStateProvider,
+} from './floatingRunnerState'
+
 const AllContextProvider = ({ children }: { children: ReactNode }) => {
   return (
     <RouterContextProvider>
@@ -46,7 +51,9 @@ const AllContextProvider = ({ children }: { children: ReactNode }) => {
               <SessionsContextProvider>
                 <AppsContextProvider>
                   <StreamingContextProvider>
-                    {children}
+                    <FloatingRunnerStateProvider>
+                      {children}
+                    </FloatingRunnerStateProvider>
                   </StreamingContextProvider>
                 </AppsContextProvider>
               </SessionsContextProvider>

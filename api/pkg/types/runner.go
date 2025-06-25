@@ -47,6 +47,7 @@ type RunnerModelStatus struct {
 	DownloadInProgress bool    `json:"download_in_progress"`
 	DownloadPercent    int     `json:"download_percent"`
 	Error              string  `json:"error"`
+	Memory             uint64  `json:"memory"` // Memory requirement in bytes
 }
 
 type Runtime string

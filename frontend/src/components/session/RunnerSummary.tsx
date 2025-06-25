@@ -11,6 +11,7 @@ import Divider from '@mui/material/Divider'
 import Chip from '@mui/material/Chip'
 import Grid from '@mui/material/Grid'
 import Tooltip from '@mui/material/Tooltip'
+import CircularProgress from '@mui/material/CircularProgress'
 
 import {
   TypesDashboardRunner
@@ -281,46 +282,65 @@ export const RunnerSummary: FC<{
                 display: 'block'
               }}
             >
-              Ollama models:
+              Available models:
             </Typography>
             <Grid container spacing={1} sx={{ px: 1, py: 0.5 }}>
               {runner.models.map(modelStatus => (
                 <Grid item key={modelStatus.model_id}>
-                  <Tooltip title={modelStatus.error || ''} disableHoverListener={!modelStatus.error}>
-                    <Chip 
-                      size="small"
-                      label={
-                        modelStatus.error 
-                          ? `${modelStatus.model_id} (Error)`
-                          : modelStatus.download_in_progress 
-                            ? `${modelStatus.model_id} (Downloading: ${modelStatus.download_percent}%)` 
-                            : modelStatus.model_id
-                      }
-                      sx={{ 
-                        borderRadius: '3px',
-                        backgroundColor: modelStatus.error
-                          ? 'rgba(255, 0, 0, 0.15)' // Red tint for error
-                          : modelStatus.download_in_progress 
-                            ? 'rgba(255, 165, 0, 0.15)' // Orange tint for downloading
-                            : 'rgba(0, 200, 255, 0.08)',
-                        border: '1px solid',
-                        borderColor: modelStatus.error
-                          ? 'rgba(255, 0, 0, 0.3)' // Red border for error
-                          : modelStatus.download_in_progress
-                            ? 'rgba(255, 165, 0, 0.3)' // Orange border for downloading
-                            : 'rgba(0, 200, 255, 0.2)',
-                        color: modelStatus.error
-                          ? 'rgba(255, 0, 0, 0.9)' // Brighter red text for error
-                          : modelStatus.download_in_progress
-                            ? 'rgba(255, 165, 0, 0.9)' // Brighter orange text for downloading
-                            : 'rgba(255, 255, 255, 0.85)',
-                        '& .MuiChip-label': {
-                          fontSize: '0.7rem',
-                          px: 1.2,
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Tooltip title={modelStatus.error || `Runtime: ${modelStatus.runtime || 'unknown'}`} disableHoverListener={!modelStatus.error && !modelStatus.runtime}>
+                      <Chip 
+                        size="small"
+                        label={
+                          modelStatus.error 
+                            ? `${modelStatus.model_id} (Error)`
+                            : modelStatus.download_in_progress 
+                              ? `${modelStatus.model_id} (Downloading: ${modelStatus.download_percent}%)` 
+                              : `${modelStatus.model_id}${modelStatus.memory ? ` (${prettyBytes(modelStatus.memory)})` : ''}`
                         }
-                      }}
-                    />
-                  </Tooltip>
+                        sx={{ 
+                          borderRadius: '3px',
+                          backgroundColor: modelStatus.error
+                            ? 'rgba(255, 0, 0, 0.15)' // Red tint for error
+                            : modelStatus.download_in_progress 
+                              ? 'rgba(255, 165, 0, 0.15)' // Orange tint for downloading
+                              : modelStatus.runtime === 'vllm'
+                                ? 'rgba(147, 51, 234, 0.08)' // Purple tint for VLLM
+                                : modelStatus.runtime === 'ollama'
+                                  ? 'rgba(0, 200, 255, 0.08)' // Blue tint for Ollama
+                                  : 'rgba(34, 197, 94, 0.08)', // Green tint for other runtimes
+                          border: '1px solid',
+                          borderColor: modelStatus.error
+                            ? 'rgba(255, 0, 0, 0.3)' // Red border for error
+                            : modelStatus.download_in_progress
+                              ? 'rgba(255, 165, 0, 0.3)' // Orange border for downloading
+                              : modelStatus.runtime === 'vllm'
+                                ? 'rgba(147, 51, 234, 0.2)' // Purple border for VLLM
+                                : modelStatus.runtime === 'ollama'
+                                  ? 'rgba(0, 200, 255, 0.2)' // Blue border for Ollama
+                                  : 'rgba(34, 197, 94, 0.2)', // Green border for other runtimes
+                          color: modelStatus.error
+                            ? 'rgba(255, 0, 0, 0.9)' // Brighter red text for error
+                            : modelStatus.download_in_progress
+                              ? 'rgba(255, 165, 0, 0.9)' // Brighter orange text for downloading
+                              : 'rgba(255, 255, 255, 0.85)',
+                          '& .MuiChip-label': {
+                            fontSize: '0.7rem',
+                            px: 1.2,
+                          }
+                        }}
+                      />
+                    </Tooltip>
+                    {modelStatus.download_in_progress && (
+                      <CircularProgress 
+                        size={12} 
+                        thickness={4}
+                        sx={{ 
+                          color: 'rgba(255, 165, 0, 0.9)'
+                        }} 
+                      />
+                    )}
+                  </Box>
                 </Grid>
               ))}
             </Grid>
@@ -348,6 +368,7 @@ export const RunnerSummary: FC<{
               <ModelInstanceSummary
                 key={slot?.id}
                 slot={slot}
+                models={runner.models}
                 onViewSession={onViewSession}
               />
             ))

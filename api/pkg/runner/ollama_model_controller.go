@@ -62,6 +62,12 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 
 	models := r.server.listHelixModels()
 
+	// Create a map of model ID to memory for quick lookup
+	modelMemoryMap := make(map[string]uint64)
+	for _, model := range models {
+		modelMemoryMap[model.ID] = model.Memory
+	}
+
 	var ollamaModels []*types.Model
 
 	// Filter ollama models
@@ -105,11 +111,13 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 	for _, currentModel := range currentModels {
 		// Already exists, set the status to downloaded
 		log.Debug().Str("model_id", currentModel).Msg("existing model found")
+		memory := modelMemoryMap[currentModel]
 		r.server.setHelixModelsStatus(&types.RunnerModelStatus{
 			ModelID:            currentModel,
 			Runtime:            types.RuntimeOllama,
 			DownloadInProgress: false,
 			DownloadPercent:    100,
+			Memory:             memory,
 		})
 	}
 
@@ -125,6 +133,7 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 			Runtime:            types.RuntimeOllama,
 			DownloadInProgress: true,
 			DownloadPercent:    0,
+			Memory:             model.Memory,
 		})
 
 		err = runtime.PullModel(ctx, model.ID, func(progress PullProgress) error {
@@ -140,6 +149,7 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 				Runtime:            types.RuntimeOllama,
 				DownloadInProgress: true,
 				DownloadPercent:    getPercent(progress.Completed, progress.Total),
+				Memory:             model.Memory,
 			})
 
 			return nil
@@ -152,6 +162,7 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 				DownloadInProgress: false,
 				DownloadPercent:    100,
 				Error:              err.Error(),
+				Memory:             model.Memory,
 			})
 			// Continue to the next model
 			continue
@@ -162,6 +173,7 @@ func (r *Runner) reconcileOllamaHelixModels(ctx context.Context, runtime Runtime
 			Runtime:            types.RuntimeOllama,
 			DownloadInProgress: false,
 			DownloadPercent:    100,
+			Memory:             model.Memory,
 		})
 	}
 
