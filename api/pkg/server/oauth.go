@@ -441,6 +441,8 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 	state := r.URL.Query().Get("state")
 	errorMsg := r.URL.Query().Get("error")
 
+	log.Error().Str("code", code).Str("state", state).Str("error", errorMsg).Msg("OAuth callback failed")
+
 	// Check for errors
 	if errorMsg != "" {
 		// Create a user-friendly error page based on the error type
@@ -473,7 +475,7 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 					type: 'oauth-failure', 
 					error: '%s'
 				}, '*');
-				setTimeout(() => window.close(), 5000);
+				// setTimeout(() => window.close(), 5000);
 			</script>
 		</body></html>`, errorTitle, errorColor, errorColor, errorTitle, errorMessage, errorMessage)
 
@@ -505,6 +507,13 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 	// Complete the OAuth flow
 	connection, err := s.oauthManager.CompleteOAuthFlow(r.Context(), requestToken.UserID, requestToken.ProviderID, code)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("provider_id", requestToken.ProviderID).
+			Str("user_id", requestToken.UserID).
+			Str("code", code).
+			Str("state", state).
+			Msg("OAuth callback failed")
 		// Create a user-friendly error page based on the error type
 		errorTitle := "Authentication Error"
 		errorMessage := fmt.Sprintf("%v", err)
@@ -535,7 +544,7 @@ func (s *HelixAPIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Requ
 					type: 'oauth-failure', 
 					error: '%s'
 				}, '*');
-				setTimeout(() => window.close(), 5000);
+				// setTimeout(() => window.close(), 5000);
 			</script>
 		</body></html>`, errorTitle, errorColor, errorColor, errorTitle, errorMessage, errorMessage)
 
