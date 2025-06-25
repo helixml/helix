@@ -424,7 +424,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 		{
 			ID:            "Qwen/Qwen2.5-VL-7B-Instruct",
 			Name:          "Qwen 2.5 VL 7B",
-			Memory:        GB * 32,
+			Memory:        GB * 39,
 			ContextLength: 32768,
 			Description:   "Multi-modal vision-language model, from Alibaba",
 			Args: []string{
