@@ -567,11 +567,11 @@ const OAuthConnections: React.FC<{}> = () => {
         />
         <CardContent sx={{ flexGrow: 1 }}>
           {connection.createdAt ? (
-            <Typography variant="body2" color="text.secondary" gutterBottom>
+            <Typography variant="body2" fontSize="12px" color="text.secondary" gutterBottom>
               Connected on {formatDate(connection.createdAt)}
             </Typography>
           ) : (
-            <Typography variant="body2" color="text.secondary" gutterBottom>
+            <Typography variant="body2" fontSize="12px" color="text.secondary" gutterBottom>
               Connection date unknown
             </Typography>
           )}
@@ -582,7 +582,7 @@ const OAuthConnections: React.FC<{}> = () => {
           </Typography> */}
           
           {connection.expiresAt && new Date(connection.expiresAt).getFullYear() > 1970 && (
-            <Typography variant="body2" color={expired ? "error" : "text.secondary"}>
+            <Typography variant="body2" fontSize="12px" color={expired ? "error" : "text.secondary"}>
               {expired ? 'Expired on' : 'Expires on'} {formatDate(connection.expiresAt)}
             </Typography>
           )}
@@ -617,7 +617,7 @@ const OAuthConnections: React.FC<{}> = () => {
             <IconButton 
               onClick={() => confirmDeleteConnection(connection.id)} 
               size="small"
-              color="default"
+              color="primary"
             >
               <DeleteIcon />
             </IconButton>
@@ -691,9 +691,9 @@ const OAuthConnections: React.FC<{}> = () => {
         </CardContent>
         <CardActions sx={{ justifyContent: 'center', pb: 2 }}>
           <Button 
-            startIcon={<AddCircleOutlineIcon />}
-            color="primary"
-            variant={(notConfigured || isDisabled) ? "text" : "contained"}
+            startIcon={<AddCircleOutlineIcon sx={{ color: 'secondary.main' }} />}
+            color="secondary"
+            variant={(notConfigured || isDisabled) ? "outlined" : "outlined"}
             size="small"
             disabled={(notConfigured || isDisabled)}
             onClick={(e) => {
@@ -742,8 +742,8 @@ const OAuthConnections: React.FC<{}> = () => {
           {/* Connected Services Section */}
           {connections.length > 0 && (
             <Box sx={{ mb: 6 }}>
-              <Typography variant="h4" sx={{ mb: 2 }}>
-                Your Connected Services
+              <Typography variant="h5" sx={{ mb: 2 }}>
+                Connected
               </Typography>
               
               <Grid container spacing={3}>
@@ -834,18 +834,18 @@ const OAuthConnections: React.FC<{}> = () => {
             </DialogContentText>
           </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseConnectDialog} color="inherit">Cancel</Button>
+        <DialogActions sx={{ justifyContent: 'space-between' }}>
+          <Button onClick={handleCloseConnectDialog} color="primary" size="small">Cancel</Button>
           <Button 
             onClick={() => {
               handleCloseConnectDialog();
               startOAuthFlow(selectedProvider.id);
             }} 
-            color="primary" 
-            variant="contained"
-            startIcon={<AddCircleOutlineIcon />}
+            color="secondary" 
+            variant="outlined"
+            size="small"
           >
-            Connect with {selectedProvider?.name}
+            Connect
           </Button>
         </DialogActions>
       </Dialog>
