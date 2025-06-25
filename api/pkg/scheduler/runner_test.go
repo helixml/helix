@@ -73,3 +73,199 @@ func TestSendNoRunner(t *testing.T) {
 	}, 1*time.Second)
 	require.Error(t, err)
 }
+
+func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
+	ctrl := &RunnerController{
+		statusCache: NewLockingRunnerMap[types.RunnerStatus](),
+	}
+
+	runnerID := "test-runner"
+
+	// Test case 1: Small model on large GPU (should use calculated ratio, not minimum)
+	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			TotalMemory: 80 * 1024 * 1024 * 1024, // 80GB GPU
+		}, nil
+	}, CacheConfig{updateInterval: 5 * time.Second}))
+	ratio := ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 8*1024*1024*1024) // 8GB model
+	require.Greater(t, ratio, 0.05)                                               // Should be above minimum
+	require.Less(t, ratio, 0.15)                                                  // Should be around 9% with 10% safety margin
+	require.InDelta(t, 0.09, ratio, 0.02)                                         // Should be around 9% (8/80 * 0.9)
+
+	// Test case 2: Very tiny model (should hit minimum ratio)
+	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			TotalMemory: 80 * 1024 * 1024 * 1024, // 80GB GPU
+		}, nil
+	}, CacheConfig{updateInterval: 5 * time.Second}))
+	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 1*1024*1024*1024) // 1GB model
+	require.Equal(t, 0.05, ratio)                                                // Should hit minimum ratio
+
+	// Test case 3: Medium model on GPU (reasonable ratio)
+	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			TotalMemory: 24 * 1024 * 1024 * 1024, // 24GB GPU
+		}, nil
+	}, CacheConfig{updateInterval: 5 * time.Second}))
+	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 16*1024*1024*1024) // 16GB model
+	require.Greater(t, ratio, 0.05)
+	require.Less(t, ratio, 0.95)
+	require.InDelta(t, 0.60, ratio, 0.05) // Should be around 60% (16/24 * 0.9)
+
+	// Test case 4: Large model on small GPU (less headroom)
+	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			TotalMemory: 24 * 1024 * 1024 * 1024, // 24GB GPU
+		}, nil
+	}, CacheConfig{updateInterval: 5 * time.Second}))
+	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 20*1024*1024*1024) // 20GB model
+	require.Greater(t, ratio, 0.05)
+	require.Less(t, ratio, 0.95)
+	require.InDelta(t, 0.79, ratio, 0.05) // Should be around 79% with 5% safety margin (20/24 * 0.95)
+
+	// Test case 5: No GPU memory info (fallback)
+	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			TotalMemory: 0,
+		}, nil
+	}, CacheConfig{updateInterval: 5 * time.Second}))
+	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 8*1024*1024*1024)
+	require.Equal(t, 0.8, ratio) // Should return default fallback
+
+	// Test case 6: Model larger than GPU (should hit maximum ratio)
+	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			TotalMemory: 8 * 1024 * 1024 * 1024, // 8GB GPU
+		}, nil
+	}, CacheConfig{updateInterval: 5 * time.Second}))
+	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 10*1024*1024*1024) // 10GB model
+	require.Equal(t, 0.95, ratio)                                                 // Should hit maximum ratio
+}
+
+func TestSubstituteVLLMArgsPlaceholders(t *testing.T) {
+	ctrl := &RunnerController{
+		statusCache: NewLockingRunnerMap[types.RunnerStatus](),
+	}
+
+	runnerID := "test-runner"
+	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			TotalMemory: 24 * 1024 * 1024 * 1024, // 24GB GPU
+		}, nil
+	}, CacheConfig{updateInterval: 5 * time.Second}))
+
+	// Test case 1: Replace placeholder in args
+	originalArgs := []string{
+		"--trust-remote-code",
+		"--max-model-len", "32768",
+		"--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}",
+		"--limit-mm-per-prompt", "image=10",
+	}
+
+	substitutedArgs := ctrl.substituteVLLMArgsPlaceholders(originalArgs, runnerID, 8*1024*1024*1024)
+
+	require.Len(t, substitutedArgs, len(originalArgs))
+	require.Equal(t, "--trust-remote-code", substitutedArgs[0])
+	require.Equal(t, "--max-model-len", substitutedArgs[1])
+	require.Equal(t, "32768", substitutedArgs[2])
+	require.Equal(t, "--gpu-memory-utilization", substitutedArgs[3])
+	require.NotEqual(t, "{{.DynamicMemoryUtilizationRatio}}", substitutedArgs[4]) // Should be substituted
+	require.Regexp(t, `^0\.\d{2}$`, substitutedArgs[4])                           // Should be a ratio like "0.25"
+	require.Equal(t, "--limit-mm-per-prompt", substitutedArgs[5])
+	require.Equal(t, "image=10", substitutedArgs[6])
+
+	// Test case 2: No placeholders (should return unchanged)
+	argsWithoutPlaceholder := []string{
+		"--trust-remote-code",
+		"--max-model-len", "32768",
+	}
+
+	substitutedArgs = ctrl.substituteVLLMArgsPlaceholders(argsWithoutPlaceholder, runnerID, 8*1024*1024*1024)
+	require.Equal(t, argsWithoutPlaceholder, substitutedArgs)
+
+	// Test case 3: Empty args (should return unchanged)
+	emptyArgs := []string{}
+	substitutedArgs = ctrl.substituteVLLMArgsPlaceholders(emptyArgs, runnerID, 8*1024*1024*1024)
+	require.Equal(t, emptyArgs, substitutedArgs)
+
+	// Test case 4: Multiple placeholders (should replace all)
+	multiPlaceholderArgs := []string{
+		"--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}",
+		"--another-flag", "{{.DynamicMemoryUtilizationRatio}}",
+	}
+
+	substitutedArgs = ctrl.substituteVLLMArgsPlaceholders(multiPlaceholderArgs, runnerID, 8*1024*1024*1024)
+	require.Len(t, substitutedArgs, len(multiPlaceholderArgs))
+	require.NotEqual(t, "{{.DynamicMemoryUtilizationRatio}}", substitutedArgs[1])
+	require.NotEqual(t, "{{.DynamicMemoryUtilizationRatio}}", substitutedArgs[3])
+	require.Equal(t, substitutedArgs[1], substitutedArgs[3]) // Both should be the same calculated value
+}
+
+func TestVLLMMemoryUtilizationRealWorldScenarios(t *testing.T) {
+	ctrl := &RunnerController{
+		statusCache: NewLockingRunnerMap[types.RunnerStatus](),
+	}
+
+	runnerID := "test-runner"
+
+	scenarios := []struct {
+		name                 string
+		gpuMemoryGB          uint64
+		modelMemoryGB        uint64
+		expectedRatioMin     float64
+		expectedRatioMax     float64
+		expectedSafetyMargin float64
+	}{
+		// Tiny models on large GPUs
+		{"1GB model on 80GB GPU (A100)", 80, 1, 0.05, 0.05, 0.10}, // Should hit minimum
+		{"2GB model on 80GB GPU (A100)", 80, 2, 0.05, 0.05, 0.10}, // Should hit minimum
+		{"4GB model on 80GB GPU (A100)", 80, 4, 0.05, 0.05, 0.10}, // Should hit minimum
+
+		// Small models on large GPUs
+		{"8GB model on 80GB GPU (A100)", 80, 8, 0.08, 0.10, 0.10},
+		{"16GB model on 80GB GPU (A100)", 80, 16, 0.16, 0.20, 0.10},
+
+		// Medium models on medium GPUs
+		{"8GB model on 24GB GPU (RTX 4090)", 24, 8, 0.28, 0.32, 0.10},
+		{"16GB model on 24GB GPU (RTX 4090)", 24, 16, 0.58, 0.62, 0.10},
+
+		// Large models (>70% usage - smaller safety margin)
+		{"20GB model on 24GB GPU (RTX 4090)", 24, 20, 0.78, 0.82, 0.05},
+		{"32GB model on 40GB GPU (A100 40GB)", 40, 32, 0.75, 0.80, 0.05},
+		{"60GB model on 80GB GPU (A100 80GB)", 80, 60, 0.70, 0.75, 0.05},
+
+		// Edge cases
+		{"12GB model on 12GB GPU (RTX 3060)", 12, 12, 0.90, 0.95, 0.05},   // Should use 95% with 5% margin
+		{"16GB model on 12GB GPU (impossible)", 12, 16, 0.95, 0.95, 0.05}, // Should hit maximum
+	}
+
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			// Set up GPU memory
+			ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
+				return types.RunnerStatus{
+					TotalMemory: scenario.gpuMemoryGB * 1024 * 1024 * 1024,
+				}, nil
+			}, CacheConfig{updateInterval: 5 * time.Second}))
+
+			// Calculate ratio
+			ratio := ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, scenario.modelMemoryGB*1024*1024*1024)
+
+			// Verify ratio is in expected range
+			require.GreaterOrEqual(t, ratio, scenario.expectedRatioMin,
+				"Ratio %.3f should be >= %.3f for %s", ratio, scenario.expectedRatioMin, scenario.name)
+			require.LessOrEqual(t, ratio, scenario.expectedRatioMax,
+				"Ratio %.3f should be <= %.3f for %s", ratio, scenario.expectedRatioMax, scenario.name)
+
+			// Calculate what this means in actual memory usage
+			actualMemoryUsageGB := float64(scenario.gpuMemoryGB) * ratio
+
+			t.Logf("%s: %.1f%% utilization = %.1fGB actual usage (%.1fGB model + %.1fGB overhead)",
+				scenario.name,
+				ratio*100,
+				actualMemoryUsageGB,
+				float64(scenario.modelMemoryGB),
+				actualMemoryUsageGB-float64(scenario.modelMemoryGB))
+		})
+	}
+}

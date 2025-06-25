@@ -197,7 +197,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "llama3.1:8b-instruct-q8_0", // https://ollama.com/library/llama3.1:8b-instruct-q8_0
 			Name:          "Llama 3.1 8B",
-			Memory:        GB * 15,
+			Memory:        MB * 10546,
 			ContextLength: 32768, // goes up to 128k, but then uses 35GB
 			Description:   "Fast and good for everyday tasks, from Meta - 8bit quantized, 32K context",
 			Hide:          false,
@@ -415,7 +415,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 			Args: []string{
 				"--trust-remote-code",
 				"--max-model-len", "32768",
-				"--gpu-memory-utilization", "0.9",
+				"--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}",
 				"--limit-mm-per-prompt", "image=10",
 			},
 			Hide:    false,
@@ -430,7 +430,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 			Args: []string{
 				"--trust-remote-code",
 				"--max-model-len", "32768",
-				"--gpu-memory-utilization", "0.9",
+				"--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}",
 				"--limit-mm-per-prompt", "image=10",
 			},
 			Hide:    false,
@@ -439,7 +439,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 		{
 			ID:            "MrLight/dse-qwen2-2b-mrl-v1",
 			Name:          "DSE Qwen2 2B",
-			Memory:        GB * 8,
+			Memory:        GB * 5,
 			ContextLength: 8192,
 			Description:   "Small embedding model for RAG, from MrLight",
 			Args: []string{
@@ -447,6 +447,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 				"--max-model-len", "8192",
 				"--trust-remote-code",
 				"--chat-template", "examples/template_dse_qwen2_vl.jinja",
+				"--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}",
 			},
 			Hide:    false,
 			Prewarm: true,
