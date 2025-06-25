@@ -33,4 +33,4 @@ const OAuthConnectionsPage: React.FC = () => {
   )
 }
 
-export default OAuthConnectionsPage 
+export default OAuthConnectionsPage
