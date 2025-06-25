@@ -33,16 +33,16 @@ import { airQualityTool } from './examples/skillAirQualityApi';
 import { exchangeRatesSkill } from './examples/skillExchangeRatesApi';
 
 // OAuth Provider Skills
-import { githubTool } from './examples/skillGithubApi';
-import { gmailTool } from './examples/skillGmailApi';
-import { googleDriveTool } from './examples/skillGoogleDriveApi';
-import { googleCalendarTool } from './examples/skillGoogleCalendarApi';
-import { outlookTool } from './examples/skillOutlookApi';
-import { oneDriveTool } from './examples/skillOneDriveApi';
-import { slackTool } from './examples/skillSlackApi';
-import { linkedInTool } from './examples/skillLinkedInApi';
-import { atlassianTool } from './examples/skillAtlassianApi';
-import { confluenceTool } from './examples/skillConfluenceApi';
+// import { githubTool } from './examples/skillGithubApi';
+// import { gmailTool } from './examples/skillGmailApi';
+// import { googleDriveTool } from './examples/skillGoogleDriveApi';
+// import { googleCalendarTool } from './examples/skillGoogleCalendarApi';
+// import { outlookTool } from './examples/skillOutlookApi';
+// import { oneDriveTool } from './examples/skillOneDriveApi';
+// import { slackTool } from './examples/skillSlackApi';
+// import { linkedInTool } from './examples/skillLinkedInApi';
+// import { atlassianTool } from './examples/skillAtlassianApi';
+// import { confluenceTool } from './examples/skillConfluenceApi';
 
 // Interface for OAuth provider objects from the API
 interface OAuthProvider {
@@ -200,96 +200,96 @@ const BASE_SKILLS: ISkill[] = [
     skill: exchangeRatesSkill,
   },
   // OAuth Provider Skills
-  {
-    id: 'github-api',
-    icon: githubTool.icon,
-    name: githubTool.name,
-    description: githubTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_GITHUB,
-    skill: githubTool,
-  },
-  {
-    id: 'gmail-api',
-    icon: gmailTool.icon,
-    name: gmailTool.name,
-    description: gmailTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_GOOGLE,
-    skill: gmailTool,
-  },
-  {
-    id: 'google-drive-api',
-    icon: googleDriveTool.icon,
-    name: googleDriveTool.name,
-    description: googleDriveTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_GOOGLE,
-    skill: googleDriveTool,
-  },
-  {
-    id: 'google-calendar-api',
-    icon: googleCalendarTool.icon,
-    name: googleCalendarTool.name,
-    description: googleCalendarTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_GOOGLE,
-    skill: googleCalendarTool,
-  },
-  {
-    id: 'outlook-api',
-    icon: outlookTool.icon,
-    name: outlookTool.name,
-    description: outlookTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_MICROSOFT,
-    skill: outlookTool,
-  },
-  {
-    id: 'onedrive-api',
-    icon: oneDriveTool.icon,
-    name: oneDriveTool.name,
-    description: oneDriveTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_MICROSOFT,
-    skill: oneDriveTool,
-  },
-  {
-    id: 'slack-api',
-    icon: slackTool.icon,
-    name: slackTool.name,
-    description: slackTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_SLACK,
-    skill: slackTool,
-  },
-  {
-    id: 'linkedin-api',
-    icon: linkedInTool.icon,
-    name: linkedInTool.name,
-    description: linkedInTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_LINKEDIN,
-    skill: linkedInTool,
-  },
-  {
-    id: 'atlassian-api',
-    icon: atlassianTool.icon,
-    name: atlassianTool.name,
-    description: atlassianTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_ATLASSIAN,
-    skill: atlassianTool,
-  },
-  {
-    id: 'confluence-api',
-    icon: confluenceTool.icon,
-    name: confluenceTool.name,
-    description: confluenceTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_ATLASSIAN,
-    skill: confluenceTool,
-  },
+  // {
+  //   id: 'github-api',
+  //   icon: githubTool.icon,
+  //   name: githubTool.name,
+  //   description: githubTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_GITHUB,
+  //   skill: githubTool,
+  // },
+  // {
+  //   id: 'gmail-api',
+  //   icon: gmailTool.icon,
+  //   name: gmailTool.name,
+  //   description: gmailTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_GOOGLE,
+  //   skill: gmailTool,
+  // },
+  // {
+  //   id: 'google-drive-api',
+  //   icon: googleDriveTool.icon,
+  //   name: googleDriveTool.name,
+  //   description: googleDriveTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_GOOGLE,
+  //   skill: googleDriveTool,
+  // },
+  // {
+  //   id: 'google-calendar-api',
+  //   icon: googleCalendarTool.icon,
+  //   name: googleCalendarTool.name,
+  //   description: googleCalendarTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_GOOGLE,
+  //   skill: googleCalendarTool,
+  // },
+  // {
+  //   id: 'outlook-api',
+  //   icon: outlookTool.icon,
+  //   name: outlookTool.name,
+  //   description: outlookTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_MICROSOFT,
+  //   skill: outlookTool,
+  // },
+  // {
+  //   id: 'onedrive-api',
+  //   icon: oneDriveTool.icon,
+  //   name: oneDriveTool.name,
+  //   description: oneDriveTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_MICROSOFT,
+  //   skill: oneDriveTool,
+  // },
+  // {
+  //   id: 'slack-api',
+  //   icon: slackTool.icon,
+  //   name: slackTool.name,
+  //   description: slackTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_SLACK,
+  //   skill: slackTool,
+  // },
+  // {
+  //   id: 'linkedin-api',
+  //   icon: linkedInTool.icon,
+  //   name: linkedInTool.name,
+  //   description: linkedInTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_LINKEDIN,
+  //   skill: linkedInTool,
+  // },
+  // {
+  //   id: 'atlassian-api',
+  //   icon: atlassianTool.icon,
+  //   name: atlassianTool.name,
+  //   description: atlassianTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_ATLASSIAN,
+  //   skill: atlassianTool,
+  // },
+  // {
+  //   id: 'confluence-api',
+  //   icon: confluenceTool.icon,
+  //   name: confluenceTool.name,
+  //   description: confluenceTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_ATLASSIAN,
+  //   skill: confluenceTool,
+  // },
 ];
 
 const CUSTOM_API_SKILL: ISkill = {
@@ -336,7 +336,7 @@ const Skills: React.FC<SkillsProps> = ({
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedSkillForMenu, setSelectedSkillForMenu] = useState<string | null>(null);
   const [isDisableConfirmOpen, setIsDisableConfirmOpen] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<string>(SKILL_CATEGORY_CORE);
+  const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [skillToDisable, setSkillToDisable] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   
@@ -847,125 +847,117 @@ const Skills: React.FC<SkillsProps> = ({
               },
             }}
           >
-          {/* Core tab first (default) */}
-          <Tab
-            key={SKILL_CATEGORY_CORE}
-            value={SKILL_CATEGORY_CORE}
-            label={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                {getCategoryIcon(SKILL_CATEGORY_CORE)}
-                <Typography variant="body2" sx={{ fontWeight: 'inherit' }}>
-                  Core
-                </Typography>
-                <Chip 
-                  label={allSkills.filter(skill => skill.category === SKILL_CATEGORY_CORE).length} 
-                  size="small" 
-                  sx={{ 
-                    minWidth: '18px',
-                    height: '18px',
-                    fontSize: '0.65rem',
-                    ...getBadgeColors(getCategorySkillStatus(SKILL_CATEGORY_CORE)),
-                    '& .MuiChip-label': { px: 0.6 }
-                  }} 
-                />
-              </Box>
-            }
-          />
-          
-          {/* Data & APIs second */}
-          <Tab
-            key={SKILL_CATEGORY_DATA}
-            value={SKILL_CATEGORY_DATA}
-            label={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                {getCategoryIcon(SKILL_CATEGORY_DATA)}
-                <Typography variant="body2" sx={{ fontWeight: 'inherit' }}>
-                  Data & APIs
-                </Typography>
-                <Chip 
-                  label={allSkills.filter(skill => skill.category === SKILL_CATEGORY_DATA).length} 
-                  size="small" 
-                  sx={{ 
-                    minWidth: '18px',
-                    height: '18px',
-                    fontSize: '0.65rem',
-                    ...getBadgeColors(getCategorySkillStatus(SKILL_CATEGORY_DATA)),
-                    '& .MuiChip-label': { px: 0.6 }
-                  }} 
-                />
-              </Box>
-            }
-          />
+            {/* All tab first */}
+            <Tab
+              key="All"
+              value="All"
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  <SettingsIcon sx={{ fontSize: 16 }} />
+                  <Typography variant="body2" sx={{ fontWeight: 'inherit' }}>
+                    All
+                  </Typography>
+                  <Chip 
+                    label={allSkills.length} 
+                    size="small" 
+                    sx={{ 
+                      minWidth: '18px',
+                      height: '18px',
+                      fontSize: '0.65rem',
+                      bgcolor: 'primary.main',
+                      color: 'primary.contrastText',
+                      '& .MuiChip-label': { px: 0.6 }
+                    }} 
+                  />
+                </Box>
+              }
+            />
 
-          {/* All tab third */}
-          <Tab
-            key="All"
-            value="All"
-            label={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                <SettingsIcon sx={{ fontSize: 16 }} />
-                <Typography variant="body2" sx={{ fontWeight: 'inherit' }}>
-                  All
-                </Typography>
-                <Chip 
-                  label={allSkills.length} 
-                  size="small" 
-                  sx={{ 
-                    minWidth: '18px',
-                    height: '18px',
-                    fontSize: '0.65rem',
-                    bgcolor: 'primary.main',
-                    color: 'primary.contrastText',
-                    '& .MuiChip-label': { px: 0.6 }
-                  }} 
-                />
-              </Box>
-            }
-          />
-          
-          {/* Provider-specific categories */}
-          {availableCategories
-            .filter(cat => cat !== 'All' && cat !== SKILL_CATEGORY_CORE && cat !== SKILL_CATEGORY_DATA)
-            .map(category => {
-              const skillCount = allSkills.filter(skill => skill.category === category).length;
-              // Shorten category names for better fit
-              const shortName = category === SKILL_CATEGORY_ATLASSIAN ? 'Atlassian' : category;
-              return (
-                <Tab
-                  key={category}
-                  value={category}
-                  label={
-                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                       {getCategoryIcon(category)}
-                       <Typography variant="body2" sx={{ fontWeight: 'inherit' }}>
-                         {shortName}
-                       </Typography>
-                       <Chip 
-                         label={skillCount} 
-                         size="small" 
-                         sx={{ 
-                           minWidth: '18px',
-                           height: '18px',
-                           fontSize: '0.65rem',
-                           ...getBadgeColors(getCategorySkillStatus(category)),
-                           '& .MuiChip-label': { px: 0.6 }
-                         }} 
-                       />
-                     </Box>
-                   }
-                 />
-               );
-             })}
+            {/* Core tab second */}
+            <Tab
+              key={SKILL_CATEGORY_CORE}
+              value={SKILL_CATEGORY_CORE}
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  {getCategoryIcon(SKILL_CATEGORY_CORE)}
+                  <Typography variant="body2" sx={{ fontWeight: 'inherit' }}>
+                    Core
+                  </Typography>
+                  <Chip 
+                    label={allSkills.filter(skill => skill.category === SKILL_CATEGORY_CORE).length} 
+                    size="small" 
+                    sx={{ 
+                      minWidth: '18px',
+                      height: '18px',
+                      fontSize: '0.65rem',
+                      ...getBadgeColors(getCategorySkillStatus(SKILL_CATEGORY_CORE)),
+                      '& .MuiChip-label': { px: 0.6 }
+                    }} 
+                  />
+                </Box>
+              }
+            />
+            
+            {/* Data & APIs third */}
+            <Tab
+              key={SKILL_CATEGORY_DATA}
+              value={SKILL_CATEGORY_DATA}
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  {getCategoryIcon(SKILL_CATEGORY_DATA)}
+                  <Typography variant="body2" sx={{ fontWeight: 'inherit' }}>
+                    Data & APIs
+                  </Typography>
+                  <Chip 
+                    label={allSkills.filter(skill => skill.category === SKILL_CATEGORY_DATA).length} 
+                    size="small" 
+                    sx={{ 
+                      minWidth: '18px',
+                      height: '18px',
+                      fontSize: '0.65rem',
+                      ...getBadgeColors(getCategorySkillStatus(SKILL_CATEGORY_DATA)),
+                      '& .MuiChip-label': { px: 0.6 }
+                    }} 
+                  />
+                </Box>
+              }
+            />
+            
+            {/* Provider-specific categories */}
+            {availableCategories
+              .filter(cat => cat !== 'All' && cat !== SKILL_CATEGORY_CORE && cat !== SKILL_CATEGORY_DATA)
+              .map(category => {
+                const skillCount = allSkills.filter(skill => skill.category === category).length;
+                // Shorten category names for better fit
+                const shortName = category === SKILL_CATEGORY_ATLASSIAN ? 'Atlassian' : category;
+                return (
+                  <Tab
+                    key={category}
+                    value={category}
+                    label={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                        {getCategoryIcon(category)}
+                        <Typography variant="body2" sx={{ fontWeight: 'inherit' }}>
+                          {shortName}
+                        </Typography>
+                        <Chip 
+                          label={skillCount} 
+                          size="small" 
+                          sx={{ 
+                            minWidth: '18px',
+                            height: '18px',
+                            fontSize: '0.65rem',
+                            ...getBadgeColors(getCategorySkillStatus(category)),
+                            '& .MuiChip-label': { px: 0.6 }
+                          }} 
+                        />
+                      </Box>
+                    }
+                  />
+                );
+              })}
           </Tabs>
         )}
-        
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 1, ml: 1 }}>
-          {searchQuery ? (
-            `Showing ${filteredSkills.length} result${filteredSkills.length === 1 ? '' : 's'} for "${searchQuery}"`
-          ) : (
-            selectedCategory === 'All' ? `${filteredSkills.length} skills total` : `${filteredSkills.length} skills in ${selectedCategory}`
-          )}
-        </Typography>
       </Box>
 
       {/* OAuth Provider Warning Banner */}
