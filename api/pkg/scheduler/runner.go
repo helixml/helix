@@ -519,6 +519,85 @@ func (c *RunnerController) SubmitImageGenerationRequest(slot *Slot, session *typ
 	return nil
 }
 
+// calculateVLLMMemoryUtilizationRatio calculates the optimal GPU memory utilization ratio
+// for VLLM based on the model's memory requirements and the runner's total GPU memory.
+// This ensures VLLM uses an appropriate amount of GPU memory without causing OOM errors.
+func (c *RunnerController) calculateVLLMMemoryUtilizationRatio(runnerID string, modelMemoryRequirement uint64) float64 {
+	// Get the runner's total memory
+	totalMemory := c.TotalMemory(runnerID)
+	if totalMemory == 0 {
+		log.Warn().
+			Str("runner_id", runnerID).
+			Msg("No GPU memory information available for runner, using default ratio")
+		return 0.8 // Default fallback ratio
+	}
+
+	// Calculate the ratio based on model memory requirement vs total GPU memory
+	// We want to leave some headroom for VLLM's overhead and other processes
+	baseRatio := float64(modelMemoryRequirement) / float64(totalMemory)
+
+	// Add conservative safety margin (5-10% headroom depending on model size)
+	var safetyMargin float64
+	if baseRatio > 0.7 {
+		// For large models that use >70% of GPU memory, use smaller safety margin
+		safetyMargin = 0.05 // 5%
+	} else {
+		// For smaller models, use slightly larger safety margin
+		safetyMargin = 0.10 // 10%
+	}
+
+	// Calculate final ratio with safety margin
+	finalRatio := baseRatio * (1.0 - safetyMargin)
+
+	// Ensure the ratio is within reasonable bounds (0.05 to 0.95)
+	// Lower bound of 5% allows for tiny models while avoiding potential VLLM issues
+	if finalRatio < 0.05 {
+		finalRatio = 0.05
+	} else if finalRatio > 0.95 {
+		finalRatio = 0.95
+	}
+
+	log.Debug().
+		Str("runner_id", runnerID).
+		Uint64("model_memory_bytes", modelMemoryRequirement).
+		Uint64("total_gpu_memory_bytes", totalMemory).
+		Float64("base_ratio", baseRatio).
+		Float64("safety_margin", safetyMargin).
+		Float64("final_ratio", finalRatio).
+		Msg("Calculated dynamic VLLM memory utilization ratio")
+
+	return finalRatio
+}
+
+// substituteVLLMArgsPlaceholders replaces template placeholders in VLLM args with actual values
+func (c *RunnerController) substituteVLLMArgsPlaceholders(args []string, runnerID string, modelMemoryRequirement uint64) []string {
+	if len(args) == 0 {
+		return args
+	}
+
+	// Calculate the dynamic memory utilization ratio
+	memoryUtilizationRatio := c.calculateVLLMMemoryUtilizationRatio(runnerID, modelMemoryRequirement)
+	ratioStr := fmt.Sprintf("%.2f", memoryUtilizationRatio)
+
+	// Create a new slice to avoid modifying the original
+	substitutedArgs := make([]string, len(args))
+	copy(substitutedArgs, args)
+
+	// Replace the placeholder with the calculated value
+	for i, arg := range substitutedArgs {
+		if arg == "{{.DynamicMemoryUtilizationRatio}}" {
+			substitutedArgs[i] = ratioStr
+			log.Debug().
+				Str("runner_id", runnerID).
+				Str("original_value", arg).
+				Str("substituted_value", ratioStr).
+				Msg("Substituted VLLM memory utilization placeholder")
+		}
+	}
+
+	return substitutedArgs
+}
+
 func (c *RunnerController) CreateSlot(slot *Slot) error {
 	log.Debug().
 		Str("runner_id", slot.RunnerID).
@@ -551,15 +630,20 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 					Strs("vllm_args", modelArgs).
 					Msg("Found model-specific vLLM args in scheduler")
 
-				// Add the args to the runtime args
+				// Substitute placeholders with actual values
+				substitutedArgs := c.substituteVLLMArgsPlaceholders(modelArgs, slot.RunnerID, modelObj.Memory)
+
+				// Add the substituted args to the runtime args
 				runtimeArgs = map[string]interface{}{
-					"args": modelArgs,
+					"args": substitutedArgs,
 				}
 
 				log.Debug().
 					Str("model", modelName).
+					Strs("original_args", modelArgs).
+					Strs("substituted_args", substitutedArgs).
 					Interface("runtime_args", runtimeArgs).
-					Msg("Created runtime_args map in scheduler")
+					Msg("Created runtime_args map with substituted values in scheduler")
 			}
 		}
 	} else {
