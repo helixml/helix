@@ -1,4 +1,4 @@
-import React, { FC, useState, useMemo, ReactNode } from 'react'
+import React, { FC, useState, useMemo, ReactNode, useEffect } from 'react'
 import { useTheme } from '@mui/material/styles'
 import CssBaseline from '@mui/material/CssBaseline'
 import Typography from '@mui/material/Typography'
@@ -9,6 +9,7 @@ import Collapse from '@mui/material/Collapse'
 import Button from '@mui/material/Button'
 import { styled, keyframes } from '@mui/material/styles'
 import LoginIcon from '@mui/icons-material/Login'
+import { useMediaQuery } from '@mui/material'
 
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
@@ -19,6 +20,11 @@ import GlobalLoading from '../components/system/GlobalLoading'
 import Window from '../components/widgets/Window'
 import { LicenseKeyPrompt } from '../components/LicenseKeyPrompt'
 import { SlideMenuWrapper } from '../components/system/SlideMenuContainer'
+import FloatingRunnerState from '../components/admin/FloatingRunnerState'
+import { useFloatingRunnerState } from '../contexts/floatingRunnerState'
+import Tooltip from '@mui/material/Tooltip'
+import IconButton from '@mui/material/IconButton'
+import DnsIcon from '@mui/icons-material/Dns'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
@@ -41,6 +47,7 @@ const Layout: FC<{
   const api = useApi()
   const account = useAccount()
   const apps = useApps()
+  const floatingRunnerState = useFloatingRunnerState()
   const [showVersionBanner, setShowVersionBanner] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
 
@@ -158,6 +165,8 @@ const Layout: FC<{
     }
     checkAuthAndLoad()
   }, [resourceType])
+
+
 
   if(router.meta.drawer) {
     if(router.meta.menu == 'orgs') {
@@ -320,6 +329,49 @@ const Layout: FC<{
           account.serverConfig?.deployment_id === "unknown" ? 
             <LicenseKeyPrompt /> : 
             null
+        }
+        {
+          account.admin && floatingRunnerState.isVisible && (
+            <FloatingRunnerState onClose={floatingRunnerState.hideFloatingRunnerState} />
+          )
+        }
+        {
+          account.admin && (
+            <Box
+              sx={{
+                position: 'fixed',
+                bottom: 16,
+                right: 16,
+                zIndex: 9999,
+              }}
+            >
+              <Tooltip title="Toggle floating runner state (Ctrl/Cmd+Shift+S)" arrow placement="left">
+                <IconButton
+                  onClick={floatingRunnerState.toggleFloatingRunnerState}
+                  sx={{
+                    width: 48,
+                    height: 48,
+                    backgroundColor: floatingRunnerState.isVisible ? '#00c8ff' : 'rgba(0, 200, 255, 0.1)',
+                    backdropFilter: 'blur(10px)',
+                    border: '1px solid rgba(0, 200, 255, 0.3)',
+                    color: floatingRunnerState.isVisible ? '#000' : '#00c8ff',
+                    boxShadow: '0 4px 12px rgba(0, 200, 255, 0.3)',
+                    transition: 'all 0.2s ease',
+                    '&:hover': {
+                      backgroundColor: floatingRunnerState.isVisible ? '#00b3e6' : 'rgba(0, 200, 255, 0.2)',
+                      transform: 'scale(1.05)',
+                      boxShadow: '0 6px 16px rgba(0, 200, 255, 0.4)',
+                    },
+                    '&:active': {
+                      transform: 'scale(0.95)',
+                    }
+                  }}
+                >
+                  <DnsIcon />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          )
         }
       </Box>
     </>

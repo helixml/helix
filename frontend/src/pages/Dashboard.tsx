@@ -34,7 +34,12 @@ import { TypesWorkloadSummary, TypesDashboardRunner } from '../api/api'
 import ProviderEndpointsTable from '../components/dashboard/ProviderEndpointsTable'
 import OAuthProvidersTable from '../components/dashboard/OAuthProvidersTable'
 import HelixModelsTable from '../components/dashboard/HelixModelsTable'
+import SchedulingDecisionsTable from '../components/dashboard/SchedulingDecisionsTable'
 import Chip from '@mui/material/Chip'
+import { useFloatingRunnerState } from '../contexts/floatingRunnerState'
+import LaunchIcon from '@mui/icons-material/Launch'
+import Button from '@mui/material/Button'
+import Tooltip from '@mui/material/Tooltip'
 
 const START_ACTIVE = true
 
@@ -42,6 +47,7 @@ const Dashboard: FC = () => {
   const account = useAccount()
   const router = useRouter()
   const api = useApi()
+  const floatingRunnerState = useFloatingRunnerState()
 
   const activeRef = useRef(START_ACTIVE)
 
@@ -82,6 +88,8 @@ const Dashboard: FC = () => {
   ])
 
   const { data: dashboardData, isLoading: isLoadingDashboardData } = useGetDashboardData()
+
+
 
   useEffect(() => {
     switch (tab) {
@@ -276,16 +284,40 @@ const Dashboard: FC = () => {
                 px: 2,
               }}
             >
-              <FormGroup>
-                <FormControlLabel
-                  control={<Switch
-                    checked={active}
-                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
-                      activeRef.current = event.target.checked
-                      setActive(event.target.checked)
-                    }} />}
-                  label="Live Updates?" />
-              </FormGroup>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <FormGroup>
+                  <FormControlLabel
+                    control={<Switch
+                      checked={active}
+                      onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+                        activeRef.current = event.target.checked
+                        setActive(event.target.checked)
+                      }} />}
+                    label="Live Updates?" />
+                </FormGroup>
+                
+                {account.admin && (
+                  <Tooltip title="Toggle floating runner state view (Ctrl/Cmd+Shift+S)" arrow>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<LaunchIcon />}
+                      onClick={floatingRunnerState.toggleFloatingRunnerState}
+                      sx={{
+                        borderColor: 'rgba(0, 200, 255, 0.3)',
+                        color: floatingRunnerState.isVisible ? '#00c8ff' : 'rgba(255, 255, 255, 0.7)',
+                        backgroundColor: floatingRunnerState.isVisible ? 'rgba(0, 200, 255, 0.1)' : 'transparent',
+                        '&:hover': {
+                          borderColor: 'rgba(0, 200, 255, 0.5)',
+                          backgroundColor: 'rgba(0, 200, 255, 0.1)',
+                        }
+                      }}
+                    >
+                      {floatingRunnerState.isVisible ? 'Hide' : 'Show'} Floating View
+                    </Button>
+                  </Tooltip>
+                )}
+              </Box>
               
               <JsonWindowLink data={dashboardData}>
                 view data
@@ -447,6 +479,34 @@ const Dashboard: FC = () => {
                     )
                   })}
                 </Grid>
+                
+                {/* Scheduling Decisions Section */}
+                <Box sx={{ mt: 4 }}>
+                  <Typography 
+                    variant="h5"
+                    sx={{ 
+                      mb: 3,
+                      color: 'rgba(255, 255, 255, 0.95)',
+                      fontWeight: 600,
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+                      pb: 1,
+                    }}
+                  >
+                    Recent Scheduling Decisions
+                  </Typography>
+                  
+                  <Box sx={{ 
+                    mb: 2,
+                    color: 'rgba(255, 255, 255, 0.6)',
+                    fontSize: '0.875rem',
+                  }}>
+                    Live log of decisions made by the central scheduler when assigning workloads to runners
+                  </Box>
+                  
+                  <SchedulingDecisionsTable 
+                    decisions={dashboardData?.scheduling_decisions || []} 
+                  />
+                </Box>
               </Box>
             </Box>
           </Box>
