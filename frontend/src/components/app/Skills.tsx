@@ -33,16 +33,16 @@ import { airQualityTool } from './examples/skillAirQualityApi';
 import { exchangeRatesSkill } from './examples/skillExchangeRatesApi';
 
 // OAuth Provider Skills
-import { githubTool } from './examples/skillGithubApi';
-import { gmailTool } from './examples/skillGmailApi';
-import { googleDriveTool } from './examples/skillGoogleDriveApi';
-import { googleCalendarTool } from './examples/skillGoogleCalendarApi';
-import { outlookTool } from './examples/skillOutlookApi';
-import { oneDriveTool } from './examples/skillOneDriveApi';
-import { slackTool } from './examples/skillSlackApi';
-import { linkedInTool } from './examples/skillLinkedInApi';
-import { atlassianTool } from './examples/skillAtlassianApi';
-import { confluenceTool } from './examples/skillConfluenceApi';
+// import { githubTool } from './examples/skillGithubApi';
+// import { gmailTool } from './examples/skillGmailApi';
+// import { googleDriveTool } from './examples/skillGoogleDriveApi';
+// import { googleCalendarTool } from './examples/skillGoogleCalendarApi';
+// import { outlookTool } from './examples/skillOutlookApi';
+// import { oneDriveTool } from './examples/skillOneDriveApi';
+// import { slackTool } from './examples/skillSlackApi';
+// import { linkedInTool } from './examples/skillLinkedInApi';
+// import { atlassianTool } from './examples/skillAtlassianApi';
+// import { confluenceTool } from './examples/skillConfluenceApi';
 
 // Interface for OAuth provider objects from the API
 interface OAuthProvider {
@@ -200,96 +200,96 @@ const BASE_SKILLS: ISkill[] = [
     skill: exchangeRatesSkill,
   },
   // OAuth Provider Skills
-  {
-    id: 'github-api',
-    icon: githubTool.icon,
-    name: githubTool.name,
-    description: githubTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_GITHUB,
-    skill: githubTool,
-  },
-  {
-    id: 'gmail-api',
-    icon: gmailTool.icon,
-    name: gmailTool.name,
-    description: gmailTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_GOOGLE,
-    skill: gmailTool,
-  },
-  {
-    id: 'google-drive-api',
-    icon: googleDriveTool.icon,
-    name: googleDriveTool.name,
-    description: googleDriveTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_GOOGLE,
-    skill: googleDriveTool,
-  },
-  {
-    id: 'google-calendar-api',
-    icon: googleCalendarTool.icon,
-    name: googleCalendarTool.name,
-    description: googleCalendarTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_GOOGLE,
-    skill: googleCalendarTool,
-  },
-  {
-    id: 'outlook-api',
-    icon: outlookTool.icon,
-    name: outlookTool.name,
-    description: outlookTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_MICROSOFT,
-    skill: outlookTool,
-  },
-  {
-    id: 'onedrive-api',
-    icon: oneDriveTool.icon,
-    name: oneDriveTool.name,
-    description: oneDriveTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_MICROSOFT,
-    skill: oneDriveTool,
-  },
-  {
-    id: 'slack-api',
-    icon: slackTool.icon,
-    name: slackTool.name,
-    description: slackTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_SLACK,
-    skill: slackTool,
-  },
-  {
-    id: 'linkedin-api',
-    icon: linkedInTool.icon,
-    name: linkedInTool.name,
-    description: linkedInTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_LINKEDIN,
-    skill: linkedInTool,
-  },
-  {
-    id: 'atlassian-api',
-    icon: atlassianTool.icon,
-    name: atlassianTool.name,
-    description: atlassianTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_ATLASSIAN,
-    skill: atlassianTool,
-  },
-  {
-    id: 'confluence-api',
-    icon: confluenceTool.icon,
-    name: confluenceTool.name,
-    description: confluenceTool.description,
-    type: SKILL_TYPE_HTTP_API,
-    category: SKILL_CATEGORY_ATLASSIAN,
-    skill: confluenceTool,
-  },
+  // {
+  //   id: 'github-api',
+  //   icon: githubTool.icon,
+  //   name: githubTool.name,
+  //   description: githubTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_GITHUB,
+  //   skill: githubTool,
+  // },
+  // {
+  //   id: 'gmail-api',
+  //   icon: gmailTool.icon,
+  //   name: gmailTool.name,
+  //   description: gmailTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_GOOGLE,
+  //   skill: gmailTool,
+  // },
+  // {
+  //   id: 'google-drive-api',
+  //   icon: googleDriveTool.icon,
+  //   name: googleDriveTool.name,
+  //   description: googleDriveTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_GOOGLE,
+  //   skill: googleDriveTool,
+  // },
+  // {
+  //   id: 'google-calendar-api',
+  //   icon: googleCalendarTool.icon,
+  //   name: googleCalendarTool.name,
+  //   description: googleCalendarTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_GOOGLE,
+  //   skill: googleCalendarTool,
+  // },
+  // {
+  //   id: 'outlook-api',
+  //   icon: outlookTool.icon,
+  //   name: outlookTool.name,
+  //   description: outlookTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_MICROSOFT,
+  //   skill: outlookTool,
+  // },
+  // {
+  //   id: 'onedrive-api',
+  //   icon: oneDriveTool.icon,
+  //   name: oneDriveTool.name,
+  //   description: oneDriveTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_MICROSOFT,
+  //   skill: oneDriveTool,
+  // },
+  // {
+  //   id: 'slack-api',
+  //   icon: slackTool.icon,
+  //   name: slackTool.name,
+  //   description: slackTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_SLACK,
+  //   skill: slackTool,
+  // },
+  // {
+  //   id: 'linkedin-api',
+  //   icon: linkedInTool.icon,
+  //   name: linkedInTool.name,
+  //   description: linkedInTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_LINKEDIN,
+  //   skill: linkedInTool,
+  // },
+  // {
+  //   id: 'atlassian-api',
+  //   icon: atlassianTool.icon,
+  //   name: atlassianTool.name,
+  //   description: atlassianTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_ATLASSIAN,
+  //   skill: atlassianTool,
+  // },
+  // {
+  //   id: 'confluence-api',
+  //   icon: confluenceTool.icon,
+  //   name: confluenceTool.name,
+  //   description: confluenceTool.description,
+  //   type: SKILL_TYPE_HTTP_API,
+  //   category: SKILL_CATEGORY_ATLASSIAN,
+  //   skill: confluenceTool,
+  // },
 ];
 
 const CUSTOM_API_SKILL: ISkill = {
