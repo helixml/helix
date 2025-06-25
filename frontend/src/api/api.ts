@@ -2715,6 +2715,40 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Delete an OAuth connection. Users can only delete their own connections unless they are admin.
+     *
+     * @tags oauth
+     * @name V1OauthConnectionsDelete
+     * @summary Delete an OAuth connection
+     * @request DELETE:/api/v1/oauth/connections/{id}
+     * @secure
+     */
+    v1OauthConnectionsDelete: (id: string, params: RequestParams = {}) =>
+      this.request<void, any>({
+        path: `/api/v1/oauth/connections/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get a specific OAuth connection by ID. Users can only access their own connections unless they are admin.
+     *
+     * @tags oauth
+     * @name V1OauthConnectionsDetail
+     * @summary Get an OAuth connection
+     * @request GET:/api/v1/oauth/connections/{id}
+     * @secure
+     */
+    v1OauthConnectionsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesOAuthConnection, any>({
+        path: `/api/v1/oauth/connections/${id}`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Manually refresh an OAuth connection
      *
      * @tags oauth
