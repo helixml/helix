@@ -856,8 +856,9 @@ type WorkloadSummary struct {
 }
 
 type DashboardData struct {
-	Runners []*DashboardRunner `json:"runners"`
-	Queue   []*WorkloadSummary `json:"queue"`
+	Runners             []*DashboardRunner    `json:"runners"`
+	Queue               []*WorkloadSummary    `json:"queue"`
+	SchedulingDecisions []*SchedulingDecision `json:"scheduling_decisions"`
 }
 
 type DashboardRunner struct {
@@ -1905,4 +1906,36 @@ type FlexibleEmbeddingResponse struct {
 		PromptTokens int `json:"prompt_tokens"`
 		TotalTokens  int `json:"total_tokens"`
 	} `json:"usage"`
+}
+
+type SchedulingDecisionType string
+
+const (
+	SchedulingDecisionTypeQueued        SchedulingDecisionType = "queued"          // Added to queue
+	SchedulingDecisionTypeReuseWarmSlot SchedulingDecisionType = "reuse_warm_slot" // Reused existing warm model instance
+	SchedulingDecisionTypeCreateNewSlot SchedulingDecisionType = "create_new_slot" // Started new model instance
+	SchedulingDecisionTypeRejected      SchedulingDecisionType = "rejected"        // Rejected (insufficient resources, etc.)
+	SchedulingDecisionTypeError         SchedulingDecisionType = "error"           // Error during scheduling
+)
+
+// SchedulingDecision represents a decision made by the central scheduler
+type SchedulingDecision struct {
+	ID               string                 `json:"id"`
+	Created          time.Time              `json:"created"`
+	WorkloadID       string                 `json:"workload_id"`
+	SessionID        string                 `json:"session_id"`
+	ModelName        string                 `json:"model_name"`
+	Mode             SessionMode            `json:"mode"`
+	DecisionType     SchedulingDecisionType `json:"decision_type"`
+	RunnerID         string                 `json:"runner_id,omitempty"`
+	SlotID           string                 `json:"slot_id,omitempty"`
+	Reason           string                 `json:"reason"`
+	Success          bool                   `json:"success"`
+	ProcessingTimeMs int64                  `json:"processing_time_ms"`
+	QueuePosition    int                    `json:"queue_position,omitempty"`
+	AvailableRunners []string               `json:"available_runners,omitempty"`
+	MemoryRequired   uint64                 `json:"memory_required,omitempty"`
+	MemoryAvailable  uint64                 `json:"memory_available,omitempty"`
+	WarmSlotCount    int                    `json:"warm_slot_count,omitempty"`
+	TotalSlotCount   int                    `json:"total_slot_count,omitempty"`
 }

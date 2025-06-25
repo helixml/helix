@@ -99,11 +99,36 @@ func (c *Controller) CheckAPIKey(ctx context.Context, apiKey string) (*types.Api
 	return key, nil
 }
 
-func (c *Controller) GetDashboardData(_ context.Context) (*types.DashboardData, error) {
+func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData, error) {
 	runnerStatuses, err := c.scheduler.RunnerStatus()
 	if err != nil {
 		return nil, err
 	}
+
+	// Get all models from the store to lookup memory requirements
+	allModels, err := c.Options.Store.ListModels(ctx, &store.ListModelsQuery{})
+	if err != nil {
+		log.Warn().Err(err).Msg("error getting models for memory lookup, proceeding without memory info")
+		allModels = []*types.Model{} // Continue with empty list
+	}
+
+	// Create a map for fast model memory lookups
+	modelMemoryMap := make(map[string]uint64)
+	for _, model := range allModels {
+		modelMemoryMap[model.ID] = model.Memory
+		log.Debug().
+			Str("model_id", model.ID).
+			Str("model_type", string(model.Type)).
+			Str("runtime", string(model.Runtime)).
+			Uint64("memory_bytes", model.Memory).
+			Bool("enabled", model.Enabled).
+			Msg("📋 Loaded model from store")
+	}
+
+	log.Debug().
+		Int("total_models_in_store", len(allModels)).
+		Msg("📊 Total models loaded from store for memory lookup")
+
 	runners := make([]*types.DashboardRunner, 0, len(runnerStatuses))
 	for _, runnerStatus := range runnerStatuses {
 		var runnerSlots []*types.RunnerSlot
@@ -112,6 +137,92 @@ func (c *Controller) GetDashboardData(_ context.Context) (*types.DashboardData, 
 			log.Warn().Err(err).Str("runner_id", runnerStatus.ID).Msg("error getting runner slots, this shouldn't happen, please investigate this runner")
 			runnerSlots = []*types.RunnerSlot{}
 		}
+
+		// Log what models the runner is reporting
+		log.Debug().
+			Str("runner_id", runnerStatus.ID).
+			Int("model_count", len(runnerStatus.Models)).
+			Msg("🏃 Runner reporting models")
+
+		for _, model := range runnerStatus.Models {
+			log.Debug().
+				Str("runner_id", runnerStatus.ID).
+				Str("model_id", model.ModelID).
+				Str("runtime", string(model.Runtime)).
+				Bool("download_in_progress", model.DownloadInProgress).
+				Msg("🏃 Runner model")
+		}
+
+		// Add memory information to the models from our store lookup
+		modelsWithMemory := make([]*types.RunnerModelStatus, len(runnerStatus.Models))
+		for i, model := range runnerStatus.Models {
+			// Copy the model and add memory from store
+			modelWithMemory := *model // Copy the struct
+			if memory, exists := modelMemoryMap[model.ModelID]; exists {
+				modelWithMemory.Memory = memory
+				log.Debug().
+					Str("runner_id", runnerStatus.ID).
+					Str("model_id", model.ModelID).
+					Uint64("memory_bytes", memory).
+					Msg("✅ Found memory for model")
+			} else {
+				// Get a sample of available model IDs for debugging
+				var availableIDs []string
+				for id := range modelMemoryMap {
+					availableIDs = append(availableIDs, id)
+					if len(availableIDs) >= 5 { // Limit to first 5 for readability
+						availableIDs = append(availableIDs, "...")
+						break
+					}
+				}
+				log.Warn().
+					Str("runner_id", runnerStatus.ID).
+					Str("model_id", model.ModelID).
+					Interface("available_models", availableIDs).
+					Msg("❌ No memory found for model - ID mismatch?")
+			}
+			modelsWithMemory[i] = &modelWithMemory
+		}
+
+		// Also create model entries for any running slots that aren't in the runner's model list
+		// This is important because VLLM models may be running as slots but not reported in Models
+		slotModelMap := make(map[string]bool)
+		for _, model := range modelsWithMemory {
+			slotModelMap[model.ModelID] = true
+		}
+
+		// Add models from running slots that aren't already in the models list
+		for _, slot := range runnerSlots {
+			if !slotModelMap[slot.Model] {
+				// This slot model isn't in the runner's reported models, so add it
+				if memory, exists := modelMemoryMap[slot.Model]; exists {
+					slotModel := &types.RunnerModelStatus{
+						ModelID: slot.Model,
+						Runtime: slot.Runtime,
+						Memory:  memory,
+						// These fields are unknown for slot-derived models
+						DownloadInProgress: false,
+						DownloadPercent:    0,
+						Error:              "",
+					}
+					modelsWithMemory = append(modelsWithMemory, slotModel)
+					slotModelMap[slot.Model] = true
+					log.Debug().
+						Str("runner_id", runnerStatus.ID).
+						Str("slot_id", slot.ID.String()).
+						Str("model", slot.Model).
+						Uint64("memory_bytes", memory).
+						Msg("✅ Added slot model to models list with memory")
+				} else {
+					log.Debug().
+						Str("runner_id", runnerStatus.ID).
+						Str("slot_id", slot.ID.String()).
+						Str("model", slot.Model).
+						Msg("⚠️ No memory found for slot model")
+				}
+			}
+		}
+
 		runners = append(runners, &types.DashboardRunner{
 			ID:              runnerStatus.ID,
 			Created:         runnerStatus.Created,
@@ -123,16 +234,21 @@ func (c *Controller) GetDashboardData(_ context.Context) (*types.DashboardData, 
 			AllocatedMemory: runnerStatus.AllocatedMemory,
 			Labels:          runnerStatus.Labels,
 			Slots:           runnerSlots,
-			Models:          runnerStatus.Models,
+			Models:          modelsWithMemory, // Use models with memory info (now includes slot models)
 		})
 	}
 	queue, err := c.scheduler.Queue()
 	if err != nil {
 		return nil, err
 	}
+
+	// Get recent scheduling decisions (last 50)
+	schedulingDecisions := c.scheduler.GetSchedulingDecisions(50)
+
 	return &types.DashboardData{
-		Runners: runners,
-		Queue:   queue,
+		Runners:             runners,
+		Queue:               queue,
+		SchedulingDecisions: schedulingDecisions,
 	}, nil
 }
 

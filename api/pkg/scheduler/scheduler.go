@@ -19,11 +19,11 @@ import (
 )
 
 const (
-	pendingSlotsBufferSize    = 1 // The number of slot creation requests to buffer
-	runnerReconcileInterval   = 5 * time.Second
+	pendingSlotsBufferSize    = 1               // The number of slot creation requests to buffer
+	runnerReconcileInterval   = 1 * time.Second // Reduced from 5s for more responsive dashboard updates
 	activityReconcileInterval = 100 * time.Millisecond
 	queueReconcileInterval    = 100 * time.Millisecond
-	prewarmReconcileInterval  = 30 * time.Second // How often to check for prewarming opportunities
+	prewarmReconcileInterval  = 1 * time.Second // Reduced from 5s for more responsive dashboard updates
 )
 
 // TimeoutFunc defines a function type that determines if a runner has timed out based on the last activity.
@@ -47,13 +47,15 @@ func NewTimeoutFunc(ttl time.Duration) TimeoutFunc {
 }
 
 type Scheduler struct {
-	ctx             context.Context
-	controller      *RunnerController
-	queue           *WorkQueue
-	onSchedulingErr func(work *Workload, err error)
-	slots           *xsync.MapOf[uuid.UUID, *Slot]
-	modelStaleFunc  TimeoutFunc // Function to check if models are stale
-	slotTimeoutFunc TimeoutFunc // Function to check if slots have timed out due to error
+	ctx              context.Context
+	controller       *RunnerController
+	queue            *WorkQueue
+	onSchedulingErr  func(work *Workload, err error)
+	slots            *xsync.MapOf[uuid.UUID, *Slot]
+	modelStaleFunc   TimeoutFunc                 // Function to check if models are stale
+	slotTimeoutFunc  TimeoutFunc                 // Function to check if slots have timed out due to error
+	decisionsTracker *SchedulingDecisionsTracker // Tracks scheduling decisions for dashboard
+	prewarmTrigger   chan struct{}               // Channel to trigger immediate prewarming
 }
 
 type Params struct {
@@ -99,13 +101,24 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		Msg("Creating scheduler with parameters")
 
 	s := &Scheduler{
-		ctx:             ctx,
-		controller:      params.RunnerController,
-		queue:           NewWorkQueue(queueSize),
-		onSchedulingErr: params.OnSchedulingErr,
-		slots:           xsync.NewMapOf[uuid.UUID, *Slot](),
-		modelStaleFunc:  modelStaleFunc,
-		slotTimeoutFunc: slotTimeoutFunc,
+		ctx:              ctx,
+		controller:       params.RunnerController,
+		queue:            NewWorkQueue(queueSize),
+		onSchedulingErr:  params.OnSchedulingErr,
+		slots:            xsync.NewMapOf[uuid.UUID, *Slot](),
+		modelStaleFunc:   modelStaleFunc,
+		slotTimeoutFunc:  slotTimeoutFunc,
+		decisionsTracker: NewSchedulingDecisionsTracker(100), // Keep last 100 decisions
+		prewarmTrigger:   make(chan struct{}, 1),             // Buffered channel to prevent blocking
+	}
+
+	// Set the runner connected callback to trigger prewarming
+	// Only set if not already set (e.g. in tests)
+	if params.RunnerController.onRunnerConnected == nil {
+		params.RunnerController.onRunnerConnected = func(runnerID string) {
+			log.Info().Str("runner_id", runnerID).Msg("runner connected, triggering immediate prewarming")
+			s.TriggerPrewarming()
+		}
 	}
 
 	// Start the queue processor
@@ -127,7 +140,21 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 }
 
 func (s *Scheduler) Enqueue(work *Workload) error {
-	return s.queue.Add(work)
+	startTime := time.Now()
+
+	err := s.queue.Add(work)
+	if err != nil {
+		// Log failed queuing
+		s.logSchedulingDecision(work, types.SchedulingDecisionTypeError, false,
+			fmt.Sprintf("Failed to add to queue: %v", err), "", "", startTime)
+		return err
+	}
+
+	// Log successful queuing
+	s.logSchedulingDecision(work, types.SchedulingDecisionTypeQueued, true,
+		"Added to queue", "", "", startTime)
+
+	return nil
 }
 
 func (s *Scheduler) Queue() ([]*types.WorkloadSummary, error) {
@@ -514,9 +541,15 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 
 func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 	for i := 0; i < count; i++ {
+		startTime := time.Now()
+
 		// Find best runner for this slot
 		runnerID, err := s.pickBestRunner(req.ExampleWorkload)
 		if err != nil {
+			// Log scheduling rejection
+			s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeRejected, false,
+				fmt.Sprintf("Failed to pick best runner: %v", err), "", "", startTime)
+
 			retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
 			if retry {
 				log.Info().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, retrying...")
@@ -531,6 +564,10 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 		// Delete any stale slots on this runner if required
 		err = s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload)
 		if err != nil {
+			// Log scheduling rejection due to stale slot deletion failure
+			s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeRejected, false,
+				fmt.Sprintf("Failed to delete stale slots on runner %s: %v", runnerID, err), runnerID, "", startTime)
+
 			retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
 			if retry {
 				log.Info().Err(err).Interface("requirement", req).Msg("failed to delete any stale slots, retrying...")
@@ -547,6 +584,10 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 
 		// Store the slot
 		s.slots.Store(slot.ID, slot)
+
+		// Log successful new slot creation
+		s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeCreateNewSlot, true,
+			fmt.Sprintf("Created new slot on runner %s", runnerID), runnerID, slot.ID.String(), startTime)
 	}
 }
 
@@ -561,18 +602,28 @@ func (s *Scheduler) processQueueOnce() {
 		return // Nothing can be scheduled right now
 	}
 
+	startTime := time.Now()
+
 	// We know we have a warm slot, so schedule the work
 	warmSlots := s.warmSlots(work)
 	slot := s.pickBestWarmSlot(warmSlots)
 
 	err := s.allocateSlot(slot.ID, work)
 	if err != nil {
+		// Log failed allocation decision
+		s.logSchedulingDecision(work, types.SchedulingDecisionTypeError, false,
+			fmt.Sprintf("Failed to allocate warm slot: %v", err), slot.RunnerID, slot.ID.String(), startTime)
+
 		// If allocation fails, put work back in queue
 		err = s.queue.Add(work)
 		if err != nil {
 			log.Warn().Err(err).Msg("failed to add work back to queue")
 			s.onSchedulingErr(work, err)
 		}
+	} else {
+		// Log successful warm slot reuse
+		s.logSchedulingDecision(work, types.SchedulingDecisionTypeReuseWarmSlot, true,
+			fmt.Sprintf("Reused warm slot on runner %s", slot.RunnerID), slot.RunnerID, slot.ID.String(), startTime)
 	}
 }
 
@@ -971,17 +1022,35 @@ func withSlotAndWorkContext(l *zerolog.Logger, s *Slot, w *Workload) *zerolog.Lo
 // reconcilePrewarming runs in a goroutine to create prewarmed slots to fill free GPU memory.
 func (s *Scheduler) reconcilePrewarming(ctx context.Context) {
 	log.Debug().Msg("starting prewarming reconciler")
+
+	// Trigger initial prewarming immediately
+	go func() {
+		s.reconcilePrewarmingOnce(ctx)
+	}()
+
+	ticker := time.NewTicker(prewarmReconcileInterval)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(prewarmReconcileInterval):
+		case <-ticker.C:
+			s.reconcilePrewarmingOnce(ctx)
+		case <-s.prewarmTrigger:
+			log.Debug().Msg("triggered immediate prewarming")
 			s.reconcilePrewarmingOnce(ctx)
 		}
 	}
 }
 
 func (s *Scheduler) reconcilePrewarmingOnce(ctx context.Context) {
+	// Check if store is available (might be nil in tests)
+	if s.controller.store == nil {
+		log.Debug().Msg("no store available for prewarming, skipping")
+		return
+	}
+
 	// Get all models that should be prewarmed from the database
 	enabled := true
 	allModels, err := s.controller.store.ListModels(ctx, &store.ListModelsQuery{
@@ -1240,5 +1309,79 @@ func (s *Scheduler) createPrewarmWorkload(model *types.Model) *Workload {
 			llmInferenceRequest: llmRequest,
 			model:               model,
 		}
+	}
+}
+
+// GetSchedulingDecisions returns recent scheduling decisions for the dashboard
+func (s *Scheduler) GetSchedulingDecisions(limit int) []*types.SchedulingDecision {
+	return s.decisionsTracker.GetRecentDecisions(limit)
+}
+
+// logSchedulingDecision logs a scheduling decision with timing information
+func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types.SchedulingDecisionType, success bool, reason string, runnerID, slotID string, startTime time.Time) {
+	processingTime := time.Since(startTime).Milliseconds()
+
+	// Get available runners for context
+	availableRunners := s.controller.RunnerIDs()
+
+	// Count warm slots for this workload
+	warmSlots := s.warmSlots(workload)
+	totalSlots := 0
+	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		totalSlots++
+		return true
+	})
+
+	// Get session ID based on workload type
+	sessionID := ""
+	switch workload.WorkloadType {
+	case WorkloadTypeLLMInferenceRequest:
+		sessionID = workload.LLMInferenceRequest().SessionID
+	case WorkloadTypeSession:
+		sessionID = workload.Session().ID
+	}
+
+	decision := &types.SchedulingDecision{
+		WorkloadID:       workload.ID(),
+		SessionID:        sessionID,
+		ModelName:        string(workload.ModelName()),
+		Mode:             workload.Mode(),
+		DecisionType:     decisionType,
+		RunnerID:         runnerID,
+		SlotID:           slotID,
+		Reason:           reason,
+		Success:          success,
+		ProcessingTimeMs: processingTime,
+		AvailableRunners: availableRunners,
+		MemoryRequired:   workload.model.Memory,
+		WarmSlotCount:    len(warmSlots),
+		TotalSlotCount:   totalSlots,
+	}
+
+	s.decisionsTracker.LogDecision(decision)
+
+	// Log with structured logging for debugging
+	log.Debug().
+		Str("workload_id", workload.ID()).
+		Str("session_id", sessionID).
+		Str("model_name", string(workload.ModelName())).
+		Str("decision_type", string(decisionType)).
+		Bool("success", success).
+		Str("reason", reason).
+		Str("runner_id", runnerID).
+		Str("slot_id", slotID).
+		Int64("processing_time_ms", processingTime).
+		Int("warm_slot_count", len(warmSlots)).
+		Int("total_slot_count", totalSlots).
+		Msg("Scheduling decision logged")
+}
+
+// TriggerPrewarming triggers immediate prewarming (non-blocking)
+func (s *Scheduler) TriggerPrewarming() {
+	select {
+	case s.prewarmTrigger <- struct{}{}:
+		log.Debug().Msg("prewarming trigger sent")
+	default:
+		log.Debug().Msg("prewarming trigger already pending, skipping")
 	}
 }

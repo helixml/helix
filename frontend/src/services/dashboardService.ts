@@ -16,7 +16,7 @@ export function useGetDashboardData() {
       return result.data
     },
     enabled: true,
-    staleTime: 1000, // 1 second
-    refetchInterval: 1000, // Refetch every 1 second
+    staleTime: 1000, // 1 second - matches backend update intervals
+    refetchInterval: 1000, // Refetch every 1 second - matches backend runner cache and reconcile intervals
   });
 }
