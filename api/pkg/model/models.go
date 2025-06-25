@@ -415,7 +415,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 			Args: []string{
 				"--trust-remote-code",
 				"--max-model-len", "32768",
-				"--gpu-memory-utilization", "0.9",
+				"--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}",
 				"--limit-mm-per-prompt", "image=10",
 			},
 			Hide:    false,
@@ -430,7 +430,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 			Args: []string{
 				"--trust-remote-code",
 				"--max-model-len", "32768",
-				"--gpu-memory-utilization", "0.9",
+				"--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}",
 				"--limit-mm-per-prompt", "image=10",
 			},
 			Hide:    false,
@@ -447,6 +447,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 				"--max-model-len", "8192",
 				"--trust-remote-code",
 				"--chat-template", "examples/template_dse_qwen2_vl.jinja",
+				"--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}",
 			},
 			Hide:    false,
 			Prewarm: true,
