@@ -316,6 +316,14 @@ func (s *HelixAPIServer) handleDeleteOAuthProvider(_ http.ResponseWriter, r *htt
 }
 
 // handleGetOAuthConnection returns a specific OAuth connection
+// getOAuthConnection godoc
+// @Summary Get an OAuth connection
+// @Description Get a specific OAuth connection by ID. Users can only access their own connections unless they are admin.
+// @Tags    oauth
+// @Param   id path     string  true  "Connection ID"
+// @Success 200 {object} types.OAuthConnection
+// @Router /api/v1/oauth/connections/{id} [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) handleGetOAuthConnection(_ http.ResponseWriter, r *http.Request) (*types.OAuthConnection, error) {
 	user := getRequestUser(r)
 
@@ -344,6 +352,14 @@ func (s *HelixAPIServer) handleGetOAuthConnection(_ http.ResponseWriter, r *http
 }
 
 // handleDeleteOAuthConnection deletes an OAuth connection
+// deleteOAuthConnection godoc
+// @Summary Delete an OAuth connection
+// @Description Delete an OAuth connection. Users can only delete their own connections unless they are admin.
+// @Tags    oauth
+// @Param   id path     string  true  "Connection ID"
+// @Success 200
+// @Router /api/v1/oauth/connections/{id} [delete]
+// @Security BearerAuth
 func (s *HelixAPIServer) handleDeleteOAuthConnection(_ http.ResponseWriter, r *http.Request) (interface{}, error) {
 	user := getRequestUser(r)
 
