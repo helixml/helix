@@ -30,35 +30,32 @@ const (
 )
 
 type RunnerController struct {
-	runners           []string
-	mu                *sync.RWMutex
-	ps                pubsub.PubSub
-	ctx               context.Context
-	fs                filestore.FileStore
-	slotsCache        *LockingRunnerMap[types.ListRunnerSlotsResponse]
-	statusCache       *LockingRunnerMap[types.RunnerStatus]
-	store             store.Store
-	onRunnerConnected func(runnerID string) // Callback for when a runner connects
+	runners     []string
+	mu          *sync.RWMutex
+	ps          pubsub.PubSub
+	ctx         context.Context
+	fs          filestore.FileStore
+	slotsCache  *LockingRunnerMap[types.ListRunnerSlotsResponse]
+	statusCache *LockingRunnerMap[types.RunnerStatus]
+	store       store.Store
 }
 
 type RunnerControllerConfig struct {
-	PubSub            pubsub.PubSub
-	FS                filestore.FileStore
-	Store             store.Store
-	OnRunnerConnected func(runnerID string) // Callback for when a runner connects
+	PubSub pubsub.PubSub
+	FS     filestore.FileStore
+	Store  store.Store
 }
 
 func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*RunnerController, error) {
 	controller := &RunnerController{
-		ctx:               ctx,
-		ps:                cfg.PubSub,
-		fs:                cfg.FS,
-		store:             cfg.Store,
-		runners:           []string{},
-		mu:                &sync.RWMutex{},
-		slotsCache:        NewLockingRunnerMap[types.ListRunnerSlotsResponse](),
-		statusCache:       NewLockingRunnerMap[types.RunnerStatus](),
-		onRunnerConnected: cfg.OnRunnerConnected,
+		ctx:         ctx,
+		ps:          cfg.PubSub,
+		fs:          cfg.FS,
+		store:       cfg.Store,
+		runners:     []string{},
+		mu:          &sync.RWMutex{},
+		slotsCache:  NewLockingRunnerMap[types.ListRunnerSlotsResponse](),
+		statusCache: NewLockingRunnerMap[types.RunnerStatus](),
 	}
 
 	sub, err := cfg.PubSub.SubscribeWithCtx(controller.ctx, pubsub.GetRunnerConnectedQueue("*"), func(_ context.Context, msg *nats.Msg) error {
@@ -148,10 +145,6 @@ func (c *RunnerController) OnConnectedHandler(id string) {
 		if err != nil {
 			log.Error().Err(err).Str("runner_id", id).Msg("error setting models on runner")
 		}
-	}
-
-	if c.onRunnerConnected != nil {
-		c.onRunnerConnected(id)
 	}
 }
 
