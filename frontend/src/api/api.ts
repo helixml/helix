@@ -1415,6 +1415,7 @@ export interface TypesSchedulingDecision {
   processing_time_ms?: number;
   queue_position?: number;
   reason?: string;
+  repeat_count?: number;
   runner_id?: string;
   session_id?: string;
   slot_id?: string;
@@ -1430,6 +1431,7 @@ export enum TypesSchedulingDecisionType {
   SchedulingDecisionTypeCreateNewSlot = "create_new_slot",
   SchedulingDecisionTypeRejected = "rejected",
   SchedulingDecisionTypeError = "error",
+  SchedulingDecisionTypeUnschedulable = "unschedulable",
 }
 
 export interface TypesSecret {

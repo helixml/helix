@@ -1916,6 +1916,7 @@ const (
 	SchedulingDecisionTypeCreateNewSlot SchedulingDecisionType = "create_new_slot" // Started new model instance
 	SchedulingDecisionTypeRejected      SchedulingDecisionType = "rejected"        // Rejected (insufficient resources, etc.)
 	SchedulingDecisionTypeError         SchedulingDecisionType = "error"           // Error during scheduling
+	SchedulingDecisionTypeUnschedulable SchedulingDecisionType = "unschedulable"   // Cannot be scheduled (no warm slots available)
 )
 
 // SchedulingDecision represents a decision made by the central scheduler
@@ -1938,4 +1939,5 @@ type SchedulingDecision struct {
 	MemoryAvailable  uint64                 `json:"memory_available,omitempty"`
 	WarmSlotCount    int                    `json:"warm_slot_count,omitempty"`
 	TotalSlotCount   int                    `json:"total_slot_count,omitempty"`
+	RepeatCount      int                    `json:"repeat_count,omitempty"`
 }

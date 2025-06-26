@@ -654,6 +654,8 @@ func (s *Scheduler) processQueueOnce() {
 	})
 
 	if work == nil {
+		// Check if there's any work in the queue that can't be scheduled and log why
+		s.logUnschedulableWork()
 		return // Nothing can be scheduled right now
 	}
 
@@ -1450,6 +1452,82 @@ func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types
 		Int("warm_slot_count", len(warmSlots)).
 		Int("total_slot_count", totalSlots).
 		Msg("Scheduling decision logged")
+}
+
+// logUnschedulableWork checks for work in the queue that can't be scheduled and logs the reasons
+func (s *Scheduler) logUnschedulableWork() {
+	startTime := time.Now()
+	queuedWork := s.queue.Queue()
+
+	if len(queuedWork) == 0 {
+		return // No work in queue to check
+	}
+
+	// Check each work item to see why it can't be scheduled
+	for _, work := range queuedWork {
+		warmSlots := s.warmSlots(work)
+		if len(warmSlots) == 0 {
+			// This work has no warm slots - log why
+			reason := s.analyzeUnschedulableReason(work)
+
+			// Log the unschedulable decision with deduplication via repeat count
+			s.logSchedulingDecision(work, types.SchedulingDecisionTypeUnschedulable, false,
+				reason, "", "", startTime, 0, work.model.Memory, 0)
+		}
+	}
+}
+
+// analyzeUnschedulableReason analyzes why a work item can't be scheduled
+func (s *Scheduler) analyzeUnschedulableReason(work *Workload) string {
+	// Count total slots for this model+runtime+lora combination
+	totalSlots := 0
+	runningSlots := 0
+	activeSlots := 0
+	staleSlots := 0
+
+	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		if slot.InitialWork().ModelName() == work.ModelName() &&
+			slot.InitialWork().Runtime() == work.Runtime() &&
+			slot.InitialWork().LoraDir() == work.LoraDir() {
+			totalSlots++
+			if slot.IsRunning() {
+				runningSlots++
+				if slot.IsActive() {
+					activeSlots++
+				}
+			}
+			if slot.IsStale() {
+				staleSlots++
+			}
+		}
+		return true
+	})
+
+	// Get available runners
+	availableRunners := s.controller.RunnerIDs()
+
+	if len(availableRunners) == 0 {
+		return "No runners available"
+	}
+
+	if totalSlots == 0 {
+		return fmt.Sprintf("No slots for model %s (runtime: %s)", work.ModelName(), work.Runtime())
+	}
+
+	if runningSlots == 0 && totalSlots > 0 {
+		return fmt.Sprintf("All %d slots still starting for model %s", totalSlots, work.ModelName())
+	}
+
+	if activeSlots == runningSlots {
+		staleSlotsMsg := ""
+		if staleSlots > 0 {
+			staleSlotsMsg = fmt.Sprintf(" (%d stale, eligible for cleanup)", staleSlots)
+		}
+		return fmt.Sprintf("All %d running slots busy for model %s%s", runningSlots, work.ModelName(), staleSlotsMsg)
+	}
+
+	return fmt.Sprintf("No warm slots available for model %s (%d total, %d running, %d active)",
+		work.ModelName(), totalSlots, runningSlots, activeSlots)
 }
 
 // TriggerPrewarming triggers immediate prewarming (non-blocking)
