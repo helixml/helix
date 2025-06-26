@@ -49,18 +49,60 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 		}
 
 		if existingModel != nil {
-			// Update existing model if it doesn't have sort_order set
+			// Always update system-managed fields if user hasn't modified the model
+			shouldUpdate := false
+			updateData := *existingModel
+
+			// Update sort order if not set
 			if existingModel.SortOrder == 0 {
-				existingModel.SortOrder = sortOrder
-				_, err = s.UpdateModel(ctx, existingModel)
+				updateData.SortOrder = sortOrder
+				shouldUpdate = true
+			}
+
+			// If user hasn't modified the model, keep it in sync with code definitions
+			if !existingModel.UserModified {
+				// Update all system-managed fields from code definitions
+				if existingModel.Memory != model.Memory {
+					updateData.Memory = model.Memory
+					shouldUpdate = true
+				}
+				if existingModel.Name != model.Name {
+					updateData.Name = model.Name
+					shouldUpdate = true
+				}
+				if existingModel.Description != model.Description {
+					updateData.Description = model.Description
+					shouldUpdate = true
+				}
+				if existingModel.Hide != model.Hide {
+					updateData.Hide = model.Hide
+					shouldUpdate = true
+				}
+				if existingModel.Prewarm != model.Prewarm {
+					updateData.Prewarm = model.Prewarm
+					shouldUpdate = true
+				}
+				if existingModel.ContextLength != model.ContextLength {
+					updateData.ContextLength = model.ContextLength
+					shouldUpdate = true
+				}
+			}
+
+			if shouldUpdate {
+				_, err = s.UpdateModel(ctx, &updateData)
 				if err != nil {
 					log.Err(err).Str("model_id", model.ID).Msg("failed to update existing ollama model")
+				} else {
+					log.Info().
+						Str("model_id", model.ID).
+						Bool("user_modified", existingModel.UserModified).
+						Msg("updated existing ollama model with latest system defaults")
 				}
 			}
 			continue
 		}
 
-		// Create model
+		// Create new model
 		m := &types.Model{
 			ID:            model.ID,
 			Name:          model.Name,
@@ -73,6 +115,7 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 			Enabled:       true,
 			SortOrder:     sortOrder,
 			Prewarm:       model.Prewarm,
+			UserModified:  false, // New models are system-managed
 		}
 
 		_, err = s.CreateModel(ctx, m)
@@ -95,18 +138,56 @@ func (s *PostgresStore) seedDiffusersModels(ctx context.Context) error {
 		}
 
 		if existingModel != nil {
-			// Update existing model if it doesn't have sort_order set
+			// Always update system-managed fields if user hasn't modified the model
+			shouldUpdate := false
+			updateData := *existingModel
+
+			// Update sort order if not set
 			if existingModel.SortOrder == 0 {
-				existingModel.SortOrder = i + 200 // Diffusers models get 200+ range
-				_, err = s.UpdateModel(ctx, existingModel)
+				updateData.SortOrder = i + 200 // Diffusers models get 200+ range
+				shouldUpdate = true
+			}
+
+			// If user hasn't modified the model, keep it in sync with code definitions
+			if !existingModel.UserModified {
+				// Update all system-managed fields from code definitions
+				if existingModel.Memory != model.Memory {
+					updateData.Memory = model.Memory
+					shouldUpdate = true
+				}
+				if existingModel.Name != model.Name {
+					updateData.Name = model.Name
+					shouldUpdate = true
+				}
+				if existingModel.Description != model.Description {
+					updateData.Description = model.Description
+					shouldUpdate = true
+				}
+				if existingModel.Hide != model.Hide {
+					updateData.Hide = model.Hide
+					shouldUpdate = true
+				}
+				if existingModel.Prewarm != model.Prewarm {
+					updateData.Prewarm = model.Prewarm
+					shouldUpdate = true
+				}
+			}
+
+			if shouldUpdate {
+				_, err = s.UpdateModel(ctx, &updateData)
 				if err != nil {
 					log.Err(err).Str("model_id", model.ID).Msg("failed to update existing diffusers model")
+				} else {
+					log.Info().
+						Str("model_id", model.ID).
+						Bool("user_modified", existingModel.UserModified).
+						Msg("updated existing diffusers model with latest system defaults")
 				}
 			}
 			continue
 		}
 
-		// Create model
+		// Create new model
 		m := &types.Model{
 			ID:            model.ID,
 			Name:          model.Name,
@@ -119,6 +200,7 @@ func (s *PostgresStore) seedDiffusersModels(ctx context.Context) error {
 			ContextLength: 0,       // Image models don't have context length
 			SortOrder:     i + 200, // Diffusers models get 200+ range
 			Prewarm:       model.Prewarm,
+			UserModified:  false, // New models are system-managed
 		}
 
 		_, err = s.CreateModel(ctx, m)
@@ -156,27 +238,65 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 		}
 
 		if existingModel != nil {
-			// Update existing model if it needs corrections
-			needsUpdate := false
+			// Always update system-managed fields if user hasn't modified the model
+			shouldUpdate := false
+			updateData := *existingModel
+
+			// Update sort order if not set
 			if existingModel.SortOrder == 0 {
-				existingModel.SortOrder = sortOrder
-				needsUpdate = true
+				updateData.SortOrder = sortOrder
+				shouldUpdate = true
 			}
+			// Update model type if incorrect
 			if existingModel.Type != modelType {
-				existingModel.Type = modelType
-				needsUpdate = true
+				updateData.Type = modelType
+				shouldUpdate = true
 			}
 
-			if needsUpdate {
-				_, err = s.UpdateModel(ctx, existingModel)
+			// If user hasn't modified the model, keep it in sync with code definitions
+			if !existingModel.UserModified {
+				// Update all system-managed fields from code definitions
+				if existingModel.Memory != model.Memory {
+					updateData.Memory = model.Memory
+					shouldUpdate = true
+				}
+				if existingModel.Name != model.Name {
+					updateData.Name = model.Name
+					shouldUpdate = true
+				}
+				if existingModel.Description != model.Description {
+					updateData.Description = model.Description
+					shouldUpdate = true
+				}
+				if existingModel.Hide != model.Hide {
+					updateData.Hide = model.Hide
+					shouldUpdate = true
+				}
+				if existingModel.Prewarm != model.Prewarm {
+					updateData.Prewarm = model.Prewarm
+					shouldUpdate = true
+				}
+				if existingModel.ContextLength != model.ContextLength {
+					updateData.ContextLength = model.ContextLength
+					shouldUpdate = true
+				}
+			}
+
+			if shouldUpdate {
+				_, err = s.UpdateModel(ctx, &updateData)
 				if err != nil {
 					log.Err(err).Str("model_id", model.ID).Msg("failed to update existing vllm model")
+				} else {
+					log.Info().
+						Str("model_id", model.ID).
+						Bool("user_modified", existingModel.UserModified).
+						Msg("updated existing vllm model with latest system defaults")
 				}
 			}
 			continue
 		}
 
-		// Create model
+		// Create new model
 		m := &types.Model{
 			ID:            model.ID,
 			Name:          model.Name,
@@ -189,6 +309,7 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 			Enabled:       true,
 			SortOrder:     sortOrder,
 			Prewarm:       model.Prewarm,
+			UserModified:  false, // New models are system-managed
 		}
 
 		_, err = s.CreateModel(ctx, m)
