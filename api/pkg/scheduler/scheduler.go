@@ -698,21 +698,6 @@ func (s *Scheduler) getSortedRunners(work *Workload) ([]string, error) {
 	return filteredRunners, nil
 }
 
-// Add new helper method to find the best runner (kept for backward compatibility)
-func (s *Scheduler) pickBestRunner(work *Workload) (string, error) {
-	sortedRunners, err := s.getSortedRunners(work)
-	if err != nil {
-		return "", err
-	}
-
-	// Pick the first runner
-	bestRunnerID := sortedRunners[0]
-	withWorkContext(&log.Logger, work).Debug().Str("runner_id", bestRunnerID).Msg("chosen best runner")
-
-	// Return the bestRunnerID and any error
-	return bestRunnerID, nil
-}
-
 // DeleteMostStaleStrategy iteratively deletes allocated work from stale slots until there is enough
 // memory to allocate the new workload.
 func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) error {
