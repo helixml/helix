@@ -48,16 +48,19 @@ func NewTimeoutFunc(ttl time.Duration) TimeoutFunc {
 }
 
 type Scheduler struct {
-	ctx                     context.Context
-	controller              *RunnerController
-	queue                   *WorkQueue
-	onSchedulingErr         func(work *Workload, err error)
-	slots                   *xsync.MapOf[uuid.UUID, *Slot]
-	modelStaleFunc          TimeoutFunc                       // Function to check if models are stale
-	slotTimeoutFunc         TimeoutFunc                       // Function to check if slots have timed out due to error
-	decisionsTracker        *SchedulingDecisionsTracker       // Tracks scheduling decisions for dashboard
-	prewarmTrigger          chan struct{}                     // Channel to trigger immediate prewarming
-	runnerAllocationMutexes *xsync.MapOf[string, *sync.Mutex] // Per-runner mutexes to prevent overscheduling race conditions
+	ctx               context.Context
+	controller        *RunnerController
+	queue             *WorkQueue
+	onSchedulingErr   func(work *Workload, err error)
+	slots             *xsync.MapOf[uuid.UUID, *Slot]
+	modelStaleFunc    TimeoutFunc                 // Function to check if models are stale
+	slotTimeoutFunc   TimeoutFunc                 // Function to check if slots have timed out due to error
+	decisionsTracker  *SchedulingDecisionsTracker // Tracks scheduling decisions for dashboard
+	prewarmTrigger    chan struct{}               // Channel to trigger immediate prewarming
+	slotCreationMutex sync.Mutex                  // Single mutex to serialize all slot creation operations
+
+	// Optional function to override slot creation behavior (for testing)
+	createSlotFunc func(slot *Slot) error
 }
 
 type Params struct {
@@ -65,6 +68,7 @@ type Params struct {
 	QueueSize         int
 	OnSchedulingErr   func(work *Workload, err error)
 	OnResponseHandler func(ctx context.Context, resp *types.RunnerLLMInferenceResponse) error
+	CreateSlotFunc    func(slot *Slot) error // Optional override for slot creation (for testing)
 }
 
 func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params *Params) (*Scheduler, error) {
@@ -103,16 +107,17 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		Msg("Creating scheduler with parameters")
 
 	s := &Scheduler{
-		ctx:                     ctx,
-		controller:              params.RunnerController,
-		queue:                   NewWorkQueue(queueSize),
-		onSchedulingErr:         params.OnSchedulingErr,
-		slots:                   xsync.NewMapOf[uuid.UUID, *Slot](),
-		modelStaleFunc:          modelStaleFunc,
-		slotTimeoutFunc:         slotTimeoutFunc,
-		decisionsTracker:        NewSchedulingDecisionsTracker(100),    // Keep last 100 decisions
-		prewarmTrigger:          make(chan struct{}, 1),                // Buffered channel to prevent blocking
-		runnerAllocationMutexes: xsync.NewMapOf[string, *sync.Mutex](), // Per-runner mutexes to prevent race conditions
+		ctx:               ctx,
+		controller:        params.RunnerController,
+		queue:             NewWorkQueue(queueSize),
+		onSchedulingErr:   params.OnSchedulingErr,
+		slots:             xsync.NewMapOf[uuid.UUID, *Slot](),
+		modelStaleFunc:    modelStaleFunc,
+		slotTimeoutFunc:   slotTimeoutFunc,
+		decisionsTracker:  NewSchedulingDecisionsTracker(100), // Keep last 100 decisions
+		prewarmTrigger:    make(chan struct{}, 1),             // Buffered channel to prevent blocking
+		slotCreationMutex: sync.Mutex{},                       // Single mutex to serialize all slot creation
+		createSlotFunc:    params.CreateSlotFunc,              // Optional override for testing
 	}
 
 	// Set the runner connected callback to trigger prewarming
@@ -124,10 +129,10 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		}
 	}
 
-	// Start the queue processor
+	// Start the fast queue processor for responsive user requests
 	go s.processQueue(ctx)
 
-	// Start the slot reconciler
+	// Start the slot reconciler (now includes prewarming)
 	go s.reconcileSlots(ctx)
 
 	// Start the activity reconciler
@@ -135,9 +140,6 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 
 	// Start the runner reconciler
 	go s.reconcileRunners(ctx)
-
-	// Start the prewarming reconciler
-	go s.reconcilePrewarming(ctx)
 
 	return s, nil
 }
@@ -242,17 +244,41 @@ func (s *Scheduler) processQueue(ctx context.Context) {
 	}
 }
 
-// reconcileSlots runs in a goroutine to reconcile slots.
+// reconcileSlots runs in a goroutine to reconcile slots and handle prewarming.
 // The reason why we do this async is because we don't want to have to check the runner on the hot
 // path. When a user makes a request we want to forward it to a warm runner as quickly as possible.
+// Prewarming is now integrated here to eliminate race conditions between slot creation and prewarming.
 func (s *Scheduler) reconcileSlots(ctx context.Context) {
-	log.Debug().Msg("starting slot reconciler")
+	log.Debug().Msg("starting slot reconciler with integrated prewarming")
+
+	// Track timing for prewarming
+	lastPrewarmCheck := time.Now()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(runnerReconcileInterval):
+			// 1. First reconcile existing slots (most critical)
 			s.reconcileSlotsOnce(ctx)
+
+			// 2. Then handle prewarming every 5 seconds or when triggered
+			now := time.Now()
+			shouldPrewarm := now.Sub(lastPrewarmCheck) >= prewarmReconcileInterval
+
+			// Check for prewarming trigger (non-blocking)
+			select {
+			case <-s.prewarmTrigger:
+				log.Debug().Msg("triggered immediate prewarming in slot reconciler")
+				shouldPrewarm = true
+			default:
+				// No trigger, continue with time-based check
+			}
+
+			if shouldPrewarm {
+				s.reconcilePrewarmingOnce(ctx)
+				lastPrewarmCheck = now
+			}
 		}
 	}
 }
@@ -589,19 +615,15 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 				Int("total_runners", len(sortedRunners)).
 				Msg("trying runner for slot creation")
 
-			// Try to delete stale slots on this runner if required and get the EXACT memory values used for the decision
-			totalMemory, _, freeMemory, err := s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload)
-			// Get or create a mutex for this specific runner to prevent overscheduling race conditions
-			mutex, _ := s.runnerAllocationMutexes.LoadOrStore(runnerID, &sync.Mutex{})
-
-			// Lock the runner-specific mutex to serialize memory check + slot creation
+			// Lock the global slot creation mutex to serialize memory check + slot creation
 			// This prevents multiple goroutines from creating slots based on stale memory calculations
-			mutex.Lock()
+			s.slotCreationMutex.Lock()
 
-			// Try to delete stale slots on this runner if required
+			// Do memory calculation INSIDE mutex to prevent race conditions
+			totalMemory, _, freeMemory, err := s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload)
 			if err != nil {
 				lastErr = err
-				mutex.Unlock() // Release lock before continuing to next runner
+				s.slotCreationMutex.Unlock() // Release lock before continuing to next runner
 				withWorkContext(&log.Logger, req.ExampleWorkload).Debug().
 					Err(err).
 					Str("runner_id", runnerID).
@@ -609,7 +631,7 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 				continue // Try next runner
 			}
 
-			// Success! Create slot on this runner
+			// Success! Create slot on this runner with fresh memory calculation
 			slot := NewSlot(runnerID, req.ExampleWorkload, s.modelStaleFunc, s.slotTimeoutFunc)
 			s.slots.Store(slot.ID, slot)
 
@@ -618,7 +640,7 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 				fmt.Sprintf("Created new slot on runner %s (attempt %d/%d)", runnerID, j+1, len(sortedRunners)),
 				runnerID, slot.ID.String(), startTime, freeMemory, req.ExampleWorkload.model.Memory, totalMemory)
 
-			mutex.Unlock() // Release lock after successful slot creation
+			s.slotCreationMutex.Unlock() // Release lock after successful slot creation
 			slotCreated = true
 			break // Success, no need to try more runners
 		}
@@ -1019,7 +1041,13 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
 	withSlotContext(&log.Logger, slot).Info().Msg("creating new slot on runner")
 
-	err := s.controller.CreateSlot(slot)
+	// Use custom create function if provided (for testing), otherwise use controller
+	var err error
+	if s.createSlotFunc != nil {
+		err = s.createSlotFunc(slot)
+	} else {
+		err = s.controller.CreateSlot(slot)
+	}
 	if err != nil {
 		return err
 	}
@@ -1129,41 +1157,20 @@ func withSlotAndWorkContext(l *zerolog.Logger, s *Slot, w *Workload) *zerolog.Lo
 	return withSlotContext(withWorkContext(l, w), s)
 }
 
-// reconcilePrewarming runs in a goroutine to create prewarmed slots to fill free GPU memory.
-func (s *Scheduler) reconcilePrewarming(ctx context.Context) {
-	log.Debug().Msg("starting prewarming reconciler")
-
-	// Trigger initial prewarming immediately
-	go func() {
-		s.reconcilePrewarmingOnce(ctx)
-	}()
-
-	ticker := time.NewTicker(prewarmReconcileInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.reconcilePrewarmingOnce(ctx)
-		case <-s.prewarmTrigger:
-			log.Debug().Msg("triggered immediate prewarming")
-			s.reconcilePrewarmingOnce(ctx)
-		}
-	}
-}
+// reconcilePrewarmingOnce handles the core prewarming logic to create prewarmed slots.
+// It's called from reconcileSlots to eliminate race conditions between slot creation and prewarming.
+// This function can also be triggered manually via TriggerPrewarming().
 
 func (s *Scheduler) reconcilePrewarmingOnce(ctx context.Context) {
 	// Check if store is available (might be nil in tests)
-	if s.controller.store == nil {
+	if s.controller.GetStore() == nil {
 		log.Debug().Msg("no store available for prewarming, skipping")
 		return
 	}
 
 	// Get all models that should be prewarmed from the database
 	enabled := true
-	allModels, err := s.controller.store.ListModels(ctx, &store.ListModelsQuery{
+	allModels, err := s.controller.GetStore().ListModels(ctx, &store.ListModelsQuery{
 		Enabled: &enabled, // Only enabled models
 	})
 	if err != nil {
@@ -1329,14 +1336,12 @@ func (s *Scheduler) globalPrewarmBalancing(runnerIDs []string, prewarmModels []*
 		}
 
 		// Second pass: try to create slot with race-free memory validation
-		// Get or create a mutex for this specific runner to prevent overscheduling race conditions
-		mutex, _ := s.runnerAllocationMutexes.LoadOrStore(bestRunner.id, &sync.Mutex{})
-
+		// Use the global slot creation mutex to prevent overscheduling race conditions
 		var prewarmWorkload *Workload
 		var slot *Slot
 		var actualMemoryInfo *runnerCapacity
 
-		mutex.Lock()
+		s.slotCreationMutex.Lock()
 
 		// Recalculate runner capacity with current slots (fresh view inside mutex)
 		totalMemory := s.controller.TotalMemory(bestRunner.id)
@@ -1357,25 +1362,50 @@ func (s *Scheduler) globalPrewarmBalancing(runnerIDs []string, prewarmModels []*
 			// Create the slot immediately while holding the mutex to prevent race conditions
 			prewarmWorkload = s.createPrewarmWorkload(model)
 			slot = NewSlot(bestRunner.id, prewarmWorkload, s.modelStaleFunc, s.slotTimeoutFunc)
+
+			// Store slot in scheduler's memory
 			s.slots.Store(slot.ID, slot)
 
-			actualMemoryInfo = &runnerCapacity{
-				id:              bestRunner.id,
-				totalMemory:     totalMemory,
-				allocatedMemory: allocatedMemory,
-				freeMemory:      freeMemory,
-				availableMemory: freeMemory,
-				existingModels:  existingModels,
+			// Try to create the slot on the runner
+			var err error
+			if s.createSlotFunc != nil {
+				err = s.createSlotFunc(slot)
+			} else {
+				err = s.controller.CreateSlot(slot)
+			}
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("runner_id", bestRunner.id).
+					Str("model", model.ID).
+					Str("slot_id", slot.ID.String()).
+					Msg("failed to create prewarming slot on runner, removing from scheduler")
+
+				// Remove from scheduler if runner creation failed
+				s.slots.Delete(slot.ID)
+				actualMemoryInfo = nil
+			} else {
+				actualMemoryInfo = &runnerCapacity{
+					id:              bestRunner.id,
+					totalMemory:     totalMemory,
+					allocatedMemory: allocatedMemory,
+					freeMemory:      freeMemory,
+					availableMemory: freeMemory,
+					existingModels:  existingModels,
+				}
 			}
 
-			log.Info().
-				Str("runner_id", bestRunner.id).
-				Str("model", model.ID).
-				Uint64("model_memory", model.Memory).
-				Uint64("free_memory", freeMemory).
-				Uint64("total_memory", totalMemory).
-				Str("slot_id", slot.ID.String()).
-				Msg("created prewarming slot with race-free memory validation")
+			// Only log success if slot creation succeeded
+			if actualMemoryInfo != nil {
+				log.Info().
+					Str("runner_id", bestRunner.id).
+					Str("model", model.ID).
+					Uint64("model_memory", model.Memory).
+					Uint64("free_memory", freeMemory).
+					Uint64("total_memory", totalMemory).
+					Str("slot_id", slot.ID.String()).
+					Msg("created prewarming slot with synchronous runner creation")
+			}
 		} else {
 			log.Debug().
 				Str("runner_id", bestRunner.id).
@@ -1386,7 +1416,7 @@ func (s *Scheduler) globalPrewarmBalancing(runnerIDs []string, prewarmModels []*
 				Msg("runner no longer has sufficient memory for prewarming (race detected)")
 		}
 
-		mutex.Unlock()
+		s.slotCreationMutex.Unlock()
 
 		if actualMemoryInfo == nil {
 			// Memory validation failed - the runner no longer has enough memory

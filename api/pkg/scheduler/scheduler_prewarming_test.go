@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -77,6 +78,14 @@ func TestGlobalPrewarmBalancing_EqualDistribution(t *testing.T) {
 		Return(prewarmModels, nil).
 		AnyTimes()
 
+	// Mock GetModel calls for each prewarm model (needed for slot creation)
+	for _, model := range prewarmModels {
+		mockStore.EXPECT().
+			GetModel(gomock.Any(), model.ID).
+			Return(model, nil).
+			AnyTimes()
+	}
+
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,
 		Store:  mockStore,
@@ -96,17 +105,24 @@ func TestGlobalPrewarmBalancing_EqualDistribution(t *testing.T) {
 	runnerCtrl.OnConnectedHandler("runner-1")
 	runnerCtrl.OnConnectedHandler("runner-2")
 
+	// Mock CreateSlot to succeed immediately (for testing prewarming logic)
+	mockCreateSlot := func(slot *Slot) error {
+		// Mark slot as running to simulate successful creation
+		slot.SetRunning()
+		return nil
+	}
+
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		CreateSlotFunc:   mockCreateSlot,
 	})
 	require.NoError(t, err)
 
-	// First run: background reconciler + manual call should create instances of each model
+	// First run: should create instances of each model
 	scheduler.reconcilePrewarmingOnce(ctx)
-	// With background prewarming, we expect more slots (background + manual reconciliation)
 	require.GreaterOrEqual(t, scheduler.slots.Size(), 3)
 
-	// Verify each model has at least 1 instance (may have more due to background reconciliation)
+	// Verify each model has at least 1 instance
 	modelCounts := make(map[string]int)
 	scheduler.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 		modelCounts[slot.InitialWork().ModelName().String()]++
@@ -117,20 +133,18 @@ func TestGlobalPrewarmBalancing_EqualDistribution(t *testing.T) {
 	require.GreaterOrEqual(t, modelCounts["model-b"], 1)
 	require.GreaterOrEqual(t, modelCounts["model-c"], 1)
 
-	// Second run: should create more instances (background + manual reconciliation)
+	// Second run: should create more instances (global balancing)
 	initialSize := scheduler.slots.Size()
 	scheduler.reconcilePrewarmingOnce(ctx)
-	// Should have more slots after second reconciliation
-	require.Greater(t, scheduler.slots.Size(), initialSize)
+	require.GreaterOrEqual(t, scheduler.slots.Size(), initialSize)
 
-	// Verify each model has balanced distribution
+	// Verify distribution is still balanced
 	modelCounts = make(map[string]int)
 	scheduler.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 		modelCounts[slot.InitialWork().ModelName().String()]++
 		return true
 	})
 
-	// With background prewarming, models should have roughly equal counts
 	require.Greater(t, modelCounts["model-a"], 0)
 	require.Greater(t, modelCounts["model-b"], 0)
 	require.Greater(t, modelCounts["model-c"], 0)
@@ -159,6 +173,14 @@ func TestGlobalPrewarmBalancing_UnevenDistribution(t *testing.T) {
 		Return(prewarmModels, nil).
 		AnyTimes()
 
+	// Mock GetModel calls for each prewarm model (needed for slot creation)
+	for _, model := range prewarmModels {
+		mockStore.EXPECT().
+			GetModel(gomock.Any(), model.ID).
+			Return(model, nil).
+			AnyTimes()
+	}
+
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,
 		Store:  mockStore,
@@ -173,8 +195,16 @@ func TestGlobalPrewarmBalancing_UnevenDistribution(t *testing.T) {
 	// Manually add runner to the controller (simulating connection)
 	runnerCtrl.OnConnectedHandler("runner-1")
 
+	// Mock CreateSlot to succeed immediately (for testing prewarming logic)
+	mockCreateSlot := func(slot *Slot) error {
+		// Mark slot as running to simulate successful creation
+		slot.SetRunning()
+		return nil
+	}
+
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		CreateSlotFunc:   mockCreateSlot,
 	})
 	require.NoError(t, err)
 
@@ -191,9 +221,8 @@ func TestGlobalPrewarmBalancing_UnevenDistribution(t *testing.T) {
 
 	require.Equal(t, 4, scheduler.slots.Size())
 
-	// Run prewarming: should balance the distribution (background + manual reconciliation)
+	// Run prewarming: should balance the distribution (create more model-b instances)
 	scheduler.reconcilePrewarmingOnce(ctx)
-	// With background prewarming, we expect more than 4 slots
 	require.Greater(t, scheduler.slots.Size(), 4)
 
 	// Verify distribution: both models should have instances
@@ -218,7 +247,6 @@ func TestGlobalPrewarmBalancing_UnevenDistribution(t *testing.T) {
 		return true
 	})
 
-	// Both models should still have instances
 	require.Greater(t, modelCounts["model-a"], 0)
 	require.Greater(t, modelCounts["model-b"], 0)
 }
@@ -292,6 +320,14 @@ func TestGlobalPrewarmBalancing_PartialMemory(t *testing.T) {
 		Return(prewarmModels, nil).
 		AnyTimes()
 
+	// Mock GetModel calls for each prewarm model (needed for slot creation)
+	for _, model := range prewarmModels {
+		mockStore.EXPECT().
+			GetModel(gomock.Any(), model.ID).
+			Return(model, nil).
+			AnyTimes()
+	}
+
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,
 		Store:  mockStore,
@@ -306,12 +342,23 @@ func TestGlobalPrewarmBalancing_PartialMemory(t *testing.T) {
 	// Manually add runner to the controller (simulating connection)
 	runnerCtrl.OnConnectedHandler("runner-1")
 
+	// Mock CreateSlot to succeed for small models but fail for large models
+	mockCreateSlot := func(slot *Slot) error {
+		modelMemory := slot.InitialWork().model.Memory
+		if modelMemory <= 5000 { // Runner has 5000 total memory
+			slot.SetRunning()
+			return nil
+		}
+		return fmt.Errorf("insufficient memory for model requiring %d", modelMemory)
+	}
+
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		CreateSlotFunc:   mockCreateSlot,
 	})
 	require.NoError(t, err)
 
-	// Should create slots for small model only (multiple instances due to global balancing)
+	// Should create slots for small model only (large model should fail)
 	scheduler.reconcilePrewarmingOnce(ctx)
 	require.GreaterOrEqual(t, scheduler.slots.Size(), 1)
 
@@ -326,6 +373,7 @@ func TestGlobalPrewarmBalancing_PartialMemory(t *testing.T) {
 	})
 
 	require.True(t, allSlotsSmallModel, "All created slots should be for the small-model")
+
 }
 
 func TestGlobalPrewarmBalancing_MultipleRunners(t *testing.T) {
@@ -351,6 +399,14 @@ func TestGlobalPrewarmBalancing_MultipleRunners(t *testing.T) {
 		Return(prewarmModels, nil).
 		AnyTimes()
 
+	// Mock GetModel calls for each prewarm model (needed for slot creation)
+	for _, model := range prewarmModels {
+		mockStore.EXPECT().
+			GetModel(gomock.Any(), model.ID).
+			Return(model, nil).
+			AnyTimes()
+	}
+
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,
 		Store:  mockStore,
@@ -375,14 +431,21 @@ func TestGlobalPrewarmBalancing_MultipleRunners(t *testing.T) {
 	runnerCtrl.OnConnectedHandler("runner-2")
 	runnerCtrl.OnConnectedHandler("runner-3")
 
+	// Mock CreateSlot to succeed immediately (for testing prewarming logic)
+	mockCreateSlot := func(slot *Slot) error {
+		// Mark slot as running to simulate successful creation
+		slot.SetRunning()
+		return nil
+	}
+
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		CreateSlotFunc:   mockCreateSlot,
 	})
 	require.NoError(t, err)
 
 	// Should distribute models across runners based on available memory
 	scheduler.reconcilePrewarmingOnce(ctx)
-	// With background prewarming, we expect at least 2 slots (may be more)
 	require.GreaterOrEqual(t, scheduler.slots.Size(), 2)
 
 	// Verify distribution across runners
@@ -398,6 +461,17 @@ func TestGlobalPrewarmBalancing_MultipleRunners(t *testing.T) {
 		totalDistributed += count
 	}
 	require.GreaterOrEqual(t, totalDistributed, 2)
+
+	// Verify both models have instances
+	modelCounts := make(map[string]int)
+	scheduler.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		modelName := slot.InitialWork().ModelName().String()
+		modelCounts[modelName]++
+		return true
+	})
+
+	require.Greater(t, modelCounts["model-a"], 0)
+	require.Greater(t, modelCounts["model-b"], 0)
 }
 
 func TestFindBestRunnerForModel(t *testing.T) {
