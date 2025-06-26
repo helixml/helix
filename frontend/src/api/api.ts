@@ -1049,6 +1049,8 @@ export interface TypesModel {
   sort_order?: number;
   type?: TypesModelType;
   updated?: string;
+  /** User modification tracking - system defaults are automatically updated if this is false */
+  user_modified?: boolean;
 }
 
 export enum TypesModelType {
@@ -1628,6 +1630,12 @@ export enum TypesSessionType {
   SessionTypeImage = "image",
 }
 
+export interface TypesSlackTrigger {
+  app_token?: string;
+  bot_token?: string;
+  channels?: string[];
+}
+
 export interface TypesStepInfo {
   app_id?: string;
   created?: string;
@@ -1776,6 +1784,7 @@ export interface TypesToolZapierConfig {
 export interface TypesTrigger {
   cron?: TypesCronTrigger;
   discord?: TypesDiscordTrigger;
+  slack?: TypesSlackTrigger;
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
