@@ -905,3 +905,7 @@ func (c *RunnerController) fetchSlots(runnerID string) (types.ListRunnerSlotsRes
 	}
 	return slots, nil
 }
+
+func (c *RunnerController) GetStore() store.Store {
+	return c.store
+}
