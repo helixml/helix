@@ -715,7 +715,7 @@ func TestScheduler_OverschedulingRaceCondition(t *testing.T) {
 	var finalSlotCount int
 	var finalAllocatedMemory uint64
 
-	scheduler.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
+	scheduler.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 		if slot.RunnerID == runner1ID {
 			finalSlotCount++
 			finalAllocatedMemory += slot.Memory()
@@ -887,7 +887,7 @@ func TestScheduler_RealRaceCondition_SlotsVsPrewarming(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Count final allocation
-	scheduler.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
+	scheduler.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 		if slot.RunnerID == runner1ID {
 			finalSlotCount++
 			finalAllocatedMemory += slot.Memory()
