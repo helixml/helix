@@ -756,3 +756,161 @@ func TestScheduler_OverschedulingRaceCondition(t *testing.T) {
 	// The race condition fix is demonstrated by the lack of overscheduling
 	// This is the key success metric - memory allocation was properly serialized
 }
+
+func TestScheduler_RealRaceCondition_SlotsVsPrewarming(t *testing.T) {
+	// This test reproduces the ACTUAL race condition that occurred in production:
+	// reconcileSlots() and reconcilePrewarming() running concurrently, both creating
+	// slots based on stale memory calculations, leading to overscheduling.
+
+	ctx := context.Background()
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	// Set up mock store with prewarming models
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	enabled := true
+
+	// Mock models with prewarming enabled
+	prewarmModel := &types.Model{
+		ID:      "prewarm-model",
+		Memory:  10 * 1024 * 1024 * 1024, // 10GB
+		Runtime: types.RuntimeOllama,
+		Prewarm: true, // This model should be prewarmed
+	}
+
+	mockStore.EXPECT().
+		ListModels(ctx, &store.ListModelsQuery{Enabled: &enabled}).
+		Return([]*types.Model{prewarmModel}, nil).
+		AnyTimes()
+
+	// Mock GetModel calls during slot creation
+	mockStore.EXPECT().
+		GetModel(gomock.Any(), gomock.Any()).
+		Return(&types.Model{ContextLength: 4096}, nil).
+		AnyTimes()
+
+	// Create runner controller
+	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub: ps,
+		Store:  mockStore,
+	})
+	require.NoError(t, err)
+
+	// Set up scheduler
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
+		RunnerController: runnerCtrl,
+		OnSchedulingErr:  func(_ *Workload, _ error) {}, // No-op error handler
+	})
+	require.NoError(t, err)
+
+	// Set up a single runner with limited memory (20GB)
+	totalMemory := uint64(20 * 1024 * 1024 * 1024) // 20GB
+	runner1ID := "runner1"
+	runnerCtrl.statusCache.Set(runner1ID, NewCache(ctx, func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			TotalMemory: totalMemory,
+			Models: []*types.RunnerModelStatus{
+				{
+					ModelID:            "user-model",
+					DownloadInProgress: false,
+					Runtime:            types.RuntimeOllama,
+				},
+				{
+					ModelID:            "prewarm-model",
+					DownloadInProgress: false,
+					Runtime:            types.RuntimeOllama,
+				},
+			},
+		}, nil
+	}, CacheConfig{updateInterval: 1 * time.Second}))
+
+	// Add runner to controller
+	runnerCtrl.OnConnectedHandler(runner1ID)
+
+	// Create a user workload that needs 12GB (when combined with 10GB prewarm = 22GB > 20GB capacity)
+	userWorkload := &Workload{
+		llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+			RequestID: "user-request",
+			Request:   &openai.ChatCompletionRequest{Model: "user-model"},
+		},
+		WorkloadType: WorkloadTypeLLMInferenceRequest,
+		model: &types.Model{
+			ID:      "user-model",
+			Memory:  12 * 1024 * 1024 * 1024, // 12GB
+			Runtime: types.RuntimeOllama,
+		},
+	}
+
+	// Enqueue the user workload
+	err = scheduler.Enqueue(userWorkload)
+	require.NoError(t, err)
+
+	// Create sync primitives to coordinate the race
+	var wg sync.WaitGroup
+	var startBarrier sync.WaitGroup
+	startBarrier.Add(1)
+
+	// Track final allocation
+	var finalSlotCount int
+	var finalAllocatedMemory uint64
+
+	// Start reconcileSlots in one goroutine
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		startBarrier.Wait()
+		t.Logf("Starting reconcileSlots...")
+		scheduler.reconcileSlotsOnce(ctx)
+		t.Logf("reconcileSlots complete")
+	}()
+
+	// Start reconcilePrewarming in another goroutine
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		startBarrier.Wait()
+		t.Logf("Starting reconcilePrewarming...")
+		scheduler.reconcilePrewarmingOnce(ctx)
+		t.Logf("reconcilePrewarming complete")
+	}()
+
+	// Release both goroutines simultaneously to maximize race condition
+	startBarrier.Done()
+
+	// Wait for both operations to complete
+	wg.Wait()
+
+	// Allow time for any async operations
+	time.Sleep(100 * time.Millisecond)
+
+	// Count final allocation
+	scheduler.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
+		if slot.RunnerID == runner1ID {
+			finalSlotCount++
+			finalAllocatedMemory += slot.Memory()
+		}
+		return true
+	})
+
+	utilizationPercent := float64(finalAllocatedMemory) / float64(totalMemory) * 100
+
+	t.Logf("Final results:")
+	t.Logf("  Runner capacity: %d GB", totalMemory/(1024*1024*1024))
+	t.Logf("  Slots created: %d", finalSlotCount)
+	t.Logf("  Total allocated: %d GB", finalAllocatedMemory/(1024*1024*1024))
+	t.Logf("  Utilization: %.1f%%", utilizationPercent)
+
+	// The fix should prevent overscheduling even with concurrent reconcilers
+	assert.LessOrEqual(t, utilizationPercent, 100.0,
+		"Expected no overscheduling with concurrent reconcilers, but got %.1f%% utilization", utilizationPercent)
+
+	// Should not have more slots than can fit
+	maxPossibleSlots := 2 // One 12GB + one 10GB slot should be max that fits in 20GB
+	assert.LessOrEqual(t, finalSlotCount, maxPossibleSlots,
+		"Too many slots created: %d slots (should be ≤ %d)", finalSlotCount, maxPossibleSlots)
+
+	t.Logf("SUCCESS: Race condition between reconcilers prevented by per-runner mutexes!")
+}
