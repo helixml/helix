@@ -540,24 +540,12 @@ func (c *RunnerController) calculateVLLMMemoryUtilizationRatio(runnerID string, 
 	}
 
 	// Calculate the ratio based on model memory requirement vs total GPU memory
-	// We want to leave some headroom for VLLM's overhead and other processes
-	baseRatio := float64(modelMemoryRequirement) / float64(totalMemory)
-
-	// Add conservative safety margin (5-10% headroom depending on model size)
-	var safetyMargin float64
-	if baseRatio > 0.7 {
-		// For large models that use >70% of GPU memory, use smaller safety margin
-		safetyMargin = 0.05 // 5%
-	} else {
-		// For smaller models, use slightly larger safety margin
-		safetyMargin = 0.10 // 10%
-	}
-
-	// Calculate final ratio with safety margin
-	finalRatio := baseRatio * (1.0 - safetyMargin)
+	// Using exact ratio without safety margins until we determine they are needed
+	finalRatio := float64(modelMemoryRequirement) / float64(totalMemory)
 
 	// Ensure the ratio is within reasonable bounds (0.05 to 0.95)
 	// Lower bound of 5% allows for tiny models while avoiding potential VLLM issues
+	// Upper bound of 95% prevents potential OOM from other GPU processes
 	if finalRatio < 0.05 {
 		finalRatio = 0.05
 	} else if finalRatio > 0.95 {
@@ -568,10 +556,8 @@ func (c *RunnerController) calculateVLLMMemoryUtilizationRatio(runnerID string, 
 		Str("runner_id", runnerID).
 		Uint64("model_memory_bytes", modelMemoryRequirement).
 		Uint64("total_gpu_memory_bytes", totalMemory).
-		Float64("base_ratio", baseRatio).
-		Float64("safety_margin", safetyMargin).
 		Float64("final_ratio", finalRatio).
-		Msg("Calculated dynamic VLLM memory utilization ratio")
+		Msg("Calculated dynamic VLLM memory utilization ratio (no safety margins)")
 
 	return finalRatio
 }

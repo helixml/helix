@@ -89,8 +89,8 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio := ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 8*1024*1024*1024) // 8GB model
 	require.Greater(t, ratio, 0.05)                                               // Should be above minimum
-	require.Less(t, ratio, 0.15)                                                  // Should be around 9% with 10% safety margin
-	require.InDelta(t, 0.09, ratio, 0.02)                                         // Should be around 9% (8/80 * 0.9)
+	require.Less(t, ratio, 0.15)                                                  // Should be around 10%
+	require.InDelta(t, 0.10, ratio, 0.01)                                         // Should be exactly 10% (8/80)
 
 	// Test case 2: Very tiny model (should hit minimum ratio)
 	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
@@ -110,9 +110,9 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 16*1024*1024*1024) // 16GB model
 	require.Greater(t, ratio, 0.05)
 	require.Less(t, ratio, 0.95)
-	require.InDelta(t, 0.60, ratio, 0.05) // Should be around 60% (16/24 * 0.9)
+	require.InDelta(t, 0.6667, ratio, 0.01) // Should be exactly 66.67% (16/24)
 
-	// Test case 4: Large model on small GPU (less headroom)
+	// Test case 4: Large model on small GPU
 	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
 		return types.RunnerStatus{
 			TotalMemory: 24 * 1024 * 1024 * 1024, // 24GB GPU
@@ -121,7 +121,7 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 20*1024*1024*1024) // 20GB model
 	require.Greater(t, ratio, 0.05)
 	require.Less(t, ratio, 0.95)
-	require.InDelta(t, 0.79, ratio, 0.05) // Should be around 79% with 5% safety margin (20/24 * 0.95)
+	require.InDelta(t, 0.8333, ratio, 0.01) // Should be exactly 83.33% (20/24)
 
 	// Test case 5: No GPU memory info (fallback)
 	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
@@ -209,34 +209,33 @@ func TestVLLMMemoryUtilizationRealWorldScenarios(t *testing.T) {
 	runnerID := "test-runner"
 
 	scenarios := []struct {
-		name                 string
-		gpuMemoryGB          uint64
-		modelMemoryGB        uint64
-		expectedRatioMin     float64
-		expectedRatioMax     float64
-		expectedSafetyMargin float64
+		name             string
+		gpuMemoryGB      uint64
+		modelMemoryGB    uint64
+		expectedRatioMin float64
+		expectedRatioMax float64
 	}{
-		// Tiny models on large GPUs
-		{"1GB model on 80GB GPU (A100)", 80, 1, 0.05, 0.05, 0.10}, // Should hit minimum
-		{"2GB model on 80GB GPU (A100)", 80, 2, 0.05, 0.05, 0.10}, // Should hit minimum
-		{"4GB model on 80GB GPU (A100)", 80, 4, 0.05, 0.05, 0.10}, // Should hit minimum
+		// Tiny models on large GPUs - should hit minimum
+		{"1GB model on 80GB GPU (A100)", 80, 1, 0.05, 0.05}, // Should hit minimum
+		{"2GB model on 80GB GPU (A100)", 80, 2, 0.05, 0.05}, // Should hit minimum
+		{"4GB model on 80GB GPU (A100)", 80, 4, 0.05, 0.05}, // Should hit minimum
 
-		// Small models on large GPUs
-		{"8GB model on 80GB GPU (A100)", 80, 8, 0.08, 0.10, 0.10},
-		{"16GB model on 80GB GPU (A100)", 80, 16, 0.16, 0.20, 0.10},
+		// Small models on large GPUs - exact ratios
+		{"8GB model on 80GB GPU (A100)", 80, 8, 0.09, 0.11},   // 8/80 = 10%
+		{"16GB model on 80GB GPU (A100)", 80, 16, 0.19, 0.21}, // 16/80 = 20%
 
-		// Medium models on medium GPUs
-		{"8GB model on 24GB GPU (RTX 4090)", 24, 8, 0.28, 0.32, 0.10},
-		{"16GB model on 24GB GPU (RTX 4090)", 24, 16, 0.58, 0.62, 0.10},
+		// Medium models on medium GPUs - exact ratios
+		{"8GB model on 24GB GPU (RTX 4090)", 24, 8, 0.32, 0.34},   // 8/24 = 33.33%
+		{"16GB model on 24GB GPU (RTX 4090)", 24, 16, 0.65, 0.68}, // 16/24 = 66.67%
 
-		// Large models (>70% usage - smaller safety margin)
-		{"20GB model on 24GB GPU (RTX 4090)", 24, 20, 0.78, 0.82, 0.05},
-		{"32GB model on 40GB GPU (A100 40GB)", 40, 32, 0.75, 0.80, 0.05},
-		{"60GB model on 80GB GPU (A100 80GB)", 80, 60, 0.70, 0.75, 0.05},
+		// Large models - exact ratios
+		{"20GB model on 24GB GPU (RTX 4090)", 24, 20, 0.82, 0.85},  // 20/24 = 83.33%
+		{"32GB model on 40GB GPU (A100 40GB)", 40, 32, 0.79, 0.81}, // 32/40 = 80%
+		{"60GB model on 80GB GPU (A100 80GB)", 80, 60, 0.74, 0.76}, // 60/80 = 75%
 
 		// Edge cases
-		{"12GB model on 12GB GPU (RTX 3060)", 12, 12, 0.90, 0.95, 0.05},   // Should use 95% with 5% margin
-		{"16GB model on 12GB GPU (impossible)", 12, 16, 0.95, 0.95, 0.05}, // Should hit maximum
+		{"12GB model on 12GB GPU (RTX 3060)", 12, 12, 0.95, 0.95},   // Should hit maximum (100% would be 1.0)
+		{"16GB model on 12GB GPU (impossible)", 12, 16, 0.95, 0.95}, // Should hit maximum
 	}
 
 	for _, scenario := range scenarios {
