@@ -2,6 +2,9 @@ package scheduler
 
 import (
 	"context"
+	"math/rand"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -542,4 +545,215 @@ func TestScheduler_HeadOfLineBlocking_RealScenario(t *testing.T) {
 	// If it doesn't occur, the working workload should have been removed by TakeNext
 
 	// The test demonstrates whether the current implementation has this issue
+}
+
+func TestScheduler_OverschedulingRaceCondition(t *testing.T) {
+	// This test reproduces the overscheduling bug seen in production where
+	// multiple goroutines create slots simultaneously based on stale memory information,
+	// leading to more memory being allocated than the runner actually has.
+
+	ctx := context.Background()
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	// Set up mock store
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	enabled := true
+	mockStore.EXPECT().
+		ListModels(ctx, &store.ListModelsQuery{Enabled: &enabled}).
+		Return([]*types.Model{}, nil).
+		AnyTimes()
+
+	// Add mock expectations for GetModel calls during slot creation
+	mockStore.EXPECT().
+		GetModel(gomock.Any(), gomock.Any()).
+		Return(&types.Model{ContextLength: 4096}, nil).
+		AnyTimes()
+
+	// Create runner controller
+	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub: ps,
+		Store:  mockStore,
+	})
+	require.NoError(t, err)
+
+	// Set up scheduler
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
+		RunnerController: runnerCtrl,
+		OnSchedulingErr:  func(_ *Workload, _ error) {}, // No-op - keep workloads in queue
+	})
+	require.NoError(t, err)
+
+	// Set up a single runner with limited memory (20GB)
+	totalMemory := uint64(20 * 1024 * 1024 * 1024) // 20GB
+	runner1ID := "runner1"
+	runnerCtrl.statusCache.Set(runner1ID, NewCache(ctx, func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			TotalMemory: totalMemory,
+			Models: []*types.RunnerModelStatus{
+				{
+					ModelID:            "model1",
+					DownloadInProgress: false,
+					Runtime:            types.RuntimeOllama,
+				},
+				{
+					ModelID:            "model2",
+					DownloadInProgress: false,
+					Runtime:            types.RuntimeOllama,
+				},
+				{
+					ModelID:            "model3",
+					DownloadInProgress: false,
+					Runtime:            types.RuntimeOllama,
+				},
+			},
+		}, nil
+	}, CacheConfig{updateInterval: 1 * time.Second}))
+
+	// Add runner to controller
+	runnerCtrl.OnConnectedHandler(runner1ID)
+
+	// Create multiple workloads that together would exceed runner capacity
+	// Each needs 8GB, so 3 workloads = 24GB > 20GB runner capacity
+	workloads := []*Workload{
+		{
+			llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+				RequestID: "request1",
+				Request:   &openai.ChatCompletionRequest{Model: "model1"},
+			},
+			WorkloadType: WorkloadTypeLLMInferenceRequest,
+			model: &types.Model{
+				ID:      "model1",
+				Memory:  8 * 1024 * 1024 * 1024, // 8GB
+				Runtime: types.RuntimeOllama,
+			},
+		},
+		{
+			llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+				RequestID: "request2",
+				Request:   &openai.ChatCompletionRequest{Model: "model2"},
+			},
+			WorkloadType: WorkloadTypeLLMInferenceRequest,
+			model: &types.Model{
+				ID:      "model2",
+				Memory:  8 * 1024 * 1024 * 1024, // 8GB
+				Runtime: types.RuntimeOllama,
+			},
+		},
+		{
+			llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+				RequestID: "request3",
+				Request:   &openai.ChatCompletionRequest{Model: "model3"},
+			},
+			WorkloadType: WorkloadTypeLLMInferenceRequest,
+			model: &types.Model{
+				ID:      "model3",
+				Memory:  8 * 1024 * 1024 * 1024, // 8GB
+				Runtime: types.RuntimeOllama,
+			},
+		},
+	}
+
+	// Track scheduling errors
+	var errorCount int32
+
+	// Override error handler to track errors but DON'T remove from queue or cleanup slots
+	// This simulates the race condition where slots exist in memory before cleanup
+	scheduler.onSchedulingErr = func(work *Workload, err error) {
+		atomic.AddInt32(&errorCount, 1)
+		t.Logf("Scheduling error for %s: %v", work.ID(), err)
+		// DON'T remove from queue or delete slots - this allows overscheduling to persist
+	}
+
+	// First, enqueue all workloads
+	for i, workload := range workloads {
+		t.Logf("Enqueueing workload %d: %s", i, workload.ID())
+		err := scheduler.Enqueue(workload)
+		require.NoError(t, err)
+	}
+
+	// Create a wait group for concurrent slot reconciliation
+	var wg sync.WaitGroup
+	var startBarrier sync.WaitGroup
+	startBarrier.Add(1) // Barrier to synchronize all goroutines
+
+	// Start multiple goroutines that all call reconciliation simultaneously
+	// This simulates the race condition where multiple reconciliation cycles
+	// run concurrently and all see the same memory state before any allocates
+	for i := 0; i < len(workloads); i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+
+			// Wait for all goroutines to be ready
+			startBarrier.Wait()
+
+			// Add small random delay to increase chance of race condition
+			time.Sleep(time.Duration(rand.Intn(5)) * time.Millisecond)
+
+			t.Logf("Goroutine %d: Starting slot reconciliation", i)
+			// This is where the race happens - multiple goroutines call reconciliation
+			// and all check memory simultaneously before any slots are actually created
+			scheduler.reconcileSlotsOnce(ctx)
+
+			t.Logf("Goroutine %d: Slot reconciliation complete", i)
+
+		}(i)
+	}
+
+	// Release all goroutines simultaneously to maximize race condition
+	startBarrier.Done()
+
+	// Wait for all reconciliation goroutines to complete
+	wg.Wait()
+
+	// Allow some time for async operations to complete
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify the results
+	var finalSlotCount int
+	var finalAllocatedMemory uint64
+
+	scheduler.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
+		if slot.RunnerID == runner1ID {
+			finalSlotCount++
+			finalAllocatedMemory += slot.Memory()
+		}
+		return true
+	})
+
+	t.Logf("Final results:")
+	t.Logf("  Runner capacity: %d GB", totalMemory/(1024*1024*1024))
+	t.Logf("  Slots created: %d", finalSlotCount)
+	t.Logf("  Total allocated: %d GB", finalAllocatedMemory/(1024*1024*1024))
+	t.Logf("  Utilization: %.1f%%", float64(finalAllocatedMemory)/float64(totalMemory)*100)
+	t.Logf("  Error count: %d", atomic.LoadInt32(&errorCount))
+
+	// The bug: we expect overscheduling to occur
+	// More than 100% utilization indicates the race condition
+	utilizationPercent := float64(finalAllocatedMemory) / float64(totalMemory) * 100
+
+	if utilizationPercent > 100 {
+		t.Logf("BUG REPRODUCED: Overscheduling detected! %.1f%% utilization (> 100%%)", utilizationPercent)
+		t.Logf("This confirms the race condition where multiple goroutines create slots based on stale memory calculations")
+
+		// This test is expected to fail with current implementation
+		// Comment out the following line when the bug is fixed:
+		t.Errorf("EXPECTED FAILURE: Overscheduling detected - %.1f%% utilization exceeds runner capacity", utilizationPercent)
+	} else {
+		t.Logf("No overscheduling detected (%.1f%% utilization)", utilizationPercent)
+		// If overscheduling doesn't occur, we might need to increase concurrency or workload size
+		if finalSlotCount < len(workloads) {
+			t.Logf("Some workloads were correctly rejected due to insufficient memory")
+		}
+	}
+
+	// Additional verification: ensure we don't have more slots than should fit
+	maxPossibleSlots := int(totalMemory / (8 * 1024 * 1024 * 1024)) // 20GB / 8GB = 2 slots max
+	if finalSlotCount > maxPossibleSlots {
+		t.Errorf("Too many slots created: %d slots > %d max possible", finalSlotCount, maxPossibleSlots)
+	}
 }
