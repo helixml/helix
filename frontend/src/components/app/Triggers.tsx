@@ -6,6 +6,7 @@ import FormControlLabel from '@mui/material/FormControlLabel'
 import ApiIcon from '@mui/icons-material/Api'
 import { TypesTrigger } from '../../api/api'
 import TriggerCron from './TriggerCron'
+import TriggerSlack from './TriggerSlack'
 
 interface TriggersProps {
   triggers?: TypesTrigger[]
@@ -48,6 +49,16 @@ const Triggers: FC<TriggersProps> = ({
 
       {/* Recurring Trigger */}
       <TriggerCron 
+        triggers={triggers}
+        onUpdate={onUpdate}
+        readOnly={readOnly}
+      />
+
+      {/* Add spacing between triggers */}
+      <Box sx={{ my: 3 }} />
+
+      {/* Slack Trigger */}
+      <TriggerSlack 
         triggers={triggers}
         onUpdate={onUpdate}
         readOnly={readOnly}
