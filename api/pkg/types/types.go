@@ -1330,6 +1330,12 @@ type DiscordTrigger struct {
 	ServerName string `json:"server_name" yaml:"server_name"`
 }
 
+type SlackTrigger struct {
+	AppToken string   `json:"app_token" yaml:"app_token"`
+	BotToken string   `json:"bot_token" yaml:"bot_token"`
+	Channels []string `json:"channels" yaml:"channels"`
+}
+
 type CronTrigger struct {
 	Enabled  bool   `json:"enabled,omitempty"`
 	Schedule string `json:"schedule,omitempty"`
@@ -1338,6 +1344,7 @@ type CronTrigger struct {
 
 type Trigger struct {
 	Discord *DiscordTrigger `json:"discord,omitempty"`
+	Slack   *SlackTrigger   `json:"slack,omitempty"`
 	Cron    *CronTrigger    `json:"cron,omitempty"`
 }
 
