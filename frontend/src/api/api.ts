@@ -1634,6 +1634,7 @@ export interface TypesSlackTrigger {
   app_token?: string;
   bot_token?: string;
   channels?: string[];
+  enabled?: boolean;
 }
 
 export interface TypesStepInfo {

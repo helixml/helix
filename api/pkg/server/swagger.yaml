@@ -2690,6 +2690,8 @@ definitions:
         items:
           type: string
         type: array
+      enabled:
+        type: boolean
     type: object
   types.StepInfo:
     properties:
