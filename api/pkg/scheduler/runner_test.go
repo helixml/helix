@@ -108,7 +108,7 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 16*1024*1024*1024) // 16GB model
 	require.Greater(t, ratio, 0.35)
 	require.Less(t, ratio, 0.95)
-	require.InDelta(t, 0.6667, ratio, 0.01) // Should be exactly 66.67% (16/24)
+	require.InDelta(t, 0.78, ratio, 0.01) // Should be ~78% (16 * 1.17 / 24 = ~0.78)
 
 	// Test case 4: Large model on small GPU
 	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
@@ -118,8 +118,7 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 20*1024*1024*1024) // 20GB model
 	require.Greater(t, ratio, 0.35)
-	require.Less(t, ratio, 0.95)
-	require.InDelta(t, 0.8333, ratio, 0.01) // Should be exactly 83.33% (20/24)
+	require.Equal(t, 0.95, ratio) // Should hit maximum ratio (20 * 1.17 / 24 = 0.975, clamped to 0.95)
 
 	// Test case 5: No GPU memory info (fallback)
 	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
@@ -214,25 +213,25 @@ func TestVLLMMemoryUtilizationRealWorldScenarios(t *testing.T) {
 		expectedRatioMax float64
 	}{
 		// Tiny models on large GPUs - should hit minimum of 35%
-		{"1GB model on 80GB GPU (A100)", 80, 1, 0.35, 0.35}, // Should hit minimum
-		{"2GB model on 80GB GPU (A100)", 80, 2, 0.35, 0.35}, // Should hit minimum
-		{"4GB model on 80GB GPU (A100)", 80, 4, 0.35, 0.35}, // Should hit minimum
+		{"1GB model on 80GB GPU (A100)", 80, 1, 0.35, 0.35}, // 1*1.17/80 = 1.46%, clamped to 35%
+		{"2GB model on 80GB GPU (A100)", 80, 2, 0.35, 0.35}, // 2*1.17/80 = 2.93%, clamped to 35%
+		{"4GB model on 80GB GPU (A100)", 80, 4, 0.35, 0.35}, // 4*1.17/80 = 5.85%, clamped to 35%
 
 		// Small models on large GPUs - should hit minimum of 35%
-		{"8GB model on 80GB GPU (A100)", 80, 8, 0.35, 0.35},   // 8/80 = 10% but clamped to 35%
-		{"16GB model on 80GB GPU (A100)", 80, 16, 0.35, 0.35}, // 16/80 = 20% but clamped to 35%
+		{"8GB model on 80GB GPU (A100)", 80, 8, 0.35, 0.35},   // 8*1.17/80 = 11.7%, clamped to 35%
+		{"16GB model on 80GB GPU (A100)", 80, 16, 0.35, 0.35}, // 16*1.17/80 = 23.4%, clamped to 35%
 
-		// Medium models on medium GPUs - exact ratios
-		{"8GB model on 24GB GPU (RTX 4090)", 24, 8, 0.35, 0.35},   // 8/24 = 33.33% but clamped to 35%
-		{"16GB model on 24GB GPU (RTX 4090)", 24, 16, 0.65, 0.68}, // 16/24 = 66.67%
+		// Medium models on medium GPUs - exact ratios with overhead
+		{"8GB model on 24GB GPU (RTX 4090)", 24, 8, 0.38, 0.40},   // 8*1.17/24 = 39%
+		{"16GB model on 24GB GPU (RTX 4090)", 24, 16, 0.77, 0.79}, // 16*1.17/24 = 78%
 
-		// Large models - exact ratios
-		{"20GB model on 24GB GPU (RTX 4090)", 24, 20, 0.82, 0.85},  // 20/24 = 83.33%
-		{"32GB model on 40GB GPU (A100 40GB)", 40, 32, 0.79, 0.81}, // 32/40 = 80%
-		{"60GB model on 80GB GPU (A100 80GB)", 80, 60, 0.74, 0.76}, // 60/80 = 75%
+		// Large models - exact ratios with overhead
+		{"20GB model on 24GB GPU (RTX 4090)", 24, 20, 0.95, 0.95},  // 20*1.17/24 = 97.5%, clamped to 95%
+		{"32GB model on 40GB GPU (A100 40GB)", 40, 32, 0.93, 0.95}, // 32*1.17/40 = 93.6%
+		{"60GB model on 80GB GPU (A100 80GB)", 80, 60, 0.87, 0.89}, // 60*1.17/80 = 87.75%
 
 		// Edge cases
-		{"12GB model on 12GB GPU (RTX 3060)", 12, 12, 0.95, 0.95},   // Should hit maximum (100% would be 1.0)
+		{"12GB model on 12GB GPU (RTX 3060)", 12, 12, 0.95, 0.95},   // 12*1.17/12 = 117%, clamped to 95%
 		{"16GB model on 12GB GPU (impossible)", 12, 16, 0.95, 0.95}, // Should hit maximum
 	}
 
@@ -257,7 +256,7 @@ func TestVLLMMemoryUtilizationRealWorldScenarios(t *testing.T) {
 			// Calculate what this means in actual memory usage
 			actualMemoryUsageGB := float64(scenario.gpuMemoryGB) * ratio
 
-			t.Logf("%s: %.1f%% utilization = %.1fGB actual usage (%.1fGB model + %.1fGB overhead)",
+			t.Logf("%s: %.1f%% utilization = %.1fGB GPU allocation (%.1fGB model + %.1fGB VLLM overhead)",
 				scenario.name,
 				ratio*100,
 				actualMemoryUsageGB,

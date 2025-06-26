@@ -1,0 +1,282 @@
+package scheduler
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+)
+
+func TestPrewarmNewRunner_Success(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+
+	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub: ps,
+		Store:  mockStore,
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
+		RunnerController: runnerCtrl,
+		QueueSize:        10,
+	})
+	require.NoError(t, err)
+
+	// Track the initial queue size
+	initialQueueSize := len(scheduler.queue.Queue())
+
+	// Call PrewarmNewRunner directly
+	runnerID := "test-runner-1"
+	scheduler.PrewarmNewRunner(runnerID)
+
+	// Give some time for async processing
+	time.Sleep(50 * time.Millisecond)
+
+	// Check that workloads were enqueued
+	finalQueueSize := len(scheduler.queue.Queue())
+	require.Greater(t, finalQueueSize, initialQueueSize, "Should have enqueued prewarming workloads")
+
+	// Get the enqueued workloads
+	queuedWorkloads := scheduler.queue.Queue()
+	prewarmWorkloads := queuedWorkloads[initialQueueSize:] // Get only the newly added ones
+
+	require.Greater(t, len(prewarmWorkloads), 0, "Should have at least one prewarming workload")
+
+	// Verify workload properties
+	for _, workload := range prewarmWorkloads {
+		require.Equal(t, WorkloadTypeLLMInferenceRequest, workload.WorkloadType, "Should be LLM inference workload")
+		require.Equal(t, runnerID, workload.PreferredRunnerID(), "Should prefer the new runner")
+
+		req := workload.LLMInferenceRequest()
+		require.NotNil(t, req, "Should have LLM inference request")
+		require.Contains(t, req.RequestID, "prewarm-", "Request ID should indicate prewarming")
+		require.Contains(t, req.RequestID, runnerID, "Request ID should contain runner ID")
+		require.Equal(t, false, req.Priority, "Should have low priority")
+
+		require.NotNil(t, req.Request, "Should have OpenAI request")
+		require.Equal(t, "warmup", req.Request.Messages[0].Content, "Should have warmup message")
+	}
+
+	t.Logf("Successfully enqueued %d prewarming workloads for runner %s", len(prewarmWorkloads), runnerID)
+}
+
+func TestPrewarmNewRunner_VerifyWorkloadCreation(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+
+	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub: ps,
+		Store:  mockStore,
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
+		RunnerController: runnerCtrl,
+		QueueSize:        10,
+	})
+	require.NoError(t, err)
+
+	initialQueueSize := len(scheduler.queue.Queue())
+
+	// Call PrewarmNewRunner
+	runnerID := "test-runner-verify"
+	scheduler.PrewarmNewRunner(runnerID)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Should have created workloads for default prewarm models
+	finalQueueSize := len(scheduler.queue.Queue())
+	require.Greater(t, finalQueueSize, initialQueueSize, "Should enqueue workloads for default prewarm models")
+
+	// Get the specific models that should be prewarmed
+	prewarmModels := scheduler.getPrewarmModels()
+	expectedWorkloads := len(prewarmModels)
+	actualWorkloads := finalQueueSize - initialQueueSize
+
+	require.Equal(t, expectedWorkloads, actualWorkloads, "Should create one workload per prewarm model")
+}
+
+func TestOnRunnerConnectedCallback(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+
+	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub: ps,
+		Store:  mockStore,
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
+		RunnerController: runnerCtrl,
+		QueueSize:        10,
+	})
+	require.NoError(t, err)
+
+	// Set up the prewarming callback (as done in serve.go)
+	runnerCtrl.SetOnRunnerConnectedCallback(scheduler.PrewarmNewRunner)
+
+	initialQueueSize := len(scheduler.queue.Queue())
+
+	// Simulate a runner connecting (this should trigger prewarming)
+	runnerID := "test-runner-callback"
+	runnerCtrl.OnConnectedHandler(runnerID)
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Check that prewarming was triggered
+	finalQueueSize := len(scheduler.queue.Queue())
+	require.Greater(t, finalQueueSize, initialQueueSize, "Runner connection should trigger prewarming")
+
+	// Verify the runner was added to the controller
+	runners := runnerCtrl.RunnerIDs()
+	require.Contains(t, runners, runnerID, "Runner should be added to controller")
+
+	t.Logf("Runner connection successfully triggered prewarming: %d workloads enqueued", finalQueueSize-initialQueueSize)
+}
+
+func TestPrewarmWorkloadProperties(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+
+	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub: ps,
+		Store:  mockStore,
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
+		RunnerController: runnerCtrl,
+		QueueSize:        10,
+	})
+	require.NoError(t, err)
+
+	runnerID := "test-runner-properties"
+	scheduler.PrewarmNewRunner(runnerID)
+
+	time.Sleep(50 * time.Millisecond)
+
+	queuedWorkloads := scheduler.queue.Queue()
+	require.Greater(t, len(queuedWorkloads), 0, "Should have prewarming workloads")
+
+	// Test each prewarming workload
+	for _, workload := range queuedWorkloads {
+		// Test workload type
+		require.Equal(t, WorkloadTypeLLMInferenceRequest, workload.WorkloadType)
+
+		// Test preferred runner
+		require.Equal(t, runnerID, workload.PreferredRunnerID())
+
+		// Test model assignment
+		require.NotNil(t, workload.model, "Should have model assigned")
+		require.True(t, workload.model.Prewarm, "Should only create workloads for prewarm models")
+
+		// Test LLM inference request
+		req := workload.LLMInferenceRequest()
+		require.NotNil(t, req)
+
+		// Test request ID format
+		require.Contains(t, req.RequestID, "prewarm-")
+		require.Contains(t, req.RequestID, runnerID)
+		require.Contains(t, req.RequestID, workload.model.ID)
+
+		// Test priority (should be low for prewarming)
+		require.False(t, req.Priority, "Prewarming should have low priority")
+
+		// Test OpenAI request structure
+		require.NotNil(t, req.Request)
+		require.Equal(t, workload.model.ID, req.Request.Model)
+		require.Len(t, req.Request.Messages, 1)
+		require.Equal(t, "user", req.Request.Messages[0].Role)
+		require.Equal(t, "warmup", req.Request.Messages[0].Content)
+
+		// Test timing
+		require.WithinDuration(t, time.Now(), req.CreatedAt, 5*time.Second, "Should have recent timestamp")
+	}
+}
+
+func TestMultipleRunnerConnections(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+
+	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub: ps,
+		Store:  mockStore,
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
+		RunnerController: runnerCtrl,
+		QueueSize:        50, // Increase queue size for multiple runners
+	})
+	require.NoError(t, err)
+
+	runnerCtrl.SetOnRunnerConnectedCallback(scheduler.PrewarmNewRunner)
+
+	initialQueueSize := len(scheduler.queue.Queue())
+
+	// Connect multiple runners
+	runnerIDs := []string{"runner-1", "runner-2", "runner-3"}
+	for _, runnerID := range runnerIDs {
+		runnerCtrl.OnConnectedHandler(runnerID)
+		time.Sleep(20 * time.Millisecond) // Small delay between connections
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	finalQueueSize := len(scheduler.queue.Queue())
+	totalPrewarmWorkloads := finalQueueSize - initialQueueSize
+
+	// Should have prewarming workloads for all runners
+	require.Greater(t, totalPrewarmWorkloads, 0, "Should have prewarming workloads for multiple runners")
+
+	// Verify all runners were added
+	runners := runnerCtrl.RunnerIDs()
+	for _, runnerID := range runnerIDs {
+		require.Contains(t, runners, runnerID, "All runners should be added to controller")
+	}
+
+	t.Logf("Multiple runner connections: %d runners connected, %d prewarming workloads created",
+		len(runnerIDs), totalPrewarmWorkloads)
+}
