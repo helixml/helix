@@ -790,43 +790,90 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (to
 }
 
 func (s *Scheduler) warmSlots(req *Workload) []*Slot {
+	return s.warmSlotsWithReason(req, nil)
+}
+
+func (s *Scheduler) warmSlotsWithReason(req *Workload, reasonOut *string) []*Slot {
 	cosyWarm := make([]*Slot, 0, s.slots.Size())
+
+	// Track counts for detailed rejection reasons
+	totalSlots := 0
+	modelMatchSlots := 0
+	runtimeMatchSlots := 0
+	loraMatchSlots := 0
+	runningSlots := 0
+	availableSlots := 0
+
 	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
-		// If the slot isn't running yet, skip
-		if !slot.IsRunning() {
-			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, not running yet")
-			return true
-		}
+		totalSlots++
 
 		// If it's not the same model name, skip
 		if slot.InitialWork().ModelName() != req.ModelName() {
 			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, model name mismatch")
 			return true
 		}
+		modelMatchSlots++
 
 		// If it's not the same runtime, skip
 		if slot.InitialWork().Runtime() != req.Runtime() {
 			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, inference runtime mismatch")
 			return true
 		}
-
-		// If the slot is already running another job, skip
-		if slot.IsActive() {
-			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, already active")
-			return true
-		}
+		runtimeMatchSlots++
 
 		// If it doesn't have the right LoraDir then skip
 		if slot.InitialWork().LoraDir() != req.LoraDir() {
 			withSlotContext(&log.Logger, slot).Trace().Str("slot_lora_dir", slot.InitialWork().LoraDir()).Str("req_lora_dir", req.LoraDir()).Msg("skipping warm slot, LoraDir mismatch")
 			return true
 		}
+		loraMatchSlots++
+
+		// If the slot isn't running yet, skip
+		if !slot.IsRunning() {
+			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, not running yet")
+			return true
+		}
+		runningSlots++
+
+		// If the slot is already running another job, skip
+		if slot.IsActive() {
+			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, already active")
+			return true
+		}
+		availableSlots++
 
 		// Add available slots to the list - this includes both regular and prewarming slots
 		cosyWarm = append(cosyWarm, slot)
 
 		return true
 	})
+
+	// Generate detailed reason if requested and no warm slots found
+	if reasonOut != nil && len(cosyWarm) == 0 {
+		availableRunners := s.controller.RunnerIDs()
+
+		if len(availableRunners) == 0 {
+			*reasonOut = "No runners available"
+		} else if modelMatchSlots == 0 {
+			*reasonOut = fmt.Sprintf("No slots for model %s (found %d total slots)", req.ModelName(), totalSlots)
+		} else if runtimeMatchSlots == 0 {
+			*reasonOut = fmt.Sprintf("No slots for runtime %s with model %s (found %d model slots)", req.Runtime(), req.ModelName(), modelMatchSlots)
+		} else if loraMatchSlots == 0 {
+			loraMsg := "no LoRA"
+			if req.LoraDir() != "" {
+				loraMsg = fmt.Sprintf("LoRA %s", req.LoraDir())
+			}
+			*reasonOut = fmt.Sprintf("No slots for %s with model %s (found %d runtime slots)", loraMsg, req.ModelName(), runtimeMatchSlots)
+		} else if runningSlots == 0 {
+			*reasonOut = fmt.Sprintf("All %d matching slots still starting for model %s", loraMatchSlots, req.ModelName())
+		} else if availableSlots == 0 {
+			*reasonOut = fmt.Sprintf("All %d running slots busy for model %s", runningSlots, req.ModelName())
+		} else {
+			*reasonOut = fmt.Sprintf("No warm slots available for model %s (%d total, %d running, %d available)",
+				req.ModelName(), totalSlots, runningSlots, availableSlots)
+		}
+	}
+
 	return cosyWarm
 }
 
@@ -1455,6 +1502,7 @@ func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types
 }
 
 // logUnschedulableWork checks for work in the queue that can't be scheduled and logs the reasons
+// This captures BOTH why warm slots aren't available AND why new slots can't be created
 func (s *Scheduler) logUnschedulableWork() {
 	startTime := time.Now()
 	queuedWork := s.queue.Queue()
@@ -1463,12 +1511,18 @@ func (s *Scheduler) logUnschedulableWork() {
 		return // No work in queue to check
 	}
 
-	// Check each work item to see why it can't be scheduled
+	// Check each work item to see why it can't be scheduled using the ACTUAL decision logic
 	for _, work := range queuedWork {
-		warmSlots := s.warmSlots(work)
+		var reason string
+		warmSlots := s.warmSlotsWithReason(work, &reason)
+
 		if len(warmSlots) == 0 {
-			// This work has no warm slots - log why
-			reason := s.analyzeUnschedulableReason(work)
+			// No warm slots available - but can we create a new slot?
+			newSlotReason := s.analyzeNewSlotCreationFailure(work)
+			if newSlotReason != "" {
+				// Combine both warm slot failure and new slot creation failure
+				reason = fmt.Sprintf("%s; New slot creation: %s", reason, newSlotReason)
+			}
 
 			// Log the unschedulable decision with deduplication via repeat count
 			s.logSchedulingDecision(work, types.SchedulingDecisionTypeUnschedulable, false,
@@ -1477,57 +1531,40 @@ func (s *Scheduler) logUnschedulableWork() {
 	}
 }
 
-// analyzeUnschedulableReason analyzes why a work item can't be scheduled
-func (s *Scheduler) analyzeUnschedulableReason(work *Workload) string {
-	// Count total slots for this model+runtime+lora combination
-	totalSlots := 0
-	runningSlots := 0
-	activeSlots := 0
-	staleSlots := 0
+// analyzeNewSlotCreationFailure checks if a new slot could be created for this work using actual scheduling logic
+func (s *Scheduler) analyzeNewSlotCreationFailure(work *Workload) string {
+	// Use the EXACT same logic as ensureSlots()
 
-	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
-		if slot.InitialWork().ModelName() == work.ModelName() &&
-			slot.InitialWork().Runtime() == work.Runtime() &&
-			slot.InitialWork().LoraDir() == work.LoraDir() {
-			totalSlots++
-			if slot.IsRunning() {
-				runningSlots++
-				if slot.IsActive() {
-					activeSlots++
-				}
-			}
-			if slot.IsStale() {
-				staleSlots++
-			}
+	// Step 1: Get runners (same as ensureSlots)
+	sortedRunners, err := s.getSortedRunners(work)
+	if err != nil {
+		return fmt.Sprintf("cannot get runners: %v", err)
+	}
+
+	if len(sortedRunners) == 0 {
+		return "no runners available"
+	}
+
+	// Step 2: Try each runner using EXACT same logic as ensureSlots (without actually creating slots)
+	var lastFailureReason string
+	for _, runnerID := range sortedRunners {
+		// Try to see if we can free memory on this runner (same logic as ensureSlots)
+		_, _, _, err := s.deleteMostStaleStrategy(runnerID, work)
+		if err != nil {
+			lastFailureReason = fmt.Sprintf("runner %s: %v", runnerID, err)
+			continue // Try next runner
 		}
-		return true
-	})
 
-	// Get available runners
-	availableRunners := s.controller.RunnerIDs()
-
-	if len(availableRunners) == 0 {
-		return "No runners available"
+		// If we get here, this runner could accommodate the work
+		return "" // No failure - new slot creation would succeed
 	}
 
-	if totalSlots == 0 {
-		return fmt.Sprintf("No slots for model %s (runtime: %s)", work.ModelName(), work.Runtime())
+	// All runners failed
+	if lastFailureReason != "" {
+		return fmt.Sprintf("all %d runners failed: %s", len(sortedRunners), lastFailureReason)
 	}
 
-	if runningSlots == 0 && totalSlots > 0 {
-		return fmt.Sprintf("All %d slots still starting for model %s", totalSlots, work.ModelName())
-	}
-
-	if activeSlots == runningSlots {
-		staleSlotsMsg := ""
-		if staleSlots > 0 {
-			staleSlotsMsg = fmt.Sprintf(" (%d stale, eligible for cleanup)", staleSlots)
-		}
-		return fmt.Sprintf("All %d running slots busy for model %s%s", runningSlots, work.ModelName(), staleSlotsMsg)
-	}
-
-	return fmt.Sprintf("No warm slots available for model %s (%d total, %d running, %d active)",
-		work.ModelName(), totalSlots, runningSlots, activeSlots)
+	return fmt.Sprintf("all %d runners failed for unknown reasons", len(sortedRunners))
 }
 
 // TriggerPrewarming triggers immediate prewarming (non-blocking)
