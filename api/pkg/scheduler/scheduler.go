@@ -1250,10 +1250,15 @@ func (s *Scheduler) globalPrewarmBalancing(runnerIDs []string, prewarmModels []*
 			continue
 		}
 
-		// Create prewarming slot
+		// Create prewarming slot with same mutex protection as ensureSlots
+		// Get or create a mutex for this specific runner to prevent overscheduling race conditions
+		mutex, _ := s.runnerAllocationMutexes.LoadOrStore(bestRunner.id, &sync.Mutex{})
+
+		mutex.Lock()
 		prewarmWorkload := s.createPrewarmWorkload(model)
 		slot := NewSlot(bestRunner.id, prewarmWorkload, s.modelStaleFunc, s.slotTimeoutFunc)
 		s.slots.Store(slot.ID, slot)
+		mutex.Unlock()
 
 		// Update runner capacity
 		bestRunner.availableMemory -= model.Memory
