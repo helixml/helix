@@ -4,15 +4,18 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 	"golang.org/x/exp/rand"
 )
 
@@ -671,6 +674,30 @@ func (s *Scheduler) getSortedRunners(work *Workload) ([]string, error) {
 		return nil, ErrNoRunnersAvailable
 	}
 
+	// Check if workload has a preferred runner and if it's available
+	preferredRunner := work.PreferredRunnerID()
+	if preferredRunner != "" {
+		// Check if preferred runner is in the filtered list
+		for _, runnerID := range filteredRunners {
+			if runnerID == preferredRunner {
+				withWorkContext(&log.Logger, work).Debug().
+					Str("preferred_runner", preferredRunner).
+					Msg("using preferred runner for workload")
+				// Return preferred runner first, followed by others
+				result := []string{preferredRunner}
+				for _, id := range filteredRunners {
+					if id != preferredRunner {
+						result = append(result, id)
+					}
+				}
+				return result, nil
+			}
+		}
+		withWorkContext(&log.Logger, work).Debug().
+			Str("preferred_runner", preferredRunner).
+			Msg("preferred runner not available, falling back to normal scheduling")
+	}
+
 	// Calculate the scheduled load on each runner according to their slots
 	// Note: We discussed using real free memory by pinging the runner, but decided to use the
 	// control-plane's view of free memory to avoid the overhead of pinging the runner. This also
@@ -1231,4 +1258,232 @@ func (s *Scheduler) analyzeNewSlotCreationFailure(work *Workload) string {
 	}
 
 	return fmt.Sprintf("all %d runners failed for unknown reasons", len(sortedRunners))
+}
+
+// PrewarmNewRunner creates prewarming workloads for newly connected runners
+func (s *Scheduler) PrewarmNewRunner(runnerID string) {
+	withContext := log.With().Str("runner_id", runnerID).Logger()
+	withContext.Info().Msg("prewarming new runner")
+
+	// Get models that should be prewarmed on this runner
+	prewarmModels := s.getPrewarmModels()
+	if len(prewarmModels) == 0 {
+		withContext.Debug().Msg("no prewarm models configured, skipping prewarming")
+		return
+	}
+
+	for _, model := range prewarmModels {
+		// Create a dummy workload for prewarming
+		prewarmWorkload := &Workload{
+			WorkloadType: WorkloadTypeLLMInferenceRequest,
+			llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+				RequestID: fmt.Sprintf("prewarm-%s-%s", runnerID, model.ID),
+				CreatedAt: time.Now(),
+				Priority:  false, // Low priority for prewarming
+				Request: &openai.ChatCompletionRequest{
+					Model: model.ID,
+					Messages: []openai.ChatCompletionMessage{
+						{Role: "user", Content: "warmup"},
+					},
+				},
+			},
+			model: model,
+		}
+
+		// Set the preferred runner for this prewarming workload
+		prewarmWorkload.SetPreferredRunner(runnerID)
+
+		// Enqueue the prewarming workload
+		err := s.Enqueue(prewarmWorkload)
+		if err != nil {
+			withContext.Warn().
+				Err(err).
+				Str("model", model.ID).
+				Msg("failed to enqueue prewarming workload")
+		} else {
+			withContext.Debug().
+				Str("model", model.ID).
+				Msg("enqueued prewarming workload")
+		}
+	}
+}
+
+// getPrewarmModels returns models that should be prewarmed on new runners
+// Uses intelligent global distribution to balance models across the cluster
+func (s *Scheduler) getPrewarmModels() []*types.Model {
+	// Get all models with Prewarm=true from configured models
+	allPrewarmModels := s.getAllConfiguredPrewarmModels()
+	if len(allPrewarmModels) == 0 {
+		return nil
+	}
+
+	// Analyze current global distribution of these models
+	modelCounts := s.analyzeGlobalModelDistribution(allPrewarmModels)
+
+	// Select models for balancing (prioritize least-running models)
+	selectedModels := s.selectModelsForBalancing(allPrewarmModels, modelCounts)
+
+	if len(selectedModels) > 0 {
+		log.Debug().
+			Int("prewarm_model_count", len(selectedModels)).
+			Int("total_available", len(allPrewarmModels)).
+			Interface("model_distribution", modelCounts).
+			Msg("selected models for intelligent prewarming")
+	}
+
+	return selectedModels
+}
+
+// getAllConfiguredPrewarmModels gets all models with Prewarm=true from configuration
+func (s *Scheduler) getAllConfiguredPrewarmModels() []*types.Model {
+	var prewarmModels []*types.Model
+
+	// Check VLLM models
+	vllmModels, err := model.GetDefaultVLLMModels()
+	if err == nil {
+		for _, m := range vllmModels {
+			if m.Prewarm {
+				prewarmModels = append(prewarmModels, &types.Model{
+					ID:      m.ID,
+					Memory:  m.Memory,
+					Runtime: types.RuntimeVLLM,
+					Prewarm: m.Prewarm,
+				})
+			}
+		}
+	}
+
+	// Check Ollama models
+	ollamaModels, err := model.GetDefaultOllamaModels()
+	if err == nil {
+		for _, m := range ollamaModels {
+			if m.Prewarm {
+				prewarmModels = append(prewarmModels, &types.Model{
+					ID:      m.ID,
+					Memory:  m.Memory,
+					Runtime: types.RuntimeOllama,
+					Prewarm: m.Prewarm,
+				})
+			}
+		}
+	}
+
+	// Check Diffusers models
+	diffusersModels, err := model.GetDefaultDiffusersModels()
+	if err == nil {
+		for _, m := range diffusersModels {
+			if m.Prewarm {
+				prewarmModels = append(prewarmModels, &types.Model{
+					ID:      m.ID,
+					Memory:  m.Memory,
+					Runtime: types.RuntimeDiffusers,
+					Prewarm: m.Prewarm,
+				})
+			}
+		}
+	}
+
+	return prewarmModels
+}
+
+// analyzeGlobalModelDistribution counts how many instances of each model are currently running
+func (s *Scheduler) analyzeGlobalModelDistribution(prewarmModels []*types.Model) map[string]int {
+	modelCounts := make(map[string]int)
+
+	// Initialize counts for all prewarm models
+	for _, model := range prewarmModels {
+		modelCounts[model.ID] = 0
+	}
+
+	// Count running instances across all runners
+	runners := s.controller.RunnerIDs()
+	for _, runnerID := range runners {
+		slots, err := s.controller.GetSlots(runnerID)
+		if err != nil {
+			log.Warn().Str("runner_id", runnerID).Err(err).Msg("failed to get slots for global model analysis")
+			continue
+		}
+
+		for _, slot := range slots {
+			// Count active slots running prewarm models
+			if slot.Active {
+				if _, isPrewarmModel := modelCounts[slot.Model]; isPrewarmModel {
+					modelCounts[slot.Model]++
+				}
+			}
+		}
+	}
+
+	return modelCounts
+}
+
+// selectModelsForBalancing chooses models to prewarm based on global distribution
+// Prioritizes models with fewer running instances to achieve better balance
+func (s *Scheduler) selectModelsForBalancing(prewarmModels []*types.Model, modelCounts map[string]int) []*types.Model {
+	if len(prewarmModels) == 0 {
+		return nil
+	}
+
+	// Sort models by current count (ascending) to prioritize least-running models
+	type modelWithCount struct {
+		model *types.Model
+		count int
+	}
+
+	modelsWithCounts := make([]modelWithCount, 0, len(prewarmModels))
+	for _, model := range prewarmModels {
+		modelsWithCounts = append(modelsWithCounts, modelWithCount{
+			model: model,
+			count: modelCounts[model.ID],
+		})
+	}
+
+	// Sort by count (ascending), then by model ID for deterministic ordering
+	sort.Slice(modelsWithCounts, func(i, j int) bool {
+		if modelsWithCounts[i].count != modelsWithCounts[j].count {
+			return modelsWithCounts[i].count < modelsWithCounts[j].count
+		}
+		return modelsWithCounts[i].model.ID < modelsWithCounts[j].model.ID
+	})
+
+	// Select models for prewarming based on distribution strategy
+	selectedModels := []*types.Model{}
+
+	// Strategy: Prewarm the models with lowest counts first
+	// This helps balance the global distribution
+	minCount := modelsWithCounts[0].count
+	maxCount := modelsWithCounts[len(modelsWithCounts)-1].count
+
+	// If distribution is perfectly balanced, prewarm all models
+	if maxCount-minCount <= 1 {
+		log.Debug().
+			Int("min_count", minCount).
+			Int("max_count", maxCount).
+			Msg("models well-balanced, prewarming all models")
+		for _, mwc := range modelsWithCounts {
+			selectedModels = append(selectedModels, mwc.model)
+		}
+	} else {
+		// Distribution is uneven - prioritize models with fewer instances
+		// Prewarm models that are significantly below the average
+		totalInstances := 0
+		for _, count := range modelCounts {
+			totalInstances += count
+		}
+		avgCount := float64(totalInstances) / float64(len(prewarmModels))
+
+		for _, mwc := range modelsWithCounts {
+			// Prewarm models that are below average or have the minimum count
+			if float64(mwc.count) < avgCount || mwc.count == minCount {
+				selectedModels = append(selectedModels, mwc.model)
+				log.Debug().
+					Str("model_id", mwc.model.ID).
+					Int("current_count", mwc.count).
+					Float64("avg_count", avgCount).
+					Msg("selected model for balancing prewarming")
+			}
+		}
+	}
+
+	return selectedModels
 }
