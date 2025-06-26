@@ -129,6 +129,9 @@ func (apiServer *HelixAPIServer) updateHelixModel(rw http.ResponseWriter, r *htt
 	modelUpdates.Created = existingModel.Created
 	modelUpdates.Updated = time.Now()
 
+	// Mark as user-modified since this is an admin update
+	modelUpdates.UserModified = true
+
 	updatedModel, err := apiServer.Store.UpdateModel(r.Context(), &modelUpdates)
 	if err != nil {
 		if err == store.ErrNotFound {
@@ -139,6 +142,11 @@ func (apiServer *HelixAPIServer) updateHelixModel(rw http.ResponseWriter, r *htt
 		}
 		return
 	}
+
+	log.Info().
+		Str("model_id", modelID).
+		Str("admin_user", user.ID).
+		Msg("model updated by admin - marked as user-modified to preserve changes")
 
 	writeResponse(rw, updatedModel, http.StatusOK)
 }
