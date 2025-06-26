@@ -30,32 +30,35 @@ const (
 )
 
 type RunnerController struct {
-	runners     []string
-	mu          *sync.RWMutex
-	ps          pubsub.PubSub
-	ctx         context.Context
-	fs          filestore.FileStore
-	slotsCache  *LockingRunnerMap[types.ListRunnerSlotsResponse]
-	statusCache *LockingRunnerMap[types.RunnerStatus]
-	store       store.Store
+	runners             []string
+	mu                  *sync.RWMutex
+	ps                  pubsub.PubSub
+	ctx                 context.Context
+	fs                  filestore.FileStore
+	slotsCache          *LockingRunnerMap[types.ListRunnerSlotsResponse]
+	statusCache         *LockingRunnerMap[types.RunnerStatus]
+	store               store.Store
+	onRunnerConnectedFn func(runnerID string) // Callback for when a new runner connects
 }
 
 type RunnerControllerConfig struct {
-	PubSub pubsub.PubSub
-	FS     filestore.FileStore
-	Store  store.Store
+	PubSub              pubsub.PubSub
+	FS                  filestore.FileStore
+	Store               store.Store
+	OnRunnerConnectedFn func(runnerID string) // Optional callback for when a new runner connects
 }
 
 func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*RunnerController, error) {
 	controller := &RunnerController{
-		ctx:         ctx,
-		ps:          cfg.PubSub,
-		fs:          cfg.FS,
-		store:       cfg.Store,
-		runners:     []string{},
-		mu:          &sync.RWMutex{},
-		slotsCache:  NewLockingRunnerMap[types.ListRunnerSlotsResponse](),
-		statusCache: NewLockingRunnerMap[types.RunnerStatus](),
+		ctx:                 ctx,
+		ps:                  cfg.PubSub,
+		fs:                  cfg.FS,
+		store:               cfg.Store,
+		runners:             []string{},
+		mu:                  &sync.RWMutex{},
+		slotsCache:          NewLockingRunnerMap[types.ListRunnerSlotsResponse](),
+		statusCache:         NewLockingRunnerMap[types.RunnerStatus](),
+		onRunnerConnectedFn: cfg.OnRunnerConnectedFn,
 	}
 
 	sub, err := cfg.PubSub.SubscribeWithCtx(controller.ctx, pubsub.GetRunnerConnectedQueue("*"), func(_ context.Context, msg *nats.Msg) error {
@@ -82,6 +85,13 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 	go controller.reconcileCaches(ctx)
 
 	return controller, nil
+}
+
+// SetOnRunnerConnectedCallback sets the callback function for when a new runner connects
+func (c *RunnerController) SetOnRunnerConnectedCallback(fn func(runnerID string)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onRunnerConnectedFn = fn
 }
 
 func (c *RunnerController) reconcileCaches(ctx context.Context) {
@@ -144,6 +154,14 @@ func (c *RunnerController) OnConnectedHandler(id string) {
 		err := c.SetModels(id)
 		if err != nil {
 			log.Error().Err(err).Str("runner_id", id).Msg("error setting models on runner")
+		}
+
+		// Call the prewarming callback if it's set
+		if c.onRunnerConnectedFn != nil {
+			go func() {
+				// Run in a goroutine to avoid blocking runner registration
+				c.onRunnerConnectedFn(id)
+			}()
 		}
 	}
 }
@@ -533,8 +551,11 @@ func (c *RunnerController) calculateVLLMMemoryUtilizationRatio(runnerID string, 
 	}
 
 	// Calculate the ratio based on model memory requirement vs total GPU memory
-	// Using exact ratio without safety margins until we determine they are needed
-	finalRatio := float64(modelMemoryRequirement) / float64(totalMemory)
+	// Apply empirical overhead factor: VLLM typically uses ~17% more memory than the model size
+	// Based on real-world data: Qwen2.5-VL-3B-Instruct used 26.942 GiB actual vs 23 GiB allocated
+	const vllmOverheadFactor = 1.17
+	estimatedActualUsage := float64(modelMemoryRequirement) * vllmOverheadFactor
+	finalRatio := estimatedActualUsage / float64(totalMemory)
 
 	// Ensure the ratio is within reasonable bounds (35% to 95%)
 	// Lower bound of 35% allows for small models while avoiding potential VLLM issues
@@ -549,8 +570,9 @@ func (c *RunnerController) calculateVLLMMemoryUtilizationRatio(runnerID string, 
 		Str("runner_id", runnerID).
 		Uint64("model_memory_bytes", modelMemoryRequirement).
 		Uint64("total_gpu_memory_bytes", totalMemory).
+		Float64("estimated_actual_usage_bytes", estimatedActualUsage).
 		Float64("final_ratio", finalRatio).
-		Msg("Calculated dynamic VLLM memory utilization ratio (no safety margins)")
+		Msg("Calculated dynamic VLLM memory utilization ratio with empirical overhead factor")
 
 	return finalRatio
 }
