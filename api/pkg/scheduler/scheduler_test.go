@@ -55,7 +55,7 @@ func TestScheduler_ChoosesAlternateRunnerWhenPrimaryHasBlockingSlot(t *testing.T
 		},
 	}, &Params{
 		RunnerController: runnerCtrl,
-		OnSchedulingErr:  func(work *Workload, err error) {}, // No-op error handler
+		OnSchedulingErr:  func(_ *Workload, _ error) {}, // No-op error handler
 	})
 	require.NoError(t, err)
 
@@ -444,7 +444,7 @@ func TestScheduler_HeadOfLineBlocking_RealScenario(t *testing.T) {
 		},
 	}, &Params{
 		RunnerController: runnerCtrl,
-		OnSchedulingErr:  func(work *Workload, err error) {}, // No-op - keep workloads in queue
+		OnSchedulingErr:  func(_ *Workload, _ error) {}, // No-op - keep workloads in queue
 	})
 	require.NoError(t, err)
 
