@@ -28,9 +28,6 @@ type Slack struct {
 
 	botMu sync.Mutex
 	bot   map[string]*SlackBot // Slack bots for each Helix app/agent
-
-	lastReconcile time.Time
-	reconcileMu   sync.Mutex
 }
 
 func New(cfg *config.ServerConfig, store store.Store, controller *controller.Controller) *Slack {
@@ -63,7 +60,93 @@ func (s *Slack) Start(ctx context.Context) error {
 }
 
 func (s *Slack) reconcile(ctx context.Context) error {
+	// Get all apps from the store
+	apps, err := s.store.ListApps(ctx, &store.ListAppsQuery{})
+	if err != nil {
+		return fmt.Errorf("failed to list apps: %w", err)
+	}
 
+	// Find apps with Slack triggers
+	slackApps := make(map[string]*types.SlackTrigger)
+	for _, app := range apps {
+		for _, trigger := range app.Config.Helix.Triggers {
+			if trigger.Slack != nil && trigger.Slack.BotToken != "" {
+				slackApps[app.ID] = trigger.Slack
+				break
+			}
+		}
+	}
+
+	s.botMu.Lock()
+	defer s.botMu.Unlock()
+
+	// Stop bots that are no longer needed
+	for appID, bot := range s.bot {
+		if _, exists := slackApps[appID]; !exists {
+			log.Info().Str("app_id", appID).Msg("stopping Slack bot - no longer configured")
+			bot.Stop()
+			delete(s.bot, appID)
+		}
+	}
+
+	// Start or update bots for configured apps
+	for appID, slackTrigger := range slackApps {
+		app, err := s.store.GetApp(ctx, appID)
+		if err != nil {
+			log.Error().Err(err).Str("app_id", appID).Msg("failed to get app for Slack bot")
+			continue
+		}
+
+		existingBot, exists := s.bot[appID]
+		if !exists {
+			// Create new bot
+			log.Info().Str("app_id", appID).Msg("starting new Slack bot")
+			bot := NewSlackBot(s.cfg, s.store, s.controller, app, slackTrigger)
+			s.bot[appID] = bot
+
+			// Start the bot in a goroutine
+			go func(bot *SlackBot, appID string) {
+				if err := bot.RunBot(ctx); err != nil {
+					log.Error().Err(err).Str("app_id", appID).Msg("Slack bot exited with error")
+				}
+			}(bot, appID)
+		} else {
+			// Check if the trigger configuration has changed
+			if !s.triggerConfigEqual(existingBot.trigger, slackTrigger) {
+				log.Info().Str("app_id", appID).Msg("updating Slack bot configuration")
+
+				// Stop the existing bot
+				existingBot.Stop()
+
+				// Create new bot with updated configuration
+				bot := NewSlackBot(s.cfg, s.store, s.controller, app, slackTrigger)
+				s.bot[appID] = bot
+
+				// Start the new bot in a goroutine
+				go func(bot *SlackBot, appID string) {
+					if err := bot.RunBot(ctx); err != nil {
+						log.Error().Err(err).Str("app_id", appID).Msg("Slack bot exited with error")
+					}
+				}(bot, appID)
+			}
+		}
+	}
+
+	return nil
+}
+
+// triggerConfigEqual compares two SlackTrigger configurations for equality
+func (s *Slack) triggerConfigEqual(a, b *types.SlackTrigger) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+
+	return a.AppToken == b.AppToken &&
+		a.BotToken == b.BotToken &&
+		slicesEqual(a.Channels, b.Channels)
 }
 
 // Stop stops all running Slack bots
