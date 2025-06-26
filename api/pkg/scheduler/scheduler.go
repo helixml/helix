@@ -58,6 +58,9 @@ type Scheduler struct {
 	decisionsTracker  *SchedulingDecisionsTracker // Tracks scheduling decisions for dashboard
 	prewarmTrigger    chan struct{}               // Channel to trigger immediate prewarming
 	slotCreationMutex sync.Mutex                  // Single mutex to serialize all slot creation operations
+
+	// Optional function to override slot creation behavior (for testing)
+	createSlotFunc func(slot *Slot) error
 }
 
 type Params struct {
@@ -65,6 +68,7 @@ type Params struct {
 	QueueSize         int
 	OnSchedulingErr   func(work *Workload, err error)
 	OnResponseHandler func(ctx context.Context, resp *types.RunnerLLMInferenceResponse) error
+	CreateSlotFunc    func(slot *Slot) error // Optional override for slot creation (for testing)
 }
 
 func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params *Params) (*Scheduler, error) {
@@ -113,6 +117,7 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		decisionsTracker:  NewSchedulingDecisionsTracker(100), // Keep last 100 decisions
 		prewarmTrigger:    make(chan struct{}, 1),             // Buffered channel to prevent blocking
 		slotCreationMutex: sync.Mutex{},                       // Single mutex to serialize all slot creation
+		createSlotFunc:    params.CreateSlotFunc,              // Optional override for testing
 	}
 
 	// Set the runner connected callback to trigger prewarming
@@ -1036,7 +1041,13 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
 	withSlotContext(&log.Logger, slot).Info().Msg("creating new slot on runner")
 
-	err := s.controller.CreateSlot(slot)
+	// Use custom create function if provided (for testing), otherwise use controller
+	var err error
+	if s.createSlotFunc != nil {
+		err = s.createSlotFunc(slot)
+	} else {
+		err = s.controller.CreateSlot(slot)
+	}
 	if err != nil {
 		return err
 	}
@@ -1146,8 +1157,9 @@ func withSlotAndWorkContext(l *zerolog.Logger, s *Slot, w *Workload) *zerolog.Lo
 	return withSlotContext(withWorkContext(l, w), s)
 }
 
-// reconcilePrewarming is now integrated into reconcileSlots to eliminate race conditions.
-// This function is kept for backward compatibility but is no longer used.
+// reconcilePrewarmingOnce handles the core prewarming logic to create prewarmed slots.
+// It's called from reconcileSlots to eliminate race conditions between slot creation and prewarming.
+// This function can also be triggered manually via TriggerPrewarming().
 
 func (s *Scheduler) reconcilePrewarmingOnce(ctx context.Context) {
 	// Check if store is available (might be nil in tests)
@@ -1355,7 +1367,12 @@ func (s *Scheduler) globalPrewarmBalancing(runnerIDs []string, prewarmModels []*
 			s.slots.Store(slot.ID, slot)
 
 			// Try to create the slot on the runner
-			err := s.controller.CreateSlot(slot)
+			var err error
+			if s.createSlotFunc != nil {
+				err = s.createSlotFunc(slot)
+			} else {
+				err = s.controller.CreateSlot(slot)
+			}
 			if err != nil {
 				log.Error().
 					Err(err).
