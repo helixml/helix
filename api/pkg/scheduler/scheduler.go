@@ -543,51 +543,79 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 	for i := 0; i < count; i++ {
 		startTime := time.Now()
 
-		// Find best runner for this slot
-		runnerID, err := s.pickBestRunner(req.ExampleWorkload)
+		// Get all runners sorted by preference
+		sortedRunners, err := s.getSortedRunners(req.ExampleWorkload)
 		if err != nil {
 			// Log scheduling rejection
 			s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeRejected, false,
-				fmt.Sprintf("Failed to pick best runner: %v", err), "", "", startTime)
+				fmt.Sprintf("Failed to get runners: %v", err), "", "", startTime)
 
 			retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
 			if retry {
-				log.Info().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, retrying...")
+				log.Info().Err(err).Interface("requirement", req).Msg("failed to get runners for requirement, retrying...")
 				return
 			}
-			log.Warn().Err(err).Interface("requirement", req).Msg("failed to pick best runner for requirement, skipping...")
+			log.Warn().Err(err).Interface("requirement", req).Msg("failed to get runners for requirement, skipping...")
 			s.onSchedulingErr(req.ExampleWorkload, err)
-			s.queue.Remove(req.ExampleWorkload) // This only removes the one workload from the slot requirement, not the entire queue full of them. It should clean up on the next time around.
+			s.queue.Remove(req.ExampleWorkload)
 			return
 		}
 
-		// Delete any stale slots on this runner if required
-		err = s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload)
-		if err != nil {
-			// Log scheduling rejection due to stale slot deletion failure
+		// Try each runner in order of preference until one succeeds
+		var lastErr error
+		slotCreated := false
+
+		for j, runnerID := range sortedRunners {
+			withWorkContext(&log.Logger, req.ExampleWorkload).Debug().
+				Str("runner_id", runnerID).
+				Int("attempt", j+1).
+				Int("total_runners", len(sortedRunners)).
+				Msg("trying runner for slot creation")
+
+			// Try to delete stale slots on this runner if required
+			err = s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload)
+			if err != nil {
+				lastErr = err
+				withWorkContext(&log.Logger, req.ExampleWorkload).Debug().
+					Err(err).
+					Str("runner_id", runnerID).
+					Msg("failed to free memory on runner, trying next")
+				continue // Try next runner
+			}
+
+			// Success! Create slot on this runner
+			slot := NewSlot(runnerID, req.ExampleWorkload, s.modelStaleFunc, s.slotTimeoutFunc)
+			s.slots.Store(slot.ID, slot)
+
+			// Log successful new slot creation
+			s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeCreateNewSlot, true,
+				fmt.Sprintf("Created new slot on runner %s (attempt %d/%d)", runnerID, j+1, len(sortedRunners)),
+				runnerID, slot.ID.String(), startTime)
+
+			slotCreated = true
+			break // Success, no need to try more runners
+		}
+
+		// If we failed on all runners, handle the error
+		if !slotCreated {
+			// Log scheduling rejection due to all runners failing
 			s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeRejected, false,
-				fmt.Sprintf("Failed to delete stale slots on runner %s: %v", runnerID, err), runnerID, "", startTime)
+				fmt.Sprintf("Failed to create slot on any of %d runners, last error: %v", len(sortedRunners), lastErr),
+				"", "", startTime)
 
-			retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
+			retry, retryErr := ErrorHandlingStrategy(lastErr, req.ExampleWorkload)
 			if retry {
-				log.Info().Err(err).Interface("requirement", req).Msg("failed to delete any stale slots, retrying...")
+				log.Info().Err(lastErr).Interface("requirement", req).Msg("failed to create slot on any runner, retrying...")
 				return
 			}
-			log.Warn().Err(err).Interface("requirement", req).Msg("failed to delete any stale slots, skipping...")
-			s.onSchedulingErr(req.ExampleWorkload, err)
-			s.queue.Remove(req.ExampleWorkload) // This only removes the one workload from the slit requirement, not the entire queue full of them. It should clean up on the next time around.
+			log.Warn().Err(lastErr).Interface("requirement", req).Msg("failed to create slot on any runner, skipping...")
+			if retryErr != nil {
+				log.Warn().Err(retryErr).Msg("error handling strategy failed")
+			}
+			s.onSchedulingErr(req.ExampleWorkload, lastErr)
+			s.queue.Remove(req.ExampleWorkload)
 			return
 		}
-
-		// Create the control plane view of the slot
-		slot := NewSlot(runnerID, req.ExampleWorkload, s.modelStaleFunc, s.slotTimeoutFunc)
-
-		// Store the slot
-		s.slots.Store(slot.ID, slot)
-
-		// Log successful new slot creation
-		s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeCreateNewSlot, true,
-			fmt.Sprintf("Created new slot on runner %s", runnerID), runnerID, slot.ID.String(), startTime)
 	}
 }
 
@@ -627,19 +655,19 @@ func (s *Scheduler) processQueueOnce() {
 	}
 }
 
-// Add new helper method to find the best runner
-func (s *Scheduler) pickBestRunner(work *Workload) (string, error) {
+// Helper method to get all runners sorted by preference
+func (s *Scheduler) getSortedRunners(work *Workload) ([]string, error) {
 	// First get a list of all runners
 	allRunners := s.controller.RunnerIDs()
 
 	filteredRunners, err := s.filterRunners(work, allRunners)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// Error if there are no runners left
 	if len(filteredRunners) == 0 {
-		return "", ErrNoRunnersAvailable
+		return nil, ErrNoRunnersAvailable
 	}
 
 	// Calculate the scheduled load on each runner according to their slots
@@ -667,12 +695,7 @@ func (s *Scheduler) pickBestRunner(work *Workload) (string, error) {
 	})
 	withWorkContext(&log.Logger, work).Debug().Interface("sorted_runners", filteredRunners).Msg("sorted runners")
 
-	// Pick the first runner
-	bestRunnerID := filteredRunners[0]
-	withWorkContext(&log.Logger, work).Debug().Str("runner_id", bestRunnerID).Msg("chosen best runner")
-
-	// Return the bestRunnerID and any error
-	return bestRunnerID, nil
+	return filteredRunners, nil
 }
 
 // DeleteMostStaleStrategy iteratively deletes allocated work from stale slots until there is enough
