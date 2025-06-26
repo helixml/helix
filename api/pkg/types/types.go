@@ -1331,6 +1331,7 @@ type DiscordTrigger struct {
 }
 
 type SlackTrigger struct {
+	Enabled  bool     `json:"enabled,omitempty"`
 	AppToken string   `json:"app_token" yaml:"app_token"`
 	BotToken string   `json:"bot_token" yaml:"bot_token"`
 	Channels []string `json:"channels" yaml:"channels"`

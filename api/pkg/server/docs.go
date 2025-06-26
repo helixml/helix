@@ -6271,6 +6271,9 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "enabled": {
+                    "type": "boolean"
                 }
             }
         },
