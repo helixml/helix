@@ -253,6 +253,7 @@ func (s *Scheduler) reconcileSlots(ctx context.Context) {
 
 	// Track timing for prewarming
 	lastPrewarmCheck := time.Now()
+	lastReadinessCheck := time.Now()
 
 	for {
 		select {
@@ -262,8 +263,14 @@ func (s *Scheduler) reconcileSlots(ctx context.Context) {
 			// 1. First reconcile existing slots (most critical)
 			s.reconcileSlotsOnce(ctx)
 
-			// 2. Then handle prewarming every 5 seconds or when triggered
+			// 2. Check slot readiness more frequently (every 2 seconds)
 			now := time.Now()
+			if now.Sub(lastReadinessCheck) >= 2*time.Second {
+				s.reconcileSlotReadiness(ctx)
+				lastReadinessCheck = now
+			}
+
+			// 3. Then handle prewarming every 5 seconds or when triggered
 			shouldPrewarm := now.Sub(lastPrewarmCheck) >= prewarmReconcileInterval
 
 			// Check for prewarming trigger (non-blocking)
@@ -850,9 +857,11 @@ func (s *Scheduler) warmSlotsWithReason(req *Workload, reasonOut *string) []*Slo
 		}
 		loraMatchSlots++
 
-		// If the slot isn't running yet, skip
-		if !slot.IsRunning() {
-			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, not running yet")
+		// If the slot isn't ready for work yet, skip
+		if !slot.IsReadyForWork() {
+			withSlotContext(&log.Logger, slot).Trace().
+				Str("slot_state", slot.State().String()).
+				Msg("skipping warm slot, not ready for work yet")
 			return true
 		}
 		runningSlots++
@@ -887,7 +896,7 @@ func (s *Scheduler) warmSlotsWithReason(req *Workload, reasonOut *string) []*Slo
 			}
 			*reasonOut = fmt.Sprintf("No slots for %s with model %s (found %d runtime slots)", loraMsg, req.ModelName(), runtimeMatchSlots)
 		} else if runningSlots == 0 {
-			*reasonOut = fmt.Sprintf("All %d matching slots still starting for model %s", loraMatchSlots, req.ModelName())
+			*reasonOut = fmt.Sprintf("All %d matching slots still loading for model %s", loraMatchSlots, req.ModelName())
 		} else if availableSlots == 0 {
 			*reasonOut = fmt.Sprintf("All %d running slots busy for model %s", runningSlots, req.ModelName())
 		} else {
@@ -1049,82 +1058,16 @@ func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
 		err = s.controller.CreateSlot(slot)
 	}
 	if err != nil {
+		slot.SetError(err)
 		return err
 	}
 
-	// Wait for the slot to be ready
-	slotReady := make(chan bool)
-
-	// Add timeout variables for logging
-	startTime := time.Now()
-	readyTimeout := 120 * time.Minute
-	lastLogTime := startTime
-	attemptCount := 0
+	// Slot creation request sent successfully - it's now in "loading" state
+	// The slot will be checked for readiness in a separate reconciliation process
+	slot.SetState(SlotStateLoading)
 
 	withSlotContext(&log.Logger, slot).Info().
-		Dur("timeout", readyTimeout).
-		Str("model", slot.InitialWork().ModelName().String()).
-		Msg("Starting wait for slot to be ready with timeout")
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				withSlotContext(&log.Logger, slot).Warn().
-					Dur("elapsed", time.Since(startTime)).
-					Msg("Context canceled while waiting for slot to be ready")
-				return
-			case <-time.After(500 * time.Millisecond):
-				attemptCount++
-				elapsed := time.Since(startTime)
-
-				// Log status every 10 seconds
-				if time.Since(lastLogTime) > 10*time.Second {
-					timeLeft := readyTimeout - elapsed
-					withSlotContext(&log.Logger, slot).Debug().
-						Dur("elapsed", elapsed).
-						Dur("time_left", timeLeft).
-						Int("attempt", attemptCount).
-						Msg("Waiting for slot to be ready")
-					lastLogTime = time.Now()
-				}
-
-				if s, err := s.controller.fetchSlot(slot.RunnerID, slot.ID); err == nil {
-					if s.Ready {
-						withSlotContext(&log.Logger, slot).Info().
-							Dur("elapsed", elapsed).
-							Int("attempts", attemptCount).
-							Msg("Slot is now ready")
-						slotReady <- true
-					}
-				} else {
-					withSlotContext(&log.Logger, slot).Warn().
-						Err(err).
-						Dur("elapsed", elapsed).
-						Msg("Error checking if slot is ready")
-					close(slotReady)
-					return
-				}
-			}
-		}
-	}()
-
-	select {
-	case <-slotReady:
-		withSlotContext(&log.Logger, slot).Info().
-			Dur("elapsed", time.Since(startTime)).
-			Msg("Slot is ready")
-	case <-time.After(readyTimeout):
-		withSlotContext(&log.Logger, slot).Error().
-			Dur("elapsed", time.Since(startTime)).
-			Int("attempts", attemptCount).
-			Msg("Timeout waiting for slot to be ready")
-		return fmt.Errorf("slot not ready after 120 minutes")
-	}
-
-	// Mark the slot as running
-	slot.SetRunning()
-	withSlotContext(&log.Logger, slot).Info().Msg("slot created on runner")
+		Msg("slot creation request sent to runner, will check readiness separately")
 
 	return nil
 }
@@ -1653,5 +1596,66 @@ func (s *Scheduler) TriggerPrewarming() {
 		log.Debug().Msg("prewarming trigger sent")
 	default:
 		log.Debug().Msg("prewarming trigger already pending, skipping")
+	}
+}
+
+// reconcileSlotReadiness checks if slots that are loading have become ready
+func (s *Scheduler) reconcileSlotReadiness(ctx context.Context) {
+	var slotsToCheck []*Slot
+
+	// Collect slots that need readiness checking
+	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		if slot.IsLoading() {
+			slotsToCheck = append(slotsToCheck, slot)
+		}
+		return true
+	})
+
+	if len(slotsToCheck) == 0 {
+		return
+	}
+
+	log.Trace().
+		Int("slots_to_check", len(slotsToCheck)).
+		Msg("Checking slot readiness")
+
+	// Check each slot's readiness
+	for _, slot := range slotsToCheck {
+		// Check if slot has been loading too long
+		if slot.CreationTime() > 120*time.Minute {
+			withSlotContext(&log.Logger, slot).Error().
+				Dur("creation_time", slot.CreationTime()).
+				Msg("Slot has been loading for too long, marking as error")
+			slot.SetError(fmt.Errorf("slot loading timeout after %v", slot.CreationTime()))
+			continue
+		}
+
+		// Check if slot is ready on the runner
+		remoteSlot, err := s.controller.fetchSlot(slot.RunnerID, slot.ID)
+		if err != nil {
+			withSlotContext(&log.Logger, slot).Debug().
+				Err(err).
+				Dur("creation_time", slot.CreationTime()).
+				Msg("Error checking slot readiness, will retry")
+			continue
+		}
+
+		if remoteSlot.Ready {
+			// Slot is ready!
+			slot.SetState(SlotStateReady)
+			slot.SetRunning() // Mark as running for backward compatibility
+			withSlotContext(&log.Logger, slot).Info().
+				Dur("creation_time", slot.CreationTime()).
+				Msg("Slot is now ready")
+		} else {
+			// Still loading, log progress occasionally
+			if int(slot.CreationTime().Seconds())%30 == 0 { // Every 30 seconds
+				withSlotContext(&log.Logger, slot).Debug().
+					Dur("creation_time", slot.CreationTime()).
+					Bool("remote_ready", remoteSlot.Ready).
+					Bool("remote_active", remoteSlot.Active).
+					Msg("Slot still loading")
+			}
+		}
 	}
 }

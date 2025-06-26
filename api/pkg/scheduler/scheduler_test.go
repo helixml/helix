@@ -48,6 +48,14 @@ func TestScheduler_ChoosesAlternateRunnerWhenPrimaryHasBlockingSlot(t *testing.T
 	})
 	require.NoError(t, err)
 
+	// Mock CreateSlot to succeed immediately (for testing scheduling logic)
+	mockCreateSlot := func(slot *Slot) error {
+		// Mark slot as ready to simulate successful creation
+		slot.SetState(SlotStateReady)
+		slot.SetRunning()
+		return nil
+	}
+
 	// Create scheduler
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{
 		Providers: config.Providers{
@@ -59,6 +67,7 @@ func TestScheduler_ChoosesAlternateRunnerWhenPrimaryHasBlockingSlot(t *testing.T
 	}, &Params{
 		RunnerController: runnerCtrl,
 		OnSchedulingErr:  func(_ *Workload, _ error) {}, // No-op error handler
+		CreateSlotFunc:   mockCreateSlot,
 	})
 	require.NoError(t, err)
 
@@ -134,15 +143,16 @@ func TestScheduler_ChoosesAlternateRunnerWhenPrimaryHasBlockingSlot(t *testing.T
 	}
 
 	// Setup runner1 with blocking slot configuration
-	// Slot A: 22GB Qwen model - stuck in "starting" state (can't be evicted)
+	// Slot A: 22GB Qwen model - stuck in "creating" state (can't be evicted)
 	qwenSlot := NewSlot(runner1ID, qwenWorkload, scheduler.modelStaleFunc, scheduler.slotTimeoutFunc)
-	qwenSlot.isRunning = false             // Not running yet (stuck in starting)
+	qwenSlot.SetState(SlotStateCreating)   // Stuck in creating state
 	qwenSlot.LastActivityTime = time.Now() // Recent activity (not stale)
 	scheduler.slots.Store(qwenSlot.ID, qwenSlot)
 
 	// Slot B: 2GB small model - stale and evictable
 	smallSlot := NewSlot(runner1ID, smallWorkload, scheduler.modelStaleFunc, scheduler.slotTimeoutFunc)
-	smallSlot.isRunning = true                                      // Running
+	smallSlot.SetState(SlotStateReady)                              // Ready state
+	smallSlot.SetRunning()                                          // Mark as running for backward compatibility
 	smallSlot.LastActivityTime = time.Now().Add(-400 * time.Second) // Past stale timeout
 	scheduler.slots.Store(smallSlot.ID, smallSlot)
 
@@ -164,7 +174,8 @@ func TestScheduler_ChoosesAlternateRunnerWhenPrimaryHasBlockingSlot(t *testing.T
 			Runtime: types.RuntimeVLLM,
 		},
 	}, scheduler.modelStaleFunc, scheduler.slotTimeoutFunc)
-	bigSlot1.isRunning = true
+	bigSlot1.SetState(SlotStateReady)                              // Ready state
+	bigSlot1.SetRunning()                                          // Mark as running for backward compatibility
 	bigSlot1.LastActivityTime = time.Now().Add(-400 * time.Second) // Stale
 	scheduler.slots.Store(bigSlot1.ID, bigSlot1)
 
@@ -179,7 +190,8 @@ func TestScheduler_ChoosesAlternateRunnerWhenPrimaryHasBlockingSlot(t *testing.T
 			Runtime: types.RuntimeVLLM,
 		},
 	}, scheduler.modelStaleFunc, scheduler.slotTimeoutFunc)
-	bigSlot2.isRunning = true
+	bigSlot2.SetState(SlotStateReady)                              // Ready state
+	bigSlot2.SetRunning()                                          // Mark as running for backward compatibility
 	bigSlot2.LastActivityTime = time.Now().Add(-400 * time.Second) // Stale
 	scheduler.slots.Store(bigSlot2.ID, bigSlot2)
 
