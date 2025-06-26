@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	stdlog "log"
+	"net/http"
 	"os"
 	"sync"
 	"time"
@@ -220,6 +221,7 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 	options := []slack.Option{
 		slack.OptionDebug(true),
 		slack.OptionLog(stdlog.New(os.Stdout, "api: ", stdlog.Lshortfile|stdlog.LstdFlags)),
+		slack.OptionHTTPClient(http.DefaultClient),
 	}
 
 	if s.trigger.AppToken != "" {
