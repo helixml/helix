@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
@@ -195,23 +194,28 @@ func TestScheduler_ChoosesAlternateRunnerWhenPrimaryHasBlockingSlot(t *testing.T
 	err = scheduler.Enqueue(embeddingWorkload)
 	require.NoError(t, err)
 
+	// Trigger slot reconciliation to test the fix
+
 	// Trigger slot reconciliation manually
 	scheduler.reconcileSlotsOnce(ctx)
 
-	// Check if the embedding model was scheduled
-	// The bug: it should be scheduled on runner2, but currently fails
-	embeddingSlots := []*Slot{}
-	scheduler.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
-		if slot.InitialWork().ModelName().String() == "embedding-model" {
-			embeddingSlots = append(embeddingSlots, slot)
+	// Check scheduling decisions to verify the embedding model was scheduled successfully on runner2
+	decisions := scheduler.GetSchedulingDecisions(100)
+
+	t.Logf("Total scheduling decisions: %d", len(decisions))
+
+	var embeddingDecision *types.SchedulingDecision
+	for _, decision := range decisions {
+		t.Logf("Decision: Type=%s, Model=%s, RunnerID=%s, Success=%t, Reason=%s",
+			decision.DecisionType, decision.ModelName, decision.RunnerID, decision.Success, decision.Reason)
+		if decision.ModelName == "embedding-model" && decision.DecisionType == types.SchedulingDecisionTypeCreateNewSlot {
+			embeddingDecision = decision
 		}
-		return true
-	})
+	}
 
-	// This test should FAIL initially, exposing the bug
-	require.NotEmpty(t, embeddingSlots, "Embedding model should be scheduled on runner2")
-
-	// The embedding should be scheduled on runner2, not runner1
-	embeddingSlot := embeddingSlots[0]
-	require.Equal(t, runner2ID, embeddingSlot.RunnerID, "Embedding should be scheduled on runner2, not runner1")
+	// This test should now PASS with the fix
+	require.NotNil(t, embeddingDecision, "Embedding model should be scheduled successfully")
+	require.True(t, embeddingDecision.Success, "Embedding model scheduling should succeed")
+	require.Equal(t, runner2ID, embeddingDecision.RunnerID, "Embedding should be scheduled on runner2, not runner1")
+	require.Contains(t, embeddingDecision.Reason, "attempt 2/2", "Should show fallback to second runner worked")
 }
