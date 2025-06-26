@@ -4827,6 +4827,10 @@ const docTemplate = `{
                 },
                 "updated": {
                     "type": "string"
+                },
+                "user_modified": {
+                    "description": "User modification tracking - system defaults are automatically updated if this is false",
+                    "type": "boolean"
                 }
             }
         },
@@ -6253,6 +6257,23 @@ const docTemplate = `{
                 "SessionTypeImage"
             ]
         },
+        "types.SlackTrigger": {
+            "type": "object",
+            "properties": {
+                "app_token": {
+                    "type": "string"
+                },
+                "bot_token": {
+                    "type": "string"
+                },
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "types.StepInfo": {
             "type": "object",
             "properties": {
@@ -6608,6 +6629,9 @@ const docTemplate = `{
                 },
                 "discord": {
                     "$ref": "#/definitions/types.DiscordTrigger"
+                },
+                "slack": {
+                    "$ref": "#/definitions/types.SlackTrigger"
                 }
             }
         },

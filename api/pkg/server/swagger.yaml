@@ -1666,6 +1666,10 @@ definitions:
         $ref: '#/definitions/types.ModelType'
       updated:
         type: string
+      user_modified:
+        description: User modification tracking - system defaults are automatically
+          updated if this is false
+        type: boolean
     type: object
   types.ModelType:
     enum:
@@ -2676,6 +2680,17 @@ definitions:
     - SessionTypeNone
     - SessionTypeText
     - SessionTypeImage
+  types.SlackTrigger:
+    properties:
+      app_token:
+        type: string
+      bot_token:
+        type: string
+      channels:
+        items:
+          type: string
+        type: array
+    type: object
   types.StepInfo:
     properties:
       app_id:
@@ -2922,6 +2937,8 @@ definitions:
         $ref: '#/definitions/types.CronTrigger'
       discord:
         $ref: '#/definitions/types.DiscordTrigger'
+      slack:
+        $ref: '#/definitions/types.SlackTrigger'
     type: object
   types.UpdateOrganizationMemberRequest:
     properties:
