@@ -144,15 +144,15 @@ func (s *Scheduler) Enqueue(work *Workload) error {
 
 	err := s.queue.Add(work)
 	if err != nil {
-		// Log failed queuing
+		// Log failed queuing - no specific runner/memory info available during queuing
 		s.logSchedulingDecision(work, types.SchedulingDecisionTypeError, false,
-			fmt.Sprintf("Failed to add to queue: %v", err), "", "", startTime)
+			fmt.Sprintf("Failed to add to queue: %v", err), "", "", startTime, 0, work.model.Memory, 0)
 		return err
 	}
 
-	// Log successful queuing
+	// Log successful queuing - no specific runner/memory info available during queuing
 	s.logSchedulingDecision(work, types.SchedulingDecisionTypeQueued, true,
-		"Added to queue", "", "", startTime)
+		"Added to queue", "", "", startTime, 0, work.model.Memory, 0)
 
 	return nil
 }
@@ -539,6 +539,20 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 		Msg("Completed slot reconciliation")
 }
 
+// calculateRunnerMemory calculates the current memory usage for a runner
+func (s *Scheduler) calculateRunnerMemory(runnerID string) (totalMemory, allocatedMemory, freeMemory uint64) {
+	totalMemory = s.controller.TotalMemory(runnerID)
+	allocatedMemory = 0
+	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		if slot.RunnerID == runnerID {
+			allocatedMemory += slot.Memory()
+		}
+		return true
+	})
+	freeMemory = totalMemory - allocatedMemory
+	return
+}
+
 func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 	for i := 0; i < count; i++ {
 		startTime := time.Now()
@@ -546,9 +560,9 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 		// Get all runners sorted by preference
 		sortedRunners, err := s.getSortedRunners(req.ExampleWorkload)
 		if err != nil {
-			// Log scheduling rejection
+			// Log scheduling rejection - no specific runner info available
 			s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeRejected, false,
-				fmt.Sprintf("Failed to get runners: %v", err), "", "", startTime)
+				fmt.Sprintf("Failed to get runners: %v", err), "", "", startTime, 0, req.ExampleWorkload.model.Memory, 0)
 
 			retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
 			if retry {
@@ -572,8 +586,8 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 				Int("total_runners", len(sortedRunners)).
 				Msg("trying runner for slot creation")
 
-			// Try to delete stale slots on this runner if required
-			err = s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload)
+			// Try to delete stale slots on this runner if required and get the EXACT memory values used for the decision
+			totalMemory, _, freeMemory, err := s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload)
 			if err != nil {
 				lastErr = err
 				withWorkContext(&log.Logger, req.ExampleWorkload).Debug().
@@ -587,10 +601,10 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 			slot := NewSlot(runnerID, req.ExampleWorkload, s.modelStaleFunc, s.slotTimeoutFunc)
 			s.slots.Store(slot.ID, slot)
 
-			// Log successful new slot creation
+			// Log successful new slot creation with memory info
 			s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeCreateNewSlot, true,
 				fmt.Sprintf("Created new slot on runner %s (attempt %d/%d)", runnerID, j+1, len(sortedRunners)),
-				runnerID, slot.ID.String(), startTime)
+				runnerID, slot.ID.String(), startTime, freeMemory, req.ExampleWorkload.model.Memory, totalMemory)
 
 			slotCreated = true
 			break // Success, no need to try more runners
@@ -598,10 +612,10 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 
 		// If we failed on all runners, handle the error
 		if !slotCreated {
-			// Log scheduling rejection due to all runners failing
+			// Log scheduling rejection due to all runners failing - no specific runner info available
 			s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeRejected, false,
 				fmt.Sprintf("Failed to create slot on any of %d runners, last error: %v", len(sortedRunners), lastErr),
-				"", "", startTime)
+				"", "", startTime, 0, req.ExampleWorkload.model.Memory, 0)
 
 			retry, retryErr := ErrorHandlingStrategy(lastErr, req.ExampleWorkload)
 			if retry {
@@ -636,11 +650,14 @@ func (s *Scheduler) processQueueOnce() {
 	warmSlots := s.warmSlots(work)
 	slot := s.pickBestWarmSlot(warmSlots)
 
+	// Calculate memory info for the runner
+	totalMemory, _, freeMemory := s.calculateRunnerMemory(slot.RunnerID)
+
 	err := s.allocateSlot(slot.ID, work)
 	if err != nil {
 		// Log failed allocation decision
 		s.logSchedulingDecision(work, types.SchedulingDecisionTypeError, false,
-			fmt.Sprintf("Failed to allocate warm slot: %v", err), slot.RunnerID, slot.ID.String(), startTime)
+			fmt.Sprintf("Failed to allocate warm slot: %v", err), slot.RunnerID, slot.ID.String(), startTime, freeMemory, work.model.Memory, totalMemory)
 
 		// If allocation fails, put work back in queue
 		err = s.queue.Add(work)
@@ -651,7 +668,7 @@ func (s *Scheduler) processQueueOnce() {
 	} else {
 		// Log successful warm slot reuse
 		s.logSchedulingDecision(work, types.SchedulingDecisionTypeReuseWarmSlot, true,
-			fmt.Sprintf("Reused warm slot on runner %s", slot.RunnerID), slot.RunnerID, slot.ID.String(), startTime)
+			fmt.Sprintf("Reused warm slot on runner %s", slot.RunnerID), slot.RunnerID, slot.ID.String(), startTime, freeMemory, work.model.Memory, totalMemory)
 	}
 }
 
@@ -699,9 +716,12 @@ func (s *Scheduler) getSortedRunners(work *Workload) ([]string, error) {
 }
 
 // DeleteMostStaleStrategy iteratively deletes allocated work from stale slots until there is enough
-// memory to allocate the new workload.
-func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) error {
+// memory to allocate the new workload. Returns the final memory state used for the decision.
+func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (totalMemory, allocatedMemory, freeMemory uint64, err error) {
 	totalMem := s.controller.TotalMemory(runnerID)
+	var finalAllocatedMem uint64
+	var finalFreeMem uint64
+
 	for {
 		var allSlots []*Slot
 		allocatedMem := uint64(0)
@@ -716,6 +736,11 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) err
 		requiredMem := work.model.Memory
 		freeMem := int64(totalMem) - int64(allocatedMem) - int64(requiredMem)
 		log.Trace().Interface("slots", allSlots).Int64("freeMem", freeMem).Msg("checking if we can allocate")
+
+		// Store the final memory state used for the decision
+		finalAllocatedMem = allocatedMem
+		finalFreeMem = totalMem - allocatedMem
+
 		// If there is enough free space on the runner, break out of the loop.
 		if freeMem > 0 {
 			break
@@ -740,13 +765,13 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) err
 		})
 		log.Trace().Interface("stale_slots", staleSlots).Msg("stale slots")
 		if len(staleSlots) == 0 {
-			return ErrRunnersAreFull
+			return totalMem, finalAllocatedMem, finalFreeMem, ErrRunnersAreFull
 		}
 		// Then delete the most stale slot, allow the reconciler to mop up
 		withSlotContext(&log.Logger, staleSlots[0]).Info().Msg("deleting stale slot")
 		s.slots.Delete(staleSlots[0].ID)
 	}
-	return nil
+	return totalMem, finalAllocatedMem, finalFreeMem, nil
 }
 
 func (s *Scheduler) warmSlots(req *Workload) []*Slot {
@@ -1229,8 +1254,14 @@ func (s *Scheduler) globalPrewarmBalancing(runnerIDs []string, prewarmModels []*
 
 	// Global allocation: for each model instance, find the best runner to place it on
 	for _, model := range modelsToAdd {
+		startTime := time.Now()
 		bestRunner := s.findBestRunnerForModel(runners, model)
 		if bestRunner == nil {
+			prewarmWorkload := s.createPrewarmWorkload(model)
+			// Log failed prewarming decision - no specific runner info available
+			s.logSchedulingDecision(prewarmWorkload, types.SchedulingDecisionTypeRejected, false,
+				fmt.Sprintf("No runner available for prewarming model %s (memory: %d)", model.ID, model.Memory), "", "", startTime, 0, model.Memory, 0)
+
 			log.Debug().
 				Str("model", model.ID).
 				Uint64("model_memory", model.Memory).
@@ -1242,6 +1273,10 @@ func (s *Scheduler) globalPrewarmBalancing(runnerIDs []string, prewarmModels []*
 		prewarmWorkload := s.createPrewarmWorkload(model)
 		slot := NewSlot(bestRunner.id, prewarmWorkload, s.modelStaleFunc, s.slotTimeoutFunc)
 		s.slots.Store(slot.ID, slot)
+
+		// Log successful prewarming decision with memory info from bestRunner
+		s.logSchedulingDecision(prewarmWorkload, types.SchedulingDecisionTypeCreateNewSlot, true,
+			fmt.Sprintf("Created prewarming slot for model %s on runner %s", model.ID, bestRunner.id), bestRunner.id, slot.ID.String(), startTime, bestRunner.freeMemory, model.Memory, bestRunner.totalMemory)
 
 		// Update runner capacity
 		bestRunner.availableMemory -= model.Memory
@@ -1340,8 +1375,8 @@ func (s *Scheduler) GetSchedulingDecisions(limit int) []*types.SchedulingDecisio
 	return s.decisionsTracker.GetRecentDecisions(limit)
 }
 
-// logSchedulingDecision logs a scheduling decision with timing information
-func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types.SchedulingDecisionType, success bool, reason string, runnerID, slotID string, startTime time.Time) {
+// logSchedulingDecision logs a scheduling decision with timing information and memory details
+func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types.SchedulingDecisionType, success bool, reason string, runnerID, slotID string, startTime time.Time, freeMemory uint64, modelMemory uint64, totalMemory uint64) {
 	processingTime := time.Since(startTime).Milliseconds()
 
 	// Get available runners for context
@@ -1364,6 +1399,11 @@ func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types
 		sessionID = workload.Session().ID
 	}
 
+	// Enhance reason with memory information
+	memoryInfo := fmt.Sprintf("(free: %dMB, model: %dMB, total: %dMB)",
+		freeMemory/(1024*1024), modelMemory/(1024*1024), totalMemory/(1024*1024))
+	enhancedReason := fmt.Sprintf("%s %s", reason, memoryInfo)
+
 	decision := &types.SchedulingDecision{
 		WorkloadID:       workload.ID(),
 		SessionID:        sessionID,
@@ -1372,7 +1412,7 @@ func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types
 		DecisionType:     decisionType,
 		RunnerID:         runnerID,
 		SlotID:           slotID,
-		Reason:           reason,
+		Reason:           enhancedReason,
 		Success:          success,
 		ProcessingTimeMs: processingTime,
 		AvailableRunners: availableRunners,
