@@ -1317,6 +1317,8 @@ func (s *Scheduler) globalPrewarmBalancing(runnerIDs []string, prewarmModels []*
 	// Global allocation: for each model instance, find the best runner to place it on
 	for _, model := range modelsToAdd {
 		startTime := time.Now()
+
+		// First pass: find the best runner using current snapshot (for guidance)
 		bestRunner := s.findBestRunnerForModel(runners, model)
 		if bestRunner == nil {
 			log.Debug().
@@ -1326,33 +1328,80 @@ func (s *Scheduler) globalPrewarmBalancing(runnerIDs []string, prewarmModels []*
 			continue
 		}
 
-		// Create prewarming slot with same mutex protection as ensureSlots
+		// Second pass: try to create slot with race-free memory validation
 		// Get or create a mutex for this specific runner to prevent overscheduling race conditions
 		mutex, _ := s.runnerAllocationMutexes.LoadOrStore(bestRunner.id, &sync.Mutex{})
 
+		var prewarmWorkload *Workload
+		var slot *Slot
+		var actualMemoryInfo *runnerCapacity
+
 		mutex.Lock()
-		prewarmWorkload := s.createPrewarmWorkload(model)
-		slot := NewSlot(bestRunner.id, prewarmWorkload, s.modelStaleFunc, s.slotTimeoutFunc)
-		s.slots.Store(slot.ID, slot)
+
+		// Recalculate runner capacity with current slots (fresh view inside mutex)
+		totalMemory := s.controller.TotalMemory(bestRunner.id)
+		var allocatedMemory uint64
+		existingModels := make(map[string]bool)
+		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+			if slot.RunnerID == bestRunner.id {
+				allocatedMemory += slot.Memory()
+				existingModels[slot.InitialWork().ModelName().String()] = true
+			}
+			return true
+		})
+
+		freeMemory := totalMemory - allocatedMemory
+
+		// Double-check memory availability with fresh calculation
+		if freeMemory >= model.Memory {
+			// Create the slot immediately while holding the mutex to prevent race conditions
+			prewarmWorkload = s.createPrewarmWorkload(model)
+			slot = NewSlot(bestRunner.id, prewarmWorkload, s.modelStaleFunc, s.slotTimeoutFunc)
+			s.slots.Store(slot.ID, slot)
+
+			actualMemoryInfo = &runnerCapacity{
+				id:              bestRunner.id,
+				totalMemory:     totalMemory,
+				allocatedMemory: allocatedMemory,
+				freeMemory:      freeMemory,
+				availableMemory: freeMemory,
+				existingModels:  existingModels,
+			}
+
+			log.Info().
+				Str("runner_id", bestRunner.id).
+				Str("model", model.ID).
+				Uint64("model_memory", model.Memory).
+				Uint64("free_memory", freeMemory).
+				Uint64("total_memory", totalMemory).
+				Str("slot_id", slot.ID.String()).
+				Msg("created prewarming slot with race-free memory validation")
+		} else {
+			log.Debug().
+				Str("runner_id", bestRunner.id).
+				Str("model", model.ID).
+				Uint64("model_memory", model.Memory).
+				Uint64("free_memory", freeMemory).
+				Uint64("total_memory", totalMemory).
+				Msg("runner no longer has sufficient memory for prewarming (race detected)")
+		}
+
 		mutex.Unlock()
 
-		// Log successful prewarming decision with memory info from bestRunner
-		s.logSchedulingDecision(prewarmWorkload, types.SchedulingDecisionTypeCreateNewSlot, true,
-			fmt.Sprintf("Created prewarming slot for model %s on runner %s", model.ID, bestRunner.id), bestRunner.id, slot.ID.String(), startTime, bestRunner.freeMemory, model.Memory, bestRunner.totalMemory)
+		if actualMemoryInfo == nil {
+			// Memory validation failed - the runner no longer has enough memory
+			continue
+		}
 
-		// Update runner capacity
+		// Log successful prewarming decision with actual memory info
+		s.logSchedulingDecision(prewarmWorkload, types.SchedulingDecisionTypeCreateNewSlot, true,
+			fmt.Sprintf("Created prewarming slot for model %s on runner %s", model.ID, actualMemoryInfo.id), actualMemoryInfo.id, slot.ID.String(), startTime, actualMemoryInfo.freeMemory, model.Memory, actualMemoryInfo.totalMemory)
+
+		// Update runner capacity for next iteration (this is just for logging/debugging)
 		bestRunner.availableMemory -= model.Memory
 		bestRunner.allocatedMemory += model.Memory
 		bestRunner.freeMemory -= model.Memory
 		bestRunner.existingModels[model.ID] = true
-
-		log.Info().
-			Str("runner_id", bestRunner.id).
-			Str("model", model.ID).
-			Uint64("model_memory", model.Memory).
-			Uint64("remaining_available", bestRunner.availableMemory).
-			Str("slot_id", slot.ID.String()).
-			Msg("created prewarming slot for equal distribution")
 	}
 }
 
