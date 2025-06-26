@@ -1270,11 +1270,6 @@ func (s *Scheduler) globalPrewarmBalancing(runnerIDs []string, prewarmModels []*
 		startTime := time.Now()
 		bestRunner := s.findBestRunnerForModel(runners, model)
 		if bestRunner == nil {
-			prewarmWorkload := s.createPrewarmWorkload(model)
-			// Log failed prewarming decision - no specific runner info available
-			s.logSchedulingDecision(prewarmWorkload, types.SchedulingDecisionTypeRejected, false,
-				fmt.Sprintf("No runner available for prewarming model %s (memory: %d)", model.ID, model.Memory), "", "", startTime, 0, model.Memory, 0)
-
 			log.Debug().
 				Str("model", model.ID).
 				Uint64("model_memory", model.Memory).
