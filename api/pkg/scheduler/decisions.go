@@ -82,14 +82,6 @@ func (t *SchedulingDecisionsTracker) generateDuplicateKey(decision *types.Schedu
 	return fmt.Sprintf("%s:%s:%s", decision.ModelName, string(decision.Mode), reasonCore)
 }
 
-// min returns the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // GetRecentDecisions returns the most recent decisions, newest first
 func (t *SchedulingDecisionsTracker) GetRecentDecisions(limit int) []*types.SchedulingDecision {
 	t.mu.RLock()
