@@ -1,6 +1,8 @@
 package scheduler
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,12 +42,52 @@ func (t *SchedulingDecisionsTracker) LogDecision(decision *types.SchedulingDecis
 		decision.Created = time.Now()
 	}
 
+	// Check for duplicate "unschedulable" decisions to avoid spam
+	if decision.DecisionType == types.SchedulingDecisionTypeUnschedulable {
+		// Look for a recent identical decision (same model, same reason core without memory info)
+		duplicateKey := t.generateDuplicateKey(decision)
+
+		// Check the last few decisions for duplicates
+		for i := 0; i < min(t.count, 10); i++ {
+			checkIndex := (t.index - 1 - i + t.size) % t.size
+			if t.decisions[checkIndex] != nil &&
+				t.decisions[checkIndex].DecisionType == types.SchedulingDecisionTypeUnschedulable &&
+				t.generateDuplicateKey(t.decisions[checkIndex]) == duplicateKey {
+
+				// Update the existing decision with new repeat count and timestamp
+				t.decisions[checkIndex].RepeatCount++
+				t.decisions[checkIndex].Created = time.Now()
+				t.decisions[checkIndex].Reason = decision.Reason // Update with latest memory info
+				return
+			}
+		}
+	}
+
 	// Add to circular buffer
 	t.decisions[t.index] = decision
 	t.index = (t.index + 1) % t.size
 	if t.count < t.size {
 		t.count++
 	}
+}
+
+// generateDuplicateKey creates a key for identifying duplicate unschedulable decisions
+func (t *SchedulingDecisionsTracker) generateDuplicateKey(decision *types.SchedulingDecision) string {
+	// Extract the reason without memory info by finding the part before the first '('
+	reasonCore := decision.Reason
+	if idx := strings.Index(reasonCore, "("); idx > 0 {
+		reasonCore = strings.TrimSpace(reasonCore[:idx])
+	}
+
+	return fmt.Sprintf("%s:%s:%s", decision.ModelName, string(decision.Mode), reasonCore)
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // GetRecentDecisions returns the most recent decisions, newest first
