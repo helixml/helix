@@ -6,6 +6,7 @@ import (
 	stdlog "log"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
@@ -27,6 +28,9 @@ type Slack struct {
 
 	botMu sync.Mutex
 	bot   map[string]*SlackBot // Slack bots for each Helix app/agent
+
+	lastReconcile time.Time
+	reconcileMu   sync.Mutex
 }
 
 func New(cfg *config.ServerConfig, store store.Store, controller *controller.Controller) *Slack {
@@ -34,6 +38,7 @@ func New(cfg *config.ServerConfig, store store.Store, controller *controller.Con
 		cfg:        cfg,
 		store:      store,
 		controller: controller,
+		bot:        make(map[string]*SlackBot),
 	}
 }
 
@@ -41,12 +46,53 @@ func New(cfg *config.ServerConfig, store store.Store, controller *controller.Con
 // and start the bot for each of them. Once running, they are added into the map.
 // If they get disabled, the bot will be stopped and removed from the map.
 func (s *Slack) Start(ctx context.Context) error {
+	// Reconcile bots
+	for {
+		err := s.reconcile(ctx)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to reconcile Slack bots")
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(5 * time.Second):
+			continue
+		}
+	}
+}
+
+func (s *Slack) reconcile(ctx context.Context) error {
+
+}
+
+// Stop stops all running Slack bots
+func (s *Slack) Stop() {
 	s.botMu.Lock()
 	defer s.botMu.Unlock()
 
-	// TODO: implement
+	log.Info().Msg("stopping all Slack bots")
 
-	return nil
+	for appID, bot := range s.bot {
+		log.Info().Str("app_id", appID).Msg("stopping Slack bot")
+		bot.Stop()
+	}
+
+	// Clear the bot map
+	s.bot = make(map[string]*SlackBot)
+}
+
+// slicesEqual compares two string slices for equality
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func NewSlackBot(cfg *config.ServerConfig, store store.Store, controller *controller.Controller, app *types.App, trigger *types.SlackTrigger) *SlackBot {
@@ -59,22 +105,34 @@ func NewSlackBot(cfg *config.ServerConfig, store store.Store, controller *contro
 	}
 }
 
-type SlackBot struct {
+// SlackBot - agent instance that connects to the Slack API
+type SlackBot struct { //nolint:revive
 	cfg        *config.ServerConfig
 	store      store.Store
 	controller *controller.Controller
 
-	api    *slack.Client
-	client *socketmode.Client
+	ctx       context.Context
+	ctxCancel context.CancelFunc
+
+	// api    *slack.Client
+	// client *socketmode.Client
 
 	app *types.App // App/agent configuration
 
 	trigger *types.SlackTrigger
 }
 
+func (s *SlackBot) Stop() {
+	if s.ctxCancel != nil {
+		s.ctxCancel()
+	}
+}
+
 func (s *SlackBot) RunBot(ctx context.Context) error {
 	log.Info().Str("app_id", s.app.ID).Msg("starting Slack bot")
 	defer log.Info().Str("app_id", s.app.ID).Msg("stopping Slack bot")
+
+	s.ctx, s.ctxCancel = context.WithCancel(ctx)
 
 	options := []slack.Option{
 		slack.OptionDebug(true),
@@ -113,7 +171,8 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 		log.Error().Err(err).Msg("failed to run event loop")
 	}
 
-	<-ctx.Done()
+	// Wait for the context to be cancelled
+	<-s.ctx.Done()
 
 	return nil
 }
@@ -166,7 +225,7 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 
 	log.Info().Str("channel", ev.Channel).Msg("We have been mentioned")
 
-	resp, err := s.startChat(context.Background(), &types.App{}, ev)
+	resp, err := s.startChat(context.Background(), s.app, ev)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to start chat")
 		_, _, _ = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(err.Error(), false))
@@ -182,7 +241,7 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 func (s *SlackBot) startChat(ctx context.Context, app *types.App, event *slackevents.AppMentionEvent) (string, error) {
 	system := openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleSystem,
-		Content: `You are an AI assistant Discord bot. Be concise with the replies, keep them short but informative.`,
+		Content: `You are an AI assistant Slack bot. Be concise with the replies, keep them short but informative.`,
 	}
 
 	messages := []openai.ChatCompletionMessage{
