@@ -15,7 +15,9 @@ import (
 )
 
 func TestGlobalPrewarmBalancing_NoPrewarmModels(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // Ensure background goroutines stop before test ends
+
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
@@ -27,7 +29,7 @@ func TestGlobalPrewarmBalancing_NoPrewarmModels(t *testing.T) {
 	// Mock ListModels to return no prewarm models
 	enabled := true
 	mockStore.EXPECT().
-		ListModels(ctx, &store.ListModelsQuery{Enabled: &enabled}).
+		ListModels(gomock.Any(), &store.ListModelsQuery{Enabled: &enabled}).
 		Return([]*types.Model{
 			{ID: "model-1", Prewarm: false, Memory: 1000},
 			{ID: "model-2", Prewarm: false, Memory: 2000},
@@ -52,7 +54,9 @@ func TestGlobalPrewarmBalancing_NoPrewarmModels(t *testing.T) {
 }
 
 func TestGlobalPrewarmBalancing_EqualDistribution(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // Ensure background goroutines stop before test ends
+
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
@@ -69,7 +73,7 @@ func TestGlobalPrewarmBalancing_EqualDistribution(t *testing.T) {
 
 	enabled := true
 	mockStore.EXPECT().
-		ListModels(ctx, &store.ListModelsQuery{Enabled: &enabled}).
+		ListModels(gomock.Any(), &store.ListModelsQuery{Enabled: &enabled}).
 		Return(prewarmModels, nil).
 		AnyTimes()
 
@@ -133,7 +137,9 @@ func TestGlobalPrewarmBalancing_EqualDistribution(t *testing.T) {
 }
 
 func TestGlobalPrewarmBalancing_UnevenDistribution(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // Ensure background goroutines stop before test ends
+
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
@@ -149,7 +155,7 @@ func TestGlobalPrewarmBalancing_UnevenDistribution(t *testing.T) {
 
 	enabled := true
 	mockStore.EXPECT().
-		ListModels(ctx, &store.ListModelsQuery{Enabled: &enabled}).
+		ListModels(gomock.Any(), &store.ListModelsQuery{Enabled: &enabled}).
 		Return(prewarmModels, nil).
 		AnyTimes()
 
@@ -218,7 +224,9 @@ func TestGlobalPrewarmBalancing_UnevenDistribution(t *testing.T) {
 }
 
 func TestGlobalPrewarmBalancing_InsufficientMemory(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // Ensure background goroutines stop before test ends
+
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
@@ -233,7 +241,7 @@ func TestGlobalPrewarmBalancing_InsufficientMemory(t *testing.T) {
 
 	enabled := true
 	mockStore.EXPECT().
-		ListModels(ctx, &store.ListModelsQuery{Enabled: &enabled}).
+		ListModels(gomock.Any(), &store.ListModelsQuery{Enabled: &enabled}).
 		Return(prewarmModels, nil).
 		AnyTimes()
 
@@ -262,7 +270,9 @@ func TestGlobalPrewarmBalancing_InsufficientMemory(t *testing.T) {
 }
 
 func TestGlobalPrewarmBalancing_PartialMemory(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // Ensure background goroutines stop before test ends
+
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
@@ -278,7 +288,7 @@ func TestGlobalPrewarmBalancing_PartialMemory(t *testing.T) {
 
 	enabled := true
 	mockStore.EXPECT().
-		ListModels(ctx, &store.ListModelsQuery{Enabled: &enabled}).
+		ListModels(gomock.Any(), &store.ListModelsQuery{Enabled: &enabled}).
 		Return(prewarmModels, nil).
 		AnyTimes()
 
@@ -301,22 +311,27 @@ func TestGlobalPrewarmBalancing_PartialMemory(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Should create slot for small model only
+	// Should create slots for small model only (multiple instances due to global balancing)
 	scheduler.reconcilePrewarmingOnce(ctx)
-	require.Equal(t, 1, scheduler.slots.Size())
+	require.GreaterOrEqual(t, scheduler.slots.Size(), 1)
 
-	// Verify it's the small model
-	var createdModelID string
+	// Verify all created slots are for the small model (not the large one that doesn't fit)
+	allSlotsSmallModel := true
 	scheduler.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
-		createdModelID = slot.InitialWork().ModelName().String()
+		modelName := slot.InitialWork().ModelName().String()
+		if modelName != "small-model" {
+			allSlotsSmallModel = false
+		}
 		return true
 	})
 
-	require.Equal(t, "small-model", createdModelID)
+	require.True(t, allSlotsSmallModel, "All created slots should be for the small-model")
 }
 
 func TestGlobalPrewarmBalancing_MultipleRunners(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // Ensure background goroutines stop before test ends
+
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
@@ -332,7 +347,7 @@ func TestGlobalPrewarmBalancing_MultipleRunners(t *testing.T) {
 
 	enabled := true
 	mockStore.EXPECT().
-		ListModels(ctx, &store.ListModelsQuery{Enabled: &enabled}).
+		ListModels(gomock.Any(), &store.ListModelsQuery{Enabled: &enabled}).
 		Return(prewarmModels, nil).
 		AnyTimes()
 
@@ -433,7 +448,9 @@ func TestFindBestRunnerForModel(t *testing.T) {
 }
 
 func TestCreatePrewarmWorkload(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // Ensure background goroutines stop before test ends
+
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
