@@ -81,16 +81,14 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 
 	runnerID := "test-runner"
 
-	// Test case 1: Small model on large GPU (should use calculated ratio, not minimum)
+	// Test case 1: Small model on large GPU (should hit minimum ratio of 35%)
 	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
 		return types.RunnerStatus{
 			TotalMemory: 80 * 1024 * 1024 * 1024, // 80GB GPU
 		}, nil
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio := ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 8*1024*1024*1024) // 8GB model
-	require.Greater(t, ratio, 0.05)                                               // Should be above minimum
-	require.Less(t, ratio, 0.15)                                                  // Should be around 10%
-	require.InDelta(t, 0.10, ratio, 0.01)                                         // Should be exactly 10% (8/80)
+	require.Equal(t, 0.35, ratio)                                                 // Should hit minimum ratio of 35%
 
 	// Test case 2: Very tiny model (should hit minimum ratio)
 	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
@@ -99,7 +97,7 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 		}, nil
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 1*1024*1024*1024) // 1GB model
-	require.Equal(t, 0.05, ratio)                                                // Should hit minimum ratio
+	require.Equal(t, 0.35, ratio)                                                // Should hit minimum ratio
 
 	// Test case 3: Medium model on GPU (reasonable ratio)
 	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
@@ -108,7 +106,7 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 		}, nil
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 16*1024*1024*1024) // 16GB model
-	require.Greater(t, ratio, 0.05)
+	require.Greater(t, ratio, 0.35)
 	require.Less(t, ratio, 0.95)
 	require.InDelta(t, 0.6667, ratio, 0.01) // Should be exactly 66.67% (16/24)
 
@@ -119,7 +117,7 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 		}, nil
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 20*1024*1024*1024) // 20GB model
-	require.Greater(t, ratio, 0.05)
+	require.Greater(t, ratio, 0.35)
 	require.Less(t, ratio, 0.95)
 	require.InDelta(t, 0.8333, ratio, 0.01) // Should be exactly 83.33% (20/24)
 
@@ -215,17 +213,17 @@ func TestVLLMMemoryUtilizationRealWorldScenarios(t *testing.T) {
 		expectedRatioMin float64
 		expectedRatioMax float64
 	}{
-		// Tiny models on large GPUs - should hit minimum
-		{"1GB model on 80GB GPU (A100)", 80, 1, 0.05, 0.05}, // Should hit minimum
-		{"2GB model on 80GB GPU (A100)", 80, 2, 0.05, 0.05}, // Should hit minimum
-		{"4GB model on 80GB GPU (A100)", 80, 4, 0.05, 0.05}, // Should hit minimum
+		// Tiny models on large GPUs - should hit minimum of 35%
+		{"1GB model on 80GB GPU (A100)", 80, 1, 0.35, 0.35}, // Should hit minimum
+		{"2GB model on 80GB GPU (A100)", 80, 2, 0.35, 0.35}, // Should hit minimum
+		{"4GB model on 80GB GPU (A100)", 80, 4, 0.35, 0.35}, // Should hit minimum
 
-		// Small models on large GPUs - exact ratios
-		{"8GB model on 80GB GPU (A100)", 80, 8, 0.09, 0.11},   // 8/80 = 10%
-		{"16GB model on 80GB GPU (A100)", 80, 16, 0.19, 0.21}, // 16/80 = 20%
+		// Small models on large GPUs - should hit minimum of 35%
+		{"8GB model on 80GB GPU (A100)", 80, 8, 0.35, 0.35},   // 8/80 = 10% but clamped to 35%
+		{"16GB model on 80GB GPU (A100)", 80, 16, 0.35, 0.35}, // 16/80 = 20% but clamped to 35%
 
 		// Medium models on medium GPUs - exact ratios
-		{"8GB model on 24GB GPU (RTX 4090)", 24, 8, 0.32, 0.34},   // 8/24 = 33.33%
+		{"8GB model on 24GB GPU (RTX 4090)", 24, 8, 0.35, 0.35},   // 8/24 = 33.33% but clamped to 35%
 		{"16GB model on 24GB GPU (RTX 4090)", 24, 16, 0.65, 0.68}, // 16/24 = 66.67%
 
 		// Large models - exact ratios
