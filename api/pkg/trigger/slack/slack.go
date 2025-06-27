@@ -590,7 +590,9 @@ func (s *SlackBot) handleMessage(ctx context.Context, app *types.App, messageTex
 		}
 	} else {
 		// This is a continuation of an existing conversation
-		session, exists := s.activeThreads[threadKey]
+		var exists bool
+
+		session, exists = s.activeThreads[threadKey]
 		if !exists {
 			log.Error().
 				Str("app_id", app.ID).
