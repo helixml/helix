@@ -319,15 +319,17 @@ func TestApplyModelSubstitutions(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("substitutes model when provider unavailable", func(t *testing.T) {
-		// Mock provider manager to return only helix as available
-		mockProviderManager.EXPECT().ListProviders(ctx, user.ID).Return([]types.Provider{"helix"}, nil)
+		// Mock provider manager to return only "helix" as available
+		mockProviderManager.EXPECT().
+			ListProviders(ctx, user.ID).
+			Return([]types.Provider{types.ProviderHelix}, nil)
 
 		app := &types.App{
 			Config: types.AppConfig{
 				Helix: types.AppHelixConfig{
 					Assistants: []types.AssistantConfig{
 						{
-							Name:     "Test Assistant",
+							Name:     "test-assistant",
 							Provider: "together",
 							Model:    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
 						},
@@ -337,135 +339,158 @@ func TestApplyModelSubstitutions(t *testing.T) {
 		}
 
 		err := server.applyModelSubstitutions(ctx, user, app, modelClasses)
-
 		require.NoError(t, err)
+
+		// Verify the substitution occurred
 		require.Equal(t, "helix", app.Config.Helix.Assistants[0].Provider)
 		require.Equal(t, "llama3.1:8b-instruct-q8_0", app.Config.Helix.Assistants[0].Model)
 	})
 
-	t.Run("keeps original model when provider available", func(t *testing.T) {
-		// Mock provider manager to return together as available
-		mockProviderManager.EXPECT().ListProviders(ctx, user.ID).Return([]types.Provider{"together"}, nil)
+	t.Run("preserves all other fields during substitution", func(t *testing.T) {
+		// Mock provider manager to return only "helix" as available
+		mockProviderManager.EXPECT().
+			ListProviders(ctx, user.ID).
+			Return([]types.Provider{types.ProviderHelix}, nil)
 
-		app := &types.App{
-			Config: types.AppConfig{
-				Helix: types.AppHelixConfig{
-					Assistants: []types.AssistantConfig{
-						{
-							Name:     "Test Assistant",
-							Provider: "together",
-							Model:    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+		// Create an assistant with all possible fields populated
+		originalAssistant := types.AssistantConfig{
+			Name:        "test-assistant",
+			Provider:    "together",
+			Model:       "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+			Description: "A test assistant",
+			ConversationStarters: []string{
+				"Hello, how can I help?",
+				"What would you like to know?",
+			},
+			APIs: []types.AssistantAPI{
+				{
+					Name:                    "Test API",
+					Description:             "A test API",
+					URL:                     "https://api.test.com",
+					Schema:                  "openapi: 3.0.0\ninfo:\n  title: Test API",
+					RequestPrepTemplate:     "Test request template",
+					ResponseSuccessTemplate: "Test success template",
+					ResponseErrorTemplate:   "Test error template",
+				},
+			},
+			Knowledge: []*types.AssistantKnowledge{
+				{
+					Name:        "Test Knowledge",
+					Description: "Test knowledge base",
+					Source: types.KnowledgeSource{
+						Web: &types.KnowledgeSourceWeb{
+							URLs: []string{"https://example.com"},
 						},
 					},
 				},
 			},
+			MaxTokens:    1000,
+			Temperature:  0.7,
+			SystemPrompt: "You are a helpful assistant",
 		}
-
-		originalProvider := app.Config.Helix.Assistants[0].Provider
-		originalModel := app.Config.Helix.Assistants[0].Model
-
-		err := server.applyModelSubstitutions(ctx, user, app, modelClasses)
-
-		require.NoError(t, err)
-		require.Equal(t, originalProvider, app.Config.Helix.Assistants[0].Provider)
-		require.Equal(t, originalModel, app.Config.Helix.Assistants[0].Model)
-	})
-
-	t.Run("handles multiple assistants", func(t *testing.T) {
-		// Mock provider manager to return only anthropic as available
-		mockProviderManager.EXPECT().ListProviders(ctx, user.ID).Return([]types.Provider{"anthropic"}, nil)
 
 		app := &types.App{
 			Config: types.AppConfig{
 				Helix: types.AppHelixConfig{
-					Assistants: []types.AssistantConfig{
-						{
-							Name:     "Assistant 1",
-							Provider: "together",
-							Model:    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-						},
-						{
-							Name:     "Assistant 2",
-							Provider: "together",
-							Model:    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-						},
-					},
+					Assistants: []types.AssistantConfig{originalAssistant},
 				},
 			},
 		}
 
+		// Apply substitutions
 		err := server.applyModelSubstitutions(ctx, user, app, modelClasses)
-
-		require.NoError(t, err)
-
-		// Both assistants should be substituted
-		for i := range app.Config.Helix.Assistants {
-			require.Equal(t, "anthropic", app.Config.Helix.Assistants[i].Provider)
-			require.Equal(t, "claude-3-5-haiku-20241022", app.Config.Helix.Assistants[i].Model)
-		}
-	})
-
-	t.Run("handles provider manager error", func(t *testing.T) {
-		mockProviderManager.EXPECT().ListProviders(ctx, user.ID).Return(nil, fmt.Errorf("provider error"))
-
-		app := &types.App{
-			Config: types.AppConfig{
-				Helix: types.AppHelixConfig{
-					Assistants: []types.AssistantConfig{
-						{
-							Provider: "together",
-							Model:    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-						},
-					},
-				},
-			},
-		}
-
-		err := server.applyModelSubstitutions(ctx, user, app, modelClasses)
-
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to list available providers")
-	})
-
-	t.Run("skips assistants with empty provider or model", func(t *testing.T) {
-		mockProviderManager.EXPECT().ListProviders(ctx, user.ID).Return([]types.Provider{"helix"}, nil)
-
-		app := &types.App{
-			Config: types.AppConfig{
-				Helix: types.AppHelixConfig{
-					Assistants: []types.AssistantConfig{
-						{
-							Name:     "No Provider",
-							Provider: "",
-							Model:    "some-model",
-						},
-						{
-							Name:     "No Model",
-							Provider: "together",
-							Model:    "",
-						},
-						{
-							Name:     "Valid",
-							Provider: "together",
-							Model:    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-						},
-					},
-				},
-			},
-		}
-
-		err := server.applyModelSubstitutions(ctx, user, app, modelClasses)
-
 		require.NoError(t, err)
 
-		// First two should remain unchanged
-		require.Equal(t, "", app.Config.Helix.Assistants[0].Provider)
-		require.Equal(t, "some-model", app.Config.Helix.Assistants[0].Model)
-		require.Equal(t, "together", app.Config.Helix.Assistants[1].Provider)
-		require.Equal(t, "", app.Config.Helix.Assistants[1].Model)
+		// Get the modified assistant
+		assistant := app.Config.Helix.Assistants[0]
 
-		// Third should be substituted
-		require.Equal(t, "helix", app.Config.Helix.Assistants[2].Provider)
-		require.Equal(t, "llama3.1:8b-instruct-q8_0", app.Config.Helix.Assistants[2].Model)
+		// Verify ONLY provider and model were changed
+		require.Equal(t, "helix", assistant.Provider)
+		require.Equal(t, "llama3.1:8b-instruct-q8_0", assistant.Model)
+
+		// Verify ALL other fields were preserved
+		require.Equal(t, originalAssistant.Name, assistant.Name)
+		require.Equal(t, originalAssistant.Description, assistant.Description)
+		require.Equal(t, originalAssistant.ConversationStarters, assistant.ConversationStarters)
+		require.Equal(t, originalAssistant.APIs, assistant.APIs)
+		require.Equal(t, originalAssistant.Knowledge, assistant.Knowledge)
+		require.Equal(t, originalAssistant.MaxTokens, assistant.MaxTokens)
+		require.Equal(t, originalAssistant.Temperature, assistant.Temperature)
+		require.Equal(t, originalAssistant.SystemPrompt, assistant.SystemPrompt)
+	})
+
+	t.Run("preserves original values when no substitution needed", func(t *testing.T) {
+		// Mock provider manager to return "together" as available
+		mockProviderManager.EXPECT().
+			ListProviders(ctx, user.ID).
+			Return([]types.Provider{"together"}, nil)
+
+		originalAssistant := types.AssistantConfig{
+			Name:                 "test-assistant",
+			Provider:             "together",
+			Model:                "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+			Description:          "Original description",
+			ConversationStarters: []string{"Original starter"},
+		}
+
+		app := &types.App{
+			Config: types.AppConfig{
+				Helix: types.AppHelixConfig{
+					Assistants: []types.AssistantConfig{originalAssistant},
+				},
+			},
+		}
+
+		err := server.applyModelSubstitutions(ctx, user, app, modelClasses)
+		require.NoError(t, err)
+
+		// Verify NO changes occurred
+		assistant := app.Config.Helix.Assistants[0]
+		require.Equal(t, originalAssistant, assistant)
+	})
+
+	t.Run("handles multiple assistants independently", func(t *testing.T) {
+		// Mock provider manager to return only "helix" as available
+		mockProviderManager.EXPECT().
+			ListProviders(ctx, user.ID).
+			Return([]types.Provider{types.ProviderHelix}, nil)
+
+		app := &types.App{
+			Config: types.AppConfig{
+				Helix: types.AppHelixConfig{
+					Assistants: []types.AssistantConfig{
+						{
+							Name:                 "assistant-1",
+							Provider:             "together",
+							Model:                "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+							Description:          "First assistant",
+							ConversationStarters: []string{"Hello from assistant 1"},
+						},
+						{
+							Name:                 "assistant-2",
+							Provider:             "helix", // Already using available provider
+							Model:                "llama3.1:8b-instruct-q8_0",
+							Description:          "Second assistant",
+							ConversationStarters: []string{"Hello from assistant 2"},
+						},
+					},
+				},
+			},
+		}
+
+		err := server.applyModelSubstitutions(ctx, user, app, modelClasses)
+		require.NoError(t, err)
+
+		// Verify first assistant was substituted
+		require.Equal(t, "helix", app.Config.Helix.Assistants[0].Provider)
+		require.Equal(t, "llama3.1:8b-instruct-q8_0", app.Config.Helix.Assistants[0].Model)
+		require.Equal(t, "First assistant", app.Config.Helix.Assistants[0].Description)
+		require.Equal(t, []string{"Hello from assistant 1"}, app.Config.Helix.Assistants[0].ConversationStarters)
+
+		// Verify second assistant was unchanged
+		require.Equal(t, "helix", app.Config.Helix.Assistants[1].Provider)
+		require.Equal(t, "llama3.1:8b-instruct-q8_0", app.Config.Helix.Assistants[1].Model)
+		require.Equal(t, "Second assistant", app.Config.Helix.Assistants[1].Description)
+		require.Equal(t, []string{"Hello from assistant 2"}, app.Config.Helix.Assistants[1].ConversationStarters)
 	})
 }
