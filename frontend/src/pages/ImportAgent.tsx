@@ -464,15 +464,15 @@ const ImportAgent: FC = () => {
 
     setImporting(true)
     
-    // Check if configData has the structured format with alternative_models
+    // Check if configData has the structured format with model_classes
     let appData
-    if (configData.alternative_models && configData.yaml_config) {
+    if (configData.model_classes && configData.yaml_config) {
       // This is the new structured format from Launchpad
       appData = {
         organization_id: account.organizationTools.organization?.id || configData.organization_id || '',
         global: configData.global || false,
         yaml_config: configData.yaml_config,
-        alternative_models: configData.alternative_models || {}
+        model_classes: configData.model_classes || []
       }
     } else {
       // Legacy format - treat the entire configData as yaml_config
