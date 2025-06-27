@@ -1168,22 +1168,22 @@ type AssistantConfig struct {
 	ConversationStarters []string `json:"conversation_starters,omitempty" yaml:"conversation_starters,omitempty"`
 
 	// AgentMode triggers the use of the agent loop
-	AgentMode     bool `json:"agent_mode"`
-	MaxIterations int  `json:"max_iterations"`
+	AgentMode     bool `json:"agent_mode" yaml:"agent_mode"`
+	MaxIterations int  `json:"max_iterations" yaml:"max_iterations"`
 
-	ReasoningModelProvider string `json:"reasoning_model_provider"`
-	ReasoningModel         string `json:"reasoning_model"`
-	ReasoningModelEffort   string `json:"reasoning_model_effort"`
+	ReasoningModelProvider string `json:"reasoning_model_provider" yaml:"reasoning_model_provider"`
+	ReasoningModel         string `json:"reasoning_model" yaml:"reasoning_model"`
+	ReasoningModelEffort   string `json:"reasoning_model_effort" yaml:"reasoning_model_effort"`
 
-	GenerationModelProvider string `json:"generation_model_provider"`
-	GenerationModel         string `json:"generation_model"`
+	GenerationModelProvider string `json:"generation_model_provider" yaml:"generation_model_provider"`
+	GenerationModel         string `json:"generation_model" yaml:"generation_model"`
 
-	SmallReasoningModelProvider string `json:"small_reasoning_model_provider"`
-	SmallReasoningModel         string `json:"small_reasoning_model"`
-	SmallReasoningModelEffort   string `json:"small_reasoning_model_effort"`
+	SmallReasoningModelProvider string `json:"small_reasoning_model_provider" yaml:"small_reasoning_model_provider"`
+	SmallReasoningModel         string `json:"small_reasoning_model" yaml:"small_reasoning_model"`
+	SmallReasoningModelEffort   string `json:"small_reasoning_model_effort" yaml:"small_reasoning_model_effort"`
 
-	SmallGenerationModelProvider string `json:"small_generation_model_provider"`
-	SmallGenerationModel         string `json:"small_generation_model"`
+	SmallGenerationModelProvider string `json:"small_generation_model_provider" yaml:"small_generation_model_provider"`
+	SmallGenerationModel         string `json:"small_generation_model" yaml:"small_generation_model"`
 
 	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 
@@ -1204,26 +1204,26 @@ type AssistantConfig struct {
 	// Increases the model's likelihood to talk about new topics
 	// 0 - balanced
 	// 2 - open minded
-	PresencePenalty float32 `json:"presence_penalty,omitempty"`
+	PresencePenalty float32 `json:"presence_penalty,omitempty" yaml:"presence_penalty,omitempty"`
 
 	// How much to penalize new tokens based on their frequency in the text so far.
 	// Increases the model's likelihood to talk about new topics
 	// 0 - balanced
 	// 2 - less repetitive
-	FrequencyPenalty float32 `json:"frequency_penalty,omitempty"`
+	FrequencyPenalty float32 `json:"frequency_penalty,omitempty" yaml:"frequency_penalty,omitempty"`
 
 	// An alternative to sampling with temperature, called nucleus sampling,
 	// where the model considers the results of the tokens with top_p probability mass.
 	// So 0.1 means only the tokens comprising the top 10% probability mass are considered.
 	// 0 - balanced
 	// 2 - more creative
-	TopP float32 `json:"top_p,omitempty"`
+	TopP float32 `json:"top_p,omitempty" yaml:"top_p,omitempty"`
 
 	// The maximum number of tokens to generate before stopping.
-	MaxTokens int `json:"max_tokens,omitempty"`
+	MaxTokens int `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
 
 	// Controls effort on reasoning for reasoning models. It can be set to "low", "medium", or "high".
-	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty" yaml:"reasoning_effort,omitempty"`
 
 	Knowledge []*AssistantKnowledge `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
 
@@ -1301,7 +1301,7 @@ type AppGithubConfigUpdate struct {
 type AppConfig struct {
 	AllowedDomains []string          `json:"allowed_domains" yaml:"allowed_domains"`
 	Secrets        map[string]string `json:"secrets" yaml:"secrets"`
-	Helix          AppHelixConfig    `json:"helix"`
+	Helix          AppHelixConfig    `json:"helix" yaml:"helix"`
 }
 
 func (c AppConfig) Value() (driver.Value, error) {
@@ -1331,14 +1331,14 @@ type DiscordTrigger struct {
 }
 
 type CronTrigger struct {
-	Enabled  bool   `json:"enabled,omitempty"`
-	Schedule string `json:"schedule,omitempty"`
-	Input    string `json:"input,omitempty"`
+	Enabled  bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Schedule string `json:"schedule,omitempty" yaml:"schedule,omitempty"`
+	Input    string `json:"input,omitempty" yaml:"input,omitempty"`
 }
 
 type Trigger struct {
-	Discord *DiscordTrigger `json:"discord,omitempty"`
-	Cron    *CronTrigger    `json:"cron,omitempty"`
+	Discord *DiscordTrigger `json:"discord,omitempty" yaml:"discord,omitempty"`
+	Cron    *CronTrigger    `json:"cron,omitempty" yaml:"cron,omitempty"`
 }
 
 func (t Trigger) Value() (driver.Value, error) {
