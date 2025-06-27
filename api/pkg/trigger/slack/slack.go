@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
@@ -237,7 +236,7 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 	client := socketmode.New(
 		api,
 		socketmode.OptionDebug(true),
-		socketmode.OptionLog(stdlog.New(os.Stdout, "socketmode: ", stdlog.Lshortfile|stdlog.LstdFlags)),
+		// socketmode.OptionLog(stdlog.New(os.Stdout, "socketmode: ", stdlog.Lshortfile|stdlog.LstdFlags)),
 	)
 
 	socketmodeHandler := socketmode.NewSocketmodeHandler(client)
@@ -314,24 +313,21 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 
 	log.Info().Str("channel", ev.Channel).Msg("We have been mentioned")
 
-	resp, err := s.startChat(context.Background(), s.app, ev)
+	agentResponse, err := s.startChat(context.Background(), s.app, ev)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to start chat")
-		_, _, _ = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(err.Error(), false))
+		_, _, _ = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(err.Error(), false), slack.MsgOptionTS(ev.TimeStamp))
 		return
 	}
 
-	_, _, err = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(resp, false))
+	// Write agent response to Slack's thread
+	_, _, err = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(agentResponse, false), slack.MsgOptionTS(ev.TimeStamp))
 	if err != nil {
 		log.Error().Err(err).Msg("failed to post message")
 	}
 }
 
 func (s *SlackBot) startChat(ctx context.Context, app *types.App, event *slackevents.AppMentionEvent) (string, error) {
-	fmt.Println("XX START CHAT")
-
-	spew.Dump(event)
-
 	newSession := shared.NewTriggerSession(ctx, "Slack", app, event.Text)
 
 	// TODO: set user based on event
