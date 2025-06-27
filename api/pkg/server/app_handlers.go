@@ -36,8 +36,14 @@ type AlternativeModelOption struct {
 	Model    string `json:"model"`
 }
 
+// ModelClass represents a class of models with alternatives in order of preference
+type ModelClass struct {
+	Name         string                   `json:"name"`
+	Alternatives []AlternativeModelOption `json:"alternatives"`
+}
+
 // applyModelSubstitutions attempts to substitute unavailable models with available alternatives
-func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *types.User, app *types.App, alternativeModels map[string][]AlternativeModelOption) error {
+func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *types.User, app *types.App, modelClasses []ModelClass) error {
 	// Get available providers for this user
 	availableProviders, err := s.providerManager.ListProviders(ctx, user.ID)
 	if err != nil {
@@ -67,7 +73,7 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 					Msg("Original provider not available, attempting model substitution")
 
 				// Try to find a substitution based on model class
-				substituted := s.findModelSubstitution(assistant.Model, alternativeModels, providerSet)
+				substituted := s.findModelSubstitution(assistant.Provider, assistant.Model, modelClasses, providerSet)
 				if substituted != nil {
 					log.Info().
 						Str("assistant_name", assistant.Name).
@@ -94,16 +100,22 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 }
 
 // findModelSubstitution finds the first available model from the alternatives list
-func (s *HelixAPIServer) findModelSubstitution(originalModel string, alternativeModels map[string][]AlternativeModelOption, availableProviders map[types.Provider]bool) *AlternativeModelOption {
-	// Try to find alternatives for each model class
-	for modelClass, alternatives := range alternativeModels {
-		// Check if the original model matches this class (simple string contains check)
-		// This could be enhanced with more sophisticated matching logic
-		if strings.Contains(strings.ToLower(originalModel), strings.ToLower(modelClass)) ||
-			strings.Contains(strings.ToLower(modelClass), strings.ToLower(originalModel)) {
+func (s *HelixAPIServer) findModelSubstitution(originalProvider, originalModel string, modelClasses []ModelClass, availableProviders map[types.Provider]bool) *AlternativeModelOption {
+	// Try to find alternatives for each model class in order
+	for _, modelClass := range modelClasses {
+		// Check if the original provider/model combination appears in this class's list
+		modelFound := false
+		for _, alt := range modelClass.Alternatives {
+			if alt.Provider == originalProvider && alt.Model == originalModel {
+				modelFound = true
+				break
+			}
+		}
 
+		// If the original model is found in this class, try alternatives from this class
+		if modelFound {
 			// Try each alternative in order of preference
-			for _, alt := range alternatives {
+			for _, alt := range modelClass.Alternatives {
 				if availableProviders[types.Provider(alt.Provider)] {
 					return &alt
 				}
@@ -111,16 +123,8 @@ func (s *HelixAPIServer) findModelSubstitution(originalModel string, alternative
 		}
 	}
 
-	// If no class-specific match found, try to find any available alternative
-	// by checking all alternatives and returning the first available one
-	for _, alternatives := range alternativeModels {
-		for _, alt := range alternatives {
-			if availableProviders[types.Provider(alt.Provider)] {
-				return &alt
-			}
-		}
-	}
-
+	// If no class-specific match found, don't fall back to random alternatives
+	// Only substitute models that are explicitly listed in substitution classes
 	return nil
 }
 
@@ -277,14 +281,14 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 	// Try to unmarshal as structured request first
 	var structuredReq struct {
-		OrganizationID    string                              `json:"organization_id"`
-		Global            bool                                `json:"global"`
-		YamlConfig        map[string]interface{}              `json:"yaml_config"`
-		AlternativeModels map[string][]AlternativeModelOption `json:"alternative_models"`
+		OrganizationID string                 `json:"organization_id"`
+		Global         bool                   `json:"global"`
+		YamlConfig     map[string]interface{} `json:"yaml_config"`
+		ModelClasses   []ModelClass           `json:"model_classes"`
 	}
 
 	var app *types.App
-	var alternativeModels map[string][]AlternativeModelOption
+	var modelClasses []ModelClass
 
 	// Try structured format first
 	if err := json.Unmarshal(body, &structuredReq); err == nil && structuredReq.YamlConfig != nil {
@@ -305,8 +309,8 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 			},
 		}
 
-		// Store alternative models for later use
-		alternativeModels = structuredReq.AlternativeModels
+		// Store model classes for later use
+		modelClasses = structuredReq.ModelClasses
 
 	} else {
 		// Fall back to legacy format
@@ -339,8 +343,8 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	app.Updated = time.Now()
 
 	// Apply model substitutions BEFORE validation if provided
-	if len(alternativeModels) > 0 {
-		err = s.applyModelSubstitutions(ctx, user, app, alternativeModels)
+	if len(modelClasses) > 0 {
+		err = s.applyModelSubstitutions(ctx, user, app, modelClasses)
 		if err != nil {
 			log.Warn().
 				Err(err).
