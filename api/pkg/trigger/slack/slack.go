@@ -9,13 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/trigger/shared"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
-	openai "github.com/sashabaranov/go-openai"
 
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -251,6 +252,9 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 	// TODO: this is to listen to everything
 	// socketmodeHandler.Handle(socketmode.EventTypeEventsAPI, s.middlewareEventsAPI)
 
+	log.Info().Str("app_id", s.app.ID).Msg("running event loop")
+	defer log.Info().Str("app_id", s.app.ID).Msg("event loop stopped")
+
 	err := socketmodeHandler.RunEventLoop()
 	if err != nil {
 		log.Error().Err(err).Msg("failed to run event loop")
@@ -324,47 +328,32 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 }
 
 func (s *SlackBot) startChat(ctx context.Context, app *types.App, event *slackevents.AppMentionEvent) (string, error) {
-	system := openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleSystem,
-		Content: `You are an AI assistant Slack bot. Be concise with the replies, keep them short but informative.`,
+	fmt.Println("XX START CHAT")
+
+	spew.Dump(event)
+
+	newSession := shared.NewTriggerSession(ctx, "Slack", app, event.Text)
+
+	// TODO: set user based on event
+	user, err := s.store.GetUser(ctx, &store.GetUserQuery{
+		ID: app.Owner,
+	})
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", app.ID).
+			Str("user_id", app.Owner).
+			Msg("failed to get user")
+		return "", fmt.Errorf("failed to get user: %w", err)
 	}
-
-	messages := []openai.ChatCompletionMessage{
-		system,
-	}
-
-	// TODO: Add history from a thread
-	// for _, msg := range history {
-	// 	switch {
-	// 	case msg.Author.ID == s.State.User.ID:
-	// 		messages = append(messages, openai.ChatCompletionMessage{
-	// 			Role:    openai.ChatMessageRoleAssistant,
-	// 			Content: msg.Content,
-	// 		})
-	// 	default:
-	// 		messages = append(messages, openai.ChatCompletionMessage{
-	// 			Role:    openai.ChatMessageRoleUser,
-	// 			Content: msg.Content,
-	// 		})
-	// 	}
-	// }
-
-	userMessage := openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleUser,
-		Content: event.Text,
-	}
-
-	messages = append(messages, userMessage)
 
 	resp, _, err := s.controller.ChatCompletion(
-		ctx,
-		&types.User{},
-		openai.ChatCompletionRequest{
-			Stream:   false,
-			Messages: messages,
-		},
+		newSession.RequestContext,
+		user,
+		newSession.ChatCompletionRequest,
 		&controller.ChatCompletionOptions{
-			AppID: app.ID,
+			AppID:          app.ID,
+			Conversational: true,
 		},
 	)
 	if err != nil {
