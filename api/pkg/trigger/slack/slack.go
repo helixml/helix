@@ -27,6 +27,11 @@ type Slack struct {
 	store      store.Store
 	controller *controller.Controller
 
+	// TODO: add method to controller to set trigger status, for example:
+	// - bot is running
+	// - bot is stopped (trigger disabled)
+	// - bot is erroring, such as API key is invalid
+
 	botMu sync.Mutex
 	bot   map[string]*SlackBot // Slack bots for each Helix app/agent
 }
