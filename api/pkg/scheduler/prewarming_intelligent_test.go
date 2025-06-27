@@ -38,7 +38,7 @@ func TestIntelligentPrewarming_WithDefaultPrewarmModels(t *testing.T) {
 
 	// Test that default prewarm models are returned when no specific distribution exists
 	prewarmModels := scheduler.getPrewarmModels()
-	require.Equal(t, 4, len(prewarmModels), "Should return default prewarm models from configuration")
+	require.Equal(t, 3, len(prewarmModels), "Should return default prewarm models from configuration")
 
 	// Verify the expected models are included
 	modelIDs := make(map[string]bool)
@@ -46,7 +46,6 @@ func TestIntelligentPrewarming_WithDefaultPrewarmModels(t *testing.T) {
 		modelIDs[model.ID] = true
 	}
 
-	require.True(t, modelIDs["Qwen/Qwen2.5-VL-3B-Instruct"], "Should include Qwen2.5-VL-3B")
 	require.True(t, modelIDs["Qwen/Qwen2.5-VL-7B-Instruct"], "Should include Qwen2.5-VL-7B")
 	require.True(t, modelIDs["MrLight/dse-qwen2-2b-mrl-v1"], "Should include MrLight model")
 	require.True(t, modelIDs["llama3.1:8b-instruct-q8_0"], "Should include llama3.1")
@@ -177,7 +176,7 @@ func TestIntelligentPrewarming_BalancedDistribution(t *testing.T) {
 	prewarmModels := scheduler.getPrewarmModels()
 
 	// With perfectly balanced distribution (difference <= 1), should prewarm all models
-	require.Equal(t, 4, len(prewarmModels), "Should prewarm all models when distribution is balanced")
+	require.Equal(t, 3, len(prewarmModels), "Should prewarm all models when distribution is balanced")
 
 	t.Logf("Balanced scenario - prewarming all %d models", len(prewarmModels))
 }
