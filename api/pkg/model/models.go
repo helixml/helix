@@ -419,7 +419,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 				"--limit-mm-per-prompt", "image=10",
 			},
 			Hide:    false,
-			Prewarm: true,
+			Prewarm: false,
 		},
 		{
 			ID:            "Qwen/Qwen2.5-VL-7B-Instruct",
