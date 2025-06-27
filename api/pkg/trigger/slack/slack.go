@@ -328,6 +328,13 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 }
 
 func (s *SlackBot) startSession(ctx context.Context, app *types.App, event *slackevents.AppMentionEvent) (string, error) {
+	log.Info().
+		Str("app_id", app.ID).
+		Str("channel", event.Channel).
+		Str("thread_id", event.ThreadTimeStamp).
+		Str("message_ts", event.TimeStamp).
+		Msg("starting new Slack session")
+
 	newSession := shared.NewTriggerSession(ctx, "Slack", app, event.Text)
 
 	// TODO: set user based on event
