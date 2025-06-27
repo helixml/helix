@@ -221,12 +221,31 @@ type SlackBot struct { //nolint:revive
 
 	// Bot user ID for filtering bot messages
 	botUserID string
+
+	statusMu sync.RWMutex
+	message  string
+	ok       bool
 }
 
 func (s *SlackBot) Stop() {
 	if s.ctxCancel != nil {
 		s.ctxCancel()
 	}
+}
+
+func (s *SlackBot) SetStatus(ok bool, message string) {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+
+	s.ok = ok
+	s.message = message
+}
+
+func (s *SlackBot) GetStatus() (bool, string) {
+	s.statusMu.RLock()
+	defer s.statusMu.RUnlock()
+
+	return s.ok, s.message
 }
 
 // cleanupOldThreads removes threads that haven't been active for more than 24 hours
@@ -295,9 +314,9 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 
 	socketmodeHandler := socketmode.NewSocketmodeHandler(client)
 
-	socketmodeHandler.Handle(socketmode.EventTypeConnecting, middlewareConnecting)
-	socketmodeHandler.Handle(socketmode.EventTypeConnectionError, middlewareConnectionError)
-	socketmodeHandler.Handle(socketmode.EventTypeConnected, middlewareConnected)
+	socketmodeHandler.Handle(socketmode.EventTypeConnecting, s.middlewareConnecting)
+	socketmodeHandler.Handle(socketmode.EventTypeConnectionError, s.middlewareConnectionError)
+	socketmodeHandler.Handle(socketmode.EventTypeConnected, s.middlewareConnected)
 
 	// Handle app mention events (when bot is mentioned)
 	socketmodeHandler.HandleEvents(slackevents.AppMention, s.middlewareAppMentionEvent)
@@ -748,14 +767,17 @@ func (s *SlackBot) handleMessage(ctx context.Context, app *types.App, messageTex
 	return respContent, nil
 }
 
-func middlewareConnecting(evt *socketmode.Event, client *socketmode.Client) {
-	log.Info().Msg("Connecting to Slack with Socket Mode...")
+func (s *SlackBot) middlewareConnecting(evt *socketmode.Event, client *socketmode.Client) {
+	log.Debug().Msg("Connecting to Slack with Socket Mode...")
+	s.SetStatus(false, "Connecting to Slack...")
 }
 
-func middlewareConnectionError(evt *socketmode.Event, client *socketmode.Client) {
+func (s *SlackBot) middlewareConnectionError(evt *socketmode.Event, client *socketmode.Client) {
 	log.Error().Msg("Connection failed. Retrying later...")
+	s.SetStatus(false, "Connection failed. Retrying later...")
 }
 
-func middlewareConnected(evt *socketmode.Event, client *socketmode.Client) {
-	log.Info().Msg("Connected to Slack with Socket Mode.")
+func (s *SlackBot) middlewareConnected(evt *socketmode.Event, client *socketmode.Client) {
+	log.Debug().Msg("Connected to Slack with Socket Mode.")
+	s.SetStatus(true, "Connected to Slack")
 }
