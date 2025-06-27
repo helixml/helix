@@ -356,36 +356,6 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 	return nil
 }
 
-// func (s *SlackBot) middlewareEventsAPI(evt *socketmode.Event, client *socketmode.Client) {
-// 	fmt.Println("middlewareEventsAPI")
-// 	eventsAPIEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
-// 	if !ok {
-// 		fmt.Printf("Ignored %+v\n", evt)
-// 		return
-// 	}
-
-// 	fmt.Printf("Event received: %+v\n", eventsAPIEvent)
-
-// 	client.Ack(*evt.Request)
-
-// 	switch eventsAPIEvent.Type {
-// 	case slackevents.CallbackEvent:
-// 		innerEvent := eventsAPIEvent.InnerEvent
-// 		switch ev := innerEvent.Data.(type) {
-// 		case *slackevents.AppMentionEvent:
-// 			fmt.Printf("We have been mentionned in %v", ev.Channel)
-// 			_, _, err := client.Client.PostMessage(ev.Channel, slack.MsgOptionText("Yes, hello.", false))
-// 			if err != nil {
-// 				fmt.Printf("failed posting message: %v", err)
-// 			}
-// 		case *slackevents.MemberJoinedChannelEvent:
-// 			fmt.Printf("user %q joined to channel %q", ev.User, ev.Channel)
-// 		}
-// 	default:
-// 		client.Debugf("unsupported Events API event received")
-// 	}
-// }
-
 func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *socketmode.Client) {
 	eventsAPIEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
 	if !ok {
@@ -410,9 +380,6 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 		Str("text", ev.Text).
 		Msg("We have been mentioned")
 
-	// Debug: log all active threads before processing
-	s.debugActiveThreads()
-
 	agentResponse, err := s.handleMessage(context.Background(), s.app, ev.Text, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, true)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to start chat")
@@ -433,25 +400,6 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 	if err != nil {
 		log.Error().Err(err).Msg("failed to post message")
 	}
-
-	// Debug: log all active threads after processing
-	s.debugActiveThreads()
-}
-
-// debugActiveThreads logs all currently active threads for debugging
-func (s *SlackBot) debugActiveThreads() {
-	s.threadsMu.RLock()
-	defer s.threadsMu.RUnlock()
-
-	log.Debug().Str("app_id", s.app.ID).Msg("=== Active Threads ===")
-	for threadKey, session := range s.activeThreads {
-		log.Debug().
-			Str("app_id", s.app.ID).
-			Str("thread_key", threadKey).
-			Str("session_id", session.ID).
-			Msg("active thread")
-	}
-	log.Debug().Str("app_id", s.app.ID).Msg("=== End Active Threads ===")
 }
 
 func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketmode.Client) {
@@ -471,16 +419,6 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 		log.Debug().Str("app_id", s.app.ID).Msgf("Ignored non-MessageEvent: %+v", eventsAPIEvent.InnerEvent.Data)
 		return
 	}
-
-	log.Debug().
-		Str("app_id", s.app.ID).
-		Str("channel", ev.Channel).
-		Str("user", ev.User).
-		Str("bot_id", ev.BotID).
-		Str("timestamp", ev.TimeStamp).
-		Str("thread_timestamp", ev.ThreadTimeStamp).
-		Str("text", ev.Text).
-		Msg("Received message event")
 
 	// Skip messages from the bot itself
 	if ev.BotID != "" {
@@ -513,9 +451,6 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 		Str("app_id", s.app.ID).
 		Str("thread_key", threadKey).
 		Msg("Checking for active thread")
-
-	// Debug: log all active threads
-	s.debugActiveThreads()
 
 	s.threadsMu.RLock()
 	_, hasActiveThread := s.activeThreads[threadKey]
