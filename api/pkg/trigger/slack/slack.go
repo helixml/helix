@@ -767,17 +767,17 @@ func (s *SlackBot) handleMessage(ctx context.Context, app *types.App, messageTex
 	return respContent, nil
 }
 
-func (s *SlackBot) middlewareConnecting(evt *socketmode.Event, client *socketmode.Client) {
+func (s *SlackBot) middlewareConnecting(_ *socketmode.Event, _ *socketmode.Client) {
 	log.Debug().Msg("Connecting to Slack with Socket Mode...")
 	s.SetStatus(false, "Connecting to Slack...")
 }
 
-func (s *SlackBot) middlewareConnectionError(evt *socketmode.Event, client *socketmode.Client) {
-	log.Error().Msg("Connection failed. Retrying later...")
+func (s *SlackBot) middlewareConnectionError(evt *socketmode.Event, _ *socketmode.Client) {
+	log.Error().Any("event", evt).Msg("Connection failed. Retrying later...")
 	s.SetStatus(false, "Connection failed. Retrying later...")
 }
 
-func (s *SlackBot) middlewareConnected(evt *socketmode.Event, client *socketmode.Client) {
+func (s *SlackBot) middlewareConnected(_ *socketmode.Event, _ *socketmode.Client) {
 	log.Debug().Msg("Connected to Slack with Socket Mode.")
 	s.SetStatus(true, "Connected to Slack")
 }
