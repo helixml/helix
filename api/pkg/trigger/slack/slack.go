@@ -313,7 +313,7 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 
 	log.Info().Str("channel", ev.Channel).Msg("We have been mentioned")
 
-	agentResponse, err := s.startChat(context.Background(), s.app, ev)
+	agentResponse, err := s.startSession(context.Background(), s.app, ev)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to start chat")
 		_, _, _ = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(err.Error(), false), slack.MsgOptionTS(ev.TimeStamp))
@@ -327,7 +327,7 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 	}
 }
 
-func (s *SlackBot) startChat(ctx context.Context, app *types.App, event *slackevents.AppMentionEvent) (string, error) {
+func (s *SlackBot) startSession(ctx context.Context, app *types.App, event *slackevents.AppMentionEvent) (string, error) {
 	newSession := shared.NewTriggerSession(ctx, "Slack", app, event.Text)
 
 	// TODO: set user based on event
@@ -343,6 +343,17 @@ func (s *SlackBot) startChat(ctx context.Context, app *types.App, event *slackev
 		return "", fmt.Errorf("failed to get user: %w", err)
 	}
 
+	session := newSession.Session
+
+	err = s.controller.WriteSession(ctx, session)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", app.ID).
+			Msg("failed to create session")
+		return "", fmt.Errorf("failed to create session: %w", err)
+	}
+
 	resp, _, err := s.controller.ChatCompletion(
 		newSession.RequestContext,
 		user,
@@ -353,14 +364,44 @@ func (s *SlackBot) startChat(ctx context.Context, app *types.App, event *slackev
 		},
 	)
 	if err != nil {
+		session.Interactions[len(session.Interactions)-1].Error = err.Error()
+		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
+		session.Interactions[len(session.Interactions)-1].Finished = true
+		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+		err = s.controller.WriteSession(ctx, session)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("app_id", app.ID).
+				Str("user_id", app.Owner).
+				Str("session_id", newSession.Session.ID).
+				Msg("failed to update session")
+		}
+
 		return "", fmt.Errorf("failed to get response from inference API: %w", err)
 	}
 
-	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("no choices in response")
+	var respContent string
+	if len(resp.Choices) > 0 {
+		respContent = resp.Choices[0].Message.Content
+	}
+	// Update session with response
+	session.Interactions[len(session.Interactions)-1].Message = respContent
+	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
+	session.Interactions[len(session.Interactions)-1].Finished = true
+	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+
+	err = s.controller.WriteSession(ctx, session)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", app.ID).
+			Str("user_id", app.Owner).
+			Str("session_id", session.ID).
+			Msg("failed to update session")
 	}
 
-	return resp.Choices[0].Message.Content, nil
+	return respContent, nil
 }
 
 func middlewareConnecting(evt *socketmode.Event, client *socketmode.Client) {
