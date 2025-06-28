@@ -23,6 +23,7 @@ type Workload struct {
 	llmInferenceRequest *types.RunnerLLMInferenceRequest
 	session             *types.Session
 	model               *types.Model
+	preferredRunnerID   string // Optional runner preference for prewarming
 }
 
 func NewLLMWorkload(work *types.RunnerLLMInferenceRequest, model *types.Model) (*Workload, error) {
@@ -235,6 +236,16 @@ func (w *Workload) ToLLMInferenceRequest() *types.RunnerLLMInferenceRequest {
 	}
 
 	return &convertedRequest
+}
+
+// PreferredRunnerID returns the preferred runner ID for this workload, if any
+func (w *Workload) PreferredRunnerID() string {
+	return w.preferredRunnerID
+}
+
+// SetPreferredRunner sets the preferred runner ID for this workload
+func (w *Workload) SetPreferredRunner(runnerID string) {
+	w.preferredRunnerID = runnerID
 }
 
 // TODO(Phil): Once I've figured this out I should move it to a more consistent location

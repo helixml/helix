@@ -311,6 +311,10 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
+	// Set up prewarming callback now that both components exist
+	runnerController.SetOnRunnerConnectedCallback(scheduler.PrewarmNewRunner)
+	log.Info().Msg("Prewarming enabled - new runners will be prewarmed with configured models")
+
 	helixInference := openai.NewInternalHelixServer(cfg, postgresStore, ps, scheduler)
 
 	var logStores []logger.LogStore

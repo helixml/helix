@@ -19,6 +19,7 @@ import QueueIcon from '@mui/icons-material/Queue'
 import RecyclingIcon from '@mui/icons-material/Recycling'
 import AddIcon from '@mui/icons-material/Add'
 import CancelIcon from '@mui/icons-material/Cancel'
+import ScheduleIcon from '@mui/icons-material/Schedule'
 import { TypesSchedulingDecision } from '../../api/api'
 // Using built-in date formatting instead of date-fns
 
@@ -43,6 +44,8 @@ const SchedulingDecisionsTable: FC<SchedulingDecisionsTableProps> = ({ decisions
         return 'error'
       case 'error':
         return 'error'
+      case 'unschedulable':
+        return 'warning'
       default:
         return 'default'
     }
@@ -64,6 +67,8 @@ const SchedulingDecisionsTable: FC<SchedulingDecisionsTableProps> = ({ decisions
         return <CancelIcon fontSize="small" />
       case 'error':
         return <ErrorIcon fontSize="small" />
+      case 'unschedulable':
+        return <ScheduleIcon fontSize="small" />
       default:
         return <CheckCircleIcon fontSize="small" />
     }
@@ -81,6 +86,8 @@ const SchedulingDecisionsTable: FC<SchedulingDecisionsTableProps> = ({ decisions
         return 'Rejected'
       case 'error':
         return 'Error'
+      case 'unschedulable':
+        return 'Unschedulable'
       default:
         return decisionType
     }
@@ -195,16 +202,28 @@ const SchedulingDecisionsTable: FC<SchedulingDecisionsTableProps> = ({ decisions
                 )}
               </TableCell>
               <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-                <Tooltip title={decision.reason || ''}>
-                  <Typography variant="body2" sx={{ 
-                    maxWidth: 200, 
-                    overflow: 'hidden', 
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    {decision.reason}
-                  </Typography>
-                </Tooltip>
+                <Typography variant="body2" sx={{ 
+                  maxWidth: 300,
+                  wordBreak: 'break-word',
+                  whiteSpace: 'normal'
+                }}>
+                  {decision.reason}
+                  {decision.repeat_count && decision.repeat_count > 0 && (
+                    <Chip 
+                      label={`×${decision.repeat_count + 1}`}
+                      size="small"
+                      color="warning"
+                      sx={{ 
+                        ml: 1, 
+                        height: 20, 
+                        '& .MuiChip-label': { 
+                          fontSize: '0.7rem',
+                          px: 0.5
+                        }
+                      }}
+                    />
+                  )}
+                </Typography>
               </TableCell>
               <TableCell sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
                 <Typography variant="body2">
