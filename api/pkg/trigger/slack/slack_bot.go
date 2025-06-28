@@ -25,13 +25,12 @@ import (
 
 func NewSlackBot(cfg *config.ServerConfig, store store.Store, controller *controller.Controller, app *types.App, trigger *types.SlackTrigger) *SlackBot {
 	return &SlackBot{
-		cfg:           cfg,
-		store:         store,
-		controller:    controller,
-		app:           app,
-		trigger:       trigger,
-		activeThreads: make(map[string]*types.Session), // Track active threads by thread timestamp
-		botUserID:     "",                              // Initialize botUserID
+		cfg:        cfg,
+		store:      store,
+		controller: controller,
+		app:        app,
+		trigger:    trigger,
+		botUserID:  "", // Initialize botUserID
 	}
 }
 
@@ -44,16 +43,9 @@ type SlackBot struct { //nolint:revive
 	ctx       context.Context
 	ctxCancel context.CancelFunc
 
-	// api    *slack.Client
-	// client *socketmode.Client
-
 	app *types.App // App/agent configuration
 
 	trigger *types.SlackTrigger
-
-	// Track active threads to continue conversations
-	activeThreads map[string]*types.Session
-	threadsMu     sync.RWMutex
 
 	// Bot user ID for filtering bot messages
 	botUserID string
@@ -82,34 +74,6 @@ func (s *SlackBot) GetStatus() (bool, string) {
 	defer s.statusMu.RUnlock()
 
 	return s.ok, s.message
-}
-
-// cleanupOldThreads removes threads that haven't been active for more than 24 hours
-func (s *SlackBot) cleanupOldThreads() {
-	s.threadsMu.Lock()
-	defer s.threadsMu.Unlock()
-
-	cutoff := time.Now().Add(-24 * time.Hour)
-	removed := 0
-
-	for threadKey, session := range s.activeThreads {
-		if session.Updated.Before(cutoff) {
-			log.Debug().
-				Str("app_id", s.app.ID).
-				Str("thread_key", threadKey).
-				Str("session_id", session.ID).
-				Msg("removing old thread")
-			delete(s.activeThreads, threadKey)
-			removed++
-		}
-	}
-
-	if removed > 0 {
-		log.Info().
-			Str("app_id", s.app.ID).
-			Int("removed_threads", removed).
-			Msg("cleaned up old threads")
-	}
 }
 
 func (s *SlackBot) RunBot(ctx context.Context) error {
@@ -166,21 +130,6 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 	log.Info().Str("app_id", s.app.ID).Msg("running event loop")
 	defer log.Info().Str("app_id", s.app.ID).Msg("event loop stopped")
 
-	// Start periodic cleanup of old threads
-	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-s.ctx.Done():
-				return
-			case <-ticker.C:
-				s.cleanupOldThreads()
-			}
-		}
-	}()
-
 	err = socketmodeHandler.RunEventLoop()
 	if err != nil {
 		log.Error().Err(err).Msg("failed to run event loop")
@@ -192,6 +141,7 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 	return nil
 }
 
+// middlewareAppMentionEvent - works as the initial trigger for a new conversation with Helix agent
 func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *socketmode.Client) {
 	eventsAPIEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
 	if !ok {
@@ -216,7 +166,7 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 		Str("text", ev.Text).
 		Msg("We have been mentioned")
 
-	agentResponse, err := s.handleMessage(context.Background(), s.app, ev.Text, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, true)
+	agentResponse, err := s.handleMessage(context.Background(), nil, s.app, ev.Text, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, true)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to start chat")
 		_, _, _ = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(err.Error(), false), slack.MsgOptionTS(ev.TimeStamp))
@@ -238,6 +188,8 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 	}
 }
 
+// middlewareMessageEvent - processes message events that are part of the thread. This ensures
+// agent can continue the conversation that the user has started
 func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketmode.Client) {
 	log.Debug().Str("app_id", s.app.ID).Msg("middlewareMessageEvent received")
 
@@ -288,10 +240,7 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 		Str("thread_key", threadKey).
 		Msg("Checking for active thread")
 
-	s.threadsMu.RLock()
-	_, hasActiveThread := s.activeThreads[threadKey]
-	s.threadsMu.RUnlock()
-
+	thread, hasActiveThread := s.getActiveThread(s.ctx, ev.Channel, threadKey)
 	if !hasActiveThread {
 		log.Debug().
 			Str("app_id", s.app.ID).
@@ -307,7 +256,7 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 		Str("user", ev.User).
 		Msg("Received message in active thread")
 
-	agentResponse, err := s.handleMessage(context.Background(), s.app, ev.Text, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, false)
+	agentResponse, err := s.handleMessage(context.Background(), thread, s.app, ev.Text, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, false)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to continue chat")
 		_, _, _ = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(err.Error(), false), slack.MsgOptionTS(ev.ThreadTimeStamp))
@@ -329,40 +278,43 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 	}
 }
 
-func (s *SlackBot) handleMessage(ctx context.Context, app *types.App, messageText, channel, messageTimestamp, threadTimestamp string, isMention bool) (string, error) {
-	threadKey := threadTimestamp
-	if threadKey == "" {
-		threadKey = messageTimestamp
-	}
-
+func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.SlackThread, app *types.App, messageText, channel, messageTimestamp, threadTimestamp string, isMention bool) (string, error) {
 	log.Debug().
 		Str("app_id", app.ID).
 		Str("message_timestamp", messageTimestamp).
 		Str("thread_timestamp", threadTimestamp).
-		Str("thread_key", threadKey).
 		Bool("is_mention", isMention).
 		Msg("handleMessage called")
 
-	s.threadsMu.Lock()
-	defer s.threadsMu.Unlock()
-
-	var session *types.Session
-	var err error
+	var (
+		session *types.Session
+		err     error
+	)
 
 	if isMention {
-		// This is a new conversation (mention), create a new session
+		// This is a new conversation (mention), create a new session and a thread
+
 		log.Info().
 			Str("app_id", app.ID).
 			Str("channel", channel).
-			Str("thread_id", threadKey).
 			Str("message_ts", messageTimestamp).
 			Msg("starting new Slack session")
 
 		newSession := shared.NewTriggerSession(ctx, "Slack", app, messageText)
 		session = newSession.Session
 
-		// Store the session for this thread
-		s.activeThreads[threadKey] = session
+		threadKey := threadTimestamp
+		if threadKey == "" {
+			threadKey = messageTimestamp
+		}
+
+		// Create the new thread
+		var err error
+		_, err = s.createNewThread(s.ctx, channel, threadKey, session.ID)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to create new thread")
+			return "", fmt.Errorf("failed to create new thread: %w", err)
+		}
 
 		log.Debug().
 			Str("app_id", app.ID).
@@ -380,21 +332,16 @@ func (s *SlackBot) handleMessage(ctx context.Context, app *types.App, messageTex
 		}
 	} else {
 		// This is a continuation of an existing conversation
-		var exists bool
-
-		session, exists = s.activeThreads[threadKey]
-		if !exists {
-			log.Error().
-				Str("app_id", app.ID).
-				Str("thread_key", threadKey).
-				Msg("no active session found for thread")
-			return "", fmt.Errorf("no active session found for thread %s", threadKey)
+		session, err = s.store.GetSession(ctx, existingThread.SessionID)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to get session")
+			return "", fmt.Errorf("failed to get session, error: %w", err)
 		}
 
 		log.Info().
 			Str("app_id", app.ID).
 			Str("channel", channel).
-			Str("thread_id", threadKey).
+			Str("thread_id", existingThread.ThreadKey).
 			Str("message_ts", messageTimestamp).
 			Str("session_id", session.ID).
 			Msg("continuing existing Slack session")
@@ -551,4 +498,29 @@ func (s *SlackBot) middlewareConnectionError(evt *socketmode.Event, _ *socketmod
 func (s *SlackBot) middlewareConnected(_ *socketmode.Event, _ *socketmode.Client) {
 	log.Debug().Msg("Connected to Slack with Socket Mode.")
 	s.SetStatus(true, "Connected to Slack")
+}
+
+func (s *SlackBot) getActiveThread(ctx context.Context, channel, threadKey string) (*types.SlackThread, bool) {
+	tread, err := s.store.GetSlackThread(ctx, s.app.ID, channel, threadKey)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to get slack thread")
+		return nil, false
+	}
+	// Active thread found
+	if tread != nil {
+		return tread, true
+	}
+
+	return nil, false
+}
+
+func (s *SlackBot) createNewThread(ctx context.Context, channel, threadKey, sessionID string) (*types.SlackThread, error) {
+	thread := &types.SlackThread{
+		ThreadKey: threadKey,
+		AppID:     s.app.ID,
+		Channel:   channel,
+		SessionID: sessionID,
+	}
+
+	return s.store.CreateSlackThread(ctx, thread)
 }
