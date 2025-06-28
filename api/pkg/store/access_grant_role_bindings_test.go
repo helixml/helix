@@ -34,10 +34,6 @@ func (suite *AccessGrantRoleBindingTestSuite) SetupTest() {
 	suite.Require().NoError(err)
 	suite.db = store
 
-	suite.T().Cleanup(func() {
-		_ = suite.db.Close()
-	})
-
 	// Create a test organization
 	orgID := system.GenerateOrganizationID()
 	org := &types.Organization{
@@ -61,7 +57,7 @@ func (suite *AccessGrantRoleBindingTestSuite) SetupTest() {
 	suite.role = createdRole
 }
 
-func (suite *AccessGrantRoleBindingTestSuite) TearDownTest() {
+func (suite *AccessGrantRoleBindingTestSuite) TearDownTestSuite() {
 	// Clean up in reverse order of creation
 	if suite.role != nil {
 		err := suite.db.DeleteRole(suite.ctx, suite.role.ID)
@@ -71,6 +67,8 @@ func (suite *AccessGrantRoleBindingTestSuite) TearDownTest() {
 		err := suite.db.DeleteOrganization(suite.ctx, suite.org.ID)
 		suite.NoError(err)
 	}
+
+	_ = suite.db.Close()
 }
 
 func (suite *AccessGrantRoleBindingTestSuite) TestCreateAccessGrantRoleBinding() {

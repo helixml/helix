@@ -33,10 +33,6 @@ func (suite *AccessGrantTestSuite) SetupTest() {
 	suite.Require().NoError(err)
 	suite.db = store
 
-	suite.T().Cleanup(func() {
-		_ = suite.db.Close()
-	})
-
 	// Create a test organization for all access grant tests
 	orgID := system.GenerateOrganizationID()
 	org := &types.Organization{
@@ -50,12 +46,14 @@ func (suite *AccessGrantTestSuite) SetupTest() {
 	suite.org = createdOrg
 }
 
-func (suite *AccessGrantTestSuite) TearDownTest() {
+func (suite *AccessGrantTestSuite) TearDownTestSuite() {
 	// Cleanup the test organization
 	if suite.org != nil {
 		err := suite.db.DeleteOrganization(suite.ctx, suite.org.ID)
 		suite.NoError(err)
 	}
+
+	_ = suite.db.Close()
 }
 
 func (suite *AccessGrantTestSuite) TestCreateAccessGrant() {
