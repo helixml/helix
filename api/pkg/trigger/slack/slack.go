@@ -126,6 +126,7 @@ func (s *Slack) reconcile(ctx context.Context) error {
 				go func(bot *SlackBot, appID string) {
 					if err := bot.RunBot(ctx); err != nil {
 						log.Error().Err(err).Str("app_id", appID).Msg("Slack bot exited with error")
+						bot.setStatus(false, fmt.Sprintf("Slack bot exited with error: %v", err))
 					}
 				}(bot, appID)
 			}

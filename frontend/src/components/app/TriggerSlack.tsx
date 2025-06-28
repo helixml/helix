@@ -221,8 +221,20 @@ const TriggerSlack: FC<TriggerSlackProps> = ({
           {/* Configuration summary */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             {(() => {
+              // If Slack trigger is disabled
+              if (!slackTrigger?.enabled) {
+                return (
+                  <>
+                    <Circle sx={{ fontSize: 12, color: 'grey.400' }} />
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Status:</strong> Slack integration disabled
+                    </Typography>
+                  </>
+                )
+              }
+
               // If no tokens are configured, show grey circle with existing message
-              if (!appToken || !botToken) {
+              if (slackTrigger?.enabled && (!appToken || !botToken)) {
                 return (
                   <>
                     <Circle sx={{ fontSize: 12, color: 'grey.400' }} />
