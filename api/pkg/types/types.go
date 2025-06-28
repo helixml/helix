@@ -1958,3 +1958,18 @@ type SlackThread struct {
 
 	SessionID string `json:"session_id"`
 }
+
+type TriggerType string
+
+const (
+	TriggerTypeSlack TriggerType = "slack"
+	// TODO: discord
+)
+
+// TriggerStatus is used to provide trigger status
+// to the frontend (discord, slack bots, etc)
+type TriggerStatus struct {
+	Type    TriggerType `json:"type"`
+	OK      bool        `json:"ok"`
+	Message string      `json:"message"`
+}
