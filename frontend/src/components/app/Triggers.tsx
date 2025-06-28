@@ -9,12 +9,14 @@ import TriggerCron from './TriggerCron'
 import TriggerSlack from './TriggerSlack'
 
 interface TriggersProps {
+  appId: string
   triggers?: TypesTrigger[]
   onUpdate: (triggers: TypesTrigger[]) => void
   readOnly?: boolean
 }
 
 const Triggers: FC<TriggersProps> = ({
+  appId,
   triggers = [],
   onUpdate,
   readOnly = false
@@ -58,7 +60,8 @@ const Triggers: FC<TriggersProps> = ({
       <Box sx={{ my: 3 }} />
 
       {/* Slack Trigger */}
-      <TriggerSlack 
+      <TriggerSlack
+        appId={appId}
         triggers={triggers}
         onUpdate={onUpdate}
         readOnly={readOnly}

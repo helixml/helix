@@ -279,6 +279,7 @@ const App: FC = () => {
                     <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
                       <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
                         <Triggers
+                          appId={appTools.id}
                           triggers={appTools.flatApp?.triggers || []}
                           onUpdate={(triggers) => appTools.saveFlatApp({ triggers })}
                           readOnly={isReadOnly}
