@@ -288,7 +288,6 @@ func (s *HelixAPIServer) findModelSubstitution(originalProvider, originalModel s
 // @Summary List apps
 // @Description List apps for the user. Apps are pre-configured to spawn sessions with specific tools and config.
 // @Tags    apps
-
 // @Success 200 {array} types.App
 // @Param organization_id query string false "Organization ID"
 // @Router /api/v1/apps [get]
@@ -1644,6 +1643,46 @@ func (s *HelixAPIServer) uploadAppAvatar(rw http.ResponseWriter, r *http.Request
 	rw.WriteHeader(http.StatusOK)
 }
 
+// getAppTriggerStatus godoc
+// @Summary Get app trigger status
+// @Description Get the status of a specific trigger type for an app
+// @Tags    apps
+// @Success 200 {object} types.TriggerStatus
+// @Param id path string true "App ID"
+// @Param trigger_type query string true "Trigger type (e.g., slack)"
+// @Router /api/v1/apps/{id}/trigger-status [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getAppTriggerStatus(rw http.ResponseWriter, r *http.Request) {
+	user := getRequestUser(r)
+	id := getID(r)
+
+	triggerType := r.URL.Query().Get("trigger_type")
+	if triggerType == "" {
+		writeErrResponse(rw, errors.New("trigger_type is required"), http.StatusBadRequest)
+		return
+	}
+
+	app, err := s.Store.GetApp(r.Context(), id)
+	if err != nil {
+		writeErrResponse(rw, err, http.StatusInternalServerError)
+		return
+	}
+
+	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionGet)
+	if err != nil {
+		writeErrResponse(rw, errors.New("unauthorized"), http.StatusForbidden)
+		return
+	}
+
+	status, ok := s.Controller.GetTriggerStatus(app.ID, types.TriggerType(triggerType))
+	if !ok {
+		writeErrResponse(rw, errors.New("trigger status not found"), http.StatusNotFound)
+		return
+	}
+
+	writeResponse(rw, status, http.StatusOK)
+}
+
 // deleteAppAvatar godoc
 // @Summary Delete app avatar
 // @Description Delete the app's avatar image
@@ -1701,6 +1740,16 @@ func (s *HelixAPIServer) deleteAppAvatar(rw http.ResponseWriter, r *http.Request
 	rw.WriteHeader(http.StatusOK)
 }
 
+// getAppAvatar godoc
+// @Summary Get app avatar
+// @Description Get the app's avatar image
+// @Tags    apps
+// @Produce image/*
+// @Param id path string true "App ID"
+// @Success 200 {file} binary "Avatar image data"
+// @Failure 404 {object} system.HTTPError
+// @Router /api/v1/apps/{id}/avatar [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) getAppAvatar(rw http.ResponseWriter, r *http.Request) {
 	id := getID(r)
 

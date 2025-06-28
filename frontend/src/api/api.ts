@@ -1049,6 +1049,8 @@ export interface TypesModel {
   sort_order?: number;
   type?: TypesModelType;
   updated?: string;
+  /** User modification tracking - system defaults are automatically updated if this is false */
+  user_modified?: boolean;
 }
 
 export enum TypesModelType {
@@ -1630,6 +1632,13 @@ export enum TypesSessionType {
   SessionTypeImage = "image",
 }
 
+export interface TypesSlackTrigger {
+  app_token?: string;
+  bot_token?: string;
+  channels?: string[];
+  enabled?: boolean;
+}
+
 export interface TypesStepInfo {
   app_id?: string;
   created?: string;
@@ -1778,6 +1787,17 @@ export interface TypesToolZapierConfig {
 export interface TypesTrigger {
   cron?: TypesCronTrigger;
   discord?: TypesDiscordTrigger;
+  slack?: TypesSlackTrigger;
+}
+
+export interface TypesTriggerStatus {
+  message?: string;
+  ok?: boolean;
+  type?: TypesTriggerType;
+}
+
+export enum TypesTriggerType {
+  TriggerTypeSlack = "slack",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -2023,9 +2043,11 @@ export class HttpClient<SecurityDataType = unknown> {
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
     /**
-     * No description
+     * @description List apps for the user. Apps are pre-configured to spawn sessions with specific tools and config.
      *
+     * @tags apps
      * @name V1AppsList
+     * @summary List apps
      * @request GET:/api/v1/apps
      * @secure
      */
@@ -2181,6 +2203,24 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get the app's avatar image
+     *
+     * @tags apps
+     * @name V1AppsAvatarDetail
+     * @summary Get app avatar
+     * @request GET:/api/v1/apps/{id}/avatar
+     * @secure
+     */
+    v1AppsAvatarDetail: (id: string, params: RequestParams = {}) =>
+      this.request<File, SystemHTTPError>({
+        path: `/api/v1/apps/${id}/avatar`,
+        method: "GET",
+        secure: true,
+        format: "blob",
+        ...params,
+      }),
+
+    /**
      * @description Upload a base64 encoded image as the app's avatar
      *
      * @tags apps
@@ -2281,6 +2321,31 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the status of a specific trigger type for an app
+     *
+     * @tags apps
+     * @name V1AppsTriggerStatusDetail
+     * @summary Get app trigger status
+     * @request GET:/api/v1/apps/{id}/trigger-status
+     * @secure
+     */
+    v1AppsTriggerStatusDetail: (
+      id: string,
+      query: {
+        /** Trigger type (e.g., slack) */
+        trigger_type: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesTriggerStatus, any>({
+        path: `/api/v1/apps/${id}/trigger-status`,
+        method: "GET",
+        query: query,
+        secure: true,
         ...params,
       }),
 
