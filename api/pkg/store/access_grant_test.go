@@ -147,6 +147,7 @@ func (suite *AccessGrantTestSuite) TestCreateAccessGrant() {
 }
 
 func (suite *AccessGrantTestSuite) TestCreateAccessGrant_Duplicate() {
+	userID := system.GenerateUUID()
 	// Create test roles
 	roles := []*types.Role{
 		{
@@ -161,7 +162,7 @@ func (suite *AccessGrantTestSuite) TestCreateAccessGrant_Duplicate() {
 	accessGrant := &types.AccessGrant{
 		OrganizationID: suite.org.ID,
 		ResourceID:     "test-dataset-1",
-		UserID:         "test-user",
+		UserID:         userID,
 	}
 
 	created, err := suite.db.CreateAccessGrant(suite.ctx, accessGrant, roles)
