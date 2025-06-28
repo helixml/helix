@@ -4,10 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -24,20 +22,7 @@ type TeamsTestSuite struct {
 
 func (suite *TeamsTestSuite) SetupTest() {
 	suite.ctx = context.Background()
-
-	var storeCfg config.Store
-	storeCfg.MaxConns = 1
-	storeCfg.IdleConns = 1
-	err := envconfig.Process("", &storeCfg)
-	suite.NoError(err)
-
-	store, err := NewPostgresStore(storeCfg)
-	suite.Require().NoError(err)
-	suite.db = store
-
-	suite.T().Cleanup(func() {
-		_ = suite.db.Close()
-	})
+	suite.db = GetTestDB()
 
 	// Create a test organization for all team tests
 	orgID := system.GenerateOrganizationID()

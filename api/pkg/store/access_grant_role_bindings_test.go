@@ -4,10 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -25,14 +23,7 @@ type AccessGrantRoleBindingTestSuite struct {
 
 func (suite *AccessGrantRoleBindingTestSuite) SetupTest() {
 	suite.ctx = context.Background()
-
-	var storeCfg config.Store
-	err := envconfig.Process("", &storeCfg)
-	suite.NoError(err)
-
-	store, err := NewPostgresStore(storeCfg)
-	suite.Require().NoError(err)
-	suite.db = store
+	suite.db = GetTestDB()
 
 	// Create a test organization
 	orgID := system.GenerateOrganizationID()
@@ -68,7 +59,7 @@ func (suite *AccessGrantRoleBindingTestSuite) TearDownTestSuite() {
 		suite.NoError(err)
 	}
 
-	_ = suite.db.Close()
+	// No need to close the database connection here as it's managed by TestMain
 }
 
 func (suite *AccessGrantRoleBindingTestSuite) TestCreateAccessGrantRoleBinding() {
