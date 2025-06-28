@@ -5,6 +5,7 @@ import Switch from '@mui/material/Switch'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import TextField from '@mui/material/TextField'
 import Alert from '@mui/material/Alert'
+import Circle from '@mui/icons-material/Circle'
 import { TypesTrigger } from '../../api/api'
 import { SlackLogo } from '../icons/ProviderIcons'
 
@@ -180,13 +181,66 @@ const TriggerSlack: FC<TriggerSlackProps> = ({
           </Box>
 
           {/* Configuration summary */}
-          <Box>
-            <Typography variant="body2" color="text.secondary">
-              <strong>Summary:</strong> {hasSlackTrigger 
-                ? `Slack integration ${appToken && botToken ? 'configured' : 'needs tokens'}`
-                : 'Slack integration disabled'
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {(() => {
+              // If no tokens are configured, show grey circle with existing message
+              if (!appToken || !botToken) {
+                return (
+                  <>
+                    <Circle sx={{ fontSize: 12, color: 'grey.400' }} />
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Status:</strong> Slack integration {appToken && botToken ? 'configured' : 'needs tokens'}
+                    </Typography>
+                  </>
+                )
               }
-            </Typography>
+              
+              // If we have tokens but no trigger status yet, show grey circle
+              if (!slackStatus?.data && !isLoadingSlackStatus) {
+                return (
+                  <>
+                    <Circle sx={{ fontSize: 12, color: 'grey.400' }} />
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Status:</strong> Slack integration configured
+                    </Typography>
+                  </>
+                )
+              }
+              
+              // If trigger status is OK, show green circle with status message
+              if (slackStatus?.data?.ok === true) {
+                return (
+                  <>
+                    <Circle sx={{ fontSize: 12, color: 'success.main' }} />
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Status:</strong> {slackStatus.data.message || 'Slack integration active'}
+                    </Typography>
+                  </>
+                )
+              }
+              
+              // If trigger status is not OK, show red circle with error message
+              if (slackStatus?.data?.ok === false) {
+                return (
+                  <>
+                    <Circle sx={{ fontSize: 12, color: 'error.main' }} />
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Status:</strong> {slackStatus.data.message || 'Slack integration error'}
+                    </Typography>
+                  </>
+                )
+              }
+              
+              // Loading state
+              return (
+                <>
+                  <Circle sx={{ fontSize: 12, color: 'grey.400' }} />
+                  <Typography variant="body2" color="text.secondary">
+                    <strong>Status:</strong> Checking Slack integration status...
+                  </Typography>
+                </>
+              )
+            })()}
           </Box>
         </Box>
       )}
