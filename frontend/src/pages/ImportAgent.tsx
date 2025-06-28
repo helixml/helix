@@ -877,7 +877,7 @@ const ImportAgent: FC = () => {
           <Alert severity="info" sx={{ mt: 3 }}>
             <Typography variant="body2">
               You can change these model selections later in the agent editor if needed. 
-              The substituted models are compatible alternatives from the same performance class.
+              The substituted models are compatible alternatives from the same performance class, but you should run the tests to ensure they work as expected.
             </Typography>
           </Alert>
         </DialogContent>
