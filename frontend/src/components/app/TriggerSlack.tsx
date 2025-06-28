@@ -168,7 +168,7 @@ const TriggerSlack: FC<TriggerSlackProps> = ({
               disabled={readOnly || !hasSlackTrigger}
               helperText="Your Slack app token (starts with xapp-)"
               type={showAppToken ? 'text' : 'password'}
-              autoComplete="off"
+              autoComplete="new-bot-app-token-password"
               InputProps={{
                 endAdornment: (
                   <InputAdornment position="end">
@@ -200,7 +200,7 @@ const TriggerSlack: FC<TriggerSlackProps> = ({
               disabled={readOnly || !hasSlackTrigger}
               helperText="Your Slack bot token (starts with xoxb-)"
               type={showBotToken ? 'text' : 'password'}
-              autoComplete="off"
+              autoComplete="new-password"
               InputProps={{
                 endAdornment: (
                   <InputAdornment position="end">
