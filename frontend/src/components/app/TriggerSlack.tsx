@@ -8,13 +8,17 @@ import Alert from '@mui/material/Alert'
 import { TypesTrigger } from '../../api/api'
 import { SlackLogo } from '../icons/ProviderIcons'
 
+import { useGetAppTriggerStatus } from '../../services/appService'
+
 interface TriggerSlackProps {
+  appId: string
   triggers?: TypesTrigger[]
   onUpdate: (triggers: TypesTrigger[]) => void
   readOnly?: boolean
 }
 
 const TriggerSlack: FC<TriggerSlackProps> = ({
+  appId,
   triggers = [],
   onUpdate,
   readOnly = false
@@ -25,6 +29,12 @@ const TriggerSlack: FC<TriggerSlackProps> = ({
   // State for Slack configuration
   const [appToken, setAppToken] = useState<string>(slackTrigger?.app_token || '')
   const [botToken, setBotToken] = useState<string>(slackTrigger?.bot_token || '')
+
+  // If slack is configured, we need to get the status of the bot
+  const { data: slackStatus, isLoading: isLoadingSlackStatus } = useGetAppTriggerStatus(appId, 'slack', {
+    enabled: hasSlackTrigger,
+    refetchInterval: 1500
+  })
 
   // Update state when triggers change
   useEffect(() => {

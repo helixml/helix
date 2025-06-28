@@ -59,6 +59,7 @@ func (s *SlackBot) Stop() {
 // Update controller status with the current status of the bot
 func (s *SlackBot) setStatus(ok bool, message string) {
 	s.controller.SetTriggerStatus(s.app.ID, types.TriggerTypeSlack, types.TriggerStatus{
+		Type:    types.TriggerTypeSlack,
 		OK:      ok,
 		Message: message,
 	})

@@ -27,14 +27,15 @@ export function useListAppSteps(appId: string, interactionId: string, options?: 
 }
 
 // useGetAppTriggerStatus returns the status of a specific trigger type for an app
-export function useGetAppTriggerStatus(appId: string, triggerType: string, options?: { enabled?: boolean }) {
+export function useGetAppTriggerStatus(appId: string, triggerType: string, options?: { enabled?: boolean, refetchInterval?: number }) {
   const api = useApi()
   const apiClient = api.getApiClient()
 
   return useQuery({
     queryKey: appTriggerStatusQueryKey(appId, triggerType),
     queryFn: () => apiClient.v1AppsTriggerStatusDetail(appId, { trigger_type: triggerType }),
-    enabled: options?.enabled ?? true
+    enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval
   })
 }
 
