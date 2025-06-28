@@ -6,7 +6,6 @@ import (
 	stdlog "log"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -49,10 +48,6 @@ type SlackBot struct { //nolint:revive
 
 	// Bot user ID for filtering bot messages
 	botUserID string
-
-	statusMu sync.RWMutex
-	message  string
-	ok       bool
 }
 
 func (s *SlackBot) Stop() {
@@ -61,19 +56,12 @@ func (s *SlackBot) Stop() {
 	}
 }
 
-func (s *SlackBot) SetStatus(ok bool, message string) {
-	s.statusMu.Lock()
-	defer s.statusMu.Unlock()
-
-	s.ok = ok
-	s.message = message
-}
-
-func (s *SlackBot) GetStatus() (bool, string) {
-	s.statusMu.RLock()
-	defer s.statusMu.RUnlock()
-
-	return s.ok, s.message
+// Update controller status with the current status of the bot
+func (s *SlackBot) setStatus(ok bool, message string) {
+	s.controller.SetTriggerStatus(s.app.ID, types.TriggerTypeSlack, types.TriggerStatus{
+		OK:      ok,
+		Message: message,
+	})
 }
 
 func (s *SlackBot) RunBot(ctx context.Context) error {
@@ -494,17 +482,17 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 
 func (s *SlackBot) middlewareConnecting(_ *socketmode.Event, _ *socketmode.Client) {
 	log.Debug().Msg("Connecting to Slack with Socket Mode...")
-	s.SetStatus(false, "Connecting to Slack...")
+	s.setStatus(false, "Connecting to Slack...")
 }
 
 func (s *SlackBot) middlewareConnectionError(evt *socketmode.Event, _ *socketmode.Client) {
 	log.Error().Any("event", evt).Msg("Connection failed. Retrying later...")
-	s.SetStatus(false, "Connection failed. Retrying later...")
+	s.setStatus(false, "Connection failed. Retrying later...")
 }
 
 func (s *SlackBot) middlewareConnected(_ *socketmode.Event, _ *socketmode.Client) {
 	log.Debug().Msg("Connected to Slack with Socket Mode.")
-	s.SetStatus(true, "Connected to Slack")
+	s.setStatus(true, "Connected to Slack")
 }
 
 func (s *SlackBot) getActiveThread(ctx context.Context, channel, threadKey string) (*types.SlackThread, bool) {
