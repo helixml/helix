@@ -751,3 +751,133 @@ func TestApplyModelSubstitutions_AgentModePartialSubstitution(t *testing.T) {
 	assert.Equal(t, "helix", assistant.SmallGenerationModelProvider)
 	assert.Equal(t, "llama3.1:8b-instruct-q8_0", assistant.SmallGenerationModel)
 }
+
+func TestO3MiniSubstitution(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockProviderManager := manager.NewMockProviderManager(ctrl)
+	server := &HelixAPIServer{
+		providerManager: mockProviderManager,
+	}
+
+	ctx := context.Background()
+	user := &types.User{ID: "user1"}
+
+	// Model classes with o3-mini in dedicated reasoning class
+	modelClasses := []ModelClass{
+		{
+			Name: "lightweight",
+			Alternatives: []AlternativeModelOption{
+				{Provider: "helix", Model: "llama3.1:8b-instruct-q8_0"},
+				{Provider: "anthropic", Model: "claude-3-5-haiku-20241022"},
+				{Provider: "openai", Model: "gpt-4o-mini"},
+				{Provider: "together", Model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"},
+			},
+		},
+		{
+			Name: "reasoning",
+			Alternatives: []AlternativeModelOption{
+				{Provider: "openai", Model: "o3-mini"},
+				{Provider: "anthropic", Model: "claude-3-5-sonnet-20241022"},
+				{Provider: "openai", Model: "gpt-4o"},
+				{Provider: "helix", Model: "llama3.3:70b-instruct-q4_K_M"},
+			},
+		},
+		{
+			Name: "large-reasoning",
+			Alternatives: []AlternativeModelOption{
+				{Provider: "helix", Model: "llama3.3:70b-instruct-q4_K_M"},
+				{Provider: "anthropic", Model: "claude-3-5-sonnet-20241022"},
+				{Provider: "openai", Model: "gpt-4o"},
+				{Provider: "openai", Model: "o3-mini"},
+				{Provider: "together", Model: "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo"},
+			},
+		},
+	}
+
+	// Mock provider manager to return only "helix" and "anthropic" as available (no openai)
+	mockProviderManager.EXPECT().
+		ListProviders(ctx, user.ID).
+		Return([]types.Provider{types.ProviderHelix, types.ProviderAnthropic}, nil)
+
+	app := &types.App{
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						Name:                         "test-agent",
+						Provider:                     "helix",
+						Model:                        "llama3.1:8b-instruct-q8_0",
+						AgentMode:                    true,
+						ReasoningModelProvider:       "openai",
+						ReasoningModel:               "o3-mini",
+						GenerationModelProvider:      "openai",
+						GenerationModel:              "gpt-4o",
+						SmallReasoningModelProvider:  "openai",
+						SmallReasoningModel:          "o3-mini",
+						SmallGenerationModelProvider: "openai",
+						SmallGenerationModel:         "gpt-4o",
+					},
+				},
+			},
+		},
+	}
+
+	substitutions, err := server.applyModelSubstitutions(ctx, user, app, modelClasses)
+	require.NoError(t, err)
+
+	// Should have 4 substitutions (reasoning_model, generation_model, small_reasoning_model, small_generation_model)
+	// The main provider/model (helix) is already available so no substitution needed
+	require.Len(t, substitutions, 4)
+
+	// Verify that o3-mini was found and substituted correctly
+	assistant := app.Config.Helix.Assistants[0]
+
+	// o3-mini should be substituted with anthropic model (first available alternative in reasoning class)
+	assert.Equal(t, "anthropic", assistant.ReasoningModelProvider)
+	assert.Equal(t, "claude-3-5-sonnet-20241022", assistant.ReasoningModel)
+
+	// gpt-4o should also be substituted with anthropic model (both are in reasoning class)
+	assert.Equal(t, "anthropic", assistant.GenerationModelProvider)
+	assert.Equal(t, "claude-3-5-sonnet-20241022", assistant.GenerationModel)
+
+	// small_reasoning_model (o3-mini) should also be substituted with anthropic
+	assert.Equal(t, "anthropic", assistant.SmallReasoningModelProvider)
+	assert.Equal(t, "claude-3-5-sonnet-20241022", assistant.SmallReasoningModel)
+
+	// small_generation_model (gpt-4o) should also be substituted with anthropic
+	assert.Equal(t, "anthropic", assistant.SmallGenerationModelProvider)
+	assert.Equal(t, "claude-3-5-sonnet-20241022", assistant.SmallGenerationModel)
+
+	// Verify the substitution records
+	var o3MiniSubstitutions []ModelSubstitution
+	var gpt4oSubstitutions []ModelSubstitution
+
+	for _, sub := range substitutions {
+		if sub.OriginalModel == "o3-mini" {
+			o3MiniSubstitutions = append(o3MiniSubstitutions, sub)
+		}
+		if sub.OriginalModel == "gpt-4o" {
+			gpt4oSubstitutions = append(gpt4oSubstitutions, sub)
+		}
+	}
+
+	// Should have 2 o3-mini substitutions (reasoning_model and small_reasoning_model)
+	require.Len(t, o3MiniSubstitutions, 2)
+
+	// Should have 2 gpt-4o substitutions (generation_model and small_generation_model)
+	require.Len(t, gpt4oSubstitutions, 2)
+
+	// Verify o3-mini substitutions use anthropic (first available in reasoning class)
+	for _, sub := range o3MiniSubstitutions {
+		assert.Equal(t, "anthropic", sub.NewProvider)
+		assert.Equal(t, "claude-3-5-sonnet-20241022", sub.NewModel)
+	}
+
+	// Verify gpt-4o substitutions also use anthropic (both models are in reasoning class)
+	for _, sub := range gpt4oSubstitutions {
+		assert.Equal(t, "anthropic", sub.NewProvider)
+		assert.Equal(t, "claude-3-5-sonnet-20241022", sub.NewModel)
+	}
+}
