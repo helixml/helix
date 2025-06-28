@@ -35,10 +35,10 @@ func (suite *ModelTestSuite) SetupTest() {
 
 	// Clean up database before each test
 	suite.Require().NoError(suite.db.gdb.Exec("DELETE FROM models").Error)
+}
 
-	suite.T().Cleanup(func() {
-		_ = suite.db.Close()
-	})
+func (suite *ModelTestSuite) TearDownTestSuite() {
+	_ = suite.db.Close()
 }
 
 func (suite *ModelTestSuite) TestCreateModel() {
