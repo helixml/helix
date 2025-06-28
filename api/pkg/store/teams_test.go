@@ -26,6 +26,8 @@ func (suite *TeamsTestSuite) SetupTest() {
 	suite.ctx = context.Background()
 
 	var storeCfg config.Store
+	storeCfg.MaxConns = 1
+	storeCfg.IdleConns = 1
 	err := envconfig.Process("", &storeCfg)
 	suite.NoError(err)
 
