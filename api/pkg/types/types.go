@@ -1947,3 +1947,14 @@ type SchedulingDecision struct {
 	WarmSlotCount    int                    `json:"warm_slot_count,omitempty"`
 	TotalSlotCount   int                    `json:"total_slot_count,omitempty"`
 }
+
+// SlackThread used to track the state of slack threads where Helix agent is invoked
+type SlackThread struct {
+	ThreadKey string    `json:"thread_key" gorm:"primaryKey"`
+	AppID     string    `json:"app_id" gorm:"primaryKey"`
+	Channel   string    `json:"channel" gorm:"primaryKey"`
+	Created   time.Time `json:"created"`
+	Updated   time.Time `json:"updated"`
+
+	SessionID string `json:"session_id"`
+}
