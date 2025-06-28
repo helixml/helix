@@ -3,27 +3,27 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"slices"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/data"
-	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
+	"golang.org/x/exp/rand"
 )
 
 const (
-	pendingSlotsBufferSize    = 1               // The number of slot creation requests to buffer
-	runnerReconcileInterval   = 1 * time.Second // Reduced from 5s for more responsive dashboard updates
+	pendingSlotsBufferSize    = 1 // The number of slot creation requests to buffer
+	runnerReconcileInterval   = 5 * time.Second
 	activityReconcileInterval = 100 * time.Millisecond
 	queueReconcileInterval    = 100 * time.Millisecond
-	prewarmReconcileInterval  = 5 * time.Second // Keep at 5s to avoid test flakiness, prewarming doesn't need to be as responsive
 )
 
 // TimeoutFunc defines a function type that determines if a runner has timed out based on the last activity.
@@ -55,7 +55,6 @@ type Scheduler struct {
 	modelStaleFunc   TimeoutFunc                 // Function to check if models are stale
 	slotTimeoutFunc  TimeoutFunc                 // Function to check if slots have timed out due to error
 	decisionsTracker *SchedulingDecisionsTracker // Tracks scheduling decisions for dashboard
-	prewarmTrigger   chan struct{}               // Channel to trigger immediate prewarming
 }
 
 type Params struct {
@@ -109,16 +108,6 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		modelStaleFunc:   modelStaleFunc,
 		slotTimeoutFunc:  slotTimeoutFunc,
 		decisionsTracker: NewSchedulingDecisionsTracker(100), // Keep last 100 decisions
-		prewarmTrigger:   make(chan struct{}, 1),             // Buffered channel to prevent blocking
-	}
-
-	// Set the runner connected callback to trigger prewarming
-	// Only set if not already set (e.g. in tests)
-	if params.RunnerController.onRunnerConnected == nil {
-		params.RunnerController.onRunnerConnected = func(runnerID string) {
-			log.Info().Str("runner_id", runnerID).Msg("runner connected, triggering immediate prewarming")
-			s.TriggerPrewarming()
-		}
 	}
 
 	// Start the queue processor
@@ -133,9 +122,6 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 	// Start the runner reconciler
 	go s.reconcileRunners(ctx)
 
-	// Start the prewarming reconciler
-	go s.reconcilePrewarming(ctx)
-
 	return s, nil
 }
 
@@ -144,15 +130,15 @@ func (s *Scheduler) Enqueue(work *Workload) error {
 
 	err := s.queue.Add(work)
 	if err != nil {
-		// Log failed queuing
+		// Log failed queuing - no specific runner/memory info available during queuing
 		s.logSchedulingDecision(work, types.SchedulingDecisionTypeError, false,
-			fmt.Sprintf("Failed to add to queue: %v", err), "", "", startTime)
+			fmt.Sprintf("Failed to add to queue: %v", err), "", "", startTime, 0, work.model.Memory, 0)
 		return err
 	}
 
-	// Log successful queuing
+	// Log successful queuing - no specific runner/memory info available during queuing
 	s.logSchedulingDecision(work, types.SchedulingDecisionTypeQueued, true,
-		"Added to queue", "", "", startTime)
+		"Added to queue", "", "", startTime, 0, work.model.Memory, 0)
 
 	return nil
 }
@@ -539,6 +525,20 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 		Msg("Completed slot reconciliation")
 }
 
+// calculateRunnerMemory calculates the current memory usage for a runner
+func (s *Scheduler) calculateRunnerMemory(runnerID string) (totalMemory, allocatedMemory, freeMemory uint64) {
+	totalMemory = s.controller.TotalMemory(runnerID)
+	allocatedMemory = 0
+	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		if slot.RunnerID == runnerID {
+			allocatedMemory += slot.Memory()
+		}
+		return true
+	})
+	freeMemory = totalMemory - allocatedMemory
+	return
+}
+
 func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 	for i := 0; i < count; i++ {
 		startTime := time.Now()
@@ -546,9 +546,9 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 		// Get all runners sorted by preference
 		sortedRunners, err := s.getSortedRunners(req.ExampleWorkload)
 		if err != nil {
-			// Log scheduling rejection
+			// Log scheduling rejection - no specific runner info available
 			s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeRejected, false,
-				fmt.Sprintf("Failed to get runners: %v", err), "", "", startTime)
+				fmt.Sprintf("Failed to get runners: %v", err), "", "", startTime, 0, req.ExampleWorkload.model.Memory, 0)
 
 			retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
 			if retry {
@@ -573,7 +573,7 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 				Msg("trying runner for slot creation")
 
 			// Try to delete stale slots on this runner if required
-			err = s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload)
+			totalMemory, _, freeMemory, err := s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload)
 			if err != nil {
 				lastErr = err
 				withWorkContext(&log.Logger, req.ExampleWorkload).Debug().
@@ -587,21 +587,20 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 			slot := NewSlot(runnerID, req.ExampleWorkload, s.modelStaleFunc, s.slotTimeoutFunc)
 			s.slots.Store(slot.ID, slot)
 
-			// Log successful new slot creation
+			// Log successful new slot creation with memory info
 			s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeCreateNewSlot, true,
 				fmt.Sprintf("Created new slot on runner %s (attempt %d/%d)", runnerID, j+1, len(sortedRunners)),
-				runnerID, slot.ID.String(), startTime)
-
+				runnerID, slot.ID.String(), startTime, freeMemory, req.ExampleWorkload.model.Memory, totalMemory)
 			slotCreated = true
 			break // Success, no need to try more runners
 		}
 
 		// If we failed on all runners, handle the error
 		if !slotCreated {
-			// Log scheduling rejection due to all runners failing
+			// Log scheduling rejection due to all runners failing - no specific runner info available
 			s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeRejected, false,
 				fmt.Sprintf("Failed to create slot on any of %d runners, last error: %v", len(sortedRunners), lastErr),
-				"", "", startTime)
+				"", "", startTime, 0, req.ExampleWorkload.model.Memory, 0)
 
 			retry, retryErr := ErrorHandlingStrategy(lastErr, req.ExampleWorkload)
 			if retry {
@@ -627,6 +626,8 @@ func (s *Scheduler) processQueueOnce() {
 	})
 
 	if work == nil {
+		// Check if there's any work in the queue that can't be scheduled and log why
+		s.logUnschedulableWork()
 		return // Nothing can be scheduled right now
 	}
 
@@ -636,11 +637,14 @@ func (s *Scheduler) processQueueOnce() {
 	warmSlots := s.warmSlots(work)
 	slot := s.pickBestWarmSlot(warmSlots)
 
+	// Calculate memory info for the runner
+	totalMemory, _, freeMemory := s.calculateRunnerMemory(slot.RunnerID)
+
 	err := s.allocateSlot(slot.ID, work)
 	if err != nil {
 		// Log failed allocation decision
 		s.logSchedulingDecision(work, types.SchedulingDecisionTypeError, false,
-			fmt.Sprintf("Failed to allocate warm slot: %v", err), slot.RunnerID, slot.ID.String(), startTime)
+			fmt.Sprintf("Failed to allocate warm slot: %v", err), slot.RunnerID, slot.ID.String(), startTime, freeMemory, work.model.Memory, totalMemory)
 
 		// If allocation fails, put work back in queue
 		err = s.queue.Add(work)
@@ -651,7 +655,7 @@ func (s *Scheduler) processQueueOnce() {
 	} else {
 		// Log successful warm slot reuse
 		s.logSchedulingDecision(work, types.SchedulingDecisionTypeReuseWarmSlot, true,
-			fmt.Sprintf("Reused warm slot on runner %s", slot.RunnerID), slot.RunnerID, slot.ID.String(), startTime)
+			fmt.Sprintf("Reused warm slot on runner %s", slot.RunnerID), slot.RunnerID, slot.ID.String(), startTime, freeMemory, work.model.Memory, totalMemory)
 	}
 }
 
@@ -668,6 +672,30 @@ func (s *Scheduler) getSortedRunners(work *Workload) ([]string, error) {
 	// Error if there are no runners left
 	if len(filteredRunners) == 0 {
 		return nil, ErrNoRunnersAvailable
+	}
+
+	// Check if workload has a preferred runner and if it's available
+	preferredRunner := work.PreferredRunnerID()
+	if preferredRunner != "" {
+		// Check if preferred runner is in the filtered list
+		for _, runnerID := range filteredRunners {
+			if runnerID == preferredRunner {
+				withWorkContext(&log.Logger, work).Debug().
+					Str("preferred_runner", preferredRunner).
+					Msg("using preferred runner for workload")
+				// Return preferred runner first, followed by others
+				result := []string{preferredRunner}
+				for _, id := range filteredRunners {
+					if id != preferredRunner {
+						result = append(result, id)
+					}
+				}
+				return result, nil
+			}
+		}
+		withWorkContext(&log.Logger, work).Debug().
+			Str("preferred_runner", preferredRunner).
+			Msg("preferred runner not available, falling back to normal scheduling")
 	}
 
 	// Calculate the scheduled load on each runner according to their slots
@@ -699,9 +727,12 @@ func (s *Scheduler) getSortedRunners(work *Workload) ([]string, error) {
 }
 
 // DeleteMostStaleStrategy iteratively deletes allocated work from stale slots until there is enough
-// memory to allocate the new workload.
-func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) error {
+// memory to allocate the new workload. Returns the final memory state used for the decision.
+func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (totalMemory, allocatedMemory, freeMemory uint64, err error) {
 	totalMem := s.controller.TotalMemory(runnerID)
+	var finalAllocatedMem uint64
+	var finalFreeMem uint64
+
 	for {
 		var allSlots []*Slot
 		allocatedMem := uint64(0)
@@ -716,6 +747,11 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) err
 		requiredMem := work.model.Memory
 		freeMem := int64(totalMem) - int64(allocatedMem) - int64(requiredMem)
 		log.Trace().Interface("slots", allSlots).Int64("freeMem", freeMem).Msg("checking if we can allocate")
+
+		// Store the final memory state used for the decision
+		finalAllocatedMem = allocatedMem
+		finalFreeMem = totalMem - allocatedMem
+
 		// If there is enough free space on the runner, break out of the loop.
 		if freeMem > 0 {
 			break
@@ -740,53 +776,100 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) err
 		})
 		log.Trace().Interface("stale_slots", staleSlots).Msg("stale slots")
 		if len(staleSlots) == 0 {
-			return ErrRunnersAreFull
+			return totalMem, finalAllocatedMem, finalFreeMem, ErrRunnersAreFull
 		}
 		// Then delete the most stale slot, allow the reconciler to mop up
 		withSlotContext(&log.Logger, staleSlots[0]).Info().Msg("deleting stale slot")
 		s.slots.Delete(staleSlots[0].ID)
 	}
-	return nil
+	return totalMem, finalAllocatedMem, finalFreeMem, nil
 }
 
 func (s *Scheduler) warmSlots(req *Workload) []*Slot {
+	return s.warmSlotsWithReason(req, nil)
+}
+
+func (s *Scheduler) warmSlotsWithReason(req *Workload, reasonOut *string) []*Slot {
 	cosyWarm := make([]*Slot, 0, s.slots.Size())
+
+	// Track counts for detailed rejection reasons
+	totalSlots := 0
+	modelMatchSlots := 0
+	runtimeMatchSlots := 0
+	loraMatchSlots := 0
+	runningSlots := 0
+	availableSlots := 0
+
 	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
-		// If the slot isn't running yet, skip
-		if !slot.IsRunning() {
-			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, not running yet")
-			return true
-		}
+		totalSlots++
 
 		// If it's not the same model name, skip
 		if slot.InitialWork().ModelName() != req.ModelName() {
 			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, model name mismatch")
 			return true
 		}
+		modelMatchSlots++
 
 		// If it's not the same runtime, skip
 		if slot.InitialWork().Runtime() != req.Runtime() {
 			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, inference runtime mismatch")
 			return true
 		}
-
-		// If the slot is already running another job, skip
-		if slot.IsActive() {
-			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, already active")
-			return true
-		}
+		runtimeMatchSlots++
 
 		// If it doesn't have the right LoraDir then skip
 		if slot.InitialWork().LoraDir() != req.LoraDir() {
 			withSlotContext(&log.Logger, slot).Trace().Str("slot_lora_dir", slot.InitialWork().LoraDir()).Str("req_lora_dir", req.LoraDir()).Msg("skipping warm slot, LoraDir mismatch")
 			return true
 		}
+		loraMatchSlots++
+
+		// If the slot isn't running yet, skip
+		if !slot.IsRunning() {
+			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, not running yet")
+			return true
+		}
+		runningSlots++
+
+		// If the slot is already running another job, skip
+		if slot.IsActive() {
+			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, already active")
+			return true
+		}
+		availableSlots++
 
 		// Add available slots to the list - this includes both regular and prewarming slots
 		cosyWarm = append(cosyWarm, slot)
 
 		return true
 	})
+
+	// Generate detailed reason if requested and no warm slots found
+	if reasonOut != nil && len(cosyWarm) == 0 {
+		availableRunners := s.controller.RunnerIDs()
+
+		if len(availableRunners) == 0 {
+			*reasonOut = "No runners available"
+		} else if modelMatchSlots == 0 {
+			*reasonOut = fmt.Sprintf("No slots for model %s (found %d total slots)", req.ModelName(), totalSlots)
+		} else if runtimeMatchSlots == 0 {
+			*reasonOut = fmt.Sprintf("No slots for runtime %s with model %s (found %d model slots)", req.Runtime(), req.ModelName(), modelMatchSlots)
+		} else if loraMatchSlots == 0 {
+			loraMsg := "no LoRA"
+			if req.LoraDir() != "" {
+				loraMsg = fmt.Sprintf("LoRA %s", req.LoraDir())
+			}
+			*reasonOut = fmt.Sprintf("No slots for %s with model %s (found %d runtime slots)", loraMsg, req.ModelName(), runtimeMatchSlots)
+		} else if runningSlots == 0 {
+			*reasonOut = fmt.Sprintf("All %d matching slots still starting for model %s", loraMatchSlots, req.ModelName())
+		} else if availableSlots == 0 {
+			*reasonOut = fmt.Sprintf("All %d running slots busy for model %s", runningSlots, req.ModelName())
+		} else {
+			*reasonOut = fmt.Sprintf("No warm slots available for model %s (%d total, %d running, %d available)",
+				req.ModelName(), totalSlots, runningSlots, availableSlots)
+		}
+	}
+
 	return cosyWarm
 }
 
@@ -1042,306 +1125,13 @@ func withSlotAndWorkContext(l *zerolog.Logger, s *Slot, w *Workload) *zerolog.Lo
 	return withSlotContext(withWorkContext(l, w), s)
 }
 
-// reconcilePrewarming runs in a goroutine to create prewarmed slots to fill free GPU memory.
-func (s *Scheduler) reconcilePrewarming(ctx context.Context) {
-	log.Debug().Msg("starting prewarming reconciler")
-
-	// Trigger initial prewarming immediately
-	go func() {
-		s.reconcilePrewarmingOnce(ctx)
-	}()
-
-	ticker := time.NewTicker(prewarmReconcileInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.reconcilePrewarmingOnce(ctx)
-		case <-s.prewarmTrigger:
-			log.Debug().Msg("triggered immediate prewarming")
-			s.reconcilePrewarmingOnce(ctx)
-		}
-	}
-}
-
-func (s *Scheduler) reconcilePrewarmingOnce(ctx context.Context) {
-	// Check if store is available (might be nil in tests)
-	if s.controller.store == nil {
-		log.Debug().Msg("no store available for prewarming, skipping")
-		return
-	}
-
-	// Get all models that should be prewarmed from the database
-	enabled := true
-	allModels, err := s.controller.store.ListModels(ctx, &store.ListModelsQuery{
-		Enabled: &enabled, // Only enabled models
-	})
-	if err != nil {
-		log.Error().Err(err).Msg("failed to get models from database")
-		return
-	}
-
-	// Filter to only prewarming models
-	var prewarmModels []*types.Model
-	for _, model := range allModels {
-		if model.Prewarm {
-			prewarmModels = append(prewarmModels, model)
-		}
-	}
-
-	if len(prewarmModels) == 0 {
-		log.Trace().Msg("no prewarming models configured")
-		return
-	}
-
-	// Get all runners
-	runnerIDs := s.controller.RunnerIDs()
-	if len(runnerIDs) == 0 {
-		return
-	}
-
-	log.Trace().
-		Int("prewarm_models", len(prewarmModels)).
-		Strs("runner_ids", runnerIDs).
-		Msg("Starting prewarming reconciliation")
-
-	// Use global balancing to distribute prewarmed models across all runners
-	s.globalPrewarmBalancing(runnerIDs, prewarmModels)
-}
-
-// runnerCapacity holds memory and model information for a runner during prewarming
-type runnerCapacity struct {
-	id              string
-	totalMemory     uint64
-	allocatedMemory uint64
-	freeMemory      uint64
-	availableMemory uint64          // free - reserved
-	existingModels  map[string]bool // models already on this runner
-}
-
-// globalPrewarmBalancing distributes prewarming models across all runners using global balancing.
-// This ensures equal distribution of prewarm models across the entire cluster.
-func (s *Scheduler) globalPrewarmBalancing(runnerIDs []string, prewarmModels []*types.Model) {
-	// Count how many instances of each prewarm model are currently running globally
-	modelCounts := make(map[string]int)
-	for _, model := range prewarmModels {
-		modelCounts[model.ID] = 0
-	}
-
-	// Count existing slots for each prewarm model
-	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
-		modelName := slot.InitialWork().ModelName().String()
-		if _, isPrewarm := modelCounts[modelName]; isPrewarm {
-			modelCounts[modelName]++
-		}
-		return true
-	})
-
-	// Find the minimum count to determine how many more instances we should add
-	minCount := int(^uint(0) >> 1) // Max int
-	for _, count := range modelCounts {
-		if count < minCount {
-			minCount = count
-		}
-	}
-
-	// Only add more instances if we can increase the minimum count
-	targetCount := minCount + 1
-
-	// Build a list of runner capacities
-	runners := make([]*runnerCapacity, 0, len(runnerIDs))
-	for _, runnerID := range runnerIDs {
-		totalMemory := s.controller.TotalMemory(runnerID)
-		if totalMemory == 0 {
-			log.Debug().Str("runner_id", runnerID).Msg("skipping runner with no memory info")
-			continue
-		}
-
-		// Calculate currently allocated memory
-		var allocatedMemory uint64
-		existingModels := make(map[string]bool)
-		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
-			if slot.RunnerID == runnerID {
-				allocatedMemory += slot.Memory()
-				existingModels[slot.InitialWork().ModelName().String()] = true
-			}
-			return true
-		})
-
-		freeMemory := totalMemory - allocatedMemory
-
-		runners = append(runners, &runnerCapacity{
-			id:              runnerID,
-			totalMemory:     totalMemory,
-			allocatedMemory: allocatedMemory,
-			freeMemory:      freeMemory,
-			availableMemory: freeMemory, // No reservation, use all free memory
-			existingModels:  existingModels,
-		})
-
-		log.Trace().
-			Str("runner_id", runnerID).
-			Uint64("total_memory", totalMemory).
-			Uint64("allocated_memory", allocatedMemory).
-			Uint64("free_memory", freeMemory).
-			Int("existing_models", len(existingModels)).
-			Msg("Runner capacity for global prewarming")
-	}
-
-	if len(runners) == 0 {
-		log.Debug().Msg("no runners available for prewarming")
-		return
-	}
-
-	// Create a list of models that need more instances (models with count < targetCount)
-	var modelsToAdd []*types.Model
-	for _, model := range prewarmModels {
-		if modelCounts[model.ID] < targetCount {
-			// Add as many instances as needed to reach targetCount
-			needed := targetCount - modelCounts[model.ID]
-			for i := 0; i < needed; i++ {
-				modelsToAdd = append(modelsToAdd, model)
-			}
-		}
-	}
-
-	if len(modelsToAdd) == 0 {
-		log.Trace().
-			Interface("model_counts", modelCounts).
-			Int("target_count", targetCount).
-			Msg("all prewarm models already have equal distribution")
-		return
-	}
-
-	log.Debug().
-		Interface("model_counts", modelCounts).
-		Int("target_count", targetCount).
-		Int("models_to_add", len(modelsToAdd)).
-		Msg("equalizing prewarm model distribution")
-
-	// Sort models by memory requirement (smallest first to maximize model packing)
-	slices.SortFunc(modelsToAdd, func(a, b *types.Model) int {
-		return int(a.Memory - b.Memory) // Smallest first
-	})
-
-	// Global allocation: for each model instance, find the best runner to place it on
-	for _, model := range modelsToAdd {
-		bestRunner := s.findBestRunnerForModel(runners, model)
-		if bestRunner == nil {
-			log.Debug().
-				Str("model", model.ID).
-				Uint64("model_memory", model.Memory).
-				Msg("no runner available for prewarming model")
-			continue
-		}
-
-		// Create prewarming slot
-		prewarmWorkload := s.createPrewarmWorkload(model)
-		slot := NewSlot(bestRunner.id, prewarmWorkload, s.modelStaleFunc, s.slotTimeoutFunc)
-		s.slots.Store(slot.ID, slot)
-
-		// Update runner capacity
-		bestRunner.availableMemory -= model.Memory
-		bestRunner.allocatedMemory += model.Memory
-		bestRunner.freeMemory -= model.Memory
-		bestRunner.existingModels[model.ID] = true
-
-		log.Info().
-			Str("runner_id", bestRunner.id).
-			Str("model", model.ID).
-			Uint64("model_memory", model.Memory).
-			Uint64("remaining_available", bestRunner.availableMemory).
-			Str("slot_id", slot.ID.String()).
-			Msg("created prewarming slot for equal distribution")
-	}
-}
-
-// findBestRunnerForModel finds the best runner to place a model on for global balancing.
-// Prioritizes runners with:
-// 1. Enough available memory for the model
-// 2. Highest available memory (to balance load)
-// 3. Lowest current utilization ratio
-func (s *Scheduler) findBestRunnerForModel(runners []*runnerCapacity, model *types.Model) *runnerCapacity {
-	var bestRunner *runnerCapacity
-	var bestScore float64
-
-	for _, runner := range runners {
-		// Skip if not enough memory
-		if runner.availableMemory < model.Memory {
-			continue
-		}
-
-		// Calculate utilization ratio (lower is better for balancing)
-		utilizationRatio := float64(runner.allocatedMemory) / float64(runner.totalMemory)
-
-		// Score based on available memory (higher is better) and low utilization (lower is better)
-		// Normalize available memory to 0-1 scale and invert utilization ratio
-		availableScore := float64(runner.availableMemory) / float64(runner.totalMemory)
-		utilizationScore := 1.0 - utilizationRatio
-
-		// Weight available memory more heavily to prefer runners with more free space
-		score := 0.7*availableScore + 0.3*utilizationScore
-
-		if bestRunner == nil || score > bestScore {
-			bestRunner = runner
-			bestScore = score
-		}
-	}
-
-	return bestRunner
-}
-
-// createPrewarmWorkload creates a workload for prewarming the given model
-func (s *Scheduler) createPrewarmWorkload(model *types.Model) *Workload {
-	// Handle different model types appropriately
-	switch model.Type {
-	case types.ModelTypeImage:
-		// Create a minimal session for image models
-		session := &types.Session{
-			ID:           fmt.Sprintf("prewarm-%s-%d", model.ID, time.Now().UnixNano()),
-			Name:         fmt.Sprintf("Prewarm %s", model.ID),
-			ModelName:    model.ID,
-			Mode:         types.SessionModeInference,
-			Type:         types.SessionTypeImage,
-			Created:      time.Now(),
-			Updated:      time.Now(),
-			Interactions: []*types.Interaction{},
-		}
-
-		return &Workload{
-			WorkloadType: WorkloadTypeSession,
-			session:      session,
-			model:        model,
-		}
-	default:
-		// Create a minimal LLM inference request for text/chat models
-		llmRequest := &types.RunnerLLMInferenceRequest{
-			RequestID: fmt.Sprintf("prewarm-%s-%d", model.ID, time.Now().UnixNano()),
-			Request: &openai.ChatCompletionRequest{
-				Model:    model.ID,
-				Messages: []openai.ChatCompletionMessage{},
-			},
-			CreatedAt: time.Now(),
-		}
-
-		return &Workload{
-			WorkloadType:        WorkloadTypeLLMInferenceRequest,
-			llmInferenceRequest: llmRequest,
-			model:               model,
-		}
-	}
-}
-
 // GetSchedulingDecisions returns recent scheduling decisions for the dashboard
 func (s *Scheduler) GetSchedulingDecisions(limit int) []*types.SchedulingDecision {
 	return s.decisionsTracker.GetRecentDecisions(limit)
 }
 
-// logSchedulingDecision logs a scheduling decision with timing information
-func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types.SchedulingDecisionType, success bool, reason string, runnerID, slotID string, startTime time.Time) {
+// logSchedulingDecision logs a scheduling decision with timing information and memory details
+func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types.SchedulingDecisionType, success bool, reason string, runnerID, slotID string, startTime time.Time, freeMemory uint64, modelMemory uint64, totalMemory uint64) {
 	processingTime := time.Since(startTime).Milliseconds()
 
 	// Get available runners for context
@@ -1364,6 +1154,11 @@ func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types
 		sessionID = workload.Session().ID
 	}
 
+	// Enhance reason with memory information
+	memoryInfo := fmt.Sprintf("(free: %dMB, model: %dMB, total: %dMB)",
+		freeMemory/(1024*1024), modelMemory/(1024*1024), totalMemory/(1024*1024))
+	enhancedReason := fmt.Sprintf("%s %s", reason, memoryInfo)
+
 	decision := &types.SchedulingDecision{
 		WorkloadID:       workload.ID(),
 		SessionID:        sessionID,
@@ -1372,7 +1167,7 @@ func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types
 		DecisionType:     decisionType,
 		RunnerID:         runnerID,
 		SlotID:           slotID,
-		Reason:           reason,
+		Reason:           enhancedReason,
 		Success:          success,
 		ProcessingTimeMs: processingTime,
 		AvailableRunners: availableRunners,
@@ -1399,12 +1194,296 @@ func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types
 		Msg("Scheduling decision logged")
 }
 
-// TriggerPrewarming triggers immediate prewarming (non-blocking)
-func (s *Scheduler) TriggerPrewarming() {
-	select {
-	case s.prewarmTrigger <- struct{}{}:
-		log.Debug().Msg("prewarming trigger sent")
-	default:
-		log.Debug().Msg("prewarming trigger already pending, skipping")
+// logUnschedulableWork checks for work in the queue that can't be scheduled and logs the reasons
+// This captures BOTH why warm slots aren't available AND why new slots can't be created
+func (s *Scheduler) logUnschedulableWork() {
+	startTime := time.Now()
+	queuedWork := s.queue.Queue()
+
+	if len(queuedWork) == 0 {
+		return // No work in queue to check
 	}
+
+	// Check each work item to see why it can't be scheduled using the ACTUAL decision logic
+	for _, work := range queuedWork {
+		var reason string
+		warmSlots := s.warmSlotsWithReason(work, &reason)
+
+		if len(warmSlots) == 0 {
+			// No warm slots available - but can we create a new slot?
+			newSlotReason := s.analyzeNewSlotCreationFailure(work)
+			if newSlotReason != "" {
+				// Combine both warm slot failure and new slot creation failure
+				reason = fmt.Sprintf("%s; New slot creation: %s", reason, newSlotReason)
+			}
+
+			// Log the unschedulable decision with deduplication via repeat count
+			s.logSchedulingDecision(work, types.SchedulingDecisionTypeUnschedulable, false,
+				reason, "", "", startTime, 0, work.model.Memory, 0)
+		}
+	}
+}
+
+// analyzeNewSlotCreationFailure checks if a new slot could be created for this work using actual scheduling logic
+func (s *Scheduler) analyzeNewSlotCreationFailure(work *Workload) string {
+	// Use the EXACT same logic as ensureSlots()
+
+	// Step 1: Get runners (same as ensureSlots)
+	sortedRunners, err := s.getSortedRunners(work)
+	if err != nil {
+		return fmt.Sprintf("cannot get runners: %v", err)
+	}
+
+	if len(sortedRunners) == 0 {
+		return "no runners available"
+	}
+
+	// Step 2: Try each runner using EXACT same logic as ensureSlots (without actually creating slots)
+	var lastFailureReason string
+	for _, runnerID := range sortedRunners {
+		// Try to see if we can free memory on this runner (same logic as ensureSlots)
+		_, _, _, err := s.deleteMostStaleStrategy(runnerID, work)
+		if err != nil {
+			lastFailureReason = fmt.Sprintf("runner %s: %v", runnerID, err)
+			continue // Try next runner
+		}
+
+		// If we get here, this runner could accommodate the work
+		return "" // No failure - new slot creation would succeed
+	}
+
+	// All runners failed
+	if lastFailureReason != "" {
+		return fmt.Sprintf("all %d runners failed: %s", len(sortedRunners), lastFailureReason)
+	}
+
+	return fmt.Sprintf("all %d runners failed for unknown reasons", len(sortedRunners))
+}
+
+// PrewarmNewRunner creates prewarming workloads for newly connected runners
+func (s *Scheduler) PrewarmNewRunner(runnerID string) {
+	withContext := log.With().Str("runner_id", runnerID).Logger()
+	withContext.Info().Msg("prewarming new runner")
+
+	// Get models that should be prewarmed on this runner
+	prewarmModels := s.getPrewarmModels()
+	if len(prewarmModels) == 0 {
+		withContext.Debug().Msg("no prewarm models configured, skipping prewarming")
+		return
+	}
+
+	for _, model := range prewarmModels {
+		// Create a dummy workload for prewarming
+		prewarmWorkload := &Workload{
+			WorkloadType: WorkloadTypeLLMInferenceRequest,
+			llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+				RequestID: fmt.Sprintf("prewarm-%s-%s", runnerID, model.ID),
+				CreatedAt: time.Now(),
+				Priority:  false, // Low priority for prewarming
+				Request: &openai.ChatCompletionRequest{
+					Model: model.ID,
+					Messages: []openai.ChatCompletionMessage{
+						{Role: "user", Content: "warmup"},
+					},
+				},
+			},
+			model: model,
+		}
+
+		// Set the preferred runner for this prewarming workload
+		prewarmWorkload.SetPreferredRunner(runnerID)
+
+		// Enqueue the prewarming workload
+		err := s.Enqueue(prewarmWorkload)
+		if err != nil {
+			withContext.Warn().
+				Err(err).
+				Str("model", model.ID).
+				Msg("failed to enqueue prewarming workload")
+		} else {
+			withContext.Debug().
+				Str("model", model.ID).
+				Msg("enqueued prewarming workload")
+		}
+	}
+}
+
+// getPrewarmModels returns models that should be prewarmed on new runners
+// Uses intelligent global distribution to balance models across the cluster
+func (s *Scheduler) getPrewarmModels() []*types.Model {
+	// Get all models with Prewarm=true from configured models
+	allPrewarmModels := s.getAllConfiguredPrewarmModels()
+	if len(allPrewarmModels) == 0 {
+		return nil
+	}
+
+	// Analyze current global distribution of these models
+	modelCounts := s.analyzeGlobalModelDistribution(allPrewarmModels)
+
+	// Select models for balancing (prioritize least-running models)
+	selectedModels := s.selectModelsForBalancing(allPrewarmModels, modelCounts)
+
+	if len(selectedModels) > 0 {
+		log.Debug().
+			Int("prewarm_model_count", len(selectedModels)).
+			Int("total_available", len(allPrewarmModels)).
+			Interface("model_distribution", modelCounts).
+			Msg("selected models for intelligent prewarming")
+	}
+
+	return selectedModels
+}
+
+// getAllConfiguredPrewarmModels gets all models with Prewarm=true from configuration
+func (s *Scheduler) getAllConfiguredPrewarmModels() []*types.Model {
+	var prewarmModels []*types.Model
+
+	// Check VLLM models
+	vllmModels, err := model.GetDefaultVLLMModels()
+	if err == nil {
+		for _, m := range vllmModels {
+			if m.Prewarm {
+				prewarmModels = append(prewarmModels, &types.Model{
+					ID:      m.ID,
+					Memory:  m.Memory,
+					Runtime: types.RuntimeVLLM,
+					Prewarm: m.Prewarm,
+				})
+			}
+		}
+	}
+
+	// Check Ollama models
+	ollamaModels, err := model.GetDefaultOllamaModels()
+	if err == nil {
+		for _, m := range ollamaModels {
+			if m.Prewarm {
+				prewarmModels = append(prewarmModels, &types.Model{
+					ID:      m.ID,
+					Memory:  m.Memory,
+					Runtime: types.RuntimeOllama,
+					Prewarm: m.Prewarm,
+				})
+			}
+		}
+	}
+
+	// Check Diffusers models
+	diffusersModels, err := model.GetDefaultDiffusersModels()
+	if err == nil {
+		for _, m := range diffusersModels {
+			if m.Prewarm {
+				prewarmModels = append(prewarmModels, &types.Model{
+					ID:      m.ID,
+					Memory:  m.Memory,
+					Runtime: types.RuntimeDiffusers,
+					Prewarm: m.Prewarm,
+				})
+			}
+		}
+	}
+
+	return prewarmModels
+}
+
+// analyzeGlobalModelDistribution counts how many instances of each model are currently running
+func (s *Scheduler) analyzeGlobalModelDistribution(prewarmModels []*types.Model) map[string]int {
+	modelCounts := make(map[string]int)
+
+	// Initialize counts for all prewarm models
+	for _, model := range prewarmModels {
+		modelCounts[model.ID] = 0
+	}
+
+	// Count running instances across all runners
+	runners := s.controller.RunnerIDs()
+	for _, runnerID := range runners {
+		slots, err := s.controller.GetSlots(runnerID)
+		if err != nil {
+			log.Warn().Str("runner_id", runnerID).Err(err).Msg("failed to get slots for global model analysis")
+			continue
+		}
+
+		for _, slot := range slots {
+			// Count active slots running prewarm models
+			if slot.Active {
+				if _, isPrewarmModel := modelCounts[slot.Model]; isPrewarmModel {
+					modelCounts[slot.Model]++
+				}
+			}
+		}
+	}
+
+	return modelCounts
+}
+
+// selectModelsForBalancing chooses models to prewarm based on global distribution
+// Prioritizes models with fewer running instances to achieve better balance
+func (s *Scheduler) selectModelsForBalancing(prewarmModels []*types.Model, modelCounts map[string]int) []*types.Model {
+	if len(prewarmModels) == 0 {
+		return nil
+	}
+
+	// Sort models by current count (ascending) to prioritize least-running models
+	type modelWithCount struct {
+		model *types.Model
+		count int
+	}
+
+	modelsWithCounts := make([]modelWithCount, 0, len(prewarmModels))
+	for _, model := range prewarmModels {
+		modelsWithCounts = append(modelsWithCounts, modelWithCount{
+			model: model,
+			count: modelCounts[model.ID],
+		})
+	}
+
+	// Sort by count (ascending), then by model ID for deterministic ordering
+	sort.Slice(modelsWithCounts, func(i, j int) bool {
+		if modelsWithCounts[i].count != modelsWithCounts[j].count {
+			return modelsWithCounts[i].count < modelsWithCounts[j].count
+		}
+		return modelsWithCounts[i].model.ID < modelsWithCounts[j].model.ID
+	})
+
+	// Select models for prewarming based on distribution strategy
+	selectedModels := []*types.Model{}
+
+	// Strategy: Prewarm the models with lowest counts first
+	// This helps balance the global distribution
+	minCount := modelsWithCounts[0].count
+	maxCount := modelsWithCounts[len(modelsWithCounts)-1].count
+
+	// If distribution is perfectly balanced, prewarm all models
+	if maxCount-minCount <= 1 {
+		log.Debug().
+			Int("min_count", minCount).
+			Int("max_count", maxCount).
+			Msg("models well-balanced, prewarming all models")
+		for _, mwc := range modelsWithCounts {
+			selectedModels = append(selectedModels, mwc.model)
+		}
+	} else {
+		// Distribution is uneven - prioritize models with fewer instances
+		// Prewarm models that are significantly below the average
+		totalInstances := 0
+		for _, count := range modelCounts {
+			totalInstances += count
+		}
+		avgCount := float64(totalInstances) / float64(len(prewarmModels))
+
+		for _, mwc := range modelsWithCounts {
+			// Prewarm models that are below average or have the minimum count
+			if float64(mwc.count) < avgCount || mwc.count == minCount {
+				selectedModels = append(selectedModels, mwc.model)
+				log.Debug().
+					Str("model_id", mwc.model.ID).
+					Int("current_count", mwc.count).
+					Float64("avg_count", avgCount).
+					Msg("selected model for balancing prewarming")
+			}
+		}
+	}
+
+	return selectedModels
 }
