@@ -77,6 +77,13 @@ func (s *SlackBot) GetStatus() (bool, string) {
 }
 
 func (s *SlackBot) RunBot(ctx context.Context) error {
+	// Recover from panics
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error().Msgf("panic: %v", r)
+		}
+	}()
+
 	log.Info().Str("app_id", s.app.ID).Msg("starting Slack bot")
 	defer log.Info().Str("app_id", s.app.ID).Msg("stopping Slack bot")
 
