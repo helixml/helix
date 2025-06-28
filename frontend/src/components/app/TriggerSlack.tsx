@@ -6,6 +6,10 @@ import FormControlLabel from '@mui/material/FormControlLabel'
 import TextField from '@mui/material/TextField'
 import Alert from '@mui/material/Alert'
 import Circle from '@mui/icons-material/Circle'
+import Visibility from '@mui/icons-material/Visibility'
+import VisibilityOff from '@mui/icons-material/VisibilityOff'
+import IconButton from '@mui/material/IconButton'
+import InputAdornment from '@mui/material/InputAdornment'
 import { TypesTrigger } from '../../api/api'
 import { SlackLogo } from '../icons/ProviderIcons'
 
@@ -30,6 +34,8 @@ const TriggerSlack: FC<TriggerSlackProps> = ({
   // State for Slack configuration
   const [appToken, setAppToken] = useState<string>(slackTrigger?.app_token || '')
   const [botToken, setBotToken] = useState<string>(slackTrigger?.bot_token || '')
+  const [showAppToken, setShowAppToken] = useState<boolean>(false)
+  const [showBotToken, setShowBotToken] = useState<boolean>(false)
 
   // If slack is configured, we need to get the status of the bot
   const { data: slackStatus, isLoading: isLoadingSlackStatus } = useGetAppTriggerStatus(appId, 'slack', {
@@ -161,6 +167,22 @@ const TriggerSlack: FC<TriggerSlackProps> = ({
               onChange={(e) => handleAppTokenChange(e.target.value)}
               disabled={readOnly || !hasSlackTrigger}
               helperText="Your Slack app token (starts with xapp-)"
+              type={showAppToken ? 'text' : 'password'}
+              autoComplete="off"
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      aria-label="toggle app token visibility"
+                      onClick={() => setShowAppToken(!showAppToken)}
+                      edge="end"
+                      disabled={readOnly || !hasSlackTrigger}
+                    >
+                      {showAppToken ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
             />
           </Box>
 
@@ -177,6 +199,22 @@ const TriggerSlack: FC<TriggerSlackProps> = ({
               onChange={(e) => handleBotTokenChange(e.target.value)}
               disabled={readOnly || !hasSlackTrigger}
               helperText="Your Slack bot token (starts with xoxb-)"
+              type={showBotToken ? 'text' : 'password'}
+              autoComplete="off"
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      aria-label="toggle bot token visibility"
+                      onClick={() => setShowBotToken(!showBotToken)}
+                      edge="end"
+                      disabled={readOnly || !hasSlackTrigger}
+                    >
+                      {showBotToken ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
             />
           </Box>
 
