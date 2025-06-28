@@ -1075,3 +1075,26 @@ export interface ITest {
   name?: string;
   steps?: ITestStep[];
 }
+
+// Model substitution information returned from app creation
+export interface IModelSubstitution {
+  assistant_name: string
+  original_provider: string
+  original_model: string
+  new_provider: string
+  new_model: string
+  reason: string
+}
+
+// Extended app creation response that includes substitution info
+export interface IAppCreateResponse {
+  id: string,
+  organization_id?: string,
+  config: IAppConfig;
+  global: boolean;
+  created: Date;
+  updated: Date;
+  owner: string;
+  owner_type: IOwnerType;
+  model_substitutions?: IModelSubstitution[]
+}
