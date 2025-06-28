@@ -10,6 +10,13 @@ import Divider from '@mui/material/Divider'
 import CircularProgress from '@mui/material/CircularProgress'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
+import Dialog from '@mui/material/Dialog'
+import DialogTitle from '@mui/material/DialogTitle'
+import DialogContent from '@mui/material/DialogContent'
+import DialogActions from '@mui/material/DialogActions'
+import List from '@mui/material/List'
+import ListItem from '@mui/material/ListItem'
+import ListItemText from '@mui/material/ListItemText'
 import { styled } from '@mui/material/styles'
 import * as yaml from 'yaml'
 import * as pako from 'pako'
@@ -29,6 +36,7 @@ import useApps from '../hooks/useApps'
 import { ICreateAgentParams } from '../contexts/apps'
 import useApi from '../hooks/useApi'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
+import { IModelSubstitution, IAppCreateResponse } from '../types'
 
 const CodeBlock = styled('pre')(({ theme }) => ({
   backgroundColor: '#0f0f0f',
@@ -363,6 +371,8 @@ const ImportAgent: FC = () => {
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string>('')
+  const [modelSubstitutions, setModelSubstitutions] = useState<IModelSubstitution[]>([])
+  const [showSubstitutionDialog, setShowSubstitutionDialog] = useState(false)
 
   useEffect(() => {
     const parseConfigFromUrl = () => {
@@ -484,7 +494,7 @@ const ImportAgent: FC = () => {
     }
     
     // Post to the API with structured format
-    const result = await api.post('/api/v1/apps', appData, {
+    const result = await api.post<any, IAppCreateResponse>('/api/v1/apps', appData, {
       params: {
         create: true,
       }
@@ -497,6 +507,12 @@ const ImportAgent: FC = () => {
     })
 
     if (result) {
+      // Check for model substitutions
+      if (result.model_substitutions && result.model_substitutions.length > 0) {
+        setModelSubstitutions(result.model_substitutions)
+        setShowSubstitutionDialog(true)
+      }
+
       // Check if the imported config had seed_zip_url (knowledge data)
       // Handle both structured format (yaml_config) and legacy format
       const actualConfig = configData.yaml_config || configData
@@ -511,6 +527,7 @@ const ImportAgent: FC = () => {
       console.log('Import detection - actualConfig:', actualConfig)
       console.log('Import detection - hasSeedZipUrl:', hasSeedZipUrl)
       console.log('Import detection - hasOAuthSkills:', hasOAuthSkills)
+      console.log('Import detection - modelSubstitutions:', result.model_substitutions)
 
       // Navigate to the agent editor, jumping to appropriate tab based on what was imported
       if (hasOAuthSkills) {
@@ -805,6 +822,80 @@ const ImportAgent: FC = () => {
           </CardContent>
         </ImportCard>
       </Container>
+
+      {/* Model Substitution Dialog */}
+      <Dialog 
+        open={showSubstitutionDialog} 
+        onClose={() => setShowSubstitutionDialog(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ 
+          background: `linear-gradient(135deg, ${themeConfig.tealRoot}15 0%, ${themeConfig.magentaRoot}15 100%)`,
+          borderBottom: `1px solid ${themeConfig.darkBorder}`,
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <WarningIcon sx={{ color: themeConfig.yellowRoot, mr: 2 }} />
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              Model Substitutions Applied
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
+          <Typography variant="body1" sx={{ mb: 3, color: themeConfig.darkTextFaded }}>
+            Some models in your agent configuration were not available and have been automatically 
+            substituted with compatible alternatives. The following changes were made:
+          </Typography>
+          
+          <List sx={{ bgcolor: themeConfig.darkPanel, borderRadius: 2 }}>
+            {modelSubstitutions.map((substitution, index) => (
+              <ListItem key={index} divider={index < modelSubstitutions.length - 1}>
+                <ListItemText
+                  primary={
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+                      {substitution.assistant_name}
+                    </Typography>
+                  }
+                  secondary={
+                    <Box>
+                      <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded, mb: 1 }}>
+                        <strong>Original:</strong> {substitution.original_provider} / {substitution.original_model}
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: themeConfig.tealRoot, mb: 1 }}>
+                        <strong>Substituted with:</strong> {substitution.new_provider} / {substitution.new_model}
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded, fontSize: '0.85rem' }}>
+                        <em>Reason:</em> {substitution.reason}
+                      </Typography>
+                    </Box>
+                  }
+                />
+              </ListItem>
+            ))}
+          </List>
+
+          <Alert severity="info" sx={{ mt: 3 }}>
+            <Typography variant="body2">
+              You can change these model selections later in the agent editor if needed. 
+              The substituted models are compatible alternatives from the same performance class.
+            </Typography>
+          </Alert>
+        </DialogContent>
+        <DialogActions sx={{ p: 3, borderTop: `1px solid ${themeConfig.darkBorder}` }}>
+          <Button 
+            onClick={() => setShowSubstitutionDialog(false)}
+            variant="contained"
+            sx={{
+              background: `linear-gradient(135deg, ${themeConfig.tealRoot} 0%, ${themeConfig.magentaRoot} 100%)`,
+              '&:hover': {
+                background: `linear-gradient(135deg, ${themeConfig.tealRoot}dd 0%, ${themeConfig.magentaRoot}dd 100%)`,
+              }
+            }}
+          >
+            Continue
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Page>
   )
 }
