@@ -4,10 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -25,18 +23,7 @@ type AccessGrantRoleBindingTestSuite struct {
 
 func (suite *AccessGrantRoleBindingTestSuite) SetupTest() {
 	suite.ctx = context.Background()
-
-	var storeCfg config.Store
-	err := envconfig.Process("", &storeCfg)
-	suite.NoError(err)
-
-	store, err := NewPostgresStore(storeCfg)
-	suite.Require().NoError(err)
-	suite.db = store
-
-	suite.T().Cleanup(func() {
-		_ = suite.db.Close()
-	})
+	suite.db = GetTestDB()
 
 	// Create a test organization
 	orgID := system.GenerateOrganizationID()
@@ -61,7 +48,7 @@ func (suite *AccessGrantRoleBindingTestSuite) SetupTest() {
 	suite.role = createdRole
 }
 
-func (suite *AccessGrantRoleBindingTestSuite) TearDownTest() {
+func (suite *AccessGrantRoleBindingTestSuite) TearDownTestSuite() {
 	// Clean up in reverse order of creation
 	if suite.role != nil {
 		err := suite.db.DeleteRole(suite.ctx, suite.role.ID)
@@ -71,6 +58,8 @@ func (suite *AccessGrantRoleBindingTestSuite) TearDownTest() {
 		err := suite.db.DeleteOrganization(suite.ctx, suite.org.ID)
 		suite.NoError(err)
 	}
+
+	// No need to close the database connection here as it's managed by TestMain
 }
 
 func (suite *AccessGrantRoleBindingTestSuite) TestCreateAccessGrantRoleBinding() {

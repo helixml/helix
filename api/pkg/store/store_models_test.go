@@ -5,10 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -24,21 +22,14 @@ type ModelTestSuite struct {
 
 func (suite *ModelTestSuite) SetupTest() {
 	suite.ctx = context.Background()
-
-	var storeCfg config.Store
-	err := envconfig.Process("", &storeCfg)
-	suite.NoError(err)
-
-	store, err := NewPostgresStore(storeCfg)
-	suite.Require().NoError(err)
-	suite.db = store
+	suite.db = GetTestDB()
 
 	// Clean up database before each test
 	suite.Require().NoError(suite.db.gdb.Exec("DELETE FROM models").Error)
+}
 
-	suite.T().Cleanup(func() {
-		_ = suite.db.Close()
-	})
+func (suite *ModelTestSuite) TearDownTestSuite() {
+	// No need to close the database connection here as it's managed by TestMain
 }
 
 func (suite *ModelTestSuite) TestCreateModel() {

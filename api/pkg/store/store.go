@@ -268,6 +268,10 @@ type Store interface {
 
 	GetUsersAggregatedUsageMetrics(ctx context.Context, provider string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error)
 	GetAppUsersAggregatedUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error)
+
+	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)
+	GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error)
+	DeleteSlackThread(ctx context.Context, olderThan time.Time) error
 }
 
 type EmbeddingsStore interface {

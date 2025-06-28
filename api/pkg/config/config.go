@@ -484,11 +484,17 @@ type GPTScript struct {
 type Triggers struct {
 	Discord Discord
 	Cron    Cron
+	Slack   Slack
 }
 
 type Discord struct {
 	Enabled  bool   `envconfig:"DISCORD_ENABLED" default:"false"`
 	BotToken string `envconfig:"DISCORD_BOT_TOKEN"`
+}
+
+type Slack struct {
+	// Optional way to disable slack triggers across all apps/agents
+	Enabled bool `envconfig:"SLACK_ENABLED" default:"true"`
 }
 
 type Cron struct {
