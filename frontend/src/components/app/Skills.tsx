@@ -15,7 +15,6 @@ import MicrosoftIcon from '@mui/icons-material/Microsoft';
 import EmailIcon from '@mui/icons-material/Email';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import LinkedInIcon from '@mui/icons-material/LinkedIn';
-import BusinessIcon from '@mui/icons-material/Business';
 import StorageIcon from '@mui/icons-material/Storage';
 import SearchIcon from '@mui/icons-material/Search';
 import { IAppFlatState, IAgentSkill } from '../../types';
@@ -31,6 +30,7 @@ import useRouter from '../../hooks/useRouter';
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
 import { airQualityTool } from './examples/skillAirQualityApi';
 import { exchangeRatesSkill } from './examples/skillExchangeRatesApi';
+import WebSearchSkill from './WebSearchSKil';
 
 // OAuth Provider Skills
 // import { githubTool } from './examples/skillGithubApi';
@@ -76,6 +76,7 @@ interface ISkill {
 
 const SKILL_TYPE_HTTP_API = 'HTTP API';
 const SKILL_TYPE_BROWSER = 'Browser';
+const SKILL_TYPE_WEB_SEARCH = 'Web Search';
 const SKILL_TYPE_CALCULATOR = 'Calculator';
 const SKILL_TYPE_EMAIL = 'Email';
 
@@ -122,6 +123,25 @@ const BASE_SKILLS: ISkill[] = [
     name: 'Browser',
     description: 'Enable the AI to browse websites and extract information from them. The AI can visit URLs and process their content.',
     type: SKILL_TYPE_BROWSER,
+    category: SKILL_CATEGORY_CORE,
+    skill: {
+      name: 'Browser',
+      description: 'Enable the AI to browse websites and extract information from them.',
+      systemPrompt: '',
+      apiSkill: {
+        schema: '',
+        url: '',
+        requiredParameters: [],
+      },
+      configurable: true,
+    },
+  },
+  {
+    id: 'web-search',
+    icon: <SearchIcon />,
+    name: 'Web Search',
+    description: 'Enable the AI to search the web for current information. Can be used to build deep search style agents.',
+    type: SKILL_TYPE_WEB_SEARCH,
     category: SKILL_CATEGORY_CORE,
     skill: {
       name: 'Browser',
@@ -481,12 +501,6 @@ const Skills: React.FC<SkillsProps> = ({
       });
   }, [app.apiTools]);
 
-  // Helper function to determine if an OAuth skill should be shown
-  const shouldShowOAuthSkill = (skill: ISkill): boolean => {
-    // Show all skills to all users - we'll handle disabled providers at click time
-    return true;
-  };
-
   // All skills are now shown to everyone
   const allSkills = useMemo(() => {
     return [...BASE_SKILLS, ...customApiSkills, CUSTOM_API_SKILL];
@@ -617,6 +631,13 @@ const Skills: React.FC<SkillsProps> = ({
           });
           return
         }
+        if (skill.name === 'Web Search') {
+          await onUpdate({
+            ...app,
+            webSearchTool: { enabled: false, max_results: 10 },
+          });
+          return
+        }
         if (skill.name === 'Calculator') {
           await onUpdate({
             ...app,
@@ -709,6 +730,23 @@ const Skills: React.FC<SkillsProps> = ({
         />
       );
     }
+
+    if (selectedSkill.name === 'Web Search') {
+      return (
+        <WebSearchSkill
+          open={isDialogOpen}
+          onClose={() => {
+            setIsDialogOpen(false);
+          }}
+          onClosed={() => {
+            setSelectedSkill(null);
+          }}
+          app={app}
+          onUpdate={onUpdate}
+          isEnabled={isSkillEnabled('Web Search')}
+        />
+      );
+    } 
 
     if (selectedSkill.name === 'Calculator') {
       return (
