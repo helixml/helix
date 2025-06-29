@@ -62,7 +62,7 @@ type Inference struct {
 }
 
 type Search struct {
-	SearXNGBaseURL string `envconfig:"SEARCH_SEARXNG_BASE_URL" default:"http://searxng:8112"`
+	SearXNGBaseURL string `envconfig:"SEARCH_SEARXNG_BASE_URL" default:"http://searxng:8080"`
 }
 
 // Providers is used to configure the various AI providers that we use

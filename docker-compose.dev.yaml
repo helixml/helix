@@ -183,7 +183,7 @@ services:
       - ./searxng/settings.yml:/etc/searxng/settings.yml
       - ./searxng/limiter.toml:/etc/searxng/limiter.toml
     environment:
-      - BASE_URL=http://localhost:8112
+      - BASE_URL=http://searxng:8080
       - INSTANCE_NAME=helix-instance
       - UWSGI_WORKERS=4
       - UWSGI_THREADS=4
