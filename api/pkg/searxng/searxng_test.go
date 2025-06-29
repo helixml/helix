@@ -10,12 +10,12 @@ import (
 
 func Test_Search(t *testing.T) {
 	s := NewSearXNG(&Config{
-		BaseURL:    "http://localhost:8112",
-		MaxResults: 10,
+		BaseURL: "http://localhost:8112",
 	})
 
 	results, err := s.Search(context.Background(), &SearchRequest{
-		Queries: []SearchQuery{{Query: "golang", Category: GeneralCategory}},
+		MaxResults: 10,
+		Queries:    []SearchQuery{{Query: "golang", Category: GeneralCategory}},
 	})
 	require.NoError(t, err)
 

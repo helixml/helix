@@ -13,6 +13,20 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
+func NewSearchSkill(config *types.ToolWebSearchConfig, provider searxng.SearchProvider) agent.Skill {
+	return agent.Skill{
+		Name:         "Search",
+		Description:  "Search the web for current information and recent data",
+		SystemPrompt: "You are a web search assistant that can search the internet for current information. Use the search tool to find recent news, facts, or any up-to-date information that the user requests.",
+		Tools: []agent.Tool{
+			&searchTool{
+				config:   config,
+				provider: provider,
+			},
+		},
+	}
+}
+
 type searchTool struct {
 	config   *types.ToolWebSearchConfig
 	provider searxng.SearchProvider
@@ -96,6 +110,7 @@ func (t *searchTool) Execute(ctx context.Context, meta agent.Meta, args map[stri
 		Msg("Executing web search")
 
 	searchReq := &searxng.SearchRequest{
+		MaxResults: t.config.MaxResults,
 		Queries: []searxng.SearchQuery{
 			{
 				Query:    query,
@@ -129,18 +144,4 @@ func (t *searchTool) Execute(ctx context.Context, meta agent.Meta, args map[stri
 	}
 
 	return string(jsonOutput), nil
-}
-
-func NewSearchSkill(config *types.ToolWebSearchConfig, provider searxng.SearchProvider) agent.Skill {
-	return agent.Skill{
-		Name:         "Search",
-		Description:  "Search the web for current information and recent data",
-		SystemPrompt: "You are a web search assistant that can search the internet for current information. Use the search tool to find recent news, facts, or any up-to-date information that the user requests.",
-		Tools: []agent.Tool{
-			&searchTool{
-				config:   config,
-				provider: provider,
-			},
-		},
-	}
 }

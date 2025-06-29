@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/scheduler"
+	"github.com/helixml/helix/api/pkg/searxng"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
@@ -41,6 +42,7 @@ type Options struct {
 	RunnerController     *scheduler.RunnerController
 	OAuthManager         *oauth.Manager
 	Browser              *browser.Browser
+	SearchProvider       searxng.SearchProvider
 }
 
 type Controller struct {
