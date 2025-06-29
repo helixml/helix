@@ -596,8 +596,9 @@ const Skills: React.FC<SkillsProps> = ({
   const [showOAuthProviderDialog, setShowOAuthProviderDialog] = useState(false);
   const [selectedOAuthProvider, setSelectedOAuthProvider] = useState<string>('');
 
-  const isSkillEnabled = (skillName: string): boolean => {
+  const isSkillEnabled = (skillName: string): boolean => {    
     if (skillName === 'Web Search') {
+      console.log(app.webSearchTool)
       return app.webSearchTool?.enabled ?? false;
     }
     if (skillName === 'Browser') {
