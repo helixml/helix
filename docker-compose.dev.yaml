@@ -179,6 +179,9 @@ services:
     image: searxng/searxng:latest
     ports:
       - 8112:8080
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml
+      - ./searxng/limiter.toml:/etc/searxng/limiter.toml
     environment:
       - BASE_URL=http://localhost:8112
       - INSTANCE_NAME=helix-instance
