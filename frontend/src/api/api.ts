@@ -31,6 +31,7 @@ export enum GithubComHelixmlHelixApiPkgTypesToolType {
   ToolTypeZapier = "zapier",
   ToolTypeCalculator = "calculator",
   ToolTypeEmail = "email",
+  ToolTypeWebSearch = "web_search",
 }
 
 export interface GithubComHelixmlHelixApiPkgTypesUsage {
