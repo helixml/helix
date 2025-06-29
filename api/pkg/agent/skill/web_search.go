@@ -1,8 +1,8 @@
 package skill
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/agent"
@@ -15,9 +15,11 @@ import (
 
 func NewSearchSkill(config *types.ToolWebSearchConfig, provider searxng.SearchProvider) agent.Skill {
 	return agent.Skill{
-		Name:         "Search",
-		Description:  "Search the web for current information and recent data",
-		SystemPrompt: "You are a web search assistant that can search the internet for current information. Use the search tool to find recent news, facts, or any up-to-date information that the user requests.",
+		Name:        "Search",
+		Description: "Search the web for current information and recent data",
+		SystemPrompt: `You are a web search assistant that can search the internet for current information. 
+		Use the search tool to find recent news, facts, or any up-to-date information that the user requests.
+		You can call this tool multiple times to get more information.`,
 		Tools: []agent.Tool{
 			&searchTool{
 				config:   config,
@@ -137,11 +139,20 @@ func (t *searchTool) Execute(ctx context.Context, meta agent.Meta, args map[stri
 		Results:  results,
 	}
 
-	jsonOutput, err := json.MarshalIndent(output, "", "  ")
-	if err != nil {
-		log.Error().Err(err).Msg("Error marshaling search results to JSON")
-		return "", fmt.Errorf("failed to format search results: %w", err)
+	return formatSearchResponse(&output), nil
+}
+
+func formatSearchResponse(output *searxng.Output) string {
+	if len(output.Results) == 0 {
+		return "No results found"
+	}
+	var buf bytes.Buffer
+
+	buf.WriteString("## Results: \n")
+
+	for _, result := range output.Results {
+		buf.WriteString(fmt.Sprintf("### Source: %s\n### URL: %s\n### Content: %s\n\n", result.Title, result.URL, result.Content))
 	}
 
-	return string(jsonOutput), nil
+	return buf.String()
 }
