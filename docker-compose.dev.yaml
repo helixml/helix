@@ -175,6 +175,16 @@ services:
     image: apache/tika:2.9.2.1
     ports:
       - 9998:9998
+  searxng:
+    image: searxng/searxng:latest
+    ports:
+      - 8112:8080
+    environment:
+      - BASE_URL=http://localhost:8112
+      - INSTANCE_NAME=helix-instance
+      - UWSGI_WORKERS=4
+      - UWSGI_THREADS=4
+
   typense-ui:
     image: ghcr.io/bfritscher/typesense-dashboard:latest
     ports:
