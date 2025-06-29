@@ -16,6 +16,7 @@ import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import Menu from '@mui/material/Menu'
+import { styled } from '@mui/material/styles'
 
 import {
   IAppFlatState,
@@ -137,6 +138,34 @@ const BarsIcon = ({ effort }: { effort: string }) => {
     </Box>
   )
 }
+
+// Add styled resizable textarea component
+const ResizableTextarea = styled('textarea')(({ theme }) => ({
+  width: '100%',
+  minHeight: '200px', // Increased from 120px to 200px
+  padding: '16.5px 14px',
+  fontSize: '1rem',
+  fontFamily: 'inherit',
+  lineHeight: '1.4375em',
+  border: `1px solid ${theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.23)' : 'rgba(255, 255, 255, 0.23)'}`,
+  borderRadius: '4px',
+  backgroundColor: 'transparent',
+  resize: 'vertical',
+  outline: 'none',
+  transition: theme.transitions.create(['border-color', 'box-shadow']),
+  '&:focus': {
+    borderColor: theme.palette.primary.main,
+    boxShadow: `0 0 0 2px ${theme.palette.primary.main}20`,
+  },
+  '&:disabled': {
+    backgroundColor: theme.palette.action.disabledBackground,
+    color: theme.palette.action.disabled,
+    cursor: 'not-allowed',
+  },
+  '&::placeholder': {
+    color: theme.palette.text.disabled,
+  },
+}));
 
 const AppSettings: FC<AppSettingsProps> = ({
   id,
@@ -454,21 +483,24 @@ const AppSettings: FC<AppSettingsProps> = ({
         <Typography variant="body2" color="text.secondary">
           
         </Typography>
-        <TextField
-          sx={{ mb: 3, mt: 1 }}
-          id="app-instructions"
-          name="app-instructions"
-          value={system_prompt}
-          onChange={(e) => {
-            setSystemPrompt(e.target.value)
-            handleAdvancedChangeWithDebounce('system_prompt', e.target.value)
-          }}
-          disabled={readOnly}
-          fullWidth
-          multiline
-          rows={8}
-          helperText="What does this agent do? How does it behave? What should it avoid doing?"
-        />           
+        <Box sx={{ mb: 3, mt: 1 }}>
+          <ResizableTextarea
+            value={system_prompt}
+            onChange={(e) => {
+              setSystemPrompt(e.target.value)
+              handleAdvancedChangeWithDebounce('system_prompt', e.target.value)
+            }}
+            disabled={readOnly}
+            placeholder="What does this agent do? How does it behave? What should it avoid doing?"
+            style={{ 
+              minHeight: '200px',
+              resize: 'vertical'
+            }}
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+            What does this agent do? How does it behave? What should it avoid doing?
+          </Typography>
+        </Box>
       </Box>
 
       <Box sx={{ mb: 3 }}>
