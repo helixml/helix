@@ -30,7 +30,7 @@ import useRouter from '../../hooks/useRouter';
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
 import { airQualityTool } from './examples/skillAirQualityApi';
 import { exchangeRatesSkill } from './examples/skillExchangeRatesApi';
-import WebSearchSkill from './WebSearchSKil';
+import WebSearchSkill from './WebSearchSkill';
 
 // OAuth Provider Skills
 // import { githubTool } from './examples/skillGithubApi';
@@ -144,8 +144,8 @@ const BASE_SKILLS: ISkill[] = [
     type: SKILL_TYPE_WEB_SEARCH,
     category: SKILL_CATEGORY_CORE,
     skill: {
-      name: 'Browser',
-      description: 'Enable the AI to browse websites and extract information from them.',
+      name: 'Web Search',
+      description: 'Enable the AI to search the web for current information.',
       systemPrompt: '',
       apiSkill: {
         schema: '',
@@ -597,6 +597,9 @@ const Skills: React.FC<SkillsProps> = ({
   const [selectedOAuthProvider, setSelectedOAuthProvider] = useState<string>('');
 
   const isSkillEnabled = (skillName: string): boolean => {
+    if (skillName === 'Web Search') {
+      return app.webSearchTool?.enabled ?? false;
+    }
     if (skillName === 'Browser') {
       return app.browserTool?.enabled ?? false;
     }
