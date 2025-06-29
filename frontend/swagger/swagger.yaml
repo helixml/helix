@@ -33,6 +33,7 @@ definitions:
     - zapier
     - calculator
     - email
+    - web_search
     type: string
     x-enum-varnames:
     - ToolTypeAPI
@@ -41,6 +42,7 @@ definitions:
     - ToolTypeZapier
     - ToolTypeCalculator
     - ToolTypeEmail
+    - ToolTypeWebSearch
   github_com_helixml_helix_api_pkg_types.Usage:
     properties:
       completion_tokens:

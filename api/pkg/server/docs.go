@@ -2634,7 +2634,8 @@ const docTemplate = `{
                 "gptscript",
                 "zapier",
                 "calculator",
-                "email"
+                "email",
+                "web_search"
             ],
             "x-enum-varnames": [
                 "ToolTypeAPI",
@@ -2642,7 +2643,8 @@ const docTemplate = `{
                 "ToolTypeGPTScript",
                 "ToolTypeZapier",
                 "ToolTypeCalculator",
-                "ToolTypeEmail"
+                "ToolTypeEmail",
+                "ToolTypeWebSearch"
             ]
         },
         "github_com_helixml_helix_api_pkg_types.Usage": {
