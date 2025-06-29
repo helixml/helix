@@ -14,6 +14,10 @@ import (
 	"github.com/sourcegraph/conc/pool"
 )
 
+type SearchProvider interface {
+	Search(ctx context.Context, req *SearchRequest) ([]SearchResultItem, error)
+}
+
 type Category = string
 
 const (
@@ -53,7 +57,7 @@ type Output struct {
 	Category Category `json:"category,omitempty"`
 }
 
-type SearxNG struct {
+type SearXNG struct {
 	httpClient *http.Client
 	maxResults int
 	baseURL    string
@@ -75,15 +79,15 @@ type SearchQuery struct {
 	Language string   // The language of the query
 }
 
-func NewSearxNG(cfg *Config) *SearxNG {
-	return &SearxNG{
+func NewSearXNG(cfg *Config) *SearXNG {
+	return &SearXNG{
 		httpClient: http.DefaultClient,
 		maxResults: cfg.MaxResults,
 		baseURL:    cfg.BaseURL,
 	}
 }
 
-func (s *SearxNG) Search(ctx context.Context, req *SearchRequest) ([]SearchResultItem, error) {
+func (s *SearXNG) Search(ctx context.Context, req *SearchRequest) ([]SearchResultItem, error) {
 	pool := pool.New().WithErrors()
 
 	resultsMu := sync.Mutex{}
@@ -130,7 +134,7 @@ func (s *SearxNG) Search(ctx context.Context, req *SearchRequest) ([]SearchResul
 	return uniqueResults, nil
 }
 
-func (s *SearxNG) fetchSearchResults(ctx context.Context, q *SearchQuery) ([]SearchResultItem, error) {
+func (s *SearXNG) fetchSearchResults(ctx context.Context, q *SearchQuery) ([]SearchResultItem, error) {
 	// Encode the query parameter
 	values := url.Values{}
 	values.Set("q", q.Query)

@@ -9,7 +9,7 @@ import (
 )
 
 func Test_Search(t *testing.T) {
-	s := NewSearxNG(&Config{
+	s := NewSearXNG(&Config{
 		BaseURL:    "http://localhost:8112",
 		MaxResults: 10,
 	})
