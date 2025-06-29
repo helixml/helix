@@ -2,9 +2,9 @@ package searxng
 
 import (
 	"context"
+	"strings"
 	"testing"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,6 +19,27 @@ func Test_Search(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	spew.Dump(results)
-	t.Errorf("results: %v", results)
+	// Will need to find something that makes sense:
+	// - https://go.dev
+	// - https://github.com/golang/go
+
+	var (
+		goDevDomain    = "https://go.dev"
+		githubGoDomain = "https://github.com/golang/go"
+
+		goDevFound    = false
+		githubGoFound = false
+	)
+
+	for _, result := range results {
+		if strings.Contains(result.URL, goDevDomain) {
+			goDevFound = true
+		}
+		if strings.Contains(result.URL, githubGoDomain) {
+			githubGoFound = true
+		}
+	}
+
+	require.True(t, goDevFound)
+	require.True(t, githubGoFound)
 }

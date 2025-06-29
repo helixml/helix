@@ -144,10 +144,14 @@ func (s *SearxNG) fetchSearchResults(ctx context.Context, q *SearchQuery) ([]Sea
 		values.Set("categories", q.Category)
 	}
 	searchURL := fmt.Sprintf("%s/search?%s", s.baseURL, values.Encode())
+
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
 	if err != nil {
 		return nil, err
 	}
+
+	// Add User-Agent header to avoid 403 errors
+	httpReq.Header.Set("User-Agent", "Mozilla/5.0 (compatible; HelixBot/1.0)")
 
 	httpResp, err := s.httpClient.Do(httpReq)
 	if err != nil {
