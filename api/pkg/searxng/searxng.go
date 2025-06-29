@@ -18,6 +18,8 @@ type SearchProvider interface {
 	Search(ctx context.Context, req *SearchRequest) ([]SearchResultItem, error)
 }
 
+const DefaultMaxResults = 10
+
 type Category = string
 
 const (
@@ -59,18 +61,17 @@ type Output struct {
 
 type SearXNG struct {
 	httpClient *http.Client
-	maxResults int
 	baseURL    string
 }
 
 type Config struct {
-	BaseURL    string // Server URL
-	MaxResults int
+	BaseURL string // Server URL
 }
 
 // SearchRequest is the request to the SearxNG API
 type SearchRequest struct {
-	Queries []SearchQuery // List of queries to search for
+	MaxResults int
+	Queries    []SearchQuery // List of queries to search for
 }
 
 type SearchQuery struct {
@@ -82,12 +83,15 @@ type SearchQuery struct {
 func NewSearXNG(cfg *Config) *SearXNG {
 	return &SearXNG{
 		httpClient: http.DefaultClient,
-		maxResults: cfg.MaxResults,
 		baseURL:    cfg.BaseURL,
 	}
 }
 
 func (s *SearXNG) Search(ctx context.Context, req *SearchRequest) ([]SearchResultItem, error) {
+	if req.MaxResults == 0 {
+		req.MaxResults = DefaultMaxResults
+	}
+
 	pool := pool.New().WithErrors()
 
 	resultsMu := sync.Mutex{}
@@ -127,8 +131,8 @@ func (s *SearXNG) Search(ctx context.Context, req *SearchRequest) ([]SearchResul
 	}
 
 	// Limit results
-	if len(uniqueResults) > s.maxResults {
-		uniqueResults = uniqueResults[:s.maxResults]
+	if len(uniqueResults) > req.MaxResults {
+		uniqueResults = uniqueResults[:req.MaxResults]
 	}
 
 	return uniqueResults, nil
