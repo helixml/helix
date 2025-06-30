@@ -14,6 +14,7 @@ import {
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import DarkDialog from '../dialog/DarkDialog';
+import CopyButton from '../common/CopyButton';
 
 interface LLMCall {
   id: string;
@@ -57,6 +58,31 @@ function TabPanel(props: TabPanelProps) {
     </div>
   );
 }
+
+const JsonContentWithCopy: React.FC<{ content: string; title: string }> = ({ content, title }) => {
+  return (
+    <Box sx={{ position: 'relative' }}>
+      <CopyButton content={content} title={title} />
+      <Paper
+        sx={{
+          p: 2,
+          backgroundColor: 'transparent',
+          borderRadius: 1,
+          border: '1px solid',
+          borderColor: 'divider',
+          fontFamily: 'monospace',
+          fontSize: '0.875rem',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          maxHeight: '400px',
+          overflow: 'auto',
+        }}
+      >
+        {content}
+      </Paper>
+    </Box>
+  );
+};
 
 const LLMCallDialog: React.FC<LLMCallDialogProps> = ({
   open,
@@ -250,23 +276,10 @@ const LLMCallDialog: React.FC<LLMCallDialogProps> = ({
               Request
             </Typography>
             {llmCall.request && (
-              <Paper
-                sx={{
-                  p: 2,
-                  backgroundColor: 'transparent',
-                  borderRadius: 1,
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  fontFamily: 'monospace',
-                  fontSize: '0.875rem',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  maxHeight: '400px',
-                  overflow: 'auto',
-                }}
-              >
-                {formatJson(llmCall.request)}
-              </Paper>
+              <JsonContentWithCopy 
+                content={formatJson(llmCall.request)} 
+                title="Request"
+              />
             )}
           </TabPanel>
 
@@ -275,23 +288,10 @@ const LLMCallDialog: React.FC<LLMCallDialogProps> = ({
               Response
             </Typography>
             {llmCall.response && (
-              <Paper
-                sx={{
-                  p: 2,
-                  backgroundColor: 'transparent',
-                  borderRadius: 1,
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  fontFamily: 'monospace',
-                  fontSize: '0.875rem',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  maxHeight: '400px',
-                  overflow: 'auto',
-                }}
-              >
-                {formatJson(llmCall.response)}
-              </Paper>
+              <JsonContentWithCopy 
+                content={formatJson(llmCall.response)} 
+                title="Response"
+              />
             )}
           </TabPanel>
 
@@ -299,23 +299,10 @@ const LLMCallDialog: React.FC<LLMCallDialogProps> = ({
             <Typography variant="h6" sx={{ mb: 2 }}>
               Raw JSON Data
             </Typography>
-            <Paper
-              sx={{
-                p: 2,
-                backgroundColor: 'transparent',
-                borderRadius: 1,
-                border: '1px solid',
-                borderColor: 'divider',
-                fontFamily: 'monospace',
-                fontSize: '0.875rem',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                maxHeight: '400px',
-                overflow: 'auto',
-              }}
-            >
-              {JSON.stringify(llmCall, null, 2)}
-            </Paper>
+            <JsonContentWithCopy 
+              content={JSON.stringify(llmCall, null, 2)} 
+              title="Raw JSON"
+            />
           </TabPanel>
         </Box>
 
