@@ -276,7 +276,7 @@ const LLMCallDialog: React.FC<LLMCallDialogProps> = ({
               Request
             </Typography>
             {llmCall.request && (
-              <JsonContentWithCopy 
+              <JsonContentWithCopy
                 content={formatJson(llmCall.request)} 
                 title="Request"
               />
