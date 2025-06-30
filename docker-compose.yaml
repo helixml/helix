@@ -120,6 +120,18 @@ services:
     restart: always
     ports:
       - 9998:9998
+  searxng:
+    image: searxng/searxng:latest
+    ports:
+      - 8112:8080
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml
+      - ./searxng/limiter.toml:/etc/searxng/limiter.toml
+    environment:
+      - BASE_URL=http://searxng:8080
+      - INSTANCE_NAME=helix-instance
+      - UWSGI_WORKERS=4
+      - UWSGI_THREADS=4
   typesense:
     image: registry.helixml.tech/helix/typesense:latest
     restart: always

@@ -1020,6 +1020,7 @@ const (
 	ToolTypeZapier     ToolType = "zapier"
 	ToolTypeCalculator ToolType = "calculator"
 	ToolTypeEmail      ToolType = "email"
+	ToolTypeWebSearch  ToolType = "web_search"
 )
 
 type Tool struct {
@@ -1037,6 +1038,7 @@ type ToolConfig struct {
 	GPTScript  *ToolGPTScriptConfig  `json:"gptscript"`
 	Zapier     *ToolZapierConfig     `json:"zapier"`
 	Browser    *ToolBrowserConfig    `json:"browser"`
+	WebSearch  *ToolWebSearchConfig  `json:"web_search"`
 	Calculator *ToolCalculatorConfig `json:"calculator"`
 	Email      *ToolEmailConfig      `json:"email"`
 }
@@ -1045,6 +1047,11 @@ type ToolBrowserConfig struct {
 	Enabled                bool `json:"enabled" yaml:"enabled"`
 	MarkdownPostProcessing bool `json:"markdown_post_processing" yaml:"markdown_post_processing"` // If true, the browser will return the HTML as markdown
 	// TODO: whitelist URLs?
+}
+
+type ToolWebSearchConfig struct {
+	Enabled    bool `json:"enabled" yaml:"enabled"`
+	MaxResults int  `json:"max_results" yaml:"max_results"`
 }
 
 type ToolEmailConfig struct {
@@ -1234,7 +1241,9 @@ type AssistantConfig struct {
 	GPTScripts []AssistantGPTScript `json:"gptscripts,omitempty" yaml:"gptscripts,omitempty"`
 	Zapier     []AssistantZapier    `json:"zapier,omitempty" yaml:"zapier,omitempty"`
 
-	Browser    AssistantBrowser    `json:"browser,omitempty" yaml:"browser,omitempty"`
+	Browser   AssistantBrowser   `json:"browser,omitempty" yaml:"browser,omitempty"`
+	WebSearch AssistantWebSearch `json:"web_search,omitempty" yaml:"web_search,omitempty"`
+
 	Calculator AssistantCalculator `json:"calculator,omitempty" yaml:"calculator,omitempty"`
 	Email      AssistantEmail      `json:"email,omitempty" yaml:"email,omitempty"`
 	Tools      []*Tool             `json:"tools,omitempty" yaml:"tools,omitempty"`
@@ -1249,6 +1258,11 @@ type AssistantBrowser struct {
 	Enabled                bool `json:"enabled" yaml:"enabled"`
 	MarkdownPostProcessing bool `json:"markdown_post_processing" yaml:"markdown_post_processing"` // If true, the browser will return the HTML as markdown
 	// TODO: whitelist URLs?
+}
+
+type AssistantWebSearch struct {
+	Enabled    bool `json:"enabled" yaml:"enabled"`
+	MaxResults int  `json:"max_results" yaml:"max_results"`
 }
 
 type AssistantCalculator struct {

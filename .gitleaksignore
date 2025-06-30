@@ -1,1 +1,3 @@
 frontend/src/utils/timezones.ts:generic-api-key:348
+charts/helix-controlplane/templates/searxng_configmap.yaml:generic-api-key:23
+searxng/settings.yml:generic-api-key:13

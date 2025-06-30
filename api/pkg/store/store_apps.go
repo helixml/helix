@@ -176,6 +176,19 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 			})
 		}
 
+		if assistant.WebSearch.Enabled {
+			tools = append(tools, &types.Tool{
+				Name:        "Web Search",
+				Description: "Use the web search to find information on the web",
+				ToolType:    types.ToolTypeWebSearch,
+				Config: types.ToolConfig{
+					WebSearch: &types.ToolWebSearchConfig{
+						Enabled: assistant.WebSearch.Enabled,
+					},
+				},
+			})
+		}
+
 		if assistant.Calculator.Enabled {
 			tools = append(tools, &types.Tool{
 				Name:        "Calculator",
