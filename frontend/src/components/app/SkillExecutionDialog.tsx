@@ -47,7 +47,10 @@ const SkillExecutionDialog: React.FC<SkillExecutionDialogProps> = ({
         <Paper
           sx={{
             p: 1,
-            backgroundColor: '#2a2a2a',
+            backgroundColor: 'transparent',
+            borderRadius: 1,
+            border: '1px solid',
+            borderColor: 'divider',
             fontFamily: 'monospace',
             fontSize: '0.875rem',
             whiteSpace: 'pre-wrap',
@@ -129,8 +132,10 @@ const SkillExecutionDialog: React.FC<SkillExecutionDialogProps> = ({
             <Paper
               sx={{
                 p: 2,
-                backgroundColor: '#3a1a1a',
-                border: `1px solid ${theme.palette.error.main}`,
+                backgroundColor: 'transparent',
+                borderRadius: 1,
+                border: '1px solid',
+                borderColor: 'divider',
               }}
             >
               <Typography variant="body2" color="error">
@@ -157,7 +162,10 @@ const SkillExecutionDialog: React.FC<SkillExecutionDialogProps> = ({
             <Paper
               sx={{
                 p: 2,
-                backgroundColor: '#2a2a2a',
+                backgroundColor: 'transparent',
+                borderRadius: 1,
+                border: '1px solid',
+                borderColor: 'divider',
                 fontFamily: 'monospace',
                 fontSize: '0.875rem',
                 whiteSpace: 'pre-wrap',
