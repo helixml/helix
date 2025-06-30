@@ -86,7 +86,7 @@ func (t *searchTool) OpenAI() []openai.Tool {
 	}
 }
 
-func (t *searchTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
+func (t *searchTool) Execute(ctx context.Context, _ agent.Meta, args map[string]interface{}) (string, error) {
 	query, ok := args["query"].(string)
 	if !ok {
 		return "", fmt.Errorf("query parameter is required and must be a string")
