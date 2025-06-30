@@ -9,6 +9,9 @@ import (
 )
 
 func Test_Search(t *testing.T) {
+	// TODO: setup searxng in drone
+	t.Skip("Skipping searxng test")
+
 	s := NewSearXNG(&Config{
 		BaseURL: "http://localhost:8112",
 	})
