@@ -23,6 +23,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import WarningIcon from '@mui/icons-material/Warning';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import useApi from '../../hooks/useApi';
 import { TypesPaginatedLLMCalls, TypesLLMCall } from '../../api/api';
 import { LineChart } from '@mui/x-charts';
@@ -516,13 +517,13 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                                     </Tooltip>
                                   </TableCell>
                                   <TableCell>
-                                    <Button 
+                                    <IconButton
                                       onClick={() => handleOpenLLMCallDialog(call)}
-                                      variant="text"
                                       size="small"
+                                      color="primary"
                                     >
-                                      View Details
-                                    </Button>
+                                      <VisibilityIcon />
+                                    </IconButton>
                                   </TableCell>
                                 </TableRow>
                               ))}
