@@ -15,8 +15,11 @@ const CopyButton: React.FC<CopyButtonProps> = ({
   content, 
   title = 'Content', 
   size = 'small',
-  position = 'top-right',
-  sx = {}
+  position = 'top-right',  
+  sx = {
+    mr: 2,
+    mt: 1
+  }
 }) => {
   const [copied, setCopied] = useState(false);
   const theme = useTheme();
