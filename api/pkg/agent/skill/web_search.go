@@ -17,9 +17,10 @@ func NewSearchSkill(config *types.ToolWebSearchConfig, provider searxng.SearchPr
 	return agent.Skill{
 		Name:        "WebSearch",
 		Description: "Search the web for current information and recent data",
-		SystemPrompt: `You are a web search assistant that can search the internet for current information. 
+		SystemPrompt: `You are a web search expert that can search the internet for current information. 
 		Use the search tool to find recent news, facts, or any up-to-date information that the user requests.
-		You can call this tool multiple times to get more information.`,
+		Do not try to answer the question yourself, just use the search tool to find the information and present it
+		to the user in a structured way.`,
 		Tools: []agent.Tool{
 			&searchTool{
 				config:   config,
@@ -151,7 +152,7 @@ func formatSearchResponse(output *searxng.Output) string {
 	buf.WriteString("## Results: \n")
 
 	for _, result := range output.Results {
-		buf.WriteString(fmt.Sprintf("### Source: %s\n### URL: %s\n### Content: %s\n\n", result.Title, result.URL, result.Content))
+		buf.WriteString(fmt.Sprintf("### Source: %s\n- URL: %s\n-Excerpt: %s\n\n", result.Title, result.URL, result.Content))
 	}
 
 	return buf.String()
