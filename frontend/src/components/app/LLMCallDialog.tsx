@@ -74,7 +74,7 @@ const JsonContentWithCopy: React.FC<{ content: string; title: string }> = ({ con
           fontSize: '0.875rem',
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
-          maxHeight: '400px',
+          maxHeight: '600px',
           overflow: 'auto',
         }}
       >
@@ -144,6 +144,11 @@ const LLMCallDialog: React.FC<LLMCallDialogProps> = ({
       onClose={onClose}
       maxWidth="lg"
       fullWidth
+      PaperProps={{
+        sx: {
+          maxHeight: '90vh',
+        },
+      }}
     >
       <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -162,82 +167,96 @@ const LLMCallDialog: React.FC<LLMCallDialogProps> = ({
 
       <DialogContent sx={{ p: 3 }}>
         <Box sx={{ mb: 3 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>
-            Call Details
-          </Typography>
-          
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 2, mb: 2 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
-              Started:
-            </Typography>
-            <Typography variant="body2">
-              {llmCall.created ? formatTime(llmCall.created) : 'N/A'}
-            </Typography>
-
-            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
-              Duration:
-            </Typography>
-            <Typography variant="body2">
-              {llmCall.duration_ms ? formatDuration(llmCall.duration_ms) : 'N/A'}
-            </Typography>
-
-            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
-              Model:
-            </Typography>
-            <Typography variant="body2">
-              {llmCall.model || 'N/A'}
-            </Typography>
-
-            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
-              Provider:
-            </Typography>
-            <Typography variant="body2">
-              {llmCall.provider || 'N/A'}
-            </Typography>
-
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontWeight: 'bold' }}>
-              Status:
-            </Typography>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+              gap: 2,
+              mb: 2,
+            }}
+          >
+            {/* Left column */}
             <Box>
-              {llmCall.error ? (
-                <Chip label="Error" color="error" size="small" />
-              ) : (
-                <Chip label="Success" color="success" size="small" />
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                  Started:
+                </Typography>
+                <Typography variant="body2">
+                  {llmCall.created ? formatTime(llmCall.created) : 'N/A'}
+                </Typography>
+              </Box>
+
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                  Duration:
+                </Typography>
+                <Typography variant="body2">
+                  {llmCall.duration_ms ? formatDuration(llmCall.duration_ms) : 'N/A'}
+                </Typography>
+              </Box>
+
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                  Model:
+                </Typography>
+                <Typography variant="body2">
+                  {llmCall.model || 'N/A'}
+                </Typography>
+              </Box>
+
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                  Provider:
+                </Typography>
+                <Typography variant="body2">
+                  {llmCall.provider || 'N/A'}
+                </Typography>
+              </Box>
+            </Box>
+            {/* Right column */}
+            <Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                  Status:
+                </Typography>
+                <Typography variant="body2" color={llmCall.error ? 'error' : 'success'}>
+                  {llmCall.error ? 'Error' : 'Success'}
+                </Typography>                
+              </Box>
+
+              {llmCall.prompt_tokens && (
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                    Prompt Tokens:
+                  </Typography>
+                  <Typography variant="body2">
+                    {llmCall.prompt_tokens.toLocaleString()}
+                  </Typography>
+                </Box>
+              )}
+
+              {llmCall.completion_tokens && (
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                    Completion Tokens:
+                  </Typography>
+                  <Typography variant="body2">
+                    {llmCall.completion_tokens.toLocaleString()}
+                  </Typography>
+                </Box>
+              )}
+
+              {llmCall.total_tokens && (
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                    Total Tokens:
+                  </Typography>
+                  <Typography variant="body2">
+                    {llmCall.total_tokens.toLocaleString()}
+                  </Typography>
+                </Box>
               )}
             </Box>
-
-            {llmCall.prompt_tokens && (
-              <>
-                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
-                  Prompt Tokens:
-                </Typography>
-                <Typography variant="body2">
-                  {llmCall.prompt_tokens.toLocaleString()}
-                </Typography>
-              </>
-            )}
-
-            {llmCall.completion_tokens && (
-              <>
-                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
-                  Completion Tokens:
-                </Typography>
-                <Typography variant="body2">
-                  {llmCall.completion_tokens.toLocaleString()}
-                </Typography>
-              </>
-            )}
-
-            {llmCall.total_tokens && (
-              <>
-                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
-                  Total Tokens:
-                </Typography>
-                <Typography variant="body2">
-                  {llmCall.total_tokens.toLocaleString()}
-                </Typography>
-              </>
-            )}
           </Box>
         </Box>
 
