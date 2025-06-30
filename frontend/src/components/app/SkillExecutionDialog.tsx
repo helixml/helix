@@ -40,13 +40,13 @@ const SkillExecutionDialog: React.FC<SkillExecutionDialogProps> = ({
 
   const renderArguments = (arguments_: Record<string, any>) => {
     return Object.entries(arguments_).map(([key, value]) => (
-      <Box key={key} sx={{ mb: 1 }}>
-        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+      <Box key={key} sx={{ mb: 2 }}>
+        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', mb: 1 }}>
           {key}:
         </Typography>
         <Paper
           sx={{
-            p: 1,
+            p: 2,
             backgroundColor: 'transparent',
             borderRadius: 1,
             border: '1px solid',
