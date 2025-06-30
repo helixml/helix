@@ -33,6 +33,7 @@ definitions:
     - zapier
     - calculator
     - email
+    - web_search
     type: string
     x-enum-varnames:
     - ToolTypeAPI
@@ -41,6 +42,7 @@ definitions:
     - ToolTypeZapier
     - ToolTypeCalculator
     - ToolTypeEmail
+    - ToolTypeWebSearch
   github_com_helixml_helix_api_pkg_types.Usage:
     properties:
       completion_tokens:
@@ -836,6 +838,8 @@ definitions:
           0 - balanced
           2 - more creative
         type: number
+      web_search:
+        $ref: '#/definitions/types.AssistantWebSearch'
       zapier:
         items:
           $ref: '#/definitions/types.AssistantZapier'
@@ -895,6 +899,13 @@ definitions:
         description: |-
           Source defines where the raw data is fetched from. It can be
           directly uploaded files, S3, GCS, Google Drive, Gmail, etc.
+    type: object
+  types.AssistantWebSearch:
+    properties:
+      enabled:
+        type: boolean
+      max_results:
+        type: integer
     type: object
   types.AssistantZapier:
     properties:
@@ -2323,6 +2334,8 @@ definitions:
         type: integer
       reason:
         type: string
+      repeat_count:
+        type: integer
       runner_id:
         type: string
       session_id:
@@ -2345,6 +2358,7 @@ definitions:
     - create_new_slot
     - rejected
     - error
+    - unschedulable
     type: string
     x-enum-comments:
       SchedulingDecisionTypeCreateNewSlot: Started new model instance
@@ -2352,12 +2366,14 @@ definitions:
       SchedulingDecisionTypeQueued: Added to queue
       SchedulingDecisionTypeRejected: Rejected (insufficient resources, etc.)
       SchedulingDecisionTypeReuseWarmSlot: Reused existing warm model instance
+      SchedulingDecisionTypeUnschedulable: Cannot be scheduled (no warm slots available)
     x-enum-varnames:
     - SchedulingDecisionTypeQueued
     - SchedulingDecisionTypeReuseWarmSlot
     - SchedulingDecisionTypeCreateNewSlot
     - SchedulingDecisionTypeRejected
     - SchedulingDecisionTypeError
+    - SchedulingDecisionTypeUnschedulable
   types.Secret:
     properties:
       app_id:
@@ -2905,6 +2921,8 @@ definitions:
         $ref: '#/definitions/types.ToolEmailConfig'
       gptscript:
         $ref: '#/definitions/types.ToolGPTScriptConfig'
+      web_search:
+        $ref: '#/definitions/types.ToolWebSearchConfig'
       zapier:
         $ref: '#/definitions/types.ToolZapierConfig'
     type: object
@@ -2923,6 +2941,13 @@ definitions:
       script_url:
         description: URL to download the script
         type: string
+    type: object
+  types.ToolWebSearchConfig:
+    properties:
+      enabled:
+        type: boolean
+      max_results:
+        type: integer
     type: object
   types.ToolZapierConfig:
     properties:

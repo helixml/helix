@@ -31,6 +31,7 @@ export enum GithubComHelixmlHelixApiPkgTypesToolType {
   ToolTypeZapier = "zapier",
   ToolTypeCalculator = "calculator",
   ToolTypeEmail = "email",
+  ToolTypeWebSearch = "web_search",
 }
 
 export interface GithubComHelixmlHelixApiPkgTypesUsage {
@@ -537,6 +538,7 @@ export interface TypesAssistantConfig {
    * 2 - more creative
    */
   top_p?: number;
+  web_search?: TypesAssistantWebSearch;
   zapier?: TypesAssistantZapier[];
 }
 
@@ -584,6 +586,11 @@ export interface TypesAssistantKnowledge {
    * directly uploaded files, S3, GCS, Google Drive, Gmail, etc.
    */
   source?: TypesKnowledgeSource;
+}
+
+export interface TypesAssistantWebSearch {
+  enabled?: boolean;
+  max_results?: number;
 }
 
 export interface TypesAssistantZapier {
@@ -1763,6 +1770,7 @@ export interface TypesToolConfig {
   calculator?: TypesToolCalculatorConfig;
   email?: TypesToolEmailConfig;
   gptscript?: TypesToolGPTScriptConfig;
+  web_search?: TypesToolWebSearchConfig;
   zapier?: TypesToolZapierConfig;
 }
 
@@ -1776,6 +1784,11 @@ export interface TypesToolGPTScriptConfig {
   script?: string;
   /** URL to download the script */
   script_url?: string;
+}
+
+export interface TypesToolWebSearchConfig {
+  enabled?: boolean;
+  max_results?: number;
 }
 
 export interface TypesToolZapierConfig {

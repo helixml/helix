@@ -2634,7 +2634,8 @@ const docTemplate = `{
                 "gptscript",
                 "zapier",
                 "calculator",
-                "email"
+                "email",
+                "web_search"
             ],
             "x-enum-varnames": [
                 "ToolTypeAPI",
@@ -2642,7 +2643,8 @@ const docTemplate = `{
                 "ToolTypeGPTScript",
                 "ToolTypeZapier",
                 "ToolTypeCalculator",
-                "ToolTypeEmail"
+                "ToolTypeEmail",
+                "ToolTypeWebSearch"
             ]
         },
         "github_com_helixml_helix_api_pkg_types.Usage": {
@@ -3732,6 +3734,9 @@ const docTemplate = `{
                     "description": "An alternative to sampling with temperature, called nucleus sampling,\nwhere the model considers the results of the tokens with top_p probability mass.\nSo 0.1 means only the tokens comprising the top 10% probability mass are considered.\n0 - balanced\n2 - more creative",
                     "type": "number"
                 },
+                "web_search": {
+                    "$ref": "#/definitions/types.AssistantWebSearch"
+                },
                 "zapier": {
                     "type": "array",
                     "items": {
@@ -3803,6 +3808,17 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.KnowledgeSource"
                         }
                     ]
+                }
+            }
+        },
+        "types.AssistantWebSearch": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "max_results": {
+                    "type": "integer"
                 }
             }
         },
@@ -5846,6 +5862,9 @@ const docTemplate = `{
                 "reason": {
                     "type": "string"
                 },
+                "repeat_count": {
+                    "type": "integer"
+                },
                 "runner_id": {
                     "type": "string"
                 },
@@ -5876,21 +5895,24 @@ const docTemplate = `{
                 "reuse_warm_slot",
                 "create_new_slot",
                 "rejected",
-                "error"
+                "error",
+                "unschedulable"
             ],
             "x-enum-comments": {
                 "SchedulingDecisionTypeCreateNewSlot": "Started new model instance",
                 "SchedulingDecisionTypeError": "Error during scheduling",
                 "SchedulingDecisionTypeQueued": "Added to queue",
                 "SchedulingDecisionTypeRejected": "Rejected (insufficient resources, etc.)",
-                "SchedulingDecisionTypeReuseWarmSlot": "Reused existing warm model instance"
+                "SchedulingDecisionTypeReuseWarmSlot": "Reused existing warm model instance",
+                "SchedulingDecisionTypeUnschedulable": "Cannot be scheduled (no warm slots available)"
             },
             "x-enum-varnames": [
                 "SchedulingDecisionTypeQueued",
                 "SchedulingDecisionTypeReuseWarmSlot",
                 "SchedulingDecisionTypeCreateNewSlot",
                 "SchedulingDecisionTypeRejected",
-                "SchedulingDecisionTypeError"
+                "SchedulingDecisionTypeError",
+                "SchedulingDecisionTypeUnschedulable"
             ]
         },
         "types.Secret": {
@@ -6662,6 +6684,9 @@ const docTemplate = `{
                 "gptscript": {
                     "$ref": "#/definitions/types.ToolGPTScriptConfig"
                 },
+                "web_search": {
+                    "$ref": "#/definitions/types.ToolWebSearchConfig"
+                },
                 "zapier": {
                     "$ref": "#/definitions/types.ToolZapierConfig"
                 }
@@ -6688,6 +6713,17 @@ const docTemplate = `{
                 "script_url": {
                     "description": "URL to download the script",
                     "type": "string"
+                }
+            }
+        },
+        "types.ToolWebSearchConfig": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "max_results": {
+                    "type": "integer"
                 }
             }
         },
