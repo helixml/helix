@@ -3,6 +3,7 @@ import { Box, Typography, Tooltip, useTheme } from '@mui/material';
 import { TypesStepInfo } from '../../api/api';
 import { useListAppSteps } from '../../services/appService';
 import SkillExecutionDialog from './SkillExecutionDialog';
+import LLMCallDialog from './LLMCallDialog';
 
 interface LLMCall {
   id: string;
@@ -12,6 +13,11 @@ interface LLMCall {
   model?: string;
   response?: any;
   request?: any;
+  provider?: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  error?: string;
 }
 
 // RowData contains row data information. It can have set either llm_call or action_info (not both).
@@ -168,6 +174,8 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
   const [hoverX, setHoverX] = useState<number | null>(null);
   const [selectedStepInfo, setSelectedStepInfo] = useState<TypesStepInfo | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedLLMCall, setSelectedLLMCall] = useState<LLMCall | null>(null);
+  const [llmCallDialogOpen, setLlmCallDialogOpen] = useState(false);
   const theme = useTheme();
 
   const { data: steps, isLoading: isLoadingSteps } = useListAppSteps(appId, interactionId);
@@ -250,12 +258,20 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
     if (row.action_info) {
       setSelectedStepInfo(row.action_info);
       setDialogOpen(true);
+    } else if (row.llm_call) {
+      setSelectedLLMCall(row.llm_call);
+      setLlmCallDialogOpen(true);
     }
   };
 
   const handleCloseDialog = () => {
     setDialogOpen(false);
     setSelectedStepInfo(null);
+  };
+
+  const handleCloseLLMCallDialog = () => {
+    setLlmCallDialogOpen(false);
+    setSelectedLLMCall(null);
   };
 
   const [hoveredStepId, setHoveredStepId] = useState<string | null>(null);
@@ -377,7 +393,7 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
                     e.stopPropagation();
                     handleStepClick(d);
                   }}
-                  style={{ cursor: d.action_info ? 'pointer' : 'default' }}
+                  style={{ cursor: 'pointer' }}
                 >
                   <rect
                     x={x}
@@ -417,6 +433,20 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
                       Details
                     </text>
                   )}
+                  {d.llm_call && (
+                    <text
+                      x={x + barWidth - 8}
+                      y={y + BAR_HEIGHT / 2 + 4}
+                      fill="#fff"
+                      fontSize={9}
+                      fontFamily="inherit"
+                      pointerEvents="none"
+                      textAnchor="end"
+                      opacity={0.7}
+                    >
+                      Details
+                    </text>
+                  )}
                 </g>
               </Tooltip>
             );
@@ -428,6 +458,12 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
         open={dialogOpen}
         onClose={handleCloseDialog}
         stepInfo={selectedStepInfo}
+      />
+
+      <LLMCallDialog
+        open={llmCallDialogOpen}
+        onClose={handleCloseLLMCallDialog}
+        llmCall={selectedLLMCall}
       />
     </Box>
   );
