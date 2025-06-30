@@ -15,7 +15,7 @@ import (
 
 func NewSearchSkill(config *types.ToolWebSearchConfig, provider searxng.SearchProvider) agent.Skill {
 	return agent.Skill{
-		Name:        "Search",
+		Name:        "WebSearch",
 		Description: "Search the web for current information and recent data",
 		SystemPrompt: `You are a web search assistant that can search the internet for current information. 
 		Use the search tool to find recent news, facts, or any up-to-date information that the user requests.
@@ -39,7 +39,7 @@ func (t *searchTool) String() string {
 }
 
 func (t *searchTool) Name() string {
-	return "search"
+	return "web_search"
 }
 
 func (t *searchTool) Icon() string {
@@ -59,7 +59,7 @@ func (t *searchTool) OpenAI() []openai.Tool {
 		{
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
-				Name:        "search",
+				Name:        "web_search",
 				Description: "Search the web for current information. Use this when you need to find recent or up-to-date information about topics, news, events, or any current data.",
 				Parameters: jsonschema.Definition{
 					Type: jsonschema.Object,
