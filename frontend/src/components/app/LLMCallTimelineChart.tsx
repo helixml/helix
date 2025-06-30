@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { Box, Typography, Tooltip, useTheme } from '@mui/material';
 import { TypesStepInfo } from '../../api/api';
 import { useListAppSteps } from '../../services/appService';
+import SkillExecutionDialog from './SkillExecutionDialog';
 
 interface LLMCall {
   id: string;
@@ -165,6 +166,8 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(900);
   const [hoverX, setHoverX] = useState<number | null>(null);
+  const [selectedStepInfo, setSelectedStepInfo] = useState<TypesStepInfo | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const theme = useTheme();
 
   const { data: steps, isLoading: isLoadingSteps } = useListAppSteps(appId, interactionId);
@@ -241,6 +244,26 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
     return highlightedCallId === row.llm_call?.id
       ? 'url(#barHighlightGradient)'
       : 'url(#barGradient)';
+  };
+
+  const handleStepClick = (row: RowData) => {
+    if (row.action_info) {
+      setSelectedStepInfo(row.action_info);
+      setDialogOpen(true);
+    }
+  };
+
+  const handleCloseDialog = () => {
+    setDialogOpen(false);
+    setSelectedStepInfo(null);
+  };
+
+  const [hoveredStepId, setHoveredStepId] = useState<string | null>(null);
+
+  const handleStepHover = (row: RowData, isHovering: boolean) => {
+    if (row.action_info) {
+      setHoveredStepId(isHovering ? row.action_info.id || '' : null);
+    }
   };
 
   return (
@@ -340,9 +363,21 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
                 slotProps={{ tooltip: { sx: { bgcolor: '#222', opacity: 1 } } }}
               >
                 <g
-                  onMouseOver={() => onHoverCallId?.(d.llm_call?.id || null)}
-                  onMouseOut={() => onHoverCallId?.(null)}
-                  style={{ cursor: 'pointer' }}
+                  onMouseOver={(e) => {
+                    e.stopPropagation();
+                    onHoverCallId?.(d.llm_call?.id || null);
+                    handleStepHover(d, true);
+                  }}
+                  onMouseOut={(e) => {
+                    e.stopPropagation();
+                    onHoverCallId?.(null);
+                    handleStepHover(d, false);
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleStepClick(d);
+                  }}
+                  style={{ cursor: d.action_info ? 'pointer' : 'default' }}
                 >
                   <rect
                     x={x}
@@ -351,7 +386,12 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
                     height={BAR_HEIGHT}
                     rx={8}
                     fill={barColor(d)}
-                    style={{ filter: highlightedCallId === d.llm_call?.id ? 'drop-shadow(0 0 8px #ffb300)' : undefined }}
+                    style={{ 
+                      filter: highlightedCallId === d.llm_call?.id ? 'drop-shadow(0 0 8px #ffb300)' : 
+                              (d.action_info && hoveredStepId === d.action_info.id) ? 'drop-shadow(0 0 4px rgba(255, 255, 255, 0.3))' : undefined,
+                      transition: 'filter 0.2s ease-in-out',
+                      opacity: d.action_info && hoveredStepId === d.action_info.id ? 0.9 : 1,
+                    }}
                   />
                   <text
                     x={x + 6}
@@ -363,12 +403,32 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
                   >
                     {d.label}
                   </text>
+                  {d.action_info && (
+                    <text
+                      x={x + barWidth - 8}
+                      y={y + BAR_HEIGHT / 2 + 4}
+                      fill="#fff"
+                      fontSize={9}
+                      fontFamily="inherit"
+                      pointerEvents="none"
+                      textAnchor="end"
+                      opacity={0.7}
+                    >
+                      Details
+                    </text>
+                  )}
                 </g>
               </Tooltip>
             );
           })}
         </svg>
       </Box>
+      
+      <SkillExecutionDialog
+        open={dialogOpen}
+        onClose={handleCloseDialog}
+        stepInfo={selectedStepInfo}
+      />
     </Box>
   );
 };
