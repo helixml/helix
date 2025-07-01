@@ -565,7 +565,7 @@ func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint
 		}
 	}
 
-	freeMemory := totalMemory
+	var freeMemory uint64
 	if allocatedMemory < totalMemory {
 		freeMemory = totalMemory - allocatedMemory
 	} else {
