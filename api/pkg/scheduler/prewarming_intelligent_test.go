@@ -37,7 +37,8 @@ func TestIntelligentPrewarming_WithDefaultPrewarmModels(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test that default prewarm models are returned when no specific distribution exists
-	prewarmModels := scheduler.getPrewarmModels()
+	testRunnerID := "test-runner-1"
+	prewarmModels := scheduler.getPrewarmModels(testRunnerID)
 	require.Equal(t, 3, len(prewarmModels), "Should return default prewarm models from configuration")
 
 	// Verify the expected models are included
@@ -105,7 +106,8 @@ func TestIntelligentPrewarming_UnevenDistribution(t *testing.T) {
 	}, CacheConfig{updateInterval: time.Second}))
 
 	// Test intelligent selection
-	prewarmModels := scheduler.getPrewarmModels()
+	testRunnerID := "runner-3"
+	prewarmModels := scheduler.getPrewarmModels(testRunnerID)
 
 	// Should prioritize models with fewer instances
 	require.Greater(t, len(prewarmModels), 0, "Should select models for prewarming")
@@ -173,7 +175,8 @@ func TestIntelligentPrewarming_BalancedDistribution(t *testing.T) {
 	}, CacheConfig{updateInterval: time.Second}))
 
 	// Test with balanced distribution
-	prewarmModels := scheduler.getPrewarmModels()
+	testRunnerID := "runner-1"
+	prewarmModels := scheduler.getPrewarmModels(testRunnerID)
 
 	// With perfectly balanced distribution (difference <= 1), should prewarm all models
 	require.Equal(t, 3, len(prewarmModels), "Should prewarm all models when distribution is balanced")
@@ -211,7 +214,8 @@ func TestIntelligentPrewarming_EmptyCluster(t *testing.T) {
 	}, CacheConfig{updateInterval: time.Second}))
 
 	// Test with empty cluster - should prewarm models with lowest counts (all are 0)
-	prewarmModels := scheduler.getPrewarmModels()
+	testRunnerID := "runner-1"
+	prewarmModels := scheduler.getPrewarmModels(testRunnerID)
 
 	require.Greater(t, len(prewarmModels), 0, "Should prewarm models in empty cluster")
 	require.LessOrEqual(t, len(prewarmModels), 4, "Should not exceed total available prewarm models")
@@ -324,7 +328,9 @@ func TestSelectModelsForBalancing(t *testing.T) {
 		"model-zero":   0, // Zero instances
 	}
 
-	selectedModels := scheduler.selectModelsForBalancing(prewarmModels, modelCounts)
+	// Use large free memory for this test since we're testing distribution logic
+	freeMemory := uint64(100 * 1024 * 1024 * 1024) // 100GB
+	selectedModels := scheduler.selectModelsForMemoryAndDistribution(prewarmModels, modelCounts, freeMemory)
 
 	require.Greater(t, len(selectedModels), 0, "Should select models for balancing")
 

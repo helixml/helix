@@ -110,7 +110,7 @@ func TestPrewarmNewRunner_VerifyWorkloadCreation(t *testing.T) {
 	require.Greater(t, finalQueueSize, initialQueueSize, "Should enqueue workloads for default prewarm models")
 
 	// Get the specific models that should be prewarmed
-	prewarmModels := scheduler.getPrewarmModels()
+	prewarmModels := scheduler.getPrewarmModels(runnerID)
 	expectedWorkloads := len(prewarmModels)
 	actualWorkloads := finalQueueSize - initialQueueSize
 
@@ -279,4 +279,225 @@ func TestMultipleRunnerConnections(t *testing.T) {
 
 	t.Logf("Multiple runner connections: %d runners connected, %d prewarming workloads created",
 		len(runnerIDs), totalPrewarmWorkloads)
+}
+
+// TestPrewarmingMemoryAwareSelection tests the memory-first prewarming algorithm
+// which prioritizes filling GPU memory while improving model distribution
+func TestPrewarmingMemoryAwareSelection(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+
+	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub: ps,
+		Store:  mockStore,
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
+		RunnerController: runnerCtrl,
+		QueueSize:        50,
+	})
+	require.NoError(t, err)
+
+	// Simulate existing runners with balanced model distribution
+	runnerCtrl.OnConnectedHandler("existing-runner-1")
+	runnerCtrl.OnConnectedHandler("existing-runner-2")
+
+	// Mock slots for existing runners to simulate a scenario where models are well-distributed
+	// This could potentially cause the intelligent selection to be too conservative
+	mockSlots1 := []*types.RunnerSlot{
+		{Model: "Qwen/Qwen2.5-VL-7B-Instruct", Active: true},
+		{Model: "MrLight/dse-qwen2-2b-mrl-v1", Active: true},
+		{Model: "llama3.1:8b-instruct-q8_0", Active: true},
+	}
+	mockSlots2 := []*types.RunnerSlot{
+		{Model: "Qwen/Qwen2.5-VL-7B-Instruct", Active: true},
+		{Model: "MrLight/dse-qwen2-2b-mrl-v1", Active: true},
+		{Model: "llama3.1:8b-instruct-q8_0", Active: true},
+	}
+
+	runnerCtrl.slotsCache.Set("existing-runner-1", NewCache(ctx, func() (types.ListRunnerSlotsResponse, error) {
+		return types.ListRunnerSlotsResponse{Slots: mockSlots1}, nil
+	}, CacheConfig{updateInterval: time.Second}))
+
+	runnerCtrl.slotsCache.Set("existing-runner-2", NewCache(ctx, func() (types.ListRunnerSlotsResponse, error) {
+		return types.ListRunnerSlotsResponse{Slots: mockSlots2}, nil
+	}, CacheConfig{updateInterval: time.Second}))
+
+	// Set up prewarming callback
+	runnerCtrl.SetOnRunnerConnectedCallback(scheduler.PrewarmNewRunner)
+
+	initialQueueSize := len(scheduler.queue.Queue())
+
+	// Now connect a new runner - this is where the issue might occur
+	newRunnerID := "new-runner-3"
+	runnerCtrl.OnConnectedHandler(newRunnerID)
+
+	time.Sleep(100 * time.Millisecond)
+
+	finalQueueSize := len(scheduler.queue.Queue())
+	prewarmWorkloads := finalQueueSize - initialQueueSize
+
+	// The key assertion: even with "perfectly balanced" existing distribution,
+	// the new runner should still get prewarming workloads using memory-first selection
+	require.Greater(t, prewarmWorkloads, 0, "New runner should still get prewarming workloads even when existing distribution seems balanced")
+
+	// Verify the new runner was added
+	runners := runnerCtrl.RunnerIDs()
+	require.Contains(t, runners, newRunnerID, "New runner should be added to controller")
+
+	t.Logf("Memory-aware selection test: %d prewarming workloads created for new runner using memory-first algorithm", prewarmWorkloads)
+}
+
+// TestPrewarmingMemoryConstrainedSelection tests memory-constrained scenarios
+// where the algorithm must choose a subset of models based on available GPU memory
+func TestPrewarmingMemoryConstrainedSelection(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+
+	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub: ps,
+		Store:  mockStore,
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
+		RunnerController: runnerCtrl,
+		QueueSize:        50,
+	})
+	require.NoError(t, err)
+
+	// Create a scenario where models are heavily loaded on existing runners
+	// This might make the intelligent selection too conservative
+	runnerCtrl.OnConnectedHandler("heavy-runner-1")
+	runnerCtrl.OnConnectedHandler("heavy-runner-2")
+	runnerCtrl.OnConnectedHandler("heavy-runner-3")
+
+	// Mock slots to simulate heavily loaded runners with many instances of each model
+	mockHeavySlots := []*types.RunnerSlot{
+		// Multiple instances of each model to simulate heavy usage
+		{Model: "Qwen/Qwen2.5-VL-7B-Instruct", Active: true},
+		{Model: "Qwen/Qwen2.5-VL-7B-Instruct", Active: true},
+		{Model: "Qwen/Qwen2.5-VL-7B-Instruct", Active: true},
+		{Model: "MrLight/dse-qwen2-2b-mrl-v1", Active: true},
+		{Model: "MrLight/dse-qwen2-2b-mrl-v1", Active: true},
+		{Model: "MrLight/dse-qwen2-2b-mrl-v1", Active: true},
+		{Model: "llama3.1:8b-instruct-q8_0", Active: true},
+		{Model: "llama3.1:8b-instruct-q8_0", Active: true},
+		{Model: "llama3.1:8b-instruct-q8_0", Active: true},
+	}
+
+	// Set the same heavy load on all existing runners
+	for _, runnerID := range []string{"heavy-runner-1", "heavy-runner-2", "heavy-runner-3"} {
+		runnerCtrl.slotsCache.Set(runnerID, NewCache(ctx, func() (types.ListRunnerSlotsResponse, error) {
+			return types.ListRunnerSlotsResponse{Slots: mockHeavySlots}, nil
+		}, CacheConfig{updateInterval: time.Second}))
+	}
+
+	// Set up prewarming callback
+	runnerCtrl.SetOnRunnerConnectedCallback(scheduler.PrewarmNewRunner)
+
+	initialQueueSize := len(scheduler.queue.Queue())
+
+	// Connect a new runner to this heavily loaded cluster
+	newRunnerID := "new-runner-4"
+	runnerCtrl.OnConnectedHandler(newRunnerID)
+
+	time.Sleep(100 * time.Millisecond)
+
+	finalQueueSize := len(scheduler.queue.Queue())
+	prewarmWorkloads := finalQueueSize - initialQueueSize
+
+	// The critical test: even in a heavily loaded cluster where models seem "over-distributed",
+	// the new runner should still get prewarming workloads using memory-aware selection
+	require.Greater(t, prewarmWorkloads, 0, "New runner should get prewarming workloads even in heavily loaded cluster (memory-first algorithm should work)")
+
+	// Verify the new runner was added
+	runners := runnerCtrl.RunnerIDs()
+	require.Contains(t, runners, newRunnerID, "New runner should be added to controller")
+
+	t.Logf("Memory-constrained selection test: %d prewarming workloads created for new runner with limited memory", prewarmWorkloads)
+}
+
+// TestMemoryAwarePrewarming tests that prewarming prioritizes filling available GPU memory
+func TestMemoryAwarePrewarming(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+
+	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub: ps,
+		Store:  mockStore,
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
+		RunnerController: runnerCtrl,
+		QueueSize:        50,
+	})
+	require.NoError(t, err)
+
+	// Test runner with specific memory constraints
+	testRunnerID := "memory-test-runner"
+
+	// Mock the runner to have specific total memory - let's say 50GB total
+	totalMemory := uint64(50 * 1024 * 1024 * 1024) // 50GB
+	runnerCtrl.statusCache.Set(testRunnerID, NewCache(ctx, func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			TotalMemory: totalMemory,
+			Models: []*types.RunnerModelStatus{
+				{
+					ModelID:            "test-model",
+					DownloadInProgress: false,
+					Runtime:            types.RuntimeOllama,
+				},
+			},
+		}, nil
+	}, CacheConfig{updateInterval: time.Second}))
+
+	// Connect the test runner
+	runnerCtrl.OnConnectedHandler(testRunnerID)
+
+	// Get prewarm models for this specific runner
+	prewarmModels := scheduler.getPrewarmModels(testRunnerID)
+
+	// The memory-aware selection should have chosen models that fit within the 50GB limit
+	require.Greater(t, len(prewarmModels), 0, "Should select at least some models for prewarming")
+
+	// Verify that selected models don't exceed available memory
+	totalSelectedMemory := uint64(0)
+	for _, model := range prewarmModels {
+		totalSelectedMemory += model.Memory
+	}
+
+	require.LessOrEqual(t, totalSelectedMemory, totalMemory,
+		"Selected models should not exceed available memory (%d GB selected vs %d GB available)",
+		totalSelectedMemory/(1024*1024*1024), totalMemory/(1024*1024*1024))
+
+	// Log for visibility
+	t.Logf("Memory-aware prewarming test: selected %d models using %d GB out of %d GB available (%.1f%% utilization)",
+		len(prewarmModels),
+		totalSelectedMemory/(1024*1024*1024),
+		totalMemory/(1024*1024*1024),
+		float64(totalSelectedMemory)/float64(totalMemory)*100)
 }
