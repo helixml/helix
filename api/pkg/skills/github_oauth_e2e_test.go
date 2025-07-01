@@ -1,3 +1,6 @@
+//go:build oauth_integration
+// +build oauth_integration
+
 package skills
 
 import (
@@ -213,7 +216,7 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 }
 
 // setupTestLogging initializes the test log file and logger
-func (suite *GitHubOAuthE2ETestSuite) setupTestLogging(t *testing.T) error {
+func (suite *GitHubOAuthE2ETestSuite) setupTestLogging(_ *testing.T) error {
 	// Create test results directory if it doesn't exist
 	testResultsDir := "test_results"
 	if err := os.MkdirAll(testResultsDir, 0755); err != nil {
@@ -595,7 +598,7 @@ func (suite *GitHubOAuthE2ETestSuite) sendChatMessage(message string) (string, e
 }
 
 // validateGitHubResponse validates that the agent response contains GitHub-related information
-func (suite *GitHubOAuthE2ETestSuite) validateGitHubResponse(t *testing.T, questionNumber int, question, response string) {
+func (suite *GitHubOAuthE2ETestSuite) validateGitHubResponse(t *testing.T, questionNumber int, _ string, response string) {
 	// Convert to lowercase for easier matching
 	lowerResponse := strings.ToLower(response)
 
@@ -705,7 +708,7 @@ func (suite *GitHubOAuthE2ETestSuite) createTestUserAPIKey() (string, error) {
 }
 
 // cleanup cleans up test resources
-func (suite *GitHubOAuthE2ETestSuite) cleanup(t *testing.T) {
+func (suite *GitHubOAuthE2ETestSuite) cleanup(_ *testing.T) {
 	suite.logger.Info().Msg("=== Starting Test Cleanup ===")
 
 	// Close browser

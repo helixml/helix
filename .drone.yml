@@ -72,7 +72,7 @@ steps:
     
   commands:
     - cd api
-    - go test -v ./...
+    - go test -v -tags='!oauth_integration' ./...
   when:
     event:
     - push
@@ -120,6 +120,55 @@ steps:
     # Run tests
     - cd integration-test/api
     - go test -v ./...
+  when:
+    event:
+    - push
+  depends_on: [unit-test]
+
+- name: oauth-integration-test
+  image: golang:1.24-alpine3.21
+  environment:
+    # GitHub OAuth test credentials
+    GITHUB_SKILL_TEST_OAUTH_CLIENT_ID:
+      from_secret: github_skill_test_oauth_client_id
+    GITHUB_SKILL_TEST_OAUTH_CLIENT_SECRET:
+      from_secret: github_skill_test_oauth_client_secret
+    GITHUB_SKILL_TEST_OAUTH_USERNAME:
+      from_secret: github_skill_test_oauth_username
+    GITHUB_SKILL_TEST_OAUTH_PASSWORD:
+      from_secret: github_skill_test_oauth_password
+    GITHUB_SKILL_TEST_SETUP_PAT:
+      from_secret: github_skill_test_setup_pat
+    # Database config (running in a sidecar)
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DATABASE: postgres
+    TYPESENSE_URL: http://typesense:8108
+    TYPESENSE_API_KEY: typesense
+    TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+    RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+    KEYCLOAK_URL: http://keycloak:8080/auth
+    KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
+    KEYCLOAK_PASSWORD: oh-hallo-insecure-password
+    ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+    # Agent configuration
+    REASONING_MODEL_PROVIDER: openai
+    REASONING_MODEL: o3-mini    
+    REASONING_MODEL_EFFORT: none
+    GENERATION_MODEL_PROVIDER: openai
+    GENERATION_MODEL: gpt-4o
+    SMALL_REASONING_MODEL_PROVIDER: openai
+    SMALL_REASONING_MODEL: o3-mini
+    SMALL_REASONING_MODEL_EFFORT: none
+    SMALL_GENERATION_MODEL_PROVIDER: openai
+    SMALL_GENERATION_MODEL: gpt-4o-mini
+
+  commands:
+    # Run OAuth integration tests with specific build tag
+    - cd api
+    - go test -v -tags=oauth_integration ./pkg/skills/...
   when:
     event:
     - push
