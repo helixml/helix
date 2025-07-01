@@ -56,12 +56,25 @@ Remember: Your goal is to provide accurate, well-sourced information while maint
 
 const browserSkillDescription = `Use the browser to search the web, open URLs and read the content of the page`
 
+var browserSkillParameters = jsonschema.Definition{
+	Type: jsonschema.Object,
+	Properties: map[string]jsonschema.Definition{
+		"url": {
+			Type:        jsonschema.String,
+			Description: "The URL to visit",
+		},
+	},
+	Required: []string{"url"},
+}
+
 // NewBrowserSkill creates a new browser skill, this skill provides a tool to open URLs in a browser (Chrome runner)
 func NewBrowserSkill(config *types.ToolBrowserConfig, browser *browser.Browser) agent.Skill {
 	return agent.Skill{
 		Name:         "Browser",
 		Description:  browserSkillDescription,
 		SystemPrompt: browserMainPrompt,
+		Parameters:   browserSkillParameters,
+		Direct:       true,
 		Tools: []agent.Tool{
 			&BrowserTool{
 				browser:   browser,
@@ -107,16 +120,7 @@ func (t *BrowserTool) OpenAI() []openai.Tool {
 			Function: &openai.FunctionDefinition{
 				Name:        "Browser",
 				Description: browserSkillDescription,
-				Parameters: jsonschema.Definition{
-					Type: jsonschema.Object,
-					Properties: map[string]jsonschema.Definition{
-						"url": {
-							Type:        jsonschema.String,
-							Description: "The URL to visit",
-						},
-					},
-					Required: []string{"url"},
-				},
+				Parameters:  browserSkillParameters,
 			},
 		},
 	}

@@ -147,11 +147,7 @@ func (a *Agent) ConvertSkillsToTools() []openai.Tool {
 			Function: &openai.FunctionDefinition{
 				Name:        skill.Name,
 				Description: skill.Description,
-				// Parameters: jsonschema.Definition{
-				// 	Type: jsonschema.Object,
-				// 	// Required:   []string{""},
-				// 	// Properties: map[string]jsonschema.Definition{},
-				// },
+				Parameters:  skill.Parameters,
 			},
 		})
 	}
@@ -547,19 +543,30 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 			}
 
 			wg.Add(1)
-			go func(skill *Skill, toolID string) {
+			go func(skill *Skill, toolCall openai.ToolCall) {
 				defer wg.Done()
-				// Clone the messages again so all goroutines get different message history
-				result, err := a.SkillContextRunner(ctx, meta, messageHistory.Clone(), llm, outUserChannel, memoryBlock, skill, tool.ID, isConversational)
-				if err != nil {
-					log.Error().Err(err).Msg("Error running skill")
-					return
+				var result *openai.ChatCompletionMessage
+
+				// Basic skill are executed directly, improves performance and reduces the number of tokens used
+				if skill.Direct {
+					result, err = a.SkillDirectRunner(ctx, meta, skill, tool)
+					if err != nil {
+						log.Error().Err(err).Msg("Error running skill")
+						return
+					}
+				} else {
+					// Clone the messages again so all goroutines get different message history
+					result, err = a.SkillContextRunner(ctx, meta, messageHistory.Clone(), llm, outUserChannel, memoryBlock, skill, tool.ID, isConversational)
+					if err != nil {
+						log.Error().Err(err).Msg("Error running skill")
+						return
+					}
 				}
 
 				mu.Lock()
-				skillCallResults[toolID] = result
+				skillCallResults[toolCall.ID] = result
 				mu.Unlock()
-			}(skill, tool.ID)
+			}(skill, tool)
 		}
 
 		wg.Wait()
