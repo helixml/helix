@@ -27,13 +27,13 @@ import ApiIcon from '@mui/icons-material/Api';
 import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
+import { useSkills, convertBackendSkillToFrontend } from '../../hooks/useSkills';
 
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
 import { airQualityTool } from './examples/skillAirQualityApi';
 import { exchangeRatesSkill } from './examples/skillExchangeRatesApi';
 
-// OAuth Provider Skills
-// import { githubTool } from './examples/skillGithubApi';
+// OAuth Provider Skills (now served from backend via API)
 // import { gmailTool } from './examples/skillGmailApi';
 // import { googleDriveTool } from './examples/skillGoogleDriveApi';
 // import { googleCalendarTool } from './examples/skillGoogleCalendarApi';
@@ -199,16 +199,8 @@ const BASE_SKILLS: ISkill[] = [
     category: SKILL_CATEGORY_DATA,
     skill: exchangeRatesSkill,
   },
-  // OAuth Provider Skills
-  // {
-  //   id: 'github-api',
-  //   icon: githubTool.icon,
-  //   name: githubTool.name,
-  //   description: githubTool.description,
-  //   type: SKILL_TYPE_HTTP_API,
-  //   category: SKILL_CATEGORY_GITHUB,
-  //   skill: githubTool,
-  // },
+  // OAuth Provider Skills (now served from backend via API)
+  // GitHub skill migrated to backend: helix/api/pkg/skills/github.yaml
   // {
   //   id: 'gmail-api',
   //   icon: gmailTool.icon,
@@ -330,6 +322,9 @@ const Skills: React.FC<SkillsProps> = ({
   const api = useApi();
   const account = useAccount();
   const router = useRouter();
+
+  // Fetch backend skills using react-query
+  const { data: backendSkillsResponse, isLoading: isBackendSkillsLoading } = useSkills();
 
   const [selectedSkill, setSelectedSkill] = useState<IAgentSkill | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -487,10 +482,93 @@ const Skills: React.FC<SkillsProps> = ({
     return true;
   };
 
-  // All skills are now shown to everyone
+  // Convert backend skills to frontend format
+  const backendSkills = useMemo(() => {
+    if (!backendSkillsResponse?.skills) return [];
+    
+    return backendSkillsResponse.skills.map(backendSkill => {
+      // Determine category based on provider
+      let category = SKILL_CATEGORY_DATA;
+      if (backendSkill.oauthProvider) {
+        switch (backendSkill.oauthProvider.toLowerCase()) {
+          case 'google':
+            category = SKILL_CATEGORY_GOOGLE;
+            break;
+          case 'microsoft':
+            category = SKILL_CATEGORY_MICROSOFT;
+            break;
+          case 'github':
+            category = SKILL_CATEGORY_GITHUB;
+            break;
+          case 'slack':
+            category = SKILL_CATEGORY_SLACK;
+            break;
+          case 'linkedin':
+            category = SKILL_CATEGORY_LINKEDIN;
+            break;
+          case 'atlassian':
+            category = SKILL_CATEGORY_ATLASSIAN;
+            break;
+          default:
+            category = SKILL_CATEGORY_DATA;
+        }
+      }
+
+      // Create icon based on provider
+      let icon = <ApiIcon />;
+      if (backendSkill.oauthProvider) {
+        switch (backendSkill.oauthProvider.toLowerCase()) {
+          case 'github':
+            icon = <GitHubIcon />;
+            break;
+          case 'google':
+            icon = <GoogleIcon sx={{ color: '#4285F4' }} />;
+            break;
+          case 'microsoft':
+            icon = <MicrosoftIcon sx={{ color: '#00A1F1' }} />;
+            break;
+          case 'slack':
+            icon = <SlackLogo />;
+            break;
+          case 'linkedin':
+            icon = <LinkedInIcon sx={{ color: '#0077B5' }} />;
+            break;
+          case 'atlassian':
+            icon = <img src={atlassianLogo} style={{ width: 20, height: 20 }} alt="Atlassian" />;
+            break;
+          default:
+            icon = <ApiIcon />;
+        }
+      }
+
+      return {
+        id: `backend-${backendSkill.id}`,
+        icon,
+        name: backendSkill.displayName || backendSkill.name || 'Unknown Skill',
+        description: backendSkill.description || 'Backend-provided skill',
+        type: SKILL_TYPE_HTTP_API,
+        category,
+        skill: {
+          name: backendSkill.displayName || backendSkill.name || 'Unknown Skill',
+          description: backendSkill.description || '',
+          systemPrompt: backendSkill.systemPrompt || '',
+          apiSkill: {
+            schema: backendSkill.schema || '',
+            url: backendSkill.baseUrl || '',
+            requiredParameters: [],
+            oauth_provider: backendSkill.oauthProvider || '',
+            oauth_scopes: backendSkill.oauthScopes || [],
+          },
+          configurable: backendSkill.configurable || false,
+        },
+      } as ISkill;
+    });
+  }, [backendSkillsResponse]);
+
+  // All skills including backend skills
   const allSkills = useMemo(() => {
-    return [...BASE_SKILLS, ...customApiSkills, CUSTOM_API_SKILL];
-  }, [customApiSkills]);
+    return [...BASE_SKILLS, ...customApiSkills, ...backendSkills, CUSTOM_API_SKILL];
+  }, [customApiSkills, backendSkills]);
 
   const availableCategories = useMemo(() => {
     const categories = new Set<string>();
