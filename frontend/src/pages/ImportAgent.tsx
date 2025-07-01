@@ -10,6 +10,13 @@ import Divider from '@mui/material/Divider'
 import CircularProgress from '@mui/material/CircularProgress'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
+import Dialog from '@mui/material/Dialog'
+import DialogTitle from '@mui/material/DialogTitle'
+import DialogContent from '@mui/material/DialogContent'
+import DialogActions from '@mui/material/DialogActions'
+import List from '@mui/material/List'
+import ListItem from '@mui/material/ListItem'
+import ListItemText from '@mui/material/ListItemText'
 import { styled } from '@mui/material/styles'
 import * as yaml from 'yaml'
 import * as pako from 'pako'
@@ -29,6 +36,7 @@ import useApps from '../hooks/useApps'
 import { ICreateAgentParams } from '../contexts/apps'
 import useApi from '../hooks/useApi'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
+import { IModelSubstitution, IAppCreateResponse } from '../types'
 
 const CodeBlock = styled('pre')(({ theme }) => ({
   backgroundColor: '#0f0f0f',
@@ -363,6 +371,13 @@ const ImportAgent: FC = () => {
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string>('')
+  const [modelSubstitutions, setModelSubstitutions] = useState<IModelSubstitution[]>([])
+  const [showSubstitutionDialog, setShowSubstitutionDialog] = useState(false)
+  const [pendingNavigation, setPendingNavigation] = useState<{
+    appId: string
+    hasOAuthSkills: boolean
+    hasSeedZipUrl: boolean
+  } | null>(null)
 
   useEffect(() => {
     const parseConfigFromUrl = () => {
@@ -464,27 +479,23 @@ const ImportAgent: FC = () => {
 
     setImporting(true)
     
-    // Check if configData has the structured format with model_classes
-    let appData
-    if (configData.model_classes && configData.yaml_config) {
-      // This is the new structured format from Launchpad
-      appData = {
-        organization_id: account.organizationTools.organization?.id || configData.organization_id || '',
-        global: configData.global || false,
-        yaml_config: configData.yaml_config,
-        model_classes: configData.model_classes || []
-      }
-    } else {
-      // Legacy format - treat the entire configData as yaml_config
-      appData = {
-        organization_id: account.organizationTools.organization?.id || '',
-        global: false,
-        yaml_config: configData, // Pass the parsed YAML as-is
-      }
+    // Always expect the structured format from Launchpad with model_classes
+    if (!configData.model_classes || !configData.yaml_config) {
+      snackbar.error('Invalid agent configuration format. Please deploy from Launchpad.')
+      setImporting(false)
+      return
+    }
+
+    // Use the structured format from Launchpad
+    const appData = {
+      organization_id: account.organizationTools.organization?.id || configData.organization_id || '',
+      global: configData.global || false,
+      yaml_config: configData.yaml_config,
+      model_classes: configData.model_classes || []
     }
     
     // Post to the API with structured format
-    const result = await api.post('/api/v1/apps', appData, {
+    const result = await api.post<any, IAppCreateResponse>('/api/v1/apps', appData, {
       params: {
         create: true,
       }
@@ -497,37 +508,58 @@ const ImportAgent: FC = () => {
     })
 
     if (result) {
-      // Check if the imported config had seed_zip_url (knowledge data)
-      // Handle both structured format (yaml_config) and legacy format
+      // Check if the imported config had seed_zip_url (knowledge data) or OAuth skills
       const actualConfig = configData.yaml_config || configData
       const hasSeedZipUrl = (actualConfig as any)?.assistants?.[0]?.knowledge?.some((k: any) => k.source?.filestore?.seed_zip_url) ||
                            (actualConfig as any)?.spec?.assistants?.[0]?.knowledge?.some((k: any) => k.source?.filestore?.seed_zip_url)
       
-      // Check if the imported config has OAuth skills
       const hasOAuthSkills = (actualConfig as any)?.assistants?.[0]?.apis?.some((api: any) => api.oauth_provider) ||
                             (actualConfig as any)?.spec?.assistants?.[0]?.apis?.some((api: any) => api.oauth_provider)
       
-      console.log('Import detection - configData:', configData)
-      console.log('Import detection - actualConfig:', actualConfig)
-      console.log('Import detection - hasSeedZipUrl:', hasSeedZipUrl)
-      console.log('Import detection - hasOAuthSkills:', hasOAuthSkills)
-
-      // Navigate to the agent editor, jumping to appropriate tab based on what was imported
-      if (hasOAuthSkills) {
-        // Navigate directly to the skills tab since OAuth skills were imported
-        account.orgNavigate('app', { app_id: result.id }, { tab: 'skills' })
-        snackbar.success('Agent imported successfully! Please review OAuth skills and enable any required providers.')
-      } else if (hasSeedZipUrl) {
-        // Navigate directly to the knowledge tab since data was imported
-        account.orgNavigate('app', { app_id: result.id }, { tab: 'knowledge' })
-        snackbar.success('Agent imported successfully! Knowledge data is being processed.')
+      // Check for model substitutions
+      if (result.model_substitutions && result.model_substitutions.length > 0) {
+        setModelSubstitutions(result.model_substitutions)
+        setShowSubstitutionDialog(true)
+        
+        // Store navigation details for the dialog Continue button
+        setPendingNavigation({
+          appId: result.id,
+          hasOAuthSkills,
+          hasSeedZipUrl
+        })
       } else {
-        account.orgNavigate('app', { app_id: result.id })
-        snackbar.success('Agent imported successfully')
+        // Navigate immediately when no substitutions
+        navigateToApp(result.id, hasOAuthSkills, hasSeedZipUrl)
       }
     }
     
     setImporting(false)
+  }
+
+  const navigateToApp = (appId: string, hasOAuthSkills: boolean, hasSeedZipUrl: boolean) => {
+    // Navigate to the agent editor, jumping to appropriate tab based on what was imported
+    if (hasOAuthSkills) {
+      // Navigate directly to the skills tab since OAuth skills were imported
+      account.orgNavigate('app', { app_id: appId }, { tab: 'skills' })
+      snackbar.success('Agent imported successfully! Please review OAuth skills and enable any required providers.')
+    } else if (hasSeedZipUrl) {
+      // Navigate directly to the knowledge tab since data was imported
+      account.orgNavigate('app', { app_id: appId }, { tab: 'knowledge' })
+      snackbar.success('Agent imported successfully! Knowledge data is being processed.')
+    } else {
+      account.orgNavigate('app', { app_id: appId })
+      snackbar.success('Agent imported successfully')
+    }
+  }
+
+  const handleSubstitutionDialogClose = () => {
+    setShowSubstitutionDialog(false)
+    
+    // Navigate when dialog closes
+    if (pendingNavigation) {
+      navigateToApp(pendingNavigation.appId, pendingNavigation.hasOAuthSkills, pendingNavigation.hasSeedZipUrl)
+      setPendingNavigation(null)
+    }
   }
 
   if (loading) {
@@ -805,6 +837,81 @@ const ImportAgent: FC = () => {
           </CardContent>
         </ImportCard>
       </Container>
+
+      {/* Model Substitution Dialog */}
+      <Dialog 
+        open={showSubstitutionDialog} 
+        onClose={undefined}
+        disableEscapeKeyDown={true}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ 
+          background: `linear-gradient(135deg, ${themeConfig.tealRoot}15 0%, ${themeConfig.magentaRoot}15 100%)`,
+          borderBottom: `1px solid ${themeConfig.darkBorder}`,
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <WarningIcon sx={{ color: themeConfig.yellowRoot, mr: 2 }} />
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              Model Substitutions Applied
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
+          <Typography variant="body1" sx={{ mb: 3, color: themeConfig.darkTextFaded }}>
+            Some models in your agent configuration were not available and have been automatically 
+            substituted with compatible alternatives. The following changes were made:
+          </Typography>
+          
+          <List sx={{ bgcolor: themeConfig.darkPanel, borderRadius: 2 }}>
+            {modelSubstitutions.map((substitution, index) => (
+              <ListItem key={index} divider={index < modelSubstitutions.length - 1}>
+                <ListItemText
+                  primary={
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+                      {substitution.assistant_name}
+                    </Typography>
+                  }
+                  secondary={
+                    <Box>
+                      <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded, mb: 1 }}>
+                        <strong>Original:</strong> {substitution.original_provider} / {substitution.original_model}
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: themeConfig.tealRoot, mb: 1 }}>
+                        <strong>Substituted with:</strong> {substitution.new_provider} / {substitution.new_model}
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: themeConfig.darkTextFaded, fontSize: '0.85rem' }}>
+                        <em>Reason:</em> {substitution.reason}
+                      </Typography>
+                    </Box>
+                  }
+                />
+              </ListItem>
+            ))}
+          </List>
+
+          <Alert severity="info" sx={{ mt: 3 }}>
+            <Typography variant="body2">
+              You can change these model selections later in the agent editor if needed. 
+              The substituted models are compatible alternatives from the same performance class, but you should run the tests to ensure they work as expected.
+            </Typography>
+          </Alert>
+        </DialogContent>
+        <DialogActions sx={{ p: 3, borderTop: `1px solid ${themeConfig.darkBorder}` }}>
+          <Button 
+            onClick={handleSubstitutionDialogClose}
+            variant="contained"
+            sx={{
+              background: `linear-gradient(135deg, ${themeConfig.tealRoot} 0%, ${themeConfig.magentaRoot} 100%)`,
+              '&:hover': {
+                background: `linear-gradient(135deg, ${themeConfig.tealRoot}dd 0%, ${themeConfig.magentaRoot}dd 100%)`,
+              }
+            }}
+          >
+            Continue
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Page>
   )
 }
