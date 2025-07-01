@@ -8,6 +8,8 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
+//go:generate mockgen -source $GOFILE -destination tool_mocks.go -package $GOPACKAGE
+
 type Tool interface {
 	String() string
 	Name() string
