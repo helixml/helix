@@ -15,6 +15,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+//go:generate mockgen -source $GOFILE -destination observability_mocks.go -package $GOPACKAGE
+
 type StepInfoEmitter interface {
 	EmitStepInfo(ctx context.Context, info *types.StepInfo) error
 }

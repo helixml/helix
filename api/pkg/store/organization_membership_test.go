@@ -35,10 +35,6 @@ func (suite *OrganizationMembershipTestSuite) SetupTest() {
 	suite.Require().NoError(err)
 	suite.db = store
 
-	suite.T().Cleanup(func() {
-		_ = suite.db.Close()
-	})
-
 	// Create a test organization for all membership tests
 	orgID := system.GenerateOrganizationID()
 	org := &types.Organization{
@@ -62,6 +58,10 @@ func (suite *OrganizationMembershipTestSuite) SetupTest() {
 	createdUser, err := suite.db.CreateUser(suite.ctx, user)
 	suite.Require().NoError(err)
 	suite.user = createdUser
+}
+
+func (suite *OrganizationMembershipTestSuite) TearDownTestSuite() {
+	_ = suite.db.Close()
 }
 
 func (suite *OrganizationMembershipTestSuite) TearDownTest() {

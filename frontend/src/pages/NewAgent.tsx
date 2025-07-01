@@ -82,7 +82,7 @@ const PROVIDER_MODEL_PRESETS: Record<string, ProviderModelPreset> = {
     reasoningModelEffort: 'medium',
     generationModel: 'gpt-4o',
     smallReasoningModel: 'o3-mini',
-    smallReasoningModelEffort: 'small',
+    smallReasoningModelEffort: 'low',
     smallGenerationModel: 'gpt-4o-mini',
   },
   // TODO: fix google models

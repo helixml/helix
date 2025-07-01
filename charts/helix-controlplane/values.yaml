@@ -24,6 +24,12 @@ tika:
     repository: apache/tika
     tag: "2.9.2.1"
 
+searxng:
+  enabled: true
+  image:
+    repository: searxng/searxng
+    tag: "latest"
+
 chrome:
   enabled: true
   image:

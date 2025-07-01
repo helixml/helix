@@ -32,6 +32,7 @@ type ServerConfig struct {
 	Apps               Apps
 	GPTScript          GPTScript
 	Triggers           Triggers
+	Search             Search
 	SSL                SSL
 	Organizations      Organizations
 
@@ -58,6 +59,10 @@ type Inference struct {
 	Provider string `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
 
 	DefaultContextLimit int `envconfig:"INFERENCE_DEFAULT_CONTEXT_LIMIT" default:"10" description:"The default context limit for inference."`
+}
+
+type Search struct {
+	SearXNGBaseURL string `envconfig:"SEARCH_SEARXNG_BASE_URL" default:"http://searxng:8080"`
 }
 
 // Providers is used to configure the various AI providers that we use
@@ -484,11 +489,17 @@ type GPTScript struct {
 type Triggers struct {
 	Discord Discord
 	Cron    Cron
+	Slack   Slack
 }
 
 type Discord struct {
 	Enabled  bool   `envconfig:"DISCORD_ENABLED" default:"false"`
 	BotToken string `envconfig:"DISCORD_BOT_TOKEN"`
+}
+
+type Slack struct {
+	// Optional way to disable slack triggers across all apps/agents
+	Enabled bool `envconfig:"SLACK_ENABLED" default:"true"`
 }
 
 type Cron struct {
