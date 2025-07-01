@@ -31,7 +31,7 @@ func NewManager() *Manager {
 }
 
 // LoadSkills loads all embedded YAML skills
-func (m *Manager) LoadSkills(ctx context.Context) error {
+func (m *Manager) LoadSkills(_ context.Context) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
