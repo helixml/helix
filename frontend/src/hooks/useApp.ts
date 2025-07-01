@@ -406,6 +406,10 @@ export const useApp = (appId: string) => {
       assistants[0].browser = updates.browserTool
     }
 
+    if (updates.webSearchTool !== undefined) {
+      assistants[0].web_search = updates.webSearchTool
+    }
+
     if (updates.calculatorTool !== undefined) {
       assistants[0].calculator = updates.calculatorTool
     }
