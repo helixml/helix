@@ -15,7 +15,6 @@ import MicrosoftIcon from '@mui/icons-material/Microsoft';
 import EmailIcon from '@mui/icons-material/Email';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import LinkedInIcon from '@mui/icons-material/LinkedIn';
-import BusinessIcon from '@mui/icons-material/Business';
 import StorageIcon from '@mui/icons-material/Storage';
 import SearchIcon from '@mui/icons-material/Search';
 import { IAppFlatState, IAgentSkill } from '../../types';
@@ -32,6 +31,7 @@ import { useSkills, convertBackendSkillToFrontend } from '../../hooks/useSkills'
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
 import { airQualityTool } from './examples/skillAirQualityApi';
 import { exchangeRatesSkill } from './examples/skillExchangeRatesApi';
+import WebSearchSkill from './WebSearchSkill';
 
 // OAuth Provider Skills (now served from backend via API)
 // import { gmailTool } from './examples/skillGmailApi';
@@ -76,6 +76,7 @@ interface ISkill {
 
 const SKILL_TYPE_HTTP_API = 'HTTP API';
 const SKILL_TYPE_BROWSER = 'Browser';
+const SKILL_TYPE_WEB_SEARCH = 'Web Search';
 const SKILL_TYPE_CALCULATOR = 'Calculator';
 const SKILL_TYPE_EMAIL = 'Email';
 
@@ -126,6 +127,25 @@ const BASE_SKILLS: ISkill[] = [
     skill: {
       name: 'Browser',
       description: 'Enable the AI to browse websites and extract information from them.',
+      systemPrompt: '',
+      apiSkill: {
+        schema: '',
+        url: '',
+        requiredParameters: [],
+      },
+      configurable: true,
+    },
+  },
+  {
+    id: 'web-search',
+    icon: <SearchIcon />,
+    name: 'Web Search',
+    description: 'Enable the AI to search the web for current information. Can be used to build deep search style agents.',
+    type: SKILL_TYPE_WEB_SEARCH,
+    category: SKILL_CATEGORY_CORE,
+    skill: {
+      name: 'Web Search',
+      description: 'Enable the AI to search the web for current information.',
       systemPrompt: '',
       apiSkill: {
         schema: '',
@@ -476,12 +496,6 @@ const Skills: React.FC<SkillsProps> = ({
       });
   }, [app.apiTools]);
 
-  // Helper function to determine if an OAuth skill should be shown
-  const shouldShowOAuthSkill = (skill: ISkill): boolean => {
-    // Show all skills to all users - we'll handle disabled providers at click time
-    return true;
-  };
-
   // Convert backend skills to frontend format
   const backendSkills = useMemo(() => {
     if (!backendSkillsResponse?.skills) return [];
@@ -565,7 +579,7 @@ const Skills: React.FC<SkillsProps> = ({
     });
   }, [backendSkillsResponse]);
 
-  // All skills including backend skills
+  // All skills are now shown to everyone
   const allSkills = useMemo(() => {
     return [...BASE_SKILLS, ...customApiSkills, ...backendSkills, CUSTOM_API_SKILL];
   }, [customApiSkills, backendSkills]);
@@ -660,7 +674,11 @@ const Skills: React.FC<SkillsProps> = ({
   const [showOAuthProviderDialog, setShowOAuthProviderDialog] = useState(false);
   const [selectedOAuthProvider, setSelectedOAuthProvider] = useState<string>('');
 
-  const isSkillEnabled = (skillName: string): boolean => {
+  const isSkillEnabled = (skillName: string): boolean => {    
+    if (skillName === 'Web Search') {
+      console.log(app.webSearchTool)
+      return app.webSearchTool?.enabled ?? false;
+    }
     if (skillName === 'Browser') {
       return app.browserTool?.enabled ?? false;
     }
@@ -692,6 +710,13 @@ const Skills: React.FC<SkillsProps> = ({
           await onUpdate({
             ...app,
             browserTool: { enabled: false, markdown_post_processing: false },
+          });
+          return
+        }
+        if (skill.name === 'Web Search') {
+          await onUpdate({
+            ...app,
+            webSearchTool: { enabled: false, max_results: 10 },
           });
           return
         }
@@ -787,6 +812,23 @@ const Skills: React.FC<SkillsProps> = ({
         />
       );
     }
+
+    if (selectedSkill.name === 'Web Search') {
+      return (
+        <WebSearchSkill
+          open={isDialogOpen}
+          onClose={() => {
+            setIsDialogOpen(false);
+          }}
+          onClosed={() => {
+            setSelectedSkill(null);
+          }}
+          app={app}
+          onUpdate={onUpdate}
+          isEnabled={isSkillEnabled('Web Search')}
+        />
+      );
+    } 
 
     if (selectedSkill.name === 'Calculator') {
       return (

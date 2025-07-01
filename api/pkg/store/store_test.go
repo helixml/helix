@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/helixml/helix/api/pkg/config"
-	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -21,18 +19,9 @@ type PostgresStoreTestSuite struct {
 
 func (suite *PostgresStoreTestSuite) SetupTest() {
 	suite.ctx = context.Background()
+	suite.db = GetTestDB()
+}
 
-	var storeCfg config.Store
-
-	err := envconfig.Process("", &storeCfg)
-	suite.NoError(err)
-
-	store, err := NewPostgresStore(storeCfg)
-	suite.NoError(err)
-
-	suite.T().Cleanup(func() {
-		_ = store.Close()
-	})
-
-	suite.db = store
+func (suite *PostgresStoreTestSuite) TearDownTestSuite() {
+	// No need to close the database connection here as it's managed by TestMain
 }

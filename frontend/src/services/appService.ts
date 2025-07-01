@@ -7,6 +7,12 @@ export const appStepsQueryKey = (id: string, interactionId: string) => [
   interactionId
 ];
 
+export const appTriggerStatusQueryKey = (id: string, triggerType: string) => [
+  "app-trigger-status",
+  id,
+  triggerType
+];
+
 // useListSessionSteps returns the steps for a session, it includes
 // steps for all interactions in the session
 export function useListAppSteps(appId: string, interactionId: string, options?: { enabled?: boolean }) {
@@ -17,6 +23,19 @@ export function useListAppSteps(appId: string, interactionId: string, options?: 
     queryKey: appStepsQueryKey(appId, interactionId),
     queryFn: () => apiClient.v1AppsStepInfoDetail(appId, {interactionId}),
     enabled: options?.enabled ?? true
+  })
+}
+
+// useGetAppTriggerStatus returns the status of a specific trigger type for an app
+export function useGetAppTriggerStatus(appId: string, triggerType: string, options?: { enabled?: boolean, refetchInterval?: number }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: appTriggerStatusQueryKey(appId, triggerType),
+    queryFn: () => apiClient.v1AppsTriggerStatusDetail(appId, { trigger_type: triggerType }),
+    enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval
   })
 }
 

@@ -9,6 +9,8 @@ import {
   TypesToolBrowserConfig,
   TypesAssistantEmail,
   TypesToolEmailConfig,
+  TypesAssistantWebSearch,
+  TypesToolWebSearchConfig,
   TypesTrigger,
 } from './api/api'
 
@@ -471,7 +473,7 @@ export interface IShareSessionInstructions {
   addDocumentsMode?: boolean,
 }
 
-export type IToolType = 'api' | 'gptscript' | 'zapier'
+export type IToolType = 'api' | 'gptscript' | 'zapier' | 'web_search' | 'calculator' | 'email' | 'browser'
 
 export interface IToolApiAction {
   name: string,
@@ -513,6 +515,7 @@ export interface IToolConfig {
   browser?: TypesToolBrowserConfig,
   calculator?: TypesToolCalculatorConfig,
   email?: TypesToolEmailConfig,
+  web_search?: TypesToolWebSearchConfig,
 }
 
 export interface ITool {
@@ -648,6 +651,7 @@ export interface IAssistantConfig {
   gptscripts?: IAssistantGPTScript[];
   zapier?: IAssistantZapier[];
   browser?: TypesAssistantBrowser;
+  web_search?: TypesAssistantWebSearch;
   calculator?: TypesAssistantCalculator;
   email?: TypesAssistantEmail;
   
@@ -823,6 +827,7 @@ export interface IAppFlatState {
   zapierTools?: IAssistantZapier[]
   gptscriptTools?: IAssistantGPTScript[]
   browserTool?: TypesAssistantBrowser
+  webSearchTool?: TypesAssistantWebSearch
   calculatorTool?: TypesAssistantCalculator
   emailTool?: TypesAssistantEmail
   conversation_starters?: string[];

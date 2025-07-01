@@ -11,7 +11,6 @@ import {
   Button,
   Box,
   Typography,
-  Modal,
   Divider,
   Tooltip,
   IconButton,
@@ -24,13 +23,14 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import WarningIcon from '@mui/icons-material/Warning';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import useApi from '../../hooks/useApi';
 import { TypesPaginatedLLMCalls, TypesLLMCall } from '../../api/api';
-import JsonView from '../widgets/JsonView';
 import { LineChart } from '@mui/x-charts';
 import { TypesUsersAggregatedUsageMetric, TypesAggregatedUsageMetric } from '../../api/api';
 import useAccount from '../../hooks/useAccount';
 import LLMCallTimelineChart from './LLMCallTimelineChart';
+import LLMCallDialog from './LLMCallDialog';
 
 interface AppLogsTableProps {
   appId: string;
@@ -72,10 +72,10 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const [usageData, setUsageData] = useState<TypesUsersAggregatedUsageMetric[]>([]);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(100);
-  const [modalContent, setModalContent] = useState<any>(null);
-  const [modalOpen, setModalOpen] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [hoveredCallId, setHoveredCallId] = useState<string | null>(null);
+  const [selectedLLMCall, setSelectedLLMCall] = useState<TypesLLMCall | null>(null);
+  const [llmCallDialogOpen, setLlmCallDialogOpen] = useState(false);
 
   const headerCellStyle = {
     bgcolor: 'rgba(0, 0, 0, 0.2)',
@@ -140,15 +140,6 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const handleRefresh = () => {
     fetchLLMCalls();
     fetchUsageData();
-  };
-
-  const handleOpenModal = (content: any) => {
-    setModalContent(content);
-    setModalOpen(true);
-  };
-
-  const handleCloseModal = () => {
-    setModalOpen(false);
   };
 
   const toggleRow = (interactionId: string) => {
@@ -255,17 +246,36 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
 
   const chartData = prepareChartData();
 
+  const handleOpenLLMCallDialog = (call: TypesLLMCall) => {
+    setSelectedLLMCall(call);
+    setLlmCallDialogOpen(true);
+  };
+
+  const handleCloseLLMCallDialog = () => {
+    setLlmCallDialogOpen(false);
+    setSelectedLLMCall(null);
+  };
+
+  // Convert TypesLLMCall to LLMCall interface expected by LLMCallDialog
+  const convertToLLMCall = (call: TypesLLMCall) => ({
+    id: call.id || '',
+    created: call.created || '',
+    duration_ms: call.duration_ms || 0,
+    step: call.step,
+    model: call.model,
+    response: call.response,
+    request: call.request,
+    provider: call.provider,
+    prompt_tokens: call.prompt_tokens,
+    completion_tokens: call.completion_tokens,
+    total_tokens: call.total_tokens,
+    error: call.error,
+  });
+
   if (!llmCalls) return null;
 
   return (
-    <div 
-      // sx={{ 
-      //   width: '100%', 
-      //   overflow: 'hidden',
-        // bgcolor: 'transparent',
-        // backdropFilter: 'blur(10px)'
-      // }}
-    >
+    <div>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, mr: 2 }}>
         <Typography variant="h6">Token usage (last 7 days)</Typography>
         <Button startIcon={<RefreshIcon />} onClick={handleRefresh}>
@@ -334,15 +344,15 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
               <TableCell sx={headerCellStyle}>Time</TableCell>
               <TableCell sx={headerCellStyle}>Duration</TableCell>
               <TableCell sx={headerCellStyle}>Total Tokens</TableCell>
-              <TableCell sx={headerCellStyle}>Original Request</TableCell>
               <TableCell sx={headerCellStyle}>Status</TableCell>
+              <TableCell sx={headerCellStyle}>Details</TableCell>
               <TableCell sx={headerCellStyle}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             { win.DISABLE_LLM_CALL_LOGGING ? (
               <TableRow>
-                <TableCell colSpan={8}>LLM call logging is disabled by the administrator.</TableCell>
+                <TableCell colSpan={7}>LLM call logging is disabled by the administrator.</TableCell>
               </TableRow>
             ) : (
               groupedCalls.map((group) => (
@@ -381,22 +391,27 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                     <TableCell>{formatDuration(group.total_duration)}</TableCell>
                     <TableCell>{group.total_tokens}</TableCell>
                     <TableCell>
-                      {group.original_request && (
-                        <Button onClick={() => handleOpenModal(group.original_request)}>View</Button>
-                      )}
+                      <Button 
+                        color={group.status === 'ERROR' ? 'error' : 'primary'}
+                        disabled
+                      >
+                        {group.status}
+                      </Button>
                     </TableCell>
                     <TableCell>
                       <Button 
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           // Get the latest call (last in the array since we sorted by oldest first)
                           const latestCall = group.calls[group.calls.length - 1];
                           if (latestCall) {
-                            handleOpenModal(latestCall.error ? { error: latestCall.error } : latestCall.response);
+                            handleOpenLLMCallDialog(latestCall);
                           }
                         }}
-                        color={group.status === 'ERROR' ? 'error' : 'primary'}
+                        variant="outlined"
+                        size="small"
                       >
-                        {group.status}
+                        View Details
                       </Button>
                     </TableCell>
                     <TableCell>
@@ -408,7 +423,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
+                    <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={7}>
                       <Collapse in={expandedRows.has(group.interaction_id)} timeout="auto" unmountOnExit>
                         <Box sx={{ margin: 1 }}>
                           <Box sx={{ mb: 2, p: 2, bgcolor: 'rgba(0, 0, 0, 0.2)', borderRadius: 1 }}>
@@ -452,6 +467,11 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                               model: call.model,
                               response: call.response,
                               request: call.request,
+                              error: call.error,
+                              provider: call.provider,
+                              prompt_tokens: call.prompt_tokens,
+                              completion_tokens: call.completion_tokens,
+                              total_tokens: call.total_tokens,
                             }))}
                             onHoverCallId={setHoveredCallId}
                             highlightedCallId={hoveredCallId}
@@ -463,8 +483,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                                 <TableCell>Step</TableCell>
                                 <TableCell>Duration (ms)</TableCell>
                                 <TableCell>Model</TableCell>
-                                <TableCell>Request</TableCell>
-                                <TableCell>Response</TableCell>
+                                <TableCell>Details</TableCell>
                               </TableRow>
                             </TableHead>
                             <TableBody>
@@ -498,16 +517,13 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                                     </Tooltip>
                                   </TableCell>
                                   <TableCell>
-                                    <Button onClick={() => handleOpenModal(call.request)}>View</Button>
-                                  </TableCell>
-                                  <TableCell>
-                                    <Tooltip title={call.error || ''}>
-                                      <span>
-                                        <Button sx={{ mr: 3 }} onClick={() => handleOpenModal(call.error ? { error: call.error } : call.response)}>
-                                          {call.error ? 'View Error' : 'View'}
-                                        </Button>
-                                      </span>
-                                    </Tooltip>
+                                    <IconButton
+                                      onClick={() => handleOpenLLMCallDialog(call)}
+                                      size="small"
+                                      color="primary"
+                                    >
+                                      <VisibilityIcon />
+                                    </IconButton>
                                   </TableCell>
                                 </TableRow>
                               ))}
@@ -532,31 +548,12 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
         onPageChange={handleChangePage}
         onRowsPerPageChange={handleChangeRowsPerPage}
       />
-      <Modal
-        open={modalOpen}
-        onClose={handleCloseModal}
-        aria-labelledby="json-modal-title"
-        aria-describedby="json-modal-description"
-      >
-        <Box sx={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          width: '80%',
-          maxHeight: '80%',
-          bgcolor: '#070714',
-          border: '2px solid #000',
-          boxShadow: 24,
-          p: 4,
-          overflow: 'auto',
-        }}>
-          <Typography id="json-modal-title" variant="h6" component="h2" gutterBottom>
-            JSON Content
-          </Typography>
-          <JsonView data={modalContent} />
-        </Box>
-      </Modal>
+      
+      <LLMCallDialog
+        open={llmCallDialogOpen}
+        onClose={handleCloseLLMCallDialog}
+        llmCall={selectedLLMCall ? convertToLLMCall(selectedLLMCall) : null}
+      />
     </div>
   );
 };
