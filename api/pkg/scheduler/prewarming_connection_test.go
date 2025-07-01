@@ -281,9 +281,9 @@ func TestMultipleRunnerConnections(t *testing.T) {
 		len(runnerIDs), totalPrewarmWorkloads)
 }
 
-// TestPrewarmingIntelligentSelectionFallback tests the scenario where intelligent selection
-// might be too conservative and the fallback mechanism ensures pre-warming still works
-func TestPrewarmingIntelligentSelectionFallback(t *testing.T) {
+// TestPrewarmingMemoryAwareSelection tests the memory-first prewarming algorithm
+// which prioritizes filling GPU memory while improving model distribution
+func TestPrewarmingMemoryAwareSelection(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -346,19 +346,19 @@ func TestPrewarmingIntelligentSelectionFallback(t *testing.T) {
 	prewarmWorkloads := finalQueueSize - initialQueueSize
 
 	// The key assertion: even with "perfectly balanced" existing distribution,
-	// the new runner should still get prewarming workloads due to our fallback mechanism
+	// the new runner should still get prewarming workloads using memory-first selection
 	require.Greater(t, prewarmWorkloads, 0, "New runner should still get prewarming workloads even when existing distribution seems balanced")
 
 	// Verify the new runner was added
 	runners := runnerCtrl.RunnerIDs()
 	require.Contains(t, runners, newRunnerID, "New runner should be added to controller")
 
-	t.Logf("Intelligent selection fallback test: %d prewarming workloads created for new runner despite balanced existing distribution", prewarmWorkloads)
+	t.Logf("Memory-aware selection test: %d prewarming workloads created for new runner using memory-first algorithm", prewarmWorkloads)
 }
 
-// TestPrewarmingZeroSelectionFallback tests a scenario where intelligent selection
-// returns zero models and our fallback mechanism kicks in
-func TestPrewarmingZeroSelectionFallback(t *testing.T) {
+// TestPrewarmingMemoryConstrainedSelection tests memory-constrained scenarios
+// where the algorithm must choose a subset of models based on available GPU memory
+func TestPrewarmingMemoryConstrainedSelection(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -423,14 +423,14 @@ func TestPrewarmingZeroSelectionFallback(t *testing.T) {
 	prewarmWorkloads := finalQueueSize - initialQueueSize
 
 	// The critical test: even in a heavily loaded cluster where models seem "over-distributed",
-	// the new runner should still get prewarming workloads thanks to our fallback
-	require.Greater(t, prewarmWorkloads, 0, "New runner should get prewarming workloads even in heavily loaded cluster (fallback should activate)")
+	// the new runner should still get prewarming workloads using memory-aware selection
+	require.Greater(t, prewarmWorkloads, 0, "New runner should get prewarming workloads even in heavily loaded cluster (memory-first algorithm should work)")
 
 	// Verify the new runner was added
 	runners := runnerCtrl.RunnerIDs()
 	require.Contains(t, runners, newRunnerID, "New runner should be added to controller")
 
-	t.Logf("Zero selection fallback test: %d prewarming workloads created for new runner in heavily loaded cluster", prewarmWorkloads)
+	t.Logf("Memory-constrained selection test: %d prewarming workloads created for new runner with limited memory", prewarmWorkloads)
 }
 
 // TestMemoryAwarePrewarming tests that prewarming prioritizes filling available GPU memory
