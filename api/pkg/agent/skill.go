@@ -11,6 +11,8 @@ import (
 type Skill struct {
 	Name         string
 	Description  string
+	Direct       bool // If true, the skill can be executed directly without the skill context runner, examples: calculator, browser
+	Parameters   any  // Top level parameters for the skill
 	SystemPrompt string
 	Tools        []Tool
 }
