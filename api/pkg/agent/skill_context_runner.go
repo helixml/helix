@@ -286,3 +286,61 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 		ToolCallID: skillToolCallID,
 	}, nil
 }
+
+func (a *Agent) SkillDirectRunner(ctx context.Context, meta Meta, skill *Skill, toolCall openai.ToolCall) (*openai.ChatCompletionMessage, error) {
+	if len(skill.Tools) == 0 {
+		return nil, fmt.Errorf("skill %s has no tools", skill.Name)
+	}
+
+	// If we have more than one tool in a direct skill - not supported
+	if len(skill.Tools) > 1 {
+		return nil, fmt.Errorf("skill %s has more than one tool, direct skills are not supported", skill.Name)
+	}
+
+	log.Info().Str("skill", skill.Name).Str("arguments", toolCall.Function.Arguments).Msg("Running skill")
+
+	tool := skill.Tools[0]
+
+	arguments := map[string]interface{}{}
+	err := json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments)
+	if err != nil {
+		log.Error().Err(err).Msg("Error unmarshaling tool arguments")
+		return &openai.ChatCompletionMessage{
+			Role:       openai.ChatMessageRoleTool,
+			Content:    fmt.Sprintf("Error: failed to unmarshal tool arguments: %s", err.Error()),
+			ToolCallID: toolCall.ID,
+		}, nil
+	}
+
+	startTime := time.Now()
+
+	output, err := tool.Execute(ctx, meta, arguments)
+
+	stepInfo := &types.StepInfo{
+		Created:    startTime,
+		Name:       tool.Name(),
+		Icon:       tool.Icon(),
+		Type:       types.StepInfoTypeToolUse,
+		Message:    output,
+		Details:    types.StepInfoDetails{Arguments: arguments},
+		DurationMs: time.Since(startTime).Milliseconds(),
+	}
+
+	// Add error to the step info if it exists
+	if err != nil {
+		stepInfo.Error = err.Error()
+	}
+
+	// Instrument the output
+	_ = a.emitter.EmitStepInfo(ctx, stepInfo)
+
+	if err != nil {
+		return MessageWhenToolError(err.Error(), toolCall.ID), nil
+	}
+
+	return &openai.ChatCompletionMessage{
+		Role:       openai.ChatMessageRoleTool,
+		Content:    output,
+		ToolCallID: toolCall.ID,
+	}, nil
+}

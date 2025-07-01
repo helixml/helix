@@ -51,12 +51,25 @@ When using the calculator tool:
 Remember: Your goal is to provide accurate mathematical results while maintaining safety and clarity for the user. 
 You might receive a long conversation, identify the last required calculation and return the result.`
 
+var calculatorSkillParameters = jsonschema.Definition{
+	Type: jsonschema.Object,
+	Properties: map[string]jsonschema.Definition{
+		"expression": {
+			Type:        jsonschema.String,
+			Description: "The JavaScript mathematical expression to evaluate (e.g., '2 + 2', 'Math.sqrt(16)', '10 * (5 + 3)')",
+		},
+	},
+	Required: []string{"expression"},
+}
+
 // NewCalculatorSkill creates a new calculator skill that can evaluate JavaScript expressions
 func NewCalculatorSkill() agent.Skill {
 	return agent.Skill{
 		Name:         "Calculator",
 		Description:  "Evaluate mathematical expressions using JavaScript",
 		SystemPrompt: calculatorMainPrompt,
+		Parameters:   calculatorSkillParameters,
+		Direct:       true,
 		Tools: []agent.Tool{
 			&CalculatorTool{},
 		},
@@ -92,16 +105,7 @@ func (t *CalculatorTool) OpenAI() []openai.Tool {
 			Function: &openai.FunctionDefinition{
 				Name:        "Calculator",
 				Description: "Evaluate mathematical expressions using JavaScript",
-				Parameters: jsonschema.Definition{
-					Type: jsonschema.Object,
-					Properties: map[string]jsonschema.Definition{
-						"expression": {
-							Type:        jsonschema.String,
-							Description: "The JavaScript mathematical expression to evaluate (e.g., '2 + 2', 'Math.sqrt(16)', '10 * (5 + 3)')",
-						},
-					},
-					Required: []string{"expression"},
-				},
+				Parameters:  calculatorSkillParameters,
 			},
 		},
 	}
