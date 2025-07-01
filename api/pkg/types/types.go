@@ -1020,6 +1020,7 @@ const (
 	ToolTypeZapier     ToolType = "zapier"
 	ToolTypeCalculator ToolType = "calculator"
 	ToolTypeEmail      ToolType = "email"
+	ToolTypeWebSearch  ToolType = "web_search"
 )
 
 type Tool struct {
@@ -1037,6 +1038,7 @@ type ToolConfig struct {
 	GPTScript  *ToolGPTScriptConfig  `json:"gptscript"`
 	Zapier     *ToolZapierConfig     `json:"zapier"`
 	Browser    *ToolBrowserConfig    `json:"browser"`
+	WebSearch  *ToolWebSearchConfig  `json:"web_search"`
 	Calculator *ToolCalculatorConfig `json:"calculator"`
 	Email      *ToolEmailConfig      `json:"email"`
 }
@@ -1045,6 +1047,11 @@ type ToolBrowserConfig struct {
 	Enabled                bool `json:"enabled" yaml:"enabled"`
 	MarkdownPostProcessing bool `json:"markdown_post_processing" yaml:"markdown_post_processing"` // If true, the browser will return the HTML as markdown
 	// TODO: whitelist URLs?
+}
+
+type ToolWebSearchConfig struct {
+	Enabled    bool `json:"enabled" yaml:"enabled"`
+	MaxResults int  `json:"max_results" yaml:"max_results"`
 }
 
 type ToolEmailConfig struct {
@@ -1234,7 +1241,9 @@ type AssistantConfig struct {
 	GPTScripts []AssistantGPTScript `json:"gptscripts,omitempty" yaml:"gptscripts,omitempty"`
 	Zapier     []AssistantZapier    `json:"zapier,omitempty" yaml:"zapier,omitempty"`
 
-	Browser    AssistantBrowser    `json:"browser,omitempty" yaml:"browser,omitempty"`
+	Browser   AssistantBrowser   `json:"browser,omitempty" yaml:"browser,omitempty"`
+	WebSearch AssistantWebSearch `json:"web_search,omitempty" yaml:"web_search,omitempty"`
+
 	Calculator AssistantCalculator `json:"calculator,omitempty" yaml:"calculator,omitempty"`
 	Email      AssistantEmail      `json:"email,omitempty" yaml:"email,omitempty"`
 	Tools      []*Tool             `json:"tools,omitempty" yaml:"tools,omitempty"`
@@ -1249,6 +1258,11 @@ type AssistantBrowser struct {
 	Enabled                bool `json:"enabled" yaml:"enabled"`
 	MarkdownPostProcessing bool `json:"markdown_post_processing" yaml:"markdown_post_processing"` // If true, the browser will return the HTML as markdown
 	// TODO: whitelist URLs?
+}
+
+type AssistantWebSearch struct {
+	Enabled    bool `json:"enabled" yaml:"enabled"`
+	MaxResults int  `json:"max_results" yaml:"max_results"`
 }
 
 type AssistantCalculator struct {
@@ -1330,6 +1344,13 @@ type DiscordTrigger struct {
 	ServerName string `json:"server_name" yaml:"server_name"`
 }
 
+type SlackTrigger struct {
+	Enabled  bool     `json:"enabled,omitempty"`
+	AppToken string   `json:"app_token" yaml:"app_token"`
+	BotToken string   `json:"bot_token" yaml:"bot_token"`
+	Channels []string `json:"channels" yaml:"channels"`
+}
+
 type CronTrigger struct {
 	Enabled  bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	Schedule string `json:"schedule,omitempty" yaml:"schedule,omitempty"`
@@ -1338,6 +1359,7 @@ type CronTrigger struct {
 
 type Trigger struct {
 	Discord *DiscordTrigger `json:"discord,omitempty" yaml:"discord,omitempty"`
+	Slack   *SlackTrigger   `json:"slack,omitempty" yaml:"slack,omitempty"`
 	Cron    *CronTrigger    `json:"cron,omitempty" yaml:"cron,omitempty"`
 }
 
@@ -1940,4 +1962,30 @@ type SchedulingDecision struct {
 	WarmSlotCount    int                    `json:"warm_slot_count,omitempty"`
 	TotalSlotCount   int                    `json:"total_slot_count,omitempty"`
 	RepeatCount      int                    `json:"repeat_count,omitempty"`
+}
+
+// SlackThread used to track the state of slack threads where Helix agent is invoked
+type SlackThread struct {
+	ThreadKey string    `json:"thread_key" gorm:"primaryKey"`
+	AppID     string    `json:"app_id" gorm:"primaryKey"`
+	Channel   string    `json:"channel" gorm:"primaryKey"`
+	Created   time.Time `json:"created"`
+	Updated   time.Time `json:"updated"`
+
+	SessionID string `json:"session_id"`
+}
+
+type TriggerType string
+
+const (
+	TriggerTypeSlack TriggerType = "slack"
+	// TODO: discord
+)
+
+// TriggerStatus is used to provide trigger status
+// to the frontend (discord, slack bots, etc)
+type TriggerStatus struct {
+	Type    TriggerType `json:"type"`
+	OK      bool        `json:"ok"`
+	Message string      `json:"message"`
 }

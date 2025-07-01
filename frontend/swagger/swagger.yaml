@@ -33,6 +33,7 @@ definitions:
     - zapier
     - calculator
     - email
+    - web_search
     type: string
     x-enum-varnames:
     - ToolTypeAPI
@@ -41,6 +42,7 @@ definitions:
     - ToolTypeZapier
     - ToolTypeCalculator
     - ToolTypeEmail
+    - ToolTypeWebSearch
   github_com_helixml_helix_api_pkg_types.Usage:
     properties:
       completion_tokens:
@@ -836,6 +838,8 @@ definitions:
           0 - balanced
           2 - more creative
         type: number
+      web_search:
+        $ref: '#/definitions/types.AssistantWebSearch'
       zapier:
         items:
           $ref: '#/definitions/types.AssistantZapier'
@@ -895,6 +899,13 @@ definitions:
         description: |-
           Source defines where the raw data is fetched from. It can be
           directly uploaded files, S3, GCS, Google Drive, Gmail, etc.
+    type: object
+  types.AssistantWebSearch:
+    properties:
+      enabled:
+        type: boolean
+      max_results:
+        type: integer
     type: object
   types.AssistantZapier:
     properties:
@@ -1666,6 +1677,10 @@ definitions:
         $ref: '#/definitions/types.ModelType'
       updated:
         type: string
+      user_modified:
+        description: User modification tracking - system defaults are automatically
+          updated if this is false
+        type: boolean
     type: object
   types.ModelType:
     enum:
@@ -2319,6 +2334,8 @@ definitions:
         type: integer
       reason:
         type: string
+      repeat_count:
+        type: integer
       runner_id:
         type: string
       session_id:
@@ -2341,6 +2358,7 @@ definitions:
     - create_new_slot
     - rejected
     - error
+    - unschedulable
     type: string
     x-enum-comments:
       SchedulingDecisionTypeCreateNewSlot: Started new model instance
@@ -2348,12 +2366,14 @@ definitions:
       SchedulingDecisionTypeQueued: Added to queue
       SchedulingDecisionTypeRejected: Rejected (insufficient resources, etc.)
       SchedulingDecisionTypeReuseWarmSlot: Reused existing warm model instance
+      SchedulingDecisionTypeUnschedulable: Cannot be scheduled (no warm slots available)
     x-enum-varnames:
     - SchedulingDecisionTypeQueued
     - SchedulingDecisionTypeReuseWarmSlot
     - SchedulingDecisionTypeCreateNewSlot
     - SchedulingDecisionTypeRejected
     - SchedulingDecisionTypeError
+    - SchedulingDecisionTypeUnschedulable
   types.Secret:
     properties:
       app_id:
@@ -2676,6 +2696,19 @@ definitions:
     - SessionTypeNone
     - SessionTypeText
     - SessionTypeImage
+  types.SlackTrigger:
+    properties:
+      app_token:
+        type: string
+      bot_token:
+        type: string
+      channels:
+        items:
+          type: string
+        type: array
+      enabled:
+        type: boolean
+    type: object
   types.StepInfo:
     properties:
       app_id:
@@ -2888,6 +2921,8 @@ definitions:
         $ref: '#/definitions/types.ToolEmailConfig'
       gptscript:
         $ref: '#/definitions/types.ToolGPTScriptConfig'
+      web_search:
+        $ref: '#/definitions/types.ToolWebSearchConfig'
       zapier:
         $ref: '#/definitions/types.ToolZapierConfig'
     type: object
@@ -2907,6 +2942,13 @@ definitions:
         description: URL to download the script
         type: string
     type: object
+  types.ToolWebSearchConfig:
+    properties:
+      enabled:
+        type: boolean
+      max_results:
+        type: integer
+    type: object
   types.ToolZapierConfig:
     properties:
       api_key:
@@ -2922,7 +2964,24 @@ definitions:
         $ref: '#/definitions/types.CronTrigger'
       discord:
         $ref: '#/definitions/types.DiscordTrigger'
+      slack:
+        $ref: '#/definitions/types.SlackTrigger'
     type: object
+  types.TriggerStatus:
+    properties:
+      message:
+        type: string
+      ok:
+        type: boolean
+      type:
+        $ref: '#/definitions/types.TriggerType'
+    type: object
+  types.TriggerType:
+    enum:
+    - slack
+    type: string
+    x-enum-varnames:
+    - TriggerTypeSlack
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
@@ -3096,6 +3155,8 @@ info:
 paths:
   /api/v1/apps:
     get:
+      description: List apps for the user. Apps are pre-configured to spawn sessions
+        with specific tools and config.
       parameters:
       - description: Organization ID
         in: query
@@ -3110,6 +3171,9 @@ paths:
             type: array
       security:
       - BearerAuth: []
+      summary: List apps
+      tags:
+      - apps
     post:
       parameters:
       - description: Request body with app configuration. Can be legacy App format
@@ -3274,6 +3338,30 @@ paths:
       summary: Delete app avatar
       tags:
       - apps
+    get:
+      description: Get the app's avatar image
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - image/*
+      responses:
+        "200":
+          description: Avatar image data
+          schema:
+            type: file
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get app avatar
+      tags:
+      - apps
     post:
       consumes:
       - text/plain
@@ -3413,6 +3501,30 @@ paths:
       summary: List step info
       tags:
       - step_info
+  /api/v1/apps/{id}/trigger-status:
+    get:
+      description: Get the status of a specific trigger type for an app
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Trigger type (e.g., slack)
+        in: query
+        name: trigger_type
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.TriggerStatus'
+      security:
+      - BearerAuth: []
+      summary: Get app trigger status
+      tags:
+      - apps
   /api/v1/apps/{id}/user-access:
     get:
       description: Returns the access rights the current user has for this app
