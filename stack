@@ -301,7 +301,7 @@ function test() {
   export POSTGRES_HOST=localhost
 
   export KEYCLOAK_USER=admin
-  export KEYCLOAK_PASSWORD=REPLACE_ME
+  export KEYCLOAK_PASSWORD=oh-hallo-insecure-password
 
   export PGVECTOR_USER=postgres
   export PGVECTOR_PASSWORD=postgres
