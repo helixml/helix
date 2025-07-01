@@ -525,18 +525,65 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 		Msg("Completed slot reconciliation")
 }
 
-// calculateRunnerMemory calculates the current memory usage for a runner
-func (s *Scheduler) calculateRunnerMemory(runnerID string) (totalMemory, allocatedMemory, freeMemory uint64) {
-	totalMemory = s.controller.TotalMemory(runnerID)
-	allocatedMemory = 0
-	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
-		if slot.RunnerID == runnerID {
-			allocatedMemory += slot.Memory()
+// calculateRunnerMemory calculates the total, allocated, and free memory for a runner
+func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint64) {
+	// Get runner status
+	runnerStatus, err := s.controller.GetStatus(runnerID)
+	if err != nil {
+		log.Debug().
+			Str("runner_id", runnerID).
+			Err(err).
+			Msg("failed to get runner status for memory calculation")
+
+		// Fallback: assume reasonable default memory for testing/when runner not fully initialized
+		// This ensures prewarming works even when runner status is temporarily unavailable
+		defaultMemory := uint64(80 * 1024 * 1024 * 1024) // 80GB default
+		return defaultMemory, 0, defaultMemory
+	}
+
+	totalMemory := runnerStatus.TotalMemory
+	if totalMemory == 0 {
+		// Fallback: assume reasonable default memory
+		totalMemory = uint64(80 * 1024 * 1024 * 1024) // 80GB default
+		log.Debug().
+			Str("runner_id", runnerID).
+			Uint64("default_memory", totalMemory).
+			Msg("runner has no memory info, using default memory for prewarming")
+	}
+
+	// Calculate allocated memory from active models
+	allocatedMemory := uint64(0)
+	slots, err := s.controller.GetSlots(runnerID)
+	if err == nil {
+		for _, slot := range slots {
+			if slot.Active && slot.Model != "" {
+				// Get model memory from our prewarm models list
+				if modelMemory := s.getModelMemory(slot.Model); modelMemory > 0 {
+					allocatedMemory += modelMemory
+				}
+			}
 		}
-		return true
-	})
-	freeMemory = totalMemory - allocatedMemory
-	return
+	}
+
+	var freeMemory uint64
+	if allocatedMemory < totalMemory {
+		freeMemory = totalMemory - allocatedMemory
+	} else {
+		freeMemory = 0 // Over-allocated
+	}
+
+	return totalMemory, allocatedMemory, freeMemory
+}
+
+// getModelMemory returns the memory requirement for a model from our prewarm models list
+func (s *Scheduler) getModelMemory(modelID string) uint64 {
+	prewarmModels := s.getAllConfiguredPrewarmModels()
+	for _, model := range prewarmModels {
+		if model.ID == modelID {
+			return model.Memory
+		}
+	}
+	return 0
 }
 
 func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
@@ -1266,12 +1313,17 @@ func (s *Scheduler) PrewarmNewRunner(runnerID string) {
 	withContext.Info().Msg("prewarming new runner")
 
 	// Get models that should be prewarmed on this runner
-	prewarmModels := s.getPrewarmModels()
+	prewarmModels := s.getPrewarmModels(runnerID)
 	if len(prewarmModels) == 0 {
-		withContext.Debug().Msg("no prewarm models configured, skipping prewarming")
+		withContext.Warn().Msg("no prewarm models configured or selected, skipping prewarming")
 		return
 	}
 
+	withContext.Info().
+		Int("model_count", len(prewarmModels)).
+		Msg("starting prewarming for new runner")
+
+	successCount := 0
 	for _, model := range prewarmModels {
 		// Create a dummy workload for prewarming
 		prewarmWorkload := &Workload{
@@ -1304,32 +1356,59 @@ func (s *Scheduler) PrewarmNewRunner(runnerID string) {
 			withContext.Debug().
 				Str("model", model.ID).
 				Msg("enqueued prewarming workload")
+			successCount++
 		}
 	}
+
+	withContext.Info().
+		Int("total_models", len(prewarmModels)).
+		Int("successful_enqueues", successCount).
+		Msg("completed prewarming for new runner")
 }
 
-// getPrewarmModels returns models that should be prewarmed on new runners
-// Uses intelligent global distribution to balance models across the cluster
-func (s *Scheduler) getPrewarmModels() []*types.Model {
+// getPrewarmModels returns models that should be prewarmed on the specified runner
+// Uses memory-aware selection to maximize GPU utilization while improving distribution
+func (s *Scheduler) getPrewarmModels(runnerID string) []*types.Model {
 	// Get all models with Prewarm=true from configured models
 	allPrewarmModels := s.getAllConfiguredPrewarmModels()
 	if len(allPrewarmModels) == 0 {
 		return nil
 	}
 
-	// Analyze current global distribution of these models
-	modelCounts := s.analyzeGlobalModelDistribution(allPrewarmModels)
+	// Get available memory on the target runner
+	totalMemory, allocatedMemory, freeMemory := s.calculateRunnerMemory(runnerID)
 
-	// Select models for balancing (prioritize least-running models)
-	selectedModels := s.selectModelsForBalancing(allPrewarmModels, modelCounts)
+	log.Debug().
+		Str("runner_id", runnerID).
+		Uint64("total_memory", totalMemory).
+		Uint64("allocated_memory", allocatedMemory).
+		Uint64("free_memory", freeMemory).
+		Msg("calculated runner memory for prewarming")
 
-	if len(selectedModels) > 0 {
+	// Filter models that can fit in available memory
+	modelsWithMemory := s.selectModelsByMemory(allPrewarmModels, freeMemory)
+	if len(modelsWithMemory) == 0 {
 		log.Debug().
-			Int("prewarm_model_count", len(selectedModels)).
-			Int("total_available", len(allPrewarmModels)).
-			Interface("model_distribution", modelCounts).
-			Msg("selected models for intelligent prewarming")
+			Str("runner_id", runnerID).
+			Uint64("free_memory", freeMemory).
+			Msg("no prewarm models can fit in available memory")
+		return nil
 	}
+
+	// Analyze current global distribution of these models
+	modelCounts := s.analyzeGlobalModelDistribution(modelsWithMemory)
+
+	// Select models for prewarming: fill memory while improving distribution
+	selectedModels := s.selectModelsForMemoryAndDistribution(modelsWithMemory, modelCounts, freeMemory)
+
+	log.Debug().
+		Str("runner_id", runnerID).
+		Int("prewarm_model_count", len(selectedModels)).
+		Int("total_available", len(allPrewarmModels)).
+		Int("memory_compatible", len(modelsWithMemory)).
+		Uint64("free_memory", freeMemory).
+		Interface("model_distribution", modelCounts).
+		Msg("selected models for memory-aware prewarming")
 
 	return selectedModels
 }
@@ -1340,7 +1419,9 @@ func (s *Scheduler) getAllConfiguredPrewarmModels() []*types.Model {
 
 	// Check VLLM models
 	vllmModels, err := model.GetDefaultVLLMModels()
-	if err == nil {
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to get VLLM models for prewarming")
+	} else {
 		for _, m := range vllmModels {
 			if m.Prewarm {
 				prewarmModels = append(prewarmModels, &types.Model{
@@ -1355,7 +1436,9 @@ func (s *Scheduler) getAllConfiguredPrewarmModels() []*types.Model {
 
 	// Check Ollama models
 	ollamaModels, err := model.GetDefaultOllamaModels()
-	if err == nil {
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to get Ollama models for prewarming")
+	} else {
 		for _, m := range ollamaModels {
 			if m.Prewarm {
 				prewarmModels = append(prewarmModels, &types.Model{
@@ -1370,7 +1453,9 @@ func (s *Scheduler) getAllConfiguredPrewarmModels() []*types.Model {
 
 	// Check Diffusers models
 	diffusersModels, err := model.GetDefaultDiffusersModels()
-	if err == nil {
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to get Diffusers models for prewarming")
+	} else {
 		for _, m := range diffusersModels {
 			if m.Prewarm {
 				prewarmModels = append(prewarmModels, &types.Model{
@@ -1382,6 +1467,10 @@ func (s *Scheduler) getAllConfiguredPrewarmModels() []*types.Model {
 			}
 		}
 	}
+
+	log.Debug().
+		Int("total_prewarm_models", len(prewarmModels)).
+		Msg("loaded prewarm models from configuration")
 
 	return prewarmModels
 }
@@ -1397,13 +1486,16 @@ func (s *Scheduler) analyzeGlobalModelDistribution(prewarmModels []*types.Model)
 
 	// Count running instances across all runners
 	runners := s.controller.RunnerIDs()
+	availableRunners := 0
+
 	for _, runnerID := range runners {
 		slots, err := s.controller.GetSlots(runnerID)
 		if err != nil {
-			log.Warn().Str("runner_id", runnerID).Err(err).Msg("failed to get slots for global model analysis")
+			log.Debug().Str("runner_id", runnerID).Err(err).Msg("failed to get slots for global model analysis (runner may not be ready yet)")
 			continue
 		}
 
+		availableRunners++
 		for _, slot := range slots {
 			// Count active slots running prewarm models
 			if slot.Active {
@@ -1414,15 +1506,44 @@ func (s *Scheduler) analyzeGlobalModelDistribution(prewarmModels []*types.Model)
 		}
 	}
 
+	log.Debug().
+		Int("total_runners", len(runners)).
+		Int("available_runners", availableRunners).
+		Interface("model_counts", modelCounts).
+		Msg("analyzed global model distribution for prewarming")
+
 	return modelCounts
 }
 
-// selectModelsForBalancing chooses models to prewarm based on global distribution
-// Prioritizes models with fewer running instances to achieve better balance
-func (s *Scheduler) selectModelsForBalancing(prewarmModels []*types.Model, modelCounts map[string]int) []*types.Model {
+// selectModelsForMemoryAndDistribution chooses models to prewarm based on available memory and distribution
+// Primary goal: Fill available GPU memory. Secondary goal: Improve global distribution.
+func (s *Scheduler) selectModelsForMemoryAndDistribution(prewarmModels []*types.Model, modelCounts map[string]int, freeMemory uint64) []*types.Model {
 	if len(prewarmModels) == 0 {
 		return nil
 	}
+
+	// Calculate total memory needed for all compatible models
+	totalMemoryNeeded := uint64(0)
+	for _, model := range prewarmModels {
+		totalMemoryNeeded += model.Memory
+	}
+
+	// If all models can fit, prewarm them all (prioritize memory utilization)
+	if totalMemoryNeeded <= freeMemory {
+		log.Debug().
+			Int("model_count", len(prewarmModels)).
+			Uint64("total_memory_needed", totalMemoryNeeded).
+			Uint64("free_memory", freeMemory).
+			Msg("all compatible models fit in memory, prewarming all")
+		return prewarmModels
+	}
+
+	// Not all models can fit - use greedy selection prioritizing distribution
+	log.Debug().
+		Int("model_count", len(prewarmModels)).
+		Uint64("total_memory_needed", totalMemoryNeeded).
+		Uint64("free_memory", freeMemory).
+		Msg("not all models fit, using greedy selection based on distribution")
 
 	// Sort models by current count (ascending) to prioritize least-running models
 	type modelWithCount struct {
@@ -1438,52 +1559,57 @@ func (s *Scheduler) selectModelsForBalancing(prewarmModels []*types.Model, model
 		})
 	}
 
-	// Sort by count (ascending), then by model ID for deterministic ordering
+	// Sort by count (ascending), then by memory (ascending) for tie-breaking
 	sort.Slice(modelsWithCounts, func(i, j int) bool {
 		if modelsWithCounts[i].count != modelsWithCounts[j].count {
 			return modelsWithCounts[i].count < modelsWithCounts[j].count
 		}
-		return modelsWithCounts[i].model.ID < modelsWithCounts[j].model.ID
+		// If counts are equal, prefer smaller models (can fit more)
+		return modelsWithCounts[i].model.Memory < modelsWithCounts[j].model.Memory
 	})
 
-	// Select models for prewarming based on distribution strategy
+	// Greedy selection: pack models into available memory, prioritizing better distribution
 	selectedModels := []*types.Model{}
+	remainingMemory := freeMemory
 
-	// Strategy: Prewarm the models with lowest counts first
-	// This helps balance the global distribution
-	minCount := modelsWithCounts[0].count
-	maxCount := modelsWithCounts[len(modelsWithCounts)-1].count
-
-	// If distribution is perfectly balanced, prewarm all models
-	if maxCount-minCount <= 1 {
-		log.Debug().
-			Int("min_count", minCount).
-			Int("max_count", maxCount).
-			Msg("models well-balanced, prewarming all models")
-		for _, mwc := range modelsWithCounts {
+	for _, mwc := range modelsWithCounts {
+		if mwc.model.Memory <= remainingMemory {
 			selectedModels = append(selectedModels, mwc.model)
-		}
-	} else {
-		// Distribution is uneven - prioritize models with fewer instances
-		// Prewarm models that are significantly below the average
-		totalInstances := 0
-		for _, count := range modelCounts {
-			totalInstances += count
-		}
-		avgCount := float64(totalInstances) / float64(len(prewarmModels))
+			remainingMemory -= mwc.model.Memory
 
-		for _, mwc := range modelsWithCounts {
-			// Prewarm models that are below average or have the minimum count
-			if float64(mwc.count) < avgCount || mwc.count == minCount {
-				selectedModels = append(selectedModels, mwc.model)
-				log.Debug().
-					Str("model_id", mwc.model.ID).
-					Int("current_count", mwc.count).
-					Float64("avg_count", avgCount).
-					Msg("selected model for balancing prewarming")
-			}
+			log.Debug().
+				Str("model_id", mwc.model.ID).
+				Int("current_count", mwc.count).
+				Uint64("model_memory", mwc.model.Memory).
+				Uint64("remaining_memory", remainingMemory).
+				Msg("selected model for memory-aware prewarming")
+		} else {
+			log.Debug().
+				Str("model_id", mwc.model.ID).
+				Uint64("model_memory", mwc.model.Memory).
+				Uint64("remaining_memory", remainingMemory).
+				Msg("model too large for remaining memory, skipping")
 		}
 	}
 
+	log.Debug().
+		Int("selected_count", len(selectedModels)).
+		Int("total_candidates", len(prewarmModels)).
+		Uint64("memory_used", freeMemory-remainingMemory).
+		Uint64("memory_available", freeMemory).
+		Float64("memory_utilization", float64(freeMemory-remainingMemory)/float64(freeMemory)*100).
+		Msg("completed memory-aware model selection")
+
 	return selectedModels
+}
+
+// selectModelsByMemory filters models that can fit in the available memory
+func (s *Scheduler) selectModelsByMemory(prewarmModels []*types.Model, freeMemory uint64) []*types.Model {
+	filteredModels := []*types.Model{}
+	for _, model := range prewarmModels {
+		if model.Memory <= freeMemory {
+			filteredModels = append(filteredModels, model)
+		}
+	}
+	return filteredModels
 }
