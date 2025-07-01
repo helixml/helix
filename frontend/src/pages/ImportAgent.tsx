@@ -373,6 +373,11 @@ const ImportAgent: FC = () => {
   const [error, setError] = useState<string>('')
   const [modelSubstitutions, setModelSubstitutions] = useState<IModelSubstitution[]>([])
   const [showSubstitutionDialog, setShowSubstitutionDialog] = useState(false)
+  const [pendingNavigation, setPendingNavigation] = useState<{
+    appId: string
+    hasOAuthSkills: boolean
+    hasSeedZipUrl: boolean
+  } | null>(null)
 
   useEffect(() => {
     const parseConfigFromUrl = () => {
@@ -474,23 +479,19 @@ const ImportAgent: FC = () => {
 
     setImporting(true)
     
-    // Check if configData has the structured format with model_classes
-    let appData
-    if (configData.model_classes && configData.yaml_config) {
-      // This is the new structured format from Launchpad
-      appData = {
-        organization_id: account.organizationTools.organization?.id || configData.organization_id || '',
-        global: configData.global || false,
-        yaml_config: configData.yaml_config,
-        model_classes: configData.model_classes || []
-      }
-    } else {
-      // Legacy format - treat the entire configData as yaml_config
-      appData = {
-        organization_id: account.organizationTools.organization?.id || '',
-        global: false,
-        yaml_config: configData, // Pass the parsed YAML as-is
-      }
+    // Always expect the structured format from Launchpad with model_classes
+    if (!configData.model_classes || !configData.yaml_config) {
+      snackbar.error('Invalid agent configuration format. Please deploy from Launchpad.')
+      setImporting(false)
+      return
+    }
+
+    // Use the structured format from Launchpad
+    const appData = {
+      organization_id: account.organizationTools.organization?.id || configData.organization_id || '',
+      global: configData.global || false,
+      yaml_config: configData.yaml_config,
+      model_classes: configData.model_classes || []
     }
     
     // Post to the API with structured format
@@ -507,44 +508,58 @@ const ImportAgent: FC = () => {
     })
 
     if (result) {
-      // Check for model substitutions
-      if (result.model_substitutions && result.model_substitutions.length > 0) {
-        setModelSubstitutions(result.model_substitutions)
-        setShowSubstitutionDialog(true)
-      }
-
-      // Check if the imported config had seed_zip_url (knowledge data)
-      // Handle both structured format (yaml_config) and legacy format
+      // Check if the imported config had seed_zip_url (knowledge data) or OAuth skills
       const actualConfig = configData.yaml_config || configData
       const hasSeedZipUrl = (actualConfig as any)?.assistants?.[0]?.knowledge?.some((k: any) => k.source?.filestore?.seed_zip_url) ||
                            (actualConfig as any)?.spec?.assistants?.[0]?.knowledge?.some((k: any) => k.source?.filestore?.seed_zip_url)
       
-      // Check if the imported config has OAuth skills
       const hasOAuthSkills = (actualConfig as any)?.assistants?.[0]?.apis?.some((api: any) => api.oauth_provider) ||
                             (actualConfig as any)?.spec?.assistants?.[0]?.apis?.some((api: any) => api.oauth_provider)
       
-      console.log('Import detection - configData:', configData)
-      console.log('Import detection - actualConfig:', actualConfig)
-      console.log('Import detection - hasSeedZipUrl:', hasSeedZipUrl)
-      console.log('Import detection - hasOAuthSkills:', hasOAuthSkills)
-      console.log('Import detection - modelSubstitutions:', result.model_substitutions)
-
-      // Navigate to the agent editor, jumping to appropriate tab based on what was imported
-      if (hasOAuthSkills) {
-        // Navigate directly to the skills tab since OAuth skills were imported
-        account.orgNavigate('app', { app_id: result.id }, { tab: 'skills' })
-        snackbar.success('Agent imported successfully! Please review OAuth skills and enable any required providers.')
-      } else if (hasSeedZipUrl) {
-        // Navigate directly to the knowledge tab since data was imported
-        account.orgNavigate('app', { app_id: result.id }, { tab: 'knowledge' })
-        snackbar.success('Agent imported successfully! Knowledge data is being processed.')
+      // Check for model substitutions
+      if (result.model_substitutions && result.model_substitutions.length > 0) {
+        setModelSubstitutions(result.model_substitutions)
+        setShowSubstitutionDialog(true)
+        
+        // Store navigation details for the dialog Continue button
+        setPendingNavigation({
+          appId: result.id,
+          hasOAuthSkills,
+          hasSeedZipUrl
+        })
       } else {
-        account.orgNavigate('app', { app_id: result.id })
-        snackbar.success('Agent imported successfully')
+        // Navigate immediately when no substitutions
+        navigateToApp(result.id, hasOAuthSkills, hasSeedZipUrl)
       }
     }
     
     setImporting(false)
+  }
+
+  const navigateToApp = (appId: string, hasOAuthSkills: boolean, hasSeedZipUrl: boolean) => {
+    // Navigate to the agent editor, jumping to appropriate tab based on what was imported
+    if (hasOAuthSkills) {
+      // Navigate directly to the skills tab since OAuth skills were imported
+      account.orgNavigate('app', { app_id: appId }, { tab: 'skills' })
+      snackbar.success('Agent imported successfully! Please review OAuth skills and enable any required providers.')
+    } else if (hasSeedZipUrl) {
+      // Navigate directly to the knowledge tab since data was imported
+      account.orgNavigate('app', { app_id: appId }, { tab: 'knowledge' })
+      snackbar.success('Agent imported successfully! Knowledge data is being processed.')
+    } else {
+      account.orgNavigate('app', { app_id: appId })
+      snackbar.success('Agent imported successfully')
+    }
+  }
+
+  const handleSubstitutionDialogClose = () => {
+    setShowSubstitutionDialog(false)
+    
+    // Navigate when dialog closes
+    if (pendingNavigation) {
+      navigateToApp(pendingNavigation.appId, pendingNavigation.hasOAuthSkills, pendingNavigation.hasSeedZipUrl)
+      setPendingNavigation(null)
+    }
   }
 
   if (loading) {
@@ -826,7 +841,8 @@ const ImportAgent: FC = () => {
       {/* Model Substitution Dialog */}
       <Dialog 
         open={showSubstitutionDialog} 
-        onClose={() => setShowSubstitutionDialog(false)}
+        onClose={undefined}
+        disableEscapeKeyDown={true}
         maxWidth="md"
         fullWidth
       >
@@ -883,7 +899,7 @@ const ImportAgent: FC = () => {
         </DialogContent>
         <DialogActions sx={{ p: 3, borderTop: `1px solid ${themeConfig.darkBorder}` }}>
           <Button 
-            onClick={() => setShowSubstitutionDialog(false)}
+            onClick={handleSubstitutionDialogClose}
             variant="contained"
             sx={{
               background: `linear-gradient(135deg, ${themeConfig.tealRoot} 0%, ${themeConfig.magentaRoot} 100%)`,
