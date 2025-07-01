@@ -30,6 +30,7 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/scheduler"
+	"github.com/helixml/helix/api/pkg/searxng"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
@@ -385,6 +386,10 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("failed to create browser pool: %w", err)
 	}
 
+	searchProvider := searxng.NewSearXNG(&searxng.Config{
+		BaseURL: cfg.Search.SearXNGBaseURL,
+	})
+
 	controllerOptions := controller.Options{
 		Config:               cfg,
 		Store:                postgresStore,
@@ -400,6 +405,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		Scheduler:            scheduler,
 		RunnerController:     runnerController,
 		Browser:              browserPool,
+		SearchProvider:       searchProvider,
 	}
 
 	// Create the OAuth manager

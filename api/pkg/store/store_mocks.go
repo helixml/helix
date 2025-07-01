@@ -343,6 +343,21 @@ func (mr *MockStoreMockRecorder) CreateSession(ctx, session any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSession", reflect.TypeOf((*MockStore)(nil).CreateSession), ctx, session)
 }
 
+// CreateSlackThread mocks base method.
+func (m *MockStore) CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateSlackThread", ctx, thread)
+	ret0, _ := ret[0].(*types.SlackThread)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateSlackThread indicates an expected call of CreateSlackThread.
+func (mr *MockStoreMockRecorder) CreateSlackThread(ctx, thread any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSlackThread", reflect.TypeOf((*MockStore)(nil).CreateSlackThread), ctx, thread)
+}
+
 // CreateStepInfo mocks base method.
 func (m *MockStore) CreateStepInfo(ctx context.Context, stepInfo *types.StepInfo) (*types.StepInfo, error) {
 	m.ctrl.T.Helper()
@@ -684,6 +699,20 @@ func (m *MockStore) DeleteSession(ctx context.Context, id string) (*types.Sessio
 func (mr *MockStoreMockRecorder) DeleteSession(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSession", reflect.TypeOf((*MockStore)(nil).DeleteSession), ctx, id)
+}
+
+// DeleteSlackThread mocks base method.
+func (m *MockStore) DeleteSlackThread(ctx context.Context, olderThan time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteSlackThread", ctx, olderThan)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteSlackThread indicates an expected call of DeleteSlackThread.
+func (mr *MockStoreMockRecorder) DeleteSlackThread(ctx, olderThan any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSlackThread", reflect.TypeOf((*MockStore)(nil).DeleteSlackThread), ctx, olderThan)
 }
 
 // DeleteStepInfo mocks base method.
@@ -1204,6 +1233,21 @@ func (m *MockStore) GetSessionsCounter(ctx context.Context, query GetSessionsQue
 func (mr *MockStoreMockRecorder) GetSessionsCounter(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSessionsCounter", reflect.TypeOf((*MockStore)(nil).GetSessionsCounter), ctx, query)
+}
+
+// GetSlackThread mocks base method.
+func (m *MockStore) GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSlackThread", ctx, appID, channel, threadKey)
+	ret0, _ := ret[0].(*types.SlackThread)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSlackThread indicates an expected call of GetSlackThread.
+func (mr *MockStoreMockRecorder) GetSlackThread(ctx, appID, channel, threadKey any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSlackThread", reflect.TypeOf((*MockStore)(nil).GetSlackThread), ctx, appID, channel, threadKey)
 }
 
 // GetTeam mocks base method.

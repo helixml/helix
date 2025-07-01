@@ -33,9 +33,10 @@ func (suite *UsageMetricsTestSuite) SetupTest() {
 	suite.Require().NoError(err)
 	suite.db = store
 
-	suite.T().Cleanup(func() {
-		_ = suite.db.Close()
-	})
+}
+
+func (suite *UsageMetricsTestSuite) TearDownTestSuite() {
+	_ = suite.db.Close()
 }
 
 func (suite *UsageMetricsTestSuite) TestCreateAndGetUsageMetrics() {
