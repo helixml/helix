@@ -298,13 +298,12 @@ func (s *HelixAPIServer) findModelSubstitution(originalProvider, originalModel s
 				Str("original_model", originalModel).
 				Msg("No available alternatives found in matching class")
 			return nil
-		} else {
-			log.Debug().
-				Str("class_name", class.Name).
-				Str("original_provider", originalProvider).
-				Str("original_model", originalModel).
-				Msg("Original model not found in this class")
 		}
+		log.Debug().
+			Str("class_name", class.Name).
+			Str("original_provider", originalProvider).
+			Str("original_model", originalModel).
+			Msg("Original model not found in this class")
 	}
 
 	log.Info().
