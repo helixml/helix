@@ -42,29 +42,36 @@ type ModelClass struct {
 	Alternatives []AlternativeModelOption `json:"alternatives"`
 }
 
-// applyModelSubstitutions attempts to substitute unavailable models with available alternatives
-func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *types.User, app *types.App, modelClasses []ModelClass) error {
-	log.Info().
-		Str("user_id", user.ID).
-		Str("app_name", app.Config.Helix.Name).
-		Int("assistant_count", len(app.Config.Helix.Assistants)).
-		Int("model_class_count", len(modelClasses)).
-		Msg("Starting model substitution process")
+// ModelSubstitution represents a single model substitution that occurred
+type ModelSubstitution struct {
+	AssistantName    string `json:"assistant_name"`
+	OriginalProvider string `json:"original_provider"`
+	OriginalModel    string `json:"original_model"`
+	NewProvider      string `json:"new_provider"`
+	NewModel         string `json:"new_model"`
+	Reason           string `json:"reason"`
+}
 
-	// Get available providers for this user
+// AppCreateResponse extends the App type with additional creation metadata
+type AppCreateResponse struct {
+	*types.App
+	ModelSubstitutions []ModelSubstitution `json:"model_substitutions,omitempty"`
+}
+
+// applyModelSubstitutions applies model substitutions to the app configuration
+// Returns a list of substitutions that were made
+func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *types.User, app *types.App, modelClasses []ModelClass) ([]ModelSubstitution, error) {
+	var substitutions []ModelSubstitution
+
+	// Get available providers for the user
 	availableProviders, err := s.providerManager.ListProviders(ctx, user.ID)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("user_id", user.ID).
-			Msg("Failed to list available providers")
-		return fmt.Errorf("failed to list available providers: %w", err)
+			Msg("Failed to get available providers for model substitution")
+		return substitutions, err
 	}
-
-	log.Info().
-		Str("user_id", user.ID).
-		Interface("available_providers", availableProviders).
-		Msg("Retrieved available providers")
 
 	// Create a set of available providers for fast lookup
 	providerSet := make(map[types.Provider]bool)
@@ -72,69 +79,171 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 		providerSet[provider] = true
 	}
 
-	// Log initial state of all assistants
-	for i, assistant := range app.Config.Helix.Assistants {
-		log.Info().
-			Str("user_id", user.ID).
-			Int("assistant_index", i).
-			Str("assistant_name", assistant.Name).
-			Str("provider", assistant.Provider).
-			Str("model", assistant.Model).
-			Int("api_count", len(assistant.APIs)).
-			Int("knowledge_count", len(assistant.Knowledge)).
-			Int("conversation_starter_count", len(assistant.ConversationStarters)).
-			Msg("Initial assistant state")
-	}
+	log.Info().
+		Str("user_id", user.ID).
+		Interface("available_providers", availableProviders).
+		Msg("Available providers for model substitution")
 
-	// Check each assistant's model and substitute if necessary
+	// Apply substitutions to each assistant
 	for i := range app.Config.Helix.Assistants {
 		assistant := &app.Config.Helix.Assistants[i]
 
-		// Check if current provider/model combination is available
-		if assistant.Provider != "" && assistant.Model != "" {
-			currentProvider := types.Provider(assistant.Provider)
-			providerAvailable := providerSet[currentProvider]
+		log.Info().
+			Str("user_id", user.ID).
+			Str("assistant_name", assistant.Name).
+			Str("original_provider", assistant.Provider).
+			Str("original_model", assistant.Model).
+			Bool("agent_mode", assistant.AgentMode).
+			Msg("Processing assistant for model substitution")
 
-			// If the current provider is not available, try to find a substitution
-			if !providerAvailable {
-				// Try to find a substitution based on model class
-				substituted := s.findModelSubstitution(assistant.Provider, assistant.Model, modelClasses, providerSet)
-				if substituted != nil {
-					assistant.Provider = substituted.Provider
-					assistant.Model = substituted.Model
-				} else {
-					log.Warn().
+		// Helper function to apply substitution for a provider/model pair
+		applySubstitution := func(fieldName, originalProvider, originalModel string, setProvider func(string), setModel func(string)) {
+			if originalProvider == "" || originalModel == "" {
+				log.Debug().
+					Str("user_id", user.ID).
+					Str("assistant_name", assistant.Name).
+					Str("field_name", fieldName).
+					Str("original_provider", originalProvider).
+					Str("original_model", originalModel).
+					Msg("Skipping substitution for empty provider or model")
+				return
+			}
+
+			substitute := s.findModelSubstitution(originalProvider, originalModel, modelClasses, providerSet)
+			if substitute != nil {
+				// Only record a substitution if the provider or model actually changed
+				if substitute.Provider != originalProvider || substitute.Model != originalModel {
+					log.Info().
 						Str("user_id", user.ID).
 						Str("assistant_name", assistant.Name).
-						Str("original_provider", assistant.Provider).
-						Str("original_model", assistant.Model).
-						Msg("No suitable model substitution found")
+						Str("field_name", fieldName).
+						Str("original_provider", originalProvider).
+						Str("original_model", originalModel).
+						Str("substitute_provider", substitute.Provider).
+						Str("substitute_model", substitute.Model).
+						Msg("Applying model substitution")
+
+					// Record the substitution
+					substitutions = append(substitutions, ModelSubstitution{
+						AssistantName:    assistant.Name,
+						OriginalProvider: originalProvider,
+						OriginalModel:    originalModel,
+						NewProvider:      substitute.Provider,
+						NewModel:         substitute.Model,
+						Reason:           fmt.Sprintf("Original provider '%s' not available for %s", originalProvider, fieldName),
+					})
+
+					// Apply the substitution
+					setProvider(substitute.Provider)
+					setModel(substitute.Model)
+				} else {
+					log.Info().
+						Str("user_id", user.ID).
+						Str("assistant_name", assistant.Name).
+						Str("field_name", fieldName).
+						Str("original_provider", originalProvider).
+						Str("original_model", originalModel).
+						Msg("Original provider/model available, no substitution needed")
 				}
+			} else {
+				log.Info().
+					Str("user_id", user.ID).
+					Str("assistant_name", assistant.Name).
+					Str("field_name", fieldName).
+					Str("original_provider", originalProvider).
+					Str("original_model", originalModel).
+					Msg("No substitution found for provider/model combination")
 			}
-		} else {
-			log.Warn().
-				Str("user_id", user.ID).
-				Int("assistant_index", i).
-				Str("assistant_name", assistant.Name).
-				Str("provider", assistant.Provider).
-				Str("model", assistant.Model).
-				Msg("Skipping assistant with empty provider or model")
 		}
+
+		// Apply substitutions for all model fields
+
+		// Main provider/model
+		applySubstitution("provider/model", assistant.Provider, assistant.Model,
+			func(p string) { assistant.Provider = p },
+			func(m string) { assistant.Model = m })
+
+		// Agent mode model fields
+		if assistant.AgentMode {
+			// Reasoning model
+			applySubstitution("reasoning_model", assistant.ReasoningModelProvider, assistant.ReasoningModel,
+				func(p string) { assistant.ReasoningModelProvider = p },
+				func(m string) { assistant.ReasoningModel = m })
+
+			// Generation model
+			applySubstitution("generation_model", assistant.GenerationModelProvider, assistant.GenerationModel,
+				func(p string) { assistant.GenerationModelProvider = p },
+				func(m string) { assistant.GenerationModel = m })
+
+			// Small reasoning model
+			applySubstitution("small_reasoning_model", assistant.SmallReasoningModelProvider, assistant.SmallReasoningModel,
+				func(p string) { assistant.SmallReasoningModelProvider = p },
+				func(m string) { assistant.SmallReasoningModel = m })
+
+			// Small generation model
+			applySubstitution("small_generation_model", assistant.SmallGenerationModelProvider, assistant.SmallGenerationModel,
+				func(p string) { assistant.SmallGenerationModelProvider = p },
+				func(m string) { assistant.SmallGenerationModel = m })
+		}
+
+		log.Info().
+			Str("user_id", user.ID).
+			Str("assistant_name", assistant.Name).
+			Str("final_provider", assistant.Provider).
+			Str("final_model", assistant.Model).
+			Str("final_reasoning_provider", assistant.ReasoningModelProvider).
+			Str("final_reasoning_model", assistant.ReasoningModel).
+			Str("final_generation_provider", assistant.GenerationModelProvider).
+			Str("final_generation_model", assistant.GenerationModel).
+			Str("final_small_reasoning_provider", assistant.SmallReasoningModelProvider).
+			Str("final_small_reasoning_model", assistant.SmallReasoningModel).
+			Str("final_small_generation_provider", assistant.SmallGenerationModelProvider).
+			Str("final_small_generation_model", assistant.SmallGenerationModel).
+			Bool("agent_mode", assistant.AgentMode).
+			Msg("Assistant model substitution completed")
 	}
 
-	return nil
+	log.Info().
+		Str("user_id", user.ID).
+		Int("substitution_count", len(substitutions)).
+		Msg("Model substitution process completed")
+
+	return substitutions, nil
 }
 
 // findModelSubstitution finds the first available model from the alternatives list
-func (s *HelixAPIServer) findModelSubstitution(originalProvider, originalModel string, modelClasses []ModelClass, availableProviders map[types.Provider]bool) *AlternativeModelOption {
-	// Try to find alternatives for each model class in order
-	for classIndex, modelClass := range modelClasses {
-		// Check if the original provider/model combination appears in this class's list
-		modelFound := false
-		for altIndex, alt := range modelClass.Alternatives {
+func (s *HelixAPIServer) findModelSubstitution(originalProvider, originalModel string, modelClasses []ModelClass, providerSet map[types.Provider]bool) *AlternativeModelOption {
+	log.Debug().
+		Str("original_provider", originalProvider).
+		Str("original_model", originalModel).
+		Int("model_class_count", len(modelClasses)).
+		Msg("Starting model substitution lookup")
+
+	// First check if the original provider is available
+	if providerSet[types.Provider(originalProvider)] {
+		log.Debug().
+			Str("original_provider", originalProvider).
+			Str("original_model", originalModel).
+			Msg("Original provider is available, no substitution needed")
+		return nil
+	}
+
+	// Original provider is not available, look for substitutions
+	for classIndex, class := range modelClasses {
+		log.Debug().
+			Int("class_index", classIndex).
+			Str("class_name", class.Name).
+			Int("alternatives_count", len(class.Alternatives)).
+			Str("original_provider", originalProvider).
+			Str("original_model", originalModel).
+			Msg("Checking model class for original model")
+
+		// Check if the original provider/model combination exists in this class
+		found := false
+		for altIndex, alt := range class.Alternatives {
 			log.Debug().
 				Int("class_index", classIndex).
-				Str("class_name", modelClass.Name).
+				Str("class_name", class.Name).
 				Int("alternative_index", altIndex).
 				Str("alt_provider", alt.Provider).
 				Str("alt_model", alt.Model).
@@ -145,37 +254,35 @@ func (s *HelixAPIServer) findModelSubstitution(originalProvider, originalModel s
 				Msg("Comparing alternative with original")
 
 			if alt.Provider == originalProvider && alt.Model == originalModel {
-				modelFound = true
-				log.Info().
-					Str("class_name", modelClass.Name).
-					Str("original_provider", originalProvider).
-					Str("original_model", originalModel).
-					Msg("Found original model in class, will try alternatives")
+				found = true
 				break
 			}
 		}
 
-		// If the original model is found in this class, try alternatives from this class
-		if modelFound {
+		if found {
 			log.Info().
-				Str("class_name", modelClass.Name).
-				Int("alternatives_count", len(modelClass.Alternatives)).
+				Str("class_name", class.Name).
+				Str("original_provider", originalProvider).
+				Str("original_model", originalModel).
+				Msg("Found original model in class, will try alternatives")
+
+			// Found the original model in this class, now look for available alternatives
+			log.Info().
+				Str("class_name", class.Name).
+				Int("alternatives_count", len(class.Alternatives)).
 				Msg("Trying alternatives from matching class")
 
-			// Try each alternative in order of preference
-			for altIndex, alt := range modelClass.Alternatives {
-				providerAvailable := availableProviders[types.Provider(alt.Provider)]
-
+			for altIndex, alt := range class.Alternatives {
 				log.Debug().
 					Int("alternative_index", altIndex).
 					Str("alt_provider", alt.Provider).
 					Str("alt_model", alt.Model).
-					Bool("provider_available", providerAvailable).
+					Bool("provider_available", providerSet[types.Provider(alt.Provider)]).
 					Msg("Checking alternative availability")
 
-				if providerAvailable {
+				if providerSet[types.Provider(alt.Provider)] {
 					log.Info().
-						Str("class_name", modelClass.Name).
+						Str("class_name", class.Name).
 						Str("original_provider", originalProvider).
 						Str("original_model", originalModel).
 						Str("substituted_provider", alt.Provider).
@@ -185,27 +292,24 @@ func (s *HelixAPIServer) findModelSubstitution(originalProvider, originalModel s
 				}
 			}
 
-			log.Warn().
-				Str("class_name", modelClass.Name).
+			log.Info().
+				Str("class_name", class.Name).
 				Str("original_provider", originalProvider).
 				Str("original_model", originalModel).
-				Msg("No available providers found in matching class")
-		} else {
-			log.Debug().
-				Str("class_name", modelClass.Name).
-				Str("original_provider", originalProvider).
-				Str("original_model", originalModel).
-				Msg("Original model not found in this class")
+				Msg("No available alternatives found in matching class")
+			return nil
 		}
+		log.Debug().
+			Str("class_name", class.Name).
+			Str("original_provider", originalProvider).
+			Str("original_model", originalModel).
+			Msg("Original model not found in this class")
 	}
 
-	log.Warn().
+	log.Info().
 		Str("original_provider", originalProvider).
 		Str("original_model", originalModel).
-		Msg("No suitable model substitution found in any class")
-
-	// If no class-specific match found, don't fall back to random alternatives
-	// Only substitute models that are explicitly listed in substitution classes
+		Msg("No substitution found - original model not found in any class")
 	return nil
 }
 
@@ -346,11 +450,11 @@ func (s *HelixAPIServer) listOrganizationApps(ctx context.Context, user *types.U
 // @Description Create new app. Helix apps are configured with tools and knowledge. Supports both legacy format and new structured format with YAML config.
 // @Tags    apps
 
-// @Success 200 {object} types.App
+// @Success 200 {object} AppCreateResponse
 // @Param request    body types.App true "Request body with app configuration. Can be legacy App format or structured format with organization_id, global, and yaml_config fields.")
 // @Router /api/v1/apps [post]
 // @Security BearerAuth
-func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
+func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*AppCreateResponse, *system.HTTPError) {
 	user := getRequestUser(r)
 	ctx := r.Context()
 
@@ -423,6 +527,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	app.Updated = time.Now()
 
 	// Apply model substitutions BEFORE validation if provided
+	var modelSubstitutions []ModelSubstitution
 	if len(modelClasses) > 0 {
 		log.Info().
 			Str("user_id", user.ID).
@@ -431,19 +536,22 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 			Int("model_class_count", len(modelClasses)).
 			Msg("Applying model substitutions before validation")
 
-		err = s.applyModelSubstitutions(ctx, user, app, modelClasses)
+		substitutions, err := s.applyModelSubstitutions(ctx, user, app, modelClasses)
 		if err != nil {
 			log.Error().
 				Err(err).
 				Str("user_id", user.ID).
 				Str("app_name", app.Config.Helix.Name).
 				Msg("Failed to apply model substitutions, proceeding with original models")
+		} else {
+			modelSubstitutions = substitutions
 		}
 
 		log.Info().
 			Str("user_id", user.ID).
 			Str("app_name", app.Config.Helix.Name).
 			Int("assistant_count_after_substitution", len(app.Config.Helix.Assistants)).
+			Int("substitutions_made", len(modelSubstitutions)).
 			Msg("Model substitution completed")
 	} else {
 		log.Info().
@@ -453,7 +561,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 			Msg("No model classes provided, skipping substitution")
 	}
 
-	err = s.validateProviderAndModel(ctx, user, app)
+	err = s.validateProvidersAndModels(ctx, user, app)
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
@@ -556,49 +664,109 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	return created, nil
+	return &AppCreateResponse{
+		App:                created,
+		ModelSubstitutions: modelSubstitutions,
+	}, nil
 }
 
-// validateProviderAndModel checks if the provider and model are valid. Provider
+// validateProvidersAndModels checks if the provider and model are valid. Provider
 // can be empty, however model is required
-func (s *HelixAPIServer) validateProviderAndModel(ctx context.Context, user *types.User, app *types.App) error {
-	if len(app.Config.Helix.Assistants) == 0 {
-		log.Error().
-			Str("user_id", user.ID).
-			Str("app_name", app.Config.Helix.Name).
-			Msg("Validation failed: app has no assistants")
-		return fmt.Errorf("app must have at least one assistant")
-	}
-
+func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *types.User, app *types.App) error {
+	// Get available providers for the user
 	providers, err := s.providerManager.ListProviders(ctx, user.ID)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("user_id", user.ID).
-			Msg("Failed to list providers during validation")
-		return fmt.Errorf("failed to list models: %w", err)
+			Msg("Failed to get available providers during validation")
+		return fmt.Errorf("failed to get available providers: %w", err)
 	}
 
-	// Validate providers
-	for _, assistant := range app.Config.Helix.Assistants {
-		if assistant.Model == "" && !assistant.AgentMode {
+	log.Info().
+		Str("user_id", user.ID).
+		Interface("available_providers", providers).
+		Msg("Available providers during validation")
+
+	// Helper function to validate a provider/model pair
+	validateProviderModel := func(fieldName, provider, model string, assistantName string, isAgentMode bool) error {
+		if provider == "" && model == "" {
+			return nil // Both empty is ok
+		}
+
+		if model == "" && !isAgentMode {
 			log.Error().
 				Str("user_id", user.ID).
-				Str("assistant_name", assistant.Name).
+				Str("assistant_name", assistantName).
+				Str("field_name", fieldName).
 				Msg("Validation failed: assistant has no model and is not in agent mode")
-			return fmt.Errorf("assistant '%s' must have a model", assistant.Name)
+			return fmt.Errorf("assistant '%s' must have a model for %s", assistantName, fieldName)
 		}
 
 		// If provider set, check if we have it
-		if assistant.Provider != "" && !assistant.AgentMode {
-			if !slices.Contains(providers, types.Provider(assistant.Provider)) {
+		if provider != "" && !isAgentMode {
+			if !slices.Contains(providers, types.Provider(provider)) {
 				log.Error().
 					Str("user_id", user.ID).
-					Str("assistant_name", assistant.Name).
-					Str("provider", assistant.Provider).
+					Str("assistant_name", assistantName).
+					Str("field_name", fieldName).
+					Str("provider", provider).
 					Interface("available_providers", providers).
 					Msg("Validation failed: provider not available")
-				return fmt.Errorf("provider '%s' is not available", assistant.Provider)
+				return fmt.Errorf("provider '%s' is not available for %s", provider, fieldName)
+			}
+			log.Debug().
+				Str("user_id", user.ID).
+				Str("assistant_name", assistantName).
+				Str("field_name", fieldName).
+				Str("provider", provider).
+				Msg("Provider validation passed")
+		}
+
+		return nil
+	}
+
+	// Validate providers for each assistant
+	for i, assistant := range app.Config.Helix.Assistants {
+		log.Debug().
+			Str("user_id", user.ID).
+			Int("assistant_index", i).
+			Str("assistant_name", assistant.Name).
+			Str("provider", assistant.Provider).
+			Str("model", assistant.Model).
+			Bool("agent_mode", assistant.AgentMode).
+			Msg("Validating individual assistant")
+
+		// Validate main provider/model
+		err := validateProviderModel("provider/model", assistant.Provider, assistant.Model, assistant.Name, assistant.AgentMode)
+		if err != nil {
+			return err
+		}
+
+		// If in agent mode, validate all agent mode model fields
+		if assistant.AgentMode {
+			// Validate reasoning model
+			err := validateProviderModel("reasoning_model", assistant.ReasoningModelProvider, assistant.ReasoningModel, assistant.Name, false)
+			if err != nil {
+				return err
+			}
+
+			// Validate generation model
+			err = validateProviderModel("generation_model", assistant.GenerationModelProvider, assistant.GenerationModel, assistant.Name, false)
+			if err != nil {
+				return err
+			}
+
+			// Validate small reasoning model
+			err = validateProviderModel("small_reasoning_model", assistant.SmallReasoningModelProvider, assistant.SmallReasoningModel, assistant.Name, false)
+			if err != nil {
+				return err
+			}
+
+			// Validate small generation model
+			err = validateProviderModel("small_generation_model", assistant.SmallGenerationModelProvider, assistant.SmallGenerationModel, assistant.Name, false)
+			if err != nil {
+				return err
 			}
 		}
 	}
@@ -880,7 +1048,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError403(err.Error())
 	}
 
-	err = s.validateProviderAndModel(r.Context(), user, &update)
+	err = s.validateProvidersAndModels(r.Context(), user, &update)
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
