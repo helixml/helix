@@ -20,6 +20,7 @@ type SkillDirectRunnerTestSuite struct {
 	openaiClient *helix_openai.MockClient
 	llm          *LLM
 	agent        *Agent
+	emitter      *MockStepInfoEmitter
 }
 
 func (s *SkillDirectRunnerTestSuite) SetupTest() {
@@ -43,8 +44,10 @@ func (s *SkillDirectRunnerTestSuite) SetupTest() {
 			Model:  "gpt-4o-mini",
 		},
 	)
+	s.emitter = NewMockStepInfoEmitter(s.ctrl)
 
-	s.agent = NewAgent(nil, "", []Skill{}, 10)
+	s.agent = NewAgent(s.emitter, "", []Skill{}, 10)
+
 }
 
 func (s *SkillDirectRunnerTestSuite) Test_SkillDirectRunner_NoTools() {
@@ -96,4 +99,37 @@ func (s *SkillDirectRunnerTestSuite) Test_SkillDirectRunner_MultipleTools() {
 	s.Require().Error(err)
 	s.Require().Equal(err.Error(), "skill TestSkill has more than one tool, direct skills are not supported")
 	s.Require().Nil(result)
+}
+
+func (s *SkillDirectRunnerTestSuite) Test_SkillDirectRunner_ExecuteSuccess() {
+	mockTool := NewMockTool(s.ctrl)
+
+	mockTool.EXPECT().Name().Return("TestTool")
+	mockTool.EXPECT().Icon().Return("🧮")
+	mockTool.EXPECT().Execute(gomock.Any(), gomock.Any(), gomock.Any()).Return("test-output", nil)
+
+	s.emitter.EXPECT().EmitStepInfo(gomock.Any(), gomock.Any()).Return(nil)
+
+	skill := Skill{
+		Name: "TestSkill",
+		Tools: []Tool{
+			mockTool,
+		},
+	}
+
+	toolCall := openai.ToolCall{
+		ID: "test-tool-call",
+		Function: openai.FunctionCall{
+			Name:      "test-tool",
+			Arguments: `{"expression": "2 + 2"}`,
+		},
+	}
+
+	result, err := s.agent.SkillDirectRunner(context.Background(), Meta{}, &skill, toolCall)
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result)
+	s.Require().Equal(result.Role, openai.ChatMessageRoleTool)
+	s.Require().Equal(result.Content, "test-output")
+	s.Require().Equal(result.ToolCallID, toolCall.ID)
 }
