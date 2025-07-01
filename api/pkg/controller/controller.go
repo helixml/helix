@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	agent "github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/config"
@@ -19,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/scheduler"
+	"github.com/helixml/helix/api/pkg/searxng"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
@@ -40,6 +42,7 @@ type Options struct {
 	RunnerController     *scheduler.RunnerController
 	OAuthManager         *oauth.Manager
 	Browser              *browser.Browser
+	SearchProvider       searxng.SearchProvider
 }
 
 type Controller struct {
@@ -63,6 +66,16 @@ type Controller struct {
 	scheduler *scheduler.Scheduler
 
 	stepInfoEmitter agent.StepInfoEmitter
+
+	// Keeping a map of trigger statuses for each app/trigger type,
+	// this is done in-memory to ensure the status is always live
+	triggerStatuses   map[TriggerStatusKey]types.TriggerStatus
+	triggerStatusesMu *sync.RWMutex
+}
+
+type TriggerStatusKey struct {
+	AppID string
+	Type  types.TriggerType
 }
 
 func NewController(
@@ -102,6 +115,8 @@ func NewController(
 		schedulingDecisions: []*types.GlobalSchedulingDecision{},
 		scheduler:           options.Scheduler,
 		stepInfoEmitter:     agent.NewPubSubStepInfoEmitter(options.PubSub, options.Store),
+		triggerStatuses:     make(map[TriggerStatusKey]types.TriggerStatus),
+		triggerStatusesMu:   &sync.RWMutex{},
 	}
 
 	// Default provider
@@ -125,4 +140,19 @@ func NewController(
 
 func (c *Controller) Initialize() error {
 	return nil
+}
+
+func (c *Controller) SetTriggerStatus(appID string, triggerType types.TriggerType, status types.TriggerStatus) {
+	c.triggerStatusesMu.Lock()
+	defer c.triggerStatusesMu.Unlock()
+
+	c.triggerStatuses[TriggerStatusKey{AppID: appID, Type: triggerType}] = status
+}
+
+func (c *Controller) GetTriggerStatus(appID string, triggerType types.TriggerType) (types.TriggerStatus, bool) {
+	c.triggerStatusesMu.RLock()
+	defer c.triggerStatusesMu.RUnlock()
+
+	status, ok := c.triggerStatuses[TriggerStatusKey{AppID: appID, Type: triggerType}]
+	return status, ok
 }

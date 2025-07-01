@@ -36,10 +36,6 @@ func (suite *TeamMembershipTestSuite) SetupTest() {
 	suite.Require().NoError(err)
 	suite.db = store
 
-	suite.T().Cleanup(func() {
-		_ = suite.db.Close()
-	})
-
 	// Create a test organization
 	orgID := system.GenerateOrganizationID()
 	org := &types.Organization{
@@ -78,7 +74,7 @@ func (suite *TeamMembershipTestSuite) SetupTest() {
 	suite.user = createdUser
 }
 
-func (suite *TeamMembershipTestSuite) TearDownTest() {
+func (suite *TeamMembershipTestSuite) TearDownTestSuite() {
 	// Cleanup the test team
 	if suite.team != nil {
 		err := suite.db.DeleteTeam(suite.ctx, suite.team.ID)
@@ -90,6 +86,8 @@ func (suite *TeamMembershipTestSuite) TearDownTest() {
 		err := suite.db.DeleteOrganization(suite.ctx, suite.org.ID)
 		suite.NoError(err)
 	}
+
+	_ = suite.db.Close()
 }
 
 func (suite *TeamMembershipTestSuite) TestCreateTeamMembership() {

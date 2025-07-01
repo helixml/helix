@@ -30,6 +30,11 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "List apps for the user. Apps are pre-configured to spawn sessions with specific tools and config.",
+                "tags": [
+                    "apps"
+                ],
+                "summary": "List apps",
                 "parameters": [
                     {
                         "type": "string",
@@ -268,6 +273,44 @@ const docTemplate = `{
             }
         },
         "/api/v1/apps/{id}/avatar": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the app's avatar image",
+                "produces": [
+                    "image/*"
+                ],
+                "tags": [
+                    "apps"
+                ],
+                "summary": "Get app avatar",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Avatar image data",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            },
             "post": {
                 "security": [
                     {
@@ -527,6 +570,44 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/types.StepInfo"
                             }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/apps/{id}/trigger-status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the status of a specific trigger type for an app",
+                "tags": [
+                    "apps"
+                ],
+                "summary": "Get app trigger status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Trigger type (e.g., slack)",
+                        "name": "trigger_type",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.TriggerStatus"
                         }
                     }
                 }
@@ -2685,7 +2766,8 @@ const docTemplate = `{
                 "gptscript",
                 "zapier",
                 "calculator",
-                "email"
+                "email",
+                "web_search"
             ],
             "x-enum-varnames": [
                 "ToolTypeAPI",
@@ -2693,7 +2775,8 @@ const docTemplate = `{
                 "ToolTypeGPTScript",
                 "ToolTypeZapier",
                 "ToolTypeCalculator",
-                "ToolTypeEmail"
+                "ToolTypeEmail",
+                "ToolTypeWebSearch"
             ]
         },
         "github_com_helixml_helix_api_pkg_types.Usage": {
@@ -3878,6 +3961,9 @@ const docTemplate = `{
                     "description": "An alternative to sampling with temperature, called nucleus sampling,\nwhere the model considers the results of the tokens with top_p probability mass.\nSo 0.1 means only the tokens comprising the top 10% probability mass are considered.\n0 - balanced\n2 - more creative",
                     "type": "number"
                 },
+                "web_search": {
+                    "$ref": "#/definitions/types.AssistantWebSearch"
+                },
                 "zapier": {
                     "type": "array",
                     "items": {
@@ -3949,6 +4035,17 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.KnowledgeSource"
                         }
                     ]
+                }
+            }
+        },
+        "types.AssistantWebSearch": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "max_results": {
+                    "type": "integer"
                 }
             }
         },
@@ -6615,6 +6712,26 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SlackTrigger": {
+            "type": "object",
+            "properties": {
+                "app_token": {
+                    "type": "string"
+                },
+                "bot_token": {
+                    "type": "string"
+                },
+                "channels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "enabled": {
+                    "type": "boolean"
+                }
+            }
+        },
         "types.StepInfo": {
             "type": "object",
             "properties": {
@@ -6919,6 +7036,9 @@ const docTemplate = `{
                 "gptscript": {
                     "$ref": "#/definitions/types.ToolGPTScriptConfig"
                 },
+                "web_search": {
+                    "$ref": "#/definitions/types.ToolWebSearchConfig"
+                },
                 "zapier": {
                     "$ref": "#/definitions/types.ToolZapierConfig"
                 }
@@ -6948,6 +7068,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ToolWebSearchConfig": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "max_results": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.ToolZapierConfig": {
             "type": "object",
             "properties": {
@@ -6970,8 +7101,34 @@ const docTemplate = `{
                 },
                 "discord": {
                     "$ref": "#/definitions/types.DiscordTrigger"
+                },
+                "slack": {
+                    "$ref": "#/definitions/types.SlackTrigger"
                 }
             }
+        },
+        "types.TriggerStatus": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "ok": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.TriggerType"
+                }
+            }
+        },
+        "types.TriggerType": {
+            "type": "string",
+            "enum": [
+                "slack"
+            ],
+            "x-enum-varnames": [
+                "TriggerTypeSlack"
+            ]
         },
         "types.UpdateOrganizationMemberRequest": {
             "type": "object",
