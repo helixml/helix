@@ -4,22 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/gorilla/mux"
-	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
-
-// setupSkillRoutes configures the skill-related routes
-func (s *HelixAPIServer) setupSkillRoutes(r *mux.Router) {
-	// Skill management routes
-	r.HandleFunc("/skills", system.DefaultWrapper(s.handleListSkills)).Methods("GET")
-	r.HandleFunc("/skills/{id}", system.DefaultWrapper(s.handleGetSkill)).Methods("GET")
-	r.HandleFunc("/skills/{id}/test", system.DefaultWrapper(s.handleTestSkill)).Methods("POST")
-	r.HandleFunc("/skills/reload", system.DefaultWrapper(s.handleReloadSkills)).Methods("POST")
-}
 
 // handleListSkills returns the list of available YAML skills
 // listSkills godoc
@@ -221,11 +210,10 @@ func (s *HelixAPIServer) handleReloadSkills(_ http.ResponseWriter, r *http.Reque
 		Str("user_id", user.ID).
 		Msg("Reloading skills")
 
+	// Reload skills
 	err := s.skillManager.ReloadSkills(r.Context())
 	if err != nil {
-		log.Error().Err(err).
-			Str("user_id", user.ID).
-			Msg("Failed to reload skills")
+		log.Error().Err(err).Msg("Failed to reload skills")
 		return nil, fmt.Errorf("failed to reload skills: %w", err)
 	}
 
@@ -234,10 +222,10 @@ func (s *HelixAPIServer) handleReloadSkills(_ http.ResponseWriter, r *http.Reque
 	log.Info().
 		Int("skill_count", skillCount).
 		Str("user_id", user.ID).
-		Msg("Successfully reloaded skills")
+		Msg("Skills reloaded successfully")
 
 	return map[string]string{
-		"message": "Skills reloaded successfully",
-		"count":   strconv.Itoa(skillCount),
+		"status":  "success",
+		"message": fmt.Sprintf("Successfully reloaded %d skills", skillCount),
 	}, nil
 }

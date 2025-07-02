@@ -127,6 +127,9 @@ steps:
 
 - name: oauth-integration-test
   image: golang:1.24-alpine3.21
+  volumes:
+  - name: oauth-test-results
+    path: /go/src/github.com/helix-ml/helix/api/test_results
   environment:
     # GitHub OAuth test credentials
     GITHUB_SKILL_TEST_OAUTH_CLIENT_ID:
@@ -173,6 +176,55 @@ steps:
     event:
     - push
   depends_on: [unit-test]
+
+- name: upload-oauth-test-artifacts
+  image: alpine:latest
+  volumes:
+  - name: oauth-test-results
+    path: /go/src/github.com/helix-ml/helix/api/test_results
+  environment:
+    LAUNCHPAD_URL:
+      from_secret: launchpad_url
+    CI_SHARED_SECRET:
+      from_secret: ci_shared_secret
+  commands:
+    # Install required tools
+    - apk add --no-cache curl zip
+    # Determine test status from oauth-integration-test step result
+    - |
+      if [ "${DRONE_BUILD_STATUS}" = "success" ]; then
+        TEST_STATUS="passed"
+      else
+        TEST_STATUS="failed"
+      fi
+    # Create artifacts zip
+    - cd /go/src/github.com/helix-ml/helix/api
+    - |
+      if [ -d "test_results" ] && [ "$(ls -A test_results)" ]; then
+        zip -r artifacts.zip test_results/
+        ARTIFACTS_FILE="artifacts.zip"
+      else
+        echo "No test results found to upload"
+        ARTIFACTS_FILE=""
+      fi
+    # Upload to Launchpad
+    - |
+      curl -X POST \
+        -H "X-CI-Secret: $CI_SHARED_SECRET" \
+        -F "branch=${DRONE_BRANCH}" \
+        -F "commit=${DRONE_COMMIT}" \
+        -F "build_number=${DRONE_BUILD_NUMBER}" \
+        -F "test_type=oauth_integration" \
+        -F "status=$TEST_STATUS" \
+        $([ -n "$ARTIFACTS_FILE" ] && echo "-F artifacts=@$ARTIFACTS_FILE") \
+        "${LAUNCHPAD_URL}/api/ci/test-results"
+  when:
+    event:
+    - push
+    status:
+    - success
+    - failure
+  depends_on: [oauth-integration-test]
 
 - name: release-backend
   image: golang:1.24-bullseye
@@ -263,6 +315,10 @@ services:
     KEYCLOAK_ADMIN_PASSWORD: REPLACE_ME
     KC_HOSTNAME_PATH: /auth
     KC_HTTP_RELATIVE_PATH: /auth/
+
+volumes:
+- name: oauth-test-results
+  temp: {}
 ---
 kind: pipeline
 type: docker
