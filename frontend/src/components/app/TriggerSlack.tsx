@@ -316,6 +316,10 @@ const TriggerSlack: FC<TriggerSlackProps> = ({
         open={showSetupDialog}
         onClose={() => setShowSetupDialog(false)}
         app={app}
+        appToken={appToken}
+        botToken={botToken}
+        onAppTokenChange={handleAppTokenChange}
+        onBotTokenChange={handleBotTokenChange}
       />
     </Box>
   )

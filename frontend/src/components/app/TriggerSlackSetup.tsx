@@ -16,6 +16,10 @@ import CloseIcon from '@mui/icons-material/Close'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import TextField from '@mui/material/TextField'
+import Visibility from '@mui/icons-material/Visibility'
+import VisibilityOff from '@mui/icons-material/VisibilityOff'
+import InputAdornment from '@mui/material/InputAdornment'
 import { SlackLogo } from '../icons/ProviderIcons'
 import DarkDialog from '../dialog/DarkDialog'
 import CopyButton from '../common/CopyButton'
@@ -145,15 +149,25 @@ interface TriggerSlackSetupProps {
   open: boolean
   onClose: () => void
   app: IAppFlatState
+  appToken?: string
+  botToken?: string
+  onAppTokenChange?: (token: string) => void
+  onBotTokenChange?: (token: string) => void
 }
 
 const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
   open,
   onClose,
-  app
+  app,
+  appToken = '',
+  botToken = '',
+  onAppTokenChange,
+  onBotTokenChange
 }) => {
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [manifestExpanded, setManifestExpanded] = useState(false)
+  const [showAppToken, setShowAppToken] = useState<boolean>(false)
+  const [showBotToken, setShowBotToken] = useState<boolean>(false)
 
   const handleImageClick = (imageSrc: string) => {
     setSelectedImage(imageSrc)
@@ -170,6 +184,14 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
     } catch (err) {
       console.error('Failed to copy manifest:', err)
     }
+  }
+
+  const handleAppTokenChange = (token: string) => {
+    onAppTokenChange?.(token)
+  }
+
+  const handleBotTokenChange = (token: string) => {
+    onBotTokenChange?.(token)
   }
 
   return (
@@ -346,17 +368,75 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
                       </Box>
                     </Box>
                   )}
+
+                  {/* App Token field for step 7 */}
+                  {step.step === 7 && (
+                    <Box sx={{ ml: 6, mt: 2, width: 'calc(100% - 48px)' }}>
+                      <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 1 }}>
+                        Copy the generated App Token here:
+                      </Typography>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        placeholder="xapp-..."
+                        value={appToken}
+                        onChange={(e) => handleAppTokenChange(e.target.value)}
+                        helperText="Your Slack app token (starts with xapp-)"
+                        type={showAppToken ? 'text' : 'password'}
+                        autoComplete="new-app-token-password"
+                        InputProps={{
+                          endAdornment: (
+                            <InputAdornment position="end">
+                              <IconButton
+                                aria-label="toggle app token visibility"
+                                onClick={() => setShowAppToken(!showAppToken)}
+                                edge="end"
+                              >
+                                {showAppToken ? <VisibilityOff /> : <Visibility />}
+                              </IconButton>
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+                    </Box>
+                  )}
+
+                  {/* Bot Token field for step 9 */}
+                  {step.step === 9 && (
+                    <Box sx={{ ml: 6, mt: 2, width: 'calc(100% - 48px)' }}>
+                      <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 1 }}>
+                        Copy the generated Bot User OAuth Token here:
+                      </Typography>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        placeholder="xoxb-..."
+                        value={botToken}
+                        onChange={(e) => handleBotTokenChange(e.target.value)}
+                        helperText="Your Slack bot token (starts with xoxb-)"
+                        type={showBotToken ? 'text' : 'password'}
+                        autoComplete="new-bot-token-password"
+                        InputProps={{
+                          endAdornment: (
+                            <InputAdornment position="end">
+                              <IconButton
+                                aria-label="toggle bot token visibility"
+                                onClick={() => setShowBotToken(!showBotToken)}
+                                edge="end"
+                              >
+                                {showBotToken ? <VisibilityOff /> : <Visibility />}
+                              </IconButton>
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+                    </Box>
+                  )}
                 </ListItem>
                 {index < setupSteps.length - 1 && <Divider sx={{ ml: 6 }} />}
               </React.Fragment>
             ))}
           </List>
-
-          <Alert severity="info" sx={{ mb: 2 }}>
-            <Typography variant="body2">
-              <strong>Note:</strong> After completing the setup, you'll need to copy the App Token and Bot User OAuth Token into the fields above.
-            </Typography>
-          </Alert>
         </DialogContent>
         <DialogActions sx={{ p: 3, pt: 1 }}>
           <Button onClick={onClose} variant="outlined">
