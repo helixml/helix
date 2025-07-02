@@ -175,7 +175,7 @@ steps:
   when:
     event:
     - push
-  depends_on: [unit-test]
+  # depends_on: [unit-test]
 
 - name: upload-oauth-test-artifacts
   image: alpine:latest
