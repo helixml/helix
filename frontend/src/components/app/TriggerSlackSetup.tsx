@@ -177,6 +177,7 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
                           width: 24,
                           height: 24,
                           borderRadius: '50%',
+                          mt: 0.7,
                           backgroundColor: 'primary.main',
                           color: 'white',
                           display: 'flex',
