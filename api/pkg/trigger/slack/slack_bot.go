@@ -3,9 +3,11 @@ package slack
 import (
 	"context"
 	"fmt"
+	"io"
 	stdlog "log"
 	"net/http"
-	"os"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -52,6 +54,7 @@ type SlackBot struct { //nolint:revive
 
 func (s *SlackBot) Stop() {
 	if s.ctxCancel != nil {
+		log.Info().Str("app_id", s.app.ID).Msg("stopping Slack bot")
 		s.ctxCancel()
 	}
 }
@@ -79,8 +82,8 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 	s.ctx, s.ctxCancel = context.WithCancel(ctx)
 
 	options := []slack.Option{
-		slack.OptionDebug(true),
-		slack.OptionLog(stdlog.New(os.Stdout, "api: ", stdlog.Lshortfile|stdlog.LstdFlags)),
+		slack.OptionDebug(false),
+		slack.OptionLog(stdlog.New(io.Discard, "api: ", stdlog.Lshortfile|stdlog.LstdFlags)),
 		slack.OptionHTTPClient(http.DefaultClient),
 	}
 
@@ -105,7 +108,7 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 	client := socketmode.New(
 		api,
 		socketmode.OptionDebug(true),
-		// socketmode.OptionLog(stdlog.New(os.Stdout, "socketmode: ", stdlog.Lshortfile|stdlog.LstdFlags)),
+		socketmode.OptionLog(stdlog.New(io.Discard, "socketmode: ", stdlog.Lshortfile|stdlog.LstdFlags)),
 	)
 
 	socketmodeHandler := socketmode.NewSocketmodeHandler(client)
@@ -165,9 +168,14 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 	agentResponse, err := s.handleMessage(context.Background(), nil, s.app, ev.Text, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, true)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to start chat")
-		_, _, _ = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(err.Error(), false), slack.MsgOptionTS(ev.TimeStamp))
+		// Convert error message to Slack format
+		slackFormattedError := convertMarkdownToSlackFormat(err.Error())
+		_, _, _ = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(slackFormattedError, false), slack.MsgOptionTS(ev.TimeStamp))
 		return
 	}
+
+	// Convert markdown to Slack format
+	slackFormattedResponse := convertMarkdownToSlackFormat(agentResponse)
 
 	// Write agent response to Slack's thread
 	// Use the message timestamp as the thread timestamp to create a proper thread
@@ -175,10 +183,10 @@ func (s *SlackBot) middlewareAppMentionEvent(evt *socketmode.Event, client *sock
 		Str("app_id", s.app.ID).
 		Str("channel", ev.Channel).
 		Str("thread_timestamp", ev.TimeStamp).
-		Str("response_length", fmt.Sprintf("%d", len(agentResponse))).
+		Str("response_length", fmt.Sprintf("%d", len(slackFormattedResponse))).
 		Msg("Posting bot response in thread")
 
-	_, _, err = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(agentResponse, false), slack.MsgOptionTS(ev.TimeStamp))
+	_, _, err = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(slackFormattedResponse, false), slack.MsgOptionTS(ev.TimeStamp))
 	if err != nil {
 		log.Error().Err(err).Msg("failed to post message")
 	}
@@ -245,7 +253,7 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 		return
 	}
 
-	log.Info().
+	log.Debug().
 		Str("app_id", s.app.ID).
 		Str("channel", ev.Channel).
 		Str("thread", threadKey).
@@ -255,9 +263,14 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 	agentResponse, err := s.handleMessage(context.Background(), thread, s.app, ev.Text, ev.Channel, ev.TimeStamp, ev.ThreadTimeStamp, false)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to continue chat")
-		_, _, _ = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(err.Error(), false), slack.MsgOptionTS(ev.ThreadTimeStamp))
+		// Convert error message to Slack format
+		slackFormattedError := convertMarkdownToSlackFormat(err.Error())
+		_, _, _ = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(slackFormattedError, false), slack.MsgOptionTS(ev.ThreadTimeStamp))
 		return
 	}
+
+	// Convert markdown to Slack format
+	slackFormattedResponse := convertMarkdownToSlackFormat(agentResponse)
 
 	// Write agent response to Slack's thread
 	// Use the thread timestamp to keep the reply in the same thread
@@ -265,10 +278,10 @@ func (s *SlackBot) middlewareMessageEvent(evt *socketmode.Event, client *socketm
 		Str("app_id", s.app.ID).
 		Str("channel", ev.Channel).
 		Str("thread_timestamp", ev.ThreadTimeStamp).
-		Str("response_length", fmt.Sprintf("%d", len(agentResponse))).
+		Str("response_length", fmt.Sprintf("%d", len(slackFormattedResponse))).
 		Msg("Posting bot response to thread")
 
-	_, _, err = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(agentResponse, false), slack.MsgOptionTS(ev.ThreadTimeStamp))
+	_, _, err = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(slackFormattedResponse, false), slack.MsgOptionTS(ev.ThreadTimeStamp))
 	if err != nil {
 		log.Error().Err(err).Msg("failed to post message")
 	}
@@ -306,7 +319,7 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 
 		// Create the new thread
 		var err error
-		_, err = s.createNewThread(s.ctx, channel, threadKey, session.ID)
+		_, err = s.createNewThread(ctx, channel, threadKey, session.ID)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to create new thread")
 			return "", fmt.Errorf("failed to create new thread: %w", err)
@@ -519,4 +532,108 @@ func (s *SlackBot) createNewThread(ctx context.Context, channel, threadKey, sess
 	}
 
 	return s.store.CreateSlackThread(ctx, thread)
+}
+
+func convertMarkdownToSlackFormat(markdown string) string {
+	// Convert markdown to Slack format
+	slackFormat := markdown
+
+	// First, let's protect code blocks and inline code from other conversions
+	codeBlocks := []string{}
+	inlineCodes := []string{}
+
+	// Extract code blocks
+	codeBlockRegex := regexp.MustCompile("```(\\w*)\\n([\\s\\S]*?)```")
+	slackFormat = codeBlockRegex.ReplaceAllStringFunc(slackFormat, func(match string) string {
+		codeBlocks = append(codeBlocks, match)
+		return fmt.Sprintf("__CODE_BLOCK_%d__", len(codeBlocks)-1)
+	})
+
+	// Extract inline code
+	inlineCodeRegex := regexp.MustCompile("`([^`]+)`")
+	slackFormat = inlineCodeRegex.ReplaceAllStringFunc(slackFormat, func(match string) string {
+		inlineCodes = append(inlineCodes, match)
+		return fmt.Sprintf("__INLINE_CODE_%d__", len(inlineCodes)-1)
+	})
+
+	// Convert lists: - item or * item -> • item
+	listItemRegex := regexp.MustCompile(`^[\s]*[-*][\s]+`)
+	lines := strings.Split(slackFormat, "\n")
+	for i, line := range lines {
+		if listItemRegex.MatchString(line) {
+			lines[i] = listItemRegex.ReplaceAllString(line, "• ")
+		}
+	}
+	slackFormat = strings.Join(lines, "\n")
+
+	// Convert bold and italic using a more sophisticated approach
+	slackFormat = convertBoldAndItalic(slackFormat)
+
+	// Convert links: [text](url) -> <url|text>
+	linkRegex := regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
+	slackFormat = linkRegex.ReplaceAllString(slackFormat, "<$2|$1>")
+
+	// Convert strikethrough: ~~text~~ -> ~text~
+	strikethroughRegex := regexp.MustCompile(`~~(.*?)~~`)
+	slackFormat = strikethroughRegex.ReplaceAllString(slackFormat, "~$1~")
+
+	// Restore code blocks
+	for i, codeBlock := range codeBlocks {
+		placeholder := fmt.Sprintf("__CODE_BLOCK_%d__", i)
+		slackFormat = strings.Replace(slackFormat, placeholder, codeBlock, 1)
+	}
+
+	// Restore inline codes
+	for i, inlineCode := range inlineCodes {
+		placeholder := fmt.Sprintf("__INLINE_CODE_%d__", i)
+		slackFormat = strings.Replace(slackFormat, placeholder, inlineCode, 1)
+	}
+
+	return slackFormat
+}
+
+// convertBoldAndItalic handles the conversion of bold and italic markers
+// using a state machine approach to avoid conflicts
+func convertBoldAndItalic(text string) string {
+	var result strings.Builder
+	i := 0
+
+	for i < len(text) {
+		if i+1 < len(text) && text[i] == '*' && text[i+1] == '*' {
+			// Found ** - this is bold
+			result.WriteString("*")
+			i += 2
+
+			// Find the closing **
+			for i < len(text)-1 {
+				if text[i] == '*' && text[i+1] == '*' {
+					result.WriteString("*")
+					i += 2
+					break
+				}
+				result.WriteByte(text[i])
+				i++
+			}
+		} else if text[i] == '*' {
+			// Found single * - this is italic
+			result.WriteString("_")
+			i++
+
+			// Find the closing *
+			for i < len(text) {
+				if text[i] == '*' {
+					result.WriteString("_")
+					i++
+					break
+				}
+				result.WriteByte(text[i])
+				i++
+			}
+		} else {
+			result.WriteByte(text[i])
+			i++
+		}
+	}
+
+	return result.String()
 }
