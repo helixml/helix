@@ -7,8 +7,10 @@ import ApiIcon from '@mui/icons-material/Api'
 import { TypesTrigger } from '../../api/api'
 import TriggerCron from './TriggerCron'
 import TriggerSlack from './TriggerSlack'
+import { IAppFlatState } from '../../types'
 
 interface TriggersProps {
+  app: IAppFlatState
   appId: string
   triggers?: TypesTrigger[]
   onUpdate: (triggers: TypesTrigger[]) => void
@@ -16,6 +18,7 @@ interface TriggersProps {
 }
 
 const Triggers: FC<TriggersProps> = ({
+  app,
   appId,
   triggers = [],
   onUpdate,
@@ -61,6 +64,7 @@ const Triggers: FC<TriggersProps> = ({
 
       {/* Slack Trigger */}
       <TriggerSlack
+        app={app}
         appId={appId}
         triggers={triggers}
         onUpdate={onUpdate}

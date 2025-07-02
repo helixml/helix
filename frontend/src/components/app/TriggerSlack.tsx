@@ -10,12 +10,16 @@ import Visibility from '@mui/icons-material/Visibility'
 import VisibilityOff from '@mui/icons-material/VisibilityOff'
 import IconButton from '@mui/material/IconButton'
 import InputAdornment from '@mui/material/InputAdornment'
+import Button from '@mui/material/Button'
 import { TypesTrigger } from '../../api/api'
 import { SlackLogo } from '../icons/ProviderIcons'
 
 import { useGetAppTriggerStatus } from '../../services/appService'
+import { IAppFlatState } from '../../types'
+import TriggerSlackSetup from './TriggerSlackSetup'
 
 interface TriggerSlackProps {
+  app: IAppFlatState
   appId: string
   triggers?: TypesTrigger[]
   onUpdate: (triggers: TypesTrigger[]) => void
@@ -23,6 +27,7 @@ interface TriggerSlackProps {
 }
 
 const TriggerSlack: FC<TriggerSlackProps> = ({
+  app,
   appId,
   triggers = [],
   onUpdate,
@@ -36,6 +41,7 @@ const TriggerSlack: FC<TriggerSlackProps> = ({
   const [botToken, setBotToken] = useState<string>(slackTrigger?.bot_token || '')
   const [showAppToken, setShowAppToken] = useState<boolean>(false)
   const [showBotToken, setShowBotToken] = useState<boolean>(false)
+  const [showSetupDialog, setShowSetupDialog] = useState<boolean>(false)
 
   // If slack is configured, we need to get the status of the bot
   const { data: slackStatus, isLoading: isLoadingSlackStatus } = useGetAppTriggerStatus(appId, 'slack', {
@@ -219,81 +225,98 @@ const TriggerSlack: FC<TriggerSlackProps> = ({
           </Box>
 
           {/* Configuration summary */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {(() => {
-              // If Slack trigger is disabled
-              if (!slackTrigger?.enabled) {
-                return (
-                  <>
-                    <Circle sx={{ fontSize: 12, color: 'grey.400' }} />
-                    <Typography variant="body2" color="text.secondary">
-                      <strong>Status:</strong> Slack integration disabled
-                    </Typography>
-                  </>
-                )
-              }
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              {(() => {
+                // If Slack trigger is disabled
+                if (!slackTrigger?.enabled) {
+                  return (
+                    <>
+                      <Circle sx={{ fontSize: 12, color: 'grey.400' }} />
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Status:</strong> Slack integration disabled
+                      </Typography>
+                    </>
+                  )
+                }
 
-              // If no tokens are configured, show grey circle with existing message
-              if (slackTrigger?.enabled && (!appToken || !botToken)) {
+                // If no tokens are configured, show grey circle with existing message
+                if (slackTrigger?.enabled && (!appToken || !botToken)) {
+                  return (
+                    <>
+                      <Circle sx={{ fontSize: 12, color: 'grey.400' }} />
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Status:</strong> Slack integration {appToken && botToken ? 'configured' : 'needs tokens'}
+                      </Typography>
+                    </>
+                  )
+                }
+                
+                // If we have tokens but no trigger status yet, show grey circle
+                if (!slackStatus?.data && !isLoadingSlackStatus) {
+                  return (
+                    <>
+                      <Circle sx={{ fontSize: 12, color: 'grey.400' }} />
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Status:</strong> Slack integration configured
+                      </Typography>
+                    </>
+                  )
+                }
+                
+                // If trigger status is OK, show green circle with status message
+                if (slackStatus?.data?.ok === true) {
+                  return (
+                    <>
+                      <Circle sx={{ fontSize: 12, color: 'success.main' }} />
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Status:</strong> {slackStatus.data.message || 'Slack integration active'}
+                      </Typography>
+                    </>
+                  )
+                }
+                
+                // If trigger status is not OK, show red circle with error message
+                if (slackStatus?.data?.ok === false) {
+                  return (
+                    <>
+                      <Circle sx={{ fontSize: 12, color: 'error.main' }} />
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Status:</strong> {slackStatus.data.message || 'Slack integration error'}
+                      </Typography>
+                    </>
+                  )
+                }
+                
+                // Loading state
                 return (
                   <>
                     <Circle sx={{ fontSize: 12, color: 'grey.400' }} />
                     <Typography variant="body2" color="text.secondary">
-                      <strong>Status:</strong> Slack integration {appToken && botToken ? 'configured' : 'needs tokens'}
+                      <strong>Status:</strong> Checking Slack integration status...
                     </Typography>
                   </>
                 )
-              }
-              
-              // If we have tokens but no trigger status yet, show grey circle
-              if (!slackStatus?.data && !isLoadingSlackStatus) {
-                return (
-                  <>
-                    <Circle sx={{ fontSize: 12, color: 'grey.400' }} />
-                    <Typography variant="body2" color="text.secondary">
-                      <strong>Status:</strong> Slack integration configured
-                    </Typography>
-                  </>
-                )
-              }
-              
-              // If trigger status is OK, show green circle with status message
-              if (slackStatus?.data?.ok === true) {
-                return (
-                  <>
-                    <Circle sx={{ fontSize: 12, color: 'success.main' }} />
-                    <Typography variant="body2" color="text.secondary">
-                      <strong>Status:</strong> {slackStatus.data.message || 'Slack integration active'}
-                    </Typography>
-                  </>
-                )
-              }
-              
-              // If trigger status is not OK, show red circle with error message
-              if (slackStatus?.data?.ok === false) {
-                return (
-                  <>
-                    <Circle sx={{ fontSize: 12, color: 'error.main' }} />
-                    <Typography variant="body2" color="text.secondary">
-                      <strong>Status:</strong> {slackStatus.data.message || 'Slack integration error'}
-                    </Typography>
-                  </>
-                )
-              }
-              
-              // Loading state
-              return (
-                <>
-                  <Circle sx={{ fontSize: 12, color: 'grey.400' }} />
-                  <Typography variant="body2" color="text.secondary">
-                    <strong>Status:</strong> Checking Slack integration status...
-                  </Typography>
-                </>
-              )
-            })()}
+              })()}
+            </Box>
+            <Button
+              variant="text"
+              size="small"
+              onClick={() => setShowSetupDialog(true)}
+              disabled={readOnly}
+            >
+              View setup instructions
+            </Button>
           </Box>
         </Box>
       )}
+
+      {/* Setup Instructions Dialog */}
+      <TriggerSlackSetup
+        open={showSetupDialog}
+        onClose={() => setShowSetupDialog(false)}
+        app={app}
+      />
     </Box>
   )
 }
