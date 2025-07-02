@@ -52,6 +52,7 @@ type SlackBot struct { //nolint:revive
 
 func (s *SlackBot) Stop() {
 	if s.ctxCancel != nil {
+		log.Info().Str("app_id", s.app.ID).Msg("stopping Slack bot")
 		s.ctxCancel()
 	}
 }
@@ -79,7 +80,7 @@ func (s *SlackBot) RunBot(ctx context.Context) error {
 	s.ctx, s.ctxCancel = context.WithCancel(ctx)
 
 	options := []slack.Option{
-		slack.OptionDebug(true),
+		slack.OptionDebug(false),
 		slack.OptionLog(stdlog.New(os.Stdout, "api: ", stdlog.Lshortfile|stdlog.LstdFlags)),
 		slack.OptionHTTPClient(http.DefaultClient),
 	}
@@ -306,7 +307,7 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 
 		// Create the new thread
 		var err error
-		_, err = s.createNewThread(s.ctx, channel, threadKey, session.ID)
+		_, err = s.createNewThread(ctx, channel, threadKey, session.ID)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to create new thread")
 			return "", fmt.Errorf("failed to create new thread: %w", err)
