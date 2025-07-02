@@ -1,4 +1,4 @@
-import React, { FC } from 'react'
+import React, { FC, useState } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
@@ -11,6 +11,8 @@ import ListItemText from '@mui/material/ListItemText'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import Divider from '@mui/material/Divider'
 import Alert from '@mui/material/Alert'
+import IconButton from '@mui/material/IconButton'
+import ZoomInIcon from '@mui/icons-material/ZoomIn'
 import { SlackLogo } from '../icons/ProviderIcons'
 import DarkDialog from '../dialog/DarkDialog'
 import CopyButton from '../common/CopyButton'
@@ -98,7 +100,8 @@ const setupSteps = [
   },
   {
     step: 2,
-    text: 'Click "Create New App"'
+    text: 'Click "Create New App"',
+    image: '/assets/img/slack/create_new_app.png'
   },
   {
     step: 3,
@@ -110,7 +113,8 @@ const setupSteps = [
   },
   {
     step: 5,
-    text: 'Copy paste the manifest into your app'
+    text: 'Copy paste the manifest into your app',
+    image: '/assets/img/slack/manifest.png'
   },
   {
     step: 6,
@@ -133,113 +137,184 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
   onClose,
   app
 }) => {
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
+
+  const handleImageClick = (imageSrc: string) => {
+    setSelectedImage(imageSrc)
+  }
+
+  const handleCloseImageModal = () => {
+    setSelectedImage(null)
+  }
+
   return (
-    <DarkDialog
-      open={open}
-      onClose={onClose}
-      maxWidth="md"
-      fullWidth
-    >
-      <DialogTitle sx={{ pb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <SlackLogo sx={{ fontSize: 24, color: 'primary.main' }} />
-          <Typography variant="h6">Slack App Setup Instructions</Typography>
-        </Box>
-      </DialogTitle>
-      <DialogContent>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Follow these steps to set up your Slack app and get the required tokens:
-        </Typography>
-        
-        <List sx={{ mb: 3 }}>
-          {setupSteps.map((step, index) => (
-            <React.Fragment key={step.step}>
-              <ListItem sx={{ px: 0 }}>
-                <ListItemIcon sx={{ minWidth: 40 }}>
-                  <Box
-                    sx={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: '50%',
-                      backgroundColor: 'primary.main',
-                      color: 'white',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '0.875rem',
-                      fontWeight: 'bold'
-                    }}
-                  >
-                    {step.step}
-                  </Box>
-                </ListItemIcon>
-                <ListItemText
-                  primary={
-                    step.link ? (
-                      <Typography
-                        component="a"
-                        href={step.link}
-                        target="_blank"
-                        rel="noopener noreferrer"
+    <>
+      <DarkDialog
+        open={open}
+        onClose={onClose}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ pb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <SlackLogo sx={{ fontSize: 24, color: 'primary.main' }} />
+            <Typography variant="h6">Slack App Setup Instructions</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Follow these steps to set up your Slack app and get the required tokens:
+          </Typography>
+          
+          <List sx={{ mb: 3 }}>
+            {setupSteps.map((step, index) => (
+              <React.Fragment key={step.step}>
+                <ListItem sx={{ px: 0, flexDirection: 'column', alignItems: 'flex-start' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', width: '100%' }}>
+                    <ListItemIcon sx={{ minWidth: 40, mt: 0 }}>
+                      <Box
                         sx={{
-                          color: 'primary.main',
-                          textDecoration: 'none',
-                          '&:hover': {
-                            textDecoration: 'underline'
-                          }
+                          width: 24,
+                          height: 24,
+                          borderRadius: '50%',
+                          backgroundColor: 'primary.main',
+                          color: 'white',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.875rem',
+                          fontWeight: 'bold'
                         }}
                       >
-                        {step.text}
-                      </Typography>
-                    ) : (
-                      <Typography>{step.text}</Typography>
-                    )
-                  }
-                />
-              </ListItem>
-              {index < setupSteps.length - 1 && <Divider sx={{ ml: 6 }} />}
-            </React.Fragment>
-          ))}
-        </List>
+                        {step.step}
+                      </Box>
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={
+                        step.link ? (
+                          <Typography
+                            component="a"
+                            href={step.link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            sx={{
+                              color: 'primary.main',
+                              textDecoration: 'none',
+                              '&:hover': {
+                                textDecoration: 'underline'
+                              }
+                            }}
+                          >
+                            {step.text}
+                          </Typography>
+                        ) : (
+                          <Typography>{step.text}</Typography>
+                        )
+                      }
+                    />
+                  </Box>
+                  {step.image && (
+                    <Box sx={{ ml: 6, mt: 1, width: 'calc(100% - 48px)' }}>
+                      <Box sx={{ position: 'relative', display: 'inline-block' }}>
+                        <Box
+                          component="img"
+                          src={step.image}
+                          alt={`Step ${step.step} screenshot`}
+                          onClick={() => handleImageClick(step.image!)}
+                          sx={{
+                            width: '80%',
+                            maxWidth: '80%',
+                            height: 'auto',
+                            borderRadius: 1,
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                            cursor: 'pointer',
+                            transition: 'transform 0.2s ease-in-out',
+                            '&:hover': {
+                              transform: 'scale(1.02)',
+                              boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
+                            }
+                          }}
+                        />
+                      </Box>
+                    </Box>
+                  )}
+                </ListItem>
+                {index < setupSteps.length - 1 && <Divider sx={{ ml: 6 }} />}
+              </React.Fragment>
+            ))}
+          </List>
 
-        <Alert severity="info" sx={{ mb: 2 }}>
-          <Typography variant="body2">
-            <strong>Note:</strong> After completing the setup, you'll need to copy the App Token and Bot User OAuth Token into the fields above.
-          </Typography>
-        </Alert>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="body2">
+              <strong>Note:</strong> After completing the setup, you'll need to copy the App Token and Bot User OAuth Token into the fields above.
+            </Typography>
+          </Alert>
 
-        <Box sx={{ mt: 3, p: 2, borderRadius: 1 }}>
-          <Typography variant="subtitle2" gutterBottom>
-            App Manifest (copy this when prompted):
-          </Typography>
-          <Box sx={{ position: 'relative' }}>
-            <CopyButton 
-              content={getSlackAppManifest(app.name || 'Helix Agent', app.description || 'AI-powered Slack integration')} 
-              title="App Manifest"
-            />
-            <Box
-              component="pre"
-              sx={{
-                backgroundColor: 'rgba(0,0,0,0.3)',
-                p: 2,
-                borderRadius: 1,
-                fontSize: '0.75rem',
-                overflow: 'auto',
-                maxHeight: 200,
-                border: '1px solid rgba(255,255,255,0.1)'
-              }}
-            >
-              {getSlackAppManifest(app.name || 'Helix Agent', app.description || 'AI-powered Slack integration')}
+          <Box sx={{ mt: 3, p: 2, borderRadius: 1 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              App Manifest (copy this when prompted):
+            </Typography>
+            <Box sx={{ position: 'relative' }}>
+              <CopyButton 
+                content={getSlackAppManifest(app.name || 'Helix Agent', app.description || 'AI-powered Slack integration')} 
+                title="App Manifest"
+              />
+              <Box
+                component="pre"
+                sx={{
+                  backgroundColor: 'rgba(0,0,0,0.3)',
+                  p: 2,
+                  borderRadius: 1,
+                  fontSize: '0.75rem',
+                  overflow: 'auto',
+                  maxHeight: 200,
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  wordBreak: 'break-word',
+                  whiteSpace: 'pre-wrap'
+                }}
+              >
+                {getSlackAppManifest(app.name || 'Helix Agent', app.description || 'AI-powered Slack integration')}
+              </Box>
             </Box>
           </Box>
-        </Box>
-      </DialogContent>
-      <DialogActions sx={{ p: 3, pt: 1 }}>
-        <Button onClick={onClose} variant="outlined">
-          Close
-        </Button>
-      </DialogActions>
-    </DarkDialog>
+        </DialogContent>
+        <DialogActions sx={{ p: 3, pt: 1 }}>
+          <Button onClick={onClose} variant="outlined">
+            Close
+          </Button>
+        </DialogActions>
+      </DarkDialog>
+
+      {/* Image Modal */}
+      <DarkDialog
+        open={!!selectedImage}
+        onClose={handleCloseImageModal}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogContent sx={{ p: 0, textAlign: 'center' }}>
+          {selectedImage && (
+            <Box
+              component="img"
+              src={selectedImage}
+              alt="Enlarged screenshot"
+              sx={{
+                maxWidth: '80%',
+                maxHeight: '60vh',
+                height: 'auto',
+                borderRadius: 1
+              }}
+            />
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={handleCloseImageModal} variant="outlined">
+            Close
+          </Button>
+        </DialogActions>
+      </DarkDialog>
+    </>
   )
 }
 
