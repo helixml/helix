@@ -205,7 +205,7 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 	}
 
 	// Set server URL for API client and callbacks
-	suite.serverURL = cfg.ServerURL
+	suite.serverURL = cfg.WebServer.URL
 	if suite.serverURL == "" {
 		suite.serverURL = "http://localhost:8080" // Fallback for local testing
 	}
