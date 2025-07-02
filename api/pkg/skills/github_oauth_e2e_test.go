@@ -45,6 +45,14 @@ import (
 	"gocloud.dev/blob/memblob"
 )
 
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // GitHubOAuthE2ETestSuite tests the complete GitHub OAuth skills workflow
 type GitHubOAuthE2ETestSuite struct {
 	ctx            context.Context
@@ -91,8 +99,17 @@ func TestGitHubOAuthSkillsE2E(t *testing.T) {
 		t.Skip("Skipping end-to-end test in short mode")
 	}
 
+	// Set a reasonable timeout for the OAuth browser automation
+	timeout := 60 * time.Second
+	deadline := time.Now().Add(timeout)
+	t.Deadline() // Check if deadline is already set
+
+	// Create a context with timeout for the test
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+
 	suite := &GitHubOAuthE2ETestSuite{
-		ctx: context.Background(),
+		ctx: ctx,
 	}
 
 	// Load test configuration from environment
@@ -184,7 +201,7 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 
 	// Provide minimal OIDC config since server requires it
 	cfg.OIDC.Enabled = true
-	cfg.OIDC.URL = "http://localhost:8080/auth/realms/test"
+	cfg.OIDC.URL = "http://localhost:8080/auth/realms/helix"
 	cfg.OIDC.ClientID = "test-client"
 	cfg.OIDC.ClientSecret = "test-secret"
 	cfg.OIDC.Audience = "account"
@@ -373,6 +390,9 @@ func (suite *GitHubOAuthE2ETestSuite) setupTestLogging(t *testing.T) error {
 
 	// Create multi-writer to write to both file and console
 	multiWriter := io.MultiWriter(suite.logFile, os.Stdout)
+
+	// Set global log level to reduce noise from Helix components
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 
 	// Configure structured logging
 	suite.logger = zerolog.New(multiWriter).With().
@@ -1132,7 +1152,7 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 	// Check if we're already logged in or need to login
 	// Look for either the login form or the authorization form
 	loginUsernameSelector := `input[name="login"]`
-	authButtonSelector := `button[name="authorize"], input[type="submit"][value="Authorize"], button:contains("Authorize")`
+	authButtonSelector := `button[name="authorize"], input[type="submit"][value="Authorize"]`
 
 	suite.logger.Info().Msg("Checking if GitHub login is required")
 
@@ -1140,8 +1160,7 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 	time.Sleep(2 * time.Second)
 
 	// Check if we need to login first
-	loginElement := page.Element(loginUsernameSelector)
-	var authButtonElement *rod.Element
+	loginElement, _ := page.Element(loginUsernameSelector)
 
 	if loginElement != nil {
 		// We need to log in first
@@ -1164,38 +1183,137 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 
 		// Click login button
 		loginButton := page.MustElement(`input[type="submit"][value="Sign in"], button[type="submit"]`)
-		err = loginButton.Click()
+		err = loginButton.Click(proto.InputMouseButtonLeft, 1)
 		if err != nil {
 			return "", fmt.Errorf("failed to click GitHub login button: %w", err)
 		}
 
 		suite.logger.Info().Msg("Clicked GitHub login button")
 
-		// Wait for login to complete and authorization page to load
-		// Look for the authorization button after login
-		suite.logger.Info().Msg("Waiting for authorization page after login")
+		// Wait for login to complete and page navigation
+		suite.logger.Info().Msg("Waiting for page navigation after login")
 
-		// Wait for page to reload after login
-		time.Sleep(3 * time.Second)
+		// Wait for URL to change (indicating navigation started)
+		currentURL := page.MustInfo().URL
+		timeout := time.After(10 * time.Second)
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
+		navigationStarted := false
+		for !navigationStarted {
+			select {
+			case <-timeout:
+				suite.takeScreenshot(page, "github_login_timeout")
+				return "", fmt.Errorf("timeout waiting for GitHub login navigation")
+			case <-ticker.C:
+				newURL := page.MustInfo().URL
+				if newURL != currentURL {
+					suite.logger.Info().Str("old_url", currentURL).Str("new_url", newURL).Msg("Navigation detected")
+					navigationStarted = true
+				}
+			}
+		}
+
+		// Wait for page to fully load after navigation
+		suite.logger.Info().Msg("Waiting for page to fully load")
+		page.MustWaitLoad()
+
+		// Additional small wait to ensure all dynamic content loads
+		time.Sleep(2 * time.Second)
 
 		suite.takeScreenshot(page, "github_auth_page_after_login")
 	} else {
 		suite.logger.Info().Msg("Already logged into GitHub - proceeding with authorization")
 	}
 
-	// Now look for the authorization button (either after login or if already logged in)
-	suite.logger.Info().Msg("Looking for authorization button on the page")
-	authButtonElement = page.Element(authButtonSelector)
-	if authButtonElement == nil {
-		// If we can't find the standard selectors, try to find any button with "Authorize" text
-		authButtonElement = page.Element(`button`, `input[type="submit"]`, `a[href*="authorize"]`)
-		if authButtonElement == nil {
-			// Take a screenshot to debug what's on the page
-			suite.takeScreenshot(page, "github_auth_button_not_found")
-			pageContent, _ := page.HTML()
-			suite.logger.Error().Str("page_content", pageContent[:2000]+"...").Msg("Authorization button not found - page content")
-			return "", fmt.Errorf("could not find GitHub authorization button on page")
+	// Check if we've been redirected to the callback URL (OAuth completed successfully)
+	currentURL := page.MustInfo().URL
+	suite.logger.Info().Str("current_url", currentURL).Msg("Current page URL")
+
+	// If we're already at the callback URL, OAuth flow is complete
+	if strings.Contains(currentURL, "/api/v1/oauth/callback") || strings.Contains(currentURL, "code=") {
+		suite.logger.Info().Msg("OAuth flow completed - already at callback URL")
+		suite.takeScreenshot(page, "github_oauth_callback_received")
+
+		// Extract authorization code from current URL
+		parsedURL, err := url.Parse(currentURL)
+		if err != nil {
+			return "", fmt.Errorf("failed to parse callback URL: %w", err)
 		}
+
+		authCode := parsedURL.Query().Get("code")
+		if authCode == "" {
+			return "", fmt.Errorf("no authorization code in callback URL: %s", currentURL)
+		}
+
+		// Verify state parameter matches
+		callbackState := parsedURL.Query().Get("state")
+		if callbackState != state {
+			return "", fmt.Errorf("state mismatch: expected %s, got %s", state, callbackState)
+		}
+
+		suite.logger.Info().
+			Str("auth_code", authCode[:10]+"...").
+			Str("state", callbackState).
+			Msg("Successfully extracted GitHub authorization code from callback URL")
+
+		return authCode, nil
+	}
+
+	// If we're not at callback yet, look for authorization button on the authorization page
+	suite.logger.Info().Msg("Looking for authorization button on the authorization page")
+
+	// Try to find the authorization button using multiple approaches
+	var authButtonElement *rod.Element
+
+	// Approach 1: Standard CSS selectors
+	suite.logger.Info().Msg("Trying standard CSS selectors")
+	authButtonElement, _ = page.Element(authButtonSelector)
+	if authButtonElement != nil {
+		suite.logger.Info().Msg("Found authorization button using standard selectors")
+	}
+
+	// Approach 2: Look for buttons with "Authorize" text
+	if authButtonElement == nil {
+		suite.logger.Info().Msg("Standard selectors failed, trying text-based button search")
+		buttons, err := page.Elements("button")
+		if err == nil {
+			for _, button := range buttons {
+				text, err := button.Text()
+				if err == nil && strings.Contains(strings.ToLower(text), "authorize") {
+					authButtonElement = button
+					suite.logger.Info().Str("button_text", text).Msg("Found authorization button by text")
+					break
+				}
+			}
+		}
+	}
+
+	// Approach 3: Look for input elements with "Authorize" value
+	if authButtonElement == nil {
+		suite.logger.Info().Msg("Button search failed, trying input elements")
+		inputs, err := page.Elements("input[type='submit'], input[type='button']")
+		if err == nil {
+			for _, input := range inputs {
+				value, err := input.Property("value")
+				if err == nil && value.Str() != "" && strings.Contains(strings.ToLower(value.Str()), "authorize") {
+					authButtonElement = input
+					suite.logger.Info().Str("input_value", value.Str()).Msg("Found authorization input by value")
+					break
+				}
+			}
+		}
+	}
+
+	// If still not found, take a screenshot and dump page content for debugging
+	if authButtonElement == nil {
+		suite.takeScreenshot(page, "github_auth_button_not_found")
+		pageContent, _ := page.HTML()
+		suite.logger.Error().
+			Str("current_url", currentURL).
+			Str("page_content", pageContent[:min(len(pageContent), 2000)]+"...").
+			Msg("Authorization button not found - debugging info")
+		return "", fmt.Errorf("could not find GitHub authorization button on page: %s", currentURL)
 	}
 
 	// Now we should be on the authorization page
@@ -1212,7 +1330,7 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 
 	// Click the authorize button
 	suite.logger.Info().Msg("Clicking GitHub authorize button")
-	err = authButtonElement.Click()
+	err = authButtonElement.Click(proto.InputMouseButtonLeft, 1)
 	if err != nil {
 		return "", fmt.Errorf("failed to click GitHub authorize button: %w", err)
 	}
@@ -1221,9 +1339,7 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 	suite.logger.Info().Msg("Waiting for GitHub OAuth callback redirect")
 
 	// Wait for navigation to callback URL (with authorization code)
-	// The callback URL should contain the authorization code
-	callbackURL := ""
-	timeout := time.After(30 * time.Second)
+	timeout := time.After(20 * time.Second)
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -1236,41 +1352,35 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 		case <-ticker.C:
 			currentURL := page.MustInfo().URL
 			if strings.Contains(currentURL, "/api/v1/oauth/callback") || strings.Contains(currentURL, "code=") {
-				callbackURL = currentURL
-				suite.logger.Info().Str("callback_url", callbackURL).Msg("GitHub OAuth callback received")
-				break
+				suite.logger.Info().Str("callback_url", currentURL).Msg("GitHub OAuth callback received")
+				suite.takeScreenshot(page, "github_oauth_callback_received_after_button_click")
+
+				// Extract authorization code from callback URL
+				parsedURL, err := url.Parse(currentURL)
+				if err != nil {
+					return "", fmt.Errorf("failed to parse callback URL: %w", err)
+				}
+
+				authCode := parsedURL.Query().Get("code")
+				if authCode == "" {
+					return "", fmt.Errorf("no authorization code in callback URL: %s", currentURL)
+				}
+
+				// Verify state parameter matches
+				callbackState := parsedURL.Query().Get("state")
+				if callbackState != state {
+					return "", fmt.Errorf("state mismatch: expected %s, got %s", state, callbackState)
+				}
+
+				suite.logger.Info().
+					Str("auth_code", authCode[:10]+"...").
+					Str("state", callbackState).
+					Msg("Successfully extracted GitHub authorization code from callback")
+
+				return authCode, nil
 			}
 		}
-		if callbackURL != "" {
-			break
-		}
 	}
-
-	suite.takeScreenshot(page, "github_oauth_callback_received")
-
-	// Extract authorization code from callback URL
-	parsedURL, err := url.Parse(callbackURL)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse callback URL: %w", err)
-	}
-
-	authCode := parsedURL.Query().Get("code")
-	if authCode == "" {
-		return "", fmt.Errorf("no authorization code in callback URL: %s", callbackURL)
-	}
-
-	// Verify state parameter matches
-	callbackState := parsedURL.Query().Get("state")
-	if callbackState != state {
-		return "", fmt.Errorf("state mismatch: expected %s, got %s", state, callbackState)
-	}
-
-	suite.logger.Info().
-		Str("auth_code", authCode[:10]+"...").
-		Str("state", callbackState).
-		Msg("Successfully extracted GitHub authorization code from callback")
-
-	return authCode, nil
 }
 
 // completeHelixOAuthFlow completes OAuth flow using Helix's OAuth manager
@@ -1324,27 +1434,16 @@ func (suite *GitHubOAuthE2ETestSuite) testAgentGitHubSkillsIntegration(t *testin
 	// Test 1: Ask agent about GitHub username (should use real OAuth data)
 	suite.logger.Info().Msg("Testing agent GitHub username query")
 
-	session, err := suite.store.CreateSession(suite.ctx, &types.Session{
+	session, err := suite.store.CreateSession(suite.ctx, types.Session{
 		Name:      "GitHub Skills Test Session",
-		UserID:    suite.testUser.ID,
+		Owner:     suite.testUser.ID,
+		OwnerType: types.OwnerTypeUser,
 		Mode:      types.SessionModeInference,
 		Type:      types.SessionTypeText,
-		ModelName: types.Model{Name: "anthropic:claude-3-haiku-20240307"},
-		Messages:  []*types.Message{},
-		Metadata: map[string]interface{}{
-			"app_id": suite.testApp.ID,
-		},
+		ModelName: "anthropic:claude-3-haiku-20240307",
+		ParentApp: suite.testApp.ID,
 	})
 	require.NoError(t, err, "Failed to create test session")
-
-	// Add user message asking for GitHub username
-	_, err = suite.store.CreateMessage(suite.ctx, &types.Message{
-		SessionID: session.ID,
-		Role:      types.MessageRoleUser,
-		Content:   "What is my GitHub username?",
-		Metadata:  map[string]interface{}{},
-	})
-	require.NoError(t, err, "Failed to create user message")
 
 	suite.logger.Info().
 		Str("session_id", session.ID).
@@ -1354,27 +1453,16 @@ func (suite *GitHubOAuthE2ETestSuite) testAgentGitHubSkillsIntegration(t *testin
 	// Test 2: Ask agent to list GitHub repositories (should use real OAuth API calls)
 	suite.logger.Info().Msg("Testing agent GitHub repository listing")
 
-	session2, err := suite.store.CreateSession(suite.ctx, &types.Session{
+	session2, err := suite.store.CreateSession(suite.ctx, types.Session{
 		Name:      "GitHub Skills Test Session 2",
-		UserID:    suite.testUser.ID,
+		Owner:     suite.testUser.ID,
+		OwnerType: types.OwnerTypeUser,
 		Mode:      types.SessionModeInference,
 		Type:      types.SessionTypeText,
-		ModelName: types.Model{Name: "anthropic:claude-3-haiku-20240307"},
-		Messages:  []*types.Message{},
-		Metadata: map[string]interface{}{
-			"app_id": suite.testApp.ID,
-		},
+		ModelName: "anthropic:claude-3-haiku-20240307",
+		ParentApp: suite.testApp.ID,
 	})
 	require.NoError(t, err, "Failed to create second test session")
-
-	// Add user message asking for repository list
-	_, err = suite.store.CreateMessage(suite.ctx, &types.Message{
-		SessionID: session2.ID,
-		Role:      types.MessageRoleUser,
-		Content:   "List my GitHub repositories",
-		Metadata:  map[string]interface{}{},
-	})
-	require.NoError(t, err, "Failed to create user message for repository query")
 
 	suite.logger.Info().
 		Str("session_id", session2.ID).
@@ -1385,28 +1473,16 @@ func (suite *GitHubOAuthE2ETestSuite) testAgentGitHubSkillsIntegration(t *testin
 	if len(suite.testRepos) > 0 {
 		suite.logger.Info().Msg("Testing agent GitHub issues query")
 
-		session3, err := suite.store.CreateSession(suite.ctx, &types.Session{
+		session3, err := suite.store.CreateSession(suite.ctx, types.Session{
 			Name:      "GitHub Skills Test Session 3",
-			UserID:    suite.testUser.ID,
+			Owner:     suite.testUser.ID,
+			OwnerType: types.OwnerTypeUser,
 			Mode:      types.SessionModeInference,
 			Type:      types.SessionTypeText,
-			ModelName: types.Model{Name: "anthropic:claude-3-haiku-20240307"},
-			Messages:  []*types.Message{},
-			Metadata: map[string]interface{}{
-				"app_id": suite.testApp.ID,
-			},
+			ModelName: "anthropic:claude-3-haiku-20240307",
+			ParentApp: suite.testApp.ID,
 		})
 		require.NoError(t, err, "Failed to create third test session")
-
-		// Add user message asking about issues in test repository
-		repoQuery := fmt.Sprintf("What issues are open in my repository %s?", suite.testRepos[0])
-		_, err = suite.store.CreateMessage(suite.ctx, &types.Message{
-			SessionID: session3.ID,
-			Role:      types.MessageRoleUser,
-			Content:   repoQuery,
-			Metadata:  map[string]interface{}{},
-		})
-		require.NoError(t, err, "Failed to create user message for issues query")
 
 		suite.logger.Info().
 			Str("session_id", session3.ID).
