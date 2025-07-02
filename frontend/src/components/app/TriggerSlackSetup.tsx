@@ -132,8 +132,9 @@ const setupSteps = [
     image: '/assets/img/slack/app_token_scopes.png'
   },
   {
-    step: 8,
-    text: 'Go to "Install App" and generate the "Bot User OAuth Token"'
+    step: 9,
+    text: 'Go to "Install App" and generate the "Bot User OAuth Token"',
+    image: '/assets/img/slack/install_app.png'
   }
 ]
 
