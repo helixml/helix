@@ -183,8 +183,7 @@ steps:
   - name: oauth-test-results
     path: /go/src/github.com/helix-ml/helix/api/test_results
   environment:
-    LAUNCHPAD_URL:
-      from_secret: launchpad_url
+    LAUNCHPAD_URL: "https://deploy.helix.ml"
     CI_SHARED_SECRET:
       from_secret: ci_shared_secret
   commands:
