@@ -13,6 +13,9 @@ import Divider from '@mui/material/Divider'
 import Alert from '@mui/material/Alert'
 import IconButton from '@mui/material/IconButton'
 import CloseIcon from '@mui/icons-material/Close'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { SlackLogo } from '../icons/ProviderIcons'
 import DarkDialog from '../dialog/DarkDialog'
 import CopyButton from '../common/CopyButton'
@@ -105,11 +108,11 @@ const setupSteps = [
   },
   {
     step: 3,
-    text: 'Choose "From a manifest"'
+    text: 'Choose "From a manifest" and copy provided manifest into the text field'
   },
   {
     step: 4,
-    text: 'Select workspace'
+    text: 'Select workspace that you want to install the app to'
   },
   {
     step: 5,
@@ -150,6 +153,7 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
   app
 }) => {
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
+  const [manifestExpanded, setManifestExpanded] = useState(false)
 
   const handleImageClick = (imageSrc: string) => {
     setSelectedImage(imageSrc)
@@ -157,6 +161,15 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
 
   const handleCloseImageModal = () => {
     setSelectedImage(null)
+  }
+
+  const handleCopyManifest = async () => {
+    const manifest = getSlackAppManifest(app.name || 'Helix Agent', app.description || 'AI-powered Slack integration')
+    try {
+      await navigator.clipboard.writeText(manifest)
+    } catch (err) {
+      console.error('Failed to copy manifest:', err)
+    }
   }
 
   return (
@@ -226,6 +239,86 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
                       }
                     />
                   </Box>
+                  
+                  {/* App Manifest for step 3 */}
+                  {step.step === 3 && (
+                    <Box sx={{ ml: 6, mt: 2, width: 'calc(100% - 48px)' }}>
+                      <Box sx={{ 
+                        border: '1px solid rgba(255,255,255,0.1)', 
+                        borderRadius: 1, 
+                        overflow: 'hidden',
+                        // backgroundColor: 'rgba(0,0,0,0.2)'
+                      }}>
+                        <Box sx={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'space-between',
+                          p: 1.5,
+                          
+                          borderBottom: manifestExpanded ? '1px solid rgba(255,255,255,0.1)' : 'none'
+                        }}>
+                          <Typography 
+                            variant="subtitle2" 
+                            sx={{ 
+                              fontWeight: 'medium',
+                              cursor: 'pointer',
+                              '&:hover': {
+                                color: 'primary.main'
+                              }
+                            }}
+                            onClick={() => setManifestExpanded(!manifestExpanded)}
+                          >
+                            App Manifest
+                          </Typography>
+                          <Box sx={{ display: 'flex', gap: 1 }}>
+                            <Button
+                              size="small"
+                              variant="text"
+                              startIcon={<ContentCopyIcon />}
+                              onClick={handleCopyManifest}
+                              sx={{ 
+                                minWidth: 'auto',
+                                px: 1.5,
+                                py: 0.5,
+                                fontSize: '0.75rem'
+                              }}
+                            >
+                              Copy
+                            </Button>
+                            <IconButton
+                              size="small"
+                              onClick={() => setManifestExpanded(!manifestExpanded)}
+                              sx={{ p: 0.5 }}
+                            >
+                              {manifestExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                            </IconButton>
+                          </Box>
+                        </Box>
+                        {manifestExpanded && (
+                          <Box sx={{ p: 2 }}>
+                            <Box
+                              component="pre"
+                              sx={{
+                                backgroundColor: 'rgba(0,0,0,0.3)',
+                                p: 2,
+                                borderRadius: 1,
+                                fontSize: '0.75rem',
+                                overflow: 'auto',
+                                maxHeight: 200,
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                wordBreak: 'break-word',
+                                whiteSpace: 'pre-wrap',
+                                m: 0
+                              }}
+                            >
+                              {getSlackAppManifest(app.name || 'Helix Agent', app.description || 'AI-powered Slack integration')}
+                            </Box>
+                          </Box>
+                        )}
+                      </Box>
+                    </Box>
+                  )}
+                  
                   {step.image && (
                     <Box sx={{ ml: 6, mt: 1, width: 'calc(100% - 48px)' }}>
                       <Box sx={{ position: 'relative', display: 'inline-block' }}>
@@ -264,34 +357,6 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
               <strong>Note:</strong> After completing the setup, you'll need to copy the App Token and Bot User OAuth Token into the fields above.
             </Typography>
           </Alert>
-
-          <Box sx={{ mt: 3, p: 2, borderRadius: 1 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              App Manifest (copy this when prompted):
-            </Typography>
-            <Box sx={{ position: 'relative' }}>
-              <CopyButton 
-                content={getSlackAppManifest(app.name || 'Helix Agent', app.description || 'AI-powered Slack integration')} 
-                title="App Manifest"
-              />
-              <Box
-                component="pre"
-                sx={{
-                  backgroundColor: 'rgba(0,0,0,0.3)',
-                  p: 2,
-                  borderRadius: 1,
-                  fontSize: '0.75rem',
-                  overflow: 'auto',
-                  maxHeight: 200,
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  wordBreak: 'break-word',
-                  whiteSpace: 'pre-wrap'
-                }}
-              >
-                {getSlackAppManifest(app.name || 'Helix Agent', app.description || 'AI-powered Slack integration')}
-              </Box>
-            </Box>
-          </Box>
         </DialogContent>
         <DialogActions sx={{ p: 3, pt: 1 }}>
           <Button onClick={onClose} variant="outlined">
