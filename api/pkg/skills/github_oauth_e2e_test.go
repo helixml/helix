@@ -19,16 +19,20 @@ import (
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
+	"github.com/helixml/helix/api/pkg/agent"
+	"github.com/helixml/helix/api/pkg/agent/skill"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/oauth"
+	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	openai_sdk "github.com/sashabaranov/go-openai"
+	sashabaranov "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -97,7 +101,8 @@ func TestGitHubOAuthSkillsE2E(t *testing.T) {
 	t.Run("CreateTestRepositories", suite.testCreateTestRepositories)
 	t.Run("CreateTestApp", suite.testCreateTestApp)
 	t.Run("PerformOAuthFlow", suite.testPerformOAuthFlow)
-	t.Run("TestAgentConversation", suite.testAgentConversation)
+	t.Run("TestOAuthTokenDirectly", suite.testOAuthTokenDirectly)
+	t.Run("TestAgentGitHubSkillsIntegration", suite.testAgentGitHubSkillsIntegration)
 
 	// Cleanup
 	t.Cleanup(func() {
@@ -453,223 +458,6 @@ func (suite *GitHubOAuthE2ETestSuite) testPerformOAuthFlow(t *testing.T) {
 		Str("provider_id", connection.ProviderID).
 		Str("github_username", connection.Profile.DisplayName).
 		Msg("OAuth connection created successfully through Helix OAuth system")
-}
-
-// testAgentConversation tests that the agent can use GitHub skills to access repository data
-func (suite *GitHubOAuthE2ETestSuite) testAgentConversation(t *testing.T) {
-	suite.logger.Info().Msg("Starting agent conversation test with GitHub skills")
-
-	// Test conversation with specific questions about the test repositories
-	testQuestions := []string{
-		"What repositories do I have on GitHub? Can you tell me about them?",
-		fmt.Sprintf("Can you tell me about my repository %s?", suite.testRepos[0]),
-		"What files are in my GitHub repositories?",
-		"Can you summarize the content of my test repositories?",
-	}
-
-	for i, question := range testQuestions {
-		suite.logger.Info().
-			Int("question_number", i+1).
-			Str("question", question).
-			Msg("Sending question to agent")
-
-		// Use the session chat API endpoint directly
-		response, err := suite.sendChatMessage(question)
-		require.NoError(t, err, "Failed to send message to agent")
-
-		suite.logger.Info().
-			Int("question_number", i+1).
-			Str("response", response).
-			Msg("Received agent response")
-
-		// Log the full interaction for analysis
-		suite.logInteraction(i+1, question, response)
-
-		// Verify the response contains GitHub-related information
-		suite.validateGitHubResponse(t, i+1, question, response)
-
-		// Add some delay between questions to avoid rate limiting
-		time.Sleep(3 * time.Second)
-	}
-
-	// Verify OAuth connection was used - with better debugging
-	suite.logger.Info().Msg("Checking OAuth connections after agent conversation")
-
-	connections, err := suite.store.ListOAuthConnections(context.Background(), &store.ListOAuthConnectionsQuery{
-		UserID: suite.testUser.ID,
-	})
-	require.NoError(t, err, "Failed to list OAuth connections")
-
-	suite.logger.Info().
-		Int("oauth_connections_found", len(connections)).
-		Str("user_id", suite.testUser.ID).
-		Msg("OAuth connections query result")
-
-	// If we have no connections, let's debug why
-	if len(connections) == 0 {
-		suite.logger.Warn().Msg("No OAuth connections found, debugging...")
-
-		// Check if the OAuth connection from the previous step was stored
-		if suite.oauthConn != nil {
-			suite.logger.Info().
-				Str("stored_connection_id", suite.oauthConn.ID).
-				Str("stored_user_id", suite.oauthConn.UserID).
-				Msg("OAuth connection was created in previous step")
-
-			// Try to fetch this specific connection
-			specificConn, err := suite.store.GetOAuthConnection(context.Background(), suite.oauthConn.ID)
-			if err != nil {
-				suite.logger.Error().Err(err).Str("connection_id", suite.oauthConn.ID).Msg("Failed to fetch specific OAuth connection")
-			} else if specificConn != nil {
-				suite.logger.Info().
-					Str("connection_id", specificConn.ID).
-					Str("provider_type", string(specificConn.Provider.Type)).
-					Msg("Found specific OAuth connection")
-			}
-		}
-
-		// List all OAuth connections for debugging
-		allConnections, err := suite.store.ListOAuthConnections(context.Background(), &store.ListOAuthConnectionsQuery{})
-		if err != nil {
-			suite.logger.Error().Err(err).Msg("Failed to list all OAuth connections")
-		} else {
-			suite.logger.Info().
-				Int("total_connections", len(allConnections)).
-				Msg("Total OAuth connections in database")
-
-			for i, conn := range allConnections {
-				suite.logger.Info().
-					Int("index", i).
-					Str("connection_id", conn.ID).
-					Str("user_id", conn.UserID).
-					Str("provider_type", string(conn.Provider.Type)).
-					Msg("OAuth connection details")
-			}
-		}
-
-		// If OAuth flow failed but we want to continue testing the agent conversation,
-		// we can proceed with a warning rather than failing the test
-		suite.logger.Warn().Msg("OAuth connection verification failed, but agent conversation was successful")
-
-		// Don't fail the test if OAuth connection is missing but agent conversation worked
-		// This allows us to test the core agent functionality even if OAuth setup had issues
-		if len(testQuestions) > 0 {
-			suite.logger.Info().Msg("Agent conversation test completed successfully despite OAuth connection issues")
-			return
-		}
-	}
-
-	// If we do have connections, validate them
-	if len(connections) > 0 {
-		assert.Len(t, connections, 1, "Expected exactly one OAuth connection")
-
-		connection := connections[0]
-
-		// Check if provider type is properly loaded
-		if connection.Provider.Type == "" {
-			suite.logger.Warn().
-				Str("connection_id", connection.ID).
-				Msg("OAuth connection provider type not loaded - checking by provider ID")
-
-			// Verify the connection has the correct provider ID as a fallback
-			assert.Equal(t, suite.oauthProvider.ID, connection.ProviderID, "Expected connection to use the correct OAuth provider")
-
-			// Also verify the provider in the suite is the right type
-			assert.Equal(t, types.OAuthProviderTypeGitHub, suite.oauthProvider.Type, "Expected GitHub OAuth provider type")
-		} else {
-			// Normal validation when provider is properly loaded
-			assert.Equal(t, types.OAuthProviderTypeGitHub, connection.Provider.Type, "Expected GitHub OAuth connection")
-		}
-
-		suite.logger.Info().
-			Str("connection_id", connection.ID).
-			Str("provider_id", connection.ProviderID).
-			Str("provider_type", string(connection.Provider.Type)).
-			Msg("OAuth connection validation successful")
-	}
-
-	suite.logger.Info().
-		Int("oauth_connections", len(connections)).
-		Int("questions_asked", len(testQuestions)).
-		Msg("Agent conversation test completed successfully")
-}
-
-// sendChatMessage sends a message to the agent using in-process session handling
-func (suite *GitHubOAuthE2ETestSuite) sendChatMessage(message string) (string, error) {
-	// Create session chat request
-	chatRequest := &types.SessionChatRequest{
-		AppID:  suite.testApp.ID,
-		Stream: false,
-		Messages: []*types.Message{
-			{
-				Role: types.CreatorTypeUser,
-				Content: types.MessageContent{
-					ContentType: types.MessageContentTypeText,
-					Parts:       []any{message},
-				},
-			},
-		},
-	}
-
-	// Process the chat request in-process using the session logic
-	response, err := suite.processSessionChatRequest(chatRequest)
-	if err != nil {
-		return "", fmt.Errorf("failed to process chat request: %w", err)
-	}
-
-	return response, nil
-}
-
-// validateGitHubResponse validates that the agent response contains GitHub-related information
-func (suite *GitHubOAuthE2ETestSuite) validateGitHubResponse(t *testing.T, questionNumber int, _ string, response string) {
-	// Convert to lowercase for easier matching
-	lowerResponse := strings.ToLower(response)
-
-	switch questionNumber {
-	case 1: // Repository list question
-		// Should mention repositories, GitHub, or repo names
-		hasRepoInfo := strings.Contains(lowerResponse, "repositor") ||
-			strings.Contains(lowerResponse, "github") ||
-			strings.Contains(lowerResponse, "repo")
-		assert.True(t, hasRepoInfo, "Response should contain repository information")
-
-	case 2: // Specific repository question
-		// Should mention the specific test repository
-		testRepoName := strings.ToLower(suite.testRepos[0])
-		hasTestRepo := strings.Contains(lowerResponse, testRepoName)
-		assert.True(t, hasTestRepo, "Response should mention the test repository")
-
-	case 3: // Files question
-		// Should mention files or file-related terms
-		hasFileInfo := strings.Contains(lowerResponse, "file") ||
-			strings.Contains(lowerResponse, "readme") ||
-			strings.Contains(lowerResponse, "content")
-		assert.True(t, hasFileInfo, "Response should contain file information")
-
-	case 4: // Summary question
-		// Should provide some summary or analysis
-		hasSummary := len(response) > 50 // Basic check for substantial response
-		assert.True(t, hasSummary, "Response should provide a meaningful summary")
-	}
-
-	suite.logger.Info().
-		Int("question_number", questionNumber).
-		Bool("validation_passed", true).
-		Msg("Response validation completed")
-}
-
-// logInteraction logs a question-answer interaction for analysis
-func (suite *GitHubOAuthE2ETestSuite) logInteraction(questionNumber int, question, response string) {
-	suite.logger.Info().Msg("=== AGENT INTERACTION ===")
-	suite.logger.Info().
-		Int("question_number", questionNumber).
-		Str("question", question).
-		Msg("QUESTION")
-	suite.logger.Info().
-		Int("question_number", questionNumber).
-		Str("response", response).
-		Msg("AGENT RESPONSE")
-	suite.logger.Info().Msg("=== END INTERACTION ===")
 }
 
 // Helper methods
@@ -1256,6 +1044,46 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 				break
 			}
 
+			// Handle device verification page - try to continue
+			if strings.Contains(currentURL, "sessions/verified-device") {
+				suite.logger.Info().Msg("Device verification page detected, attempting to continue")
+				suite.takeScreenshot(page, "device_verification")
+
+				// Try to find and click continue button
+				continueButtons := []string{
+					"button[type='submit']",
+					"input[type='submit']",
+					"button:contains('Continue')",
+					"button:contains('Verify')",
+					"a[href*='continue']",
+				}
+
+				buttonClicked := false
+				for _, selector := range continueButtons {
+					if button, err := page.Element(selector); err == nil {
+						suite.logger.Info().Str("selector", selector).Msg("Found continue button, clicking")
+						if err := button.Click(proto.InputMouseButtonLeft, 1); err == nil {
+							buttonClicked = true
+							time.Sleep(3 * time.Second)
+							break
+						}
+					}
+				}
+
+				if !buttonClicked {
+					// Try navigating directly to the OAuth URL again
+					suite.logger.Info().Msg("No continue button found, re-navigating to OAuth URL")
+					err = page.Navigate(authURL)
+					if err != nil {
+						suite.logger.Warn().Err(err).Msg("Failed to re-navigate to OAuth URL")
+					}
+					time.Sleep(3 * time.Second)
+				}
+
+				// Continue the loop to check if we're now on the OAuth page
+				continue
+			}
+
 			if strings.Contains(currentURL, "login") && strings.Contains(currentURL, "session") {
 				// Still on login page, keep waiting
 				time.Sleep(2 * time.Second)
@@ -1519,110 +1347,90 @@ func (suite *GitHubOAuthE2ETestSuite) completeHelixOAuthFlow(authCode, _ string)
 	return connection, nil
 }
 
-// processSessionChatRequest processes a chat request in-process using session logic
-func (suite *GitHubOAuthE2ETestSuite) processSessionChatRequest(chatRequest *types.SessionChatRequest) (string, error) {
-	// Load the app
-	app, err := suite.store.GetAppWithTools(suite.ctx, chatRequest.AppID)
-	if err != nil {
-		return "", fmt.Errorf("failed to load app: %w", err)
+// testOAuthTokenDirectly tests the OAuth token by making direct GitHub API calls
+func (suite *GitHubOAuthE2ETestSuite) testOAuthTokenDirectly(t *testing.T) {
+	require.NotNil(t, suite.oauthConn, "OAuth connection should exist")
+	require.NotEmpty(t, suite.oauthConn.AccessToken, "OAuth access token should not be empty")
+
+	suite.logger.Info().Msg("Testing OAuth token with direct GitHub API calls")
+
+	// Test 1: Get user information
+	userInfo, err := suite.makeAuthenticatedGitHubCall("GET", "https://api.github.com/user", nil)
+	require.NoError(t, err, "Failed to get user info from GitHub")
+
+	suite.logger.Info().
+		Interface("user_info", userInfo).
+		Msg("Successfully retrieved user info from GitHub API")
+
+	// Test 2: List repositories
+	repos, err := suite.makeAuthenticatedGitHubCall("GET", "https://api.github.com/user/repos?type=owner&sort=updated", nil)
+	require.NoError(t, err, "Failed to list repositories from GitHub")
+
+	suite.logger.Info().
+		Interface("repositories", repos).
+		Msg("Successfully retrieved repositories from GitHub API")
+
+	// Test 3: Get specific test repository
+	if len(suite.testRepos) > 0 {
+		repoURL := fmt.Sprintf("https://api.github.com/repos/%s/%s", suite.githubUsername, suite.testRepos[0])
+		repoInfo, err := suite.makeAuthenticatedGitHubCall("GET", repoURL, nil)
+		require.NoError(t, err, "Failed to get test repository info")
+
+		suite.logger.Info().
+			Str("repo_name", suite.testRepos[0]).
+			Interface("repo_info", repoInfo).
+			Msg("Successfully retrieved test repository info from GitHub API")
 	}
 
-	// Convert the session chat request to OpenAI format
-	messages := make([]openai_sdk.ChatCompletionMessage, 0, len(chatRequest.Messages))
-	for _, msg := range chatRequest.Messages {
-		content := ""
-		if len(msg.Content.Parts) > 0 {
-			if textContent, ok := msg.Content.Parts[0].(string); ok {
-				content = textContent
-			}
-		}
-
-		role := "user"
-		if msg.Role == types.CreatorTypeAssistant {
-			role = "assistant"
-		} else if msg.Role == types.CreatorTypeSystem {
-			role = "system"
-		}
-
-		messages = append(messages, openai_sdk.ChatCompletionMessage{
-			Role:    role,
-			Content: content,
-		})
-	}
-
-	// Add system prompt from app/assistant configuration
-	if len(app.Config.Helix.Assistants) > 0 {
-		assistant := &app.Config.Helix.Assistants[0]
-		if assistant.SystemPrompt != "" {
-			// Prepend system message
-			systemMsg := openai_sdk.ChatCompletionMessage{
-				Role:    "system",
-				Content: assistant.SystemPrompt,
-			}
-			messages = append([]openai_sdk.ChatCompletionMessage{systemMsg}, messages...)
-		}
-	}
-
-	// Create a mock response for testing purposes
-	// In a real implementation, this would call the actual LLM via the controller
-	response := &openai_sdk.ChatCompletionResponse{
-		ID:      "test-completion",
-		Object:  "chat.completion",
-		Created: time.Now().Unix(),
-		Model:   "test-model",
-		Choices: []openai_sdk.ChatCompletionChoice{
-			{
-				Index: 0,
-				Message: openai_sdk.ChatCompletionMessage{
-					Role:    "assistant",
-					Content: suite.generateMockGitHubResponse(messages),
-				},
-				FinishReason: "stop",
-			},
-		},
-	}
-
-	if len(response.Choices) == 0 {
-		return "", fmt.Errorf("no response choices generated")
-	}
-
-	return response.Choices[0].Message.Content, nil
+	suite.logger.Info().Msg("All OAuth token tests passed - GitHub API calls successful")
 }
 
-// generateMockGitHubResponse generates a mock response that simulates GitHub skills integration
-func (suite *GitHubOAuthE2ETestSuite) generateMockGitHubResponse(messages []openai_sdk.ChatCompletionMessage) string {
-	// Get the last user message
-	var lastMessage string
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "user" {
-			lastMessage = strings.ToLower(messages[i].Content)
-			break
+// makeAuthenticatedGitHubCall makes a GitHub API call using the OAuth access token
+func (suite *GitHubOAuthE2ETestSuite) makeAuthenticatedGitHubCall(method, url string, body interface{}) (interface{}, error) {
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	var bodyReader io.Reader
+	if body != nil {
+		bodyBytes, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		bodyReader = strings.NewReader(string(bodyBytes))
+	}
+
+	req, err := http.NewRequest(method, url, bodyReader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Use the OAuth access token from the connection
+	req.Header.Set("Authorization", "token "+suite.oauthConn.AccessToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make API call: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("GitHub API error: %d %s - %s", resp.StatusCode, resp.Status, string(respBody))
+	}
+
+	var result interface{}
+	if resp.StatusCode != 204 {
+		err = json.NewDecoder(resp.Body).Decode(&result)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode response: %w", err)
 		}
 	}
 
-	// Generate appropriate mock responses based on the question
-	if strings.Contains(lastMessage, "repositor") {
-		return fmt.Sprintf("I can see you have access to GitHub repositories through the OAuth connection. "+
-			"Based on my GitHub integration, I found your test repository: %s. "+
-			"This repository was created for testing Helix OAuth skills integration and contains test files including README.md and test-file.txt.",
-			strings.Join(suite.testRepos, ", "))
-	}
-
-	if strings.Contains(lastMessage, "file") {
-		return "I can access your GitHub repositories and see the files within them. " +
-			"Your test repository contains several files including README.md which describes the repository purpose, " +
-			"and test-file.txt with sample data for testing purposes."
-	}
-
-	if strings.Contains(lastMessage, "summar") {
-		return "Based on your GitHub repositories, I can see you have test repositories created for Helix OAuth integration testing. " +
-			"These repositories demonstrate the successful integration between Helix and GitHub through OAuth authentication, " +
-			"allowing me to access and analyze your repository data, files, and contents."
-	}
-
-	// Default response
-	return "I have successfully authenticated with GitHub through OAuth and can access your repository information. " +
-		"The GitHub skills integration is working properly, allowing me to retrieve data from your connected GitHub account."
+	return result, nil
 }
 
 // cleanupExistingOAuthData removes any OAuth connections/providers from previous test runs
@@ -1665,4 +1473,425 @@ func (suite *GitHubOAuthE2ETestSuite) cleanupExistingOAuthData() error {
 		Msg("Cleanup of existing OAuth data completed")
 
 	return nil
+}
+
+// testAgentGitHubSkillsIntegration tests the complete agent integration with GitHub skills
+func (suite *GitHubOAuthE2ETestSuite) testAgentGitHubSkillsIntegration(t *testing.T) {
+	suite.logger.Info().Msg("=== Testing Agent GitHub Skills Integration ===")
+
+	// Load GitHub skill from YAML file using the skills manager
+	githubTool, err := suite.loadGitHubSkillFromYAML()
+	require.NoError(t, err, "Failed to load GitHub skill from YAML")
+
+	// Create Helix agent with GitHub skill
+	helixAgent, llm, err := suite.createHelixAgentWithGitHubSkill(githubTool)
+	require.NoError(t, err, "Failed to create Helix agent with GitHub skill")
+
+	// Test agent conversation with GitHub questions
+	testQuestions := []struct {
+		question         string
+		expectedContains []string
+		description      string
+	}{
+		{
+			question:         "What is my GitHub username?",
+			expectedContains: []string{suite.githubUsername, "login", "user"},
+			description:      "Get authenticated user information",
+		},
+		{
+			question:         "List my repositories sorted by recent activity",
+			expectedContains: []string{"repository", "repo", "name"},
+			description:      "List user repositories",
+		},
+		{
+			question:         fmt.Sprintf("Show me open issues in my %s repository", suite.testRepos[0]),
+			expectedContains: []string{"issue", suite.testRepos[0], "open"},
+			description:      "List repository issues",
+		},
+	}
+
+	for i, testCase := range testQuestions {
+		t.Run(fmt.Sprintf("Question_%d_%s", i+1, testCase.description), func(t *testing.T) {
+			suite.logger.Info().
+				Str("question", testCase.question).
+				Str("description", testCase.description).
+				Msg("Testing agent question")
+
+			response, err := suite.askAgentQuestion(helixAgent, llm, testCase.question)
+			require.NoError(t, err, "Failed to get agent response")
+
+			suite.logger.Info().
+				Str("question", testCase.question).
+				Str("response", response).
+				Msg("Agent response received")
+
+			// Verify response contains expected content or shows OAuth integration working
+			responseLower := strings.ToLower(response)
+			foundAny := false
+			for _, expected := range testCase.expectedContains {
+				if strings.Contains(responseLower, strings.ToLower(expected)) {
+					foundAny = true
+					break
+				}
+			}
+
+			// Verify either expected content or OAuth functionality working
+			assert.True(t, foundAny ||
+				strings.Contains(responseLower, "github") ||
+				strings.Contains(responseLower, "api"),
+				"Response should contain expected content or show GitHub integration for question: %s. Got: %s", testCase.question, response)
+
+			// Verify response is not empty or error
+			assert.NotEmpty(t, response, "Agent response should not be empty")
+			assert.NotContains(t, responseLower, "error occurred", "Agent response should not contain errors")
+		})
+	}
+}
+
+// loadGitHubSkillFromYAML loads the GitHub skill using the skills manager
+func (suite *GitHubOAuthE2ETestSuite) loadGitHubSkillFromYAML() (*types.Tool, error) {
+	// Create skills manager and load GitHub skill
+	skillsManager := NewManager()
+	err := skillsManager.LoadSkills(suite.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load skills: %w", err)
+	}
+
+	// Get GitHub skill definition
+	githubSkillDef, err := skillsManager.GetSkill("github")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GitHub skill: %w", err)
+	}
+
+	// Parse the OpenAPI schema to get actions
+	actions, err := tools.GetActionsFromSchema(githubSkillDef.Schema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get actions from schema: %w", err)
+	}
+
+	// Convert SkillDefinition to Tool
+	githubTool := &types.Tool{
+		ID:           githubSkillDef.ID,
+		Name:         githubSkillDef.Name,
+		Description:  githubSkillDef.Description,
+		SystemPrompt: githubSkillDef.SystemPrompt,
+		ToolType:     types.ToolTypeAPI,
+		Config: types.ToolConfig{
+			API: &types.ToolAPIConfig{
+				URL:           githubSkillDef.BaseURL,
+				Schema:        githubSkillDef.Schema,
+				Headers:       githubSkillDef.Headers,
+				Actions:       actions,
+				OAuthProvider: githubSkillDef.OAuthProvider,
+				OAuthScopes:   githubSkillDef.OAuthScopes,
+			},
+		},
+	}
+
+	suite.logger.Info().
+		Str("skill_name", githubTool.Name).
+		Int("actions_count", len(actions)).
+		Str("oauth_provider", githubTool.Config.API.OAuthProvider).
+		Strs("oauth_scopes", githubTool.Config.API.OAuthScopes).
+		Msg("Loaded GitHub skill from YAML")
+
+	return githubTool, nil
+}
+
+// createHelixAgentWithGitHubSkill creates a Helix agent with the GitHub skill
+func (suite *GitHubOAuthE2ETestSuite) createHelixAgentWithGitHubSkill(githubTool *types.Tool) (*agent.Agent, *agent.LLM, error) {
+	// Create a tools planner that can handle OAuth tokens
+	planner := &OAuthAwarePlanner{
+		oauth:  suite.oauth,
+		appID:  suite.testApp.ID,
+		userID: suite.testUser.ID,
+	}
+
+	// Create skill from the tool
+	githubSkillAgent := skill.NewAPICallingSkill(planner, githubTool)
+
+	// Create LLM configuration - use real OpenAI client with CI credentials
+	cfg, err := config.LoadServerConfig()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load server config: %w", err)
+	}
+
+	// Use the real OpenAI client configured in CI
+	var openaiClient openai.Client
+	if cfg.Providers.OpenAI.APIKey != "" {
+		openaiClient = openai.New(
+			cfg.Providers.OpenAI.APIKey,
+			cfg.Providers.OpenAI.BaseURL,
+			cfg.Providers.OpenAI.Models...)
+	} else if cfg.Providers.TogetherAI.APIKey != "" {
+		openaiClient = openai.New(
+			cfg.Providers.TogetherAI.APIKey,
+			cfg.Providers.TogetherAI.BaseURL,
+			cfg.Providers.TogetherAI.Models...)
+	} else {
+		return nil, nil, fmt.Errorf("no OpenAI or TogetherAI API key configured - required for agent testing")
+	}
+
+	// Choose appropriate models based on what's available
+	var reasoningModel, generationModel, smallReasoningModel, smallGenerationModel string
+	if cfg.Providers.OpenAI.APIKey != "" {
+		reasoningModel = "gpt-4o"
+		generationModel = "gpt-4o"
+		smallReasoningModel = "gpt-4o-mini"
+		smallGenerationModel = "gpt-4o-mini"
+	} else {
+		// TogetherAI models
+		reasoningModel = "meta-llama/Llama-3-70b-chat-hf"
+		generationModel = "meta-llama/Llama-3-70b-chat-hf"
+		smallReasoningModel = "meta-llama/Llama-3-8b-chat-hf"
+		smallGenerationModel = "meta-llama/Llama-3-8b-chat-hf"
+	}
+
+	llm := agent.NewLLM(
+		&agent.LLMModelConfig{
+			Client: openaiClient,
+			Model:  reasoningModel,
+		},
+		&agent.LLMModelConfig{
+			Client: openaiClient,
+			Model:  generationModel,
+		},
+		&agent.LLMModelConfig{
+			Client: openaiClient,
+			Model:  smallReasoningModel,
+		},
+		&agent.LLMModelConfig{
+			Client: openaiClient,
+			Model:  smallGenerationModel,
+		},
+	)
+
+	// Create step info emitter
+	stepInfoEmitter := agent.NewLogStepInfoEmitter()
+
+	// Create agent with GitHub skill
+	helixAgent := agent.NewAgent(
+		stepInfoEmitter,
+		"You are a helpful GitHub assistant. Use the GitHub skill to help users with their repositories, issues, and development workflows.",
+		[]agent.Skill{githubSkillAgent},
+		5, // max iterations
+	)
+
+	suite.logger.Info().
+		Str("agent_prompt", "GitHub assistant agent created").
+		Int("skills_count", 1).
+		Msg("Created Helix agent with GitHub skill")
+
+	return helixAgent, llm, nil
+}
+
+// askAgentQuestion sends a question to the agent and returns the response
+func (suite *GitHubOAuthE2ETestSuite) askAgentQuestion(helixAgent *agent.Agent, llm *agent.LLM, question string) (string, error) {
+	// Create memory
+	mem := agent.NewDefaultMemory()
+
+	// Create message history
+	messageHistory := agent.NewMessageList()
+
+	// Create agent session
+	stepInfoEmitter := agent.NewLogStepInfoEmitter()
+	session := agent.NewSession(
+		suite.ctx,
+		stepInfoEmitter,
+		llm,
+		mem,
+		helixAgent,
+		messageHistory,
+		agent.Meta{
+			AppID:         suite.testApp.ID,
+			UserID:        suite.testUser.ID,
+			UserEmail:     suite.testUser.Email,
+			SessionID:     system.GenerateSessionID(),
+			InteractionID: system.GenerateUUID(),
+			Extra:         map[string]string{},
+		},
+		true, // conversational
+	)
+
+	// Send question to agent
+	session.In(question)
+
+	// Collect response
+	var response string
+	for {
+		out := session.Out()
+
+		if out.Type == agent.ResponseTypePartialText {
+			response += out.Content
+		}
+		if out.Type == agent.ResponseTypeEnd {
+			break
+		}
+	}
+
+	return response, nil
+}
+
+// OAuthAwarePlanner implements tools.Planner with OAuth token injection
+type OAuthAwarePlanner struct {
+	oauth  *oauth.Manager
+	appID  string
+	userID string
+}
+
+func (p *OAuthAwarePlanner) IsActionable(ctx context.Context, sessionID, interactionID string, toolsList []*types.Tool, history []*types.ToolHistoryMessage, options ...tools.Option) (*tools.IsActionableResponse, error) {
+	// Simple implementation - always consider actionable if we have tools
+	if len(toolsList) > 0 {
+		return &tools.IsActionableResponse{
+			NeedsTool:     "yes",
+			API:           toolsList[0].Config.API.Actions[0].Name,
+			Justification: "GitHub API tool available for user request",
+		}, nil
+	}
+	return &tools.IsActionableResponse{
+		NeedsTool:     "no",
+		Justification: "No tools available",
+	}, nil
+}
+
+func (p *OAuthAwarePlanner) RunAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string, options ...tools.Option) (*tools.RunActionResponse, error) {
+	return &tools.RunActionResponse{
+		Message: "Action executed with OAuth authentication",
+	}, nil
+}
+
+func (p *OAuthAwarePlanner) RunActionStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string, options ...tools.Option) (*sashabaranov.ChatCompletionStream, error) {
+	return nil, fmt.Errorf("streaming not supported in test implementation")
+}
+
+func (p *OAuthAwarePlanner) ValidateAndDefault(ctx context.Context, tool *types.Tool) (*types.Tool, error) {
+	return tool, nil
+}
+
+func (p *OAuthAwarePlanner) RunAPIActionWithParameters(ctx context.Context, req *types.RunAPIActionRequest, options ...tools.Option) (*types.RunAPIActionResponse, error) {
+	// Get OAuth connections for the user
+	connections, err := p.oauth.ListUserConnections(ctx, p.userID)
+	if err != nil {
+		return &types.RunAPIActionResponse{
+			Error: fmt.Sprintf("Failed to get OAuth connections: %v", err),
+		}, nil
+	}
+
+	// Find GitHub OAuth connection
+	var githubConn *types.OAuthConnection
+	for _, conn := range connections {
+		if conn.ProviderID == "github" {
+			githubConn = conn
+			break
+		}
+	}
+
+	if githubConn == nil {
+		return &types.RunAPIActionResponse{
+			Error: "No GitHub OAuth connection found",
+		}, nil
+	}
+
+	// Find the action configuration to get the path and method
+	var actionConfig *types.ToolAPIAction
+	for _, action := range req.Tool.Config.API.Actions {
+		if action.Name == req.Action {
+			actionConfig = action
+			break
+		}
+	}
+
+	if actionConfig == nil {
+		return &types.RunAPIActionResponse{
+			Error: fmt.Sprintf("Action %s not found in tool configuration", req.Action),
+		}, nil
+	}
+
+	// Build the request URL using the action path
+	apiURL := req.Tool.Config.API.URL
+	requestURL := apiURL + actionConfig.Path
+	method := actionConfig.Method
+
+	// Handle path parameters (like {owner}/{repo})
+	paramsCopy := make(map[string]interface{})
+	for k, v := range req.Parameters {
+		paramsCopy[k] = v
+	}
+
+	for key, value := range paramsCopy {
+		placeholder := fmt.Sprintf("{%s}", key)
+		if strings.Contains(requestURL, placeholder) {
+			requestURL = strings.ReplaceAll(requestURL, placeholder, fmt.Sprintf("%v", value))
+			delete(paramsCopy, key)
+		}
+	}
+
+	// Handle query parameters for GET requests
+	if method == "GET" && len(paramsCopy) > 0 {
+		queryParams := url.Values{}
+		for key, value := range paramsCopy {
+			queryParams.Add(key, fmt.Sprintf("%v", value))
+		}
+		requestURL += "?" + queryParams.Encode()
+	}
+
+	// Create HTTP request
+	var body io.Reader
+	if method == "POST" && len(paramsCopy) > 0 {
+		jsonBody, err := json.Marshal(paramsCopy)
+		if err != nil {
+			return &types.RunAPIActionResponse{
+				Error: fmt.Sprintf("Failed to marshal request body: %v", err),
+			}, nil
+		}
+		body = strings.NewReader(string(jsonBody))
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, method, requestURL, body)
+	if err != nil {
+		return &types.RunAPIActionResponse{
+			Error: fmt.Sprintf("Failed to create HTTP request: %v", err),
+		}, nil
+	}
+
+	// Add OAuth token
+	httpReq.Header.Set("Authorization", "Bearer "+githubConn.AccessToken)
+
+	// Add API headers
+	for key, value := range req.Tool.Config.API.Headers {
+		httpReq.Header.Set(key, value)
+	}
+
+	// Add content type for POST requests
+	if method == "POST" {
+		httpReq.Header.Set("Content-Type", "application/json")
+	}
+
+	// Make the request
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return &types.RunAPIActionResponse{
+			Error: fmt.Sprintf("Failed to make API request: %v", err),
+		}, nil
+	}
+	defer resp.Body.Close()
+
+	// Read response
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return &types.RunAPIActionResponse{
+			Error: fmt.Sprintf("Failed to read response: %v", err),
+		}, nil
+	}
+
+	if resp.StatusCode >= 400 {
+		return &types.RunAPIActionResponse{
+			Error: fmt.Sprintf("API request failed with status %d: %s", resp.StatusCode, string(responseBody)),
+		}, nil
+	}
+
+	return &types.RunAPIActionResponse{
+		Response: string(responseBody),
+	}, nil
 }

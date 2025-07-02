@@ -323,7 +323,7 @@ function test() {
   # otherwise run all tests
   if [[ $# -gt 0 ]]; then
     echo "Running tests from path: $1"
-    go test -v -p 1 "$1" 2>&1 | sed -u 's/^/[TEST] /'
+    go test -v -p 1 "$@" 2>&1 | sed -u 's/^/[TEST] /'
   else
     echo "Running all tests"
     go test -v -p 1 ./... 2>&1 | sed -u 's/^/[TEST] /'
