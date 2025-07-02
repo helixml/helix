@@ -266,9 +266,17 @@ func (suite *GitHubOAuthE2ETestSuite) setupTestLogging(t *testing.T) error {
 func (suite *GitHubOAuthE2ETestSuite) setupBrowser() error {
 	suite.logger.Info().Msg("Setting up headless browser for OAuth automation")
 
-	// Connect to existing Chrome container (should be running on port 7317)
+	// Use environment variable for Chrome URL, with fallback to localhost
+	chromeURL := os.Getenv("RAG_CRAWLER_LAUNCHER_URL")
+	if chromeURL == "" {
+		chromeURL = "http://localhost:7317" // Fallback for local testing
+	}
+
+	suite.logger.Info().Str("chrome_url", chromeURL).Msg("Connecting to Chrome container")
+
+	// Connect to existing Chrome container
 	suite.browser = rod.New().
-		ControlURL("http://localhost:7317").
+		ControlURL(chromeURL).
 		Context(suite.ctx)
 
 	// Connect to the browser
