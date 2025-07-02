@@ -209,15 +209,22 @@ steps:
       fi
     # Upload to Launchpad
     - |
-      curl -X POST \
-        -H "X-CI-Secret: $CI_SHARED_SECRET" \
-        -F "branch=${DRONE_BRANCH}" \
-        -F "commit=${DRONE_COMMIT}" \
-        -F "build_number=${DRONE_BUILD_NUMBER}" \
-        -F "test_type=oauth_integration" \
-        -F "status=$TEST_STATUS" \
-        $([ -n "$ARTIFACTS_FILE" ] && echo "-F artifacts=@$ARTIFACTS_FILE") \
-        "${LAUNCHPAD_URL}/api/ci/test-results"
+      if [ -n "$LAUNCHPAD_URL" ] && [ -n "$CI_SHARED_SECRET" ]; then
+        echo "Uploading test results to Launchpad at ${LAUNCHPAD_URL}"
+        curl -X POST \
+          -H "X-CI-Secret: $CI_SHARED_SECRET" \
+          -F "branch=${DRONE_BRANCH}" \
+          -F "commit=${DRONE_COMMIT}" \
+          -F "build_number=${DRONE_BUILD_NUMBER}" \
+          -F "test_type=oauth_integration" \
+          -F "status=$TEST_STATUS" \
+          $([ -n "$ARTIFACTS_FILE" ] && echo "-F artifacts=@$ARTIFACTS_FILE") \
+          "${LAUNCHPAD_URL}/api/ci/test-results"
+      else
+        echo "LAUNCHPAD_URL or CI_SHARED_SECRET not set, skipping test result upload"
+        echo "LAUNCHPAD_URL: ${LAUNCHPAD_URL:-'(not set)'}"
+        echo "CI_SHARED_SECRET: ${CI_SHARED_SECRET:+'(set)' || '(not set)'}"
+      fi
   when:
     event:
     - push
