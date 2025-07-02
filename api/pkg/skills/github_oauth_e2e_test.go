@@ -47,6 +47,7 @@ type GitHubOAuthE2ETestSuite struct {
 	githubUsername     string
 	githubPassword     string
 	githubToken        string // Personal access token for GitHub API calls
+	serverURL          string // Server URL for API calls and callbacks
 
 	// Created during test
 	testUser      *types.User
@@ -174,9 +175,16 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 	suite.oauth = oauth.NewManager(suite.store)
 
 	// Initialize Keycloak authenticator
-	// Override Keycloak URL to use localhost since we're running outside containers
+	// Use environment variable KEYCLOAK_URL if set, otherwise use config default
 	keycloakConfig := cfg.Keycloak
-	keycloakConfig.KeycloakURL = "http://localhost:8080/auth"
+	if keycloakURL := os.Getenv("KEYCLOAK_URL"); keycloakURL != "" {
+		keycloakConfig.KeycloakURL = keycloakURL
+		suite.logger.Info().Str("keycloak_url", keycloakURL).Msg("Using KEYCLOAK_URL from environment")
+	} else {
+		// Fallback to localhost for local testing
+		keycloakConfig.KeycloakURL = "http://localhost:8080/auth"
+		suite.logger.Info().Msg("Using localhost Keycloak URL for local testing")
+	}
 
 	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&keycloakConfig, suite.store)
 	if err != nil {
@@ -196,7 +204,14 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 		return fmt.Errorf("failed to create API key: %w", err)
 	}
 
-	suite.client, err = client.NewClient("http://localhost:8080", apiKey)
+	// Set server URL for API client and callbacks
+	suite.serverURL = cfg.ServerURL
+	if suite.serverURL == "" {
+		suite.serverURL = "http://localhost:8080" // Fallback for local testing
+	}
+	suite.logger.Info().Str("server_url", suite.serverURL).Msg("Using server URL for API client")
+
+	suite.client, err = client.NewClient(suite.serverURL, apiKey)
 	if err != nil {
 		return fmt.Errorf("failed to create API client: %w", err)
 	}
@@ -303,7 +318,7 @@ func (suite *GitHubOAuthE2ETestSuite) testSetupOAuthProvider(t *testing.T) {
 		AuthURL:      "https://github.com/login/oauth/authorize",
 		TokenURL:     "https://github.com/login/oauth/access_token",
 		UserInfoURL:  "https://api.github.com/user",
-		CallbackURL:  "http://localhost:8080/api/v1/oauth/callback/github",
+		CallbackURL:  suite.serverURL + "/api/v1/oauth/callback/github",
 		Scopes:       []string{"repo", "user:read"},
 		CreatorID:    suite.testUser.ID,
 		CreatorType:  types.OwnerTypeUser,
@@ -1108,10 +1123,9 @@ Always focus on GitHub-related development tasks. If asked about other platforms
 func (suite *GitHubOAuthE2ETestSuite) startHelixOAuthFlow() (string, string, error) {
 	suite.logger.Info().Msg("Starting OAuth flow via Helix API")
 
-	// Use Helix's OAuth flow start endpoint with localhost base URL
-	baseURL := "http://localhost:8080"
+	// Use Helix's OAuth flow start endpoint with configured server URL
 	endpoint := fmt.Sprintf("/api/v1/oauth/flow/start/%s", suite.oauthProvider.ID)
-	fullURL := baseURL + endpoint
+	fullURL := suite.serverURL + endpoint
 
 	req, err := http.NewRequest("GET", fullURL, nil)
 	if err != nil {
@@ -1220,7 +1234,9 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 			suite.logger.Debug().Str("current_url", currentURL).Msg("Waiting for OAuth redirect")
 
 			// Check if we've been redirected to the callback URL - this means OAuth is complete!
-			if strings.Contains(currentURL, "localhost:8080") && strings.Contains(currentURL, "callback") {
+			serverHost := strings.TrimPrefix(suite.serverURL, "http://")
+			serverHost = strings.TrimPrefix(serverHost, "https://")
+			if strings.Contains(currentURL, serverHost) && strings.Contains(currentURL, "callback") {
 				suite.logger.Info().Msg("OAuth callback received directly - extracting authorization code")
 				// Extract authorization code from current URL
 				urlParts, err := url.Parse(currentURL)
