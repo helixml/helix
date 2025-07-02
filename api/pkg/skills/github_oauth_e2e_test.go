@@ -1127,43 +1127,14 @@ Always focus on GitHub-related development tasks. If asked about other platforms
 	}
 }
 
-// startHelixOAuthFlow starts OAuth flow using Helix's /api/v1/oauth/flow/start endpoint
+// startHelixOAuthFlow starts OAuth flow using OAuth manager directly
 func (suite *GitHubOAuthE2ETestSuite) startHelixOAuthFlow() (string, string, error) {
-	suite.logger.Info().Msg("Starting OAuth flow via Helix API")
+	suite.logger.Info().Msg("Starting OAuth flow via OAuth manager")
 
-	// Use Helix's OAuth flow start endpoint with configured server URL
-	endpoint := fmt.Sprintf("/api/v1/oauth/flow/start/%s", suite.oauthProvider.ID)
-	fullURL := suite.serverURL + endpoint
-
-	req, err := http.NewRequest("GET", fullURL, nil)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Add authentication header
-	req.Header.Set("Authorization", "Bearer "+suite.testAPIKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	// Call OAuth manager directly instead of making HTTP request
+	authURL, err := suite.oauth.StartOAuthFlow(suite.ctx, suite.testUser.ID, suite.oauthProvider.ID, suite.oauthProvider.CallbackURL)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to start OAuth flow: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return "", "", fmt.Errorf("OAuth flow start failed: %d %s", resp.StatusCode, string(body))
-	}
-
-	var result map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", "", fmt.Errorf("failed to decode OAuth flow response: %w", err)
-	}
-
-	authURL := result["auth_url"]
-	if authURL == "" {
-		return "", "", fmt.Errorf("no auth_url in response")
 	}
 
 	// Extract state parameter from the auth URL
@@ -1175,6 +1146,11 @@ func (suite *GitHubOAuthE2ETestSuite) startHelixOAuthFlow() (string, string, err
 	if state == "" {
 		return "", "", fmt.Errorf("no state parameter in auth URL")
 	}
+
+	suite.logger.Info().
+		Str("auth_url", authURL).
+		Str("state", state).
+		Msg("Successfully started OAuth flow via manager")
 
 	return authURL, state, nil
 }
