@@ -216,7 +216,7 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 }
 
 // setupTestLogging initializes the test log file and logger
-func (suite *GitHubOAuthE2ETestSuite) setupTestLogging(_ *testing.T) error {
+func (suite *GitHubOAuthE2ETestSuite) setupTestLogging(t *testing.T) error {
 	// Create test results directory if it doesn't exist
 	testResultsDir := "test_results"
 	if err := os.MkdirAll(testResultsDir, 0755); err != nil {
@@ -633,11 +633,6 @@ func (suite *GitHubOAuthE2ETestSuite) validateGitHubResponse(t *testing.T, quest
 		Int("question_number", questionNumber).
 		Bool("validation_passed", true).
 		Msg("Response validation completed")
-}
-
-// getAPIKey returns the API key for the test user
-func (suite *GitHubOAuthE2ETestSuite) getAPIKey() string {
-	return suite.testAPIKey
 }
 
 // logInteraction logs a question-answer interaction for analysis
@@ -1511,7 +1506,7 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 }
 
 // completeHelixOAuthFlow completes OAuth flow using Helix's callback endpoint
-func (suite *GitHubOAuthE2ETestSuite) completeHelixOAuthFlow(authCode, state string) (*types.OAuthConnection, error) {
+func (suite *GitHubOAuthE2ETestSuite) completeHelixOAuthFlow(authCode, _ string) (*types.OAuthConnection, error) {
 	suite.logger.Info().Msg("Completing OAuth flow via Helix callback")
 
 	// Since we can't easily call the callback endpoint directly (it expects browser redirect),
