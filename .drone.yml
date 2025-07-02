@@ -154,7 +154,7 @@ steps:
     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
     KEYCLOAK_URL: http://keycloak:8080/auth
     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-    KEYCLOAK_PASSWORD: oh-hallo-insecure-password
+    KEYCLOAK_PASSWORD: REPLACE_ME
     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
     # Agent configuration
     REASONING_MODEL_PROVIDER: openai
