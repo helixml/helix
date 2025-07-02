@@ -12,7 +12,7 @@ import ListItemIcon from '@mui/material/ListItemIcon'
 import Divider from '@mui/material/Divider'
 import Alert from '@mui/material/Alert'
 import IconButton from '@mui/material/IconButton'
-import ZoomInIcon from '@mui/icons-material/ZoomIn'
+import CloseIcon from '@mui/icons-material/Close'
 import { SlackLogo } from '../icons/ProviderIcons'
 import DarkDialog from '../dialog/DarkDialog'
 import CopyButton from '../common/CopyButton'
@@ -236,6 +236,7 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
                           sx={{
                             width: '80%',
                             maxWidth: '80%',
+                            maxHeight: '200px',
                             height: 'auto',
                             borderRadius: 1,
                             border: '1px solid rgba(255,255,255,0.1)',
@@ -302,29 +303,48 @@ const TriggerSlackSetup: FC<TriggerSlackSetupProps> = ({
       <DarkDialog
         open={!!selectedImage}
         onClose={handleCloseImageModal}
-        maxWidth="lg"
-        fullWidth
+        PaperProps={{
+          sx: {
+            background: 'transparent',
+            boxShadow: 'none',
+            overflow: 'visible',
+            display: 'inline-block',
+            p: 0,
+            m: 0,
+          }
+        }}
       >
-        <DialogContent sx={{ p: 0, textAlign: 'center' }}>
+        <Box sx={{ position: 'relative', textAlign: 'center', p: 0, m: 0 }}>
+          <IconButton
+            aria-label="close"
+            onClick={handleCloseImageModal}
+            sx={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              zIndex: 2,
+              color: 'white',
+              background: 'rgba(0,0,0,0.4)',
+              '&:hover': { background: 'rgba(0,0,0,0.7)' }
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
           {selectedImage && (
             <Box
               component="img"
               src={selectedImage}
               alt="Enlarged screenshot"
               sx={{
-                maxWidth: '80%',
+                maxWidth: '600px',
                 maxHeight: '60vh',
                 height: 'auto',
-                borderRadius: 1
+                borderRadius: 1,
+                boxShadow: '0 4px 24px rgba(0,0,0,0.7)'
               }}
             />
           )}
-        </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={handleCloseImageModal} variant="outlined">
-            Close
-          </Button>
-        </DialogActions>
+        </Box>
       </DarkDialog>
     </>
   )
