@@ -76,7 +76,7 @@ steps:
   when:
     event:
     - push
-  depends_on: []
+  # depends_on: [unit-test]
 
 - name: api-integration-test
   image: golang:1.24-alpine3.21
@@ -123,7 +123,7 @@ steps:
   when:
     event:
     - push
-  depends_on: [unit-test]
+  # depends_on: [unit-test]
 
 - name: oauth-integration-test
   image: golang:1.24-alpine3.21
@@ -142,6 +142,9 @@ steps:
       from_secret: github_skill_test_oauth_password
     GITHUB_SKILL_TEST_SETUP_PAT:
       from_secret: github_skill_test_setup_pat
+    # Gmail credentials for device verification
+    GMAIL_CREDENTIALS_BASE64:
+      from_secret: gmail_credentials_base64
     # Database config (running in a sidecar)
     POSTGRES_HOST: postgres
     POSTGRES_PORT: "5432"
@@ -235,7 +238,6 @@ steps:
   when:
     event:
     - push
-  # depends_on: [unit-test]
 
 - name: upload-oauth-test-artifacts
   image: alpine:latest
@@ -396,10 +398,6 @@ steps:
   when:
     event:
     - push
-    status:
-    - success
-    - failure
-  depends_on: [oauth-integration-test]
 
 - name: release-backend
   image: golang:1.24-bullseye
