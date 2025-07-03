@@ -304,7 +304,6 @@ const SidebarContent: React.FC<{
                 {
                   account.user && (
                     <>
-                      <UserOrgSelector />
                       <TokenUsageDisplay />
                       <Divider />
                     </>
