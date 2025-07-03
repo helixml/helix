@@ -1518,7 +1518,7 @@ func (suite *GitHubOAuthE2ETestSuite) testAgentGitHubSkillsIntegration(t *testin
 		Msg("Agent responded to GitHub repository listing")
 
 	// Verify the response contains real repository data
-	assert.Contains(t, strings.ToLower(repoResponse), "repository", "Agent response should mention repositories")
+	assert.Contains(t, strings.ToLower(repoResponse), "repositor", "Agent response should mention repositories")
 
 	// Test 3: Execute session asking about issues in test repository (should use real OAuth API calls)
 	if len(suite.testRepos) > 0 {
