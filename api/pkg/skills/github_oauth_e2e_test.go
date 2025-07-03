@@ -283,6 +283,7 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 		RAG:             ragMock,
 		Scheduler:       sched,
 		PubSub:          ps,
+		OAuthManager:    suite.oauth, // Add OAuth manager to controller
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create controller: %w", err)
@@ -523,7 +524,13 @@ func (suite *GitHubOAuthE2ETestSuite) testCreateTestApp(t *testing.T) {
 						SystemPrompt: githubSkill.SystemPrompt, // Use the skill's system prompt
 						// Configure LLM model (use anthropic if available, fallback to helix)
 						Provider: "anthropic",
-						Model:    "claude-3-haiku-20240307",
+						Model:    "claude-3-5-haiku-20241022",
+
+						// Configure reasoning and generation models for consistent agent behavior
+						ReasoningModelProvider:  "anthropic",
+						ReasoningModel:          "claude-3-5-haiku-20241022",
+						GenerationModelProvider: "anthropic",
+						GenerationModel:         "claude-3-5-haiku-20241022",
 						// Configure with GitHub skill using full configuration
 						APIs: []types.AssistantAPI{
 							{
@@ -533,7 +540,7 @@ func (suite *GitHubOAuthE2ETestSuite) testCreateTestApp(t *testing.T) {
 								Schema:        githubSkill.Schema,
 								Headers:       githubSkill.Headers,
 								SystemPrompt:  githubSkill.SystemPrompt, // Add the system prompt to the API
-								OAuthProvider: suite.oauthProvider.ID,
+								OAuthProvider: suite.oauthProvider.Name,
 							},
 						},
 					},
@@ -553,7 +560,7 @@ func (suite *GitHubOAuthE2ETestSuite) testCreateTestApp(t *testing.T) {
 	assert.Equal(t, suite.testUser.ID, createdApp.Owner)
 	assert.Len(t, createdApp.Config.Helix.Assistants, 1)
 	assert.Len(t, createdApp.Config.Helix.Assistants[0].APIs, 1)
-	assert.Equal(t, suite.oauthProvider.ID, createdApp.Config.Helix.Assistants[0].APIs[0].OAuthProvider)
+	assert.Equal(t, suite.oauthProvider.Name, createdApp.Config.Helix.Assistants[0].APIs[0].OAuthProvider)
 
 	suite.logger.Info().
 		Str("app_id", createdApp.ID).
@@ -1541,7 +1548,7 @@ func (suite *GitHubOAuthE2ETestSuite) executeSessionQuery(userMessage, sessionNa
 		OwnerType: types.OwnerTypeUser,
 		Mode:      types.SessionModeInference,
 		Type:      types.SessionTypeText,
-		ModelName: "anthropic:claude-3-haiku-20240307",
+		ModelName: "anthropic:claude-3-5-haiku-20241022",
 		ParentApp: suite.testApp.ID,
 	})
 	if err != nil {
@@ -1575,7 +1582,7 @@ func (suite *GitHubOAuthE2ETestSuite) executeSessionQuery(userMessage, sessionNa
 
 	// Prepare OpenAI chat completion request
 	openaiReq := goai.ChatCompletionRequest{
-		Model: "anthropic:claude-3-haiku-20240307",
+		Model: "anthropic:claude-3-5-haiku-20241022",
 		Messages: []goai.ChatCompletionMessage{
 			{
 				Role:    "user",
