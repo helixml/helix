@@ -590,9 +590,15 @@ func (suite *GitHubOAuthE2ETestSuite) getDeviceVerificationCode() (string, error
 func (suite *GitHubOAuthE2ETestSuite) handleDeviceVerification(page *rod.Page) error {
 	suite.logger.Info().Msg("Checking if GitHub device verification is required")
 
-	// Check if we're on the device verification page
+	// Check if we're on the device verification page with more specific criteria
 	currentURL := page.MustInfo().URL
-	if !strings.Contains(currentURL, "device") || !strings.Contains(currentURL, "verification") {
+
+	// More specific device verification detection
+	isDeviceVerificationPage := (strings.Contains(currentURL, "device") && strings.Contains(currentURL, "verification")) ||
+		strings.Contains(currentURL, "/login/device") ||
+		strings.Contains(currentURL, "/device/confirmation")
+
+	if !isDeviceVerificationPage {
 		suite.logger.Info().Msg("Not on device verification page, continuing normal flow")
 		return nil
 	}
@@ -620,8 +626,8 @@ func (suite *GitHubOAuthE2ETestSuite) handleDeviceVerification(page *rod.Page) e
 		return fmt.Errorf("failed to get device verification code after 60 seconds: %w", err)
 	}
 
-	// Find the verification code input field
-	codeInputSelector := `input[name="otp"], input[id="otp"], input[type="text"]`
+	// More specific verification code input field selector (exclude generic text inputs)
+	codeInputSelector := `input[name="otp"], input[id="otp"], input[name="device_verification_code"], input[placeholder*="verification"], input[placeholder*="code"]`
 	codeInput, err := page.Element(codeInputSelector)
 	if err != nil {
 		return fmt.Errorf("failed to find verification code input field: %w", err)
@@ -1402,12 +1408,6 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 
 	// Wait a moment for the page to fully load
 	time.Sleep(2 * time.Second)
-
-	// Check for device verification before checking login requirements
-	err = suite.handleDeviceVerification(page)
-	if err != nil {
-		return "", fmt.Errorf("failed to handle device verification: %w", err)
-	}
 
 	// Check if we need to login first
 	loginElement, _ := page.Element(loginUsernameSelector)
