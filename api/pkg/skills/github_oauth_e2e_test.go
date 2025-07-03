@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"gocloud.dev/blob/memblob"
+	"golang.org/x/oauth2/google"
+	"google.golang.org/api/gmail/v1"
+	"google.golang.org/api/option"
 )
 
 // min returns the minimum of two integers
@@ -75,6 +79,10 @@ type GitHubOAuthE2ETestSuite struct {
 	githubPassword     string
 	githubToken        string // Personal access token for GitHub API calls
 	serverURL          string // Server URL for API calls and callbacks
+
+	// Gmail configuration for device verification
+	gmailCredentialsBase64 string // Base64 encoded Gmail API credentials JSON
+	gmailService           *gmail.Service
 
 	// Created during test
 	testUser      *types.User
@@ -171,10 +179,16 @@ func (suite *GitHubOAuthE2ETestSuite) loadTestConfig() error {
 		return fmt.Errorf("GITHUB_SKILL_TEST_SETUP_PAT environment variable not set - need PAT for repo creation/cleanup")
 	}
 
+	// Gmail API credentials for device verification
+	suite.gmailCredentialsBase64 = os.Getenv("GMAIL_CREDENTIALS_BASE64")
+	if suite.gmailCredentialsBase64 == "" {
+		return fmt.Errorf("GMAIL_CREDENTIALS_BASE64 environment variable not set - need Gmail API credentials for device verification")
+	}
+
 	log.Info().
 		Str("client_id", suite.githubClientID).
 		Str("username", suite.githubUsername).
-		Msg("Loaded GitHub OAuth test configuration")
+		Msg("Loaded GitHub OAuth test configuration with Gmail credentials")
 
 	return nil
 }
@@ -357,7 +371,19 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 	}
 	suite.keycloak = keycloakAuthenticator
 
-	// Create test user
+	// Initialize browser for OAuth flow
+	err = suite.setupBrowser()
+	if err != nil {
+		return fmt.Errorf("failed to setup browser: %w", err)
+	}
+
+	// Initialize Gmail service for device verification
+	err = suite.setupGmailService()
+	if err != nil {
+		return fmt.Errorf("failed to setup Gmail service: %w", err)
+	}
+
+	// Create test user and API key
 	suite.testUser, err = suite.createTestUser()
 	if err != nil {
 		return fmt.Errorf("failed to create test user: %w", err)
@@ -385,12 +411,6 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 		Str("user_id", suite.testUser.ID).
 		Str("username", suite.testUser.Username).
 		Msg("Test setup completed successfully")
-
-	// Setup browser
-	err = suite.setupBrowser()
-	if err != nil {
-		return fmt.Errorf("failed to setup browser: %w", err)
-	}
 
 	return nil
 }
@@ -455,6 +475,185 @@ func (suite *GitHubOAuthE2ETestSuite) setupBrowser() error {
 	}
 
 	suite.logger.Info().Msg("Successfully connected to Chrome container")
+
+	suite.logger.Info().Msg("Browser setup completed successfully")
+	return nil
+}
+
+// setupGmailService initializes the Gmail API service for device verification
+func (suite *GitHubOAuthE2ETestSuite) setupGmailService() error {
+	suite.logger.Info().Msg("Setting up Gmail service for device verification")
+
+	// Decode base64 credentials
+	credentials, err := base64.StdEncoding.DecodeString(suite.gmailCredentialsBase64)
+	if err != nil {
+		return fmt.Errorf("failed to decode Gmail credentials: %w", err)
+	}
+
+	// Create Gmail service with service account credentials and domain-wide delegation
+	ctx := context.Background()
+
+	// Parse the service account credentials
+	config, err := google.JWTConfigFromJSON(credentials, gmail.GmailReadonlyScope)
+	if err != nil {
+		return fmt.Errorf("failed to parse Gmail credentials: %w", err)
+	}
+
+	// Set the subject to impersonate the test@helix.ml user
+	config.Subject = "test@helix.ml"
+
+	// Create HTTP client with the JWT config
+	client := config.Client(ctx)
+
+	// Create Gmail service
+	service, err := gmail.NewService(ctx, option.WithHTTPClient(client))
+	if err != nil {
+		return fmt.Errorf("failed to create Gmail service: %w", err)
+	}
+
+	suite.gmailService = service
+	suite.logger.Info().Msg("Gmail service setup completed successfully")
+	return nil
+}
+
+// getDeviceVerificationCode reads the latest device verification email and extracts the code
+func (suite *GitHubOAuthE2ETestSuite) getDeviceVerificationCode() (string, error) {
+	suite.logger.Info().Msg("Searching for GitHub device verification email")
+
+	// Search for emails from GitHub with device verification
+	query := "from:noreply@github.com subject:device verification"
+	listCall := suite.gmailService.Users.Messages.List("test@helix.ml").Q(query).MaxResults(5)
+
+	messages, err := listCall.Do()
+	if err != nil {
+		return "", fmt.Errorf("failed to search for device verification emails: %w", err)
+	}
+
+	if len(messages.Messages) == 0 {
+		return "", fmt.Errorf("no device verification emails found")
+	}
+
+	suite.logger.Info().Int("message_count", len(messages.Messages)).Msg("Found device verification emails")
+
+	// Get the most recent message
+	messageID := messages.Messages[0].Id
+	message, err := suite.gmailService.Users.Messages.Get("test@helix.ml", messageID).Do()
+	if err != nil {
+		return "", fmt.Errorf("failed to get device verification email: %w", err)
+	}
+
+	// Extract email body
+	emailBody := ""
+	if message.Payload.Body.Data != "" {
+		decoded, err := base64.URLEncoding.DecodeString(message.Payload.Body.Data)
+		if err == nil {
+			emailBody = string(decoded)
+		}
+	}
+
+	// Check parts for the body if main body is empty
+	if emailBody == "" && len(message.Payload.Parts) > 0 {
+		for _, part := range message.Payload.Parts {
+			if part.MimeType == "text/plain" && part.Body.Data != "" {
+				decoded, err := base64.URLEncoding.DecodeString(part.Body.Data)
+				if err == nil {
+					emailBody = string(decoded)
+					break
+				}
+			}
+		}
+	}
+
+	if emailBody == "" {
+		return "", fmt.Errorf("could not extract email body from device verification email")
+	}
+
+	suite.logger.Info().Str("email_body", emailBody[:min(len(emailBody), 200)]+"...").Msg("Device verification email content")
+
+	// Extract verification code using regex
+	// GitHub device verification codes are typically 6 digits
+	codeRegex := regexp.MustCompile(`\b(\d{6})\b`)
+	matches := codeRegex.FindAllStringSubmatch(emailBody, -1)
+
+	if len(matches) == 0 {
+		return "", fmt.Errorf("could not find verification code in email body")
+	}
+
+	// Return the first 6-digit code found
+	verificationCode := matches[0][1]
+	suite.logger.Info().Str("verification_code", verificationCode).Msg("Extracted device verification code")
+
+	return verificationCode, nil
+}
+
+// handleDeviceVerification detects and handles GitHub device verification
+func (suite *GitHubOAuthE2ETestSuite) handleDeviceVerification(page *rod.Page) error {
+	suite.logger.Info().Msg("Checking if GitHub device verification is required")
+
+	// Check if we're on the device verification page
+	currentURL := page.MustInfo().URL
+	if !strings.Contains(currentURL, "device") || !strings.Contains(currentURL, "verification") {
+		suite.logger.Info().Msg("Not on device verification page, continuing normal flow")
+		return nil
+	}
+
+	suite.logger.Info().Str("url", currentURL).Msg("Device verification detected")
+	suite.takeScreenshot(page, "device_verification_detected")
+
+	// Wait for device verification code via Gmail
+	suite.logger.Info().Msg("Waiting for device verification email...")
+
+	var verificationCode string
+	var err error
+
+	// Wait up to 60 seconds for the device verification email
+	for i := 0; i < 12; i++ {
+		time.Sleep(5 * time.Second)
+		verificationCode, err = suite.getDeviceVerificationCode()
+		if err == nil {
+			break
+		}
+		suite.logger.Info().Err(err).Int("attempt", i+1).Msg("Device verification email not found yet, retrying...")
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to get device verification code after 60 seconds: %w", err)
+	}
+
+	// Find the verification code input field
+	codeInputSelector := `input[name="otp"], input[id="otp"], input[type="text"]`
+	codeInput, err := page.Element(codeInputSelector)
+	if err != nil {
+		return fmt.Errorf("failed to find verification code input field: %w", err)
+	}
+
+	// Enter the verification code
+	suite.logger.Info().Str("code", verificationCode).Msg("Entering device verification code")
+	err = codeInput.Input(verificationCode)
+	if err != nil {
+		return fmt.Errorf("failed to enter verification code: %w", err)
+	}
+
+	suite.takeScreenshot(page, "device_verification_code_entered")
+
+	// Find and click the verify button
+	verifyButtonSelector := `button[type="submit"], input[type="submit"], button:contains("Verify")`
+	verifyButton, err := page.Element(verifyButtonSelector)
+	if err != nil {
+		return fmt.Errorf("failed to find verify button: %w", err)
+	}
+
+	err = verifyButton.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		return fmt.Errorf("failed to click verify button: %w", err)
+	}
+
+	suite.logger.Info().Msg("Device verification submitted")
+	suite.takeScreenshot(page, "device_verification_submitted")
+
+	// Wait for navigation after device verification
+	time.Sleep(3 * time.Second)
+
 	return nil
 }
 
@@ -1204,6 +1403,12 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 	// Wait a moment for the page to fully load
 	time.Sleep(2 * time.Second)
 
+	// Check for device verification before checking login requirements
+	err = suite.handleDeviceVerification(page)
+	if err != nil {
+		return "", fmt.Errorf("failed to handle device verification: %w", err)
+	}
+
 	// Check if we need to login first
 	loginElement, _ := page.Element(loginUsernameSelector)
 
@@ -1267,6 +1472,12 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 		time.Sleep(2 * time.Second)
 
 		suite.takeScreenshot(page, "github_auth_page_after_login")
+
+		// Check for device verification after login
+		err = suite.handleDeviceVerification(page)
+		if err != nil {
+			return "", fmt.Errorf("failed to handle device verification: %w", err)
+		}
 	} else {
 		suite.logger.Info().Msg("Already logged into GitHub - proceeding with authorization")
 	}
