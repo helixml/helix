@@ -58,7 +58,7 @@ const Orgs: FC = () => {
   return (
     <Page
       breadcrumbTitle="Organizations"
-      topbarContent={account.admin ? (
+      topbarContent={
         <Button
           variant="contained"
           color="secondary"
@@ -67,7 +67,7 @@ const Orgs: FC = () => {
         >
           Create Organization
         </Button>
-      ) : null}
+      }
     >
       <Container maxWidth="xl">
         <Box sx={{ mt: 3 }}>
