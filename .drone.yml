@@ -223,7 +223,12 @@ steps:
     - apk add --no-cache curl zip
     # Debug environment variables
     - echo "DEBUG - LAUNCHPAD_URL='${LAUNCHPAD_URL}'"
+    - echo "DEBUG - LAUNCHPAD_URL length=$(echo -n \"$LAUNCHPAD_URL\" | wc -c)"
     - echo "DEBUG - CI_SHARED_SECRET present='${CI_SHARED_SECRET:+YES}'"
+    - echo "DEBUG - All environment variables:"
+    - env | grep -E "(LAUNCHPAD|CI_)" | sort
+    - echo "DEBUG - Expected value should be 'https://deploy.helix.ml'"
+    - echo "DEBUG - Manual test - hardcoded value works: https://deploy.helix.ml"
     # Determine test status from oauth-integration-test step result
     - |
       if [ "${DRONE_BUILD_STATUS}" = "success" ]; then
@@ -298,7 +303,7 @@ steps:
       fi
     # Upload to Launchpad with explicit URL construction
     - |
-      LAUNCHPAD_URL="${LAUNCHPAD_URL:-}"
+      # Don't override LAUNCHPAD_URL if it's already set from environment
       if [ -n "$LAUNCHPAD_URL" ] && [ -n "$CI_SHARED_SECRET" ]; then
         echo "Uploading test results to Launchpad at $LAUNCHPAD_URL"
         UPLOAD_URL="$LAUNCHPAD_URL/api/ci/test-results"
