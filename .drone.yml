@@ -223,12 +223,10 @@ steps:
     - apk add --no-cache curl zip
     # Debug environment variables
     - echo "DEBUG - LAUNCHPAD_URL='${LAUNCHPAD_URL}'"
-    - echo "DEBUG - LAUNCHPAD_URL length=$(echo -n \"$LAUNCHPAD_URL\" | wc -c)"
     - echo "DEBUG - CI_SHARED_SECRET present='${CI_SHARED_SECRET:+YES}'"
     - echo "DEBUG - All environment variables:"
-    - env | grep -E "(LAUNCHPAD|CI_)" | sort
+    - env | grep -E "(LAUNCHPAD|CI_)" | sort || echo "No matching environment variables found"
     - echo "DEBUG - Expected value should be 'https://deploy.helix.ml'"
-    - echo "DEBUG - Manual test - hardcoded value works: https://deploy.helix.ml"
     # Determine test status from oauth-integration-test step result
     - |
       if [ "${DRONE_BUILD_STATUS}" = "success" ]; then
@@ -326,7 +324,11 @@ steps:
       else
         echo "LAUNCHPAD_URL or CI_SHARED_SECRET not set, skipping test result upload"
         echo "LAUNCHPAD_URL: '${LAUNCHPAD_URL:-'(not set)'}'"
-        echo "CI_SHARED_SECRET: '${CI_SHARED_SECRET:+'(set)'}${CI_SHARED_SECRET:+''}${CI_SHARED_SECRET:-'(not set)'}'"
+        if [ -n "$CI_SHARED_SECRET" ]; then
+          echo "CI_SHARED_SECRET: '(set)'"
+        else
+          echo "CI_SHARED_SECRET: '(not set)'"
+        fi
       fi
   when:
     event:
