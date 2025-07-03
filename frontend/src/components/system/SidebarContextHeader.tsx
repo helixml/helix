@@ -101,60 +101,49 @@ const SidebarContextHeader: React.FC = () => {
         onClose={handleMenuClose}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-        disablePortal
-        keepMounted={false}
-        container={anchorEl ? anchorEl.parentElement : undefined}
         MenuListProps={{
           'aria-labelledby': 'org-context-menu',
           sx: {
-            padding: 0,
-            backgroundColor: 'transparent',
-            width: anchorEl ? `${anchorEl.offsetWidth}px` : '100%',
-            maxWidth: anchorEl ? `${anchorEl.offsetWidth}px` : '100%',
-          }
-        }}
-        PopoverClasses={{
-          paper: 'org-dropdown'
+            p: 0,
+            backgroundColor: 'rgba(26, 26, 26, 0.97)',
+            backdropFilter: 'blur(10px)',
+            minWidth: '160px',
+            borderRadius: '10px',
+            border: '1px solid rgba(255,255,255,0.10)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.32)',
+          },
         }}
         sx={{
-          '& .org-dropdown': {
-            left: '0 !important',
-            right: 'auto !important',
-            transform: 'none !important',
-            width: anchorEl ? `${anchorEl.offsetWidth}px !important` : '100% !important',
-            maxWidth: anchorEl ? `${anchorEl.offsetWidth}px !important` : '100% !important',
-            minWidth: '200px',
-            background: 'transparent',
-            color: 'white',
-            marginTop: '-8px',
-            borderRadius: '0 0 8px 8px',
-            boxShadow: '0px 8px 10px rgba(0, 0, 0, 0.2)',
-            transition: 'none !important',
-            overflow: 'hidden',
-          },
           '& .MuiMenuItem-root': {
             color: 'white',
+            fontSize: '0.92rem',
+            fontWeight: 500,
+            px: 2,
+            py: 1,
+            minHeight: '32px',
+            borderRadius: '6px',
+            transition: 'background 0.15s',
             '&:hover': {
-              backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              backgroundColor: 'rgba(0,229,255,0.13)',
             },
             '&.Mui-selected': {
-              backgroundColor: 'rgba(255, 255, 255, 0.15)',
+              backgroundColor: 'rgba(0,229,255,0.18)',
             },
           },
           '& .MuiDivider-root': {
-            borderColor: 'rgba(255, 255, 255, 0.2)',
-            margin: 0,
+            borderColor: 'rgba(255,255,255,0.10)',
+            my: 0.5,
           },
         }}
       >
-        <MenuItem onClick={handlePeople} sx={{ py: 2 }}>
-          <Typography variant="body1" sx={{ color: '#FFFFFF', fontWeight: 'medium' }}>People</Typography>
+        <MenuItem onClick={handlePeople}>
+          <Typography variant="body2" sx={{ color: '#fff', fontWeight: 500, fontSize: '0.92rem' }}>People</Typography>
         </MenuItem>
-        <MenuItem onClick={handleTeams} sx={{ py: 2 }}>
-          <Typography variant="body1" sx={{ color: '#FFFFFF', fontWeight: 'medium' }}>Teams</Typography>
+        <MenuItem onClick={handleTeams}>
+          <Typography variant="body2" sx={{ color: '#fff', fontWeight: 500, fontSize: '0.92rem' }}>Teams</Typography>
         </MenuItem>
-        <MenuItem onClick={handleSettings} sx={{ py: 2 }}>
-          <Typography variant="body1" sx={{ color: '#FFFFFF', fontWeight: 'medium' }}>Settings</Typography>
+        <MenuItem onClick={handleSettings}>
+          <Typography variant="body2" sx={{ color: '#fff', fontWeight: 500, fontSize: '0.92rem' }}>Settings</Typography>
         </MenuItem>
       </Menu>
     </Box>
