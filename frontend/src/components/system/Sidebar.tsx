@@ -36,6 +36,7 @@ import useApps from '../../hooks/useApps'
 import useSessions from '../../hooks/useSessions'
 import useApi from '../../hooks/useApi'
 import SlideMenuContainer from './SlideMenuContainer'
+import SidebarContextHeader from './SidebarContextHeader'
 
 const RESOURCE_TYPES = [
   'chat',
@@ -291,6 +292,7 @@ const SidebarContent: React.FC<{
           width: '100%',
         }}
       >
+        <SidebarContextHeader />
         <Box
           sx={{
             flexGrow: 0,
