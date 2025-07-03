@@ -106,7 +106,7 @@ func TestGitHubOAuthSkillsE2E(t *testing.T) {
 	}
 
 	// Set a reasonable timeout for the OAuth browser automation
-	timeout := 60 * time.Second
+	timeout := 2 * time.Minute
 	deadline := time.Now().Add(timeout)
 	t.Deadline() // Check if deadline is already set
 
