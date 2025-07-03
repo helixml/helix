@@ -176,9 +176,34 @@ steps:
     SMALL_GENERATION_MODEL: gpt-4o-mini
 
   commands:
+    # Ensure test results directory exists and has proper permissions
+    - mkdir -p /go/src/github.com/helix-ml/helix/api/test_results
+    - chmod 755 /go/src/github.com/helix-ml/helix/api/test_results
     # Run OAuth integration tests with specific build tag
     - cd api
-    - go test -v -tags=oauth_integration ./pkg/skills/...
+    - |
+      echo "=== Starting OAuth Integration Test ===" 
+      echo "Test results will be saved to: /go/src/github.com/helix-ml/helix/api/test_results"
+      # Run the test and capture exit code, but don't fail the step immediately
+      set +e
+      go test -v -tags=oauth_integration ./pkg/skills/...
+      TEST_EXIT_CODE=$?
+      set -e
+      # List any artifacts that were created during the test
+      echo "=== Test Results Directory Contents ==="
+      if [ -d "/go/src/github.com/helix-ml/helix/api/test_results" ]; then
+        ls -la /go/src/github.com/helix-ml/helix/api/test_results/ || echo "No files in test_results directory"
+        echo "=== Screenshot Files ==="
+        find /go/src/github.com/helix-ml/helix/api/test_results -name "*.png" -ls || echo "No screenshot files found"
+        echo "=== Log Files ==="
+        find /go/src/github.com/helix-ml/helix/api/test_results -name "*.log" -ls || echo "No log files found"
+        echo "=== Conversation Files ==="
+        find /go/src/github.com/helix-ml/helix/api/test_results -name "*conversation*.txt" -ls || echo "No conversation files found"
+      else
+        echo "test_results directory does not exist"
+      fi
+      # Exit with original test exit code
+      exit $TEST_EXIT_CODE
   when:
     event:
     - push
@@ -209,19 +234,65 @@ steps:
     # Create artifacts zip - include basic info even if test didn't run
     - cd /go/src/github.com/helix-ml/helix/api
     - |
-      if [ -d "test_results" ] && [ "$(ls -A test_results 2>/dev/null)" ]; then
-        echo "Found test results directory with content"
-        ls -la test_results/
-        zip -r artifacts.zip test_results/
-        ARTIFACTS_FILE="artifacts.zip"
+      echo "=== OAuth Test Artifacts Collection ==="
+      echo "Collecting artifacts from: $(pwd)/test_results"
+      
+      if [ -d "test_results" ]; then
+        echo "Test results directory exists"
+        echo "=== Directory Contents ==="
+        ls -la test_results/ || echo "Directory exists but is empty"
+        
+        # Count different types of artifacts
+        SCREENSHOT_COUNT=$(find test_results -name "*.png" | wc -l)
+        LOG_COUNT=$(find test_results -name "*.log" | wc -l)
+        CONVERSATION_COUNT=$(find test_results -name "*conversation*.txt" | wc -l)
+        
+        echo "=== Artifact Summary ==="
+        echo "Screenshots found: $SCREENSHOT_COUNT"
+        echo "Log files found: $LOG_COUNT"
+        echo "Conversation files found: $CONVERSATION_COUNT"
+        
+        if [ "$SCREENSHOT_COUNT" -gt 0 ]; then
+          echo "=== Screenshot Files ==="
+          find test_results -name "*.png" -ls
+        fi
+        
+        if [ "$LOG_COUNT" -gt 0 ]; then
+          echo "=== Log Files ==="
+          find test_results -name "*.log" -ls
+        fi
+        
+        if [ "$CONVERSATION_COUNT" -gt 0 ]; then
+          echo "=== Conversation Files ==="
+          find test_results -name "*conversation*.txt" -ls
+        fi
+        
+        # Check if there are any files at all
+        if [ "$(find test_results -type f | wc -l)" -gt 0 ]; then
+          echo "Creating artifacts zip from test results"
+          zip -r artifacts.zip test_results/
+          ARTIFACTS_FILE="artifacts.zip"
+          echo "Artifacts zip created: $(ls -lh artifacts.zip)"
+        else
+          echo "No test result files found, creating basic artifact"
+          echo "OAuth integration test run at $(date)" > test_results/test_summary.txt
+          echo "Build: ${DRONE_BUILD_NUMBER}" >> test_results/test_summary.txt
+          echo "Branch: ${DRONE_BRANCH}" >> test_results/test_summary.txt
+          echo "Commit: ${DRONE_COMMIT}" >> test_results/test_summary.txt
+          echo "Status: ${TEST_STATUS}" >> test_results/test_summary.txt
+          echo "Note: Test failed before generating artifacts (likely GitHub device verification)" >> test_results/test_summary.txt
+          zip -r artifacts.zip test_results/
+          ARTIFACTS_FILE="artifacts.zip"
+        fi
       else
-        echo "No test results found, creating basic artifact"
+        echo "Test results directory does not exist, creating basic artifact"
         mkdir -p test_results
         echo "OAuth integration test run at $(date)" > test_results/test_summary.txt
         echo "Build: ${DRONE_BUILD_NUMBER}" >> test_results/test_summary.txt
         echo "Branch: ${DRONE_BRANCH}" >> test_results/test_summary.txt
         echo "Commit: ${DRONE_COMMIT}" >> test_results/test_summary.txt
         echo "Status: ${TEST_STATUS}" >> test_results/test_summary.txt
+        echo "Note: Test failed before creating test_results directory" >> test_results/test_summary.txt
         zip -r artifacts.zip test_results/
         ARTIFACTS_FILE="artifacts.zip"
       fi
@@ -232,7 +303,13 @@ steps:
         echo "Uploading test results to Launchpad at $LAUNCHPAD_URL"
         UPLOAD_URL="$LAUNCHPAD_URL/api/ci/test-results"
         echo "Upload URL: $UPLOAD_URL"
-        curl -X POST \
+        echo "Artifact file: $ARTIFACTS_FILE"
+        
+        # Show curl command for debugging
+        echo "curl -X POST -H 'X-CI-Secret: ***' -F 'branch=${DRONE_BRANCH}' -F 'commit=${DRONE_COMMIT}' -F 'build_number=${DRONE_BUILD_NUMBER}' -F 'test_type=oauth_integration' -F 'status=$TEST_STATUS' -F 'artifacts=@$ARTIFACTS_FILE' '$UPLOAD_URL'"
+        
+        # Execute the upload with verbose output
+        curl -v -X POST \
           -H "X-CI-Secret: $CI_SHARED_SECRET" \
           -F "branch=${DRONE_BRANCH}" \
           -F "commit=${DRONE_COMMIT}" \
