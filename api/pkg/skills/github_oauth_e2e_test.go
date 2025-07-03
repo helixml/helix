@@ -531,6 +531,12 @@ func (suite *GitHubOAuthE2ETestSuite) testCreateTestApp(t *testing.T) {
 						ReasoningModel:          "claude-3-5-haiku-20241022",
 						GenerationModelProvider: "anthropic",
 						GenerationModel:         "claude-3-5-haiku-20241022",
+
+						// Configure small models for efficient agent operations
+						SmallReasoningModelProvider:  "anthropic",
+						SmallReasoningModel:          "claude-3-5-haiku-20241022",
+						SmallGenerationModelProvider: "anthropic",
+						SmallGenerationModel:         "claude-3-5-haiku-20241022",
 						// Configure with GitHub skill using full configuration
 						APIs: []types.AssistantAPI{
 							{
@@ -1597,9 +1603,14 @@ func (suite *GitHubOAuthE2ETestSuite) executeSessionQuery(userMessage, sessionNa
 		AppID: suite.testApp.ID,
 	}
 
-	// Set app ID in context for OAuth token retrieval
+	// Set app ID and user ID in context for OAuth token retrieval
 	ctx := oai.SetContextAppID(suite.ctx, suite.testApp.ID)
 	ctx = oai.SetContextSessionID(ctx, session.ID)
+	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
+		OwnerID:       suite.testUser.ID,
+		SessionID:     session.ID,
+		InteractionID: userInteraction.ID,
+	})
 
 	suite.logger.Info().
 		Str("session_id", session.ID).
