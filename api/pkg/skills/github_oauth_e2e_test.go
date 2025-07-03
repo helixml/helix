@@ -172,6 +172,12 @@ func (suite *GitHubOAuthE2ETestSuite) loadTestConfig() error {
 		return fmt.Errorf("GITHUB_SKILL_TEST_OAUTH_PASSWORD environment variable not set")
 	}
 
+	// Debug logging for CI environment (log lengths only, not actual values)
+	log.Info().
+		Str("username", suite.githubUsername).
+		Int("password_length", len(suite.githubPassword)).
+		Msg("GitHub OAuth credentials loaded (debug info for CI troubleshooting)")
+
 	// For repository setup/cleanup, we need a personal access token with repo creation/deletion permissions
 	// This is separate from the OAuth tokens we'll get during the test
 	suite.githubToken = os.Getenv("GITHUB_SKILL_TEST_SETUP_PAT")
@@ -1424,6 +1430,12 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 
 		// Fill in password
 		passwordElement := page.MustElement(`input[name="password"]`)
+
+		// Debug logging for CI troubleshooting
+		suite.logger.Info().
+			Int("password_length", len(suite.githubPassword)).
+			Msg("Entering GitHub password (debug info for CI troubleshooting)")
+
 		err = passwordElement.Input(suite.githubPassword)
 		if err != nil {
 			return "", fmt.Errorf("failed to enter GitHub password: %w", err)
@@ -1442,6 +1454,9 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 
 		// Wait for login to complete and page navigation
 		suite.logger.Info().Msg("Waiting for page navigation after login")
+
+		// Take screenshot immediately after clicking login for debugging
+		suite.takeScreenshot(page, "github_login_button_clicked")
 
 		// Wait for URL to change (indicating navigation started)
 		currentURL := page.MustInfo().URL
