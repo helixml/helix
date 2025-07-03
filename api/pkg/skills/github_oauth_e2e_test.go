@@ -54,6 +54,11 @@ func min(a, b int) int {
 	return b
 }
 
+// getTestResultsDir returns a fixed test results directory that works everywhere
+func getTestResultsDir() string {
+	return "/tmp/helix-oauth-test-results"
+}
+
 // GitHubOAuthE2ETestSuite tests the complete GitHub OAuth skills workflow
 type GitHubOAuthE2ETestSuite struct {
 	ctx            context.Context
@@ -393,7 +398,8 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 // setupTestLogging initializes the test log file and logger
 func (suite *GitHubOAuthE2ETestSuite) setupTestLogging(t *testing.T) error {
 	// Create test results directory if it doesn't exist
-	testResultsDir := "test_results"
+	// Use path that works both in CI and locally
+	testResultsDir := getTestResultsDir()
 	if err := os.MkdirAll(testResultsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create test results directory: %w", err)
 	}
@@ -455,8 +461,8 @@ func (suite *GitHubOAuthE2ETestSuite) setupBrowser() error {
 // takeScreenshot captures a screenshot and saves it with the test timestamp
 func (suite *GitHubOAuthE2ETestSuite) takeScreenshot(page *rod.Page, stepName string) {
 	suite.screenshotCounter++
-	filename := fmt.Sprintf("test_results/github_oauth_e2e_%s_step_%02d_%s.png",
-		suite.testTimestamp, suite.screenshotCounter, stepName)
+	filename := filepath.Join(getTestResultsDir(), fmt.Sprintf("github_oauth_e2e_%s_step_%02d_%s.png",
+		suite.testTimestamp, suite.screenshotCounter, stepName))
 
 	data, err := page.Screenshot(false, &proto.PageCaptureScreenshot{
 		Format: proto.PageCaptureScreenshotFormatPng,
@@ -1668,8 +1674,8 @@ func (suite *GitHubOAuthE2ETestSuite) executeSessionQuery(userMessage, sessionNa
 
 // logAgentConversation logs the full agent conversation to a text file for manual verification
 func (suite *GitHubOAuthE2ETestSuite) logAgentConversation(sessionName, userMessage, agentResponse string) {
-	conversationFilename := fmt.Sprintf("test_results/github_oauth_e2e_%s_conversation_%s.txt",
-		suite.testTimestamp, strings.ReplaceAll(strings.ToLower(sessionName), " ", "_"))
+	conversationFilename := filepath.Join(getTestResultsDir(), fmt.Sprintf("github_oauth_e2e_%s_conversation_%s.txt",
+		suite.testTimestamp, strings.ReplaceAll(strings.ToLower(sessionName), " ", "_")))
 
 	conversationContent := fmt.Sprintf(`=== GitHub OAuth Skills E2E Test - %s ===
 Timestamp: %s
