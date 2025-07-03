@@ -182,7 +182,7 @@ steps:
     # Run OAuth integration tests with specific build tag
     - cd api
     - |
-      echo "=== Starting OAuth Integration Test ===" 
+      echo "=== Starting OAuth Integration Test ==="
       echo "Test results will be saved to: /go/src/github.com/helix-ml/helix/api/test_results"
       
       # Record test start time
@@ -199,7 +199,7 @@ steps:
       TEST_END_TIME=$(date +%s)
       TEST_DURATION=$((TEST_END_TIME - TEST_START_TIME))
       echo "Test ended at: $(date -d @$TEST_END_TIME)"
-      echo "Test duration: ${TEST_DURATION} seconds"
+      echo "Test duration: $TEST_DURATION seconds"
       
       # Write test results to file for upload step
       echo "exit_code=$TEST_EXIT_CODE" > /go/src/github.com/helix-ml/helix/api/test_results/test_result.txt
@@ -221,11 +221,11 @@ steps:
       if [ -d "/go/src/github.com/helix-ml/helix/api/test_results" ]; then
         ls -la /go/src/github.com/helix-ml/helix/api/test_results/ || echo "No files in test_results directory"
         echo "=== Screenshot Files ==="
-        find /go/src/github.com/helix-ml/helix/api/test_results -name "*.png" -ls || echo "No screenshot files found"
+        find /go/src/github.com/helix-ml/helix/api/test_results -name "*.png" -exec ls -l {} \; || echo "No screenshot files found"
         echo "=== Log Files ==="
-        find /go/src/github.com/helix-ml/helix/api/test_results -name "*.log" -ls || echo "No log files found"
+        find /go/src/github.com/helix-ml/helix/api/test_results -name "*.log" -exec ls -l {} \; || echo "No log files found"
         echo "=== Conversation Files ==="
-        find /go/src/github.com/helix-ml/helix/api/test_results -name "*conversation*.txt" -ls || echo "No conversation files found"
+        find /go/src/github.com/helix-ml/helix/api/test_results -name "*conversation*.txt" -exec ls -l {} \; || echo "No conversation files found"
       else
         echo "test_results directory does not exist"
       fi
@@ -311,17 +311,17 @@ steps:
         
         if [ "$SCREENSHOT_COUNT" -gt 0 ]; then
           echo "=== Screenshot Files ==="
-          find test_results -name "*.png" -ls
+          find test_results -name "*.png" -exec ls -l {} \;
         fi
         
         if [ "$LOG_COUNT" -gt 0 ]; then
           echo "=== Log Files ==="
-          find test_results -name "*.log" -ls
+          find test_results -name "*.log" -exec ls -l {} \;
         fi
         
         if [ "$CONVERSATION_COUNT" -gt 0 ]; then
           echo "=== Conversation Files ==="
-          find test_results -name "*conversation*.txt" -ls
+          find test_results -name "*conversation*.txt" -exec ls -l {} \;
         fi
         
         # Check if there are any files at all

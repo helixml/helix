@@ -215,15 +215,12 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 	// Provide minimal OIDC config since server requires it
 	cfg.OIDC.Enabled = true
 	// Use environment KEYCLOAK_URL or fallback to localhost
-	oidcHost := webServerHost
 	if keycloakURL := os.Getenv("KEYCLOAK_URL"); keycloakURL != "" {
-		// Extract host from KEYCLOAK_URL (e.g., "http://keycloak:8080/auth" -> "keycloak")
-		if u, err := url.Parse(keycloakURL); err == nil {
-			oidcHost = u.Host
-		}
 		cfg.OIDC.URL = keycloakURL + "/realms/helix"
+		suite.logger.Info().Str("oidc_url", cfg.OIDC.URL).Msg("Using OIDC URL from KEYCLOAK_URL environment")
 	} else {
-		cfg.OIDC.URL = fmt.Sprintf("http://%s:8080/auth/realms/helix", oidcHost)
+		cfg.OIDC.URL = fmt.Sprintf("http://%s:8080/auth/realms/helix", webServerHost)
+		suite.logger.Info().Str("oidc_url", cfg.OIDC.URL).Msg("Using localhost OIDC URL for local testing")
 	}
 	cfg.OIDC.ClientID = "test-client"
 	cfg.OIDC.ClientSecret = "test-secret"
@@ -340,10 +337,12 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 	keycloakConfig := cfg.Keycloak
 	if keycloakURL := os.Getenv("KEYCLOAK_URL"); keycloakURL != "" {
 		keycloakConfig.KeycloakURL = keycloakURL
-		suite.logger.Info().Str("keycloak_url", keycloakURL).Msg("Using KEYCLOAK_URL from environment")
+		keycloakConfig.KeycloakFrontEndURL = keycloakURL // Set frontend URL to match for OIDC issuer consistency
+		suite.logger.Info().Str("keycloak_url", keycloakURL).Str("keycloak_frontend_url", keycloakURL).Msg("Using KEYCLOAK_URL from environment")
 	} else {
 		// Fallback to localhost for local testing
 		keycloakConfig.KeycloakURL = "http://localhost:8080/auth"
+		keycloakConfig.KeycloakFrontEndURL = "http://localhost:8080/auth"
 		suite.logger.Info().Msg("Using localhost Keycloak URL for local testing")
 	}
 
@@ -481,6 +480,7 @@ func (suite *GitHubOAuthE2ETestSuite) testSetupOAuthProvider(t *testing.T) {
 	log.Info().Msg("Setting up GitHub OAuth provider")
 
 	// Create OAuth provider
+	callbackURL := suite.serverURL + "/api/v1/oauth/callback/github"
 	provider := &types.OAuthProvider{
 		Name:         "GitHub Skills Test",
 		Type:         types.OAuthProviderTypeGitHub,
@@ -490,11 +490,16 @@ func (suite *GitHubOAuthE2ETestSuite) testSetupOAuthProvider(t *testing.T) {
 		AuthURL:      "https://github.com/login/oauth/authorize",
 		TokenURL:     "https://github.com/login/oauth/access_token",
 		UserInfoURL:  "https://api.github.com/user",
-		CallbackURL:  suite.serverURL + "/api/v1/oauth/callback/github",
+		CallbackURL:  callbackURL,
 		Scopes:       []string{"repo", "user:read"},
 		CreatorID:    suite.testUser.ID,
 		CreatorType:  types.OwnerTypeUser,
 	}
+
+	log.Info().
+		Str("callback_url", callbackURL).
+		Str("server_url", suite.serverURL).
+		Msg("Configuring GitHub OAuth provider with callback URL")
 
 	createdProvider, err := suite.store.CreateOAuthProvider(suite.ctx, provider)
 	require.NoError(t, err, "Failed to create OAuth provider")
