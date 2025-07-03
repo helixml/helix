@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import LinearProgress from '@mui/material/LinearProgress'
@@ -6,61 +6,22 @@ import Tooltip from '@mui/material/Tooltip'
 import Button from '@mui/material/Button'
 import InfoIcon from '@mui/icons-material/Info'
 import UpgradeIcon from '@mui/icons-material/Upgrade'
-import axios from 'axios'
-import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
+import { useGetUserTokenUsage } from '../../services/userService'
 
-interface TokenUsageData {
-  quotas_enabled: boolean
-  monthly_usage: number
-  monthly_limit: number
-  is_pro_tier: boolean
-  usage_percentage: number
-}
-
-const TokenUsageDisplay: React.FC = () => {
-  const account = useAccount()
+const TokenUsageDisplay: React.FC = () => {  
   const router = useRouter()
   const lightTheme = useLightTheme()
-  const [tokenUsage, setTokenUsage] = useState<TokenUsageData | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    const fetchTokenUsage = async () => {
-      if (!account.user) {
-        setLoading(false)
-        return
-      }
-
-      try {
-        const response = await axios.get('/api/v1/users/token-usage', {
-          headers: {
-            Authorization: `Bearer ${account.user.token}`,
-          },
-        })
-        setTokenUsage(response.data)
-      } catch (error) {
-        console.error('Failed to fetch token usage:', error)
-        // If the endpoint doesn't exist or fails, just don't show the component
-        setTokenUsage({ quotas_enabled: false, monthly_usage: 0, monthly_limit: 0, is_pro_tier: false, usage_percentage: 0 })
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchTokenUsage()
-    // Refresh every 30 seconds
-    const interval = setInterval(fetchTokenUsage, 30000)
-    return () => clearInterval(interval)
-  }, [account.user])
+  const { data: tokenUsage, isLoading: loading, error } = useGetUserTokenUsage()
 
   const handleUpgrade = () => {
     // Navigate to the account page for billing/upgrade
     router.navigate('account')
   }
 
-  if (loading || !tokenUsage || !tokenUsage.quotas_enabled) {
+  // If loading, error, no data, or quotas not enabled, don't render
+  if (loading || error || !tokenUsage || !tokenUsage.quotas_enabled) {
     return null
   }
 
@@ -81,15 +42,16 @@ const TokenUsageDisplay: React.FC = () => {
   }
 
   const tierName = tokenUsage.is_pro_tier ? 'Pro' : 'Free'
-  const shouldShowUpgrade = !tokenUsage.is_pro_tier && tokenUsage.usage_percentage >= 50 // Show upgrade button when 50%+ used
+  const shouldShowUpgrade = !tokenUsage.is_pro_tier && tokenUsage.usage_percentage && tokenUsage.usage_percentage >= 50 // Show upgrade button when 50%+ used
 
-  return (
+  return (    
     <Box
       sx={{
         px: 2,
         py: 1.5,
         mx: 1,
         mb: 1,
+        mt: 1,
         backgroundColor: lightTheme.backgroundColor,
         border: lightTheme.border,
         borderRadius: 1,
@@ -100,7 +62,7 @@ const TokenUsageDisplay: React.FC = () => {
           {tierName} Plan - Monthly Tokens
         </Typography>
         <Tooltip 
-          title={`You've used ${formatNumber(tokenUsage.monthly_usage)} out of ${formatNumber(tokenUsage.monthly_limit)} tokens this month`}
+          title={`You've used ${formatNumber(tokenUsage.monthly_usage ?? 0)} out of ${formatNumber(tokenUsage.monthly_limit ?? 0)} tokens this month`}
           placement="top"
         >
           <InfoIcon sx={{ fontSize: 14, ml: 0.5, color: lightTheme.textColorFaded }} />
@@ -109,17 +71,17 @@ const TokenUsageDisplay: React.FC = () => {
       
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
         <Typography variant="body2" sx={{ color: lightTheme.textColor, fontSize: '0.75rem' }}>
-          {formatNumber(tokenUsage.monthly_usage)} / {formatNumber(tokenUsage.monthly_limit)}
+          {formatNumber(tokenUsage.monthly_usage ?? 0)} / {formatNumber(tokenUsage.monthly_limit ?? 0)}
         </Typography>
         <Typography variant="body2" sx={{ color: lightTheme.textColorFaded, fontSize: '0.75rem' }}>
-          {tokenUsage.usage_percentage.toFixed(1)}%
+          {tokenUsage.usage_percentage?.toFixed(1) ?? '0.0'}%
         </Typography>
       </Box>
       
       <LinearProgress
         variant="determinate"
-        value={Math.min(tokenUsage.usage_percentage, 100)}
-        color={getProgressColor(tokenUsage.usage_percentage)}
+        value={Math.min(tokenUsage.usage_percentage ?? 0, 100)}
+        color={getProgressColor(tokenUsage.usage_percentage ?? 0)}
         sx={{
           height: 6,
           borderRadius: 3,
@@ -130,17 +92,17 @@ const TokenUsageDisplay: React.FC = () => {
         }}
       />
       
-      {tokenUsage.usage_percentage >= 90 && (
+      {tokenUsage.usage_percentage && tokenUsage.usage_percentage >= 90 && (
         <Typography 
           variant="caption" 
           sx={{ 
-            color: tokenUsage.usage_percentage >= 100 ? 'error.main' : 'warning.main',
+            color: tokenUsage.usage_percentage && tokenUsage.usage_percentage >= 100 ? 'error.main' : 'warning.main',
             fontSize: '0.7rem',
             mt: 0.5,
             display: 'block'
           }}
         >
-          {tokenUsage.usage_percentage >= 100 
+          {tokenUsage.usage_percentage && tokenUsage.usage_percentage >= 100 
             ? 'Limit reached! Upgrade to continue.' 
             : 'Approaching limit. Consider upgrading.'
           }
@@ -166,7 +128,7 @@ const TokenUsageDisplay: React.FC = () => {
             },
           }}
         >
-          {tokenUsage.usage_percentage >= 90 
+          {tokenUsage.usage_percentage && tokenUsage.usage_percentage >= 90 
             ? 'Upgrade Now' 
             : `Upgrade to Pro (${formatNumber(2500000)} tokens/month)`
           }
