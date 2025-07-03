@@ -184,11 +184,38 @@ steps:
     - |
       echo "=== Starting OAuth Integration Test ===" 
       echo "Test results will be saved to: /go/src/github.com/helix-ml/helix/api/test_results"
+      
+      # Record test start time
+      TEST_START_TIME=$(date +%s)
+      echo "Test started at: $(date -d @$TEST_START_TIME)"
+      
       # Run the test and capture exit code, but don't fail the step immediately
       set +e
       go test -v -tags=oauth_integration ./pkg/skills/...
       TEST_EXIT_CODE=$?
       set -e
+      
+      # Record test end time and calculate duration
+      TEST_END_TIME=$(date +%s)
+      TEST_DURATION=$((TEST_END_TIME - TEST_START_TIME))
+      echo "Test ended at: $(date -d @$TEST_END_TIME)"
+      echo "Test duration: ${TEST_DURATION} seconds"
+      
+      # Write test results to file for upload step
+      echo "exit_code=$TEST_EXIT_CODE" > /go/src/github.com/helix-ml/helix/api/test_results/test_result.txt
+      echo "duration=$TEST_DURATION" >> /go/src/github.com/helix-ml/helix/api/test_results/test_result.txt
+      echo "start_time=$TEST_START_TIME" >> /go/src/github.com/helix-ml/helix/api/test_results/test_result.txt
+      echo "end_time=$TEST_END_TIME" >> /go/src/github.com/helix-ml/helix/api/test_results/test_result.txt
+      
+      # Determine human-readable status
+      if [ "$TEST_EXIT_CODE" -eq 0 ]; then
+        echo "status=passed" >> /go/src/github.com/helix-ml/helix/api/test_results/test_result.txt
+        echo "=== OAuth Integration Test PASSED ==="
+      else
+        echo "status=failed" >> /go/src/github.com/helix-ml/helix/api/test_results/test_result.txt
+        echo "=== OAuth Integration Test FAILED (exit code: $TEST_EXIT_CODE) ==="
+      fi
+      
       # List any artifacts that were created during the test
       echo "=== Test Results Directory Contents ==="
       if [ -d "/go/src/github.com/helix-ml/helix/api/test_results" ]; then
@@ -202,6 +229,7 @@ steps:
       else
         echo "test_results directory does not exist"
       fi
+      
       # Exit with original test exit code
       exit $TEST_EXIT_CODE
   when:
@@ -227,13 +255,39 @@ steps:
     - echo "DEBUG - All environment variables:"
     - env | grep -E "(LAUNCHPAD|CI_)" | sort || echo "No matching environment variables found"
     - echo "DEBUG - Expected value should be 'https://deploy.helix.ml'"
-    # Determine test status from oauth-integration-test step result
+    # Determine test status from actual test results file
     - |
-      if [ "${DRONE_BUILD_STATUS}" = "success" ]; then
-        TEST_STATUS="passed"
+      # Check if we have actual test results from the test step
+      if [ -f "/go/src/github.com/helix-ml/helix/api/test_results/test_result.txt" ]; then
+        echo "=== Reading actual test results ==="
+        cat /go/src/github.com/helix-ml/helix/api/test_results/test_result.txt
+        
+        # Source the test results file to get variables
+        . /go/src/github.com/helix-ml/helix/api/test_results/test_result.txt
+        
+        TEST_STATUS="$status"
+        TEST_DURATION="$duration"
+        TEST_EXIT_CODE="$exit_code"
+        
+        echo "Actual test status: $TEST_STATUS"
+        echo "Actual test duration: $TEST_DURATION seconds"
+        echo "Actual test exit code: $TEST_EXIT_CODE"
       else
-        TEST_STATUS="failed"
+        echo "=== No test results file found, using fallback ==="
+        if [ "${DRONE_BUILD_STATUS}" = "success" ]; then
+          TEST_STATUS="passed"
+        else
+          TEST_STATUS="failed"
+        fi
+        TEST_DURATION="unknown"
+        TEST_EXIT_CODE="unknown"
+        echo "Fallback test status: $TEST_STATUS"
+        echo "Fallback test duration: $TEST_DURATION"
       fi
+      
+      # Construct Drone build URL
+      DRONE_BUILD_URL="https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}"
+      echo "Drone build URL: $DRONE_BUILD_URL"
     # Create artifacts zip - include basic info even if test didn't run
     - cd /go/src/github.com/helix-ml/helix/api
     - |
@@ -280,9 +334,12 @@ steps:
           echo "No test result files found, creating basic artifact"
           echo "OAuth integration test run at $(date)" > test_results/test_summary.txt
           echo "Build: ${DRONE_BUILD_NUMBER}" >> test_results/test_summary.txt
+          echo "Build URL: $DRONE_BUILD_URL" >> test_results/test_summary.txt
           echo "Branch: ${DRONE_BRANCH}" >> test_results/test_summary.txt
           echo "Commit: ${DRONE_COMMIT}" >> test_results/test_summary.txt
           echo "Status: ${TEST_STATUS}" >> test_results/test_summary.txt
+          echo "Duration: ${TEST_DURATION} seconds" >> test_results/test_summary.txt
+          echo "Exit Code: ${TEST_EXIT_CODE}" >> test_results/test_summary.txt
           echo "Note: Test failed before generating artifacts (likely GitHub device verification)" >> test_results/test_summary.txt
           zip -r artifacts.zip test_results/
           ARTIFACTS_FILE="artifacts.zip"
@@ -292,9 +349,12 @@ steps:
         mkdir -p test_results
         echo "OAuth integration test run at $(date)" > test_results/test_summary.txt
         echo "Build: ${DRONE_BUILD_NUMBER}" >> test_results/test_summary.txt
+        echo "Build URL: $DRONE_BUILD_URL" >> test_results/test_summary.txt
         echo "Branch: ${DRONE_BRANCH}" >> test_results/test_summary.txt
         echo "Commit: ${DRONE_COMMIT}" >> test_results/test_summary.txt
         echo "Status: ${TEST_STATUS}" >> test_results/test_summary.txt
+        echo "Duration: ${TEST_DURATION} seconds" >> test_results/test_summary.txt
+        echo "Exit Code: ${TEST_EXIT_CODE}" >> test_results/test_summary.txt
         echo "Note: Test failed before creating test_results directory" >> test_results/test_summary.txt
         zip -r artifacts.zip test_results/
         ARTIFACTS_FILE="artifacts.zip"
@@ -309,7 +369,7 @@ steps:
         echo "Artifact file: $ARTIFACTS_FILE"
         
         # Show curl command for debugging
-        echo "curl -X POST -H 'X-CI-Secret: ***' -F 'branch=${DRONE_BRANCH}' -F 'commit=${DRONE_COMMIT}' -F 'build_number=${DRONE_BUILD_NUMBER}' -F 'test_type=oauth_integration' -F 'status=$TEST_STATUS' -F 'artifacts=@$ARTIFACTS_FILE' '$UPLOAD_URL'"
+        echo "curl -X POST -H 'X-CI-Secret: ***' -F 'branch=${DRONE_BRANCH}' -F 'commit=${DRONE_COMMIT}' -F 'build_number=${DRONE_BUILD_NUMBER}' -F 'build_url=$DRONE_BUILD_URL' -F 'test_type=oauth_integration' -F 'status=$TEST_STATUS' -F 'duration=$TEST_DURATION' -F 'exit_code=$TEST_EXIT_CODE' -F 'artifacts=@$ARTIFACTS_FILE' '$UPLOAD_URL'"
         
         # Execute the upload with verbose output
         curl -v -X POST \
@@ -317,8 +377,11 @@ steps:
           -F "branch=${DRONE_BRANCH}" \
           -F "commit=${DRONE_COMMIT}" \
           -F "build_number=${DRONE_BUILD_NUMBER}" \
+          -F "build_url=$DRONE_BUILD_URL" \
           -F "test_type=oauth_integration" \
           -F "status=$TEST_STATUS" \
+          -F "duration=$TEST_DURATION" \
+          -F "exit_code=$TEST_EXIT_CODE" \
           -F "artifacts=@$ARTIFACTS_FILE" \
           "$UPLOAD_URL"
       else
