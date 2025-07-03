@@ -603,7 +603,7 @@ func (suite *GitHubOAuthE2ETestSuite) testPerformOAuthFlow(t *testing.T) {
 		Str("state", state).
 		Msg("Successfully started Helix OAuth flow")
 
-	// Step 2: Get authorization code from GitHub OAuth (simulate user completing OAuth in browser)
+		// Step 2: Get authorization code from GitHub OAuth (simulate user completing OAuth in browser)
 	authCode, err := suite.getGitHubAuthorizationCode(authURL, state)
 	require.NoError(t, err, "Failed to get GitHub authorization code")
 
