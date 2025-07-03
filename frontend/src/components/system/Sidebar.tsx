@@ -1,4 +1,4 @@
-import React, { useState, useContext, useMemo, useEffect, ReactNode } from 'react'
+import React, { useState, useMemo, useEffect, ReactNode } from 'react'
 import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
@@ -25,8 +25,8 @@ import AppsIcon from '@mui/icons-material/Apps'
 import CodeIcon from '@mui/icons-material/Code'
 import AddIcon from '@mui/icons-material/Add'
 import PsychologyIcon from '@mui/icons-material/Psychology'
+import GroupIcon from '@mui/icons-material/Group'
 
-import UserOrgSelector from '../orgs/UserOrgSelector'
 import TokenUsageDisplay from './TokenUsageDisplay'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useLightTheme from '../../hooks/useLightTheme'
@@ -35,7 +35,6 @@ import useAccount from '../../hooks/useAccount'
 import useApps from '../../hooks/useApps'
 import useSessions from '../../hooks/useSessions'
 import useApi from '../../hooks/useApi'
-import { AccountContext } from '../../contexts/account'
 import SlideMenuContainer from './SlideMenuContainer'
 
 const RESOURCE_TYPES = [
@@ -537,6 +536,17 @@ const SidebarContent: React.FC<{
                         </ListItemIcon> 
                         Account Settings
                       </MenuItem>
+
+                      {account.organizationTools.organization && (
+                        <MenuItem onClick={ () => {
+                          router.navigate('org_people', { org_id: account.organizationTools.organization?.name });
+                        }}>
+                          <ListItemIcon>
+                            <GroupIcon fontSize="small" />
+                          </ListItemIcon> 
+                          Organization Settings
+                        </MenuItem>
+                      )}
 
                       <MenuItem onClick={ () => {
                         navigateTo('oauth-connections')
