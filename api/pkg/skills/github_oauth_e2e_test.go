@@ -190,9 +190,13 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 		return fmt.Errorf("failed to load server config: %w", err)
 	}
 
-	// Override required fields for testing
-	cfg.WebServer.URL = "http://localhost:8080"
-	cfg.WebServer.Host = "localhost"
+	// Override required fields for testing - use environment-specific hostnames
+	webServerHost := os.Getenv("WEB_SERVER_HOST")
+	if webServerHost == "" {
+		webServerHost = "localhost" // Fallback for local testing
+	}
+	cfg.WebServer.URL = fmt.Sprintf("http://%s:8080", webServerHost)
+	cfg.WebServer.Host = webServerHost
 	cfg.WebServer.Port = 8080
 	cfg.WebServer.RunnerToken = "test-runner-token"
 
@@ -210,7 +214,17 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 
 	// Provide minimal OIDC config since server requires it
 	cfg.OIDC.Enabled = true
-	cfg.OIDC.URL = "http://localhost:8080/auth/realms/helix"
+	// Use environment KEYCLOAK_URL or fallback to localhost
+	oidcHost := webServerHost
+	if keycloakURL := os.Getenv("KEYCLOAK_URL"); keycloakURL != "" {
+		// Extract host from KEYCLOAK_URL (e.g., "http://keycloak:8080/auth" -> "keycloak")
+		if u, err := url.Parse(keycloakURL); err == nil {
+			oidcHost = u.Host
+		}
+		cfg.OIDC.URL = keycloakURL + "/realms/helix"
+	} else {
+		cfg.OIDC.URL = fmt.Sprintf("http://%s:8080/auth/realms/helix", oidcHost)
+	}
 	cfg.OIDC.ClientID = "test-client"
 	cfg.OIDC.ClientSecret = "test-secret"
 	cfg.OIDC.Audience = "account"
@@ -354,7 +368,7 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 	// Set server URL for API client and callbacks
 	suite.serverURL = cfg.WebServer.URL
 	if suite.serverURL == "" {
-		suite.serverURL = "http://localhost:8080" // Fallback for local testing
+		suite.serverURL = fmt.Sprintf("http://%s:8080", webServerHost) // Use same host as web server
 	}
 	suite.logger.Info().Str("server_url", suite.serverURL).Msg("Using server URL for API client")
 
@@ -1439,30 +1453,7 @@ func (suite *GitHubOAuthE2ETestSuite) testAgentGitHubSkillsIntegration(t *testin
 		Str("user_id", suite.testUser.ID).
 		Msg("OAuth connections found for test user")
 
-	if len(connections) == 0 {
-		suite.logger.Warn().Msg("No OAuth connections found - GitHub denied OAuth access. Creating mock connection for session execution testing")
-
-		// Create a mock OAuth connection for testing session execution
-		mockConn, err := suite.store.CreateOAuthConnection(suite.ctx, &types.OAuthConnection{
-			ID:                system.GenerateUUID(),
-			UserID:            suite.testUser.ID,
-			ProviderID:        suite.oauthProvider.ID,
-			AccessToken:       "mock_github_token_for_session_testing",
-			RefreshToken:      "mock_refresh_token",
-			ExpiresAt:         time.Now().Add(24 * time.Hour),
-			Scopes:            []string{"repo", "user:read"},
-			ProviderUserID:    "helix-test",
-			ProviderUsername:  "helix-test",
-			ProviderUserEmail: "helix-test@github.com",
-		})
-		require.NoError(t, err, "Failed to create mock OAuth connection")
-
-		connections = []*types.OAuthConnection{mockConn}
-		suite.logger.Info().
-			Str("connection_id", mockConn.ID).
-			Str("access_token", "mock_github_token_for_session_testing").
-			Msg("Created mock OAuth connection for session execution testing")
-	}
+	require.NotZero(t, len(connections), "Should have at least one OAuth connection")
 
 	// Find GitHub connection
 	var githubConn *types.OAuthConnection
