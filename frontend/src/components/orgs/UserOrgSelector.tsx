@@ -7,17 +7,18 @@ import AddIcon from '@mui/icons-material/Add'
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
+import useLightTheme from '../../hooks/useLightTheme'
 
 interface UserOrgSelectorProps {
   // Any additional props can be added here
 }
 
-const AVATAR_SIZE = 40
+const AVATAR_SIZE = 32
 
 const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
   const account = useAccount()
   const router = useRouter()
-
+  const lightTheme = useLightTheme()
   // Get the current organization from the URL or context
   const defaultOrgName = `${account.user?.name} (Personal)`
   const currentOrg = account.organizationTools.organization
@@ -71,21 +72,22 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
         alignItems: 'center',
         gap: 1.5,
         py: 2,
-        minHeight: '100px',
+        minHeight: '100%',
         width: '100%',
         userSelect: 'none',
-        backgroundColor: 'transparent',
+        backgroundColor: lightTheme.backgroundColor,
+        
       }}
     >
       {/* Personal (top) */}
       <Tooltip title={defaultOrgName} placement="right">
-        <Avatar
+        <Box
           onClick={() => handleOrgSelect('default')}
           sx={{
             width: AVATAR_SIZE,
             height: AVATAR_SIZE,
             mb: 0.5,
-            bgcolor: currentOrgId === 'default' ? 'primary.main' : 'grey.700',
+            bgcolor: currentOrgId === 'default' ? 'primary.main' : 'grey.800',
             color: '#fff',
             fontWeight: 'bold',
             fontSize: '1.1rem',
@@ -97,23 +99,27 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
               border: '2px solid #00E5FF',
               boxShadow: '0 0 8px #00E5FF',
             },
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 1,
           }}
         >
           {account.user?.name?.charAt(0).toUpperCase() || '?'}
-        </Avatar>
+        </Box>
       </Tooltip>
       <Divider sx={{ width: 32, my: 0.5, bgcolor: 'grey.800' }} />
       {/* Orgs (vertical) */}
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {listOrgs.map((org) => (
           <Tooltip key={org.id} title={org.display_name || org.name} placement="right">
-            <Avatar
+            <Box
               onClick={() => handleOrgSelect(org.name)}
               sx={{
                 width: AVATAR_SIZE,
                 height: AVATAR_SIZE,
-                bgcolor: currentOrgId === org.id ? 'primary.main' : 'grey.300',
-                color: currentOrgId === org.id ? '#fff' : '#1A1A2F',
+                bgcolor: currentOrgId === org.id ? 'primary.main' : 'grey.600',
+                color: currentOrgId === org.id ? '#fff' : '#ccc',
                 fontWeight: 'bold',
                 fontSize: '1.1rem',
                 border: currentOrgId === org.id ? '2px solid #00E5FF' : '2px solid transparent',
@@ -124,35 +130,40 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
                   border: '2px solid #00E5FF',
                   boxShadow: '0 0 8px #00E5FF',
                 },
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 1,
               }}
             >
               {(org.display_name || org.name || '?').charAt(0).toUpperCase()}
-            </Avatar>
+            </Box>
           </Tooltip>
         ))}
+        {/* Add new org (+) */}
+        <Tooltip title="Add new organization" placement="right">
+          <Box
+            onClick={handleAddOrg}
+            sx={{
+              width: AVATAR_SIZE,
+              height: AVATAR_SIZE,
+              bgcolor: 'transparent',
+              color: '#00E5FF',
+              cursor: 'pointer',
+              border: '2px solid #00E5FF',
+              '&:hover': {
+                bgcolor: 'rgba(0, 229, 255, 0.1)',
+              },
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 1,
+            }}
+          >
+            <AddIcon />
+          </Box>
+        </Tooltip>
       </Box>
-      {/* Spacer to push + to bottom if needed */}
-      <Box sx={{ flexGrow: 1 }} />
-      {/* Add new org (+) */}
-      <Tooltip title="Add new organization" placement="right">
-        <Avatar
-          onClick={handleAddOrg}
-          sx={{
-            width: AVATAR_SIZE,
-            height: AVATAR_SIZE,
-            bgcolor: 'transparent',
-            color: '#00E5FF',
-            mt: 1,
-            cursor: 'pointer',
-            border: '2px solid #00E5FF',
-            '&:hover': {
-              bgcolor: 'rgba(0, 229, 255, 0.1)',
-            },
-          }}
-        >
-          <AddIcon />
-        </Avatar>
-      </Tooltip>
     </Box>
   )
 }
