@@ -536,18 +536,7 @@ const SidebarContent: React.FC<{
                           <AccountBoxIcon fontSize="small" />
                         </ListItemIcon> 
                         Account Settings
-                      </MenuItem>
-
-                      {account.organizationTools.organization && (
-                        <MenuItem onClick={ () => {
-                          router.navigate('org_people', { org_id: account.organizationTools.organization?.name });
-                        }}>
-                          <ListItemIcon>
-                            <GroupIcon fontSize="small" />
-                          </ListItemIcon> 
-                          Organization Settings
-                        </MenuItem>
-                      )}
+                      </MenuItem>                      
 
                       <MenuItem onClick={ () => {
                         navigateTo('oauth-connections')
