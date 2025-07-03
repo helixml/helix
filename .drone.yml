@@ -196,6 +196,9 @@ steps:
   commands:
     # Install required tools
     - apk add --no-cache curl zip
+    # Debug environment variables
+    - echo "DEBUG - LAUNCHPAD_URL='${LAUNCHPAD_URL}'"
+    - echo "DEBUG - CI_SHARED_SECRET present='${CI_SHARED_SECRET:+YES}'"
     # Determine test status from oauth-integration-test step result
     - |
       if [ "${DRONE_BUILD_STATUS}" = "success" ]; then
@@ -203,20 +206,32 @@ steps:
       else
         TEST_STATUS="failed"
       fi
-    # Create artifacts zip
+    # Create artifacts zip - include basic info even if test didn't run
     - cd /go/src/github.com/helix-ml/helix/api
     - |
-      if [ -d "test_results" ] && [ "$(ls -A test_results)" ]; then
+      if [ -d "test_results" ] && [ "$(ls -A test_results 2>/dev/null)" ]; then
+        echo "Found test results directory with content"
+        ls -la test_results/
         zip -r artifacts.zip test_results/
         ARTIFACTS_FILE="artifacts.zip"
       else
-        echo "No test results found to upload"
-        ARTIFACTS_FILE=""
+        echo "No test results found, creating basic artifact"
+        mkdir -p test_results
+        echo "OAuth integration test run at $(date)" > test_results/test_summary.txt
+        echo "Build: ${DRONE_BUILD_NUMBER}" >> test_results/test_summary.txt
+        echo "Branch: ${DRONE_BRANCH}" >> test_results/test_summary.txt
+        echo "Commit: ${DRONE_COMMIT}" >> test_results/test_summary.txt
+        echo "Status: ${TEST_STATUS}" >> test_results/test_summary.txt
+        zip -r artifacts.zip test_results/
+        ARTIFACTS_FILE="artifacts.zip"
       fi
-    # Upload to Launchpad
+    # Upload to Launchpad with explicit URL construction
     - |
+      LAUNCHPAD_URL="${LAUNCHPAD_URL:-}"
       if [ -n "$LAUNCHPAD_URL" ] && [ -n "$CI_SHARED_SECRET" ]; then
-        echo "Uploading test results to Launchpad at ${LAUNCHPAD_URL}"
+        echo "Uploading test results to Launchpad at $LAUNCHPAD_URL"
+        UPLOAD_URL="$LAUNCHPAD_URL/api/ci/test-results"
+        echo "Upload URL: $UPLOAD_URL"
         curl -X POST \
           -H "X-CI-Secret: $CI_SHARED_SECRET" \
           -F "branch=${DRONE_BRANCH}" \
@@ -224,12 +239,12 @@ steps:
           -F "build_number=${DRONE_BUILD_NUMBER}" \
           -F "test_type=oauth_integration" \
           -F "status=$TEST_STATUS" \
-          $([ -n "$ARTIFACTS_FILE" ] && echo "-F artifacts=@$ARTIFACTS_FILE") \
-          "${LAUNCHPAD_URL}/api/ci/test-results"
+          -F "artifacts=@$ARTIFACTS_FILE" \
+          "$UPLOAD_URL"
       else
         echo "LAUNCHPAD_URL or CI_SHARED_SECRET not set, skipping test result upload"
-        echo "LAUNCHPAD_URL: ${LAUNCHPAD_URL:-'(not set)'}"
-        echo "CI_SHARED_SECRET: ${CI_SHARED_SECRET:+'(set)' || '(not set)'}"
+        echo "LAUNCHPAD_URL: '${LAUNCHPAD_URL:-'(not set)'}'"
+        echo "CI_SHARED_SECRET: '${CI_SHARED_SECRET:+'(set)'}${CI_SHARED_SECRET:+''}${CI_SHARED_SECRET:-'(not set)'}'"
       fi
   when:
     event:
