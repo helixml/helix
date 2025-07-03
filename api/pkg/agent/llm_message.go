@@ -35,10 +35,9 @@ func AssistantMessage(content string) *openai.ChatCompletionMessage {
 	}
 }
 
-func DeveloperMessage(content string) *openai.ChatCompletionMessage {
+func SystemMessage(content string) *openai.ChatCompletionMessage {
 	return &openai.ChatCompletionMessage{
-		Role: openai.ChatMessageRoleDeveloper,
-		// Content: content,
+		Role: openai.ChatMessageRoleSystem,
 		MultiContent: []openai.ChatMessagePart{
 			{
 				Type: openai.ChatMessagePartTypeText,
@@ -69,7 +68,7 @@ func (ml *MessageList) Add(msgs ...*openai.ChatCompletionMessage) {
 }
 
 func (ml *MessageList) AddFirst(prompt string) {
-	ml.Messages = append([]*openai.ChatCompletionMessage{DeveloperMessage(prompt)}, ml.Messages...)
+	ml.Messages = append([]*openai.ChatCompletionMessage{SystemMessage(prompt)}, ml.Messages...)
 }
 
 func (ml *MessageList) ReplaceAt(index int, newMsg *openai.ChatCompletionMessage) error {
