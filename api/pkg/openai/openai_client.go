@@ -86,6 +86,11 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 		return openai.ChatCompletionResponse{}, err
 	}
 
+	// Clean up messages for Anthropic API
+	if isAnthropicProvider(c.baseURL) {
+		request = c.cleanMessagesForAnthropic(request)
+	}
+
 	// Perform request with retries
 	err = retry.Do(func() error {
 		resp, err = c.apiClient.CreateChatCompletion(ctx, request)
@@ -108,9 +113,44 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	return
 }
 
+// cleanMessagesForAnthropic cleans up messages for Anthropic API compatibility
+// Anthropic requires that messages with tool calls should not have content
+func (c *RetryableClient) cleanMessagesForAnthropic(request openai.ChatCompletionRequest) openai.ChatCompletionRequest {
+	// Create a copy of the request to avoid modifying the original
+	cleanedRequest := request
+	cleanedMessages := make([]openai.ChatCompletionMessage, len(request.Messages))
+	copy(cleanedMessages, request.Messages)
+
+	for i, message := range cleanedMessages {
+		// If this is an assistant message with tool calls, clear the content field
+		if message.Role == openai.ChatMessageRoleAssistant && len(message.ToolCalls) > 0 {
+			// Trim whitespace and clear content if tool calls are present
+			content := strings.TrimSpace(message.Content)
+			if content != "" {
+				log.Debug().
+					Str("original_content", content).
+					Int("tool_calls_count", len(message.ToolCalls)).
+					Msg("Clearing assistant message content for Anthropic API compatibility")
+				cleanedMessages[i].Content = ""
+			}
+		}
+
+		// Trim whitespace from all message contents to avoid trailing whitespace errors
+		cleanedMessages[i].Content = strings.TrimSpace(cleanedMessages[i].Content)
+	}
+
+	cleanedRequest.Messages = cleanedMessages
+	return cleanedRequest
+}
+
 func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
 	if err := c.validateModel(request.Model); err != nil {
 		return nil, err
+	}
+
+	// Clean up messages for Anthropic API
+	if isAnthropicProvider(c.baseURL) {
+		request = c.cleanMessagesForAnthropic(request)
 	}
 
 	return c.apiClient.CreateChatCompletionStream(ctx, request)
