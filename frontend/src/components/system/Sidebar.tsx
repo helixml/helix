@@ -300,15 +300,6 @@ const SidebarContent: React.FC<{
           {
             showTopLinks && (
               <List disablePadding>
-                {
-                  account.user && (
-                    <>
-                      <TokenUsageDisplay />
-                      <Divider />
-                    </>
-                  )
-                }
-                
                 {/* Tabs for CHATS and APPS */}
                 <Box sx={{ width: '100%', borderBottom: 1, borderColor: 'divider' }}>
                   <Tabs 
@@ -435,6 +426,14 @@ const SidebarContent: React.FC<{
               pt: 1.5,
             }}
           >
+            {
+              account.user && (
+                <>
+                  <TokenUsageDisplay />
+                  {/* <Divider /> */}
+                </>
+              )
+            }
             <Typography
               variant="body2"
               sx={{
