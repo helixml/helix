@@ -129,7 +129,7 @@ steps:
   image: golang:1.24-alpine3.21
   volumes:
   - name: oauth-test-results
-    path: /go/src/github.com/helix-ml/helix/api/test_results
+    path: /tmp/helix-oauth-test-results
   environment:
     # GitHub OAuth test credentials
     GITHUB_SKILL_TEST_OAUTH_CLIENT_ID:
@@ -177,13 +177,13 @@ steps:
 
   commands:
     # Ensure test results directory exists and has proper permissions
-    - mkdir -p /go/src/github.com/helix-ml/helix/api/test_results
-    - chmod 755 /go/src/github.com/helix-ml/helix/api/test_results
+    - mkdir -p /tmp/helix-oauth-test-results
+    - chmod 755 /tmp/helix-oauth-test-results
     # Run OAuth integration tests with specific build tag
     - cd api
     - |
       echo "=== Starting OAuth Integration Test ==="
-      echo "Test results will be saved to: /go/src/github.com/helix-ml/helix/api/test_results"
+      echo "Test results will be saved to: /tmp/helix-oauth-test-results"
       
       # Record test start time
       TEST_START_TIME=$(date +%s)
@@ -202,30 +202,30 @@ steps:
       echo "Test duration: $TEST_DURATION seconds"
       
       # Write test results to file for upload step
-      echo "exit_code=$TEST_EXIT_CODE" > /go/src/github.com/helix-ml/helix/api/test_results/test_result.txt
-      echo "duration=$TEST_DURATION" >> /go/src/github.com/helix-ml/helix/api/test_results/test_result.txt
-      echo "start_time=$TEST_START_TIME" >> /go/src/github.com/helix-ml/helix/api/test_results/test_result.txt
-      echo "end_time=$TEST_END_TIME" >> /go/src/github.com/helix-ml/helix/api/test_results/test_result.txt
+      echo "exit_code=$TEST_EXIT_CODE" > /tmp/helix-oauth-test-results/test_result.txt
+      echo "duration=$TEST_DURATION" >> /tmp/helix-oauth-test-results/test_result.txt
+      echo "start_time=$TEST_START_TIME" >> /tmp/helix-oauth-test-results/test_result.txt
+      echo "end_time=$TEST_END_TIME" >> /tmp/helix-oauth-test-results/test_result.txt
       
       # Determine human-readable status
       if [ "$TEST_EXIT_CODE" -eq 0 ]; then
-        echo "status=passed" >> /go/src/github.com/helix-ml/helix/api/test_results/test_result.txt
+        echo "status=passed" >> /tmp/helix-oauth-test-results/test_result.txt
         echo "=== OAuth Integration Test PASSED ==="
       else
-        echo "status=failed" >> /go/src/github.com/helix-ml/helix/api/test_results/test_result.txt
+        echo "status=failed" >> /tmp/helix-oauth-test-results/test_result.txt
         echo "=== OAuth Integration Test FAILED (exit code: $TEST_EXIT_CODE) ==="
       fi
       
       # List any artifacts that were created during the test
       echo "=== Test Results Directory Contents ==="
-      if [ -d "/go/src/github.com/helix-ml/helix/api/test_results" ]; then
-        ls -la /go/src/github.com/helix-ml/helix/api/test_results/ || echo "No files in test_results directory"
+      if [ -d "/tmp/helix-oauth-test-results" ]; then
+        ls -la /tmp/helix-oauth-test-results/ || echo "No files in test_results directory"
         echo "=== Screenshot Files ==="
-        find /go/src/github.com/helix-ml/helix/api/test_results -name "*.png" -exec ls -l {} \; || echo "No screenshot files found"
+        find /tmp/helix-oauth-test-results -name "*.png" -exec ls -l {} \; || echo "No screenshot files found"
         echo "=== Log Files ==="
-        find /go/src/github.com/helix-ml/helix/api/test_results -name "*.log" -exec ls -l {} \; || echo "No log files found"
+        find /tmp/helix-oauth-test-results -name "*.log" -exec ls -l {} \; || echo "No log files found"
         echo "=== Conversation Files ==="
-        find /go/src/github.com/helix-ml/helix/api/test_results -name "*conversation*.txt" -exec ls -l {} \; || echo "No conversation files found"
+        find /tmp/helix-oauth-test-results -name "*conversation*.txt" -exec ls -l {} \; || echo "No conversation files found"
       else
         echo "test_results directory does not exist"
       fi
@@ -241,7 +241,7 @@ steps:
   image: alpine:latest
   volumes:
   - name: oauth-test-results
-    path: /go/src/github.com/helix-ml/helix/api/test_results
+    path: /tmp/helix-oauth-test-results
   environment:
     LAUNCHPAD_URL: "https://deploy.helix.ml"
     CI_SHARED_SECRET:
@@ -258,12 +258,12 @@ steps:
     # Determine test status from actual test results file
     - |
       # Check if we have actual test results from the test step
-      if [ -f "/go/src/github.com/helix-ml/helix/api/test_results/test_result.txt" ]; then
+      if [ -f "/tmp/helix-oauth-test-results/test_result.txt" ]; then
         echo "=== Reading actual test results ==="
-        cat /go/src/github.com/helix-ml/helix/api/test_results/test_result.txt
+        cat /tmp/helix-oauth-test-results/test_result.txt
         
         # Source the test results file to get variables
-        . /go/src/github.com/helix-ml/helix/api/test_results/test_result.txt
+        . /tmp/helix-oauth-test-results/test_result.txt
         
         TEST_STATUS="$status"
         TEST_DURATION="$duration"
@@ -289,20 +289,20 @@ steps:
       DRONE_BUILD_URL="https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}"
       echo "Drone build URL: $DRONE_BUILD_URL"
     # Create artifacts zip - include basic info even if test didn't run
-    - cd /go/src/github.com/helix-ml/helix/api
+    - cd /tmp
     - |
       echo "=== OAuth Test Artifacts Collection ==="
-      echo "Collecting artifacts from: $(pwd)/test_results"
+      echo "Collecting artifacts from: /tmp/helix-oauth-test-results"
       
-      if [ -d "test_results" ]; then
+      if [ -d "helix-oauth-test-results" ]; then
         echo "Test results directory exists"
         echo "=== Directory Contents ==="
-        ls -la test_results/ || echo "Directory exists but is empty"
+        ls -la helix-oauth-test-results/ || echo "Directory exists but is empty"
         
         # Count different types of artifacts
-        SCREENSHOT_COUNT=$(find test_results -name "*.png" | wc -l)
-        LOG_COUNT=$(find test_results -name "*.log" | wc -l)
-        CONVERSATION_COUNT=$(find test_results -name "*conversation*.txt" | wc -l)
+        SCREENSHOT_COUNT=$(find helix-oauth-test-results -name "*.png" | wc -l)
+        LOG_COUNT=$(find helix-oauth-test-results -name "*.log" | wc -l)
+        CONVERSATION_COUNT=$(find helix-oauth-test-results -name "*conversation*.txt" | wc -l)
         
         echo "=== Artifact Summary ==="
         echo "Screenshots found: $SCREENSHOT_COUNT"
@@ -311,52 +311,52 @@ steps:
         
         if [ "$SCREENSHOT_COUNT" -gt 0 ]; then
           echo "=== Screenshot Files ==="
-          find test_results -name "*.png" -exec ls -l {} \;
+          find helix-oauth-test-results -name "*.png" -exec ls -l {} \;
         fi
         
         if [ "$LOG_COUNT" -gt 0 ]; then
           echo "=== Log Files ==="
-          find test_results -name "*.log" -exec ls -l {} \;
+          find helix-oauth-test-results -name "*.log" -exec ls -l {} \;
         fi
         
         if [ "$CONVERSATION_COUNT" -gt 0 ]; then
           echo "=== Conversation Files ==="
-          find test_results -name "*conversation*.txt" -exec ls -l {} \;
+          find helix-oauth-test-results -name "*conversation*.txt" -exec ls -l {} \;
         fi
         
         # Check if there are any files at all
-        if [ "$(find test_results -type f | wc -l)" -gt 0 ]; then
+        if [ "$(find helix-oauth-test-results -type f | wc -l)" -gt 0 ]; then
           echo "Creating artifacts zip from test results"
-          zip -r artifacts.zip test_results/
+          zip -r artifacts.zip helix-oauth-test-results/
           ARTIFACTS_FILE="artifacts.zip"
           echo "Artifacts zip created: $(ls -lh artifacts.zip)"
         else
           echo "No test result files found, creating basic artifact"
-          echo "OAuth integration test run at $(date)" > test_results/test_summary.txt
-          echo "Build: ${DRONE_BUILD_NUMBER}" >> test_results/test_summary.txt
-          echo "Build URL: $DRONE_BUILD_URL" >> test_results/test_summary.txt
-          echo "Branch: ${DRONE_BRANCH}" >> test_results/test_summary.txt
-          echo "Commit: ${DRONE_COMMIT}" >> test_results/test_summary.txt
-          echo "Status: ${TEST_STATUS}" >> test_results/test_summary.txt
-          echo "Duration: ${TEST_DURATION} seconds" >> test_results/test_summary.txt
-          echo "Exit Code: ${TEST_EXIT_CODE}" >> test_results/test_summary.txt
-          echo "Note: Test failed before generating artifacts (likely GitHub device verification)" >> test_results/test_summary.txt
-          zip -r artifacts.zip test_results/
+          echo "OAuth integration test run at $(date)" > helix-oauth-test-results/test_summary.txt
+          echo "Build: ${DRONE_BUILD_NUMBER}" >> helix-oauth-test-results/test_summary.txt
+          echo "Build URL: $DRONE_BUILD_URL" >> helix-oauth-test-results/test_summary.txt
+          echo "Branch: ${DRONE_BRANCH}" >> helix-oauth-test-results/test_summary.txt
+          echo "Commit: ${DRONE_COMMIT}" >> helix-oauth-test-results/test_summary.txt
+          echo "Status: ${TEST_STATUS}" >> helix-oauth-test-results/test_summary.txt
+          echo "Duration: ${TEST_DURATION} seconds" >> helix-oauth-test-results/test_summary.txt
+          echo "Exit Code: ${TEST_EXIT_CODE}" >> helix-oauth-test-results/test_summary.txt
+          echo "Note: Test failed before generating artifacts (likely GitHub device verification)" >> helix-oauth-test-results/test_summary.txt
+          zip -r artifacts.zip helix-oauth-test-results/
           ARTIFACTS_FILE="artifacts.zip"
         fi
       else
         echo "Test results directory does not exist, creating basic artifact"
-        mkdir -p test_results
-        echo "OAuth integration test run at $(date)" > test_results/test_summary.txt
-        echo "Build: ${DRONE_BUILD_NUMBER}" >> test_results/test_summary.txt
-        echo "Build URL: $DRONE_BUILD_URL" >> test_results/test_summary.txt
-        echo "Branch: ${DRONE_BRANCH}" >> test_results/test_summary.txt
-        echo "Commit: ${DRONE_COMMIT}" >> test_results/test_summary.txt
-        echo "Status: ${TEST_STATUS}" >> test_results/test_summary.txt
-        echo "Duration: ${TEST_DURATION} seconds" >> test_results/test_summary.txt
-        echo "Exit Code: ${TEST_EXIT_CODE}" >> test_results/test_summary.txt
-        echo "Note: Test failed before creating test_results directory" >> test_results/test_summary.txt
-        zip -r artifacts.zip test_results/
+        mkdir -p helix-oauth-test-results
+        echo "OAuth integration test run at $(date)" > helix-oauth-test-results/test_summary.txt
+        echo "Build: ${DRONE_BUILD_NUMBER}" >> helix-oauth-test-results/test_summary.txt
+        echo "Build URL: $DRONE_BUILD_URL" >> helix-oauth-test-results/test_summary.txt
+        echo "Branch: ${DRONE_BRANCH}" >> helix-oauth-test-results/test_summary.txt
+        echo "Commit: ${DRONE_COMMIT}" >> helix-oauth-test-results/test_summary.txt
+        echo "Status: ${TEST_STATUS}" >> helix-oauth-test-results/test_summary.txt
+        echo "Duration: ${TEST_DURATION} seconds" >> helix-oauth-test-results/test_summary.txt
+        echo "Exit Code: ${TEST_EXIT_CODE}" >> helix-oauth-test-results/test_summary.txt
+        echo "Note: Test failed before creating test_results directory" >> helix-oauth-test-results/test_summary.txt
+        zip -r artifacts.zip helix-oauth-test-results/
         ARTIFACTS_FILE="artifacts.zip"
       fi
     # Upload to Launchpad with explicit URL construction
