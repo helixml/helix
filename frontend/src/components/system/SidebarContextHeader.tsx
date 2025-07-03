@@ -8,7 +8,6 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
-import Divider from '@mui/material/Divider'
 
 const SidebarContextHeader: React.FC = () => {
   const account = useAccount()
@@ -144,6 +143,13 @@ const SidebarContextHeader: React.FC = () => {
         </MenuItem>
         <MenuItem onClick={handleSettings}>
           <Typography variant="body2" sx={{ color: '#fff', fontWeight: 500, fontSize: '0.92rem' }}>Settings</Typography>
+        </MenuItem>
+        {/* Disabled for now "AI Providers" */}
+        <MenuItem disabled>
+          <Typography variant="body2" sx={{ color: '#fff', fontWeight: 500, fontSize: '0.92rem' }}>AI Providers</Typography>
+        </MenuItem>
+        <MenuItem disabled>
+          <Typography variant="body2" sx={{ color: '#fff', fontWeight: 500, fontSize: '0.92rem' }}>Usage</Typography>
         </MenuItem>
       </Menu>
     </Box>

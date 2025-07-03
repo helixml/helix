@@ -76,7 +76,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
         width: '100%',
         userSelect: 'none',
         backgroundColor: lightTheme.backgroundColor,
-        
+        borderBottom: lightTheme.border,
       }}
     >
       {/* Personal (top) */}
@@ -150,17 +150,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
               bgcolor: 'transparent',
               color: '#00E5FF',
               cursor: 'pointer',
-              border: '2px solid #00E5FF',
-              '&:hover': {
-                bgcolor: 'rgba(0, 229, 255, 0.1)',
-              },
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               borderRadius: 1,
             }}
           >
-            <AddIcon />
+            <AddIcon color="primary" />
           </Box>
         </Tooltip>
       </Box>
