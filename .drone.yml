@@ -506,6 +506,10 @@ kind: pipeline
 type: docker
 name: build-controlplane
 
+trigger:
+  event:
+    - tag
+
 volumes:
   - name: dockersocket
     host:
@@ -540,6 +544,10 @@ depends_on:
 kind: pipeline
 type: docker
 name: build-keycloak
+
+trigger:
+  event:
+    - tag
 
 volumes:
   - name: dockersocket
@@ -576,6 +584,10 @@ kind: pipeline
 type: docker
 name: build-keycloak-bitnami
 
+trigger:
+  event:
+    - tag
+
 volumes:
   - name: dockersocket
     host:
@@ -610,6 +622,10 @@ depends_on:
 kind: pipeline
 type: docker
 name: build-haystack
+
+trigger:
+  event:
+    - tag
 
 volumes:
   - name: dockersocket
@@ -646,6 +662,10 @@ depends_on:
 kind: pipeline
 type: docker
 name: build-runner
+
+trigger:
+  event:
+    - tag
 
 volumes:
   - name: dockersocket
@@ -685,6 +705,10 @@ depends_on:
 kind: pipeline
 type: docker
 name: build-runner-small
+
+trigger:
+  event:
+    - tag
 
 volumes:
   - name: dockersocket
@@ -756,6 +780,10 @@ kind: pipeline
 type: docker
 name: build-runner-large
 
+trigger:
+  event:
+    - tag
+
 volumes:
   - name: dockersocket
     host:
@@ -825,6 +853,10 @@ kind: pipeline
 type: docker
 name: build-gptscript-runner
 
+trigger:
+  event:
+    - tag
+
 volumes:
   - name: dockersocket
     host:
@@ -857,6 +889,10 @@ depends_on:
 kind: pipeline
 type: docker
 name: build-gptscript_devserver
+
+trigger:
+  event:
+    - tag
 
 volumes:
   - name: dockersocket
@@ -891,6 +927,10 @@ kind: pipeline
 type: docker
 name: build-typesense_baked_models
 
+trigger:
+  event:
+    - tag
+
 volumes:
   - name: dockersocket
     host:
@@ -923,6 +963,10 @@ depends_on:
 kind: pipeline
 type: docker
 name: build-demos
+
+trigger:
+  event:
+    - tag
 
 volumes:
   - name: dockersocket
