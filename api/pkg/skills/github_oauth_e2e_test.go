@@ -694,26 +694,6 @@ func (suite *GitHubOAuthE2ETestSuite) handleTraditionalDeviceVerification(page *
 	suite.logger.Info().Msg("Handling traditional device verification")
 	suite.takeScreenshot(page, "device_verification_detected")
 
-	// Wait for device verification code via Gmail
-	suite.logger.Info().Msg("Waiting for device verification email...")
-
-	var verificationCode string
-	var err error
-
-	// Wait up to 60 seconds for the device verification email
-	for i := 0; i < 12; i++ {
-		time.Sleep(5 * time.Second)
-		verificationCode, err = suite.getDeviceVerificationCode()
-		if err == nil {
-			break
-		}
-		suite.logger.Info().Err(err).Int("attempt", i+1).Msg("Device verification email not found yet, retrying...")
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to get device verification code after 60 seconds: %w", err)
-	}
-
 	// More specific verification code input field selector (exclude generic text inputs)
 	codeInputSelector := `input[name="otp"], input[id="otp"], input[name="device_verification_code"], input[placeholder*="verification"], input[placeholder*="code"]`
 	codeInput, err := page.Element(codeInputSelector)
