@@ -47,6 +47,16 @@ const SidebarContextHeader: React.FC = () => {
     handleMenuClose()
   }
 
+  // Navigation handlers for personal context menu
+  const handleAccountSettings = () => {
+    router.navigate('account')
+    handleMenuClose()
+  }
+  const handleCreateOrganization = () => {
+    router.navigate('orgs')
+    handleMenuClose()
+  }
+
   return (
     <Box
       sx={{
@@ -78,45 +88,56 @@ const SidebarContextHeader: React.FC = () => {
       >
         {displayName}
       </Typography>
-      {isOrgContext && (
-        <IconButton
-          size="small"
-          aria-label="org menu"
-          aria-controls="org-context-menu"
-          aria-haspopup="true"
-          onClick={handleMenuOpen}
-          sx={{ color: '#fff', ml: 1 }}
-        >
-          <MoreVertIcon />
-        </IconButton>
-      )}
+      <IconButton
+        size="small"
+        aria-label={isOrgContext ? "org menu" : "personal menu"}
+        aria-controls={isOrgContext ? "org-context-menu" : "personal-context-menu"}
+        aria-haspopup="true"
+        onClick={handleMenuOpen}
+        sx={{ color: '#fff', ml: 1 }}
+      >
+        <MoreVertIcon />
+      </IconButton>
       <DarkMenu
-        id="org-context-menu"
+        id={isOrgContext ? "org-context-menu" : "personal-context-menu"}
         anchorEl={anchorEl}
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
         menuListProps={{
-          'aria-labelledby': 'org-context-menu',
+          'aria-labelledby': isOrgContext ? 'org-context-menu' : 'personal-context-menu',
         }}
       >
-        <DarkMenuItem onClick={handlePeople}>
-          People
-        </DarkMenuItem>
-        <DarkMenuItem onClick={handleTeams}>
-          Teams
-        </DarkMenuItem>
-        <DarkMenuItem onClick={handleSettings}>
-          Settings
-        </DarkMenuItem>
-        {/* Disabled for now "AI Providers" */}
-        <DarkMenuItem disabled>
-          AI Providers
-        </DarkMenuItem>
-        <DarkMenuItem disabled>
-          Usage
-        </DarkMenuItem>
+        {isOrgContext ? (
+          <>
+            <DarkMenuItem onClick={handlePeople}>
+              People
+            </DarkMenuItem>
+            <DarkMenuItem onClick={handleTeams}>
+              Teams
+            </DarkMenuItem>
+            <DarkMenuItem onClick={handleSettings}>
+              Settings
+            </DarkMenuItem>
+            {/* Disabled for now "AI Providers" */}
+            <DarkMenuItem disabled>
+              AI Providers
+            </DarkMenuItem>
+            <DarkMenuItem disabled>
+              Usage
+            </DarkMenuItem>
+          </>
+        ) : (
+          <>
+            <DarkMenuItem onClick={handleAccountSettings}>
+              Settings
+            </DarkMenuItem>
+            <DarkMenuItem onClick={handleCreateOrganization}>
+              Add new organization
+            </DarkMenuItem>
+          </>
+        )}
       </DarkMenu>
     </Box>
   )
