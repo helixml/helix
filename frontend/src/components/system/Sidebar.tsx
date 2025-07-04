@@ -30,6 +30,8 @@ import AddIcon from '@mui/icons-material/Add'
 import PsychologyIcon from '@mui/icons-material/Psychology'
 import GroupIcon from '@mui/icons-material/Group'
 import HistoryIcon from '@mui/icons-material/History'
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 
 import TokenUsageDisplay from './TokenUsageDisplay'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -117,6 +119,8 @@ const SidebarContent: React.FC<{
   const sessions = useSessions()
   const [openAgents, setOpenAgents] = useState(true)
   const [openHistory, setOpenHistory] = useState(true)
+  const [hoverAgents, setHoverAgents] = useState(false)
+  const [hoverHistory, setHoverHistory] = useState(false)
 
   // Group sessions by time for history
   const groupSessionsByTime = (sessionsList: any[]): Record<string, any[]> => {
@@ -387,8 +391,23 @@ const SidebarContent: React.FC<{
           {/* <Divider sx={{ my: 1, borderColor: lightTheme.border }} /> */}
           {/* Agents Group */}
           <Box>
-            <ListItemButton onClick={() => setOpenAgents((v) => !v)} sx={{ py: 0.5, px: 1.5, minHeight: 32 }}>
-              <ListItemIcon sx={{ minWidth: 32 }}><AppsIcon sx={{ fontSize: 18, color: '#b0b3b8' }} /></ListItemIcon>
+            <ListItemButton 
+              onClick={() => setOpenAgents((v) => !v)} 
+              onMouseEnter={() => setHoverAgents(true)}
+              onMouseLeave={() => setHoverAgents(false)}
+              sx={{ py: 0.5, px: 1.5, minHeight: 32 }}
+            >
+              <ListItemIcon sx={{ minWidth: 32 }}>
+                {hoverAgents ? (
+                  openAgents ? (
+                    <KeyboardArrowUpIcon sx={{ fontSize: 18, color: '#b0b3b8' }} />
+                  ) : (
+                    <KeyboardArrowDownIcon sx={{ fontSize: 18, color: '#b0b3b8' }} />
+                  )
+                ) : (
+                  <AppsIcon sx={{ fontSize: 18, color: '#b0b3b8' }} />
+                )}
+              </ListItemIcon>
               <ListItemText primary="Agents" primaryTypographyProps={{ fontSize: '0.8rem', fontWeight: 600, color: lightTheme.textColor, letterSpacing: 0.2 }} />
             </ListItemButton>
             <Collapse in={openAgents} timeout="auto" unmountOnExit>
@@ -404,8 +423,23 @@ const SidebarContent: React.FC<{
           {/* <Divider sx={{ my: 1, borderColor: lightTheme.border }} /> */}
           {/* History Group */}
           <Box>
-            <ListItemButton onClick={() => setOpenHistory((v) => !v)} sx={{ py: 0.5, px: 1.5, minHeight: 32 }}>
-              <ListItemIcon sx={{ minWidth: 32 }}><HistoryIcon sx={{ fontSize: 18, color: '#b0b3b8' }} /></ListItemIcon>
+            <ListItemButton 
+              onClick={() => setOpenHistory((v) => !v)} 
+              onMouseEnter={() => setHoverHistory(true)}
+              onMouseLeave={() => setHoverHistory(false)}
+              sx={{ py: 0.5, px: 1.5, minHeight: 32 }}
+            >
+              <ListItemIcon sx={{ minWidth: 32 }}>
+                {hoverHistory ? (
+                  openHistory ? (
+                    <KeyboardArrowUpIcon sx={{ fontSize: 18, color: '#b0b3b8' }} />
+                  ) : (
+                    <KeyboardArrowDownIcon sx={{ fontSize: 18, color: '#b0b3b8' }} />
+                  )
+                ) : (
+                  <HistoryIcon sx={{ fontSize: 18, color: '#b0b3b8' }} />
+                )}
+              </ListItemIcon>
               <ListItemText primary="History" primaryTypographyProps={{ fontSize: '0.8rem', fontWeight: 600, color: lightTheme.textColor, letterSpacing: 0.2 }} />
             </ListItemButton>
             <Collapse in={openHistory} timeout="auto" unmountOnExit>
