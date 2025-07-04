@@ -240,7 +240,7 @@ const Layout: FC<{
               }}
             >
               <Box sx={{ display: 'flex', flexDirection: 'row', height: '100%', width: '100%' }}>
-                {account.user && (
+                {account.user && account.organizationTools.organizations.length > 0 && (
                   <Box
                     sx={{
                       background: 'linear-gradient(180deg, #181828 0%, #1a1a2f 100%)',
