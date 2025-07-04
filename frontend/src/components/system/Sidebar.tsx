@@ -14,6 +14,9 @@ import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemText from '@mui/material/ListItemText'
 import { styled, keyframes } from '@mui/material/styles'
+import Collapse from '@mui/material/Collapse'
+import Avatar from '@mui/material/Avatar'
+import CreateIcon from '@mui/icons-material/Create';
 
 import DashboardIcon from '@mui/icons-material/Dashboard'
 import LoginIcon from '@mui/icons-material/Login'
@@ -26,6 +29,7 @@ import CodeIcon from '@mui/icons-material/Code'
 import AddIcon from '@mui/icons-material/Add'
 import PsychologyIcon from '@mui/icons-material/Psychology'
 import GroupIcon from '@mui/icons-material/Group'
+import HistoryIcon from '@mui/icons-material/History'
 
 import TokenUsageDisplay from './TokenUsageDisplay'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -111,66 +115,150 @@ const SidebarContent: React.FC<{
   const account = useAccount()
   const apps = useApps()
   const sessions = useSessions()
-  const activeTab = useMemo(() => {
-    // Always respect resource_type if it's present
-    const activeIndex = RESOURCE_TYPES.findIndex((type) => type == router.params.resource_type)
-    if (activeIndex >= 0) return activeIndex
-    // If no resource_type specified but app_id is present, default to apps tab
-    if (router.params.app_id) {
-      return RESOURCE_TYPES.findIndex(type => type === 'apps')
-    }
-    // Default to first tab (chats)
-    return 0
-  }, [
-    router.params,
-  ])
+  const [openAgents, setOpenAgents] = useState(true)
+  const [openHistory, setOpenHistory] = useState(true)
 
-  const apiClient = api.getApiClient()
-
-  // Ensure apps are loaded when apps tab is selected
-  useEffect(() => {
-    const checkAuthAndLoad = async () => {
-      try {
-        const authResponse = await apiClient.v1AuthAuthenticatedList()
-        if (!authResponse.data.authenticated) {
-          return
-        }
-        
-        const currentResourceType = RESOURCE_TYPES[activeTab]
-        
-        // Make sure the URL reflects the correct resource type
-        const urlResourceType = router.params.resource_type || 'chat'
-        
-        // If there's a mismatch between activeTab and URL resource_type, update the URL
-        if (currentResourceType !== urlResourceType) {
-          // Create a copy of the params with the correct resource_type
-          const newParams = { ...router.params } as Record<string, string>;
-          newParams.resource_type = currentResourceType;
-          
-          // If switching to chat tab, remove app_id if present
-          if (currentResourceType === 'chat' && router.params.app_id) {
-            delete newParams.app_id;
-          }
-          
-          // Update the URL without triggering a reload
-          router.replaceParams(newParams)
-        }
-        
-        // Load the appropriate content for the tab
-        if (currentResourceType === 'apps') {
-          apps.loadApps()
-        } else if (currentResourceType === 'chat') {
-          // Load sessions/chats when on the chat tab
-          sessions.loadSessions()
-        }
-      } catch (error) {
-        console.error('[SIDEBAR] Error checking authentication:', error)
+  // Group sessions by time for history
+  const groupSessionsByTime = (sessionsList: any[]): Record<string, any[]> => {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const sevenDaysAgo = new Date(today)
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+    const thirtyDaysAgo = new Date(today)
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+    return sessionsList.reduce((acc: Record<string, any[]>, session: any) => {
+      const sessionDate = new Date(session.created)
+      if (sessionDate >= today) {
+        acc.today.push(session)
+      } else if (sessionDate >= sevenDaysAgo) {
+        acc.last7Days.push(session)
+      } else if (sessionDate >= thirtyDaysAgo) {
+        acc.last30Days.push(session)
+      } else {
+        acc.older.push(session)
       }
-    }
+      return acc
+    }, {
+      today: [],
+      last7Days: [],
+      last30Days: [],
+      older: [],
+    })
+  }
 
-    checkAuthAndLoad()
-  }, [activeTab, router.params])  
-  
+  const renderSessionList = (sessionsList: any[]): JSX.Element => (
+    <List disablePadding>
+      {sessionsList.map((session: any) => {
+        const sessionId = session.session_id || session.id
+        const isActive = sessionId === router.params["session_id"]
+        return (
+          <ListItem
+            key={sessionId}
+            disablePadding
+            sx={{ borderRadius: '8px', cursor: 'pointer', mb: 0.5 }}
+            onClick={() => account.orgNavigate('session', { session_id: sessionId })}
+          >
+            <ListItemButton
+              selected={isActive}
+              sx={{
+                borderRadius: '4px',
+                backgroundColor: isActive ? '#1a1a2f' : 'transparent',
+                minHeight: 36,
+                py: 0.5,
+                px: 1.5,
+                '&:hover': {
+                  backgroundColor: '#23234a',
+                },
+              }}
+            >
+              <ListItemIcon sx={{ minWidth: 32 }}>
+                {/* <Avatar sx={{ width: 20, height: 20, fontSize: 14 }} /> */}
+              </ListItemIcon>
+              <ListItemText
+                primary={session.name}
+                primaryTypographyProps={{
+                  fontSize: '0.85rem',
+                  color: isActive ? '#fff' : lightTheme.textColorFaded,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              />
+            </ListItemButton>
+          </ListItem>
+        )
+      })}
+    </List>
+  )
+
+  const renderAgentsList = () => (
+    <List disablePadding>
+      {apps.apps.map((app) => {
+        const isActive = app.id === router.params["app_id"]
+        return (
+          <ListItem
+            key={app.id}
+            disablePadding
+            sx={{ borderRadius: '8px', cursor: 'pointer', mb: 0.5 }}
+            onClick={() => account.orgNavigate('new', { app_id: app.id, resource_type: 'apps' })}
+          >
+            <ListItemButton
+              selected={isActive}
+              sx={{
+                borderRadius: '4px',
+                backgroundColor: isActive ? '#1a1a2f' : 'transparent',
+                minHeight: 36,
+                py: 0.5,
+                px: 1.5,
+                '&:hover': {
+                  backgroundColor: '#23234a',
+                },
+              }}
+            >              
+              <ListItemText
+                primary={app.config.helix.name || 'Unnamed Agent'}
+                primaryTypographyProps={{
+                  fontSize: '0.85rem',
+                  color: isActive ? '#fff' : lightTheme.textColorFaded,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              />
+            </ListItemButton>
+          </ListItem>
+        )
+      })}
+      {/* Create New Agent */}
+      <ListItem disablePadding sx={{ mt: 0.5 }}>
+        <ListItemButton
+          onClick={() => account.orgNavigate('new-agent')}
+          sx={{
+            borderRadius: '4px',
+            minHeight: 36,
+            py: 0.5,
+            px: 1.5,
+            color: '#00E5FF',
+            '&:hover': {
+              backgroundColor: '#23234a',
+            },
+          }}
+        >
+          <ListItemIcon sx={{ minWidth: 32 }}>
+            <AddIcon sx={{ fontSize: 18, color: '#00E5FF' }} />
+          </ListItemIcon>
+          <ListItemText
+            primary="Create New Agent"
+            primaryTypographyProps={{ fontSize: '0.85rem', color: '#00E5FF' }}
+          />
+        </ListItemButton>
+      </ListItem>
+    </List>
+  )
+
+  // Group sessions for history
+  const groupedHistory = groupSessionsByTime(sessions.sessions)
+
   const [accountMenuAnchorEl, setAccountMenuAnchorEl] = useState<null | HTMLElement>(null)
 
   const onOpenHelp = () => {
@@ -238,47 +326,6 @@ const SidebarContent: React.FC<{
     postNavigateTo()
   }
 
-  // Handle tab change between CHATS and APPS
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    // Get the resource types
-    const fromResourceType = RESOURCE_TYPES[activeTab]
-    const toResourceType = RESOURCE_TYPES[newValue]
-        
-    // If switching to chat tab, navigate to home screen directly
-    if (toResourceType === 'chat') {      
-      account.orgNavigate('home')
-      return
-    }
-    
-    // For other cases (apps tab), proceed with normal parameter updates
-    // Create a new params object with all existing params except resource_type
-    const newParams: Record<string, any> = {
-      ...router.params
-    };
-    
-    // Update resource_type
-    newParams.resource_type = RESOURCE_TYPES[newValue];
-    
-    // If switching to chat tab, remove app_id if present
-    if (RESOURCE_TYPES[newValue] === 'chat' && newParams.app_id) {
-      delete newParams.app_id;
-    }
-    
-    // Use a more forceful navigation method instead of just merging params
-    // This will trigger a full route change
-    router.navigate(router.name, newParams);
-  }
-
-  // Handle creating new chat or app based on active tab
-  const handleCreateNew = () => {
-    const resourceType = RESOURCE_TYPES[activeTab]
-    if (resourceType === 'chat') {
-      account.orgNavigate('home')
-    } else if (resourceType === 'apps') {
-      account.orgNavigate('new-agent')
-    }
-  }
-
   return (
     <SlideMenuContainer menuType={menuType}>
       <Box
@@ -295,119 +342,88 @@ const SidebarContent: React.FC<{
         <SidebarContextHeader />
         <Box
           sx={{
-            flexGrow: 0,
-            width: '100%',
-          }}
-        >
-          {
-            showTopLinks && (
-              <List disablePadding>
-                {/* Tabs for CHATS and APPS */}
-                <Box sx={{ width: '100%', borderBottom: 1, borderColor: 'divider' }}>
-                  <Tabs 
-                    value={activeTab} 
-                    onChange={handleTabChange}
-                    aria-label="content tabs"
-                    sx={{ 
-                      '& .MuiTab-root': {
-                        minWidth: 'auto',
-                        flex: 1,
-                        color: lightTheme.textColorFaded,
-                        fontSize: '16px',
-                      },
-                      '& .Mui-selected': {
-                        color: '#00E5FF',
-                        fontWeight: 'bold',
-                      },
-                      '& .MuiTabs-indicator': {
-                        backgroundColor: '#00E5FF',
-                        height: 3,
-                      },
-                    }}
-                  >
-                    <Tab 
-                      key="chat" 
-                      label="Chat" 
-                      id="tab-chat"
-                      aria-controls="tabpanel-chat"
-                    />
-                    <Tab 
-                      key="apps" 
-                      label="Agents" 
-                      id="tab-apps"
-                      aria-controls="tabpanel-apps"
-                    />
-                  </Tabs>
-                </Box>
-                
-                {/* New resource creation button */}
-                <ListItem
-                  disablePadding
-                  dense
-                >
-                  <ListItemButton
-                    id="create-link"
-                    onClick={handleCreateNew}
-                    sx={{
-                      height: '64px',
-                      display: 'flex',
-                      '&:hover': {
-                        '.MuiListItemText-root .MuiTypography-root': { color: '#FFFFFF' },
-                      },
-                    }}
-                  >
-                    <ListItemText
-                      sx={{
-                        ml: 2,
-                        p: 1,
-                      }}
-                      primary={
-                        RESOURCE_TYPES[activeTab] === 'apps' 
-                          ? 'New Agent' 
-                          : `New ${RESOURCE_TYPES[activeTab].replace(/^\w/, (c) => c.toUpperCase())}`
-                      }
-                      primaryTypographyProps={{
-                        fontWeight: 'bold',
-                        color: '#FFFFFF',
-                        fontSize: '16px',
-                      }}
-                    />
-                    <Box 
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backgroundColor: 'transparent',
-                        border: '2px solid #00E5FF',
-                        borderRadius: '50%',
-                        width: 32,
-                        height: 32,
-                        mr: 2,
-                      }}
-                    >
-                      <AddIcon sx={{ color: '#00E5FF', fontSize: 20 }}/>
-                    </Box>
-                  </ListItemButton>
-                </ListItem>
-                
-                <Divider />
-              </List>
-            )
-          }
-        </Box>
-        <Box
-          sx={{
             flexGrow: 1,
             width: '100%',
             overflowY: 'auto',
-            boxShadow: 'none', // Remove shadow for a more flat/minimalist design
-            borderRight: 'none', // Remove the border if present
-            mr: 3,
-            mt: 1,
+            px: 0.5,
+            pt: 1,
             ...lightTheme.scrollbar,
           }}
         >
-          { children }
+          {/* Chat Link */}
+          <ListItem
+            disablePadding
+            sx={{ borderRadius: '8px', cursor: 'pointer', mb: 0.5 }}
+            onClick={() => account.orgNavigate('home')}
+          >
+            <ListItemButton
+              sx={{
+                borderRadius: '4px',
+                minHeight: 36,
+                py: 0.5,
+                px: 1.5,
+                '&:hover': {
+                  backgroundColor: '#23234a',
+                },
+              }}
+            >
+              <ListItemIcon sx={{ minWidth: 32 }}>
+                {/* <Avatar sx={{ width: 20, height: 20, fontSize: 14 }} /> */}
+                <CreateIcon sx={{ fontSize: 18 }} />
+              </ListItemIcon>
+              <ListItemText
+                primary="Chat"
+                primaryTypographyProps={{
+                  fontSize: '0.85rem',
+                  color: lightTheme.textColorFaded,
+                  fontWeight: 600,
+                  letterSpacing: 0.2,
+                }}
+              />
+            </ListItemButton>
+          </ListItem>
+          {/* <Divider sx={{ my: 1, borderColor: lightTheme.border }} /> */}
+          {/* Agents Group */}
+          <Box>
+            <ListItemButton onClick={() => setOpenAgents((v) => !v)} sx={{ py: 0.5, px: 1.5, minHeight: 32 }}>
+              <ListItemIcon sx={{ minWidth: 32 }}><AppsIcon sx={{ fontSize: 18, color: '#b0b3b8' }} /></ListItemIcon>
+              <ListItemText primary="Agents" primaryTypographyProps={{ fontSize: '0.8rem', fontWeight: 600, color: lightTheme.textColor, letterSpacing: 0.2 }} />
+            </ListItemButton>
+            <Collapse in={openAgents} timeout="auto" unmountOnExit>
+              {/* Thin vertical line for expanded Agents section */}
+              <Box sx={{ display: 'flex', flexDirection: 'row' }}>
+                <Box sx={{ width: '1px', backgroundColor: '#444857', borderRadius: 1, mr: 1, ml: 2.5, minHeight: '100%' }} />
+                <Box sx={{ flex: 1 }}>
+                  {renderAgentsList()}
+                </Box>
+              </Box>
+            </Collapse>
+          </Box>
+          {/* <Divider sx={{ my: 1, borderColor: lightTheme.border }} /> */}
+          {/* History Group */}
+          <Box>
+            <ListItemButton onClick={() => setOpenHistory((v) => !v)} sx={{ py: 0.5, px: 1.5, minHeight: 32 }}>
+              <ListItemIcon sx={{ minWidth: 32 }}><HistoryIcon sx={{ fontSize: 18, color: '#b0b3b8' }} /></ListItemIcon>
+              <ListItemText primary="History" primaryTypographyProps={{ fontSize: '0.8rem', fontWeight: 600, color: lightTheme.textColor, letterSpacing: 0.2 }} />
+            </ListItemButton>
+            <Collapse in={openHistory} timeout="auto" unmountOnExit>
+              {/* Thin vertical line for expanded History section */}
+              <Box sx={{ display: 'flex', flexDirection: 'row' }}>
+                <Box sx={{ width: '1px', backgroundColor: '#444857', borderRadius: 1, mr: 1, ml: 1, minHeight: '100%' }} />
+                <Box sx={{ flex: 1 }}>
+                  {/* Render grouped history */}
+                  {Object.entries(groupedHistory).map(([group, list]) => (
+                    list.length > 0 && (
+                      <Box key={group} sx={{ mb: 1 }}>
+                        <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, pl: 3.5, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>{group}</Typography>
+                        {renderSessionList(list)}
+                      </Box>
+                    )
+                  ))}
+                </Box>
+              </Box>
+            </Collapse>
+          </Box>
         </Box>
         <Box
           sx={{
