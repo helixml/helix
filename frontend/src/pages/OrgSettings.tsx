@@ -171,8 +171,8 @@ const OrgSettings: FC = () => {
                 <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end' }}>
                   <Button
                     onClick={handleSubmit}
-                    variant="contained"
-                    color="primary"
+                    variant="outlined"
+                    color="secondary"
                     disabled={loading}
                     startIcon={loading ? <CircularProgress size={20} /> : null}
                   >
