@@ -30,6 +30,7 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server/spa"
+	"github.com/helixml/helix/api/pkg/skills"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
@@ -77,6 +78,7 @@ type HelixAPIServer struct {
 	gptScriptExecutor gptscript.Executor
 	inferenceServer   *openai.InternalHelixServer
 	knowledgeManager  knowledge.Manager
+	skillManager      *skills.Manager
 	router            *mux.Router
 	scheduler         *scheduler.Scheduler
 	pingService       *version.PingService
@@ -176,6 +178,9 @@ func NewServer(
 		return nil, fmt.Errorf("failed to create cache: %w", err)
 	}
 
+	// Initialize skill manager
+	skillManager := skills.NewManager()
+
 	return &HelixAPIServer{
 		Cfg:               cfg,
 		Store:             store,
@@ -197,6 +202,7 @@ func NewServer(
 		providerManager:   providerManager,
 		pubsub:            ps,
 		knowledgeManager:  knowledgeManager,
+		skillManager:      skillManager,
 		scheduler:         scheduler,
 		pingService:       pingService,
 		oidcClient:        oidcClient,
@@ -410,6 +416,12 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/knowledge/{id}/versions", system.Wrapper(apiServer.listKnowledgeVersions)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/knowledge/{id}/download", apiServer.downloadKnowledgeFiles).Methods(http.MethodGet)
 
+	// Skill routes
+	authRouter.HandleFunc("/skills", system.DefaultWrapper(apiServer.handleListSkills)).Methods("GET")
+	authRouter.HandleFunc("/skills/{id}", system.DefaultWrapper(apiServer.handleGetSkill)).Methods("GET")
+	authRouter.HandleFunc("/skills/{id}/test", system.DefaultWrapper(apiServer.handleTestSkill)).Methods("POST")
+	authRouter.HandleFunc("/skills/reload", system.DefaultWrapper(apiServer.handleReloadSkills)).Methods("POST")
+
 	// UI @ functionality
 	authRouter.HandleFunc("/context-menu", system.Wrapper(apiServer.contextMenuHandler)).Methods(http.MethodGet)
 
@@ -549,6 +561,13 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// These routes are already set up by apiServer.setupOAuthRoutes(authRouter) above
 
 	apiServer.router = router
+
+	// Initialize skills
+	log.Info().Msg("Loading YAML skills")
+	ctx := context.Background()
+	if err := apiServer.skillManager.LoadSkills(ctx); err != nil {
+		log.Error().Err(err).Msg("Failed to load skills, continuing without them")
+	}
 
 	return subRouter, nil
 }

@@ -217,7 +217,40 @@ func (t *APICallingTool) Execute(ctx context.Context, meta agent.Meta, args map[
 		Parameters: params,
 	}
 
-	// TODO: OAuth tokens should be added here
+	// Add OAuth tokens from context
+	if t.tool.Config.API != nil && t.tool.Config.API.OAuthProvider != "" {
+		req.OAuthTokens = make(map[string]string)
+
+		// Try to get OAuth token for this provider from the planner
+		// This requires the planner to have OAuth manager functionality
+		if toolsPlanner, ok := t.planner.(interface {
+			GetTokenForApp(ctx context.Context, userID string, providerName string) (string, error)
+		}); ok {
+			// Try to get OAuth token for the provider
+			token, err := toolsPlanner.GetTokenForApp(ctx, meta.UserID, t.tool.Config.API.OAuthProvider)
+			if err != nil {
+				log.Warn().
+					Err(err).
+					Str("tool_name", t.toolName).
+					Str("user_id", meta.UserID).
+					Str("oauth_provider", t.tool.Config.API.OAuthProvider).
+					Msg("Failed to get OAuth token for API tool")
+			} else if token != "" {
+				req.OAuthTokens[t.tool.Config.API.OAuthProvider] = token
+				log.Info().
+					Str("tool_name", t.toolName).
+					Str("user_id", meta.UserID).
+					Str("oauth_provider", t.tool.Config.API.OAuthProvider).
+					Str("token_prefix", token[:min(len(token), 10)]+"...").
+					Msg("Successfully retrieved OAuth token for API tool")
+			}
+		} else {
+			log.Debug().
+				Str("tool_name", t.toolName).
+				Str("oauth_provider", t.tool.Config.API.OAuthProvider).
+				Msg("Planner does not support OAuth token retrieval")
+		}
+	}
 
 	resp, err := t.planner.RunAPIActionWithParameters(ctx, req)
 	if err != nil {

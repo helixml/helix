@@ -341,13 +341,49 @@ export interface OpenaiPromptTokensDetails {
   cached_tokens?: number;
 }
 
+export interface ServerAppCreateResponse {
+  config?: TypesAppConfig;
+  created?: string;
+  global?: boolean;
+  id?: string;
+  model_substitutions?: ServerModelSubstitution[];
+  organization_id?: string;
+  /** uuid of user ID */
+  owner?: string;
+  /** e.g. user, system, org */
+  owner_type?: TypesOwnerType;
+  updated?: string;
+  /** Owner user struct, populated by the server for organization views */
+  user?: TypesUser;
+}
+
 export interface ServerLicenseKeyRequest {
   license_key?: string;
+}
+
+export interface ServerModelSubstitution {
+  assistant_name?: string;
+  new_model?: string;
+  new_provider?: string;
+  original_model?: string;
+  original_provider?: string;
+  reason?: string;
 }
 
 export interface SystemHTTPError {
   message?: string;
   statusCode?: number;
+}
+
+export enum TimeDuration {
+  MinDuration = -9223372036854776000,
+  MaxDuration = 9223372036854776000,
+  Nanosecond = 1,
+  Microsecond = 1000,
+  Millisecond = 1000000,
+  Second = 1000000000,
+  Minute = 60000000000,
+  Hour = 3600000000000,
 }
 
 export interface TypesAccessGrant {
@@ -1639,6 +1675,54 @@ export enum TypesSessionType {
   SessionTypeImage = "image",
 }
 
+export interface TypesSkillDefinition {
+  /** API configuration */
+  baseUrl?: string;
+  category?: string;
+  /** Metadata */
+  configurable?: boolean;
+  description?: string;
+  displayName?: string;
+  filePath?: string;
+  headers?: Record<string, string>;
+  icon?: TypesSkillIcon;
+  id?: string;
+  loadedAt?: string;
+  name?: string;
+  /** OAuth configuration */
+  oauthProvider?: string;
+  oauthScopes?: string[];
+  provider?: string;
+  schema?: string;
+  systemPrompt?: string;
+}
+
+export interface TypesSkillIcon {
+  /** e.g., "GitHub", "Google" */
+  name?: string;
+  /** e.g., "material-ui", "custom" */
+  type?: string;
+}
+
+export interface TypesSkillTestRequest {
+  operation?: string;
+  parameters?: Record<string, any>;
+  skillId?: string;
+}
+
+export interface TypesSkillTestResponse {
+  duration?: TimeDuration;
+  error?: string;
+  response?: Record<string, any>;
+  statusCode?: number;
+  success?: boolean;
+}
+
+export interface TypesSkillsListResponse {
+  count?: number;
+  skills?: TypesSkillDefinition[];
+}
+
 export interface TypesSlackTrigger {
   app_token?: string;
   bot_token?: string;
@@ -2087,7 +2171,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1AppsCreate: (request: TypesApp, params: RequestParams = {}) =>
-      this.request<TypesApp, any>({
+      this.request<ServerAppCreateResponse, any>({
         path: `/api/v1/apps`,
         method: "POST",
         body: request,
@@ -3515,6 +3599,85 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List all available YAML-based skills
+     *
+     * @tags skills
+     * @name V1SkillsList
+     * @summary List YAML skills
+     * @request GET:/api/v1/skills
+     * @secure
+     */
+    v1SkillsList: (
+      query?: {
+        /** Filter by category */
+        category?: string;
+        /** Filter by OAuth provider */
+        provider?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesSkillsListResponse, any>({
+        path: `/api/v1/skills`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get details of a specific YAML skill
+     *
+     * @tags skills
+     * @name V1SkillsDetail
+     * @summary Get a skill by ID
+     * @request GET:/api/v1/skills/{id}
+     * @secure
+     */
+    v1SkillsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesSkillDefinition, any>({
+        path: `/api/v1/skills/${id}`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Test a skill by executing one of its operations
+     *
+     * @tags skills
+     * @name V1SkillsTestCreate
+     * @summary Test a skill
+     * @request POST:/api/v1/skills/{id}/test
+     * @secure
+     */
+    v1SkillsTestCreate: (id: string, request: TypesSkillTestRequest, params: RequestParams = {}) =>
+      this.request<TypesSkillTestResponse, any>({
+        path: `/api/v1/skills/${id}/test`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Reload all YAML skills from the filesystem
+     *
+     * @tags skills
+     * @name V1SkillsReloadCreate
+     * @summary Reload skills
+     * @request POST:/api/v1/skills/reload
+     * @secure
+     */
+    v1SkillsReloadCreate: (params: RequestParams = {}) =>
+      this.request<Record<string, string>, any>({
+        path: `/api/v1/skills/reload`,
+        method: "POST",
+        secure: true,
         ...params,
       }),
 

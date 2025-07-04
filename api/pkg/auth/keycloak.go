@@ -294,6 +294,12 @@ func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keyc
 			keycloakRealmConfig.Attributes = &map[string]string{}
 		}
 
+		// Set the frontend URL directly on the realm configuration before creating
+		// This ensures the OIDC issuer URL is correct from the start
+		attributes := *keycloakRealmConfig.Attributes
+		attributes["frontendUrl"] = cfg.KeycloakFrontEndURL
+		*keycloakRealmConfig.Attributes = attributes
+
 		_, err = gck.CreateRealm(context.Background(), token, keycloakRealmConfig)
 		if err != nil {
 			if !strings.Contains(err.Error(), "409") {

@@ -54,6 +54,12 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	}
 	reasoningModel.ReasoningEffort = req.Assistant.ReasoningModelEffort
 
+	log.Debug().
+		Str("reasoning_model_provider", withFallbackProvider(req.Assistant.ReasoningModelProvider, req.Assistant)).
+		Str("reasoning_model", req.Assistant.ReasoningModel).
+		Str("configured_model", reasoningModel.Model).
+		Msg("Reasoning model configuration")
+
 	generationModel, err := c.getLLMModelConfig(ctx,
 		req.User.ID,
 		withFallbackProvider(req.Assistant.GenerationModelProvider, req.Assistant), // Defaults to top level assistant provider
@@ -61,6 +67,12 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	if err != nil {
 		return nil, fmt.Errorf("failed to get generation model config: %w", err)
 	}
+
+	log.Debug().
+		Str("generation_model_provider", withFallbackProvider(req.Assistant.GenerationModelProvider, req.Assistant)).
+		Str("generation_model", req.Assistant.GenerationModel).
+		Str("configured_model", generationModel.Model).
+		Msg("Generation model configuration")
 
 	smallReasoningModel, err := c.getLLMModelConfig(ctx,
 		req.User.ID,
