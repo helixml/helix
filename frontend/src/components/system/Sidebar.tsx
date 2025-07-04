@@ -1,4 +1,4 @@
-import React, { useState, useContext, useMemo, useEffect, ReactNode } from 'react'
+import React, { useState, useMemo, useEffect, ReactNode } from 'react'
 import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
@@ -25,8 +25,8 @@ import AppsIcon from '@mui/icons-material/Apps'
 import CodeIcon from '@mui/icons-material/Code'
 import AddIcon from '@mui/icons-material/Add'
 import PsychologyIcon from '@mui/icons-material/Psychology'
+import GroupIcon from '@mui/icons-material/Group'
 
-import UserOrgSelector from '../orgs/UserOrgSelector'
 import TokenUsageDisplay from './TokenUsageDisplay'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useLightTheme from '../../hooks/useLightTheme'
@@ -35,8 +35,8 @@ import useAccount from '../../hooks/useAccount'
 import useApps from '../../hooks/useApps'
 import useSessions from '../../hooks/useSessions'
 import useApi from '../../hooks/useApi'
-import { AccountContext } from '../../contexts/account'
 import SlideMenuContainer from './SlideMenuContainer'
+import SidebarContextHeader from './SidebarContextHeader'
 
 const RESOURCE_TYPES = [
   'chat',
@@ -292,6 +292,7 @@ const SidebarContent: React.FC<{
           width: '100%',
         }}
       >
+        <SidebarContextHeader />
         <Box
           sx={{
             flexGrow: 0,
@@ -301,16 +302,6 @@ const SidebarContent: React.FC<{
           {
             showTopLinks && (
               <List disablePadding>
-                {
-                  account.user && (
-                    <>
-                      <UserOrgSelector />
-                      <TokenUsageDisplay />
-                      <Divider />
-                    </>
-                  )
-                }
-                
                 {/* Tabs for CHATS and APPS */}
                 <Box sx={{ width: '100%', borderBottom: 1, borderColor: 'divider' }}>
                   <Tabs 
@@ -437,6 +428,14 @@ const SidebarContent: React.FC<{
               pt: 1.5,
             }}
           >
+            {
+              account.user && (
+                <>
+                  <TokenUsageDisplay />
+                  {/* <Divider /> */}
+                </>
+              )
+            }
             <Typography
               variant="body2"
               sx={{
@@ -537,7 +536,7 @@ const SidebarContent: React.FC<{
                           <AccountBoxIcon fontSize="small" />
                         </ListItemIcon> 
                         Account Settings
-                      </MenuItem>
+                      </MenuItem>                      
 
                       <MenuItem onClick={ () => {
                         navigateTo('oauth-connections')

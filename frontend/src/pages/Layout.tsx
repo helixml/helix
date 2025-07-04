@@ -6,10 +6,6 @@ import Box from '@mui/material/Box'
 import Drawer from '@mui/material/Drawer'
 import Alert from '@mui/material/Alert'
 import Collapse from '@mui/material/Collapse'
-import Button from '@mui/material/Button'
-import { styled, keyframes } from '@mui/material/styles'
-import LoginIcon from '@mui/icons-material/Login'
-import { useMediaQuery } from '@mui/material'
 
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
@@ -25,6 +21,7 @@ import { useFloatingRunnerState } from '../contexts/floatingRunnerState'
 import Tooltip from '@mui/material/Tooltip'
 import IconButton from '@mui/material/IconButton'
 import DnsIcon from '@mui/icons-material/Dns'
+import UserOrgSelector from '../components/orgs/UserOrgSelector'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
@@ -236,16 +233,43 @@ const Layout: FC<{
                   overflowX: 'hidden',
                   height: '100%',
                   overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'row',
+                  padding: 0,
                 },
               }}
             >
-              <SlideMenuWrapper>
-                <Sidebar
-                  showTopLinks={ !isOrgMenu }
-                >
-                  { sidebarMenu }
-                </Sidebar>
-              </SlideMenuWrapper>
+              <Box sx={{ display: 'flex', flexDirection: 'row', height: '100%', width: '100%' }}>
+                {account.user && account.organizationTools.organizations.length > 0 && (
+                  <Box
+                    sx={{
+                      background: 'linear-gradient(180deg, #181828 0%, #1a1a2f 100%)',
+                      borderRight: '1px solid #23234a',
+                      minWidth: 64,
+                      width: 64,
+                      maxWidth: 64,
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'flex-start',
+                      zIndex: 2,
+                      py: 0,
+                    }}
+                  >
+                    <UserOrgSelector />
+                  </Box>
+                )}
+                <Box sx={{ flex: 1, minWidth: 0, height: '100%' }}>
+                  <SlideMenuWrapper>
+                    <Sidebar
+                      showTopLinks={ !isOrgMenu }
+                    >
+                      { sidebarMenu }
+                    </Sidebar>
+                  </SlideMenuWrapper>
+                </Box>
+              </Box>
             </Drawer>
           )
         }
