@@ -599,17 +599,99 @@ func (suite *GitHubOAuthE2ETestSuite) handleDeviceVerification(page *rod.Page) e
 	// Check if we're on the device verification page with more specific criteria
 	currentURL := page.MustInfo().URL
 
-	// More specific device verification detection
+	// More specific device verification detection - including the new session page
 	isDeviceVerificationPage := (strings.Contains(currentURL, "device") && strings.Contains(currentURL, "verification")) ||
 		strings.Contains(currentURL, "/login/device") ||
-		strings.Contains(currentURL, "/device/confirmation")
+		strings.Contains(currentURL, "/device/confirmation") ||
+		strings.Contains(currentURL, "/session") // GitHub's new session verification page
 
 	if !isDeviceVerificationPage {
 		suite.logger.Info().Msg("Not on device verification page, continuing normal flow")
 		return nil
 	}
 
-	suite.logger.Info().Str("url", currentURL).Msg("Device verification detected")
+	suite.logger.Info().Str("url", currentURL).Msg("GitHub verification/session page detected")
+	suite.takeScreenshot(page, "github_verification_session_detected")
+
+	// Handle /session page specifically
+	if strings.Contains(currentURL, "/session") {
+		return suite.handleSessionPage(page)
+	}
+
+	// Handle traditional device verification
+	return suite.handleTraditionalDeviceVerification(page)
+}
+
+// handleSessionPage handles GitHub's new session verification flow
+func (suite *GitHubOAuthE2ETestSuite) handleSessionPage(page *rod.Page) error {
+	suite.logger.Info().Msg("Handling GitHub session page")
+
+	// Wait for the session page to fully load
+	time.Sleep(3 * time.Second)
+
+	// Look for various elements that might be on the session page
+	// Check for device verification code input first
+	deviceCodeInput, err := page.Element(`input[name="otp"], input[id="otp"], input[name="device_verification_code"], input[placeholder*="verification"], input[placeholder*="code"]`)
+	if err == nil && deviceCodeInput != nil {
+		suite.logger.Info().Msg("Found device verification code input on session page")
+		return suite.handleDeviceVerificationInput(page, deviceCodeInput)
+	}
+
+	// Check for continue/submit buttons that might advance the session
+	continueButton, err := page.Element(`button:contains("Continue"), button:contains("Submit"), button[type="submit"], input[type="submit"]`)
+	if err == nil && continueButton != nil {
+		suite.logger.Info().Msg("Found continue/submit button on session page")
+		suite.takeScreenshot(page, "session_page_continue_button_found")
+
+		err = continueButton.Click(proto.InputMouseButtonLeft, 1)
+		if err != nil {
+			suite.logger.Error().Err(err).Msg("Failed to click continue button")
+		} else {
+			suite.logger.Info().Msg("Clicked continue button on session page")
+			// Wait for navigation
+			time.Sleep(3 * time.Second)
+		}
+		return nil
+	}
+
+	// Check if there are any forms to submit
+	forms, err := page.Elements("form")
+	if err == nil && len(forms) > 0 {
+		suite.logger.Info().Int("form_count", len(forms)).Msg("Found forms on session page")
+
+		// Try to find a submit button in any form
+		for i, form := range forms {
+			submitBtn, err := form.Element(`button[type="submit"], input[type="submit"]`)
+			if err == nil && submitBtn != nil {
+				suite.logger.Info().Int("form_index", i).Msg("Found submit button in form")
+				suite.takeScreenshot(page, "session_page_form_submit_found")
+
+				err = submitBtn.Click(proto.InputMouseButtonLeft, 1)
+				if err == nil {
+					suite.logger.Info().Msg("Successfully clicked submit button in form")
+					time.Sleep(3 * time.Second)
+					return nil
+				}
+			}
+		}
+	}
+
+	// If no specific elements found, wait and continue - the session page might be temporary
+	suite.logger.Info().Msg("No specific action required on session page, waiting for automatic redirect")
+	time.Sleep(5 * time.Second)
+
+	// Check if we've been redirected after waiting
+	newURL := page.MustInfo().URL
+	if newURL != page.MustInfo().URL {
+		suite.logger.Info().Str("new_url", newURL).Msg("Session page redirected automatically")
+	}
+
+	return nil
+}
+
+// handleTraditionalDeviceVerification handles the traditional device verification flow
+func (suite *GitHubOAuthE2ETestSuite) handleTraditionalDeviceVerification(page *rod.Page) error {
+	suite.logger.Info().Msg("Handling traditional device verification")
 	suite.takeScreenshot(page, "device_verification_detected")
 
 	// Wait for device verification code via Gmail
@@ -637,6 +719,31 @@ func (suite *GitHubOAuthE2ETestSuite) handleDeviceVerification(page *rod.Page) e
 	codeInput, err := page.Element(codeInputSelector)
 	if err != nil {
 		return fmt.Errorf("failed to find verification code input field: %w", err)
+	}
+
+	return suite.handleDeviceVerificationInput(page, codeInput)
+}
+
+// handleDeviceVerificationInput handles entering device verification codes
+func (suite *GitHubOAuthE2ETestSuite) handleDeviceVerificationInput(page *rod.Page, codeInput *rod.Element) error {
+	// Get device verification code from Gmail
+	suite.logger.Info().Msg("Waiting for device verification email...")
+
+	var verificationCode string
+	var err error
+
+	// Wait up to 60 seconds for the device verification email
+	for i := 0; i < 12; i++ {
+		time.Sleep(5 * time.Second)
+		verificationCode, err = suite.getDeviceVerificationCode()
+		if err == nil {
+			break
+		}
+		suite.logger.Info().Err(err).Int("attempt", i+1).Msg("Device verification email not found yet, retrying...")
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to get device verification code after 60 seconds: %w", err)
 	}
 
 	// Enter the verification code
@@ -1493,6 +1600,28 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 		if err != nil {
 			return "", fmt.Errorf("failed to handle device verification: %w", err)
 		}
+
+		// After handling session/device verification, check if we need to navigate back to OAuth URL
+		currentURL = page.MustInfo().URL
+		if strings.Contains(currentURL, "/session") || !strings.Contains(currentURL, "oauth") {
+			suite.logger.Info().Str("current_url", currentURL).Msg("Still on session page or redirected away from OAuth, navigating back to OAuth URL")
+
+			// Navigate back to the OAuth authorization URL
+			err = page.Navigate(authURL)
+			if err != nil {
+				return "", fmt.Errorf("failed to re-navigate to OAuth URL after session: %w", err)
+			}
+
+			// Wait for page to load
+			err = page.WaitLoad()
+			if err != nil {
+				return "", fmt.Errorf("failed to wait for OAuth page load after session: %w", err)
+			}
+
+			// Additional wait for dynamic content
+			time.Sleep(2 * time.Second)
+			suite.takeScreenshot(page, "oauth_page_after_session_redirect")
+		}
 	} else {
 		suite.logger.Info().Msg("Already logged into GitHub - proceeding with authorization")
 	}
@@ -1551,7 +1680,10 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 		if err == nil {
 			for _, button := range buttons {
 				text, err := button.Text()
-				if err == nil && strings.Contains(strings.ToLower(text), "authorize") {
+				if err == nil && (strings.Contains(strings.ToLower(text), "authorize") ||
+					strings.Contains(strings.ToLower(text), "allow") ||
+					strings.Contains(strings.ToLower(text), "grant") ||
+					strings.Contains(strings.ToLower(text), "continue")) {
 					authButtonElement = button
 					suite.logger.Info().Str("button_text", text).Msg("Found authorization button by text")
 					break
@@ -1560,16 +1692,35 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 		}
 	}
 
-	// Approach 3: Look for input elements with "Authorize" value
+	// Approach 3: Look for input elements with authorization values
 	if authButtonElement == nil {
 		suite.logger.Info().Msg("Button search failed, trying input elements")
 		inputs, err := page.Elements("input[type='submit'], input[type='button']")
 		if err == nil {
 			for _, input := range inputs {
 				value, err := input.Property("value")
-				if err == nil && value.Str() != "" && strings.Contains(strings.ToLower(value.Str()), "authorize") {
+				if err == nil && value.Str() != "" && (strings.Contains(strings.ToLower(value.Str()), "authorize") ||
+					strings.Contains(strings.ToLower(value.Str()), "allow") ||
+					strings.Contains(strings.ToLower(value.Str()), "grant") ||
+					strings.Contains(strings.ToLower(value.Str()), "continue")) {
 					authButtonElement = input
 					suite.logger.Info().Str("input_value", value.Str()).Msg("Found authorization input by value")
+					break
+				}
+			}
+		}
+	}
+
+	// Approach 4: Look for any submit buttons in forms (fallback)
+	if authButtonElement == nil {
+		suite.logger.Info().Msg("Authorization-specific elements not found, trying any submit buttons")
+		forms, err := page.Elements("form")
+		if err == nil {
+			for _, form := range forms {
+				submitBtn, err := form.Element(`button[type="submit"], input[type="submit"]`)
+				if err == nil && submitBtn != nil {
+					authButtonElement = submitBtn
+					suite.logger.Info().Msg("Found submit button in form as fallback")
 					break
 				}
 			}
@@ -1579,11 +1730,33 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 	// If still not found, take a screenshot and dump page content for debugging
 	if authButtonElement == nil {
 		suite.takeScreenshot(page, "github_auth_button_not_found")
+
+		// Get page content for debugging
 		pageContent, _ := page.HTML()
+		truncatedContent := pageContent
+		if len(pageContent) > 2000 {
+			truncatedContent = pageContent[:2000] + "..."
+		}
+
+		// Also log available buttons and inputs for debugging
+		allButtons, _ := page.Elements("button")
+		allInputs, _ := page.Elements("input")
+
 		suite.logger.Error().
 			Str("current_url", currentURL).
-			Str("page_content", pageContent[:min(len(pageContent), 2000)]+"...").
+			Int("buttons_found", len(allButtons)).
+			Int("inputs_found", len(allInputs)).
+			Str("page_content", truncatedContent).
 			Msg("Authorization button not found - debugging info")
+
+		// Log all button texts for debugging
+		for i, btn := range allButtons {
+			if i < 10 { // Limit to first 10 buttons
+				text, _ := btn.Text()
+				suite.logger.Info().Int("button_index", i).Str("button_text", text).Msg("Available button")
+			}
+		}
+
 		return "", fmt.Errorf("could not find GitHub authorization button on page: %s", currentURL)
 	}
 
