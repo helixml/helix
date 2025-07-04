@@ -504,9 +504,54 @@ definitions:
       cached_tokens:
         type: integer
     type: object
+  server.AppCreateResponse:
+    properties:
+      config:
+        $ref: '#/definitions/types.AppConfig'
+      created:
+        type: string
+      global:
+        type: boolean
+      id:
+        type: string
+      model_substitutions:
+        items:
+          $ref: '#/definitions/server.ModelSubstitution'
+        type: array
+      organization_id:
+        type: string
+      owner:
+        description: uuid of user ID
+        type: string
+      owner_type:
+        allOf:
+        - $ref: '#/definitions/types.OwnerType'
+        description: e.g. user, system, org
+      updated:
+        type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/types.User'
+        description: Owner user struct, populated by the server for organization views
+    type: object
   server.LicenseKeyRequest:
     properties:
       license_key:
+        type: string
+    type: object
+  server.ModelSubstitution:
+    properties:
+      assistant_name:
+        type: string
+      new_model:
+        type: string
+      new_provider:
+        type: string
+      original_model:
+        type: string
+      original_provider:
+        type: string
+      reason:
         type: string
     type: object
   system.HTTPError:
@@ -516,6 +561,26 @@ definitions:
       statusCode:
         type: integer
     type: object
+  time.Duration:
+    enum:
+    - -9223372036854775808
+    - 9223372036854775807
+    - 1
+    - 1000
+    - 1000000
+    - 1000000000
+    - 60000000000
+    - 3600000000000
+    type: integer
+    x-enum-varnames:
+    - minDuration
+    - maxDuration
+    - Nanosecond
+    - Microsecond
+    - Millisecond
+    - Second
+    - Minute
+    - Hour
   types.AccessGrant:
     properties:
       created_at:
@@ -2696,6 +2761,90 @@ definitions:
     - SessionTypeNone
     - SessionTypeText
     - SessionTypeImage
+  types.SkillDefinition:
+    properties:
+      baseUrl:
+        description: API configuration
+        type: string
+      category:
+        type: string
+      configurable:
+        description: Metadata
+        type: boolean
+      description:
+        type: string
+      displayName:
+        type: string
+      filePath:
+        type: string
+      headers:
+        additionalProperties:
+          type: string
+        type: object
+      icon:
+        $ref: '#/definitions/types.SkillIcon'
+      id:
+        type: string
+      loadedAt:
+        type: string
+      name:
+        type: string
+      oauthProvider:
+        description: OAuth configuration
+        type: string
+      oauthScopes:
+        items:
+          type: string
+        type: array
+      provider:
+        type: string
+      schema:
+        type: string
+      systemPrompt:
+        type: string
+    type: object
+  types.SkillIcon:
+    properties:
+      name:
+        description: e.g., "GitHub", "Google"
+        type: string
+      type:
+        description: e.g., "material-ui", "custom"
+        type: string
+    type: object
+  types.SkillTestRequest:
+    properties:
+      operation:
+        type: string
+      parameters:
+        additionalProperties: true
+        type: object
+      skillId:
+        type: string
+    type: object
+  types.SkillTestResponse:
+    properties:
+      duration:
+        $ref: '#/definitions/time.Duration'
+      error:
+        type: string
+      response:
+        additionalProperties: true
+        type: object
+      statusCode:
+        type: integer
+      success:
+        type: boolean
+    type: object
+  types.SkillsListResponse:
+    properties:
+      count:
+        type: integer
+      skills:
+        items:
+          $ref: '#/definitions/types.SkillDefinition'
+        type: array
+    type: object
   types.SlackTrigger:
     properties:
       app_token:
@@ -3187,7 +3336,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/types.App'
+            $ref: '#/definitions/server.AppCreateResponse'
       security:
       - BearerAuth: []
   /api/v1/apps/{id}:
@@ -4639,6 +4788,87 @@ paths:
             $ref: '#/definitions/types.Session'
       security:
       - BearerAuth: []
+  /api/v1/skills:
+    get:
+      description: List all available YAML-based skills
+      parameters:
+      - description: Filter by category
+        in: query
+        name: category
+        type: string
+      - description: Filter by OAuth provider
+        in: query
+        name: provider
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SkillsListResponse'
+      security:
+      - BearerAuth: []
+      summary: List YAML skills
+      tags:
+      - skills
+  /api/v1/skills/{id}:
+    get:
+      description: Get details of a specific YAML skill
+      parameters:
+      - description: Skill ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SkillDefinition'
+      security:
+      - BearerAuth: []
+      summary: Get a skill by ID
+      tags:
+      - skills
+  /api/v1/skills/{id}/test:
+    post:
+      description: Test a skill by executing one of its operations
+      parameters:
+      - description: Skill ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Test request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SkillTestRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SkillTestResponse'
+      security:
+      - BearerAuth: []
+      summary: Test a skill
+      tags:
+      - skills
+  /api/v1/skills/reload:
+    post:
+      description: Reload all YAML skills from the filesystem
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Reload skills
+      tags:
+      - skills
   /api/v1/users/search:
     get:
       description: Search users by email, name, or username

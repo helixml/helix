@@ -81,10 +81,46 @@ func (c *RetryableClient) APIKey() string {
 	return c.apiKey
 }
 
+// trimMessageContent trims trailing whitespace from message content to prevent API errors
+func trimMessageContent(request openai.ChatCompletionRequest) openai.ChatCompletionRequest {
+	// Create a copy of the request to avoid mutating the original
+	trimmedRequest := request
+	trimmedRequest.Messages = make([]openai.ChatCompletionMessage, len(request.Messages))
+
+	for i, message := range request.Messages {
+		trimmedMessage := message
+
+		// Trim content field
+		if trimmedMessage.Content != "" {
+			trimmedMessage.Content = strings.TrimSpace(trimmedMessage.Content)
+		}
+
+		// Trim MultiContent parts
+		if len(trimmedMessage.MultiContent) > 0 {
+			trimmedMultiContent := make([]openai.ChatMessagePart, len(trimmedMessage.MultiContent))
+			for j, part := range trimmedMessage.MultiContent {
+				trimmedPart := part
+				if trimmedPart.Type == openai.ChatMessagePartTypeText && trimmedPart.Text != "" {
+					trimmedPart.Text = strings.TrimSpace(trimmedPart.Text)
+				}
+				trimmedMultiContent[j] = trimmedPart
+			}
+			trimmedMessage.MultiContent = trimmedMultiContent
+		}
+
+		trimmedRequest.Messages[i] = trimmedMessage
+	}
+
+	return trimmedRequest
+}
+
 func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (resp openai.ChatCompletionResponse, err error) {
 	if err := c.validateModel(request.Model); err != nil {
 		return openai.ChatCompletionResponse{}, err
 	}
+
+	// Trim trailing whitespace from message content to prevent API errors
+	request = trimMessageContent(request)
 
 	// Perform request with retries
 	err = retry.Do(func() error {
@@ -112,6 +148,9 @@ func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, reques
 	if err := c.validateModel(request.Model); err != nil {
 		return nil, err
 	}
+
+	// Trim trailing whitespace from message content to prevent API errors
+	request = trimMessageContent(request)
 
 	return c.apiClient.CreateChatCompletionStream(ctx, request)
 }

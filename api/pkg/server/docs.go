@@ -76,7 +76,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/types.App"
+                            "$ref": "#/definitions/server.AppCreateResponse"
                         }
                     }
                 }
@@ -2421,6 +2421,138 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/skills": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all available YAML-based skills",
+                "tags": [
+                    "skills"
+                ],
+                "summary": "List YAML skills",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by category",
+                        "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by OAuth provider",
+                        "name": "provider",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SkillsListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/skills/reload": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reload all YAML skills from the filesystem",
+                "tags": [
+                    "skills"
+                ],
+                "summary": "Reload skills",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/skills/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get details of a specific YAML skill",
+                "tags": [
+                    "skills"
+                ],
+                "summary": "Get a skill by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Skill ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SkillDefinition"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/skills/{id}/test": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Test a skill by executing one of its operations",
+                "tags": [
+                    "skills"
+                ],
+                "summary": "Test a skill",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Skill ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Test request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SkillTestRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SkillTestResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users/search": {
             "get": {
                 "security": [
@@ -3269,10 +3401,82 @@ const docTemplate = `{
                 }
             }
         },
+        "server.AppCreateResponse": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "$ref": "#/definitions/types.AppConfig"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "global": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "model_substitutions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.ModelSubstitution"
+                    }
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "owner": {
+                    "description": "uuid of user ID",
+                    "type": "string"
+                },
+                "owner_type": {
+                    "description": "e.g. user, system, org",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OwnerType"
+                        }
+                    ]
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "user": {
+                    "description": "Owner user struct, populated by the server for organization views",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    ]
+                }
+            }
+        },
         "server.LicenseKeyRequest": {
             "type": "object",
             "properties": {
                 "license_key": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.ModelSubstitution": {
+            "type": "object",
+            "properties": {
+                "assistant_name": {
+                    "type": "string"
+                },
+                "new_model": {
+                    "type": "string"
+                },
+                "new_provider": {
+                    "type": "string"
+                },
+                "original_model": {
+                    "type": "string"
+                },
+                "original_provider": {
+                    "type": "string"
+                },
+                "reason": {
                     "type": "string"
                 }
             }
@@ -3287,6 +3491,29 @@ const docTemplate = `{
                     "type": "integer"
                 }
             }
+        },
+        "time.Duration": {
+            "type": "integer",
+            "enum": [
+                -9223372036854775808,
+                9223372036854775807,
+                1,
+                1000,
+                1000000,
+                1000000000,
+                60000000000,
+                3600000000000
+            ],
+            "x-enum-varnames": [
+                "minDuration",
+                "maxDuration",
+                "Nanosecond",
+                "Microsecond",
+                "Millisecond",
+                "Second",
+                "Minute",
+                "Hour"
+            ]
         },
         "types.AccessGrant": {
             "type": "object",
@@ -6359,6 +6586,131 @@ const docTemplate = `{
                 "SessionTypeText",
                 "SessionTypeImage"
             ]
+        },
+        "types.SkillDefinition": {
+            "type": "object",
+            "properties": {
+                "baseUrl": {
+                    "description": "API configuration",
+                    "type": "string"
+                },
+                "category": {
+                    "type": "string"
+                },
+                "configurable": {
+                    "description": "Metadata",
+                    "type": "boolean"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "filePath": {
+                    "type": "string"
+                },
+                "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "icon": {
+                    "$ref": "#/definitions/types.SkillIcon"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "loadedAt": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "oauthProvider": {
+                    "description": "OAuth configuration",
+                    "type": "string"
+                },
+                "oauthScopes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "schema": {
+                    "type": "string"
+                },
+                "systemPrompt": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SkillIcon": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "description": "e.g., \"GitHub\", \"Google\"",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "e.g., \"material-ui\", \"custom\"",
+                    "type": "string"
+                }
+            }
+        },
+        "types.SkillTestRequest": {
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string"
+                },
+                "parameters": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "skillId": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SkillTestResponse": {
+            "type": "object",
+            "properties": {
+                "duration": {
+                    "$ref": "#/definitions/time.Duration"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "response": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "statusCode": {
+                    "type": "integer"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "types.SkillsListResponse": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SkillDefinition"
+                    }
+                }
+            }
         },
         "types.SlackTrigger": {
             "type": "object",

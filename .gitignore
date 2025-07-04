@@ -1,3 +1,4 @@
+api/pkg/skills/test_results/
 .env
 .env.*
 node_modules

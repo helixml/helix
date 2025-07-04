@@ -271,9 +271,11 @@ function test-integration() {
 }
 
 # Examples:
-# Run all tests:       ./stack test
-# Run specific tests:  ./stack test ./api/pkg/oauth_test
-# Run a single test:   ./stack test ./api/pkg/oauth_test -run TestOAuthAppIDPropagationProduction
+# Run all tests:                    ./stack test
+# Run specific tests:               ./stack test ./api/pkg/oauth_test
+# Run a single test:                ./stack test ./api/pkg/oauth_test -run TestOAuthAppIDPropagationProduction
+# Run only OAuth integration tests: ./stack test ./api/pkg/skills/... -tags=oauth_integration
+# Exclude OAuth integration tests:  ./stack test ./... -tags='!oauth_integration'
 
 function test() {
   # Ingest env variables from .env file
@@ -301,7 +303,7 @@ function test() {
   export POSTGRES_HOST=localhost
 
   export KEYCLOAK_USER=admin
-  export KEYCLOAK_PASSWORD=REPLACE_ME
+  export KEYCLOAK_PASSWORD=oh-hallo-insecure-password
 
   export PGVECTOR_USER=postgres
   export PGVECTOR_PASSWORD=postgres
@@ -321,7 +323,7 @@ function test() {
   # otherwise run all tests
   if [[ $# -gt 0 ]]; then
     echo "Running tests from path: $1"
-    go test -v -p 1 "$1" 2>&1 | sed -u 's/^/[TEST] /'
+    go test -v -p 1 "$@" 2>&1 | sed -u 's/^/[TEST] /'
   else
     echo "Running all tests"
     go test -v -p 1 ./... 2>&1 | sed -u 's/^/[TEST] /'
