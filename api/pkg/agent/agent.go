@@ -624,20 +624,9 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 			Type:    ResponseTypePartialText,
 		}
 		return
-	} else if finalCompletion != nil && len(finalCompletion.Choices) > 0 && finalCompletion.Choices[0].Message.Content != "" {
-		// If final completion is not nil, return it as the "decideNextAction" function
-		// most likely summarized tool results
-
-		outUserChannel <- Response{
-			Content: finalCompletion.Choices[0].Message.Content,
-			Type:    ResponseTypePartialText,
-		}
-		return
-
 	} else if len(finalSkillCallResults) == 1 {
-		// If callSummarizer is false, return the final skill result directly
-		// Get the last skill result
-		// Get keys from the map
+		// If callSummarizer is false and we have exactly one skill result, return it directly
+		// This should take priority over the final completion message (which might just be about using the stop tool)
 		var lastResult *openai.ChatCompletionMessage
 		for _, result := range finalSkillCallResults {
 			lastResult = result
@@ -656,6 +645,15 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 
 		outUserChannel <- Response{
 			Content: contentString,
+			Type:    ResponseTypePartialText,
+		}
+		return
+	} else if finalCompletion != nil && len(finalCompletion.Choices) > 0 && finalCompletion.Choices[0].Message.Content != "" {
+		// If final completion is not nil, return it as the "decideNextAction" function
+		// most likely summarized tool results
+
+		outUserChannel <- Response{
+			Content: finalCompletion.Choices[0].Message.Content,
 			Type:    ResponseTypePartialText,
 		}
 		return

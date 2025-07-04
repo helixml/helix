@@ -1,12 +1,14 @@
-package skills
+package skills_test
 
 import (
 	"context"
 	"testing"
+
+	"github.com/helixml/helix/api/pkg/skills"
 )
 
 func TestManagerLoadSkills(t *testing.T) {
-	manager := NewManager()
+	manager := skills.NewManager()
 	ctx := context.Background()
 
 	// Test loading skills
@@ -16,8 +18,8 @@ func TestManagerLoadSkills(t *testing.T) {
 	}
 
 	// Test that we have at least one skill loaded
-	skills := manager.ListSkills()
-	if len(skills) == 0 {
+	skillsList := manager.ListSkills()
+	if len(skillsList) == 0 {
 		t.Fatal("Expected at least one skill to be loaded")
 	}
 
@@ -51,7 +53,7 @@ func TestManagerLoadSkills(t *testing.T) {
 }
 
 func TestManagerReloadSkills(t *testing.T) {
-	manager := NewManager()
+	manager := skills.NewManager()
 	ctx := context.Background()
 
 	// Initial load
