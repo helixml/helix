@@ -194,7 +194,7 @@ steps:
       
       # Run the test and capture exit code, but don't fail the step immediately
       set +e
-      go test -v -tags=oauth_integration ./pkg/skills/...
+      go test -v -tags=oauth_integration ./pkg/skills_test/...
       TEST_EXIT_CODE=$?
       set -e
       
