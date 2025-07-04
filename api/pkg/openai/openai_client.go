@@ -122,24 +122,45 @@ func (c *RetryableClient) cleanMessagesForAnthropic(request openai.ChatCompletio
 	copy(cleanedMessages, request.Messages)
 
 	for i, message := range cleanedMessages {
+		// Trim whitespace from all message contents first to avoid trailing whitespace errors
+		cleanedMessages[i].Content = strings.TrimSpace(cleanedMessages[i].Content)
+
 		// If this is an assistant message with tool calls, clear the content field
 		if message.Role == openai.ChatMessageRoleAssistant && len(message.ToolCalls) > 0 {
-			// Trim whitespace and clear content if tool calls are present
-			content := strings.TrimSpace(message.Content)
-			if content != "" {
+			// Anthropic doesn't allow both tool calls and content in the same message
+			if cleanedMessages[i].Content != "" {
 				log.Debug().
-					Str("original_content", content).
+					Str("original_content", cleanedMessages[i].Content).
 					Int("tool_calls_count", len(message.ToolCalls)).
-					Msg("Clearing assistant message content for Anthropic API compatibility")
+					Msg("Clearing assistant message content for Anthropic API compatibility (tool calls present)")
 				cleanedMessages[i].Content = ""
 			}
 		}
 
-		// Trim whitespace from all message contents to avoid trailing whitespace errors
-		cleanedMessages[i].Content = strings.TrimSpace(cleanedMessages[i].Content)
+		// Additional safety: check for invalid assistant messages
+		if cleanedMessages[i].Content == "" && len(cleanedMessages[i].ToolCalls) == 0 && message.Role == openai.ChatMessageRoleAssistant {
+			// This indicates a bug - assistant messages should always have either content or tool calls
+			log.Warn().
+				Int("message_index", i).
+				Msg("Found invalid assistant message with no content and no tool calls - this indicates a bug in message construction")
+			// Rather than inject fake content, we'll mark this message for removal
+			cleanedMessages[i].Content = "" // Keep it empty to be filtered out below
+		}
 	}
 
-	cleanedRequest.Messages = cleanedMessages
+	// Filter out any invalid assistant messages (those with no content and no tool calls)
+	filteredMessages := make([]openai.ChatCompletionMessage, 0, len(cleanedMessages))
+	for i, message := range cleanedMessages {
+		if message.Role == openai.ChatMessageRoleAssistant && message.Content == "" && len(message.ToolCalls) == 0 {
+			log.Warn().
+				Int("message_index", i).
+				Msg("Removing invalid assistant message with no content and no tool calls")
+			continue // Skip this message
+		}
+		filteredMessages = append(filteredMessages, message)
+	}
+
+	cleanedRequest.Messages = filteredMessages
 	return cleanedRequest
 }
 
