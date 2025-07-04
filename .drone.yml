@@ -540,9 +540,6 @@ steps:
     event:
     - tag
 
-depends_on:
-- default
-
 ---
 kind: pipeline
 type: docker
@@ -578,9 +575,6 @@ steps:
   when:
     event:
     - tag
-
-depends_on:
-- default
 
 ---
 kind: pipeline
@@ -618,9 +612,6 @@ steps:
     event:
     - tag
 
-depends_on:
-- default
-
 ---
 kind: pipeline
 type: docker
@@ -657,9 +648,6 @@ steps:
   when:
     event:
     - tag
-
-depends_on:
-- default
 
 ---
 kind: pipeline
@@ -700,9 +688,6 @@ steps:
   when:
     event:
     - tag
-
-depends_on:
-- default
 
 ---
 kind: pipeline
@@ -774,10 +759,6 @@ steps:
       - main
     event:
 
-
-depends_on:
-- default
-
 ---
 kind: pipeline
 type: docker
@@ -848,9 +829,6 @@ steps:
       - main
     event:
 
-depends_on:
-- default
-
 ---
 kind: pipeline
 type: docker
@@ -884,9 +862,6 @@ steps:
   when:
     event:
     - tag
-
-depends_on:
-- default
 
 ---
 kind: pipeline
@@ -922,9 +897,6 @@ steps:
     event:
     - tag
 
-depends_on:
-- default
-
 ---
 kind: pipeline
 type: docker
@@ -959,9 +931,6 @@ steps:
     event:
     - tag
 
-depends_on:
-- default
-
 ---
 kind: pipeline
 type: docker
@@ -995,9 +964,6 @@ steps:
   when:
     event:
     - tag
-
-depends_on:
-- default
 
 ---
 # See integration-test/smoke/README.md
