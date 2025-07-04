@@ -18,7 +18,7 @@
 // 6. Test agent sessions with real GitHub API calls with the resulting JWT
 // 7. Clean up test resources
 
-package skills_test
+package skills_test_test
 
 import (
 	"context"
