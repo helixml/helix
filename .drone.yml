@@ -18,6 +18,9 @@ steps:
       from_secret: github_token
   commands:
     - go build
+  when:
+    event:
+    - tag
   depends_on: []
 
 - name: build-frontend
