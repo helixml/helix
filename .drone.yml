@@ -2,6 +2,10 @@ kind: pipeline
 type: docker
 name: default
 
+trigger:
+  event:
+    - push
+
 workspace:
   base: /go
   path: src/github.com/helix-ml/helix
