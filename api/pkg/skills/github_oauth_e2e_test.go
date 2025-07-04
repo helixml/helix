@@ -1,6 +1,23 @@
 //go:build oauth_integration
 // +build oauth_integration
 
+// GitHub OAuth Skills E2E Test
+//
+// This test requires OAuth integration environment variables and Chrome container, which the stack command will start automatically.
+//
+// To run this test:
+//
+//   cd /home/luke/pm/helix && ./stack test -v api/pkg/skills/github_oauth_e2e_test.go -run TestGitHubOAuthSkillsE2E
+//
+// The test will:
+// 1. Set up Helix infrastructure (OAuth manager, API server, etc.)
+// 2. Create a GitHub OAuth provider
+// 3. Create test repositories on GitHub
+// 4. Create a Helix app with GitHub skills
+// 5. Perform OAuth flow using browser automation
+// 6. Test agent sessions with real GitHub API calls
+// 7. Clean up test resources
+
 package skills_test
 
 import (
@@ -48,6 +65,7 @@ import (
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/option"
+	"gopkg.in/yaml.v3"
 )
 
 // min returns the minimum of two integers
@@ -233,25 +251,6 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 		suite.logger.Warn().Msg("ANTHROPIC_API_KEY not set - LLM calls may fail")
 	}
 
-	// Disable Keycloak and OIDC for testing to avoid authentication complications
-	cfg.Keycloak.KeycloakEnabled = false
-	cfg.OIDC.Enabled = false
-
-	// Provide minimal OIDC config since server requires it
-	cfg.OIDC.Enabled = true
-	// Use environment KEYCLOAK_URL or fallback to localhost
-	if keycloakURL := os.Getenv("KEYCLOAK_URL"); keycloakURL != "" {
-		cfg.OIDC.URL = keycloakURL + "/realms/helix"
-		suite.logger.Info().Str("oidc_url", cfg.OIDC.URL).Msg("Using OIDC URL from KEYCLOAK_URL environment")
-	} else {
-		cfg.OIDC.URL = fmt.Sprintf("http://%s:8080/auth/realms/helix", webServerHost)
-		suite.logger.Info().Str("oidc_url", cfg.OIDC.URL).Msg("Using localhost OIDC URL for local testing")
-	}
-	cfg.OIDC.ClientID = "test-client"
-	cfg.OIDC.ClientSecret = "test-secret"
-	cfg.OIDC.Audience = "account"
-	cfg.OIDC.Scopes = "openid,profile,email"
-
 	// Initialize store
 	suite.store, err = store.NewPostgresStore(cfg.Store)
 	if err != nil {
@@ -325,13 +324,36 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 		return fmt.Errorf("failed to create controller: %w", err)
 	}
 
+	// Create Keycloak authenticator for proper OAuth integration testing
+	// Use environment variable KEYCLOAK_URL if set, otherwise use config default
+	keycloakConfig := cfg.Keycloak
+	if keycloakURL := os.Getenv("KEYCLOAK_URL"); keycloakURL != "" {
+		keycloakConfig.KeycloakURL = keycloakURL
+		keycloakConfig.KeycloakFrontEndURL = keycloakURL // Set frontend URL to match for OIDC issuer consistency
+		suite.logger.Info().Str("keycloak_url", keycloakURL).Str("keycloak_frontend_url", keycloakURL).Msg("Using KEYCLOAK_URL from environment")
+	} else {
+		// Fallback to localhost for local testing
+		keycloakConfig.KeycloakURL = fmt.Sprintf("http://%s:8080/auth", webServerHost)
+		keycloakConfig.KeycloakFrontEndURL = fmt.Sprintf("http://%s:8080/auth", webServerHost)
+		suite.logger.Info().Msg("Using localhost Keycloak URL for local testing")
+	}
+
 	// Create skill manager
 	// skillManager := skills.NewManager()  // Not used in this test
+
+	// Create Keycloak authenticator for proper OAuth integration testing
+	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&keycloakConfig, suite.store)
+	if err != nil {
+		return fmt.Errorf("failed to create Keycloak authenticator: %w", err)
+	}
+	suite.keycloak = keycloakAuthenticator
+
+	// Copy the updated Keycloak configuration (including client secret) back to main config
+	cfg.Keycloak = keycloakConfig
 
 	// Create remaining mocks and dependencies for the server
 	gptScriptExecutor := gptscript.NewMockExecutor(ctrl)
 	avatarsBucket := memblob.OpenBucket(nil) // Use in-memory blob bucket for testing
-	authenticator := auth.NewMockAuthenticator(ctrl)
 
 	// Create the full server with all dependencies including OAuth manager
 	helixAPIServer, err := server.NewServer(
@@ -340,9 +362,9 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 		ps,
 		gptScriptExecutor,
 		providerManager,
-		nil, // inference server - not needed for this test
-		authenticator,
-		nil, // stripe - not needed for this test
+		nil,                   // inference server - not needed for this test
+		keycloakAuthenticator, // Use real Keycloak authenticator instead of mock
+		nil,                   // stripe - not needed for this test
 		controller,
 		janitor.NewJanitor(config.Janitor{}),
 		nil, // knowledge manager - not needed for this test
@@ -356,26 +378,6 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 	}
 
 	suite.helixAPIServer = helixAPIServer
-
-	// Initialize Keycloak authenticator
-	// Use environment variable KEYCLOAK_URL if set, otherwise use config default
-	keycloakConfig := cfg.Keycloak
-	if keycloakURL := os.Getenv("KEYCLOAK_URL"); keycloakURL != "" {
-		keycloakConfig.KeycloakURL = keycloakURL
-		keycloakConfig.KeycloakFrontEndURL = keycloakURL // Set frontend URL to match for OIDC issuer consistency
-		suite.logger.Info().Str("keycloak_url", keycloakURL).Str("keycloak_frontend_url", keycloakURL).Msg("Using KEYCLOAK_URL from environment")
-	} else {
-		// Fallback to localhost for local testing
-		keycloakConfig.KeycloakURL = "http://localhost:8080/auth"
-		keycloakConfig.KeycloakFrontEndURL = "http://localhost:8080/auth"
-		suite.logger.Info().Msg("Using localhost Keycloak URL for local testing")
-	}
-
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&keycloakConfig, suite.store)
-	if err != nil {
-		return fmt.Errorf("failed to create Keycloak authenticator: %w", err)
-	}
-	suite.keycloak = keycloakAuthenticator
 
 	// Initialize browser for OAuth flow
 	err = suite.setupBrowser()
@@ -596,29 +598,39 @@ func (suite *GitHubOAuthE2ETestSuite) getDeviceVerificationCode() (string, error
 func (suite *GitHubOAuthE2ETestSuite) handleDeviceVerification(page *rod.Page) error {
 	suite.logger.Info().Msg("Checking if GitHub device verification is required")
 
-	// Check if we're on the device verification page with more specific criteria
+	// Check if we're on the device verification page with precise URL matching
 	currentURL := page.MustInfo().URL
 
-	// More specific device verification detection - including the new session page
-	isDeviceVerificationPage := (strings.Contains(currentURL, "device") && strings.Contains(currentURL, "verification")) ||
-		strings.Contains(currentURL, "/login/device") ||
-		strings.Contains(currentURL, "/device/confirmation") ||
-		strings.Contains(currentURL, "/session") // GitHub's new session verification page
+	// Precise device verification detection based on actual GitHub URLs
+	isDeviceVerificationPage := strings.Contains(currentURL, "/sessions/verified-device") ||
+		strings.Contains(currentURL, "/login/device") || // Alternative device verification URL pattern
+		strings.HasSuffix(currentURL, "/session") // GitHub session page that may require verification
 
 	if !isDeviceVerificationPage {
-		suite.logger.Info().Msg("Not on device verification page, continuing normal flow")
+		suite.logger.Info().Str("url", currentURL).Msg("Not on device verification page, continuing normal flow")
 		return nil
 	}
 
-	suite.logger.Info().Str("url", currentURL).Msg("GitHub verification/session page detected")
-	suite.takeScreenshot(page, "github_verification_session_detected")
+	suite.logger.Info().Str("url", currentURL).Msg("GitHub device verification page detected")
+	suite.takeScreenshot(page, "github_device_verification_detected")
 
-	// Handle /session page specifically
-	if strings.Contains(currentURL, "/session") {
+	// Handle /sessions/verified-device page specifically (the main device verification page)
+	if strings.Contains(currentURL, "/sessions/verified-device") {
+		return suite.handleVerifiedDevicePage(page)
+	}
+
+	// Handle GitHub session page that may require verification
+	if strings.HasSuffix(currentURL, "/session") {
 		return suite.handleSessionPage(page)
 	}
 
-	// Handle traditional device verification
+	// Handle alternative device verification URLs
+	if strings.Contains(currentURL, "/login/device") {
+		return suite.handleTraditionalDeviceVerification(page)
+	}
+
+	// Should not reach here with current logic, but fallback to traditional handling
+	suite.logger.Warn().Str("url", currentURL).Msg("Unexpected device verification URL pattern, using traditional handling")
 	return suite.handleTraditionalDeviceVerification(page)
 }
 
@@ -1188,7 +1200,37 @@ func (suite *GitHubOAuthE2ETestSuite) makeGitHubAPICall(method, url string, body
 	return nil
 }
 
-// GitHubSkillConfig represents the parsed GitHub skill configuration
+// GitHubSkillYAML represents the structure of the github.yaml file
+type GitHubSkillYAML struct {
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Metadata   struct {
+		Name        string `yaml:"name"`
+		DisplayName string `yaml:"displayName"`
+		Provider    string `yaml:"provider"`
+		Category    string `yaml:"category"`
+	} `yaml:"metadata"`
+	Spec struct {
+		Description  string `yaml:"description"`
+		SystemPrompt string `yaml:"systemPrompt"`
+		Icon         struct {
+			Type string `yaml:"type"`
+			Name string `yaml:"name"`
+		} `yaml:"icon"`
+		OAuth struct {
+			Provider string   `yaml:"provider"`
+			Scopes   []string `yaml:"scopes"`
+		} `yaml:"oauth"`
+		API struct {
+			BaseURL string            `yaml:"baseUrl"`
+			Headers map[string]string `yaml:"headers"`
+			Schema  string            `yaml:"schema"`
+		} `yaml:"api"`
+		Configurable bool `yaml:"configurable"`
+	} `yaml:"spec"`
+}
+
+// GitHubSkillConfig represents the configuration used by the test (legacy structure)
 type GitHubSkillConfig struct {
 	Name          string
 	DisplayName   string
@@ -1209,190 +1251,72 @@ type GitHubUserInfo struct {
 	Email string `json:"email"`
 }
 
-// getGitHubSkillSchema returns the OpenAPI schema for GitHub skill
-func (suite *GitHubOAuthE2ETestSuite) getGitHubSkillSchema() string {
-	return `openapi: 3.0.3
-info:
-  title: GitHub API
-  description: Access GitHub repositories, issues, pull requests, and user information
-  version: "2022-11-28"
-servers:
-  - url: https://api.github.com
-paths:
-  /user:
-    get:
-      summary: Get the authenticated user
-      operationId: getAuthenticatedUser
-      security:
-        - BearerAuth: []
-      responses:
-        '200':
-          description: Authenticated user profile
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  login:
-                    type: string
-                  name:
-                    type: string
-                  email:
-                    type: string
-                  bio:
-                    type: string
-                  public_repos:
-                    type: integer
-                  followers:
-                    type: integer
-                  following:
-                    type: integer
-  /user/repos:
-    get:
-      summary: List repositories for the authenticated user
-      operationId: listUserRepos
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: type
-          in: query
-          schema:
-            type: string
-            enum: [all, owner, public, private, member]
-            default: owner
-        - name: sort
-          in: query
-          schema:
-            type: string
-            enum: [created, updated, pushed, full_name]
-            default: created
-        - name: direction
-          in: query
-          schema:
-            type: string
-            enum: [asc, desc]
-            default: desc
-        - name: per_page
-          in: query
-          schema:
-            type: integer
-            default: 30
-            maximum: 100
-      responses:
-        '200':
-          description: List of repositories
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    name:
-                      type: string
-                    full_name:
-                      type: string
-                    description:
-                      type: string
-                    private:
-                      type: boolean
-                    html_url:
-                      type: string
-                    language:
-                      type: string
-                    stargazers_count:
-                      type: integer
-                    forks_count:
-                      type: integer
-                    created_at:
-                      type: string
-                    updated_at:
-                      type: string
-  /repos/{owner}/{repo}/contents/{path}:
-    get:
-      summary: Get repository content
-      operationId: getRepoContent
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: owner
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: repo
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: path
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Repository content
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  name:
-                    type: string
-                  path:
-                    type: string
-                  content:
-                    type: string
-                  encoding:
-                    type: string
-security:
-  - BearerAuth: []
-components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer`
+// loadGitHubSkillYAML loads the actual GitHub skill configuration from github.yaml
+func (suite *GitHubOAuthE2ETestSuite) loadGitHubSkillYAML() (*GitHubSkillYAML, error) {
+	// Load the actual github.yaml file from the skills directory
+	yamlPath := filepath.Join("pkg", "skills", "github.yaml")
+	yamlData, err := os.ReadFile(yamlPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read github.yaml file at %s: %w", yamlPath, err)
+	}
+
+	var skillYAML GitHubSkillYAML
+	err = yaml.Unmarshal(yamlData, &skillYAML)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse github.yaml: %w", err)
+	}
+
+	suite.logger.Info().
+		Str("name", skillYAML.Metadata.Name).
+		Str("display_name", skillYAML.Metadata.DisplayName).
+		Str("oauth_provider", skillYAML.Spec.OAuth.Provider).
+		Interface("oauth_scopes", skillYAML.Spec.OAuth.Scopes).
+		Str("base_url", skillYAML.Spec.API.BaseURL).
+		Msg("Loaded GitHub skill configuration from github.yaml")
+
+	return &skillYAML, nil
 }
 
-// loadGitHubSkillConfig loads the complete GitHub skill configuration from github.yaml
+// getGitHubSkillSchema returns the OpenAPI schema from the actual github.yaml file
+func (suite *GitHubOAuthE2ETestSuite) getGitHubSkillSchema() string {
+	skillYAML, err := suite.loadGitHubSkillYAML()
+	if err != nil {
+		suite.logger.Error().Err(err).Msg("Failed to load github.yaml, falling back to error")
+		return ""
+	}
+	return skillYAML.Spec.API.Schema
+}
+
+// loadGitHubSkillConfig loads the complete GitHub skill configuration from the actual github.yaml file
 func (suite *GitHubOAuthE2ETestSuite) loadGitHubSkillConfig() *GitHubSkillConfig {
+	skillYAML, err := suite.loadGitHubSkillYAML()
+	if err != nil {
+		suite.logger.Error().Err(err).Msg("Failed to load github.yaml, using minimal fallback config")
+		// Return minimal config so test doesn't fail completely
+		return &GitHubSkillConfig{
+			Name:          "github",
+			DisplayName:   "GitHub",
+			Description:   "GitHub API access",
+			SystemPrompt:  "You are a GitHub assistant.",
+			BaseURL:       "https://api.github.com",
+			Headers:       map[string]string{"Accept": "application/vnd.github+json"},
+			Schema:        "",
+			OAuthProvider: "github",
+			OAuthScopes:   []string{"repo", "user:read"},
+		}
+	}
+
+	// Convert YAML structure to legacy config structure used by test
 	return &GitHubSkillConfig{
-		Name:        "github",
-		DisplayName: "GitHub",
-		Description: `Access GitHub repositories, issues, pull requests, and user information with OAuth authentication.
-
-This skill provides secure access to GitHub's REST API, allowing you to:
-• View and manage repositories
-• Create and track issues  
-• Monitor pull requests and code reviews
-• Search repositories and code
-• Access user profiles and organizations`,
-		SystemPrompt: `You are a GitHub development assistant. Your expertise is in helping users manage their GitHub repositories, issues, pull requests, and development workflows.
-
-Key capabilities:
-- Repository management and code exploration
-- Issue tracking, creation, and management  
-- Pull request workflows and code reviews
-- User and organization information
-- Repository statistics and insights
-
-When users ask about code repositories, development tasks, or GitHub workflows:
-1. Help them find and explore repositories and their contents
-2. Assist with issue management - creating, updating, searching issues
-3. Support pull request workflows and code collaboration
-4. Provide repository insights and statistics
-5. Help with user and organization management
-
-Always focus on GitHub-related development tasks. If asked about other platforms or non-GitHub topics, politely redirect to GitHub-specific assistance.`,
-		BaseURL: "https://api.github.com",
-		Headers: map[string]string{
-			"Accept":               "application/vnd.github+json",
-			"X-GitHub-Api-Version": "2022-11-28",
-		},
-		Schema:        suite.getGitHubSkillSchema(),
-		OAuthProvider: "github",
-		OAuthScopes:   []string{"repo", "user:read"},
+		Name:          skillYAML.Metadata.Name,
+		DisplayName:   skillYAML.Metadata.DisplayName,
+		Description:   skillYAML.Spec.Description,
+		SystemPrompt:  skillYAML.Spec.SystemPrompt,
+		BaseURL:       skillYAML.Spec.API.BaseURL,
+		Headers:       skillYAML.Spec.API.Headers,
+		Schema:        skillYAML.Spec.API.Schema,
+		OAuthProvider: skillYAML.Spec.OAuth.Provider,
+		OAuthScopes:   skillYAML.Spec.OAuth.Scopes,
 	}
 }
 
@@ -1641,116 +1565,19 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 	}
 
 	// If we're not at callback yet, look for authorization button on the authorization page
-	suite.logger.Info().Msg("Looking for authorization button on the authorization page")
-
-	// Try to find the authorization button using multiple approaches
-	var authButtonElement *rod.Element
-
-	// Approach 1: Standard CSS selectors
-	suite.logger.Info().Msg("Trying standard CSS selectors")
-	authButtonElement, _ = page.Element(authButtonSelector)
-	if authButtonElement != nil {
-		suite.logger.Info().Msg("Found authorization button using standard selectors")
-	}
-
-	// Approach 2: Look for buttons with "Authorize" text
-	if authButtonElement == nil {
-		suite.logger.Info().Msg("Standard selectors failed, trying text-based button search")
-		buttons, err := page.Elements("button")
-		if err == nil {
-			for _, button := range buttons {
-				text, err := button.Text()
-				if err == nil && (strings.Contains(strings.ToLower(text), "authorize") ||
-					strings.Contains(strings.ToLower(text), "allow") ||
-					strings.Contains(strings.ToLower(text), "grant") ||
-					strings.Contains(strings.ToLower(text), "continue")) {
-					authButtonElement = button
-					suite.logger.Info().Str("button_text", text).Msg("Found authorization button by text")
-					break
-				}
-			}
-		}
-	}
-
-	// Approach 3: Look for input elements with authorization values
-	if authButtonElement == nil {
-		suite.logger.Info().Msg("Button search failed, trying input elements")
-		inputs, err := page.Elements("input[type='submit'], input[type='button']")
-		if err == nil {
-			for _, input := range inputs {
-				value, err := input.Property("value")
-				if err == nil && value.Str() != "" && (strings.Contains(strings.ToLower(value.Str()), "authorize") ||
-					strings.Contains(strings.ToLower(value.Str()), "allow") ||
-					strings.Contains(strings.ToLower(value.Str()), "grant") ||
-					strings.Contains(strings.ToLower(value.Str()), "continue")) {
-					authButtonElement = input
-					suite.logger.Info().Str("input_value", value.Str()).Msg("Found authorization input by value")
-					break
-				}
-			}
-		}
-	}
-
-	// Approach 4: Look for any submit buttons in forms (fallback)
-	if authButtonElement == nil {
-		suite.logger.Info().Msg("Authorization-specific elements not found, trying any submit buttons")
-		forms, err := page.Elements("form")
-		if err == nil {
-			for _, form := range forms {
-				submitBtn, err := form.Element(`button[type="submit"], input[type="submit"]`)
-				if err == nil && submitBtn != nil {
-					authButtonElement = submitBtn
-					suite.logger.Info().Msg("Found submit button in form as fallback")
-					break
-				}
-			}
-		}
-	}
-
-	// If still not found, take a screenshot and dump page content for debugging
-	if authButtonElement == nil {
-		suite.takeScreenshot(page, "github_auth_button_not_found")
-
-		// Get page content for debugging
-		pageContent, _ := page.HTML()
-		truncatedContent := pageContent
-		if len(pageContent) > 2000 {
-			truncatedContent = pageContent[:2000] + "..."
-		}
-
-		// Also log available buttons and inputs for debugging
-		allButtons, _ := page.Elements("button")
-		allInputs, _ := page.Elements("input")
-
-		suite.logger.Error().
-			Str("current_url", currentURL).
-			Int("buttons_found", len(allButtons)).
-			Int("inputs_found", len(allInputs)).
-			Str("page_content", truncatedContent).
-			Msg("Authorization button not found - debugging info")
-
-		// Log all button texts for debugging
-		for i, btn := range allButtons {
-			if i < 10 { // Limit to first 10 buttons
-				text, _ := btn.Text()
-				suite.logger.Info().Int("button_index", i).Str("button_text", text).Msg("Available button")
-			}
-		}
-
-		return "", fmt.Errorf("could not find GitHub authorization button on page: %s", currentURL)
-	}
-
-	// Now we should be on the authorization page
 	suite.logger.Info().Msg("Looking for GitHub authorization button")
 
 	// Take screenshot of authorization page
 	suite.takeScreenshot(page, "github_authorization_page")
 
-	// Check what the authorization form looks like
-	pageContent, err := page.HTML()
-	if err == nil {
-		suite.logger.Debug().Str("page_content", pageContent[:1000]+"...").Msg("Authorization page content (first 1000 chars)")
+	// GitHub OAuth has a standard authorization button - use the known selector
+	authButtonElement, err := page.Element(authButtonSelector)
+	if err != nil {
+		suite.takeScreenshot(page, "github_auth_button_not_found")
+		return "", fmt.Errorf("could not find GitHub authorization button on page %s: %w", currentURL, err)
 	}
+
+	suite.logger.Info().Msg("Found GitHub authorization button")
 
 	// Click the authorize button
 	suite.logger.Info().Msg("Clicking GitHub authorize button")
@@ -2105,4 +1932,84 @@ AGENT: %s
 	} else {
 		suite.logger.Info().Str("filename", conversationFilename).Msg("Agent conversation logged to file")
 	}
+}
+
+// handleVerifiedDevicePage handles GitHub's /sessions/verified-device page
+func (suite *GitHubOAuthE2ETestSuite) handleVerifiedDevicePage(page *rod.Page) error {
+	suite.logger.Info().Msg("Handling GitHub verified device page")
+
+	// Wait for the page to fully load
+	time.Sleep(3 * time.Second)
+
+	// Look for device verification code input field
+	codeInputSelectors := []string{
+		`input[name="otp"]`,
+		`input[id="otp"]`,
+		`input[name="device_verification_code"]`,
+		`input[placeholder*="verification"]`,
+		`input[placeholder*="code"]`,
+		`input[type="text"]`, // Fallback for generic text inputs
+	}
+
+	var codeInput *rod.Element
+	var err error
+
+	// Try each selector until we find the input field
+	for _, selector := range codeInputSelectors {
+		codeInput, err = page.Element(selector)
+		if err == nil && codeInput != nil {
+			suite.logger.Info().Str("selector", selector).Msg("Found device verification code input field")
+			break
+		}
+	}
+
+	// If we found a code input, handle device verification
+	if codeInput != nil {
+		return suite.handleDeviceVerificationInput(page, codeInput)
+	}
+
+	// If no code input found, look for continue buttons or other actions
+	continueSelectors := []string{
+		`button:contains("Continue")`,
+		`button:contains("Submit")`,
+		`button[type="submit"]`,
+		`input[type="submit"]`,
+		`button:contains("Send code")`,
+		`button:contains("Send")`,
+	}
+
+	var continueButton *rod.Element
+	for _, selector := range continueSelectors {
+		continueButton, err = page.Element(selector)
+		if err == nil && continueButton != nil {
+			suite.logger.Info().Str("selector", selector).Msg("Found continue/submit button on verified device page")
+			break
+		}
+	}
+
+	if continueButton != nil {
+		suite.takeScreenshot(page, "verified_device_page_continue_button_found")
+
+		err = continueButton.Click(proto.InputMouseButtonLeft, 1)
+		if err != nil {
+			suite.logger.Error().Err(err).Msg("Failed to click continue button on verified device page")
+		} else {
+			suite.logger.Info().Msg("Clicked continue button on verified device page")
+			// Wait for navigation or form submission
+			time.Sleep(5 * time.Second)
+		}
+		return nil
+	}
+
+	// If no specific actions found, wait and check for automatic redirect
+	suite.logger.Info().Msg("No specific action required on verified device page, waiting for automatic redirect")
+	time.Sleep(5 * time.Second)
+
+	// Check if we've been redirected after waiting
+	newURL := page.MustInfo().URL
+	if newURL != page.MustInfo().URL {
+		suite.logger.Info().Str("new_url", newURL).Msg("Verified device page redirected automatically")
+	}
+
+	return nil
 }
