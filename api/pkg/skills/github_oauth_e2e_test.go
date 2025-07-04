@@ -52,6 +52,7 @@ import (
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server"
+	"github.com/helixml/helix/api/pkg/skills"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -65,7 +66,6 @@ import (
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/option"
-	"gopkg.in/yaml.v3"
 )
 
 // min returns the minimum of two integers
@@ -903,11 +903,17 @@ func (suite *GitHubOAuthE2ETestSuite) testCreateTestApp(t *testing.T) {
 	assert.Len(t, createdApp.Config.Helix.Assistants[0].APIs, 1)
 	assert.Equal(t, suite.oauthProvider.Name, createdApp.Config.Helix.Assistants[0].APIs[0].OAuthProvider)
 
+	// Safely truncate description for logging
+	description := githubSkill.Description
+	if len(description) > 50 {
+		description = description[:50] + "..."
+	}
+
 	suite.logger.Info().
 		Str("app_id", createdApp.ID).
 		Str("app_name", createdApp.Config.Helix.Name).
 		Str("skill_name", githubSkill.DisplayName).
-		Str("skill_description", githubSkill.Description[:50]+"...").
+		Str("skill_description", description).
 		Msg("Test app created successfully with GitHub skill configuration")
 }
 
@@ -1200,35 +1206,7 @@ func (suite *GitHubOAuthE2ETestSuite) makeGitHubAPICall(method, url string, body
 	return nil
 }
 
-// GitHubSkillYAML represents the structure of the github.yaml file
-type GitHubSkillYAML struct {
-	APIVersion string `yaml:"apiVersion"`
-	Kind       string `yaml:"kind"`
-	Metadata   struct {
-		Name        string `yaml:"name"`
-		DisplayName string `yaml:"displayName"`
-		Provider    string `yaml:"provider"`
-		Category    string `yaml:"category"`
-	} `yaml:"metadata"`
-	Spec struct {
-		Description  string `yaml:"description"`
-		SystemPrompt string `yaml:"systemPrompt"`
-		Icon         struct {
-			Type string `yaml:"type"`
-			Name string `yaml:"name"`
-		} `yaml:"icon"`
-		OAuth struct {
-			Provider string   `yaml:"provider"`
-			Scopes   []string `yaml:"scopes"`
-		} `yaml:"oauth"`
-		API struct {
-			BaseURL string            `yaml:"baseUrl"`
-			Headers map[string]string `yaml:"headers"`
-			Schema  string            `yaml:"schema"`
-		} `yaml:"api"`
-		Configurable bool `yaml:"configurable"`
-	} `yaml:"spec"`
-}
+// Remove GitHubSkillYAML - we'll use the embedded skills manager instead
 
 // GitHubSkillConfig represents the configuration used by the test (legacy structure)
 type GitHubSkillConfig struct {
@@ -1251,47 +1229,47 @@ type GitHubUserInfo struct {
 	Email string `json:"email"`
 }
 
-// loadGitHubSkillYAML loads the actual GitHub skill configuration from github.yaml
-func (suite *GitHubOAuthE2ETestSuite) loadGitHubSkillYAML() (*GitHubSkillYAML, error) {
-	// Load the actual github.yaml file from the skills directory
-	yamlPath := filepath.Join("pkg", "skills", "github.yaml")
-	yamlData, err := os.ReadFile(yamlPath)
+// loadGitHubSkillFromManager loads the GitHub skill using the embedded skills manager
+func (suite *GitHubOAuthE2ETestSuite) loadGitHubSkillFromManager() (*types.SkillDefinition, error) {
+	// Create and initialize the skills manager
+	skillManager := skills.NewManager()
+	err := skillManager.LoadSkills(suite.ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read github.yaml file at %s: %w", yamlPath, err)
+		return nil, fmt.Errorf("failed to load skills: %w", err)
 	}
 
-	var skillYAML GitHubSkillYAML
-	err = yaml.Unmarshal(yamlData, &skillYAML)
+	// Get the GitHub skill
+	githubSkill, err := skillManager.GetSkill("github")
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse github.yaml: %w", err)
+		return nil, fmt.Errorf("failed to get GitHub skill: %w", err)
 	}
 
 	suite.logger.Info().
-		Str("name", skillYAML.Metadata.Name).
-		Str("display_name", skillYAML.Metadata.DisplayName).
-		Str("oauth_provider", skillYAML.Spec.OAuth.Provider).
-		Interface("oauth_scopes", skillYAML.Spec.OAuth.Scopes).
-		Str("base_url", skillYAML.Spec.API.BaseURL).
-		Msg("Loaded GitHub skill configuration from github.yaml")
+		Str("name", githubSkill.Name).
+		Str("display_name", githubSkill.DisplayName).
+		Str("oauth_provider", githubSkill.OAuthProvider).
+		Interface("oauth_scopes", githubSkill.OAuthScopes).
+		Str("base_url", githubSkill.BaseURL).
+		Msg("Loaded GitHub skill configuration from embedded skills manager")
 
-	return &skillYAML, nil
+	return githubSkill, nil
 }
 
-// getGitHubSkillSchema returns the OpenAPI schema from the actual github.yaml file
+// getGitHubSkillSchema returns the OpenAPI schema from the embedded skills manager
 func (suite *GitHubOAuthE2ETestSuite) getGitHubSkillSchema() string {
-	skillYAML, err := suite.loadGitHubSkillYAML()
+	githubSkill, err := suite.loadGitHubSkillFromManager()
 	if err != nil {
-		suite.logger.Error().Err(err).Msg("Failed to load github.yaml, falling back to error")
+		suite.logger.Error().Err(err).Msg("Failed to load GitHub skill from manager, falling back to empty schema")
 		return ""
 	}
-	return skillYAML.Spec.API.Schema
+	return githubSkill.Schema
 }
 
-// loadGitHubSkillConfig loads the complete GitHub skill configuration from the actual github.yaml file
+// loadGitHubSkillConfig loads the complete GitHub skill configuration from the embedded skills manager
 func (suite *GitHubOAuthE2ETestSuite) loadGitHubSkillConfig() *GitHubSkillConfig {
-	skillYAML, err := suite.loadGitHubSkillYAML()
+	githubSkill, err := suite.loadGitHubSkillFromManager()
 	if err != nil {
-		suite.logger.Error().Err(err).Msg("Failed to load github.yaml, using minimal fallback config")
+		suite.logger.Error().Err(err).Msg("Failed to load GitHub skill from manager, using minimal fallback config")
 		// Return minimal config so test doesn't fail completely
 		return &GitHubSkillConfig{
 			Name:          "github",
@@ -1306,17 +1284,17 @@ func (suite *GitHubOAuthE2ETestSuite) loadGitHubSkillConfig() *GitHubSkillConfig
 		}
 	}
 
-	// Convert YAML structure to legacy config structure used by test
+	// Convert SkillDefinition to legacy config structure used by test
 	return &GitHubSkillConfig{
-		Name:          skillYAML.Metadata.Name,
-		DisplayName:   skillYAML.Metadata.DisplayName,
-		Description:   skillYAML.Spec.Description,
-		SystemPrompt:  skillYAML.Spec.SystemPrompt,
-		BaseURL:       skillYAML.Spec.API.BaseURL,
-		Headers:       skillYAML.Spec.API.Headers,
-		Schema:        skillYAML.Spec.API.Schema,
-		OAuthProvider: skillYAML.Spec.OAuth.Provider,
-		OAuthScopes:   skillYAML.Spec.OAuth.Scopes,
+		Name:          githubSkill.Name,
+		DisplayName:   githubSkill.DisplayName,
+		Description:   githubSkill.Description,
+		SystemPrompt:  githubSkill.SystemPrompt,
+		BaseURL:       githubSkill.BaseURL,
+		Headers:       githubSkill.Headers,
+		Schema:        githubSkill.Schema,
+		OAuthProvider: githubSkill.OAuthProvider,
+		OAuthScopes:   githubSkill.OAuthScopes,
 	}
 }
 
