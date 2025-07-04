@@ -357,8 +357,10 @@ const SidebarContent: React.FC<{
             onClick={() => account.orgNavigate('home')}
           >
             <ListItemButton
+              selected={router.name === 'home' || router.name === 'org_home'}
               sx={{
                 borderRadius: '4px',
+                backgroundColor: (router.name === 'home' || router.name === 'org_home') ? '#1a1a2f' : 'transparent',
                 minHeight: 36,
                 py: 0.5,
                 px: 1.5,
@@ -375,7 +377,7 @@ const SidebarContent: React.FC<{
                 primary="Chat"
                 primaryTypographyProps={{
                   fontSize: '0.85rem',
-                  color: lightTheme.textColorFaded,
+                  color: (router.name === 'home' || router.name === 'org_home') ? '#fff' : lightTheme.textColorFaded,
                   fontWeight: 600,
                   letterSpacing: 0.2,
                 }}
