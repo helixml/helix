@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-rod/rod"
 	"github.com/helixml/helix/api/pkg/controller"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/server"
@@ -489,14 +490,17 @@ func (f *HelixTestFramework) CreateAppFromSkill(skillYAML *SkillYAML, oauthProvi
 
 // OAuthProviderConfig contains configuration for creating an OAuth provider
 type OAuthProviderConfig struct {
-	Name         string
-	ProviderType string
-	ClientID     string
-	ClientSecret string
-	AuthURL      string
-	TokenURL     string
-	UserInfoURL  string
-	Scopes       []string
+	Name                      string
+	ProviderType              string
+	ClientID                  string
+	ClientSecret              string
+	AuthURL                   string
+	TokenURL                  string
+	UserInfoURL               string
+	Scopes                    []string
+	LoginConfig               LoginConfig
+	AuthorizeButtonSelector   string
+	DeviceVerificationHandler DeviceVerificationHandler
 }
 
 // AppConfig contains configuration for creating a test app
@@ -551,4 +555,22 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// OAuthCredentials contains username and password for OAuth login
+type OAuthCredentials struct {
+	Username string
+	Password string
+}
+
+// LoginConfig contains selectors for login form elements
+type LoginConfig struct {
+	UsernameSelector    string
+	PasswordSelector    string
+	LoginButtonSelector string
+}
+
+// DeviceVerificationHandler interface for handling device verification
+type DeviceVerificationHandler interface {
+	HandleDeviceVerification(page *rod.Page) error
 }

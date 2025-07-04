@@ -81,15 +81,46 @@ func (c *RetryableClient) APIKey() string {
 	return c.apiKey
 }
 
+// trimMessageContent trims trailing whitespace from message content to prevent API errors
+func trimMessageContent(request openai.ChatCompletionRequest) openai.ChatCompletionRequest {
+	// Create a copy of the request to avoid mutating the original
+	trimmedRequest := request
+	trimmedRequest.Messages = make([]openai.ChatCompletionMessage, len(request.Messages))
+
+	for i, message := range request.Messages {
+		trimmedMessage := message
+
+		// Trim content field
+		if trimmedMessage.Content != "" {
+			trimmedMessage.Content = strings.TrimSpace(trimmedMessage.Content)
+		}
+
+		// Trim MultiContent parts
+		if len(trimmedMessage.MultiContent) > 0 {
+			trimmedMultiContent := make([]openai.ChatMessagePart, len(trimmedMessage.MultiContent))
+			for j, part := range trimmedMessage.MultiContent {
+				trimmedPart := part
+				if trimmedPart.Type == openai.ChatMessagePartTypeText && trimmedPart.Text != "" {
+					trimmedPart.Text = strings.TrimSpace(trimmedPart.Text)
+				}
+				trimmedMultiContent[j] = trimmedPart
+			}
+			trimmedMessage.MultiContent = trimmedMultiContent
+		}
+
+		trimmedRequest.Messages[i] = trimmedMessage
+	}
+
+	return trimmedRequest
+}
+
 func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (resp openai.ChatCompletionResponse, err error) {
 	if err := c.validateModel(request.Model); err != nil {
 		return openai.ChatCompletionResponse{}, err
 	}
 
-	// Clean up messages for Anthropic API
-	if isAnthropicProvider(c.baseURL) {
-		request = c.cleanMessagesForAnthropic(request)
-	}
+	// Trim trailing whitespace from message content to prevent API errors
+	request = trimMessageContent(request)
 
 	// Perform request with retries
 	err = retry.Do(func() error {
@@ -113,66 +144,13 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	return
 }
 
-// cleanMessagesForAnthropic cleans up messages for Anthropic API compatibility
-// Anthropic requires that messages with tool calls should not have content
-func (c *RetryableClient) cleanMessagesForAnthropic(request openai.ChatCompletionRequest) openai.ChatCompletionRequest {
-	// Create a copy of the request to avoid modifying the original
-	cleanedRequest := request
-	cleanedMessages := make([]openai.ChatCompletionMessage, len(request.Messages))
-	copy(cleanedMessages, request.Messages)
-
-	for i, message := range cleanedMessages {
-		// Trim whitespace from all message contents first to avoid trailing whitespace errors
-		cleanedMessages[i].Content = strings.TrimSpace(cleanedMessages[i].Content)
-
-		// If this is an assistant message with tool calls, clear the content field
-		if message.Role == openai.ChatMessageRoleAssistant && len(message.ToolCalls) > 0 {
-			// Anthropic doesn't allow both tool calls and content in the same message
-			if cleanedMessages[i].Content != "" {
-				log.Debug().
-					Str("original_content", cleanedMessages[i].Content).
-					Int("tool_calls_count", len(message.ToolCalls)).
-					Msg("Clearing assistant message content for Anthropic API compatibility (tool calls present)")
-				cleanedMessages[i].Content = ""
-			}
-		}
-
-		// Additional safety: check for invalid assistant messages
-		if cleanedMessages[i].Content == "" && len(cleanedMessages[i].ToolCalls) == 0 && message.Role == openai.ChatMessageRoleAssistant {
-			// This indicates a bug - assistant messages should always have either content or tool calls
-			log.Warn().
-				Int("message_index", i).
-				Msg("Found invalid assistant message with no content and no tool calls - this indicates a bug in message construction")
-			// Rather than inject fake content, we'll mark this message for removal
-			cleanedMessages[i].Content = "" // Keep it empty to be filtered out below
-		}
-	}
-
-	// Filter out any invalid assistant messages (those with no content and no tool calls)
-	filteredMessages := make([]openai.ChatCompletionMessage, 0, len(cleanedMessages))
-	for i, message := range cleanedMessages {
-		if message.Role == openai.ChatMessageRoleAssistant && message.Content == "" && len(message.ToolCalls) == 0 {
-			log.Warn().
-				Int("message_index", i).
-				Msg("Removing invalid assistant message with no content and no tool calls")
-			continue // Skip this message
-		}
-		filteredMessages = append(filteredMessages, message)
-	}
-
-	cleanedRequest.Messages = filteredMessages
-	return cleanedRequest
-}
-
 func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
 	if err := c.validateModel(request.Model); err != nil {
 		return nil, err
 	}
 
-	// Clean up messages for Anthropic API
-	if isAnthropicProvider(c.baseURL) {
-		request = c.cleanMessagesForAnthropic(request)
-	}
+	// Trim trailing whitespace from message content to prevent API errors
+	request = trimMessageContent(request)
 
 	return c.apiClient.CreateChatCompletionStream(ctx, request)
 }

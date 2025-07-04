@@ -79,7 +79,7 @@ func (suite *BaseOAuthE2ETestSuite) SetupBaseInfrastructure(t TestingT) error {
 	}
 
 	// Configure server for testing
-	err = suite.configureServer(cfg)
+	err = suite.configureServer(&cfg)
 	if err != nil {
 		return fmt.Errorf("failed to configure server: %w", err)
 	}
@@ -94,7 +94,7 @@ func (suite *BaseOAuthE2ETestSuite) SetupBaseInfrastructure(t TestingT) error {
 	suite.oauth = oauth.NewManager(suite.store)
 
 	// Set up Helix API server with all dependencies
-	err = suite.setupHelixAPIServer(t, cfg)
+	err = suite.setupHelixAPIServer(t, &cfg)
 	if err != nil {
 		return fmt.Errorf("failed to setup Helix API server: %w", err)
 	}
@@ -249,7 +249,7 @@ func (suite *BaseOAuthE2ETestSuite) setupHelixAPIServer(t TestingT, cfg *config.
 }
 
 // configureKeycloak sets up Keycloak configuration for testing
-func (suite *BaseOAuthE2ETestSuite) configureKeycloak(cfg *config.ServerConfig) *config.KeycloakConfig {
+func (suite *BaseOAuthE2ETestSuite) configureKeycloak(cfg *config.ServerConfig) *config.Keycloak {
 	keycloakConfig := cfg.Keycloak
 
 	if keycloakURL := os.Getenv("KEYCLOAK_URL"); keycloakURL != "" {
@@ -416,16 +416,10 @@ func getTestResultsDir() string {
 	return "/tmp/helix-oauth-test-results"
 }
 
-// min returns the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// TestingT is an interface that matches testing.T for dependency injection
+// TestingT is a minimal interface for testing.T compatibility
 type TestingT interface {
 	Logf(format string, args ...interface{})
 	TempDir() string
+	Errorf(format string, args ...interface{})
+	Fatalf(format string, args ...interface{})
 }

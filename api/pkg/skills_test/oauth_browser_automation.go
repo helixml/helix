@@ -282,12 +282,6 @@ func (ba *OAuthBrowserAutomation) waitForNavigation(page *rod.Page, timeoutSecon
 	}
 }
 
-// LoginConfig contains selectors for login form elements
-type LoginConfig struct {
-	UsernameSelector    string
-	PasswordSelector    string
-	LoginButtonSelector string
-}
 
 // GetGitHubLoginConfig returns the login configuration for GitHub
 func GetGitHubLoginConfig() LoginConfig {
@@ -296,83 +290,4 @@ func GetGitHubLoginConfig() LoginConfig {
 		PasswordSelector:    `input[name="password"]`,
 		LoginButtonSelector: `input[type="submit"][value="Sign in"], button[type="submit"]`,
 	}
-}
-
-// HandleOAuthFlow performs the complete OAuth flow with browser automation
-func (ba *OAuthBrowserAutomation) HandleOAuthFlow(userID, providerID, callbackURL string, credentials OAuthCredentials, config OAuthProviderConfig) error {
-	// Start OAuth flow
-	authURL, state, err := ba.StartOAuthFlow(userID, providerID, callbackURL)
-	if err != nil {
-		return fmt.Errorf("failed to start OAuth flow: %w", err)
-	}
-
-	// Create browser page
-	page, err := ba.CreatePage()
-	if err != nil {
-		return fmt.Errorf("failed to create browser page: %w", err)
-	}
-	defer page.Close()
-
-	// Navigate to OAuth URL
-	err = ba.NavigateToOAuthURL(page, authURL)
-	if err != nil {
-		return fmt.Errorf("failed to navigate to OAuth URL: %w", err)
-	}
-
-	// Perform login if required
-	err = ba.PerformLogin(page, credentials.Username, credentials.Password, config.LoginConfig)
-	if err != nil {
-		return fmt.Errorf("failed to perform login: %w", err)
-	}
-
-	// Handle device verification if supported
-	if config.DeviceVerificationHandler != nil {
-		err = config.DeviceVerificationHandler.HandleDeviceVerification(page)
-		if err != nil {
-			return fmt.Errorf("failed to handle device verification: %w", err)
-		}
-	}
-
-	// Check if we're already at callback or need to click authorize
-	currentURL := page.MustInfo().URL
-	if !strings.Contains(currentURL, "/api/v1/oauth/callback") && !strings.Contains(currentURL, "code=") {
-		// Click authorize button
-		err = ba.ClickAuthorizeButton(page, config.AuthorizeButtonSelector)
-		if err != nil {
-			return fmt.Errorf("failed to click authorize button: %w", err)
-		}
-	}
-
-	// Wait for callback
-	authCode, err := ba.WaitForCallback(page, state, 20)
-	if err != nil {
-		return fmt.Errorf("failed to wait for OAuth callback: %w", err)
-	}
-
-	// Complete OAuth flow
-	err = ba.CompleteOAuthFlow(userID, providerID, authCode)
-	if err != nil {
-		return fmt.Errorf("failed to complete OAuth flow: %w", err)
-	}
-
-	ba.logger.Info().Msg("OAuth flow completed successfully")
-	return nil
-}
-
-// OAuthCredentials contains username and password for OAuth login
-type OAuthCredentials struct {
-	Username string
-	Password string
-}
-
-// OAuthProviderConfig contains provider-specific configuration
-type OAuthProviderConfig struct {
-	LoginConfig               LoginConfig
-	AuthorizeButtonSelector   string
-	DeviceVerificationHandler DeviceVerificationHandler
-}
-
-// DeviceVerificationHandler interface for handling device verification
-type DeviceVerificationHandler interface {
-	HandleDeviceVerification(page *rod.Page) error
 }
