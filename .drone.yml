@@ -528,7 +528,6 @@ steps:
   when:
     event:
     - tag
-    - push
 
 depends_on:
 - default
@@ -564,7 +563,6 @@ steps:
   when:
     event:
     - tag
-    - push
 
 depends_on:
 - default
@@ -600,7 +598,6 @@ steps:
   when:
     event:
     - tag
-    - push
 
 depends_on:
 - default
@@ -637,7 +634,6 @@ steps:
   when:
     event:
     - tag
-    - push
 
 depends_on:
 - default
@@ -677,7 +673,6 @@ steps:
   when:
     event:
     - tag
-    - push
 
 depends_on:
 - default
@@ -747,7 +742,6 @@ steps:
       exclude:
       - main
     event:
-    - push
 
 
 depends_on:
@@ -818,7 +812,6 @@ steps:
       exclude:
       - main
     event:
-    - push
 
 depends_on:
 - default
@@ -852,7 +845,6 @@ steps:
   when:
     event:
     - tag
-    - push
 
 depends_on:
 - default
@@ -886,7 +878,6 @@ steps:
   when:
     event:
     - tag
-    - push
 
 depends_on:
 - default
@@ -920,7 +911,6 @@ steps:
   when:
     event:
     - tag
-    - push
 
 depends_on:
 - default
@@ -954,7 +944,6 @@ steps:
   when:
     event:
     - tag
-    - push
 
 depends_on:
 - default
