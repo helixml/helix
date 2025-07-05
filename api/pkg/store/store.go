@@ -80,6 +80,7 @@ type GetTriggerConfigurationQuery struct {
 }
 
 type ListTriggerConfigurationsQuery struct {
+	AppID          string
 	Owner          string
 	OwnerType      types.OwnerType
 	OrganizationID string
