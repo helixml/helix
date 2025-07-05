@@ -24,6 +24,10 @@ func (s *PostgresStore) CreateTriggerConfiguration(ctx context.Context, triggerC
 		return nil, fmt.Errorf("name not specified")
 	}
 
+	if triggerConfig.AppID == "" {
+		return nil, fmt.Errorf("app_id not specified")
+	}
+
 	triggerConfig.Created = time.Now()
 	triggerConfig.Updated = time.Now()
 
@@ -45,6 +49,10 @@ func (s *PostgresStore) UpdateTriggerConfiguration(ctx context.Context, triggerC
 
 	if triggerConfig.Name == "" {
 		return nil, fmt.Errorf("name not specified")
+	}
+
+	if triggerConfig.AppID == "" {
+		return nil, fmt.Errorf("app_id not specified")
 	}
 
 	triggerConfig.Updated = time.Now()
@@ -102,6 +110,10 @@ func (s *PostgresStore) ListTriggerConfigurations(ctx context.Context, q *ListTr
 		query = query.Where("organization_id = ?", q.OrganizationID)
 	}
 
+	if q.AppID != "" {
+		query = query.Where("app_id = ?", q.AppID)
+	}
+
 	err := query.Find(&triggerConfigs).Error
 	if err != nil {
 		return nil, err
@@ -110,6 +122,10 @@ func (s *PostgresStore) ListTriggerConfigurations(ctx context.Context, q *ListTr
 }
 
 func (s *PostgresStore) DeleteTriggerConfiguration(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("id not specified")
+	}
+
 	err := s.gdb.WithContext(ctx).Delete(&types.TriggerConfiguration{
 		ID: id,
 	}).Error
