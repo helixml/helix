@@ -1361,9 +1361,6 @@ type AzureDevOpsTrigger struct {
 	Enabled        bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	Project        string `json:"project,omitempty" yaml:"project,omitempty"`
 	RepositoryName string `json:"repository_name,omitempty" yaml:"repository_name,omitempty"`
-
-	Webhook   string `json:"webhook,omitempty" yaml:"webhook,omitempty"`
-	WebhookID string `json:"webhook_id,omitempty" yaml:"webhook_id,omitempty"`
 }
 
 type Trigger struct {
@@ -2004,6 +2001,7 @@ type TriggerConfiguration struct {
 	ID             string             `json:"id"`
 	Created        time.Time          `json:"created"`
 	Updated        time.Time          `json:"updated"`
+	AppID          string             `json:"app_id"`          // App ID
 	OrganizationID string             `json:"organization_id"` // Organization ID
 	Owner          string             `json:"owner"`           // User ID
 	OwnerType      OwnerType          `json:"owner_type"`      // User or Organization

@@ -82,6 +82,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/apps/{app_id}/triggers": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List triggers for the app",
+                "tags": [
+                    "apps"
+                ],
+                "summary": "List app triggers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "app_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.TriggerConfiguration"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{id}": {
             "get": {
                 "security": [
@@ -4077,6 +4111,20 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AzureDevOpsTrigger": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "project": {
+                    "type": "string"
+                },
+                "repository_name": {
+                    "type": "string"
+                }
+            }
+        },
         "types.ChatCompletionMessage": {
             "type": "object",
             "properties": {
@@ -7096,6 +7144,9 @@ const docTemplate = `{
         "types.Trigger": {
             "type": "object",
             "properties": {
+                "azure_devops": {
+                    "$ref": "#/definitions/types.AzureDevOpsTrigger"
+                },
                 "cron": {
                     "$ref": "#/definitions/types.CronTrigger"
                 },
@@ -7106,6 +7157,101 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.SlackTrigger"
                 }
             }
+        },
+        "types.TriggerConfiguration": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "description": "App ID",
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "description": {
+                    "description": "Description of the trigger configuration",
+                    "type": "string"
+                },
+                "executions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.TriggerExecution"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Name of the trigger configuration",
+                    "type": "string"
+                },
+                "organization_id": {
+                    "description": "Organization ID",
+                    "type": "string"
+                },
+                "owner": {
+                    "description": "User ID",
+                    "type": "string"
+                },
+                "owner_type": {
+                    "description": "User or Organization",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OwnerType"
+                        }
+                    ]
+                },
+                "trigger": {
+                    "$ref": "#/definitions/types.Trigger"
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.TriggerExecution": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "output": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/types.TriggerExecutionStatus"
+                },
+                "trigger_configuration_id": {
+                    "type": "string"
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.TriggerExecutionStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "running",
+                "success",
+                "error"
+            ],
+            "x-enum-varnames": [
+                "TriggerExecutionStatusPending",
+                "TriggerExecutionStatusRunning",
+                "TriggerExecutionStatusSuccess",
+                "TriggerExecutionStatusError"
+            ]
         },
         "types.TriggerStatus": {
             "type": "object",

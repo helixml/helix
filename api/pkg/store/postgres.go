@@ -192,6 +192,14 @@ func (s *PostgresStore) autoMigrate() error {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
+	if err := createFK(s.gdb, types.TriggerConfiguration{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.TriggerExecution{}, types.TriggerConfiguration{}, "trigger_configuration_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
 	return nil
 }
 

@@ -990,6 +990,15 @@ definitions:
       authenticated:
         type: boolean
     type: object
+  types.AzureDevOpsTrigger:
+    properties:
+      enabled:
+        type: boolean
+      project:
+        type: string
+      repository_name:
+        type: string
+    type: object
   types.ChatCompletionMessage:
     properties:
       content:
@@ -3109,6 +3118,8 @@ definitions:
     type: object
   types.Trigger:
     properties:
+      azure_devops:
+        $ref: '#/definitions/types.AzureDevOpsTrigger'
       cron:
         $ref: '#/definitions/types.CronTrigger'
       discord:
@@ -3116,6 +3127,71 @@ definitions:
       slack:
         $ref: '#/definitions/types.SlackTrigger'
     type: object
+  types.TriggerConfiguration:
+    properties:
+      app_id:
+        description: App ID
+        type: string
+      created:
+        type: string
+      description:
+        description: Description of the trigger configuration
+        type: string
+      executions:
+        items:
+          $ref: '#/definitions/types.TriggerExecution'
+        type: array
+      id:
+        type: string
+      name:
+        description: Name of the trigger configuration
+        type: string
+      organization_id:
+        description: Organization ID
+        type: string
+      owner:
+        description: User ID
+        type: string
+      owner_type:
+        allOf:
+        - $ref: '#/definitions/types.OwnerType'
+        description: User or Organization
+      trigger:
+        $ref: '#/definitions/types.Trigger'
+      updated:
+        type: string
+    type: object
+  types.TriggerExecution:
+    properties:
+      created:
+        type: string
+      error:
+        type: string
+      id:
+        type: string
+      output:
+        type: string
+      session_id:
+        type: string
+      status:
+        $ref: '#/definitions/types.TriggerExecutionStatus'
+      trigger_configuration_id:
+        type: string
+      updated:
+        type: string
+    type: object
+  types.TriggerExecutionStatus:
+    enum:
+    - pending
+    - running
+    - success
+    - error
+    type: string
+    x-enum-varnames:
+    - TriggerExecutionStatusPending
+    - TriggerExecutionStatusRunning
+    - TriggerExecutionStatusSuccess
+    - TriggerExecutionStatusError
   types.TriggerStatus:
     properties:
       message:
@@ -3339,6 +3415,27 @@ paths:
             $ref: '#/definitions/server.AppCreateResponse'
       security:
       - BearerAuth: []
+  /api/v1/apps/{app_id}/triggers:
+    get:
+      description: List triggers for the app
+      parameters:
+      - description: App ID
+        in: path
+        name: app_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.TriggerConfiguration'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List app triggers
+      tags:
+      - apps
   /api/v1/apps/{id}:
     delete:
       parameters:
