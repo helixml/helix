@@ -6,9 +6,11 @@ import FormControlLabel from '@mui/material/FormControlLabel'
 import Alert from '@mui/material/Alert'
 import Circle from '@mui/icons-material/Circle'
 import Button from '@mui/material/Button'
+import TextField from '@mui/material/TextField'
 import { TypesTrigger } from '../../api/api'
 import { IAppFlatState } from '../../types'
 import { useListAppTriggers } from '../../services/appService'
+import CopyButton from '../common/CopyButton'
 
 interface TriggerAzureDevOpsProps {
   app: IAppFlatState
@@ -125,31 +127,27 @@ const TriggerAzureDevOps: FC<TriggerAzureDevOpsProps> = ({
               <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
                 Webhook URL
               </Typography>
-              <Box sx={{ 
-                p: 2, 
-                borderRadius: 1, 
-                bgcolor: 'grey.50', 
-                border: '1px solid', 
-                borderColor: 'divider',
-                fontFamily: 'monospace',
-                fontSize: '0.875rem',
-                wordBreak: 'break-all'
-              }}>
-                {isLoadingTriggers ? (
-                  <Typography variant="body2" color="text.secondary">
-                    Loading webhook URL...
-                  </Typography>
-                ) : azureDevOpsWebhookUrl ? (
-                  azureDevOpsWebhookUrl
-                ) : (
-                  <Typography variant="body2" color="text.secondary">
-                    Webhook URL will be generated once the trigger is enabled...
-                  </Typography>
-                )}
-              </Box>
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                Use this webhook URL in your Azure DevOps pipeline to trigger your agent
-              </Typography>
+              <TextField
+                fullWidth
+                size="small"
+                placeholder="Webhook URL will be generated once the trigger is enabled..."
+                value={isLoadingTriggers ? 'Loading webhook URL...' : (azureDevOpsWebhookUrl || '')}
+                InputProps={{
+                  readOnly: true,
+                  endAdornment: azureDevOpsWebhookUrl ? (
+                    <CopyButton
+                      content={azureDevOpsWebhookUrl}
+                      title="Webhook URL"
+                      sx={{
+                        mr: 0,
+                        mt: 0
+                      }}
+                    />
+                  ) : undefined
+                }}
+                disabled={readOnly || !hasAzureDevOpsTrigger}
+                helperText="Use this URL as Service Hook destination in your Azure DevOps pipeline to trigger your agent"
+                              />
             </Box>
           )}
 
