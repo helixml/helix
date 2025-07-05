@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/helixml/helix/api/pkg/store"
@@ -37,6 +38,13 @@ func (s *HelixAPIServer) listAppTriggers(_ http.ResponseWriter, r *http.Request)
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// Populate WebhookURL for applicable triggers
+	for idx, trigger := range triggers {
+		if trigger.Trigger.AzureDevOps != nil && trigger.Trigger.AzureDevOps.Enabled {
+			triggers[idx].WebhookURL = fmt.Sprintf("%s/api/v1/webhook-triggers/%s", s.Cfg.WebServer.URL, trigger.ID)
+		}
 	}
 
 	return triggers, nil
