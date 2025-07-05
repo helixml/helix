@@ -1985,7 +1985,8 @@ type SlackThread struct {
 type TriggerType string
 
 const (
-	TriggerTypeSlack TriggerType = "slack"
+	TriggerTypeSlack       TriggerType = "slack"
+	TriggerTypeAzureDevOps TriggerType = "azure_devops"
 	// TODO: discord
 )
 
