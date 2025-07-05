@@ -643,8 +643,6 @@ export interface TypesAuthenticatedResponse {
 
 export interface TypesAzureDevOpsTrigger {
   enabled?: boolean;
-  project?: string;
-  repository_name?: string;
 }
 
 export interface TypesChatCompletionMessage {
@@ -1898,8 +1896,6 @@ export interface TypesTriggerConfiguration {
   /** App ID */
   app_id?: string;
   created?: string;
-  /** Description of the trigger configuration */
-  description?: string;
   executions?: TypesTriggerExecution[];
   id?: string;
   /** Name of the trigger configuration */
@@ -1912,6 +1908,8 @@ export interface TypesTriggerConfiguration {
   owner_type?: TypesOwnerType;
   trigger?: TypesTrigger;
   updated?: string;
+  /** Webhook URL for the trigger configuration, applicable to webhook type triggers like Azure DevOps, GitHub, etc. */
+  webhook_url?: string;
 }
 
 export interface TypesTriggerExecution {

@@ -1357,10 +1357,10 @@ type CronTrigger struct {
 	Input    string `json:"input,omitempty" yaml:"input,omitempty"`
 }
 
+// AzureDevOpsTrigger - once enabled, a trigger in the database will be created
+// that you can supply to Azure DevOps to trigger a session.
 type AzureDevOpsTrigger struct {
-	Enabled        bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Project        string `json:"project,omitempty" yaml:"project,omitempty"`
-	RepositoryName string `json:"repository_name,omitempty" yaml:"repository_name,omitempty"`
+	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 }
 
 type Trigger struct {
@@ -2006,9 +2006,10 @@ type TriggerConfiguration struct {
 	Owner          string             `json:"owner"`           // User ID
 	OwnerType      OwnerType          `json:"owner_type"`      // User or Organization
 	Name           string             `json:"name"`            // Name of the trigger configuration
-	Description    string             `json:"description"`     // Description of the trigger configuration
 	Trigger        Trigger            `json:"trigger" gorm:"jsonb"`
 	Executions     []TriggerExecution `json:"executions" gorm:"foreignKey:TriggerConfigurationID"`
+
+	WebhookURL string `json:"webhook_url" gorm:"-"` // Webhook URL for the trigger configuration, applicable to webhook type triggers like Azure DevOps, GitHub, etc.
 }
 
 type TriggerExecutionStatus string
