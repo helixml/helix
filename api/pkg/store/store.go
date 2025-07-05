@@ -72,6 +72,19 @@ type GetProviderEndpointsQuery struct {
 	Name      string
 }
 
+type GetTriggerConfigurationQuery struct {
+	ID             string
+	Owner          string
+	OwnerType      types.OwnerType
+	OrganizationID string
+}
+
+type ListTriggerConfigurationsQuery struct {
+	Owner          string
+	OwnerType      types.OwnerType
+	OrganizationID string
+}
+
 type ListUsersQuery struct {
 	TokenType types.TokenType `json:"token_type"`
 	Admin     bool            `json:"admin"`
@@ -272,6 +285,13 @@ type Store interface {
 	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)
 	GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error)
 	DeleteSlackThread(ctx context.Context, olderThan time.Time) error
+
+	// trigger configurations
+	CreateTriggerConfiguration(ctx context.Context, triggerConfig *types.TriggerConfiguration) (*types.TriggerConfiguration, error)
+	GetTriggerConfiguration(ctx context.Context, q *GetTriggerConfigurationQuery) (*types.TriggerConfiguration, error)
+	UpdateTriggerConfiguration(ctx context.Context, triggerConfig *types.TriggerConfiguration) (*types.TriggerConfiguration, error)
+	DeleteTriggerConfiguration(ctx context.Context, id string) error
+	ListTriggerConfigurations(ctx context.Context, q *ListTriggerConfigurationsQuery) ([]*types.TriggerConfiguration, error)
 }
 
 type EmbeddingsStore interface {
