@@ -7,6 +7,7 @@ import ApiIcon from '@mui/icons-material/Api'
 import { TypesTrigger } from '../../api/api'
 import TriggerCron from './TriggerCron'
 import TriggerSlack from './TriggerSlack'
+import TriggerAzureDevOps from './TriggerAzureDevOps'
 import { IAppFlatState } from '../../types'
 
 interface TriggersProps {
@@ -64,6 +65,18 @@ const Triggers: FC<TriggersProps> = ({
 
       {/* Slack Trigger */}
       <TriggerSlack
+        app={app}
+        appId={appId}
+        triggers={triggers}
+        onUpdate={onUpdate}
+        readOnly={readOnly}
+      />
+
+      {/* Add spacing between triggers */}
+      <Box sx={{ my: 3 }} />
+
+      {/* Azure DevOps Trigger */}
+      <TriggerAzureDevOps
         app={app}
         appId={appId}
         triggers={triggers}
