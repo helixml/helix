@@ -297,6 +297,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Setup OAuth callback route (no auth required)
 	insecureRouter.HandleFunc("/oauth/flow/callback", apiServer.handleOAuthCallback).Methods("GET")
 
+	insecureRouter.HandleFunc("/webhooks/{id}", apiServer.webhookTriggerHandler).Methods(http.MethodPost, http.MethodPut)
+
 	subRouter.HandleFunc("/config", system.DefaultWrapperWithConfig(apiServer.config, system.WrapperConfig{
 		SilenceErrors: true,
 	})).Methods(http.MethodGet)
