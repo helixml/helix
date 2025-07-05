@@ -1785,8 +1785,11 @@ func (s *HelixAPIServer) getAppTriggerStatus(rw http.ResponseWriter, r *http.Req
 
 	status, ok := s.Controller.GetTriggerStatus(app.ID, types.TriggerType(triggerType))
 	if !ok {
-		writeErrResponse(rw, errors.New("trigger status not found"), http.StatusNotFound)
-		return
+		// If it's not there, return as not configured
+		status = types.TriggerStatus{
+			OK:      false,
+			Message: "Not configured",
+		}
 	}
 
 	writeResponse(rw, status, http.StatusOK)

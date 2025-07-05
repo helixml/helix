@@ -1938,6 +1938,7 @@ export interface TypesTriggerStatus {
 
 export enum TypesTriggerType {
   TriggerTypeSlack = "slack",
+  TriggerTypeAzureDevOps = "azure_devops",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
