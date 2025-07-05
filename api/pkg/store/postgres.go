@@ -132,6 +132,8 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.Model{},
 		&types.StepInfo{},
 		&types.SlackThread{},
+		&types.TriggerConfiguration{},
+		&types.TriggerExecution{},
 	)
 	if err != nil {
 		return err
