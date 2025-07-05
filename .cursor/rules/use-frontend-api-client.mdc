@@ -3,6 +3,8 @@ description:
 globs: frontend/*
 alwaysApply: false
 ---
+## Using generated HTTP API client
+
 Always use generated typescript client when communicating with the backend. Under no circumstances write custom API functions within components/hooks such as:
 
 ```
@@ -29,3 +31,10 @@ return useQuery({
 ```
 
 If you can't find the correct function on the API client (`const apiClient = api.getApiClient();`) then it's probably missing and we need to add it in the backend or it's missing the doc string and that's why it wasn't generated. Once doc string in the Go backend is added, run `./stack update_openapi` command to regenerate the API client.
+
+## Adding new react-query hooks
+
+All API calls must use react-query together with the generated API client. They should be placed in appropriate file `frontend/srv/service/<resource type>Service.ts`, for example:
+
+- oauth provider related react-query functions go into `oauthProvidersService.ts`
+- app related react-query functions go into `appService.ts`
