@@ -25,6 +25,13 @@ import DarkDialog from '../dialog/DarkDialog'
 import CopyButton from '../common/CopyButton'
 import { IAppFlatState } from '../../types'
 
+import createSlackAppScreenshot from '../../../assets/img/slack/create_new_app.png'
+import createSlackAppManifest from '../../../assets/img/slack/manifest.png'
+import createSlackApp from '../../../assets/img/slack/create.png'
+import createSlackAppToken from '../../../assets/img/slack/app_token.png'
+import createSlackAppTokenScopes from '../../../assets/img/slack/app_token_scopes.png'
+import createSlackAppInstall from '../../../assets/img/slack/install_app.png'
+
 const getSlackAppManifest = (appName: string, description: string) => `{
     "display_information": {
         "name": "${appName}",
@@ -108,7 +115,7 @@ const setupSteps = [
   {
     step: 2,
     text: 'Click "Create New App"',
-    image: '/assets/img/slack/create_new_app.png'
+    image: createSlackAppScreenshot
   },
   {
     step: 3,
@@ -121,27 +128,27 @@ const setupSteps = [
   {
     step: 5,
     text: 'Copy paste the manifest into your app',
-    image: '/assets/img/slack/manifest.png'
+    image: createSlackAppManifest
   },
   {
     step: 6,
     text: 'Click "Create"',
-    image: '/assets/img/slack/create.png'
+    image: createSlackApp
   },
   {
     step: 7,
     text: 'Click "Generate Token and Scopes" in the Basic Information section',
-    image: '/assets/img/slack/app_token.png'
+    image: createSlackAppToken
   },
   {
     step: 8,
     text: 'Select all scopes and click "Generate"',
-    image: '/assets/img/slack/app_token_scopes.png'
+    image: createSlackAppTokenScopes
   },
   {
     step: 9,
     text: 'Go to "Install App" and generate the "Bot User OAuth Token"',
-    image: '/assets/img/slack/install_app.png'
+    image: createSlackAppInstall
   }
 ]
 
