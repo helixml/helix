@@ -34,6 +34,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/version"
 
 	"crypto/tls"
@@ -87,6 +88,7 @@ type HelixAPIServer struct {
 	fileServerHandler http.Handler
 	cache             *ristretto.Cache[string, string]
 	avatarsBucket     *blob.Bucket
+	trigger           *trigger.Manager
 }
 
 func NewServer(
@@ -105,6 +107,7 @@ func NewServer(
 	pingService *version.PingService,
 	oauthManager *oauth.Manager,
 	avatarsBucket *blob.Bucket,
+	trigger *trigger.Manager,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -210,6 +213,7 @@ func NewServer(
 		fileServerHandler: http.FileServer(neuteredFileSystem{http.Dir(cfg.FileStore.LocalFSPath)}),
 		cache:             cache,
 		avatarsBucket:     avatarsBucket,
+		trigger:           trigger,
 	}, nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/helixml/helix/api/pkg/store"
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -29,9 +30,16 @@ func (s *HelixAPIServer) webhookTriggerHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	log.Info().
-		Str("payload", string(bts)).
-		Any("trigger_config", triggerConfig).
+	log.Debug().
+		Str("trigger_config_id", triggerConfig.ID).
+		Str("trigger_config_app_id", triggerConfig.AppID).
 		Msgf("Received webhook trigger for trigger configuration %s", id)
 
+	err = s.trigger.ProcessWebhook(r.Context(), triggerConfig, bts)
+	if err != nil {
+		writeErrResponse(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	writeResponse(w, nil, http.StatusOK)
 }
