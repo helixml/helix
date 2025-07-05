@@ -4116,12 +4116,6 @@ const docTemplate = `{
             "properties": {
                 "enabled": {
                     "type": "boolean"
-                },
-                "project": {
-                    "type": "string"
-                },
-                "repository_name": {
-                    "type": "string"
                 }
             }
         },
@@ -7168,10 +7162,6 @@ const docTemplate = `{
                 "created": {
                     "type": "string"
                 },
-                "description": {
-                    "description": "Description of the trigger configuration",
-                    "type": "string"
-                },
                 "executions": {
                     "type": "array",
                     "items": {
@@ -7205,6 +7195,10 @@ const docTemplate = `{
                     "$ref": "#/definitions/types.Trigger"
                 },
                 "updated": {
+                    "type": "string"
+                },
+                "webhook_url": {
+                    "description": "Webhook URL for the trigger configuration, applicable to webhook type triggers like Azure DevOps, GitHub, etc.",
                     "type": "string"
                 }
             }
