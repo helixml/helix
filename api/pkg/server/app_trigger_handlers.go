@@ -43,7 +43,7 @@ func (s *HelixAPIServer) listAppTriggers(_ http.ResponseWriter, r *http.Request)
 	// Populate WebhookURL for applicable triggers
 	for idx, trigger := range triggers {
 		if trigger.Trigger.AzureDevOps != nil && trigger.Trigger.AzureDevOps.Enabled {
-			triggers[idx].WebhookURL = fmt.Sprintf("%s/api/v1/webhook-triggers/%s", s.Cfg.WebServer.URL, trigger.ID)
+			triggers[idx].WebhookURL = fmt.Sprintf("%s/api/v1/webhooks/%s", s.Cfg.WebServer.URL, trigger.ID)
 		}
 	}
 
