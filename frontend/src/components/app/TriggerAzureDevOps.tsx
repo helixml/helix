@@ -97,7 +97,8 @@ const TriggerAzureDevOps: FC<TriggerAzureDevOpsProps> = ({
           <Box>
             <Typography gutterBottom>Azure DevOps</Typography>
             <Typography variant="body2" color="text.secondary">
-              Connect your agent to Azure DevOps for pipeline triggers and notifications
+              Connect your agent to Azure DevOps for pipeline triggers and notifications. Tuned to work with
+              Pull Request (created, updated, commented) events.
             </Typography>
           </Box>
         </Box>
