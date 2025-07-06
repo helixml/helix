@@ -37,3 +37,58 @@ func TestRenderPullRequestCommentedEvent(t *testing.T) {
 		require.Contains(t, rendered, expected)
 	}
 }
+
+func TestRenderPullRequestCreatedUpdatedEvent(t *testing.T) {
+	// Test with created event
+	bts, err := os.ReadFile("testdata/pr_created.json")
+	require.NoError(t, err)
+
+	var pr PullRequest
+	err = json.Unmarshal(bts, &pr)
+	require.NoError(t, err)
+
+	rendered, err := renderPullRequestCreatedUpdatedEvent(pr)
+	require.NoError(t, err)
+
+	// Looking for specific pieces of information
+	expected := []string{
+		"Azure DevOps Pull Request Created Event",
+		"- PR ID: 1",
+		"- Title: content",
+		"- Description: content",
+		"- Project Name: helix-agents",
+		"- Repository Name: helix-agents",
+		"- Source Branch: refs/heads/feature/pr_1",
+		"- Target Branch: refs/heads/master",
+	}
+
+	for _, expected := range expected {
+		require.Contains(t, rendered, expected)
+	}
+
+	// Test with updated event
+	bts, err = os.ReadFile("testdata/pr_updated.json")
+	require.NoError(t, err)
+
+	err = json.Unmarshal(bts, &pr)
+	require.NoError(t, err)
+
+	rendered, err = renderPullRequestCreatedUpdatedEvent(pr)
+	require.NoError(t, err)
+
+	// Looking for specific pieces of information
+	expected = []string{
+		"Azure DevOps Pull Request Updated Event",
+		"- PR ID: 1",
+		"- Title: content",
+		"- Description: content",
+		"- Project Name: helix-agents",
+		"- Repository Name: helix-agents",
+		"- Source Branch: refs/heads/feature/pr_1",
+		"- Target Branch: refs/heads/master",
+	}
+
+	for _, expected := range expected {
+		require.Contains(t, rendered, expected)
+	}
+}
