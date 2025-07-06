@@ -41,7 +41,7 @@ func NewAgent(emitter StepInfoEmitter, prompt string, skills []Skill, maxIterati
 			// TODO: return error
 			panic(fmt.Sprintf("skill '%s' is missing a Description", skill.Name))
 		}
-		if skill.SystemPrompt == "" {
+		if !skill.Direct && skill.SystemPrompt == "" {
 			// TODO: return error
 			panic(fmt.Sprintf("skill '%s' is missing a SystemPrompt", skill.Name))
 		}
