@@ -586,47 +586,51 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
             <NameTypography>
               {skill.name || 'New API Skill'}
             </NameTypography>
-            <Button
-              onClick={handleMenuClick}
-              variant="outlined"
-              size="small"
-              sx={{ 
-                color: '#A0AEC0',
-                borderColor: '#353945',
-                '&:hover': {
-                  borderColor: '#6366F1',
-                  color: '#6366F1',
-                },
-                textTransform: 'none',
-                fontSize: '0.875rem',
-                py: 0.5,
-                px: 1.5,
-              }}
-            >
-              Load from examples
-            </Button>
-            <Menu
-              anchorEl={anchorEl}
-              open={Boolean(anchorEl)}
-              onClose={handleMenuClose}
-              PaperProps={{
-                sx: {
-                  bgcolor: '#23262F',
-                  color: '#F1F1F1',
-                  '& .MuiMenuItem-root': {
+            {skill.configurable && (
+              <>
+                <Button
+                  onClick={handleMenuClick}
+                  variant="outlined"
+                  size="small"
+                  sx={{ 
+                    color: '#A0AEC0',
+                    borderColor: '#353945',
                     '&:hover': {
-                      bgcolor: '#353945',
+                      borderColor: '#6366F1',
+                      color: '#6366F1',
                     },
-                  },
-                },
-              }}
-            >
-              
-              <MenuItem onClick={() => handleExampleSelect(climateTool)}>Climate API</MenuItem>
-              <MenuItem onClick={() => handleExampleSelect(jobVacanciesTool)}>Job Vacancies API</MenuItem>
-              <MenuItem onClick={() => handleExampleSelect(exchangeRatesTool)}>Exchange Rates API</MenuItem>
-              <MenuItem onClick={() => handleExampleSelect(productsTool)}>Products API</MenuItem>
-            </Menu>
+                    textTransform: 'none',
+                    fontSize: '0.875rem',
+                    py: 0.5,
+                    px: 1.5,
+                  }}
+                >
+                  Load from examples
+                </Button>
+                <Menu
+                  anchorEl={anchorEl}
+                  open={Boolean(anchorEl)}
+                  onClose={handleMenuClose}
+                  PaperProps={{
+                    sx: {
+                      bgcolor: '#23262F',
+                      color: '#F1F1F1',
+                      '& .MuiMenuItem-root': {
+                        '&:hover': {
+                          bgcolor: '#353945',
+                        },
+                      },
+                    },
+                  }}
+                >
+                  
+                  <MenuItem onClick={() => handleExampleSelect(climateTool)}>Climate API</MenuItem>
+                  <MenuItem onClick={() => handleExampleSelect(jobVacanciesTool)}>Job Vacancies API</MenuItem>
+                  <MenuItem onClick={() => handleExampleSelect(exchangeRatesTool)}>Exchange Rates API</MenuItem>
+                  <MenuItem onClick={() => handleExampleSelect(productsTool)}>Products API</MenuItem>
+                </Menu>
+              </>
+            )}
           </Box>
           <DescriptionTypography>
             {renderDescriptionWithLinks(skill.description || 'No description provided.')}
