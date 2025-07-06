@@ -91,3 +91,73 @@ func renderPullRequestCommentedEvent(prc PullRequestComment) (string, error) {
 	}
 	return buf.String(), nil
 }
+
+var pullRequestCreatedUpdatedEventTemplate = `Azure DevOps Pull Request {{if eq .EventType "git.pullrequest.created"}}Created{{else}}Updated{{end}} Event
+
+EVENT DETAILS:
+- Event Type: {{.EventType}}
+- Event ID: {{.ID}}
+- Created Date: {{.CreatedDate.Format "2006-01-02T15:04:05Z07:00"}}
+
+PULL REQUEST DETAILS:
+- PR ID: {{.Resource.PullRequestID}}
+- Code Review ID: {{.Resource.CodeReviewID}}
+- Title: {{.Resource.Title}}
+- Description: {{.Resource.Description}}
+- Status: {{.Resource.Status}}
+- Is Draft: {{.Resource.IsDraft}}
+- Merge Status: {{.Resource.MergeStatus}}
+- Source Branch: {{.Resource.SourceRefName}}
+- Target Branch: {{.Resource.TargetRefName}}
+- Creation Date: {{.Resource.CreationDate.Format "2006-01-02T15:04:05Z07:00"}}
+
+PULL REQUEST CREATOR:
+- Display Name: {{.Resource.CreatedBy.DisplayName}}
+- Unique Name: {{.Resource.CreatedBy.UniqueName}}
+- ID: {{.Resource.CreatedBy.ID}}
+- Email: {{.Resource.CreatedBy.UniqueName}}
+
+REPOSITORY INFORMATION:
+- Repository Name: {{.Resource.Repository.Name}}
+- Repository ID: {{.Resource.Repository.ID}}
+- Web URL: {{.Resource.Repository.WebURL}}
+
+PROJECT INFORMATION:
+- Project Name: {{.Resource.Repository.Project.Name}}
+- Project ID: {{.Resource.Repository.Project.ID}}
+- Project State: {{.Resource.Repository.Project.State}}
+- Project Visibility: {{.Resource.Repository.Project.Visibility}}
+
+COMMIT INFORMATION:
+- Last Merge Source Commit: {{.Resource.LastMergeSourceCommit.CommitID}}
+- Last Merge Target Commit: {{.Resource.LastMergeTargetCommit.CommitID}}
+- Last Merge Commit: {{.Resource.LastMergeCommit.CommitID}}
+
+LINKS:
+- Pull Request URL: {{.Resource.URL}}
+- Web URL: {{.Resource.Links.Web.Href}}
+
+ORGANIZATION:
+- Collection ID: {{.ResourceContainers.Collection.ID}}
+- Account ID: {{.ResourceContainers.Account.ID}}
+- Account Base URL: {{.ResourceContainers.Account.BaseURL}}
+
+This event can be used to:
+- Review pull request content and changes
+- Analyze code quality and provide feedback
+- Check for compliance with coding standards
+- Suggest improvements or identify potential issues
+- Automate code review processes
+- Route to appropriate reviewers based on changes
+`
+
+var pullRequestCreatedUpdatedEventTmpl = template.Must(template.New("pullRequestCreatedUpdatedEvent").Parse(pullRequestCreatedUpdatedEventTemplate))
+
+func renderPullRequestCreatedUpdatedEvent(pr PullRequest) (string, error) {
+	var buf bytes.Buffer
+	err := pullRequestCreatedUpdatedEventTmpl.Execute(&buf, pr)
+	if err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
