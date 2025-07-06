@@ -55,7 +55,6 @@ import (
 	"github.com/helixml/helix/api/pkg/skills"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
-	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -356,8 +355,6 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 	gptScriptExecutor := gptscript.NewMockExecutor(ctrl)
 	avatarsBucket := memblob.OpenBucket(nil) // Use in-memory blob bucket for testing
 
-	trigger := trigger.NewTriggerManager(cfg, suite.store, controller)
-
 	// Create the full server with all dependencies including OAuth manager
 	helixAPIServer, err := server.NewServer(
 		&cfg,
@@ -375,7 +372,7 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 		nil,         // ping service - not needed for this test
 		suite.oauth, // Pass OAuth manager here
 		avatarsBucket,
-		trigger,
+		nil,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create Helix API server: %w", err)

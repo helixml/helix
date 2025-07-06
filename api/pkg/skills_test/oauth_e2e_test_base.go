@@ -239,6 +239,7 @@ func (suite *BaseOAuthE2ETestSuite) setupHelixAPIServer(t TestingT, cfg *config.
 		nil,         // ping service
 		suite.oauth, // OAuth manager
 		avatarsBucket,
+		nil,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create Helix API server: %w", err)
