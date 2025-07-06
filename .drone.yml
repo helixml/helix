@@ -189,8 +189,8 @@ steps:
     # Ensure test results directory exists and has proper permissions
     - mkdir -p /tmp/helix-oauth-test-results
     - chmod 755 /tmp/helix-oauth-test-results
-    # Run OAuth integration tests with specific build tag
-    - cd api
+    # Run OAuth integration tests from the new location
+    - cd integration-test/skills
     - |
       echo "=== Starting OAuth Integration Test ==="
       echo "Test results will be saved to: /tmp/helix-oauth-test-results"
@@ -201,7 +201,7 @@ steps:
       
       # Run the test and capture exit code, but don't fail the step immediately
       set +e
-      go test -v -tags=oauth_integration ./pkg/skills_test/...
+      go test -v ./...
       TEST_EXIT_CODE=$?
       set -e
       
