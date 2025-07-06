@@ -32,6 +32,7 @@ export enum GithubComHelixmlHelixApiPkgTypesToolType {
   ToolTypeCalculator = "calculator",
   ToolTypeEmail = "email",
   ToolTypeWebSearch = "web_search",
+  ToolTypeAzureDevOps = "azure_devops",
 }
 
 export interface GithubComHelixmlHelixApiPkgTypesUsage {
@@ -483,6 +484,11 @@ export interface TypesAssistantAPI {
   url?: string;
 }
 
+export interface TypesAssistantAzureDevOps {
+  organization_url?: string;
+  personal_access_token?: string;
+}
+
 export interface TypesAssistantBrowser {
   enabled?: boolean;
   /** If true, the browser will return the HTML as markdown */
@@ -498,6 +504,7 @@ export interface TypesAssistantConfig {
   agent_mode?: boolean;
   apis?: TypesAssistantAPI[];
   avatar?: string;
+  azure_devops?: TypesAssistantAzureDevOps;
   browser?: TypesAssistantBrowser;
   calculator?: TypesAssistantCalculator;
   /**
@@ -1842,6 +1849,11 @@ export interface TypesToolAPIConfig {
   url?: string;
 }
 
+export interface TypesToolAzureDevOpsConfig {
+  organization_url?: string;
+  personal_access_token?: string;
+}
+
 export interface TypesToolBrowserConfig {
   enabled?: boolean;
   /** If true, the browser will return the HTML as markdown */
@@ -1854,6 +1866,7 @@ export interface TypesToolCalculatorConfig {
 
 export interface TypesToolConfig {
   api?: TypesToolAPIConfig;
+  azure_devops?: TypesToolAzureDevOpsConfig;
   browser?: TypesToolBrowserConfig;
   calculator?: TypesToolCalculatorConfig;
   email?: TypesToolEmailConfig;

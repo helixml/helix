@@ -2801,7 +2801,8 @@ const docTemplate = `{
                 "zapier",
                 "calculator",
                 "email",
-                "web_search"
+                "web_search",
+                "azure_devops"
             ],
             "x-enum-varnames": [
                 "ToolTypeAPI",
@@ -2810,7 +2811,8 @@ const docTemplate = `{
                 "ToolTypeZapier",
                 "ToolTypeCalculator",
                 "ToolTypeEmail",
-                "ToolTypeWebSearch"
+                "ToolTypeWebSearch",
+                "ToolTypeAzureDevOps"
             ]
         },
         "github_com_helixml_helix_api_pkg_types.Usage": {
@@ -3813,6 +3815,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AssistantAzureDevOps": {
+            "type": "object",
+            "properties": {
+                "organization_url": {
+                    "type": "string"
+                },
+                "personal_access_token": {
+                    "type": "string"
+                }
+            }
+        },
         "types.AssistantBrowser": {
             "type": "object",
             "properties": {
@@ -3848,6 +3861,9 @@ const docTemplate = `{
                 },
                 "avatar": {
                     "type": "string"
+                },
+                "azure_devops": {
+                    "$ref": "#/definitions/types.AssistantAzureDevOps"
                 },
                 "browser": {
                     "$ref": "#/definitions/types.AssistantBrowser"
@@ -7040,6 +7056,17 @@ const docTemplate = `{
                 }
             }
         },
+        "types.ToolAzureDevOpsConfig": {
+            "type": "object",
+            "properties": {
+                "organization_url": {
+                    "type": "string"
+                },
+                "personal_access_token": {
+                    "type": "string"
+                }
+            }
+        },
         "types.ToolBrowserConfig": {
             "type": "object",
             "properties": {
@@ -7065,6 +7092,9 @@ const docTemplate = `{
             "properties": {
                 "api": {
                     "$ref": "#/definitions/types.ToolAPIConfig"
+                },
+                "azure_devops": {
+                    "$ref": "#/definitions/types.ToolAzureDevOpsConfig"
                 },
                 "browser": {
                     "$ref": "#/definitions/types.ToolBrowserConfig"
@@ -7264,10 +7294,12 @@ const docTemplate = `{
         "types.TriggerType": {
             "type": "string",
             "enum": [
-                "slack"
+                "slack",
+                "azure_devops"
             ],
             "x-enum-varnames": [
-                "TriggerTypeSlack"
+                "TriggerTypeSlack",
+                "TriggerTypeAzureDevOps"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {
