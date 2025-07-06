@@ -1357,10 +1357,17 @@ type CronTrigger struct {
 	Input    string `json:"input,omitempty" yaml:"input,omitempty"`
 }
 
+// AzureDevOpsTrigger - once enabled, a trigger in the database will be created
+// that you can supply to Azure DevOps to trigger a session.
+type AzureDevOpsTrigger struct {
+	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+}
+
 type Trigger struct {
-	Discord *DiscordTrigger `json:"discord,omitempty" yaml:"discord,omitempty"`
-	Slack   *SlackTrigger   `json:"slack,omitempty" yaml:"slack,omitempty"`
-	Cron    *CronTrigger    `json:"cron,omitempty" yaml:"cron,omitempty"`
+	Discord     *DiscordTrigger     `json:"discord,omitempty" yaml:"discord,omitempty"`
+	Slack       *SlackTrigger       `json:"slack,omitempty" yaml:"slack,omitempty"`
+	Cron        *CronTrigger        `json:"cron,omitempty" yaml:"cron,omitempty"`
+	AzureDevOps *AzureDevOpsTrigger `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
 }
 
 func (t Trigger) Value() (driver.Value, error) {
@@ -1978,7 +1985,8 @@ type SlackThread struct {
 type TriggerType string
 
 const (
-	TriggerTypeSlack TriggerType = "slack"
+	TriggerTypeSlack       TriggerType = "slack"
+	TriggerTypeAzureDevOps TriggerType = "azure_devops"
 	// TODO: discord
 )
 
@@ -1988,4 +1996,39 @@ type TriggerStatus struct {
 	Type    TriggerType `json:"type"`
 	OK      bool        `json:"ok"`
 	Message string      `json:"message"`
+}
+
+type TriggerConfiguration struct {
+	ID             string             `json:"id"`
+	Created        time.Time          `json:"created"`
+	Updated        time.Time          `json:"updated"`
+	AppID          string             `json:"app_id"`          // App ID
+	OrganizationID string             `json:"organization_id"` // Organization ID
+	Owner          string             `json:"owner"`           // User ID
+	OwnerType      OwnerType          `json:"owner_type"`      // User or Organization
+	Name           string             `json:"name"`            // Name of the trigger configuration
+	Trigger        Trigger            `json:"trigger" gorm:"jsonb"`
+	Executions     []TriggerExecution `json:"executions" gorm:"foreignKey:TriggerConfigurationID"`
+
+	WebhookURL string `json:"webhook_url" gorm:"-"` // Webhook URL for the trigger configuration, applicable to webhook type triggers like Azure DevOps, GitHub, etc.
+}
+
+type TriggerExecutionStatus string
+
+const (
+	TriggerExecutionStatusPending TriggerExecutionStatus = "pending"
+	TriggerExecutionStatusRunning TriggerExecutionStatus = "running"
+	TriggerExecutionStatusSuccess TriggerExecutionStatus = "success"
+	TriggerExecutionStatusError   TriggerExecutionStatus = "error"
+)
+
+type TriggerExecution struct {
+	ID                     string                 `json:"id"`
+	Created                time.Time              `json:"created"`
+	Updated                time.Time              `json:"updated"`
+	TriggerConfigurationID string                 `json:"trigger_configuration_id"`
+	Status                 TriggerExecutionStatus `json:"status"`
+	Error                  string                 `json:"error"`
+	Output                 string                 `json:"output"`
+	SessionID              string                 `json:"session_id"`
 }
