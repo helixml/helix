@@ -761,6 +761,8 @@ definitions:
     type: object
   types.AssistantAzureDevOps:
     properties:
+      enabled:
+        type: boolean
       organization_url:
         type: string
       personal_access_token:

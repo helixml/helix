@@ -11,6 +11,7 @@ import {
   TypesToolEmailConfig,
   TypesAssistantWebSearch,
   TypesToolWebSearchConfig,
+  TypesAssistantAzureDevOps,
   TypesTrigger,
 } from './api/api'
 
@@ -654,7 +655,7 @@ export interface IAssistantConfig {
   web_search?: TypesAssistantWebSearch;
   calculator?: TypesAssistantCalculator;
   email?: TypesAssistantEmail;
-  
+  azure_devops?: TypesAssistantAzureDevOps;
   tools?: ITool[];
   knowledge?: IKnowledgeSource[];
   tests?: ITest[];
@@ -830,6 +831,7 @@ export interface IAppFlatState {
   webSearchTool?: TypesAssistantWebSearch
   calculatorTool?: TypesAssistantCalculator
   emailTool?: TypesAssistantEmail
+  azureDevOpsTool?: TypesAssistantAzureDevOps
   conversation_starters?: string[];
   triggers?: TypesTrigger[];
   tests?: ITest[];
