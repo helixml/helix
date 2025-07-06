@@ -19,7 +19,6 @@ package skills
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"os"
 	"strings"
@@ -29,9 +28,6 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/oauth2/google"
-	"google.golang.org/api/gmail/v1"
-	"google.golang.org/api/option"
 )
 
 // ======================================================================================
@@ -95,7 +91,6 @@ type GitHubOAuthE2ETestSuite struct {
 
 	// Gmail configuration for device verification
 	gmailCredentialsBase64 string // Base64 encoded Gmail API credentials JSON
-	gmailService           *gmail.Service
 
 	// Test repositories created and GitHub utilities
 	testRepos   []string
@@ -223,12 +218,6 @@ func (suite *GitHubOAuthE2ETestSuite) setupGitHubSpecifics(t *testing.T) error {
 	err := suite.CleanupExistingOAuthData()
 	if err != nil {
 		suite.logger.Warn().Err(err).Msg("Failed to cleanup existing OAuth data, continuing anyway")
-	}
-
-	// Initialize Gmail service for device verification
-	err = suite.setupGmailService()
-	if err != nil {
-		return fmt.Errorf("failed to setup Gmail service: %w", err)
 	}
 
 	// Initialize GitHub utilities
@@ -361,46 +350,6 @@ func (suite *GitHubOAuthE2ETestSuite) cleanupGitHubTestData() error {
 			suite.logger.Info().Str("repo", repoName).Msg("GitHub repository deleted")
 		}
 	}
-	return nil
-}
-
-// ======================================================================================
-// GMAIL SERVICE SETUP (for device verification)
-// ======================================================================================
-
-// setupGmailService initializes the Gmail API service for device verification
-func (suite *GitHubOAuthE2ETestSuite) setupGmailService() error {
-	suite.logger.Info().Msg("Setting up Gmail service for device verification")
-
-	// Decode base64 credentials
-	credentials, err := base64.StdEncoding.DecodeString(suite.gmailCredentialsBase64)
-	if err != nil {
-		return fmt.Errorf("failed to decode Gmail credentials: %w", err)
-	}
-
-	// Create Gmail service with service account credentials and domain-wide delegation
-	ctx := context.Background()
-
-	// Parse the service account credentials
-	config, err := google.JWTConfigFromJSON(credentials, gmail.GmailReadonlyScope)
-	if err != nil {
-		return fmt.Errorf("failed to parse Gmail credentials: %w", err)
-	}
-
-	// Set the subject to impersonate the test@helix.ml user
-	config.Subject = "test@helix.ml"
-
-	// Create HTTP client with the JWT config
-	client := config.Client(ctx)
-
-	// Create Gmail service
-	service, err := gmail.NewService(ctx, option.WithHTTPClient(client))
-	if err != nil {
-		return fmt.Errorf("failed to create Gmail service: %w", err)
-	}
-
-	suite.gmailService = service
-	suite.logger.Info().Msg("Gmail service setup completed successfully")
 	return nil
 }
 
