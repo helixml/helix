@@ -65,14 +65,6 @@ import (
 	"google.golang.org/api/option"
 )
 
-// min returns the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // getTestResultsDir returns a fixed test results directory that works everywhere
 func getTestResultsDir() string {
 	return "/tmp/helix-oauth-test-results"
@@ -1250,16 +1242,6 @@ func (suite *GitHubOAuthE2ETestSuite) loadGitHubSkillFromManager() (*types.Skill
 		Msg("Loaded GitHub skill configuration from embedded skills manager")
 
 	return githubSkill, nil
-}
-
-// getGitHubSkillSchema returns the OpenAPI schema from the embedded skills manager
-func (suite *GitHubOAuthE2ETestSuite) getGitHubSkillSchema() string {
-	githubSkill, err := suite.loadGitHubSkillFromManager()
-	if err != nil {
-		suite.logger.Error().Err(err).Msg("Failed to load GitHub skill from manager, falling back to empty schema")
-		return ""
-	}
-	return githubSkill.Schema
 }
 
 // loadGitHubSkillConfig loads the complete GitHub skill configuration from the embedded skills manager
