@@ -68,7 +68,13 @@ func (a *AzureDevOps) processPullRequestCreateUpdateEvent(ctx context.Context, t
 		return err
 	}
 
-	return nil
+	rendered, err := renderPullRequestCreatedUpdatedEvent(pr)
+	if err != nil {
+		return fmt.Errorf("failed to render pull request created/updated event: %w", err)
+	}
+
+	// Process the rendered template
+	return a.processEvent(ctx, triggerConfig, event, rendered)
 }
 
 func (a *AzureDevOps) processPullRequestCommentEvent(ctx context.Context, triggerConfig *types.TriggerConfiguration, event Event, payload []byte) error {
