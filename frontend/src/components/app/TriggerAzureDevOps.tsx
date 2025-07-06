@@ -12,6 +12,8 @@ import { IAppFlatState } from '../../types'
 import { useListAppTriggers } from '../../services/appService'
 import CopyButton from '../common/CopyButton'
 
+import logo from '../../../assets/img/azure-devops/logo.png'
+
 interface TriggerAzureDevOpsProps {
   app: IAppFlatState
   appId: string
@@ -85,7 +87,7 @@ const TriggerAzureDevOps: FC<TriggerAzureDevOpsProps> = ({
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
           <Box
             component="img"
-            src="/assets/img/azure-devops/logo.png"
+            src={logo}
             alt="Azure DevOps"
             sx={{ 
               mr: 2, 
