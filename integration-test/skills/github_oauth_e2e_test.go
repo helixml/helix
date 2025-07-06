@@ -210,7 +210,7 @@ func (suite *GitHubOAuthE2ETestSuite) loadTestConfig() error {
 }
 
 // setupGitHubSpecifics initializes GitHub-specific test environment
-func (suite *GitHubOAuthE2ETestSuite) setupGitHubSpecifics(t *testing.T) error {
+func (suite *GitHubOAuthE2ETestSuite) setupGitHubSpecifics(_ *testing.T) error {
 	suite.logger.Info().Msg("=== GitHub OAuth Skills E2E Test Starting ===")
 
 	// Clean up any existing OAuth connections from previous test runs

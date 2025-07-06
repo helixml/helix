@@ -215,7 +215,7 @@ func (h *GitHubDeviceVerificationHandler) handleVerifiedDevicePage(page *rod.Pag
 
 	// If we found a code input, handle device verification
 	if codeInput != nil {
-		return h.handleDeviceVerificationInput(page, codeInput, automator)
+		return h.handleDeviceVerificationInput(page, codeInput, nil)
 	}
 
 	// If no code input found, look for continue buttons or other actions
@@ -268,7 +268,7 @@ func (h *GitHubDeviceVerificationHandler) handleSessionPage(page *rod.Page, auto
 	deviceCodeInput, err := page.Element(`input[name="otp"], input[id="otp"], input[name="device_verification_code"], input[placeholder*="verification"], input[placeholder*="code"]`)
 	if err == nil && deviceCodeInput != nil {
 		h.logger.Info().Msg("Found device verification code input on session page")
-		return h.handleDeviceVerificationInput(page, deviceCodeInput, automator)
+		return h.handleDeviceVerificationInput(page, deviceCodeInput, nil)
 	}
 
 	// Check for continue/submit buttons that might advance the session
@@ -326,11 +326,11 @@ func (h *GitHubDeviceVerificationHandler) handleTraditionalDeviceVerification(pa
 		return fmt.Errorf("failed to find verification code input field: %w", err)
 	}
 
-	return h.handleDeviceVerificationInput(page, codeInput, automator)
+	return h.handleDeviceVerificationInput(page, codeInput, nil)
 }
 
 // handleDeviceVerificationInput handles entering device verification codes
-func (h *GitHubDeviceVerificationHandler) handleDeviceVerificationInput(page *rod.Page, codeInput *rod.Element, automator *BrowserOAuthAutomator) error {
+func (h *GitHubDeviceVerificationHandler) handleDeviceVerificationInput(page *rod.Page, codeInput *rod.Element, _ *BrowserOAuthAutomator) error {
 	// Get device verification code from Gmail
 	h.logger.Info().Msg("Waiting for device verification email...")
 

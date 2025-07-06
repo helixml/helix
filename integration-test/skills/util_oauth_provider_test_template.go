@@ -356,7 +356,7 @@ func (template *OAuthProviderTestTemplate) SetupTestData(t *testing.T) {
 }
 
 // CleanupTestData calls the optional cleanup function for provider-specific test data
-func (template *OAuthProviderTestTemplate) CleanupTestData(t *testing.T) {
+func (template *OAuthProviderTestTemplate) CleanupTestData(_ *testing.T) {
 	if template.config.CleanupTestDataFunc != nil {
 		template.baseSuite.logger.Info().Str("provider", template.skillConfig.DisplayName).Msg("Cleaning up provider-specific test data")
 		if err := template.config.CleanupTestDataFunc(); err != nil {
@@ -366,7 +366,7 @@ func (template *OAuthProviderTestTemplate) CleanupTestData(t *testing.T) {
 }
 
 // Cleanup cleans up OAuth test resources
-func (template *OAuthProviderTestTemplate) Cleanup(t *testing.T) {
+func (template *OAuthProviderTestTemplate) Cleanup(_ *testing.T) {
 	template.baseSuite.logger.Info().Str("provider", template.skillConfig.DisplayName).Msg("=== Starting OAuth Provider Test Cleanup ===")
 
 	// Delete OAuth connection
