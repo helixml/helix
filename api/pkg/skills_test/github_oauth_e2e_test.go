@@ -372,6 +372,7 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 		nil,         // ping service - not needed for this test
 		suite.oauth, // Pass OAuth manager here
 		avatarsBucket,
+		nil,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create Helix API server: %w", err)
