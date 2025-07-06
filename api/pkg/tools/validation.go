@@ -134,6 +134,19 @@ func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Pl
 		if tool.Config.Zapier.APIKey == "" {
 			return system.NewHTTPError400("API key is required for Zapier tools")
 		}
+	case types.ToolTypeAzureDevOps:
+		if tool.Config.AzureDevOps == nil {
+			return system.NewHTTPError400("Azure DevOps config is required for Azure DevOps tools")
+		}
+
+		if tool.Config.AzureDevOps.OrganizationURL == "" {
+			return system.NewHTTPError400("Organization URL is required for Azure DevOps tools")
+		}
+
+		if tool.Config.AzureDevOps.PersonalAccessToken == "" {
+			return system.NewHTTPError400("Personal access token is required for Azure DevOps tools")
+		}
+
 	case types.ToolTypeBrowser, types.ToolTypeCalculator, types.ToolTypeEmail, types.ToolTypeWebSearch:
 		// No validation needed
 	default:

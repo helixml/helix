@@ -1850,6 +1850,7 @@ export interface TypesToolAPIConfig {
 }
 
 export interface TypesToolAzureDevOpsConfig {
+  enabled?: boolean;
   organization_url?: string;
   personal_access_token?: string;
 }
