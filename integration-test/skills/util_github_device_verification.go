@@ -55,27 +55,27 @@ func (h *GitHubDeviceVerificationHandler) IsRequired(page *rod.Page) bool {
 }
 
 // Handle performs the device verification process
-func (h *GitHubDeviceVerificationHandler) Handle(page *rod.Page, automator *BrowserOAuthAutomator) error {
+func (h *GitHubDeviceVerificationHandler) Handle(page *rod.Page, _ *BrowserOAuthAutomator) error {
 	h.logger.Info().Msg("Handling GitHub device verification")
 
 	currentURL := page.MustInfo().URL
 
 	// Handle different types of device verification pages
 	if strings.Contains(currentURL, "/sessions/verified-device") {
-		return h.handleVerifiedDevicePage(page, automator)
+		return h.handleVerifiedDevicePage(page, nil)
 	}
 
 	if strings.HasSuffix(currentURL, "/session") {
-		return h.handleSessionPage(page, automator)
+		return h.handleSessionPage(page, nil)
 	}
 
 	if strings.Contains(currentURL, "/login/device") {
-		return h.handleTraditionalDeviceVerification(page, automator)
+		return h.handleTraditionalDeviceVerification(page, nil)
 	}
 
 	// Fallback to traditional handling
 	h.logger.Warn().Str("url", currentURL).Msg("Unexpected device verification URL pattern, using traditional handling")
-	return h.handleTraditionalDeviceVerification(page, automator)
+	return h.handleTraditionalDeviceVerification(page, nil)
 }
 
 // setupGmailService initializes the Gmail API service for device verification
@@ -185,7 +185,7 @@ func (h *GitHubDeviceVerificationHandler) getDeviceVerificationCode() (string, e
 }
 
 // handleVerifiedDevicePage handles GitHub's /sessions/verified-device page
-func (h *GitHubDeviceVerificationHandler) handleVerifiedDevicePage(page *rod.Page, automator *BrowserOAuthAutomator) error {
+func (h *GitHubDeviceVerificationHandler) handleVerifiedDevicePage(page *rod.Page, _ *BrowserOAuthAutomator) error {
 	h.logger.Info().Msg("Handling GitHub verified device page")
 
 	// Wait for the page to fully load
@@ -257,7 +257,7 @@ func (h *GitHubDeviceVerificationHandler) handleVerifiedDevicePage(page *rod.Pag
 }
 
 // handleSessionPage handles GitHub's new session verification flow
-func (h *GitHubDeviceVerificationHandler) handleSessionPage(page *rod.Page, automator *BrowserOAuthAutomator) error {
+func (h *GitHubDeviceVerificationHandler) handleSessionPage(page *rod.Page, _ *BrowserOAuthAutomator) error {
 	h.logger.Info().Msg("Handling GitHub session page")
 
 	// Wait for the session page to fully load
@@ -316,7 +316,7 @@ func (h *GitHubDeviceVerificationHandler) handleSessionPage(page *rod.Page, auto
 }
 
 // handleTraditionalDeviceVerification handles the traditional device verification flow
-func (h *GitHubDeviceVerificationHandler) handleTraditionalDeviceVerification(page *rod.Page, automator *BrowserOAuthAutomator) error {
+func (h *GitHubDeviceVerificationHandler) handleTraditionalDeviceVerification(page *rod.Page, _ *BrowserOAuthAutomator) error {
 	h.logger.Info().Msg("Handling traditional device verification")
 
 	// More specific verification code input field selector (exclude generic text inputs)

@@ -296,8 +296,8 @@ func (a *BrowserOAuthAutomator) performAuthorization(page *rod.Page, screenshotT
 
 	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_authorization_page")
 
-	// Find authorization button
-	authButtonElement, err := page.Element(a.config.AuthorizeButtonSelector)
+	// Find authorization button with smart text-based detection
+	authButtonElement, err := a.findAuthorizationButton(page)
 	if err != nil {
 		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_auth_button_not_found")
 		currentURL := page.MustInfo().URL
@@ -314,6 +314,76 @@ func (a *BrowserOAuthAutomator) performAuthorization(page *rod.Page, screenshotT
 	}
 
 	return nil
+}
+
+// findAuthorizationButton finds the correct authorization button by examining text content
+func (a *BrowserOAuthAutomator) findAuthorizationButton(page *rod.Page) (*rod.Element, error) {
+	// First try the configured selector
+	authButtonElement, err := page.Element(a.config.AuthorizeButtonSelector)
+	if err == nil {
+		// Check if the button text indicates it's an authorization button
+		buttonText, textErr := authButtonElement.Text()
+		if textErr == nil {
+			buttonTextLower := strings.ToLower(buttonText)
+			if strings.Contains(buttonTextLower, "authorize") && !strings.Contains(buttonTextLower, "cancel") && !strings.Contains(buttonTextLower, "deny") {
+				a.logger.Info().Str("button_text", buttonText).Msg("Found authorization button with expected text")
+				return authButtonElement, nil
+			}
+		}
+	}
+
+	// If the configured selector didn't work or found wrong button, try broader search
+	a.logger.Info().Msg("Configured selector didn't find suitable button, trying broader search")
+
+	// Look for all buttons and inputs that might be authorization buttons
+	buttonSelectors := []string{
+		`button[type="submit"]`,
+		`input[type="submit"]`,
+		`button`,
+		`input[type="button"]`,
+	}
+
+	for _, selector := range buttonSelectors {
+		elements, err := page.Elements(selector)
+		if err != nil {
+			continue
+		}
+
+		for _, element := range elements {
+			// Get button text/value
+			buttonText := ""
+
+			// Try getting text content first
+			if text, err := element.Text(); err == nil && text != "" {
+				buttonText = text
+			} else if value, err := element.Attribute("value"); err == nil && value != nil {
+				buttonText = *value
+			} else if innerHTML, err := element.Property("innerHTML"); err == nil && innerHTML.String() != "" {
+				buttonText = innerHTML.String()
+			}
+
+			if buttonText != "" {
+				buttonTextLower := strings.ToLower(buttonText)
+				a.logger.Info().Str("button_text", buttonText).Str("selector", selector).Msg("Examining button")
+
+				// Look for authorize-like text while avoiding cancel/deny text
+				isAuthorizeButton := (strings.Contains(buttonTextLower, "authorize") ||
+					strings.Contains(buttonTextLower, "allow") ||
+					strings.Contains(buttonTextLower, "approve") ||
+					strings.Contains(buttonTextLower, "grant")) &&
+					!strings.Contains(buttonTextLower, "cancel") &&
+					!strings.Contains(buttonTextLower, "deny") &&
+					!strings.Contains(buttonTextLower, "reject")
+
+				if isAuthorizeButton {
+					a.logger.Info().Str("button_text", buttonText).Msg("Found authorization button based on text content")
+					return element, nil
+				}
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("no suitable authorization button found")
 }
 
 // waitForCallback waits for redirect to callback URL with authorization code
