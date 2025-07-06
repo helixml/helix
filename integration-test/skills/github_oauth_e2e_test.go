@@ -1,13 +1,10 @@
-//go:build oauth_integration
-// +build oauth_integration
-
 // GitHub OAuth Skills E2E Test
 //
 // This test requires OAuth integration environment variables and Chrome container, which the stack command will start automatically.
 //
 // To run this test, from the helix root directory:
 //
-//   ./stack test -v api/pkg/skills/github_oauth_e2e_test.go -run TestGitHubOAuthSkillsE2E
+//   ./stack test -v integration-test/skills/github_oauth_e2e_test.go -run TestGitHubOAuthSkillsE2E
 //
 // The test will:
 // 1. Set up Helix infrastructure (OAuth manager, API server, etc.)
@@ -18,7 +15,7 @@
 // 6. Test agent sessions with real GitHub API calls with the resulting JWT
 // 7. Clean up test resources
 
-package skills_test_test
+package skills_test
 
 import (
 	"context"
