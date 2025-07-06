@@ -1046,6 +1046,7 @@ type ToolConfig struct {
 }
 
 type ToolAzureDevOpsConfig struct {
+	Enabled             bool   `json:"enabled" yaml:"enabled"`
 	OrganizationURL     string `json:"organization_url" yaml:"organization_url"`
 	PersonalAccessToken string `json:"personal_access_token" yaml:"personal_access_token"`
 }
@@ -1167,6 +1168,7 @@ type AssistantAPI struct {
 }
 
 type AssistantAzureDevOps struct {
+	Enabled             bool   `json:"enabled" yaml:"enabled"`
 	OrganizationURL     string `json:"organization_url" yaml:"organization_url"`
 	PersonalAccessToken string `json:"personal_access_token" yaml:"personal_access_token"`
 }
