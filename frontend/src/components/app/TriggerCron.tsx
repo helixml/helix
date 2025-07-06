@@ -302,7 +302,7 @@ const TriggerCron: FC<TriggerCronProps> = ({
         />
       </Box>
 
-      {(hasCronTrigger || cronTrigger) && (
+      {(hasCronTrigger) && (
         <Box sx={{ mt: 2, p: 2, borderRadius: 1, opacity: hasCronTrigger ? 1 : 0.6 }}>
           {!hasCronTrigger && cronTrigger && (
             <Alert severity="info" sx={{ mb: 2 }}>

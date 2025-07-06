@@ -113,7 +113,7 @@ const TriggerAzureDevOps: FC<TriggerAzureDevOpsProps> = ({
         />
       </Box>
 
-      {(hasAzureDevOpsTrigger || azureDevOpsTrigger) && (
+      {(hasAzureDevOpsTrigger) && (
         <Box sx={{ mt: 2, p: 2, borderRadius: 1, opacity: hasAzureDevOpsTrigger ? 1 : 0.6 }}>
           {!hasAzureDevOpsTrigger && azureDevOpsTrigger && (
             <Alert severity="info" sx={{ mb: 2 }}>
