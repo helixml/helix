@@ -1014,13 +1014,14 @@ type PaginatedLLMCalls struct {
 type ToolType string
 
 const (
-	ToolTypeAPI        ToolType = "api"
-	ToolTypeBrowser    ToolType = "browser"
-	ToolTypeGPTScript  ToolType = "gptscript"
-	ToolTypeZapier     ToolType = "zapier"
-	ToolTypeCalculator ToolType = "calculator"
-	ToolTypeEmail      ToolType = "email"
-	ToolTypeWebSearch  ToolType = "web_search"
+	ToolTypeAPI         ToolType = "api"
+	ToolTypeBrowser     ToolType = "browser"
+	ToolTypeGPTScript   ToolType = "gptscript"
+	ToolTypeZapier      ToolType = "zapier"
+	ToolTypeCalculator  ToolType = "calculator"
+	ToolTypeEmail       ToolType = "email"
+	ToolTypeWebSearch   ToolType = "web_search"
+	ToolTypeAzureDevOps ToolType = "azure_devops"
 )
 
 type Tool struct {
@@ -1034,13 +1035,19 @@ type Tool struct {
 }
 
 type ToolConfig struct {
-	API        *ToolAPIConfig        `json:"api"`
-	GPTScript  *ToolGPTScriptConfig  `json:"gptscript"`
-	Zapier     *ToolZapierConfig     `json:"zapier"`
-	Browser    *ToolBrowserConfig    `json:"browser"`
-	WebSearch  *ToolWebSearchConfig  `json:"web_search"`
-	Calculator *ToolCalculatorConfig `json:"calculator"`
-	Email      *ToolEmailConfig      `json:"email"`
+	API         *ToolAPIConfig         `json:"api"`
+	GPTScript   *ToolGPTScriptConfig   `json:"gptscript"`
+	Zapier      *ToolZapierConfig      `json:"zapier"`
+	Browser     *ToolBrowserConfig     `json:"browser"`
+	WebSearch   *ToolWebSearchConfig   `json:"web_search"`
+	Calculator  *ToolCalculatorConfig  `json:"calculator"`
+	Email       *ToolEmailConfig       `json:"email"`
+	AzureDevOps *ToolAzureDevOpsConfig `json:"azure_devops"`
+}
+
+type ToolAzureDevOpsConfig struct {
+	OrganizationURL     string `json:"organization_url" yaml:"organization_url"`
+	PersonalAccessToken string `json:"personal_access_token" yaml:"personal_access_token"`
 }
 
 type ToolBrowserConfig struct {
@@ -1159,6 +1166,11 @@ type AssistantAPI struct {
 	OAuthScopes   []string `json:"oauth_scopes,omitempty" yaml:"oauth_scopes,omitempty"`     // Required OAuth scopes for this API
 }
 
+type AssistantAzureDevOps struct {
+	OrganizationURL     string `json:"organization_url" yaml:"organization_url"`
+	PersonalAccessToken string `json:"personal_access_token" yaml:"personal_access_token"`
+}
+
 // apps are a collection of assistants
 // the APIs and GPTScripts are both processed into a single list of Tools
 type AssistantConfig struct {
@@ -1244,9 +1256,10 @@ type AssistantConfig struct {
 	Browser   AssistantBrowser   `json:"browser,omitempty" yaml:"browser,omitempty"`
 	WebSearch AssistantWebSearch `json:"web_search,omitempty" yaml:"web_search,omitempty"`
 
-	Calculator AssistantCalculator `json:"calculator,omitempty" yaml:"calculator,omitempty"`
-	Email      AssistantEmail      `json:"email,omitempty" yaml:"email,omitempty"`
-	Tools      []*Tool             `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Calculator  AssistantCalculator  `json:"calculator,omitempty" yaml:"calculator,omitempty"`
+	Email       AssistantEmail       `json:"email,omitempty" yaml:"email,omitempty"`
+	AzureDevOps AssistantAzureDevOps `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
+	Tools       []*Tool              `json:"tools,omitempty" yaml:"tools,omitempty"`
 
 	Tests []struct {
 		Name  string     `json:"name,omitempty" yaml:"name,omitempty"`

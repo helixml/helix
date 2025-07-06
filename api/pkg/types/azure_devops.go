@@ -12,7 +12,9 @@ type AzureDevopsRepositoryContext struct {
 	ProjectID     string
 }
 
-var AzureDevopsRepositoryContextKey = "azure_devops_repository_context"
+type AzureDevopsRepositoryContextKeyType string
+
+const AzureDevopsRepositoryContextKey AzureDevopsRepositoryContextKeyType = "azure_devops_repository_context"
 
 func SetAzureDevopsRepositoryContext(ctx context.Context, vals AzureDevopsRepositoryContext) context.Context {
 	ctx = context.WithValue(ctx, AzureDevopsRepositoryContextKey, vals)
