@@ -59,7 +59,6 @@ type BaseOAuthTestSuite struct {
 
 	// Browser automation
 	browser           *rod.Browser
-	automator         *BrowserOAuthAutomator
 	screenshotCounter int
 }
 
