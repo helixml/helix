@@ -20,7 +20,7 @@ import (
 
 // AzureDevOps is triggered by webhooks from Azure DevOps
 // ref: https://learn.microsoft.com/en-us/azure/devops/service-hooks/services/webhooks?view=azure-devops
-type AzureDevOps struct {
+type AzureDevOps struct { //nolint:revive
 	cfg        *config.ServerConfig
 	store      store.Store
 	controller *controller.Controller
@@ -53,17 +53,17 @@ func (a *AzureDevOps) ProcessWebhook(ctx context.Context, triggerConfig *types.T
 
 	switch event.EventType {
 	case "git.pullrequest.created", "git.pullrequest.updated":
-		return a.processPullRequestCreateUpdateEvent(ctx, triggerConfig, payload)
+		return a.processPullRequestCreateUpdateEvent(ctx, triggerConfig, event, payload)
 	case "ms.vss-code.git-pullrequest-comment-event":
-		return a.processPullRequestCommentEvent(ctx, triggerConfig, payload)
+		return a.processPullRequestCommentEvent(ctx, triggerConfig, event, payload)
 	default:
-		return a.processUnknownEvent(ctx, triggerConfig, payload)
+		return a.processUnknownEvent(ctx, triggerConfig, event, payload)
 	}
 }
 
-func (a *AzureDevOps) processPullRequestCreateUpdateEvent(ctx context.Context, triggerConfig *types.TriggerConfiguration, payload []byte) error {
-	var event PullRequest
-	err := json.Unmarshal(payload, &event)
+func (a *AzureDevOps) processPullRequestCreateUpdateEvent(ctx context.Context, triggerConfig *types.TriggerConfiguration, event Event, payload []byte) error {
+	var pr PullRequest
+	err := json.Unmarshal(payload, &pr)
 	if err != nil {
 		return err
 	}
@@ -71,9 +71,9 @@ func (a *AzureDevOps) processPullRequestCreateUpdateEvent(ctx context.Context, t
 	return nil
 }
 
-func (a *AzureDevOps) processPullRequestCommentEvent(ctx context.Context, triggerConfig *types.TriggerConfiguration, payload []byte) error {
-	var event PullRequestComment
-	err := json.Unmarshal(payload, &event)
+func (a *AzureDevOps) processPullRequestCommentEvent(ctx context.Context, triggerConfig *types.TriggerConfiguration, event Event, payload []byte) error {
+	var prc PullRequestComment
+	err := json.Unmarshal(payload, &prc)
 	if err != nil {
 		return err
 	}
@@ -82,18 +82,11 @@ func (a *AzureDevOps) processPullRequestCommentEvent(ctx context.Context, trigge
 }
 
 // If we don't know how to process the event, we will it process it plain
-func (a *AzureDevOps) processUnknownEvent(ctx context.Context, triggerConfig *types.TriggerConfiguration, payload []byte) error {
-	var event Event
-	err := json.Unmarshal(payload, &event)
-	if err != nil {
-		return err
-	}
-
-	return nil
+func (a *AzureDevOps) processUnknownEvent(ctx context.Context, triggerConfig *types.TriggerConfiguration, event Event, payload []byte) error {
+	return a.processEvent(ctx, triggerConfig, event, string(payload))
 }
 
 func (a *AzureDevOps) processEvent(ctx context.Context, triggerConfig *types.TriggerConfiguration, event Event, input string) error {
-
 	app, err := a.store.GetApp(ctx, triggerConfig.AppID)
 	if err != nil {
 		return err
