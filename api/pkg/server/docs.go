@@ -3818,6 +3818,9 @@ const docTemplate = `{
         "types.AssistantAzureDevOps": {
             "type": "object",
             "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
                 "organization_url": {
                     "type": "string"
                 },

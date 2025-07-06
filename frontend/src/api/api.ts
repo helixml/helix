@@ -485,6 +485,7 @@ export interface TypesAssistantAPI {
 }
 
 export interface TypesAssistantAzureDevOps {
+  enabled?: boolean;
   organization_url?: string;
   personal_access_token?: string;
 }
