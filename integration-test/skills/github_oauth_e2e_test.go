@@ -15,7 +15,7 @@
 // 6. Test agent sessions with real GitHub API calls with the resulting JWT
 // 7. Clean up test resources
 
-package skills_test
+package skills
 
 import (
 	"context"
@@ -24,93 +24,46 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/proto"
-	"github.com/helixml/helix/api/pkg/auth"
-	"github.com/helixml/helix/api/pkg/client"
-	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/controller"
-	"github.com/helixml/helix/api/pkg/extract"
-	"github.com/helixml/helix/api/pkg/filestore"
-	"github.com/helixml/helix/api/pkg/gptscript"
-	"github.com/helixml/helix/api/pkg/janitor"
-	"github.com/helixml/helix/api/pkg/oauth"
-	oai "github.com/helixml/helix/api/pkg/openai"
-	"github.com/helixml/helix/api/pkg/openai/manager"
-	"github.com/helixml/helix/api/pkg/pubsub"
-	"github.com/helixml/helix/api/pkg/rag"
-	"github.com/helixml/helix/api/pkg/scheduler"
-	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/skills"
 	"github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	goai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
-	"gocloud.dev/blob/memblob"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/option"
 )
 
-// getTestResultsDir returns a fixed test results directory that works everywhere
-func getTestResultsDir() string {
-	return "/tmp/helix-oauth-test-results"
-}
-
 // GitHubOAuthE2ETestSuite tests the complete GitHub OAuth skills workflow
 type GitHubOAuthE2ETestSuite struct {
-	ctx            context.Context
-	store          store.Store
-	oauth          *oauth.Manager
-	client         *client.HelixClient
-	keycloak       *auth.KeycloakAuthenticator
-	helixAPIServer *server.HelixAPIServer
+	// Embed the base OAuth test suite for common functionality
+	BaseOAuthTestSuite
 
-	// Test configuration from environment
+	// GitHub-specific test configuration from environment
 	githubClientID     string
 	githubClientSecret string
 	githubUsername     string
 	githubPassword     string
 	githubToken        string // Personal access token for GitHub API calls
-	serverURL          string // Server URL for API calls and callbacks
 
 	// Gmail configuration for device verification
 	gmailCredentialsBase64 string // Base64 encoded Gmail API credentials JSON
 	gmailService           *gmail.Service
 
-	// Created during test
-	testUser      *types.User
+	// GitHub-specific test objects created during test
 	oauthProvider *types.OAuthProvider
 	testApp       *types.App
 	oauthConn     *types.OAuthConnection
 
-	// Test logging
-	logFile *os.File
-	logger  zerolog.Logger
-
-	// Browser automation
-	browser           *rod.Browser
-	screenshotCounter int
-	testTimestamp     string
-
 	// Test repositories created
 	testRepos []string
-
-	// Test API key
-	testAPIKey string
 }
 
 // TestGitHubOAuthSkillsE2E is the main end-to-end test for GitHub OAuth skills
@@ -130,7 +83,9 @@ func TestGitHubOAuthSkillsE2E(t *testing.T) {
 	defer cancel()
 
 	suite := &GitHubOAuthE2ETestSuite{
-		ctx: ctx,
+		BaseOAuthTestSuite: BaseOAuthTestSuite{
+			ctx: ctx,
+		},
 	}
 
 	// Load test configuration from environment
@@ -139,9 +94,13 @@ func TestGitHubOAuthSkillsE2E(t *testing.T) {
 		t.Skipf("Skipping GitHub OAuth E2E test: %v", err)
 	}
 
-	// Initialize test dependencies
-	err = suite.setup(t)
-	require.NoError(t, err, "Failed to setup test dependencies")
+	// Initialize test dependencies using base class
+	err = suite.SetupBaseInfrastructure("github_oauth_e2e")
+	require.NoError(t, err, "Failed to setup base infrastructure")
+
+	// GitHub-specific setup
+	err = suite.setupGitHubSpecifics(t)
+	require.NoError(t, err, "Failed to setup GitHub-specific dependencies")
 
 	// Run the complete end-to-end workflow
 	t.Run("SetupOAuthProvider", suite.testSetupOAuthProvider)
@@ -153,7 +112,8 @@ func TestGitHubOAuthSkillsE2E(t *testing.T) {
 
 	// Cleanup
 	t.Cleanup(func() {
-		suite.cleanup(t)
+		suite.cleanupGitHubSpecifics(t)
+		suite.CleanupBaseInfrastructure()
 	})
 }
 
@@ -206,172 +166,15 @@ func (suite *GitHubOAuthE2ETestSuite) loadTestConfig() error {
 	return nil
 }
 
-// setup initializes the test environment
-func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
-	// Set up test logging
-	err := suite.setupTestLogging(t)
-	if err != nil {
-		return fmt.Errorf("failed to setup test logging: %w", err)
-	}
-
+// setupGitHubSpecifics initializes GitHub-specific test environment
+func (suite *GitHubOAuthE2ETestSuite) setupGitHubSpecifics(t *testing.T) error {
 	suite.logger.Info().Msg("=== GitHub OAuth Skills E2E Test Starting ===")
-
-	// Load server config
-	cfg, err := config.LoadServerConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load server config: %w", err)
-	}
-
-	// Override required fields for testing - use environment-specific hostnames
-	webServerHost := os.Getenv("WEB_SERVER_HOST")
-	if webServerHost == "" {
-		webServerHost = "localhost" // Fallback for local testing
-	}
-	cfg.WebServer.URL = fmt.Sprintf("http://%s:8080", webServerHost)
-	cfg.WebServer.Host = webServerHost
-	cfg.WebServer.Port = 8080
-	cfg.WebServer.RunnerToken = "test-runner-token"
-
-	// Configure Anthropic API for real LLM calls
-	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
-		cfg.Providers.Anthropic.APIKey = apiKey
-		suite.logger.Info().Msg("Using Anthropic API key from environment for real LLM calls")
-	} else {
-		suite.logger.Warn().Msg("ANTHROPIC_API_KEY not set - LLM calls may fail")
-	}
-
-	// Initialize store
-	suite.store, err = store.NewPostgresStore(cfg.Store)
-	if err != nil {
-		return fmt.Errorf("failed to create store: %w", err)
-	}
 
 	// Clean up any existing OAuth connections from previous test runs
 	suite.logger.Info().Msg("Cleaning up existing OAuth connections from previous test runs")
-	err = suite.cleanupExistingOAuthData()
+	err := suite.CleanupExistingOAuthData()
 	if err != nil {
 		suite.logger.Warn().Err(err).Msg("Failed to cleanup existing OAuth data, continuing anyway")
-	}
-
-	// Initialize OAuth manager
-	suite.oauth = oauth.NewManager(suite.store)
-
-	// Initialize HelixAPIServer with proper dependencies like in the test examples
-	ctrl := gomock.NewController(t)
-	filestoreMock := filestore.NewMockFileStore(ctrl)
-	extractorMock := extract.NewMockExtractor(ctrl)
-	ragMock := rag.NewMockRAG(ctrl)
-
-	// Create PubSub for controller
-	ps, err := pubsub.New(&config.ServerConfig{
-		PubSub: config.PubSub{
-			StoreDir: t.TempDir(),
-			Provider: string(pubsub.ProviderMemory),
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create pubsub: %w", err)
-	}
-
-	// Create real provider manager for actual LLM calls
-	// We'll pass nil for helixInference since we're testing external providers (Anthropic)
-	providerManager := manager.NewProviderManager(&cfg, suite.store, nil)
-
-	// Configure tools
-	cfg.Tools.Enabled = true
-
-	// Create controller with all dependencies
-	runnerController, err := scheduler.NewRunnerController(suite.ctx, &scheduler.RunnerControllerConfig{
-		PubSub: ps,
-		FS:     filestoreMock,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create runner controller: %w", err)
-	}
-
-	schedulerParams := &scheduler.Params{
-		RunnerController: runnerController,
-	}
-	sched, err := scheduler.NewScheduler(suite.ctx, &cfg, schedulerParams)
-	if err != nil {
-		return fmt.Errorf("failed to create scheduler: %w", err)
-	}
-
-	controller, err := controller.NewController(suite.ctx, controller.Options{
-		Config:          &cfg,
-		Store:           suite.store,
-		Janitor:         janitor.NewJanitor(config.Janitor{}),
-		ProviderManager: providerManager,
-		Filestore:       filestoreMock,
-		Extractor:       extractorMock,
-		RAG:             ragMock,
-		Scheduler:       sched,
-		PubSub:          ps,
-		OAuthManager:    suite.oauth, // Add OAuth manager to controller
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create controller: %w", err)
-	}
-
-	// Create Keycloak authenticator for proper OAuth integration testing
-	// Use environment variable KEYCLOAK_URL if set, otherwise use config default
-	keycloakConfig := cfg.Keycloak
-	if keycloakURL := os.Getenv("KEYCLOAK_URL"); keycloakURL != "" {
-		keycloakConfig.KeycloakURL = keycloakURL
-		keycloakConfig.KeycloakFrontEndURL = keycloakURL // Set frontend URL to match for OIDC issuer consistency
-		suite.logger.Info().Str("keycloak_url", keycloakURL).Str("keycloak_frontend_url", keycloakURL).Msg("Using KEYCLOAK_URL from environment")
-	} else {
-		// Fallback to localhost for local testing
-		keycloakConfig.KeycloakURL = fmt.Sprintf("http://%s:8080/auth", webServerHost)
-		keycloakConfig.KeycloakFrontEndURL = fmt.Sprintf("http://%s:8080/auth", webServerHost)
-		suite.logger.Info().Msg("Using localhost Keycloak URL for local testing")
-	}
-
-	// Create skill manager
-	// skillManager := skills.NewManager()  // Not used in this test
-
-	// Create Keycloak authenticator for proper OAuth integration testing
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&keycloakConfig, suite.store)
-	if err != nil {
-		return fmt.Errorf("failed to create Keycloak authenticator: %w", err)
-	}
-	suite.keycloak = keycloakAuthenticator
-
-	// Copy the updated Keycloak configuration (including client secret) back to main config
-	cfg.Keycloak = keycloakConfig
-
-	// Create remaining mocks and dependencies for the server
-	gptScriptExecutor := gptscript.NewMockExecutor(ctrl)
-	avatarsBucket := memblob.OpenBucket(nil) // Use in-memory blob bucket for testing
-
-	// Create the full server with all dependencies including OAuth manager
-	helixAPIServer, err := server.NewServer(
-		&cfg,
-		suite.store,
-		ps,
-		gptScriptExecutor,
-		providerManager,
-		nil,                   // inference server - not needed for this test
-		keycloakAuthenticator, // Use real Keycloak authenticator instead of mock
-		nil,                   // stripe - not needed for this test
-		controller,
-		janitor.NewJanitor(config.Janitor{}),
-		nil, // knowledge manager - not needed for this test
-		sched,
-		nil,         // ping service - not needed for this test
-		suite.oauth, // Pass OAuth manager here
-		avatarsBucket,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create Helix API server: %w", err)
-	}
-
-	suite.helixAPIServer = helixAPIServer
-
-	// Initialize browser for OAuth flow
-	err = suite.setupBrowser()
-	if err != nil {
-		return fmt.Errorf("failed to setup browser: %w", err)
 	}
 
 	// Initialize Gmail service for device verification
@@ -380,100 +183,8 @@ func (suite *GitHubOAuthE2ETestSuite) setup(t *testing.T) error {
 		return fmt.Errorf("failed to setup Gmail service: %w", err)
 	}
 
-	// Create test user and API key
-	suite.testUser, err = suite.createTestUser()
-	if err != nil {
-		return fmt.Errorf("failed to create test user: %w", err)
-	}
+	suite.logger.Info().Msg("GitHub-specific test setup completed successfully")
 
-	// Initialize API client for test user
-	apiKey, err := suite.createTestUserAPIKey()
-	if err != nil {
-		return fmt.Errorf("failed to create API key: %w", err)
-	}
-
-	// Set server URL for API client and callbacks
-	suite.serverURL = cfg.WebServer.URL
-	if suite.serverURL == "" {
-		suite.serverURL = fmt.Sprintf("http://%s:8080", webServerHost) // Use same host as web server
-	}
-	suite.logger.Info().Str("server_url", suite.serverURL).Msg("Using server URL for API client")
-
-	suite.client, err = client.NewClient(suite.serverURL, apiKey)
-	if err != nil {
-		return fmt.Errorf("failed to create API client: %w", err)
-	}
-
-	suite.logger.Info().
-		Str("user_id", suite.testUser.ID).
-		Str("username", suite.testUser.Username).
-		Msg("Test setup completed successfully")
-
-	return nil
-}
-
-// setupTestLogging initializes the test log file and logger
-func (suite *GitHubOAuthE2ETestSuite) setupTestLogging(t *testing.T) error {
-	// Create test results directory if it doesn't exist
-	// Use path that works both in CI and locally
-	testResultsDir := getTestResultsDir()
-	if err := os.MkdirAll(testResultsDir, 0755); err != nil {
-		return fmt.Errorf("failed to create test results directory: %w", err)
-	}
-
-	// Create log file with timestamp
-	suite.testTimestamp = time.Now().Format("20060102_150405")
-	logFilename := filepath.Join(testResultsDir, fmt.Sprintf("github_oauth_e2e_%s.log", suite.testTimestamp))
-
-	var err error
-	suite.logFile, err = os.Create(logFilename)
-	if err != nil {
-		return fmt.Errorf("failed to create log file: %w", err)
-	}
-
-	// Create multi-writer to write to both file and console
-	multiWriter := io.MultiWriter(suite.logFile, os.Stdout)
-
-	// Set global log level to reduce noise from Helix components
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-
-	// Configure structured logging
-	suite.logger = zerolog.New(multiWriter).With().
-		Timestamp().
-		Str("test", "github_oauth_e2e").
-		Logger()
-
-	t.Logf("Test log file: %s", logFilename)
-
-	return nil
-}
-
-// setupBrowser initializes the headless browser for OAuth automation
-func (suite *GitHubOAuthE2ETestSuite) setupBrowser() error {
-	suite.logger.Info().Msg("Setting up headless browser for OAuth automation")
-
-	// Use environment variable for Chrome URL, with fallback to localhost
-	chromeURL := os.Getenv("RAG_CRAWLER_LAUNCHER_URL")
-	if chromeURL == "" {
-		chromeURL = "http://localhost:7317" // Fallback for local testing
-	}
-
-	suite.logger.Info().Str("chrome_url", chromeURL).Msg("Connecting to Chrome container")
-
-	// Connect to existing Chrome container
-	suite.browser = rod.New().
-		ControlURL(chromeURL).
-		Context(suite.ctx)
-
-	// Connect to the browser
-	err := suite.browser.Connect()
-	if err != nil {
-		return fmt.Errorf("failed to connect to Chrome container: %w", err)
-	}
-
-	suite.logger.Info().Msg("Successfully connected to Chrome container")
-
-	suite.logger.Info().Msg("Browser setup completed successfully")
 	return nil
 }
 
@@ -581,203 +292,6 @@ func (suite *GitHubOAuthE2ETestSuite) getDeviceVerificationCode() (string, error
 	suite.logger.Info().Str("verification_code", verificationCode).Msg("Extracted device verification code")
 
 	return verificationCode, nil
-}
-
-// handleDeviceVerification detects and handles GitHub device verification
-func (suite *GitHubOAuthE2ETestSuite) handleDeviceVerification(page *rod.Page) error {
-	suite.logger.Info().Msg("Checking if GitHub device verification is required")
-
-	// Check if we're on the device verification page with precise URL matching
-	currentURL := page.MustInfo().URL
-
-	// Precise device verification detection based on actual GitHub URLs
-	isDeviceVerificationPage := strings.Contains(currentURL, "/sessions/verified-device") ||
-		strings.Contains(currentURL, "/login/device") || // Alternative device verification URL pattern
-		strings.HasSuffix(currentURL, "/session") // GitHub session page that may require verification
-
-	if !isDeviceVerificationPage {
-		suite.logger.Info().Str("url", currentURL).Msg("Not on device verification page, continuing normal flow")
-		return nil
-	}
-
-	suite.logger.Info().Str("url", currentURL).Msg("GitHub device verification page detected")
-	suite.takeScreenshot(page, "github_device_verification_detected")
-
-	// Handle /sessions/verified-device page specifically (the main device verification page)
-	if strings.Contains(currentURL, "/sessions/verified-device") {
-		return suite.handleVerifiedDevicePage(page)
-	}
-
-	// Handle GitHub session page that may require verification
-	if strings.HasSuffix(currentURL, "/session") {
-		return suite.handleSessionPage(page)
-	}
-
-	// Handle alternative device verification URLs
-	if strings.Contains(currentURL, "/login/device") {
-		return suite.handleTraditionalDeviceVerification(page)
-	}
-
-	// Should not reach here with current logic, but fallback to traditional handling
-	suite.logger.Warn().Str("url", currentURL).Msg("Unexpected device verification URL pattern, using traditional handling")
-	return suite.handleTraditionalDeviceVerification(page)
-}
-
-// handleSessionPage handles GitHub's new session verification flow
-func (suite *GitHubOAuthE2ETestSuite) handleSessionPage(page *rod.Page) error {
-	suite.logger.Info().Msg("Handling GitHub session page")
-
-	// Wait for the session page to fully load
-	time.Sleep(3 * time.Second)
-
-	// Look for various elements that might be on the session page
-	// Check for device verification code input first
-	deviceCodeInput, err := page.Element(`input[name="otp"], input[id="otp"], input[name="device_verification_code"], input[placeholder*="verification"], input[placeholder*="code"]`)
-	if err == nil && deviceCodeInput != nil {
-		suite.logger.Info().Msg("Found device verification code input on session page")
-		return suite.handleDeviceVerificationInput(page, deviceCodeInput)
-	}
-
-	// Check for continue/submit buttons that might advance the session
-	continueButton, err := page.Element(`button:contains("Continue"), button:contains("Submit"), button[type="submit"], input[type="submit"]`)
-	if err == nil && continueButton != nil {
-		suite.logger.Info().Msg("Found continue/submit button on session page")
-		suite.takeScreenshot(page, "session_page_continue_button_found")
-
-		err = continueButton.Click(proto.InputMouseButtonLeft, 1)
-		if err != nil {
-			suite.logger.Error().Err(err).Msg("Failed to click continue button")
-		} else {
-			suite.logger.Info().Msg("Clicked continue button on session page")
-			// Wait for navigation
-			time.Sleep(3 * time.Second)
-		}
-		return nil
-	}
-
-	// Check if there are any forms to submit
-	forms, err := page.Elements("form")
-	if err == nil && len(forms) > 0 {
-		suite.logger.Info().Int("form_count", len(forms)).Msg("Found forms on session page")
-
-		// Try to find a submit button in any form
-		for i, form := range forms {
-			submitBtn, err := form.Element(`button[type="submit"], input[type="submit"]`)
-			if err == nil && submitBtn != nil {
-				suite.logger.Info().Int("form_index", i).Msg("Found submit button in form")
-				suite.takeScreenshot(page, "session_page_form_submit_found")
-
-				err = submitBtn.Click(proto.InputMouseButtonLeft, 1)
-				if err == nil {
-					suite.logger.Info().Msg("Successfully clicked submit button in form")
-					time.Sleep(3 * time.Second)
-					return nil
-				}
-			}
-		}
-	}
-
-	// If no specific elements found, wait and continue - the session page might be temporary
-	suite.logger.Info().Msg("No specific action required on session page, waiting for automatic redirect")
-	time.Sleep(5 * time.Second)
-
-	// Check if we've been redirected after waiting
-	newURL := page.MustInfo().URL
-	if newURL != page.MustInfo().URL {
-		suite.logger.Info().Str("new_url", newURL).Msg("Session page redirected automatically")
-	}
-
-	return nil
-}
-
-// handleTraditionalDeviceVerification handles the traditional device verification flow
-func (suite *GitHubOAuthE2ETestSuite) handleTraditionalDeviceVerification(page *rod.Page) error {
-	suite.logger.Info().Msg("Handling traditional device verification")
-	suite.takeScreenshot(page, "device_verification_detected")
-
-	// More specific verification code input field selector (exclude generic text inputs)
-	codeInputSelector := `input[name="otp"], input[id="otp"], input[name="device_verification_code"], input[placeholder*="verification"], input[placeholder*="code"]`
-	codeInput, err := page.Element(codeInputSelector)
-	if err != nil {
-		return fmt.Errorf("failed to find verification code input field: %w", err)
-	}
-
-	return suite.handleDeviceVerificationInput(page, codeInput)
-}
-
-// handleDeviceVerificationInput handles entering device verification codes
-func (suite *GitHubOAuthE2ETestSuite) handleDeviceVerificationInput(page *rod.Page, codeInput *rod.Element) error {
-	// Get device verification code from Gmail
-	suite.logger.Info().Msg("Waiting for device verification email...")
-
-	var verificationCode string
-	var err error
-
-	// Wait up to 60 seconds for the device verification email
-	for i := 0; i < 12; i++ {
-		time.Sleep(5 * time.Second)
-		verificationCode, err = suite.getDeviceVerificationCode()
-		if err == nil {
-			break
-		}
-		suite.logger.Info().Err(err).Int("attempt", i+1).Msg("Device verification email not found yet, retrying...")
-	}
-
-	if err != nil {
-		return fmt.Errorf("failed to get device verification code after 60 seconds: %w", err)
-	}
-
-	// Enter the verification code
-	suite.logger.Info().Str("code", verificationCode).Msg("Entering device verification code")
-	err = codeInput.Input(verificationCode)
-	if err != nil {
-		return fmt.Errorf("failed to enter verification code: %w", err)
-	}
-
-	suite.takeScreenshot(page, "device_verification_code_entered")
-
-	// Find and click the verify button
-	verifyButtonSelector := `button[type="submit"], input[type="submit"], button:contains("Verify")`
-	verifyButton, err := page.Element(verifyButtonSelector)
-	if err != nil {
-		return fmt.Errorf("failed to find verify button: %w", err)
-	}
-
-	err = verifyButton.Click(proto.InputMouseButtonLeft, 1)
-	if err != nil {
-		return fmt.Errorf("failed to click verify button: %w", err)
-	}
-
-	suite.logger.Info().Msg("Device verification submitted")
-	suite.takeScreenshot(page, "device_verification_submitted")
-
-	// Wait for navigation after device verification
-	time.Sleep(3 * time.Second)
-
-	return nil
-}
-
-// takeScreenshot captures a screenshot and saves it with the test timestamp
-func (suite *GitHubOAuthE2ETestSuite) takeScreenshot(page *rod.Page, stepName string) {
-	suite.screenshotCounter++
-	filename := filepath.Join(getTestResultsDir(), fmt.Sprintf("github_oauth_e2e_%s_step_%02d_%s.png",
-		suite.testTimestamp, suite.screenshotCounter, stepName))
-
-	data, err := page.Screenshot(false, &proto.PageCaptureScreenshot{
-		Format: proto.PageCaptureScreenshotFormatPng,
-	})
-
-	if err != nil {
-		suite.logger.Error().Err(err).Str("filename", filename).Msg("Failed to take screenshot")
-		return
-	}
-
-	err = os.WriteFile(filename, data, 0644)
-	if err != nil {
-		suite.logger.Error().Err(err).Str("filename", filename).Msg("Failed to save screenshot")
-	} else {
-		suite.logger.Info().Str("filename", filename).Msg("Screenshot saved")
-	}
 }
 
 // testSetupOAuthProvider creates and configures the GitHub OAuth provider
@@ -911,7 +425,8 @@ func (suite *GitHubOAuthE2ETestSuite) testPerformOAuthFlow(t *testing.T) {
 	suite.logger.Info().Msg("Testing Helix OAuth flow with GitHub")
 
 	// Step 1: Start OAuth flow using Helix's endpoint
-	authURL, state, err := suite.startHelixOAuthFlow()
+	callbackURL := suite.serverURL + "/api/v1/oauth/callback/github"
+	authURL, state, err := suite.StartOAuthFlow(suite.oauthProvider.ID, callbackURL)
 	require.NoError(t, err, "Failed to start Helix OAuth flow")
 
 	suite.logger.Info().
@@ -928,7 +443,7 @@ func (suite *GitHubOAuthE2ETestSuite) testPerformOAuthFlow(t *testing.T) {
 		Msg("Successfully obtained GitHub authorization code")
 
 	// Step 3: Complete OAuth flow using Helix's callback endpoint
-	connection, err := suite.completeHelixOAuthFlow(authCode, state)
+	connection, err := suite.CompleteOAuthFlow(suite.oauthProvider.ID, authCode)
 	require.NoError(t, err, "Failed to complete Helix OAuth flow")
 	require.NotNil(t, connection, "OAuth connection should not be nil")
 
@@ -950,66 +465,9 @@ func (suite *GitHubOAuthE2ETestSuite) testPerformOAuthFlow(t *testing.T) {
 
 // Helper methods
 
-// createTestUser creates a test user in both Keycloak and database
-func (suite *GitHubOAuthE2ETestSuite) createTestUser() (*types.User, error) {
-	user := &types.User{
-		ID:       fmt.Sprintf("test-user-%d", time.Now().Unix()),
-		Email:    fmt.Sprintf("github-oauth-test-%d@helix.test", time.Now().Unix()),
-		Username: fmt.Sprintf("github-oauth-test-%d", time.Now().Unix()),
-		FullName: "GitHub OAuth Test User",
-		Admin:    false,
-	}
-
-	// Create user in Keycloak first
-	createdUser, err := suite.keycloak.CreateKeycloakUser(suite.ctx, user)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create user in Keycloak: %w", err)
-	}
-
-	// Use the ID returned by Keycloak
-	user.ID = createdUser.ID
-
-	// Create user in database
-	createdUser, err = suite.store.CreateUser(suite.ctx, user)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create user in database: %w", err)
-	}
-
-	return createdUser, nil
-}
-
-func (suite *GitHubOAuthE2ETestSuite) createTestUserAPIKey() (string, error) {
-	apiKey, err := system.GenerateAPIKey()
-	if err != nil {
-		return "", fmt.Errorf("failed to generate API key: %w", err)
-	}
-
-	_, err = suite.store.CreateAPIKey(suite.ctx, &types.ApiKey{
-		Name:      "GitHub OAuth Test Key",
-		Key:       apiKey,
-		Owner:     suite.testUser.ID,
-		OwnerType: types.OwnerTypeUser,
-		Type:      types.APIkeytypeAPI,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to create API key: %w", err)
-	}
-
-	// Store the API key for later use
-	suite.testAPIKey = apiKey
-
-	return apiKey, nil
-}
-
-// cleanup cleans up test resources
-func (suite *GitHubOAuthE2ETestSuite) cleanup(_ *testing.T) {
-	suite.logger.Info().Msg("=== Starting Test Cleanup ===")
-
-	// Close browser
-	if suite.browser != nil {
-		suite.browser.MustClose()
-		suite.logger.Info().Msg("Browser closed")
-	}
+// cleanupGitHubSpecifics cleans up GitHub-specific test resources
+func (suite *GitHubOAuthE2ETestSuite) cleanupGitHubSpecifics(_ *testing.T) {
+	suite.logger.Info().Msg("=== Starting GitHub-specific Test Cleanup ===")
 
 	// Delete test GitHub repositories
 	for _, repoName := range suite.testRepos {
@@ -1061,12 +519,7 @@ func (suite *GitHubOAuthE2ETestSuite) cleanup(_ *testing.T) {
 		}
 	}
 
-	// Close log file
-	if suite.logFile != nil {
-		suite.logFile.Close()
-	}
-
-	suite.logger.Info().Msg("=== Test Cleanup Completed ===")
+	suite.logger.Info().Msg("=== GitHub-specific Test Cleanup Completed ===")
 }
 
 // testCreateTestRepositories creates test repositories on GitHub for testing
@@ -1277,331 +730,31 @@ func (suite *GitHubOAuthE2ETestSuite) loadGitHubSkillConfig() *GitHubSkillConfig
 	}
 }
 
-// cleanupExistingOAuthData removes any OAuth connections/providers from previous test runs
-func (suite *GitHubOAuthE2ETestSuite) cleanupExistingOAuthData() error {
-	// Delete all OAuth connections
-	connections, err := suite.store.ListOAuthConnections(suite.ctx, &store.ListOAuthConnectionsQuery{})
-	if err != nil {
-		return fmt.Errorf("failed to list OAuth connections: %w", err)
-	}
-
-	for _, conn := range connections {
-		err = suite.store.DeleteOAuthConnection(suite.ctx, conn.ID)
-		if err != nil {
-			suite.logger.Warn().Err(err).Str("connection_id", conn.ID).Msg("Failed to delete OAuth connection")
-		} else {
-			suite.logger.Debug().Str("connection_id", conn.ID).Msg("Deleted OAuth connection from previous run")
-		}
-	}
-
-	// Delete all OAuth providers (be careful not to delete production ones)
-	providers, err := suite.store.ListOAuthProviders(suite.ctx, &store.ListOAuthProvidersQuery{})
-	if err != nil {
-		return fmt.Errorf("failed to list OAuth providers: %w", err)
-	}
-
-	for _, provider := range providers {
-		// Only delete test providers
-		if strings.Contains(provider.Name, "Skills Test") || strings.Contains(provider.Name, "Test") {
-			err = suite.store.DeleteOAuthProvider(suite.ctx, provider.ID)
-			if err != nil {
-				suite.logger.Warn().Err(err).Str("provider_id", provider.ID).Msg("Failed to delete OAuth provider")
-			} else {
-				suite.logger.Debug().Str("provider_id", provider.ID).Msg("Deleted OAuth provider from previous run")
-			}
-		}
-	}
-
-	suite.logger.Info().
-		Int("connections_cleaned", len(connections)).
-		Msg("Cleanup of existing OAuth data completed")
-
-	return nil
-}
-
-// startHelixOAuthFlow starts OAuth flow using OAuth manager directly
-func (suite *GitHubOAuthE2ETestSuite) startHelixOAuthFlow() (string, string, error) {
-	suite.logger.Info().Msg("Starting OAuth flow via OAuth manager")
-
-	// Call OAuth manager directly instead of making HTTP request
-	authURL, err := suite.oauth.StartOAuthFlow(suite.ctx, suite.testUser.ID, suite.oauthProvider.ID, suite.oauthProvider.CallbackURL)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to start OAuth flow: %w", err)
-	}
-
-	// Extract state parameter from the auth URL
-	parsedURL, err := url.Parse(authURL)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to parse auth URL: %w", err)
-	}
-	state := parsedURL.Query().Get("state")
-	if state == "" {
-		return "", "", fmt.Errorf("no state parameter in auth URL")
-	}
-
-	return authURL, state, nil
-}
-
 // getGitHubAuthorizationCode performs real browser automation to complete GitHub OAuth flow
 func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state string) (string, error) {
-	suite.logger.Info().
-		Str("auth_url", authURL).
-		Str("state", state).
-		Msg("Starting browser automation for GitHub OAuth")
-
-	// Create a new page for the OAuth flow
-	page, err := suite.browser.Page(proto.TargetCreateTarget{
-		URL: "about:blank",
-	})
+	// Set up GitHub-specific 2FA handler
+	deviceHandler, err := NewGitHubDeviceVerificationHandler(suite.gmailCredentialsBase64, suite.logger)
 	if err != nil {
-		return "", fmt.Errorf("failed to create browser page: %w", err)
-	}
-	defer page.Close()
-
-	// Navigate to GitHub OAuth authorization URL
-	suite.logger.Info().Str("url", authURL).Msg("Navigating to GitHub OAuth authorization URL")
-	err = page.Navigate(authURL)
-	if err != nil {
-		return "", fmt.Errorf("failed to navigate to GitHub OAuth URL: %w", err)
+		return "", fmt.Errorf("failed to create GitHub device verification handler: %w", err)
 	}
 
-	// Wait for page to load
-	err = page.WaitLoad()
-	if err != nil {
-		return "", fmt.Errorf("failed to wait for page load: %w", err)
+	// Configure GitHub browser automation
+	githubConfig := BrowserOAuthConfig{
+		ProviderName:            "github",
+		LoginUsernameSelector:   `input[name="login"]`,
+		LoginPasswordSelector:   `input[name="password"]`,
+		LoginButtonSelector:     `input[type="submit"][value="Sign in"], button[type="submit"]`,
+		AuthorizeButtonSelector: `button[name="authorize"], input[type="submit"][value="Authorize"]`,
+		CallbackURLPattern:      "/api/v1/oauth/callback",
+		DeviceVerificationCheck: IsGitHubDeviceVerificationPage,
+		TwoFactorHandler:        deviceHandler,
 	}
 
-	suite.takeScreenshot(page, "github_auth_page_loaded")
+	// Create automator with GitHub configuration
+	automator := NewBrowserOAuthAutomator(suite.browser, suite.logger, githubConfig)
 
-	// Check if we're already logged in or need to login
-	// Look for either the login form or the authorization form
-	loginUsernameSelector := `input[name="login"]`
-	authButtonSelector := `button[name="authorize"], input[type="submit"][value="Authorize"]`
-
-	suite.logger.Info().Msg("Checking if GitHub login is required")
-
-	// Wait a moment for the page to fully load
-	time.Sleep(2 * time.Second)
-
-	// Check if we need to login first
-	loginElement, _ := page.Element(loginUsernameSelector)
-
-	if loginElement != nil {
-		// We need to log in first
-		suite.logger.Info().Msg("GitHub login required - filling in credentials")
-
-		// Fill in username
-		err = loginElement.Input(suite.githubUsername)
-		if err != nil {
-			return "", fmt.Errorf("failed to enter GitHub username: %w", err)
-		}
-
-		// Fill in password
-		passwordElement := page.MustElement(`input[name="password"]`)
-
-		// Debug logging for CI troubleshooting
-		suite.logger.Info().
-			Int("password_length", len(suite.githubPassword)).
-			Msg("Entering GitHub password (debug info for CI troubleshooting)")
-
-		err = passwordElement.Input(suite.githubPassword)
-		if err != nil {
-			return "", fmt.Errorf("failed to enter GitHub password: %w", err)
-		}
-
-		suite.takeScreenshot(page, "github_login_filled")
-
-		// Click login button
-		loginButton := page.MustElement(`input[type="submit"][value="Sign in"], button[type="submit"]`)
-		err = loginButton.Click(proto.InputMouseButtonLeft, 1)
-		if err != nil {
-			return "", fmt.Errorf("failed to click GitHub login button: %w", err)
-		}
-
-		suite.logger.Info().Msg("Clicked GitHub login button")
-
-		// Wait for login to complete and page navigation
-		suite.logger.Info().Msg("Waiting for page navigation after login")
-
-		// Take screenshot immediately after clicking login for debugging
-		suite.takeScreenshot(page, "github_login_button_clicked")
-
-		// Wait for URL to change (indicating navigation started)
-		currentURL := page.MustInfo().URL
-		timeout := time.After(10 * time.Second)
-		ticker := time.NewTicker(500 * time.Millisecond)
-		defer ticker.Stop()
-
-		navigationStarted := false
-		for !navigationStarted {
-			select {
-			case <-timeout:
-				suite.takeScreenshot(page, "github_login_timeout")
-				return "", fmt.Errorf("timeout waiting for GitHub login navigation")
-			case <-ticker.C:
-				newURL := page.MustInfo().URL
-				if newURL != currentURL {
-					suite.logger.Info().Str("old_url", currentURL).Str("new_url", newURL).Msg("Navigation detected")
-					navigationStarted = true
-				}
-			}
-		}
-
-		// Wait for page to fully load after navigation
-		suite.logger.Info().Msg("Waiting for page to fully load")
-		page.MustWaitLoad()
-
-		// Additional small wait to ensure all dynamic content loads
-		time.Sleep(2 * time.Second)
-
-		suite.takeScreenshot(page, "github_auth_page_after_login")
-
-		// Check for device verification after login
-		err = suite.handleDeviceVerification(page)
-		if err != nil {
-			return "", fmt.Errorf("failed to handle device verification: %w", err)
-		}
-
-		// After handling session/device verification, check if we need to navigate back to OAuth URL
-		currentURL = page.MustInfo().URL
-		if strings.Contains(currentURL, "/session") || !strings.Contains(currentURL, "oauth") {
-			suite.logger.Info().Str("current_url", currentURL).Msg("Still on session page or redirected away from OAuth, navigating back to OAuth URL")
-
-			// Navigate back to the OAuth authorization URL
-			err = page.Navigate(authURL)
-			if err != nil {
-				return "", fmt.Errorf("failed to re-navigate to OAuth URL after session: %w", err)
-			}
-
-			// Wait for page to load
-			err = page.WaitLoad()
-			if err != nil {
-				return "", fmt.Errorf("failed to wait for OAuth page load after session: %w", err)
-			}
-
-			// Additional wait for dynamic content
-			time.Sleep(2 * time.Second)
-			suite.takeScreenshot(page, "oauth_page_after_session_redirect")
-		}
-	} else {
-		suite.logger.Info().Msg("Already logged into GitHub - proceeding with authorization")
-	}
-
-	// Check if we've been redirected to the callback URL (OAuth completed successfully)
-	currentURL := page.MustInfo().URL
-	suite.logger.Info().Str("current_url", currentURL).Msg("Current page URL")
-
-	// If we're already at the callback URL, OAuth flow is complete
-	if strings.Contains(currentURL, "/api/v1/oauth/callback") || strings.Contains(currentURL, "code=") {
-		suite.logger.Info().Msg("OAuth flow completed - already at callback URL")
-		suite.takeScreenshot(page, "github_oauth_callback_received")
-
-		// Extract authorization code from current URL
-		parsedURL, err := url.Parse(currentURL)
-		if err != nil {
-			return "", fmt.Errorf("failed to parse callback URL: %w", err)
-		}
-
-		authCode := parsedURL.Query().Get("code")
-		if authCode == "" {
-			return "", fmt.Errorf("no authorization code in callback URL: %s", currentURL)
-		}
-
-		// Verify state parameter matches
-		callbackState := parsedURL.Query().Get("state")
-		if callbackState != state {
-			return "", fmt.Errorf("state mismatch: expected %s, got %s", state, callbackState)
-		}
-
-		suite.logger.Info().
-			Str("auth_code", authCode[:10]+"...").
-			Str("state", callbackState).
-			Msg("Successfully extracted GitHub authorization code from callback URL")
-
-		return authCode, nil
-	}
-
-	// If we're not at callback yet, look for authorization button on the authorization page
-	suite.logger.Info().Msg("Looking for GitHub authorization button")
-
-	// Take screenshot of authorization page
-	suite.takeScreenshot(page, "github_authorization_page")
-
-	// GitHub OAuth has a standard authorization button - use the known selector
-	authButtonElement, err := page.Element(authButtonSelector)
-	if err != nil {
-		suite.takeScreenshot(page, "github_auth_button_not_found")
-		return "", fmt.Errorf("could not find GitHub authorization button on page %s: %w", currentURL, err)
-	}
-
-	suite.logger.Info().Msg("Found GitHub authorization button")
-
-	// Click the authorize button
-	suite.logger.Info().Msg("Clicking GitHub authorize button")
-	err = authButtonElement.Click(proto.InputMouseButtonLeft, 1)
-	if err != nil {
-		return "", fmt.Errorf("failed to click GitHub authorize button: %w", err)
-	}
-
-	// Wait for redirect to callback URL
-	suite.logger.Info().Msg("Waiting for GitHub OAuth callback redirect")
-
-	// Wait for navigation to callback URL (with authorization code)
-	timeout := time.After(20 * time.Second)
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-timeout:
-			suite.takeScreenshot(page, "github_oauth_timeout")
-			currentURL := page.MustInfo().URL
-			return "", fmt.Errorf("timeout waiting for GitHub OAuth callback, current URL: %s", currentURL)
-		case <-ticker.C:
-			currentURL := page.MustInfo().URL
-			if strings.Contains(currentURL, "/api/v1/oauth/callback") || strings.Contains(currentURL, "code=") {
-				suite.logger.Info().Str("callback_url", currentURL).Msg("GitHub OAuth callback received")
-				suite.takeScreenshot(page, "github_oauth_callback_received_after_button_click")
-
-				// Extract authorization code from callback URL
-				parsedURL, err := url.Parse(currentURL)
-				if err != nil {
-					return "", fmt.Errorf("failed to parse callback URL: %w", err)
-				}
-
-				authCode := parsedURL.Query().Get("code")
-				if authCode == "" {
-					return "", fmt.Errorf("no authorization code in callback URL: %s", currentURL)
-				}
-
-				// Verify state parameter matches
-				callbackState := parsedURL.Query().Get("state")
-				if callbackState != state {
-					return "", fmt.Errorf("state mismatch: expected %s, got %s", state, callbackState)
-				}
-
-				suite.logger.Info().
-					Str("auth_code", authCode[:10]+"...").
-					Str("state", callbackState).
-					Msg("Successfully extracted GitHub authorization code from callback")
-
-				return authCode, nil
-			}
-		}
-	}
-}
-
-// completeHelixOAuthFlow completes OAuth flow using Helix's OAuth manager
-func (suite *GitHubOAuthE2ETestSuite) completeHelixOAuthFlow(authCode, _ string) (*types.OAuthConnection, error) {
-	suite.logger.Info().Msg("Completing OAuth flow via Helix OAuth manager")
-
-	// Use OAuth manager directly to complete the flow
-	connection, err := suite.oauth.CompleteOAuthFlow(suite.ctx, suite.testUser.ID, suite.oauthProvider.ID, authCode)
-	if err != nil {
-		return nil, fmt.Errorf("failed to complete OAuth flow: %w", err)
-	}
-
-	return connection, nil
+	// Perform OAuth flow using the generic automator
+	return automator.PerformOAuthFlow(authURL, state, suite.githubUsername, suite.githubPassword, suite)
 }
 
 // testOAuthTokenDirectly tests OAuth token functionality (simplified)
@@ -1656,7 +809,7 @@ func (suite *GitHubOAuthE2ETestSuite) testAgentGitHubSkillsIntegration(t *testin
 	// Test 1: Execute session asking agent about GitHub username (should use real OAuth data)
 	suite.logger.Info().Msg("Testing agent GitHub username query with real execution")
 
-	usernameResponse, err := suite.executeSessionQuery("What is my GitHub username?", "GitHub Username Query")
+	usernameResponse, err := suite.ExecuteSessionQuery("What is my GitHub username?", "GitHub Username Query", suite.testApp.ID)
 	require.NoError(t, err, "Failed to execute GitHub username query")
 
 	suite.logger.Info().
@@ -1672,7 +825,7 @@ func (suite *GitHubOAuthE2ETestSuite) testAgentGitHubSkillsIntegration(t *testin
 	// Test 2: Execute session asking agent to list GitHub repositories (should use real OAuth API calls)
 	suite.logger.Info().Msg("Testing agent GitHub repository listing with real execution")
 
-	repoResponse, err := suite.executeSessionQuery("List my GitHub repositories", "GitHub Repository Listing")
+	repoResponse, err := suite.ExecuteSessionQuery("List my GitHub repositories", "GitHub Repository Listing", suite.testApp.ID)
 	require.NoError(t, err, "Failed to execute GitHub repository listing query")
 
 	suite.logger.Info().
@@ -1695,7 +848,7 @@ func (suite *GitHubOAuthE2ETestSuite) testAgentGitHubSkillsIntegration(t *testin
 		suite.logger.Info().Msg("Testing agent GitHub issues query with real execution")
 
 		issuesQuery := fmt.Sprintf("What issues are open in my repository %s?", suite.testRepos[0])
-		issuesResponse, err := suite.executeSessionQuery(issuesQuery, "GitHub Issues Query")
+		issuesResponse, err := suite.ExecuteSessionQuery(issuesQuery, "GitHub Issues Query", suite.testApp.ID)
 		require.NoError(t, err, "Failed to execute GitHub issues query")
 
 		suite.logger.Info().
@@ -1704,276 +857,10 @@ func (suite *GitHubOAuthE2ETestSuite) testAgentGitHubSkillsIntegration(t *testin
 			Msg("Agent responded to GitHub issues query")
 
 		// Log the full conversation for manual verification
-		suite.logAgentConversation("GitHub Issues Query", issuesQuery, issuesResponse)
+		suite.LogAgentConversation("GitHub Issues Query", issuesQuery, issuesResponse, "github_oauth_e2e", "GitHub")
 	}
 
 	suite.logger.Info().
 		Str("oauth_connection_id", githubConn.ID).
 		Msg("Successfully executed GitHub skills sessions with real agent responses")
-}
-
-// executeSessionQuery creates a session and executes a query using Helix's controller directly
-func (suite *GitHubOAuthE2ETestSuite) executeSessionQuery(userMessage, sessionName string) (string, error) {
-	suite.logger.Info().
-		Str("user_message", userMessage).
-		Str("session_name", sessionName).
-		Msg("Executing session query with Helix controller")
-
-	// Create a new session for this query
-	session, err := suite.store.CreateSession(suite.ctx, types.Session{
-		Name:      sessionName,
-		Owner:     suite.testUser.ID,
-		OwnerType: types.OwnerTypeUser,
-		Mode:      types.SessionModeInference,
-		Type:      types.SessionTypeText,
-		ModelName: "anthropic:claude-3-5-haiku-20241022",
-		ParentApp: suite.testApp.ID,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to create session: %w", err)
-	}
-
-	suite.logger.Info().
-		Str("session_id", session.ID).
-		Str("app_id", suite.testApp.ID).
-		Msg("Created session for execution")
-
-	// Add user interaction to the session
-	userInteraction := &types.Interaction{
-		ID:      system.GenerateUUID(),
-		Created: time.Now(),
-		Updated: time.Now(),
-		Creator: types.CreatorTypeUser,
-		Mode:    types.SessionModeInference,
-		Message: userMessage,
-		Content: types.MessageContent{
-			ContentType: types.MessageContentTypeText,
-			Parts:       []any{userMessage},
-		},
-		State:    types.InteractionStateWaiting,
-		Finished: false,
-		Metadata: map[string]string{},
-	}
-
-	// Update session with the user interaction
-	session.Interactions = append(session.Interactions, userInteraction)
-
-	// Prepare OpenAI chat completion request
-	openaiReq := goai.ChatCompletionRequest{
-		Model: "anthropic:claude-3-5-haiku-20241022",
-		Messages: []goai.ChatCompletionMessage{
-			{
-				Role:    "user",
-				Content: userMessage,
-			},
-		},
-		Stream: false,
-	}
-
-	// Set up controller options with app context for OAuth
-	options := &controller.ChatCompletionOptions{
-		AppID: suite.testApp.ID,
-	}
-
-	// Set app ID and user ID in context for OAuth token retrieval
-	ctx := oai.SetContextAppID(suite.ctx, suite.testApp.ID)
-	ctx = oai.SetContextSessionID(ctx, session.ID)
-	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
-		OwnerID:       suite.testUser.ID,
-		SessionID:     session.ID,
-		InteractionID: userInteraction.ID,
-	})
-
-	suite.logger.Info().
-		Str("session_id", session.ID).
-		Str("app_id", suite.testApp.ID).
-		Msg("Executing chat completion with OAuth context")
-
-	// Execute the chat completion using the controller
-	response, _, err := suite.helixAPIServer.Controller.ChatCompletion(ctx, suite.testUser, openaiReq, options)
-	if err != nil {
-		return "", fmt.Errorf("failed to execute chat completion: %w", err)
-	}
-
-	// Extract the agent's response
-	agentResponse := ""
-	if len(response.Choices) > 0 {
-		agentResponse = response.Choices[0].Message.Content
-	}
-
-	if agentResponse == "" {
-		return "", fmt.Errorf("no response from agent")
-	}
-
-	// Update the session with assistant response
-	assistantInteraction := &types.Interaction{
-		ID:      system.GenerateUUID(),
-		Created: time.Now(),
-		Updated: time.Now(),
-		Creator: types.CreatorTypeAssistant,
-		Mode:    types.SessionModeInference,
-		Message: agentResponse,
-		Content: types.MessageContent{
-			ContentType: types.MessageContentTypeText,
-			Parts:       []any{agentResponse},
-		},
-		State:     types.InteractionStateComplete,
-		Finished:  true,
-		Completed: time.Now(),
-		Metadata:  map[string]string{},
-	}
-
-	session.Interactions = append(session.Interactions, assistantInteraction)
-
-	// Write the session back to store
-	err = suite.helixAPIServer.Controller.WriteSession(suite.ctx, session)
-	if err != nil {
-		suite.logger.Warn().Err(err).Msg("Failed to write session to store")
-	}
-
-	suite.logger.Info().
-		Str("session_id", session.ID).
-		Str("agent_response", agentResponse[:min(len(agentResponse), 100)]+"...").
-		Msg("Received agent response")
-
-	// Log the conversation to the test results file
-	suite.logAgentConversation(sessionName, userMessage, agentResponse)
-
-	return agentResponse, nil
-}
-
-// logAgentConversation logs the full agent conversation to a text file for manual verification
-func (suite *GitHubOAuthE2ETestSuite) logAgentConversation(sessionName, userMessage, agentResponse string) {
-	conversationFilename := filepath.Join(getTestResultsDir(), fmt.Sprintf("github_oauth_e2e_%s_conversation_%s.txt",
-		suite.testTimestamp, strings.ReplaceAll(strings.ToLower(sessionName), " ", "_")))
-
-	conversationContent := fmt.Sprintf(`=== GitHub OAuth Skills E2E Test - %s ===
-Timestamp: %s
-Test User: %s
-OAuth Provider: %s
-OAuth Connection: %s
-
-=== CONVERSATION ===
-
-USER: %s
-
-AGENT: %s
-
-=== TEST METADATA ===
-- OAuth connection verified: YES
-- GitHub access token present: YES
-- Test repository: %s
-- Expected GitHub username: helix-test
-
-=== VERIFICATION NOTES ===
-- Agent response should contain real GitHub data from OAuth API calls
-- Agent should NOT return generic/mock responses
-- OAuth tokens should be used for actual GitHub API requests
-`,
-		sessionName,
-		time.Now().Format("2006-01-02 15:04:05"),
-		suite.testUser.Username,
-		suite.oauthProvider.Name,
-		func() string {
-			if suite.oauthConn != nil {
-				return suite.oauthConn.ID
-			}
-			return "N/A"
-		}(),
-		userMessage,
-		agentResponse,
-		func() string {
-			if len(suite.testRepos) > 0 {
-				return suite.testRepos[0]
-			}
-			return "N/A"
-		}(),
-	)
-
-	err := os.WriteFile(conversationFilename, []byte(conversationContent), 0644)
-	if err != nil {
-		suite.logger.Error().Err(err).Str("filename", conversationFilename).Msg("Failed to write conversation log")
-	} else {
-		suite.logger.Info().Str("filename", conversationFilename).Msg("Agent conversation logged to file")
-	}
-}
-
-// handleVerifiedDevicePage handles GitHub's /sessions/verified-device page
-func (suite *GitHubOAuthE2ETestSuite) handleVerifiedDevicePage(page *rod.Page) error {
-	suite.logger.Info().Msg("Handling GitHub verified device page")
-
-	// Wait for the page to fully load
-	time.Sleep(3 * time.Second)
-
-	// Look for device verification code input field
-	codeInputSelectors := []string{
-		`input[name="otp"]`,
-		`input[id="otp"]`,
-		`input[name="device_verification_code"]`,
-		`input[placeholder*="verification"]`,
-		`input[placeholder*="code"]`,
-		`input[type="text"]`, // Fallback for generic text inputs
-	}
-
-	var codeInput *rod.Element
-	var err error
-
-	// Try each selector until we find the input field
-	for _, selector := range codeInputSelectors {
-		codeInput, err = page.Element(selector)
-		if err == nil && codeInput != nil {
-			suite.logger.Info().Str("selector", selector).Msg("Found device verification code input field")
-			break
-		}
-	}
-
-	// If we found a code input, handle device verification
-	if codeInput != nil {
-		return suite.handleDeviceVerificationInput(page, codeInput)
-	}
-
-	// If no code input found, look for continue buttons or other actions
-	continueSelectors := []string{
-		`button:contains("Continue")`,
-		`button:contains("Submit")`,
-		`button[type="submit"]`,
-		`input[type="submit"]`,
-		`button:contains("Send code")`,
-		`button:contains("Send")`,
-	}
-
-	var continueButton *rod.Element
-	for _, selector := range continueSelectors {
-		continueButton, err = page.Element(selector)
-		if err == nil && continueButton != nil {
-			suite.logger.Info().Str("selector", selector).Msg("Found continue/submit button on verified device page")
-			break
-		}
-	}
-
-	if continueButton != nil {
-		suite.takeScreenshot(page, "verified_device_page_continue_button_found")
-
-		err = continueButton.Click(proto.InputMouseButtonLeft, 1)
-		if err != nil {
-			suite.logger.Error().Err(err).Msg("Failed to click continue button on verified device page")
-		} else {
-			suite.logger.Info().Msg("Clicked continue button on verified device page")
-			// Wait for navigation or form submission
-			time.Sleep(5 * time.Second)
-		}
-		return nil
-	}
-
-	// If no specific actions found, wait and check for automatic redirect
-	suite.logger.Info().Msg("No specific action required on verified device page, waiting for automatic redirect")
-	time.Sleep(5 * time.Second)
-
-	// Check if we've been redirected after waiting
-	newURL := page.MustInfo().URL
-	if newURL != page.MustInfo().URL {
-		suite.logger.Info().Str("new_url", newURL).Msg("Verified device page redirected automatically")
-	}
-
-	return nil
 }
