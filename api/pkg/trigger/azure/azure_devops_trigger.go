@@ -78,7 +78,13 @@ func (a *AzureDevOps) processPullRequestCommentEvent(ctx context.Context, trigge
 		return err
 	}
 
-	return nil
+	rendered, err := renderPullRequestCommentedEvent(prc)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal pull request comment event: %w", err)
+	}
+
+	// Process the rendered template
+	return a.processEvent(ctx, triggerConfig, event, rendered)
 }
 
 // If we don't know how to process the event, we will it process it plain
