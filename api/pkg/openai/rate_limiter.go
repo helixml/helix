@@ -111,7 +111,7 @@ func (rl *UniversalRateLimiter) WaitForTokens(ctx context.Context, tokensNeeded 
 	// Check if we have enough tokens
 	if rl.currentTokens >= tokensNeeded && rl.currentRequests >= 1 {
 		rl.currentTokens -= tokensNeeded
-		rl.currentRequests -= 1
+		rl.currentRequests--
 		rl.lastRequestTime = time.Now()
 		return nil
 	}
@@ -152,7 +152,7 @@ func (rl *UniversalRateLimiter) WaitForTokens(ctx context.Context, tokensNeeded 
 			rl.currentTokens -= tokensNeeded
 		}
 		if rl.currentRequests >= 1 {
-			rl.currentRequests -= 1
+			rl.currentRequests--
 		}
 		rl.lastRequestTime = time.Now()
 		return nil
@@ -379,12 +379,4 @@ func (rl *UniversalRateLimiter) Handle429Error(headers http.Header) {
 func EstimateTokens(text string) int64 {
 	// Very rough estimate: ~4 characters per token for English text
 	return int64(len(text) / 4)
-}
-
-// min returns the minimum of two int64 values
-func min(a, b int64) int64 {
-	if a < b {
-		return a
-	}
-	return b
 }
