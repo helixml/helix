@@ -357,7 +357,10 @@ func (a *BrowserOAuthAutomator) handleEmailInput(page *rod.Page, username string
 	// Clear any existing content and enter username
 	err = usernameElement.SelectAllText()
 	if err == nil {
-		usernameElement.Input("")
+		err = usernameElement.Input("")
+		if err != nil {
+			a.logger.Warn().Err(err).Msg("Failed to clear username field")
+		}
 	}
 
 	err = usernameElement.Input(username)
@@ -456,7 +459,10 @@ func (a *BrowserOAuthAutomator) handlePasswordInput(page *rod.Page, password str
 	// Clear any existing content and enter password
 	err = passwordElement.SelectAllText()
 	if err == nil {
-		passwordElement.Input("")
+		err = passwordElement.Input("")
+		if err != nil {
+			a.logger.Warn().Err(err).Msg("Failed to clear password field")
+		}
 	}
 
 	err = passwordElement.Input(password)
@@ -557,15 +563,15 @@ func (a *BrowserOAuthAutomator) clickNextButton(page *rod.Page, screenshotTaker 
 			result, err := page.Eval(jsCode)
 			if err != nil {
 				a.logger.Error().Err(err).Msg("Failed to execute JavaScript click")
-			} else {
+			}
+			if err == nil {
 				resultStr := result.Value.String()
 				if resultStr == "success" {
 					a.logger.Info().Msg("Successfully clicked Next button using JavaScript")
 					screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_next_button_clicked")
 					return nil // Success, no need to continue with rod methods
-				} else {
-					a.logger.Warn().Str("result", resultStr).Msg("JavaScript click failed or unexpected result")
 				}
+				a.logger.Warn().Str("result", resultStr).Msg("JavaScript click failed or unexpected result")
 			}
 		}
 	}
