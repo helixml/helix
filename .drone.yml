@@ -133,7 +133,7 @@ steps:
   # depends_on: [unit-test]
 
 - name: oauth-github-integration-test
-  image: golang:1.24-alpine3.21
+  image: golang:1.24
   volumes:
   - name: oauth-github-test-results
     path: /tmp/helix-oauth-test-results
@@ -215,7 +215,7 @@ steps:
   depends_on: [oauth-github-integration-test]
 
 - name: oauth-gmail-integration-test
-  image: golang:1.24-alpine3.21
+  image: golang:1.24
   volumes:
   - name: oauth-gmail-test-results
     path: /tmp/helix-oauth-test-results
@@ -294,7 +294,7 @@ steps:
   depends_on: [oauth-gmail-integration-test]
 
 - name: oauth-google-calendar-integration-test
-  image: golang:1.24-alpine3.21
+  image: golang:1.24
   volumes:
   - name: oauth-google-calendar-test-results
     path: /tmp/helix-oauth-test-results
