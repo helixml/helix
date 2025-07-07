@@ -10,27 +10,28 @@ import (
 )
 
 const (
-	ToolPrefix                = "tool_"
-	SessionPrefix             = "ses_"
-	AppPrefix                 = "app_"
-	GptScriptRunnerTaskPrefix = "gst_"
-	RequestPrefix             = "req_"
-	DataEntityPrefix          = "dent_"
-	LLMCallPrefix             = "llmc_"
-	KnowledgePrefix           = "kno_"
-	KnowledgeVersionPrefix    = "knov_"
-	SecretPrefix              = "sec_"
-	TestRunPrefix             = "testrun_"
-	OpenAIResponsePrefix      = "oai_"
-	ProviderEndpointPrefix    = "pe_"
-	OrganizationPrefix        = "org_"
-	TeamPrefix                = "team_"
-	UserPrefix                = "usr_"
-	RolePrefix                = "role_"
-	AccessGrantPrefix         = "ag_"
-	UsageMetricPrefix         = "um_"
-	StepInfoPrefix            = "step_"
-	CallPrefix                = "call_"
+	ToolPrefix                 = "tool_"
+	SessionPrefix              = "ses_"
+	AppPrefix                  = "app_"
+	GptScriptRunnerTaskPrefix  = "gst_"
+	RequestPrefix              = "req_"
+	DataEntityPrefix           = "dent_"
+	LLMCallPrefix              = "llmc_"
+	KnowledgePrefix            = "kno_"
+	KnowledgeVersionPrefix     = "knov_"
+	SecretPrefix               = "sec_"
+	TestRunPrefix              = "testrun_"
+	OpenAIResponsePrefix       = "oai_"
+	ProviderEndpointPrefix     = "pe_"
+	OrganizationPrefix         = "org_"
+	TeamPrefix                 = "team_"
+	UserPrefix                 = "usr_"
+	RolePrefix                 = "role_"
+	AccessGrantPrefix          = "ag_"
+	UsageMetricPrefix          = "um_"
+	StepInfoPrefix             = "step_"
+	CallPrefix                 = "call_"
+	TriggerConfigurationPrefix = "trgc_"
 )
 
 func GenerateUUID() string {
@@ -134,4 +135,8 @@ func GenerateUsageMetricID() string {
 
 func GenerateCallID() string {
 	return fmt.Sprintf("%s%s", CallPrefix, newID())
+}
+
+func GenerateTriggerConfigurationID() string {
+	return fmt.Sprintf("%s%s", TriggerConfigurationPrefix, newID())
 }

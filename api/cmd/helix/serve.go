@@ -487,6 +487,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		pingService,
 		oauthManager,
 		avatarsBucket,
+		trigger,
 	)
 	if err != nil {
 		return err
