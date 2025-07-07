@@ -39,7 +39,7 @@ if [ -z "$TEST_TYPE" ]; then
 fi
 
 # Install required tools
-apk add --no-cache curl zip
+apt-get update && apt-get install -y curl zip
 
 # Debug environment variables
 echo "DEBUG - LAUNCHPAD_URL='${LAUNCHPAD_URL:-}'"
