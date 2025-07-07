@@ -58,6 +58,22 @@ var GmailTestQueries = []AgentTestQuery{
 			return strings.Contains(lower, "message") || strings.Contains(lower, "email") || len(response) > 0
 		},
 	},
+	{
+		Query:       "Search for unread emails in my Gmail",
+		SessionName: "Gmail Unread Messages",
+		ExpectedResponseCheck: func(response string) bool {
+			lower := strings.ToLower(response)
+			return strings.Contains(lower, "unread") || strings.Contains(lower, "message") || strings.Contains(lower, "email") || len(response) > 0
+		},
+	},
+	{
+		Query:       "How many total messages are in my Gmail?",
+		SessionName: "Gmail Message Count",
+		ExpectedResponseCheck: func(response string) bool {
+			lower := strings.ToLower(response)
+			return strings.Contains(lower, "message") || strings.Contains(lower, "total") || strings.Contains(lower, "email") || len(response) > 0
+		},
+	},
 }
 
 // GmailOAuthProviderConfig defines the OAuth provider configuration for Gmail
@@ -133,6 +149,7 @@ func TestGmailOAuthSkillsE2E(t *testing.T) {
 	require.NoError(t, err, "Failed to create OAuth provider test template")
 
 	// Run the complete end-to-end workflow using template
+	t.Run("ValidateGmailSkillYAML", suite.testValidateGmailSkillYAML)
 	t.Run("SetupOAuthProvider", suite.oauthTemplate.TestSetupOAuthProvider)
 	t.Run("CreateTestApp", suite.oauthTemplate.TestCreateTestApp)
 	t.Run("PerformOAuthFlow", suite.oauthTemplate.TestPerformOAuthFlow)
@@ -145,6 +162,48 @@ func TestGmailOAuthSkillsE2E(t *testing.T) {
 		suite.oauthTemplate.Cleanup(t)
 		suite.CleanupBaseInfrastructure()
 	})
+}
+
+// ======================================================================================
+// TEST IMPLEMENTATION
+// ======================================================================================
+
+// testValidateGmailSkillYAML validates that the Gmail skill YAML file exists and is properly structured
+func (suite *GmailOAuthE2ETestSuite) testValidateGmailSkillYAML(t *testing.T) {
+	suite.logger.Info().Msg("Validating Gmail skill YAML file")
+
+	// Check that the skill can be loaded by the skills manager
+	skillsManager := suite.oauthTemplate.skillManager
+	skill, err := skillsManager.GetSkill("gmail")
+	require.NoError(t, err, "Failed to load Gmail skill from YAML")
+	require.NotNil(t, skill, "Gmail skill should not be nil")
+
+	// Validate basic skill properties
+	require.Equal(t, "gmail", skill.Name, "Skill name should be 'gmail'")
+	require.Equal(t, "Gmail", skill.DisplayName, "Skill display name should be 'Gmail'")
+	require.Equal(t, "google", skill.Provider, "Skill provider should be 'google'")
+	require.Equal(t, "Productivity", skill.Category, "Skill category should be 'Productivity'")
+
+	// Validate OAuth configuration
+	require.Equal(t, "google", skill.OAuthProvider, "OAuth provider should be 'google'")
+	require.Contains(t, skill.OAuthScopes, "https://www.googleapis.com/auth/gmail.readonly", "Should have Gmail readonly scope")
+	require.Contains(t, skill.OAuthScopes, "https://www.googleapis.com/auth/gmail.send", "Should have Gmail send scope")
+
+	// Validate API configuration
+	require.Equal(t, "https://www.googleapis.com", skill.BaseURL, "Base URL should be Gmail API URL")
+	require.NotEmpty(t, skill.Schema, "Gmail skill should have OpenAPI schema")
+
+	// Validate the schema contains key Gmail API operations
+	require.Contains(t, skill.Schema, "getGmailProfile", "Schema should contain getGmailProfile operation")
+	require.Contains(t, skill.Schema, "listGmailMessages", "Schema should contain listGmailMessages operation")
+	require.Contains(t, skill.Schema, "getGmailMessage", "Schema should contain getGmailMessage operation")
+	require.Contains(t, skill.Schema, "sendGmailMessage", "Schema should contain sendGmailMessage operation")
+
+	// Validate system prompt
+	require.NotEmpty(t, skill.SystemPrompt, "Gmail skill should have system prompt")
+	require.Contains(t, strings.ToLower(skill.SystemPrompt), "gmail", "System prompt should mention Gmail")
+
+	suite.logger.Info().Msg("Gmail skill YAML validation completed successfully")
 }
 
 // ======================================================================================
