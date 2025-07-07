@@ -51,9 +51,13 @@ func New(apiKey string, baseURL string, models ...string) *RetryableClient {
 		Timeout: 5 * time.Minute, // 5 minute timeout for embedding requests
 	}
 
-	// Use our interceptor with the custom timeout
+	// Use our interceptor with the custom timeout and universal rate limiter
+	rateLimiter := NewUniversalRateLimiter(baseURL)
+
 	config.HTTPClient = &openAIClientInterceptor{
-		Client: *httpClient,
+		Client:      *httpClient,
+		rateLimiter: rateLimiter,
+		baseURL:     baseURL,
 	}
 
 	client := openai.NewClientWithConfig(config)
@@ -128,6 +132,15 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 		if err != nil {
 			if strings.Contains(err.Error(), "401 Unauthorized") || strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "400") {
 				return retry.Unrecoverable(err)
+			}
+
+			// Handle 429 errors with retries for all providers
+			if strings.Contains(err.Error(), "429") {
+				log.Warn().
+					Str("error", err.Error()).
+					Str("base_url", c.baseURL).
+					Msg("Received 429 error, will retry with backoff")
+				return err // Allow retry
 			}
 
 			return err
@@ -349,6 +362,16 @@ func (c *RetryableClient) CreateEmbeddings(ctx context.Context, request openai.E
 			if strings.Contains(err.Error(), "401 Unauthorized") {
 				return retry.Unrecoverable(err)
 			}
+
+			// Handle 429 errors with retries for all providers
+			if strings.Contains(err.Error(), "429") {
+				log.Warn().
+					Str("error", err.Error()).
+					Str("base_url", c.baseURL).
+					Msg("Received 429 error in embeddings, will retry with backoff")
+				return err // Allow retry
+			}
+
 			return err
 		}
 		return nil
@@ -399,6 +422,16 @@ func (c *RetryableClient) CreateFlexibleEmbeddings(ctx context.Context, request 
 			if resp.StatusCode == 401 {
 				return retry.Unrecoverable(fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBytes)))
 			}
+
+			// Handle 429 errors with retries for all providers
+			if resp.StatusCode == 429 {
+				log.Warn().
+					Int("status_code", resp.StatusCode).
+					Str("base_url", c.baseURL).
+					Msg("Received 429 error in flexible embeddings, will retry with backoff")
+				return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBytes)) // Allow retry
+			}
+
 			return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBytes))
 		}
 
@@ -419,11 +452,30 @@ func (c *RetryableClient) CreateFlexibleEmbeddings(ctx context.Context, request 
 
 type openAIClientInterceptor struct {
 	http.Client
+	rateLimiter *UniversalRateLimiter
+	baseURL     string
 }
 
 // Do intercepts requests to the OpenAI API and modifies the body to be compatible with TogetherAI,
-// or others
+// or others, and implements universal rate limiting for all providers
 func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) {
+	// Handle rate limiting for all providers
+	if c.rateLimiter != nil {
+		// Estimate tokens needed for the request
+		tokensNeeded := c.estimateRequestTokens(req)
+
+		// Wait for tokens if needed
+		if err := c.rateLimiter.WaitForTokens(req.Context(), tokensNeeded); err != nil {
+			return nil, fmt.Errorf("rate limiter error: %w", err)
+		}
+
+		log.Debug().
+			Int64("tokens_estimated", tokensNeeded).
+			Str("url", req.URL.String()).
+			Msg("Rate limiter approved request")
+	}
+
+	// Handle TogetherAI embedding request modifications
 	if req.URL.Host == "api.together.xyz" && req.URL.Path == "/v1/embeddings" && req.Body != nil {
 		// Parse the original embedding request body
 		embeddingRequest := openai.EmbeddingRequest{}
@@ -456,5 +508,74 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 		return c.Client.Do(newReq)
 	}
 
-	return c.Client.Do(req)
+	// Make the request
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return resp, err
+	}
+
+	// Handle rate limiting for all provider responses
+	if c.rateLimiter != nil {
+		// Update rate limiter from response headers
+		c.rateLimiter.UpdateFromHeaders(resp.Header)
+
+		// Handle 429 errors
+		if resp.StatusCode == 429 {
+			log.Warn().
+				Str("url", req.URL.String()).
+				Int("status_code", resp.StatusCode).
+				Msg("Received 429 Too Many Requests")
+
+			c.rateLimiter.Handle429Error(resp.Header)
+			// Return the 429 error so retry logic can handle it
+		}
+	}
+
+	return resp, err
+}
+
+// estimateRequestTokens estimates the number of tokens needed for a request
+func (c *openAIClientInterceptor) estimateRequestTokens(req *http.Request) int64 {
+	if req.Body == nil {
+		return 100 // Default estimate for requests without body
+	}
+
+	// Read the body to estimate tokens
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		return 1000 // Conservative estimate if we can't read the body
+	}
+
+	// Restore the body for the actual request
+	req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+	// Parse the request to get the actual content
+	var chatRequest openai.ChatCompletionRequest
+	if err := json.Unmarshal(bodyBytes, &chatRequest); err != nil {
+		// If we can't parse as chat completion, use the raw body size
+		return EstimateTokens(string(bodyBytes))
+	}
+
+	// Estimate tokens from messages
+	var totalTokens int64
+	for _, message := range chatRequest.Messages {
+		totalTokens += EstimateTokens(message.Content)
+
+		// Handle multi-content messages
+		for _, part := range message.MultiContent {
+			if part.Type == openai.ChatMessagePartTypeText {
+				totalTokens += EstimateTokens(part.Text)
+			}
+		}
+	}
+
+	// Add some buffer for the request overhead
+	totalTokens += 50
+
+	// Ensure minimum token estimate
+	if totalTokens < 10 {
+		totalTokens = 10
+	}
+
+	return totalTokens
 }
