@@ -16,13 +16,14 @@ show_help() {
 Usage: $0 <test_type> <test_name> [test_results_dir]
 
 Parameters:
-  test_type        The type of OAuth test to run (e.g., 'github', 'gmail')
+  test_type        The type of OAuth test to run (e.g., 'github', 'gmail', 'google-calendar')
   test_name        The specific test name to run (e.g., 'TestGitHubOAuthSkillsE2E')
   test_results_dir Optional directory for test results (default: /tmp/helix-oauth-test-results)
 
 Examples:
   $0 github TestGitHubOAuthSkillsE2E
   $0 gmail TestGmailOAuthSkillsE2E
+  $0 google-calendar TestGoogleCalendarOAuthSkillsE2E
 
 Environment variables required:
   - OPENAI_API_KEY: OpenAI API key for LLM calls
@@ -40,11 +41,11 @@ fi
 
 # Validate test type
 case "$TEST_TYPE" in
-    github|gmail)
+    github|gmail|google-calendar)
         echo "Running OAuth integration test: $TEST_TYPE / $TEST_NAME"
         ;;
     *)
-        echo "Error: Unknown test type '$TEST_TYPE'. Supported types: github, gmail"
+        echo "Error: Unknown test type '$TEST_TYPE'. Supported types: github, gmail, google-calendar"
         exit 1
         ;;
 esac
