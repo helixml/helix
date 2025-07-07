@@ -1,10 +1,11 @@
 // GitHub OAuth Skills E2E Test
 //
-// This test requires OAuth integration environment variables and Chrome container, which the stack command will start automatically.
+// This test requires OAuth integration environment variables and Chrome
+// container, which the stack command will start automatically.
 //
 // To run this test, from the helix root directory:
 //
-//   ./stack test -v integration-test/skills/github_oauth_e2e_test.go -run TestGitHubOAuthSkillsE2E
+//   ./stack test -v integration-test/skills/*.go -run TestGitHubOAuthSkillsE2E
 //
 // The test will:
 // 1. Set up Helix infrastructure (OAuth manager, API server, etc.)
