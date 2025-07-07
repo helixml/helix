@@ -60,7 +60,8 @@ func (a *BrowserOAuthAutomator) PerformOAuthFlow(authURL, state, username, passw
 		Str("provider", a.config.ProviderName).
 		Msg("Starting browser automation for OAuth")
 
-	// Create a new page for the OAuth flow
+	// Create a new page for the OAuth flow with overall timeout
+	a.logger.Info().Msg("Creating new browser page for OAuth flow")
 	page, err := a.browser.Page(proto.TargetCreateTarget{
 		URL: "about:blank",
 	})
@@ -69,6 +70,9 @@ func (a *BrowserOAuthAutomator) PerformOAuthFlow(authURL, state, username, passw
 	}
 	defer page.Close()
 
+	// Set overall timeout for page operations
+	page = page.Timeout(30 * time.Second)
+
 	// Navigate to OAuth authorization URL
 	a.logger.Info().Str("url", authURL).Msg("Navigating to OAuth authorization URL")
 	err = page.Navigate(authURL)
@@ -76,21 +80,29 @@ func (a *BrowserOAuthAutomator) PerformOAuthFlow(authURL, state, username, passw
 		return "", fmt.Errorf("failed to navigate to OAuth URL: %w", err)
 	}
 
-	// Wait for page to load
-	err = page.WaitLoad()
+	// Wait for page to load with timeout
+	a.logger.Info().Msg("Waiting for page to load")
+	err = page.Timeout(15 * time.Second).WaitLoad()
 	if err != nil {
 		return "", fmt.Errorf("failed to wait for page load: %w", err)
 	}
 
+	currentURL := page.MustInfo().URL
+	a.logger.Info().Str("current_url", currentURL).Msg("Page loaded successfully")
+
 	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_auth_page_loaded")
 
 	// Check if we need to login
+	a.logger.Info().Msg("Checking if login is required")
 	loginRequired, err := a.checkLoginRequired(page)
 	if err != nil {
 		return "", fmt.Errorf("failed to check login requirement: %w", err)
 	}
 
+	a.logger.Info().Bool("login_required", loginRequired).Msg("Login requirement check completed")
+
 	if loginRequired {
+		a.logger.Info().Msg("Login required - starting login process")
 		err = a.performLogin(page, username, password, screenshotTaker)
 		if err != nil {
 			return "", fmt.Errorf("failed to perform login: %w", err)
@@ -98,6 +110,7 @@ func (a *BrowserOAuthAutomator) PerformOAuthFlow(authURL, state, username, passw
 
 		// Handle 2FA if required
 		if a.config.TwoFactorHandler != nil && a.config.TwoFactorHandler.IsRequired(page) {
+			a.logger.Info().Msg("Two-factor authentication required - handling 2FA")
 			err = a.config.TwoFactorHandler.Handle(page, a)
 			if err != nil {
 				return "", fmt.Errorf("failed to handle 2FA: %w", err)
@@ -105,6 +118,7 @@ func (a *BrowserOAuthAutomator) PerformOAuthFlow(authURL, state, username, passw
 		}
 
 		// Check if we need to navigate back to OAuth after login/2FA
+		a.logger.Info().Msg("Checking if navigation back to OAuth is needed")
 		err = a.navigateBackToOAuthIfNeeded(page, authURL, screenshotTaker)
 		if err != nil {
 			return "", fmt.Errorf("failed to navigate back to OAuth: %w", err)
@@ -112,41 +126,238 @@ func (a *BrowserOAuthAutomator) PerformOAuthFlow(authURL, state, username, passw
 	}
 
 	// Check if already at callback (OAuth completed)
+	a.logger.Info().Msg("Checking if OAuth flow is already completed")
 	authCode, completed := a.checkOAuthCompleted(page, state)
 	if completed {
+		a.logger.Info().Msg("OAuth flow already completed - returning authorization code")
 		return authCode, nil
 	}
 
 	// Look for and click authorization button
+	a.logger.Info().Msg("Starting authorization button search and click")
 	err = a.performAuthorization(page, screenshotTaker)
 	if err != nil {
 		return "", fmt.Errorf("failed to perform authorization: %w", err)
 	}
 
 	// Wait for callback with authorization code
+	a.logger.Info().Msg("Starting callback wait process")
 	return a.waitForCallback(page, state, screenshotTaker)
 }
 
 // checkLoginRequired checks if login is required
 func (a *BrowserOAuthAutomator) checkLoginRequired(page *rod.Page) (bool, error) {
-	a.logger.Info().Msg("Checking if login is required")
+	a.logger.Info().
+		Str("username_selector", a.config.LoginUsernameSelector).
+		Msg("Checking if login is required")
+
+	// Set timeout for operations
+	page = page.Timeout(10 * time.Second)
 
 	// Wait a moment for the page to fully load
+	a.logger.Info().Msg("Waiting 2 seconds for page to fully load")
 	time.Sleep(2 * time.Second)
 
 	// Check if we need to login first
-	loginElement, _ := page.Element(a.config.LoginUsernameSelector)
-	return loginElement != nil, nil
+	loginElement, err := page.Element(a.config.LoginUsernameSelector)
+	loginRequired := loginElement != nil
+
+	if err != nil {
+		a.logger.Info().Err(err).Msg("Login element not found - login not required")
+	} else {
+		a.logger.Info().Msg("Login element found - login required")
+	}
+
+	a.logger.Info().Bool("login_required", loginRequired).Msg("Login requirement check completed")
+	return loginRequired, nil
 }
 
-// performLogin handles the login process
-func (a *BrowserOAuthAutomator) performLogin(page *rod.Page, username, password string, screenshotTaker ScreenshotTaker) error {
-	a.logger.Info().Msg("Login required - filling in credentials")
+// debugDumpPageElements dumps all available HTML elements for debugging
+func (a *BrowserOAuthAutomator) debugDumpPageElements(page *rod.Page, stepName string) {
+	a.logger.Info().Str("step", stepName).Msg("=== DEBUGGING PAGE ELEMENTS ===")
 
-	// Fill in username
-	usernameElement, err := page.Element(a.config.LoginUsernameSelector)
+	// Set timeout for all operations
+	page = page.Timeout(10 * time.Second)
+
+	// Get page HTML with timeout
+	html, err := page.HTML()
 	if err != nil {
-		return fmt.Errorf("failed to find username field: %w", err)
+		a.logger.Error().Err(err).Msg("Failed to get page HTML")
+		return
+	}
+
+	// Log current URL
+	currentURL := page.MustInfo().URL
+	a.logger.Info().Str("current_url", currentURL).Msg("Current page URL")
+
+	// Find all input elements with timeout
+	inputs, err := page.Elements("input")
+	if err == nil {
+		a.logger.Info().Int("count", len(inputs)).Msg("Found input elements")
+		for i, input := range inputs {
+			if i >= 10 { // Limit to first 10 elements
+				break
+			}
+
+			// Add timeout to attribute operations
+			input = input.Timeout(2 * time.Second)
+
+			inputType, _ := input.Attribute("type")
+			inputName, _ := input.Attribute("name")
+			inputID, _ := input.Attribute("id")
+			inputClass, _ := input.Attribute("class")
+			inputPlaceholder, _ := input.Attribute("placeholder")
+			inputValue, _ := input.Attribute("value")
+
+			// Safe dereference with nil checks
+			typeStr := ""
+			if inputType != nil {
+				typeStr = *inputType
+			}
+			nameStr := ""
+			if inputName != nil {
+				nameStr = *inputName
+			}
+			idStr := ""
+			if inputID != nil {
+				idStr = *inputID
+			}
+			classStr := ""
+			if inputClass != nil {
+				classStr = *inputClass
+			}
+			placeholderStr := ""
+			if inputPlaceholder != nil {
+				placeholderStr = *inputPlaceholder
+			}
+			valueStr := ""
+			if inputValue != nil {
+				valueStr = *inputValue
+			}
+
+			a.logger.Info().
+				Int("index", i).
+				Str("type", typeStr).
+				Str("name", nameStr).
+				Str("id", idStr).
+				Str("class", classStr).
+				Str("placeholder", placeholderStr).
+				Str("value", valueStr).
+				Msg("Input element found")
+		}
+	} else {
+		a.logger.Error().Err(err).Msg("Failed to find input elements")
+	}
+
+	// Find all button elements with timeout
+	buttons, err := page.Elements("button")
+	if err == nil {
+		a.logger.Info().Int("count", len(buttons)).Msg("Found button elements")
+		for i, button := range buttons {
+			if i >= 10 { // Limit to first 10 elements
+				break
+			}
+
+			// Add timeout to attribute operations
+			button = button.Timeout(2 * time.Second)
+
+			buttonType, _ := button.Attribute("type")
+			buttonID, _ := button.Attribute("id")
+			buttonClass, _ := button.Attribute("class")
+			buttonText, _ := button.Text()
+
+			// Safe dereference with nil checks
+			typeStr := ""
+			if buttonType != nil {
+				typeStr = *buttonType
+			}
+			idStr := ""
+			if buttonID != nil {
+				idStr = *buttonID
+			}
+			classStr := ""
+			if buttonClass != nil {
+				classStr = *buttonClass
+			}
+
+			a.logger.Info().
+				Int("index", i).
+				Str("type", typeStr).
+				Str("id", idStr).
+				Str("class", classStr).
+				Str("text", buttonText).
+				Msg("Button element found")
+
+		}
+	} else {
+		a.logger.Error().Err(err).Msg("Failed to find button elements")
+	}
+
+	// Log a portion of the HTML for manual inspection
+	if len(html) > 2000 {
+		a.logger.Info().Str("html_snippet", html[:2000]+"...").Msg("HTML snippet (first 2000 chars)")
+	} else {
+		a.logger.Info().Str("html_snippet", html).Msg("Full HTML")
+	}
+
+	a.logger.Info().Msg("=== END DEBUG ELEMENTS ===")
+}
+
+// performLogin handles the login process (with Google's two-step process)
+func (a *BrowserOAuthAutomator) performLogin(page *rod.Page, username, password string, screenshotTaker ScreenshotTaker) error {
+	a.logger.Info().Msg("Login required - starting login process")
+
+	// Debug: dump page elements
+	a.debugDumpPageElements(page, "login_start")
+
+	// Step 1: Handle email input (Google's first step)
+	err := a.handleEmailInput(page, username, screenshotTaker)
+	if err != nil {
+		return fmt.Errorf("failed to handle email input: %w", err)
+	}
+
+	// Step 2: Handle password input (Google's second step)
+	err = a.handlePasswordInput(page, password, screenshotTaker)
+	if err != nil {
+		return fmt.Errorf("failed to handle password input: %w", err)
+	}
+
+	return nil
+}
+
+// handleEmailInput handles the email input step
+func (a *BrowserOAuthAutomator) handleEmailInput(page *rod.Page, username string, screenshotTaker ScreenshotTaker) error {
+	a.logger.Info().Msg("Handling email input step")
+
+	// Set timeout for operations
+	page = page.Timeout(15 * time.Second)
+
+	// Try to find username field using multiple selectors
+	usernameSelectors := strings.Split(a.config.LoginUsernameSelector, ", ")
+	var usernameElement *rod.Element
+	var err error
+
+	for _, selector := range usernameSelectors {
+		selector = strings.TrimSpace(selector)
+		usernameElement, err = page.Element(selector)
+		if err == nil && usernameElement != nil {
+			a.logger.Info().Str("selector", selector).Msg("Found username/email field")
+			break
+		}
+	}
+
+	if usernameElement == nil {
+		a.debugDumpPageElements(page, "email_field_not_found")
+		return fmt.Errorf("failed to find username/email field using selectors: %s", a.config.LoginUsernameSelector)
+	}
+
+	// Set timeout for element operations
+	usernameElement = usernameElement.Timeout(5 * time.Second)
+
+	// Clear any existing content and enter username
+	err = usernameElement.SelectAllText()
+	if err == nil {
+		usernameElement.Input("")
 	}
 
 	err = usernameElement.Input(username)
@@ -154,26 +365,305 @@ func (a *BrowserOAuthAutomator) performLogin(page *rod.Page, username, password 
 		return fmt.Errorf("failed to enter username: %w", err)
 	}
 
-	// Fill in password
-	passwordElement := page.MustElement(a.config.LoginPasswordSelector)
+	a.logger.Info().Str("username", username).Msg("Successfully entered username/email")
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_email_filled")
+
+	// Try Rod's native element selection using exact class pattern from debug output
+	a.logger.Info().Msg("Attempting to find Next button using specific class pattern")
+
+	// Use the exact class pattern we see in debug output for the Next button
+	specificSelectors := []string{
+		// Modern Google Next button class pattern (from debug output)
+		"button.VfPpkd-LgbsSe.VfPpkd-LgbsSe-OWXEXe-k8QpJ.VfPpkd-LgbsSe-OWXEXe-dgl2Hf.nCP5yc.AjY5Oe.DuMIQc.LQeN7.BqKGqe.Jskylb.TrZEUc.lw1w4b",
+		// Shorter pattern with key classes
+		"button.VfPpkd-LgbsSe.nCP5yc.AjY5Oe.DuMIQc",
+		// Even shorter pattern
+		"button.VfPpkd-LgbsSe.nCP5yc",
+		// Fallback to core Google button class
+		"button.VfPpkd-LgbsSe",
+	}
+
+	var nextButton *rod.Element
+	for _, selector := range specificSelectors {
+		// Set shorter timeout for each attempt
+		elements, err := page.Timeout(3 * time.Second).Elements(selector)
+		if err == nil && len(elements) > 0 {
+			// Check each element to find the one with "Next" text
+			for _, element := range elements {
+				buttonText, textErr := element.Timeout(1 * time.Second).Text()
+				if textErr == nil && strings.ToLower(strings.TrimSpace(buttonText)) == "next" {
+					a.logger.Info().Str("selector", selector).Str("button_text", buttonText).Msg("Found Next button using class pattern")
+					nextButton = element
+					break
+				}
+			}
+			if nextButton != nil {
+				break
+			}
+		}
+	}
+
+	if nextButton != nil {
+		a.logger.Info().Msg("Clicking Next button using class pattern")
+		nextButton.MustClick()
+		a.logger.Info().Msg("Successfully clicked Next button via class pattern")
+		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_next_button_clicked")
+	} else {
+		a.logger.Warn().Msg("Class pattern selection failed, falling back to manual button search")
+		// Fall back to Rod element selection
+		err = a.clickNextButton(page, screenshotTaker)
+		if err != nil {
+			return fmt.Errorf("failed to click Next button: %w", err)
+		}
+	}
+
+	// Wait for navigation to password step
+	return a.waitForNavigation(page, screenshotTaker)
+}
+
+// handlePasswordInput handles the password input step
+func (a *BrowserOAuthAutomator) handlePasswordInput(page *rod.Page, password string, screenshotTaker ScreenshotTaker) error {
+	a.logger.Info().Msg("Handling password input step")
+
+	// Set timeout for operations
+	page = page.Timeout(15 * time.Second)
+
+	// Debug: dump page elements at password step
+	a.debugDumpPageElements(page, "password_step")
+
+	// Try to find password field using multiple selectors
+	passwordSelectors := strings.Split(a.config.LoginPasswordSelector, ", ")
+	var passwordElement *rod.Element
+	var err error
+
+	for _, selector := range passwordSelectors {
+		selector = strings.TrimSpace(selector)
+		passwordElement, err = page.Element(selector)
+		if err == nil && passwordElement != nil {
+			a.logger.Info().Str("selector", selector).Msg("Found password field")
+			break
+		}
+	}
+
+	if passwordElement == nil {
+		a.debugDumpPageElements(page, "password_field_not_found")
+		return fmt.Errorf("failed to find password field using selectors: %s", a.config.LoginPasswordSelector)
+	}
+
+	// Set timeout for element operations
+	passwordElement = passwordElement.Timeout(5 * time.Second)
+
+	// Clear any existing content and enter password
+	err = passwordElement.SelectAllText()
+	if err == nil {
+		passwordElement.Input("")
+	}
+
 	err = passwordElement.Input(password)
 	if err != nil {
 		return fmt.Errorf("failed to enter password: %w", err)
 	}
 
-	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_login_filled")
+	a.logger.Info().Msg("Successfully entered password")
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_password_filled")
 
-	// Click login button
-	loginButton := page.MustElement(a.config.LoginButtonSelector)
-	err = loginButton.Click(proto.InputMouseButtonLeft, 1)
+	// Click login/next button
+	err = a.clickLoginButton(page, screenshotTaker)
 	if err != nil {
 		return fmt.Errorf("failed to click login button: %w", err)
 	}
 
-	a.logger.Info().Msg("Clicked login button")
-
-	// Wait for login navigation
+	// Wait for navigation after login
 	return a.waitForNavigation(page, screenshotTaker)
+}
+
+// clickNextButton clicks the Next button (for Google's email step)
+func (a *BrowserOAuthAutomator) clickNextButton(page *rod.Page, screenshotTaker ScreenshotTaker) error {
+	a.logger.Info().Msg("Looking for Next button")
+
+	// Set timeout for operations
+	page = page.Timeout(10 * time.Second)
+
+	// First try direct CSS selectors
+	nextSelectors := []string{
+		`button[id="identifierNext"]`,        // Old Google style (with ID)
+		`button[id="passwordNext"]`,          // Old Google style (with ID)
+		`input[type="submit"][value="Next"]`, // Input style
+		`button[type="submit"]`,              // Submit button
+		`input[type="submit"]`,               // Fallback input submit
+	}
+
+	var nextButton *rod.Element
+	var err error
+
+	for _, selector := range nextSelectors {
+		nextButton, err = page.Element(selector)
+		if err == nil && nextButton != nil {
+			a.logger.Info().Str("selector", selector).Msg("Found Next button")
+			break
+		}
+	}
+
+	// If no direct selector worked, try Google-specific class patterns and text content
+	if nextButton == nil {
+		a.logger.Info().Msg("Direct selectors failed, trying Google-specific patterns")
+
+		// First try Google's button classes (more efficient than text search)
+		googleButtonSelectors := []string{
+			`button.VfPpkd-LgbsSe.VfPpkd-LgbsSe-OWXEXe-k8QpJ`, // Google's primary button style
+			`button.VfPpkd-LgbsSe.Jskylb`,                     // Google's button with Next styling
+			`button.VfPpkd-LgbsSe[jsname]`,                    // Google buttons with jsname
+		}
+
+		for _, selector := range googleButtonSelectors {
+			buttons, err := page.Elements(selector)
+			if err == nil {
+				for _, button := range buttons {
+					button = button.Timeout(1 * time.Second)
+					buttonText, textErr := button.Text()
+					if textErr == nil {
+						buttonTextLower := strings.ToLower(strings.TrimSpace(buttonText))
+						if buttonTextLower == "next" {
+							a.logger.Info().Str("button_text", buttonText).Str("selector", selector).Msg("Found Next button by class and text")
+							nextButton = button
+							break
+						}
+					}
+				}
+			}
+			if nextButton != nil {
+				break
+			}
+		}
+
+		// If class-based search failed, use JavaScript to click the Next button directly
+		if nextButton == nil {
+			a.logger.Info().Msg("Class-based search failed, using JavaScript to click Next button directly")
+
+			// Use JavaScript to click the 4th button (index 3) which is consistently the Next button
+			jsCode := `
+				if (document.querySelectorAll('button').length > 3) {
+					if (document.querySelectorAll('button')[3].textContent.trim().toLowerCase() === 'next') {
+						document.querySelectorAll('button')[3].click();
+						'success';
+					} else {
+						'wrong_button_text:' + document.querySelectorAll('button')[3].textContent.trim().toLowerCase();
+					}
+				} else {
+					'not_enough_buttons:' + document.querySelectorAll('button').length;
+				}
+			`
+
+			result, err := page.Eval(jsCode)
+			if err != nil {
+				a.logger.Error().Err(err).Msg("Failed to execute JavaScript click")
+			} else {
+				resultStr := result.Value.String()
+				if resultStr == "success" {
+					a.logger.Info().Msg("Successfully clicked Next button using JavaScript")
+					screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_next_button_clicked")
+					return nil // Success, no need to continue with rod methods
+				} else {
+					a.logger.Warn().Str("result", resultStr).Msg("JavaScript click failed or unexpected result")
+				}
+			}
+		}
+	}
+
+	if nextButton == nil {
+		a.debugDumpPageElements(page, "next_button_not_found")
+		return fmt.Errorf("failed to find Next button")
+	}
+
+	// Set timeout for element operations
+	nextButton = nextButton.Timeout(5 * time.Second)
+
+	err = nextButton.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		return fmt.Errorf("failed to click Next button: %w", err)
+	}
+
+	a.logger.Info().Msg("Successfully clicked Next button")
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_next_button_clicked")
+
+	return nil
+}
+
+// clickLoginButton clicks the login/sign in button
+func (a *BrowserOAuthAutomator) clickLoginButton(page *rod.Page, screenshotTaker ScreenshotTaker) error {
+	a.logger.Info().Msg("Looking for login button")
+
+	// Set timeout for operations
+	page = page.Timeout(10 * time.Second)
+
+	// First try the same successful class pattern approach that worked for the Next button
+	a.logger.Info().Msg("Attempting to find login button using same class pattern as Next button")
+
+	// Use the exact same class pattern that successfully worked for the Next button
+	specificSelectors := []string{
+		// Same Google Next/Login button class pattern (from debug output)
+		"button.VfPpkd-LgbsSe.VfPpkd-LgbsSe-OWXEXe-k8QpJ.VfPpkd-LgbsSe-OWXEXe-dgl2Hf.nCP5yc.AjY5Oe.DuMIQc.LQeN7.BqKGqe.Jskylb.TrZEUc.lw1w4b",
+		// Shorter pattern with key classes
+		"button.VfPpkd-LgbsSe.nCP5yc.AjY5Oe.DuMIQc",
+		// Even shorter pattern
+		"button.VfPpkd-LgbsSe.nCP5yc",
+		// Fallback to core Google button class
+		"button.VfPpkd-LgbsSe",
+	}
+
+	var loginButton *rod.Element
+	for _, selector := range specificSelectors {
+		// Set shorter timeout for each attempt
+		elements, err := page.Timeout(3 * time.Second).Elements(selector)
+		if err == nil && len(elements) > 0 {
+			// Check each element to find the one with "Next" text (same as login button)
+			for _, element := range elements {
+				buttonText, textErr := element.Timeout(1 * time.Second).Text()
+				if textErr == nil && strings.ToLower(strings.TrimSpace(buttonText)) == "next" {
+					a.logger.Info().Str("selector", selector).Str("button_text", buttonText).Msg("Found login button using class pattern")
+					loginButton = element
+					break
+				}
+			}
+			if loginButton != nil {
+				break
+			}
+		}
+	}
+
+	if loginButton == nil {
+		// Fallback to original selectors
+		a.logger.Warn().Msg("Class pattern approach failed, falling back to original selectors")
+		loginSelectors := strings.Split(a.config.LoginButtonSelector, ", ")
+		var err error
+
+		for _, selector := range loginSelectors {
+			selector = strings.TrimSpace(selector)
+			loginButton, err = page.Element(selector)
+			if err == nil && loginButton != nil {
+				a.logger.Info().Str("selector", selector).Msg("Found login button using fallback selector")
+				break
+			}
+		}
+	}
+
+	if loginButton == nil {
+		a.debugDumpPageElements(page, "login_button_not_found")
+		return fmt.Errorf("failed to find login button using selectors: %s", a.config.LoginButtonSelector)
+	}
+
+	// Set timeout for element operations
+	loginButton = loginButton.Timeout(5 * time.Second)
+
+	err := loginButton.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		return fmt.Errorf("failed to click login button: %w", err)
+	}
+
+	a.logger.Info().Msg("Successfully clicked login button")
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_login_button_clicked")
+
+	return nil
 }
 
 // waitForNavigation waits for page navigation after login
@@ -184,18 +674,33 @@ func (a *BrowserOAuthAutomator) waitForNavigation(page *rod.Page, screenshotTake
 
 	// Wait for URL to change (indicating navigation started)
 	currentURL := page.MustInfo().URL
+	a.logger.Info().Str("initial_url", currentURL).Msg("Starting navigation wait from this URL")
+
 	timeout := time.After(10 * time.Second)
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
 	navigationStarted := false
+	checkCount := 0
 	for !navigationStarted {
 		select {
 		case <-timeout:
 			screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_login_timeout")
+			a.logger.Error().
+				Str("initial_url", currentURL).
+				Str("final_url", page.MustInfo().URL).
+				Int("check_count", checkCount).
+				Msg("Timeout waiting for login navigation")
 			return fmt.Errorf("timeout waiting for login navigation")
 		case <-ticker.C:
+			checkCount++
 			newURL := page.MustInfo().URL
+			if checkCount%4 == 0 { // Log every 2 seconds
+				a.logger.Info().
+					Str("current_url", newURL).
+					Int("check_count", checkCount).
+					Msg("Navigation check - URL still unchanged")
+			}
 			if newURL != currentURL {
 				a.logger.Info().Str("old_url", currentURL).Str("new_url", newURL).Msg("Navigation detected")
 				navigationStarted = true
@@ -204,11 +709,15 @@ func (a *BrowserOAuthAutomator) waitForNavigation(page *rod.Page, screenshotTake
 	}
 
 	// Wait for page to fully load after navigation
-	a.logger.Info().Msg("Waiting for page to fully load")
+	a.logger.Info().Msg("Navigation detected - waiting for page to fully load")
 	page.MustWaitLoad()
 
 	// Additional small wait to ensure all dynamic content loads
+	a.logger.Info().Msg("Waiting additional 2 seconds for dynamic content to load")
 	time.Sleep(2 * time.Second)
+
+	finalURL := page.MustInfo().URL
+	a.logger.Info().Str("final_url", finalURL).Msg("Page navigation and load completed")
 
 	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_auth_page_after_login")
 
@@ -318,6 +827,11 @@ func (a *BrowserOAuthAutomator) performAuthorization(page *rod.Page, screenshotT
 
 // findAuthorizationButton finds the correct authorization button by examining text content
 func (a *BrowserOAuthAutomator) findAuthorizationButton(page *rod.Page) (*rod.Element, error) {
+	a.logger.Info().Str("configured_selector", a.config.AuthorizeButtonSelector).Msg("Starting authorization button search")
+
+	// Set timeout for operations
+	page = page.Timeout(10 * time.Second)
+
 	// First try the configured selector
 	authButtonElement, err := page.Element(a.config.AuthorizeButtonSelector)
 	if err == nil {
@@ -325,11 +839,16 @@ func (a *BrowserOAuthAutomator) findAuthorizationButton(page *rod.Page) (*rod.El
 		buttonText, textErr := authButtonElement.Text()
 		if textErr == nil {
 			buttonTextLower := strings.ToLower(buttonText)
+			a.logger.Info().Str("button_text", buttonText).Msg("Found element with configured selector")
 			if strings.Contains(buttonTextLower, "authorize") && !strings.Contains(buttonTextLower, "cancel") && !strings.Contains(buttonTextLower, "deny") {
 				a.logger.Info().Str("button_text", buttonText).Msg("Found authorization button with expected text")
 				return authButtonElement, nil
 			}
+		} else {
+			a.logger.Info().Err(textErr).Msg("Could not get text from configured selector element")
 		}
+	} else {
+		a.logger.Info().Err(err).Msg("Configured selector did not find element")
 	}
 
 	// If the configured selector didn't work or found wrong button, try broader search
@@ -344,12 +863,16 @@ func (a *BrowserOAuthAutomator) findAuthorizationButton(page *rod.Page) (*rod.El
 	}
 
 	for _, selector := range buttonSelectors {
+		a.logger.Info().Str("selector", selector).Msg("Searching for buttons with selector")
 		elements, err := page.Elements(selector)
 		if err != nil {
+			a.logger.Info().Err(err).Str("selector", selector).Msg("Error finding elements with selector")
 			continue
 		}
 
-		for _, element := range elements {
+		a.logger.Info().Str("selector", selector).Int("count", len(elements)).Msg("Found elements with selector")
+
+		for i, element := range elements {
 			// Get button text/value
 			buttonText := ""
 
@@ -364,7 +887,11 @@ func (a *BrowserOAuthAutomator) findAuthorizationButton(page *rod.Page) (*rod.El
 
 			if buttonText != "" {
 				buttonTextLower := strings.ToLower(buttonText)
-				a.logger.Info().Str("button_text", buttonText).Str("selector", selector).Msg("Examining button")
+				a.logger.Info().
+					Str("button_text", buttonText).
+					Str("selector", selector).
+					Int("element_index", i).
+					Msg("Examining button")
 
 				// Look for authorize-like text while avoiding cancel/deny text
 				isAuthorizeButton := (strings.Contains(buttonTextLower, "authorize") ||
@@ -379,30 +906,55 @@ func (a *BrowserOAuthAutomator) findAuthorizationButton(page *rod.Page) (*rod.El
 					a.logger.Info().Str("button_text", buttonText).Msg("Found authorization button based on text content")
 					return element, nil
 				}
+			} else {
+				a.logger.Info().
+					Str("selector", selector).
+					Int("element_index", i).
+					Msg("Button has no text content")
 			}
 		}
 	}
 
+	a.logger.Error().Msg("No suitable authorization button found after searching all selectors")
 	return nil, fmt.Errorf("no suitable authorization button found")
 }
 
 // waitForCallback waits for redirect to callback URL with authorization code
 func (a *BrowserOAuthAutomator) waitForCallback(page *rod.Page, state string, screenshotTaker ScreenshotTaker) (string, error) {
-	a.logger.Info().Msg("Waiting for OAuth callback redirect")
+	a.logger.Info().
+		Str("callback_pattern", a.config.CallbackURLPattern).
+		Str("expected_state", state).
+		Msg("Waiting for OAuth callback redirect")
 
 	// Wait for navigation to callback URL (with authorization code)
 	timeout := time.After(20 * time.Second)
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
+	checkCount := 0
 	for {
 		select {
 		case <-timeout:
 			screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_oauth_timeout")
 			currentURL := page.MustInfo().URL
+			a.logger.Error().
+				Str("current_url", currentURL).
+				Str("callback_pattern", a.config.CallbackURLPattern).
+				Int("check_count", checkCount).
+				Msg("Timeout waiting for OAuth callback")
 			return "", fmt.Errorf("timeout waiting for OAuth callback, current URL: %s", currentURL)
 		case <-ticker.C:
+			checkCount++
 			currentURL := page.MustInfo().URL
+
+			// Log progress every 4 seconds
+			if checkCount%8 == 0 {
+				a.logger.Info().
+					Str("current_url", currentURL).
+					Int("check_count", checkCount).
+					Msg("Still waiting for OAuth callback")
+			}
+
 			if strings.Contains(currentURL, a.config.CallbackURLPattern) || strings.Contains(currentURL, "code=") {
 				a.logger.Info().Str("callback_url", currentURL).Msg("OAuth callback received")
 				screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_oauth_callback_received")
