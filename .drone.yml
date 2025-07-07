@@ -185,6 +185,8 @@ steps:
   commands:
     - pwd
     - ls -alh
+    - git log |head
+    - ls -alh scripts/
     - chmod +x scripts/run-oauth-integration-test.sh
     - ./scripts/run-oauth-integration-test.sh github TestGitHubOAuthSkillsE2E
   when:
