@@ -274,8 +274,6 @@ function test-integration() {
 # Run all tests:                    ./stack test
 # Run specific tests:               ./stack test ./api/pkg/oauth_test
 # Run a single test:                ./stack test ./api/pkg/oauth_test -run TestOAuthAppIDPropagationProduction
-# Run only OAuth integration tests: ./stack test ./api/pkg/skills/... -tags=oauth_integration
-# Exclude OAuth integration tests:  ./stack test ./... -tags='!oauth_integration'
 
 function test() {
   # Ingest env variables from .env file

@@ -107,6 +107,9 @@ func TestGitHubOAuthSkillsE2E(t *testing.T) {
 		t.Skip("Skipping end-to-end test in short mode")
 	}
 
+	// Enable parallel execution with other tests
+	t.Parallel()
+
 	// Set a reasonable timeout for the OAuth browser automation
 	timeout := 2 * time.Minute
 	deadline := time.Now().Add(timeout)
