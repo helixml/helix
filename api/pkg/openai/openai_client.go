@@ -134,12 +134,21 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 				return retry.Unrecoverable(err)
 			}
 
-			// Handle 429 errors with retries for all providers
+			// Handle 429 and 529 errors with retries for all providers
 			if strings.Contains(err.Error(), "429") {
 				log.Warn().
 					Str("error", err.Error()).
 					Str("base_url", c.baseURL).
 					Msg("Received 429 error, will retry with backoff")
+				return err // Allow retry
+			}
+
+			// Handle 529 (Overloaded) errors with retries for all providers
+			if strings.Contains(err.Error(), "529") {
+				log.Warn().
+					Str("error", err.Error()).
+					Str("base_url", c.baseURL).
+					Msg("Received 529 overloaded error, will retry with backoff")
 				return err // Allow retry
 			}
 
@@ -363,12 +372,21 @@ func (c *RetryableClient) CreateEmbeddings(ctx context.Context, request openai.E
 				return retry.Unrecoverable(err)
 			}
 
-			// Handle 429 errors with retries for all providers
+			// Handle 429 and 529 errors with retries for all providers
 			if strings.Contains(err.Error(), "429") {
 				log.Warn().
 					Str("error", err.Error()).
 					Str("base_url", c.baseURL).
 					Msg("Received 429 error in embeddings, will retry with backoff")
+				return err // Allow retry
+			}
+
+			// Handle 529 (Overloaded) errors with retries for all providers
+			if strings.Contains(err.Error(), "529") {
+				log.Warn().
+					Str("error", err.Error()).
+					Str("base_url", c.baseURL).
+					Msg("Received 529 overloaded error in embeddings, will retry with backoff")
 				return err // Allow retry
 			}
 
@@ -423,12 +441,21 @@ func (c *RetryableClient) CreateFlexibleEmbeddings(ctx context.Context, request 
 				return retry.Unrecoverable(fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBytes)))
 			}
 
-			// Handle 429 errors with retries for all providers
+			// Handle 429 and 529 errors with retries for all providers
 			if resp.StatusCode == 429 {
 				log.Warn().
 					Int("status_code", resp.StatusCode).
 					Str("base_url", c.baseURL).
 					Msg("Received 429 error in flexible embeddings, will retry with backoff")
+				return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBytes)) // Allow retry
+			}
+
+			// Handle 529 (Overloaded) errors with retries for all providers
+			if resp.StatusCode == 529 {
+				log.Warn().
+					Int("status_code", resp.StatusCode).
+					Str("base_url", c.baseURL).
+					Msg("Received 529 overloaded error in flexible embeddings, will retry with backoff")
 				return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBytes)) // Allow retry
 			}
 
@@ -519,7 +546,7 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 		// Update rate limiter from response headers
 		c.rateLimiter.UpdateFromHeaders(resp.Header)
 
-		// Handle 429 errors
+		// Handle 429 and 529 errors
 		if resp.StatusCode == 429 {
 			log.Warn().
 				Str("url", req.URL.String()).
@@ -528,6 +555,18 @@ func (c *openAIClientInterceptor) Do(req *http.Request) (*http.Response, error) 
 
 			c.rateLimiter.Handle429Error(resp.Header)
 			// Return the 429 error so retry logic can handle it
+		}
+
+		// Handle 529 (Overloaded) errors
+		if resp.StatusCode == 529 {
+			log.Warn().
+				Str("url", req.URL.String()).
+				Int("status_code", resp.StatusCode).
+				Msg("Received 529 Overloaded")
+
+			// For 529 errors, we can also use the same backoff logic as 429
+			c.rateLimiter.Handle429Error(resp.Header)
+			// Return the 529 error so retry logic can handle it
 		}
 	}
 
