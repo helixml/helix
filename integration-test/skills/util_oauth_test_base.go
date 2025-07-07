@@ -114,8 +114,13 @@ func (suite *BaseOAuthTestSuite) SetupBaseInfrastructure(testName string) error 
 		suite.logger.Warn().Msg("OPENAI_API_KEY not set - LLM calls may fail")
 	}
 
-	// Initialize store
-	suite.store, err = store.NewPostgresStore(cfg.Store)
+	// Initialize store with unique schema for parallel test isolation
+	// Each test gets its own schema to avoid migration conflicts
+	storeConfig := cfg.Store
+	storeConfig.Schema = fmt.Sprintf("test_oauth_%s", suite.testID)
+	suite.logger.Info().Str("schema", storeConfig.Schema).Msg("Using unique database schema for test isolation")
+
+	suite.store, err = store.NewPostgresStore(storeConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create store: %w", err)
 	}
@@ -416,6 +421,18 @@ func (suite *BaseOAuthTestSuite) CleanupBaseInfrastructure() {
 			suite.logger.Error().Err(err).Msg("Failed to delete test user")
 		} else {
 			suite.logger.Info().Msg("Test user deleted")
+		}
+	}
+
+	// Clean up test database schema
+	if suite.store != nil {
+		schemaName := fmt.Sprintf("test_oauth_%s", suite.testID)
+		suite.logger.Info().Str("schema", schemaName).Msg("Cleaning up test database schema")
+
+		// Close the store connection
+		if postgresStore, ok := suite.store.(*store.PostgresStore); ok {
+			postgresStore.Close()
+			suite.logger.Info().Str("schema", schemaName).Msg("Closed store connection - test schema will be cleaned up by database maintenance")
 		}
 	}
 
