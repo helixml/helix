@@ -1,0 +1,439 @@
+apiVersion: v1
+kind: Skill
+metadata:
+  name: google-calendar
+  displayName: Google Calendar
+  provider: google
+  category: Productivity
+  
+spec:
+  description: |
+    Access Google Calendar with OAuth authentication.
+
+    This skill provides secure access to Google Calendar API, allowing you to:
+    • Read and manage calendar events
+    • Create and update calendar entries
+    • Search for events and appointments
+    • Manage multiple calendars
+    • Access calendar settings and metadata
+
+    Example Queries:
+    - "Show me my events for today"
+    - "Create a meeting for tomorrow at 3 PM"
+    - "Find all events next week"
+    - "What's my schedule for Friday?"
+
+  systemPrompt: |
+    You are a Google Calendar assistant. Your expertise is in helping users manage their calendar events, appointments, and schedules efficiently.
+
+    Key capabilities:
+    - Event reading and searching across calendars
+    - Event creation, modification, and deletion
+    - Calendar management and organization
+    - Schedule analysis and conflict detection
+    - Reminder and notification management
+
+    When users ask about calendar events, scheduling, or time management:
+    1. Help them search and filter events using date ranges and criteria
+    2. Assist with creating and updating calendar events
+    3. Support schedule analysis and conflict resolution
+    4. Provide calendar organization and management tips
+    5. Help with recurring event patterns and reminders
+
+    Always focus on Google Calendar management. If asked about other Google services or non-calendar topics, politely redirect to calendar-specific assistance.
+
+    Examples of what you can help with:
+    - "Show me my free time this week"
+    - "Schedule a team meeting for next Tuesday"
+    - "Find all my meetings with John"
+    - "What events do I have conflicts with?"
+    - "Create a recurring weekly standup"
+
+  icon:
+    type: material-ui
+    name: Event
+    color: '#4285F4'
+    
+  oauth:
+    provider: google
+    scopes:
+      - https://www.googleapis.com/auth/calendar
+      - https://www.googleapis.com/auth/calendar.events
+      
+  api:
+    baseUrl: https://www.googleapis.com
+    headers:
+      Accept: application/json
+    
+    schema: |
+      openapi: 3.0.3
+      info:
+        title: Google Calendar API
+        description: Access Google Calendar events and calendars
+        version: "v3"
+      servers:
+        - url: https://www.googleapis.com
+      paths:
+        /calendar/v3/calendars/primary:
+          get:
+            summary: Get primary calendar
+            operationId: getPrimaryCalendar
+            security:
+              - BearerAuth: []
+            responses:
+              '200':
+                description: Primary calendar information
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        summary:
+                          type: string
+                        description:
+                          type: string
+                        timeZone:
+                          type: string
+                        accessRole:
+                          type: string
+        /calendar/v3/calendars:
+          get:
+            summary: List calendars
+            operationId: listCalendars
+            security:
+              - BearerAuth: []
+            responses:
+              '200':
+                description: List of calendars
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        items:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              summary:
+                                type: string
+                              description:
+                                type: string
+                              timeZone:
+                                type: string
+                              accessRole:
+                                type: string
+        /calendar/v3/calendars/{calendarId}/events:
+          get:
+            summary: List calendar events
+            operationId: listCalendarEvents
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: calendarId
+                in: path
+                required: true
+                schema:
+                  type: string
+                  default: primary
+              - name: timeMin
+                in: query
+                schema:
+                  type: string
+                  format: date-time
+                description: Lower bound for event start time (RFC3339 timestamp)
+              - name: timeMax
+                in: query
+                schema:
+                  type: string
+                  format: date-time
+                description: Upper bound for event start time (RFC3339 timestamp)
+              - name: q
+                in: query
+                schema:
+                  type: string
+                description: Free text search terms
+              - name: maxResults
+                in: query
+                schema:
+                  type: integer
+                  default: 250
+                  maximum: 2500
+              - name: orderBy
+                in: query
+                schema:
+                  type: string
+                  enum: [startTime, updated]
+                  default: startTime
+              - name: singleEvents
+                in: query
+                schema:
+                  type: boolean
+                  default: true
+                description: Whether to expand recurring events into instances
+            responses:
+              '200':
+                description: List of calendar events
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        items:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              summary:
+                                type: string
+                              description:
+                                type: string
+                              start:
+                                type: object
+                                properties:
+                                  dateTime:
+                                    type: string
+                                    format: date-time
+                                  date:
+                                    type: string
+                                    format: date
+                                  timeZone:
+                                    type: string
+                              end:
+                                type: object
+                                properties:
+                                  dateTime:
+                                    type: string
+                                    format: date-time
+                                  date:
+                                    type: string
+                                    format: date
+                                  timeZone:
+                                    type: string
+                              attendees:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    email:
+                                      type: string
+                                    displayName:
+                                      type: string
+                                    responseStatus:
+                                      type: string
+                              location:
+                                type: string
+                              status:
+                                type: string
+                        nextPageToken:
+                          type: string
+          post:
+            summary: Create calendar event
+            operationId: createCalendarEvent
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: calendarId
+                in: path
+                required: true
+                schema:
+                  type: string
+                  default: primary
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      summary:
+                        type: string
+                      description:
+                        type: string
+                      start:
+                        type: object
+                        properties:
+                          dateTime:
+                            type: string
+                            format: date-time
+                          date:
+                            type: string
+                            format: date
+                          timeZone:
+                            type: string
+                        required:
+                          - dateTime
+                      end:
+                        type: object
+                        properties:
+                          dateTime:
+                            type: string
+                            format: date-time
+                          date:
+                            type: string
+                            format: date
+                          timeZone:
+                            type: string
+                        required:
+                          - dateTime
+                      attendees:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            email:
+                              type: string
+                            displayName:
+                              type: string
+                      location:
+                        type: string
+                      reminders:
+                        type: object
+                        properties:
+                          useDefault:
+                            type: boolean
+                          overrides:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                method:
+                                  type: string
+                                  enum: [email, popup]
+                                minutes:
+                                  type: integer
+                    required:
+                      - summary
+                      - start
+                      - end
+            responses:
+              '200':
+                description: Event created successfully
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        summary:
+                          type: string
+                        start:
+                          type: object
+                        end:
+                          type: object
+        /calendar/v3/calendars/{calendarId}/events/{eventId}:
+          get:
+            summary: Get calendar event by ID
+            operationId: getCalendarEvent
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: calendarId
+                in: path
+                required: true
+                schema:
+                  type: string
+                  default: primary
+              - name: eventId
+                in: path
+                required: true
+                schema:
+                  type: string
+            responses:
+              '200':
+                description: Calendar event details
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        summary:
+                          type: string
+                        description:
+                          type: string
+                        start:
+                          type: object
+                        end:
+                          type: object
+                        attendees:
+                          type: array
+                        location:
+                          type: string
+                        status:
+                          type: string
+          put:
+            summary: Update calendar event
+            operationId: updateCalendarEvent
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: calendarId
+                in: path
+                required: true
+                schema:
+                  type: string
+                  default: primary
+              - name: eventId
+                in: path
+                required: true
+                schema:
+                  type: string
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      summary:
+                        type: string
+                      description:
+                        type: string
+                      start:
+                        type: object
+                      end:
+                        type: object
+                      attendees:
+                        type: array
+                      location:
+                        type: string
+            responses:
+              '200':
+                description: Event updated successfully
+          delete:
+            summary: Delete calendar event
+            operationId: deleteCalendarEvent
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: calendarId
+                in: path
+                required: true
+                schema:
+                  type: string
+                  default: primary
+              - name: eventId
+                in: path
+                required: true
+                schema:
+                  type: string
+            responses:
+              '204':
+                description: Event deleted successfully
+      components:
+        securitySchemes:
+          BearerAuth:
+            type: http
+            scheme: bearer
+            bearerFormat: JWT
+
+  configurable: false 
