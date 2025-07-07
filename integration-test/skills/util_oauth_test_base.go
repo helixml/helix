@@ -275,6 +275,7 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 		nil,
 		suite.oauth,
 		avatarsBucket,
+		nil, // trigger manager (nil for testing)
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create Helix API server: %w", err)
