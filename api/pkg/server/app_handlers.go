@@ -655,6 +655,11 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*App
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	err = s.ensureTriggerConfigurations(ctx, created)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
 	_, err = s.Controller.CreateAPIKey(ctx, user, &types.ApiKey{
 		Name:  "api key 1",
 		Type:  types.APIkeytypeApp,
@@ -955,6 +960,57 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 	return nil
 }
 
+// ensureTriggerConfigurations ensures that the trigger configurations for the app are created in the database
+func (s *HelixAPIServer) ensureTriggerConfigurations(ctx context.Context, app *types.App) error {
+	// Check if we already have a trigger configuration for this app
+	existingTriggers, err := s.Store.ListTriggerConfigurations(ctx, &store.ListTriggerConfigurationsQuery{
+		AppID: app.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list trigger configurations for app '%s': %w", app.ID, err)
+	}
+
+	for _, trigger := range app.Config.Helix.Triggers {
+		if trigger.AzureDevOps != nil && trigger.AzureDevOps.Enabled {
+			err := s.ensureAzureDevOpsTrigger(ctx, existingTriggers, app, trigger)
+			if err != nil {
+				return fmt.Errorf("failed to ensure azure devops trigger: %w", err)
+			}
+		}
+	}
+
+	// All done
+	return nil
+}
+
+func (s *HelixAPIServer) ensureAzureDevOpsTrigger(ctx context.Context, existingTriggers []*types.TriggerConfiguration, app *types.App, trigger types.Trigger) error {
+	// Check if we already have this config
+	for _, t := range existingTriggers {
+		if t.Trigger.AzureDevOps != nil && t.Trigger.AzureDevOps.Enabled {
+			// We already have this config
+			return nil
+		}
+	}
+
+	// Create a new trigger configuration
+	triggerConfig := &types.TriggerConfiguration{
+		AppID:          app.ID,
+		Trigger:        trigger,
+		Owner:          app.Owner,
+		OwnerType:      app.OwnerType,
+		OrganizationID: app.OrganizationID,
+		Name:           "Azure DevOps",
+	}
+
+	_, err := s.Store.CreateTriggerConfiguration(ctx, triggerConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create azure devops trigger: %w", err)
+	}
+
+	// All done
+	return nil
+}
+
 // determineInitialState decides whether a new knowledge source should start in the 'preparing' or 'pending' state
 // Only file-based knowledge sources should start in 'preparing' state, all others should start in 'pending'
 func determineInitialState(source types.KnowledgeSource) types.KnowledgeState {
@@ -1101,6 +1157,11 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	}
 
 	err = s.ensureKnowledge(r.Context(), updated)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	err = s.ensureTriggerConfigurations(r.Context(), updated)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
@@ -1724,8 +1785,11 @@ func (s *HelixAPIServer) getAppTriggerStatus(rw http.ResponseWriter, r *http.Req
 
 	status, ok := s.Controller.GetTriggerStatus(app.ID, types.TriggerType(triggerType))
 	if !ok {
-		writeErrResponse(rw, errors.New("trigger status not found"), http.StatusNotFound)
-		return
+		// If it's not there, return as not configured
+		status = types.TriggerStatus{
+			OK:      false,
+			Message: "Not configured",
+		}
 	}
 
 	writeResponse(rw, status, http.StatusOK)

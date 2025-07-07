@@ -99,6 +99,12 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		Bool("has_response_handler", params.OnResponseHandler != nil).
 		Msg("Creating scheduler with parameters")
 
+	if params.OnSchedulingErr == nil {
+		params.OnSchedulingErr = func(work *Workload, err error) {
+			log.Error().Err(err).Interface("work", work).Msg("scheduling error")
+		}
+	}
+
 	s := &Scheduler{
 		ctx:              ctx,
 		controller:       params.RunnerController,

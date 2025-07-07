@@ -152,7 +152,7 @@ const TriggerSlack: FC<TriggerSlackProps> = ({
         />
       </Box>
 
-      {(hasSlackTrigger || slackTrigger) && (
+      {(hasSlackTrigger) && (
         <Box sx={{ mt: 2, p: 2, borderRadius: 1, opacity: hasSlackTrigger ? 1 : 0.6 }}>
           {!hasSlackTrigger && slackTrigger && (
             <Alert severity="info" sx={{ mb: 2 }}>

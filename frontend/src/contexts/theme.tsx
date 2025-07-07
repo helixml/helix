@@ -29,6 +29,55 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         fontFamily: "IBM Plex Sans, Helvetica, Arial, sans-serif",
         fontSize: 14,
       },
+      components: {
+        // Adding dark style to the menus
+        MuiMenu: {
+          styleOverrides: {
+            root: {
+              '& .MuiMenu-list': {
+                padding: 0,
+                backgroundColor: 'rgba(26, 26, 26, 0.97)',
+                backdropFilter: 'blur(10px)',
+                minWidth: '160px',
+                borderRadius: '10px',
+                border: '1px solid rgba(255,255,255,0.10)',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.32)',
+              },
+              '& .MuiMenuItem-root': {
+                color: 'white',
+                fontSize: '0.92rem',
+                fontWeight: 500,
+                padding: '8px 16px',
+                minHeight: '32px',
+                borderRadius: '6px',
+                transition: 'background 0.15s',
+                '&:hover': {
+                  backgroundColor: 'rgba(0,229,255,0.13)',
+                },
+                '&.Mui-selected': {
+                  backgroundColor: 'rgba(0,229,255,0.18)',
+                },
+              },
+              '& .MuiDivider-root': {
+                borderColor: 'rgba(255,255,255,0.10)',
+                margin: '4px 0',
+              },
+            },
+          },
+        },
+        MuiPaper: {
+          styleOverrides: {
+            root: {
+              '&.MuiMenu-paper, &.MuiPopover-paper': {
+                backgroundColor: 'rgba(26, 26, 26, 0.97)',
+                backdropFilter: 'blur(10px)',
+                borderRadius: '10px',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.32)',
+              },
+            },
+          },
+        },
+      },
       chartGradientStart: themeConfig.chartGradientStart,
       chartGradientEnd: themeConfig.chartGradientEnd,
       chartGradientStartOpacity: themeConfig.chartGradientStartOpacity,

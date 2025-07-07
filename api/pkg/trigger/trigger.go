@@ -2,15 +2,18 @@ package trigger
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/trigger/azure"
 	"github.com/helixml/helix/api/pkg/trigger/cron"
 	"github.com/helixml/helix/api/pkg/trigger/discord"
 	"github.com/helixml/helix/api/pkg/trigger/slack"
+	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
 )
@@ -19,14 +22,18 @@ type Manager struct {
 	cfg        *config.ServerConfig
 	store      store.Store
 	controller *controller.Controller
-	wg         sync.WaitGroup
+
+	azureDevOps *azure.AzureDevOps
+
+	wg sync.WaitGroup
 }
 
 func NewTriggerManager(cfg *config.ServerConfig, store store.Store, controller *controller.Controller) *Manager {
 	return &Manager{
-		cfg:        cfg,
-		store:      store,
-		controller: controller,
+		cfg:         cfg,
+		store:       store,
+		controller:  controller,
+		azureDevOps: azure.New(cfg, store, controller),
 	}
 }
 
@@ -57,6 +64,16 @@ func (t *Manager) Start(ctx context.Context) {
 	}
 
 	t.wg.Wait()
+}
+
+func (t *Manager) ProcessWebhook(ctx context.Context, triggerConfig *types.TriggerConfiguration, payload []byte) error {
+	switch {
+	case triggerConfig.Trigger.AzureDevOps != nil:
+		return t.azureDevOps.ProcessWebhook(ctx, triggerConfig, payload)
+	default:
+		log.Error().Any("trigger_config", triggerConfig).Msg("unknown trigger type")
+		return fmt.Errorf("unknown trigger type")
+	}
 }
 
 func (t *Manager) runDiscord(ctx context.Context) {

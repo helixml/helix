@@ -132,6 +132,8 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.Model{},
 		&types.StepInfo{},
 		&types.SlackThread{},
+		&types.TriggerConfiguration{},
+		&types.TriggerExecution{},
 	)
 	if err != nil {
 		return err
@@ -187,6 +189,14 @@ func (s *PostgresStore) autoMigrate() error {
 	}
 
 	if err := createFK(s.gdb, types.SlackThread{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.TriggerConfiguration{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.TriggerExecution{}, types.TriggerConfiguration{}, "trigger_configuration_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
