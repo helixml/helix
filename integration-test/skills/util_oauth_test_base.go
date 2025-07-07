@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -57,6 +58,7 @@ type BaseOAuthTestSuite struct {
 	logFile       *os.File
 	logger        zerolog.Logger
 	testTimestamp string
+	testID        string // Unique ID for this test instance
 
 	// Browser automation
 	browser           *rod.Browser
@@ -72,13 +74,16 @@ func GetTestResultsDir() string {
 func (suite *BaseOAuthTestSuite) SetupBaseInfrastructure(testName string) error {
 	suite.ctx = context.Background()
 
+	// Generate unique test ID for this test instance (for parallel test isolation)
+	suite.testID = fmt.Sprintf("%s_%d_%d", testName, time.Now().UnixNano(), rand.Intn(10000))
+
 	// Set up test logging
 	err := suite.setupTestLogging(testName)
 	if err != nil {
 		return fmt.Errorf("failed to setup test logging: %w", err)
 	}
 
-	suite.logger.Info().Str("test_name", testName).Msg("=== OAuth Test Starting ===")
+	suite.logger.Info().Str("test_name", testName).Str("test_id", suite.testID).Msg("=== OAuth Test Starting ===")
 
 	// Load server config
 	cfg, err := config.LoadServerConfig()
@@ -86,7 +91,7 @@ func (suite *BaseOAuthTestSuite) SetupBaseInfrastructure(testName string) error 
 		return fmt.Errorf("failed to load server config: %w", err)
 	}
 
-	// Override required fields for testing
+	// Set up basic server configuration for testing (no actual server started)
 	webServerHost := os.Getenv("WEB_SERVER_HOST")
 	if webServerHost == "" {
 		webServerHost = "localhost"
@@ -96,16 +101,26 @@ func (suite *BaseOAuthTestSuite) SetupBaseInfrastructure(testName string) error 
 	cfg.WebServer.Port = 8080
 	cfg.WebServer.RunnerToken = "test-runner-token"
 
-	// Configure Anthropic API for real LLM calls
-	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
-		cfg.Providers.Anthropic.APIKey = apiKey
-		suite.logger.Info().Msg("Using Anthropic API key from environment for real LLM calls")
+	suite.logger.Info().
+		Str("host", webServerHost).
+		Str("url", cfg.WebServer.URL).
+		Msg("Configured test server settings (no actual server started)")
+
+	// Configure OpenAI API for real LLM calls
+	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+		cfg.Providers.OpenAI.APIKey = apiKey
+		suite.logger.Info().Msg("Using OpenAI API key from environment for real LLM calls")
 	} else {
-		suite.logger.Warn().Msg("ANTHROPIC_API_KEY not set - LLM calls may fail")
+		suite.logger.Warn().Msg("OPENAI_API_KEY not set - LLM calls may fail")
 	}
 
-	// Initialize store
-	suite.store, err = store.NewPostgresStore(cfg.Store)
+	// Initialize store with unique schema for parallel test isolation
+	// Each test gets its own schema to avoid migration conflicts
+	storeConfig := cfg.Store
+	storeConfig.Schema = fmt.Sprintf("test_oauth_%s", suite.testID)
+	suite.logger.Info().Str("schema", storeConfig.Schema).Msg("Using unique database schema for test isolation")
+
+	suite.store, err = store.NewPostgresStore(storeConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create store: %w", err)
 	}
@@ -160,7 +175,8 @@ func (suite *BaseOAuthTestSuite) setupTestLogging(testName string) error {
 	}
 
 	suite.testTimestamp = time.Now().Format("20060102_150405")
-	logFilename := filepath.Join(testResultsDir, fmt.Sprintf("%s_%s.log", testName, suite.testTimestamp))
+	// Use unique test ID instead of PID for parallel test isolation
+	logFilename := filepath.Join(testResultsDir, fmt.Sprintf("%s_%s_%s.log", testName, suite.testTimestamp, suite.testID))
 
 	var err error
 	suite.logFile, err = os.Create(logFilename)
@@ -174,6 +190,7 @@ func (suite *BaseOAuthTestSuite) setupTestLogging(testName string) error {
 	suite.logger = zerolog.New(multiWriter).With().
 		Timestamp().
 		Str("test", testName).
+		Str("test_id", suite.testID).
 		Logger()
 
 	return nil
@@ -313,10 +330,13 @@ func (suite *BaseOAuthTestSuite) setupBrowser() error {
 
 // createTestUser creates a test user in both Keycloak and database
 func (suite *BaseOAuthTestSuite) createTestUser() (*types.User, error) {
+	// Use test ID for unique identifiers in parallel tests
+	uniqueID := fmt.Sprintf("%d-%s", time.Now().Unix(), suite.testID)
+
 	user := &types.User{
-		ID:       fmt.Sprintf("test-user-%d", time.Now().Unix()),
-		Email:    fmt.Sprintf("oauth-test-%d@helix.test", time.Now().Unix()),
-		Username: fmt.Sprintf("oauth-test-%d", time.Now().Unix()),
+		ID:       fmt.Sprintf("test-user-%s", uniqueID),
+		Email:    fmt.Sprintf("oauth-test-%s@helix.test", uniqueID),
+		Username: fmt.Sprintf("oauth-test-%s", uniqueID),
 		FullName: "OAuth Test User",
 		Admin:    false,
 	}
@@ -363,8 +383,9 @@ func (suite *BaseOAuthTestSuite) createTestUserAPIKey() (string, error) {
 // TakeScreenshot captures a screenshot and saves it with the test timestamp
 func (suite *BaseOAuthTestSuite) TakeScreenshot(page *rod.Page, stepName string) {
 	suite.screenshotCounter++
-	filename := filepath.Join(GetTestResultsDir(), fmt.Sprintf("oauth_test_%s_step_%02d_%s.png",
-		suite.testTimestamp, suite.screenshotCounter, stepName))
+	// Use test ID instead of PID for parallel test isolation
+	filename := filepath.Join(GetTestResultsDir(), fmt.Sprintf("oauth_test_%s_%s_step_%02d_%s.png",
+		suite.testTimestamp, suite.testID, suite.screenshotCounter, stepName))
 
 	data, err := page.Screenshot(false, &proto.PageCaptureScreenshot{
 		Format: proto.PageCaptureScreenshotFormatPng,
@@ -400,6 +421,18 @@ func (suite *BaseOAuthTestSuite) CleanupBaseInfrastructure() {
 			suite.logger.Error().Err(err).Msg("Failed to delete test user")
 		} else {
 			suite.logger.Info().Msg("Test user deleted")
+		}
+	}
+
+	// Clean up test database schema
+	if suite.store != nil {
+		schemaName := fmt.Sprintf("test_oauth_%s", suite.testID)
+		suite.logger.Info().Str("schema", schemaName).Msg("Cleaning up test database schema")
+
+		// Close the store connection
+		if postgresStore, ok := suite.store.(*store.PostgresStore); ok {
+			postgresStore.Close()
+			suite.logger.Info().Str("schema", schemaName).Msg("Closed store connection - test schema will be cleaned up by database maintenance")
 		}
 	}
 
@@ -501,7 +534,7 @@ func (suite *BaseOAuthTestSuite) ExecuteSessionQuery(userMessage, sessionName, a
 		OwnerType: types.OwnerTypeUser,
 		Mode:      types.SessionModeInference,
 		Type:      types.SessionTypeText,
-		ModelName: "anthropic:claude-3-5-haiku-20241022",
+		ModelName: "gpt-4o-mini",
 		ParentApp: appID,
 	})
 	if err != nil {
@@ -535,7 +568,7 @@ func (suite *BaseOAuthTestSuite) ExecuteSessionQuery(userMessage, sessionName, a
 
 	// Prepare OpenAI chat completion request
 	openaiReq := goai.ChatCompletionRequest{
-		Model: "anthropic:claude-3-5-haiku-20241022",
+		Model: "gpt-4o-mini",
 		Messages: []goai.ChatCompletionMessage{
 			{
 				Role:    "user",
