@@ -1,0 +1,408 @@
+apiVersion: v1
+kind: Skill
+metadata:
+  name: outlook
+  displayName: Outlook
+  provider: microsoft
+  category: Productivity
+  
+spec:
+  description: |
+    Access Outlook messages with OAuth authentication.
+
+    This skill provides secure access to Microsoft Graph API for Outlook, allowing you to:
+    • Read and search Outlook messages
+    • Send emails
+    • Access Outlook profile information
+    • Manage email threads and folders
+
+    Example Queries:
+    - "Show me my unread emails from today"
+    - "Search for emails from john@company.com"
+    - "Send an email to the team"
+    - "Find emails about the project deadline"
+
+  systemPrompt: |
+    You are an Outlook email assistant. Your expertise is in helping users manage their Outlook inbox, read messages, and send emails efficiently.
+
+    Key capabilities:
+    - Email reading and searching with Microsoft Graph API
+    - Message composition and sending
+    - Email folder management
+    - Outlook profile and account information
+
+    When users ask about emails, inbox management, or email communication:
+    1. Help them search and filter emails using Microsoft Graph search capabilities
+    2. Assist with reading and summarizing email content
+    3. Support email composition and sending
+    4. Provide inbox organization and management tips
+    5. Help with email folder navigation and management
+
+    Always focus on Outlook email management. If asked about other Microsoft services or non-email topics, politely redirect to Outlook-specific assistance.
+
+    Examples of what you can help with:
+    - "Show me unread emails from my manager"
+    - "Search for emails about the budget meeting"
+    - "Compose a follow-up email to yesterday's discussion"
+    - "Find all emails with attachments from last week"
+    - "Check my mailbox storage usage"
+
+  icon:
+    type: material-ui
+    name: Email
+    color: '#0078D4'
+    
+  oauth:
+    provider: microsoft
+    scopes:
+      - https://graph.microsoft.com/User.Read
+      - https://graph.microsoft.com/Mail.Read
+      - https://graph.microsoft.com/Mail.Send
+      
+  api:
+    baseUrl: https://graph.microsoft.com
+    headers:
+      Accept: application/json
+    
+    schema: |
+      openapi: 3.0.3
+      info:
+        title: Microsoft Graph API - Outlook
+        description: Access Outlook messages and user profile
+        version: "v1.0"
+      servers:
+        - url: https://graph.microsoft.com
+      paths:
+        /v1.0/me:
+          get:
+            summary: Get user profile
+            operationId: getOutlookProfile
+            security:
+              - BearerAuth: []
+            responses:
+              '200':
+                description: User profile information
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        userPrincipalName:
+                          type: string
+                        displayName:
+                          type: string
+                        mail:
+                          type: string
+                        mobilePhone:
+                          type: string
+                        officeLocation:
+                          type: string
+        /v1.0/me/messages:
+          get:
+            summary: List Outlook messages
+            operationId: listOutlookMessages
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: $filter
+                in: query
+                schema:
+                  type: string
+                description: Filter messages (e.g., "isRead eq false", "from/emailAddress/address eq 'example@company.com'")
+              - name: $search
+                in: query
+                schema:
+                  type: string
+                description: Search query for messages
+              - name: $top
+                in: query
+                schema:
+                  type: integer
+                  default: 10
+                  maximum: 1000
+              - name: $skip
+                in: query
+                schema:
+                  type: integer
+                description: Number of messages to skip
+              - name: $select
+                in: query
+                schema:
+                  type: string
+                description: Select specific fields
+              - name: $orderby
+                in: query
+                schema:
+                  type: string
+                  default: "receivedDateTime desc"
+                description: Order messages by field
+            responses:
+              '200':
+                description: List of Outlook messages
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        value:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              subject:
+                                type: string
+                              bodyPreview:
+                                type: string
+                              importance:
+                                type: string
+                              isRead:
+                                type: boolean
+                              receivedDateTime:
+                                type: string
+                                format: date-time
+                              sender:
+                                type: object
+                                properties:
+                                  emailAddress:
+                                    type: object
+                                    properties:
+                                      name:
+                                        type: string
+                                      address:
+                                        type: string
+                              from:
+                                type: object
+                                properties:
+                                  emailAddress:
+                                    type: object
+                                    properties:
+                                      name:
+                                        type: string
+                                      address:
+                                        type: string
+                              toRecipients:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    emailAddress:
+                                      type: object
+                                      properties:
+                                        name:
+                                          type: string
+                                        address:
+                                          type: string
+        /v1.0/me/messages/{id}:
+          get:
+            summary: Get Outlook message by ID
+            operationId: getOutlookMessage
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: id
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: $select
+                in: query
+                schema:
+                  type: string
+                description: Select specific fields
+            responses:
+              '200':
+                description: Outlook message details
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        subject:
+                          type: string
+                        body:
+                          type: object
+                          properties:
+                            contentType:
+                              type: string
+                            content:
+                              type: string
+                        bodyPreview:
+                          type: string
+                        importance:
+                          type: string
+                        isRead:
+                          type: boolean
+                        receivedDateTime:
+                          type: string
+                          format: date-time
+                        sentDateTime:
+                          type: string
+                          format: date-time
+                        sender:
+                          type: object
+                          properties:
+                            emailAddress:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                                address:
+                                  type: string
+                        from:
+                          type: object
+                          properties:
+                            emailAddress:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                                address:
+                                  type: string
+                        toRecipients:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              emailAddress:
+                                type: object
+                                properties:
+                                  name:
+                                    type: string
+                                  address:
+                                    type: string
+                        ccRecipients:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              emailAddress:
+                                type: object
+                                properties:
+                                  name:
+                                    type: string
+                                  address:
+                                    type: string
+                        attachments:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              name:
+                                type: string
+                              contentType:
+                                type: string
+                              size:
+                                type: integer
+        /v1.0/me/sendMail:
+          post:
+            summary: Send Outlook message
+            operationId: sendOutlookMessage
+            security:
+              - BearerAuth: []
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      message:
+                        type: object
+                        properties:
+                          subject:
+                            type: string
+                          body:
+                            type: object
+                            properties:
+                              contentType:
+                                type: string
+                                enum: [Text, HTML]
+                              content:
+                                type: string
+                          toRecipients:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                emailAddress:
+                                  type: object
+                                  properties:
+                                    address:
+                                      type: string
+                                    name:
+                                      type: string
+                          ccRecipients:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                emailAddress:
+                                  type: object
+                                  properties:
+                                    address:
+                                      type: string
+                                    name:
+                                      type: string
+                          importance:
+                            type: string
+                            enum: [Low, Normal, High]
+                      saveToSentItems:
+                        type: boolean
+                        default: true
+            responses:
+              '202':
+                description: Message sent successfully
+        /v1.0/me/mailFolders:
+          get:
+            summary: List mail folders
+            operationId: listOutlookFolders
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: $top
+                in: query
+                schema:
+                  type: integer
+                  default: 10
+                  maximum: 1000
+            responses:
+              '200':
+                description: List of mail folders
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        value:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              displayName:
+                                type: string
+                              parentFolderId:
+                                type: string
+                              childFolderCount:
+                                type: integer
+                              unreadItemCount:
+                                type: integer
+                              totalItemCount:
+                                type: integer
+      components:
+        securitySchemes:
+          BearerAuth:
+            type: http
+            scheme: bearer
+            bearerFormat: JWT
+
+  configurable: false 

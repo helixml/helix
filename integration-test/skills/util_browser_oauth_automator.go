@@ -311,17 +311,17 @@ func (a *BrowserOAuthAutomator) performLogin(page *rod.Page, username, password 
 	a.debugDumpPageElements(page, "login_start")
 
 	// Detect provider type and handle appropriate login flow
-	if a.config.ProviderName == "google" {
-		// Google: Two-step process (email → Next → password → Next)
-		a.logger.Info().Msg("Using Google two-step login flow")
+	if a.config.ProviderName == "google" || a.config.ProviderName == "microsoft" {
+		// Google and Microsoft: Two-step process (email → Next → password → Next)
+		a.logger.Info().Str("provider", a.config.ProviderName).Msg("Using two-step login flow")
 
-		// Step 1: Handle email input (Google's first step)
+		// Step 1: Handle email input (first step for Google/Microsoft)
 		err := a.handleEmailInput(page, username, screenshotTaker)
 		if err != nil {
 			return fmt.Errorf("failed to handle email input: %w", err)
 		}
 
-		// Step 2: Handle password input (Google's second step)
+		// Step 2: Handle password input (second step for Google/Microsoft)
 		err = a.handlePasswordInput(page, password, screenshotTaker)
 		if err != nil {
 			return fmt.Errorf("failed to handle password input: %w", err)
@@ -594,9 +594,10 @@ func (a *BrowserOAuthAutomator) clickNextButton(page *rod.Page, screenshotTaker 
 
 	// First try direct CSS selectors
 	nextSelectors := []string{
+		`input[id="idSIButton9"]`,            // Microsoft-specific Next button ID
+		`input[type="submit"][value="Next"]`, // Input style (Microsoft/general)
 		`button[id="identifierNext"]`,        // Old Google style (with ID)
 		`button[id="passwordNext"]`,          // Old Google style (with ID)
-		`input[type="submit"][value="Next"]`, // Input style
 		`button[type="submit"]`,              // Submit button
 		`input[type="submit"]`,               // Fallback input submit
 	}
@@ -694,6 +695,38 @@ func (a *BrowserOAuthAutomator) clickNextButton(page *rod.Page, screenshotTaker 
 	a.logger.Info().Msg("Successfully clicked Next button")
 	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_next_button_clicked")
 
+	// Add debugging for Microsoft - wait and check for error messages
+	if a.config.ProviderName == "microsoft" {
+		a.logger.Info().Msg("Waiting 3 seconds for Microsoft page to respond to Next button click")
+		time.Sleep(3 * time.Second)
+
+		// Check for error messages
+		errorSelectors := []string{
+			`.error-message`, `.alert-error`, `.field-error`,
+			`[role="alert"]`, `[aria-live="polite"]`, `[data-bind*="error"]`,
+			`.has-error`, `.validation-error`, `.login-error`,
+		}
+
+		for _, selector := range errorSelectors {
+			errorElements, err := page.Elements(selector)
+			if err == nil && len(errorElements) > 0 {
+				for _, errorElement := range errorElements {
+					errorText, textErr := errorElement.Text()
+					if textErr == nil && strings.TrimSpace(errorText) != "" {
+						a.logger.Error().Str("selector", selector).Str("error", errorText).Msg("Microsoft error detected on page")
+					}
+				}
+			}
+		}
+
+		// Check if we're still on the same page (no navigation)
+		currentURL := page.MustInfo().URL
+		a.logger.Info().Str("current_url", currentURL).Msg("Current URL after Next button click")
+
+		// Take another screenshot to see current state
+		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_after_next_button_debug")
+	}
+
 	return nil
 }
 
@@ -707,34 +740,48 @@ func (a *BrowserOAuthAutomator) clickLoginButton(page *rod.Page, screenshotTaker
 	// First try the same successful class pattern approach that worked for the Next button
 	a.logger.Info().Msg("Attempting to find login button using same class pattern as Next button")
 
-	// Use the exact same class pattern that successfully worked for the Next button
+	// Microsoft and Google-specific button selectors
 	specificSelectors := []string{
-		// Same Google Next/Login button class pattern (from debug output)
+		// Microsoft-specific patterns
+		`input[id="idSIButton9"]`,               // Microsoft Next/Sign in button ID
+		`input[type="submit"][value="Sign in"]`, // Microsoft sign in button
+		`input[type="submit"][value="Next"]`,    // Microsoft next button
+		// Google patterns
 		"button.VfPpkd-LgbsSe.VfPpkd-LgbsSe-OWXEXe-k8QpJ.VfPpkd-LgbsSe-OWXEXe-dgl2Hf.nCP5yc.AjY5Oe.DuMIQc.LQeN7.BqKGqe.Jskylb.TrZEUc.lw1w4b",
-		// Shorter pattern with key classes
+		// Shorter Google patterns
 		"button.VfPpkd-LgbsSe.nCP5yc.AjY5Oe.DuMIQc",
-		// Even shorter pattern
 		"button.VfPpkd-LgbsSe.nCP5yc",
-		// Fallback to core Google button class
 		"button.VfPpkd-LgbsSe",
 	}
 
 	var loginButton *rod.Element
 	for _, selector := range specificSelectors {
-		// Set shorter timeout for each attempt
-		elements, err := page.Timeout(3 * time.Second).Elements(selector)
-		if err == nil && len(elements) > 0 {
-			// Check each element to find the one with "Next" text (same as login button)
-			for _, element := range elements {
-				buttonText, textErr := element.Timeout(1 * time.Second).Text()
-				if textErr == nil && strings.ToLower(strings.TrimSpace(buttonText)) == "next" {
-					a.logger.Info().Str("selector", selector).Str("button_text", buttonText).Msg("Found login button using class pattern")
-					loginButton = element
+		// For Microsoft ID selectors, try direct match first
+		if strings.Contains(selector, "idSIButton9") || strings.Contains(selector, "value=") {
+			element, err := page.Timeout(3 * time.Second).Element(selector)
+			if err == nil && element != nil {
+				a.logger.Info().Str("selector", selector).Msg("Found login button using Microsoft selector")
+				loginButton = element
+				break
+			}
+		} else {
+			// For Google class selectors, check text content
+			elements, err := page.Timeout(3 * time.Second).Elements(selector)
+			if err == nil && len(elements) > 0 {
+				for _, element := range elements {
+					buttonText, textErr := element.Timeout(1 * time.Second).Text()
+					if textErr == nil {
+						buttonTextLower := strings.ToLower(strings.TrimSpace(buttonText))
+						if buttonTextLower == "next" || buttonTextLower == "sign in" {
+							a.logger.Info().Str("selector", selector).Str("button_text", buttonText).Msg("Found login button using class pattern")
+							loginButton = element
+							break
+						}
+					}
+				}
+				if loginButton != nil {
 					break
 				}
-			}
-			if loginButton != nil {
-				break
 			}
 		}
 	}
@@ -780,7 +827,12 @@ func (a *BrowserOAuthAutomator) waitForNavigation(page *rod.Page, screenshotTake
 
 	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_login_button_clicked")
 
-	// Wait for URL to change (indicating navigation started)
+	// Microsoft uses dynamic page updates instead of URL navigation
+	if a.config.ProviderName == "microsoft" {
+		return a.waitForMicrosoftPageTransition(page, screenshotTaker)
+	}
+
+	// Wait for URL to change (indicating navigation started) - for Google/GitHub
 	currentURL := page.MustInfo().URL
 	a.logger.Info().Str("initial_url", currentURL).Msg("Starting navigation wait from this URL")
 
@@ -828,6 +880,128 @@ func (a *BrowserOAuthAutomator) waitForNavigation(page *rod.Page, screenshotTake
 	a.logger.Info().Str("final_url", finalURL).Msg("Page navigation and load completed")
 
 	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_auth_page_after_login")
+
+	return nil
+}
+
+// waitForMicrosoftPageTransition waits for Microsoft's dynamic page transition
+func (a *BrowserOAuthAutomator) waitForMicrosoftPageTransition(page *rod.Page, screenshotTaker ScreenshotTaker) error {
+	a.logger.Info().Msg("Waiting for Microsoft page transition")
+
+	// Take screenshot at start of transition
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_page_transition_start")
+
+	// Debug the current page state
+	currentURL := page.MustInfo().URL
+	a.logger.Info().Str("current_url", currentURL).Msg("Current URL at start of Microsoft transition")
+
+	// Detect current step first
+	isPasswordStepVisible := false
+	passwordField, err := page.Element(`input[type="password"]:not(.moveOffScreen)`)
+	if err == nil && passwordField != nil {
+		visible, visErr := passwordField.Visible()
+		if visErr == nil && visible {
+			isPasswordStepVisible = true
+		}
+	}
+
+	if isPasswordStepVisible {
+		a.logger.Info().Msg("Microsoft currently on password step - waiting for transition to next step")
+	} else {
+		a.logger.Info().Msg("Microsoft already past password step - waiting for transition to final step")
+	}
+
+	timeout := time.After(15 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	transitionDetected := false
+	checkCount := 0
+
+	for !transitionDetected {
+		select {
+		case <-timeout:
+			screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_transition_timeout")
+
+			// Debug what's on the page when timeout occurs
+			a.logger.Info().Msg("=== DEBUGGING MICROSOFT TRANSITION TIMEOUT ===")
+			a.debugDumpPageElements(page, "microsoft_transition_timeout")
+			a.logger.Info().Msg("=== END TRANSITION TIMEOUT DEBUG ===")
+
+			a.logger.Error().
+				Int("check_count", checkCount).
+				Msg("Timeout waiting for Microsoft page transition")
+			return fmt.Errorf("timeout waiting for Microsoft page transition")
+		case <-ticker.C:
+			checkCount++
+
+			if isPasswordStepVisible {
+				// We're waiting for email → password transition
+				// Check if password field is now visible and active (first transition)
+				passwordField, err := page.Element(`input[type="password"]:not(.moveOffScreen)`)
+				if err == nil && passwordField != nil {
+					// Verify it's actually visible
+					visible, visErr := passwordField.Visible()
+					if visErr == nil && visible {
+						a.logger.Info().Msg("Password field is now visible - Microsoft page transition successful")
+						transitionDetected = true
+						break
+					}
+				}
+			} else {
+				// We're waiting for password → final step transition
+				// Check if we've moved past password step to consent/completion
+
+				// Look for consent buttons or success indicators
+				consentElements, err := page.Elements(`input[type="submit"][value*="Accept"], input[type="submit"][value*="Allow"], button[type="submit"]`)
+				if err == nil && len(consentElements) > 0 {
+					a.logger.Info().Msg("Microsoft consent screen detected - transition successful")
+					screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_consent_screen_detected")
+					transitionDetected = true
+					break
+				}
+
+				// Check if we've reached a "Keep me signed in" prompt
+				kmsiElements, err := page.Elements(`input[id*="kmsi"], input[type="submit"][value*="Yes"], input[type="submit"][value*="No"]`)
+				if err == nil && len(kmsiElements) > 0 {
+					a.logger.Info().Msg("Microsoft 'Keep me signed in' prompt detected - transition successful")
+					screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_kmsi_prompt_detected")
+					transitionDetected = true
+					break
+				}
+
+				// Check if we've been redirected to success/error pages
+				currentURL := page.MustInfo().URL
+				if strings.Contains(currentURL, "login.microsoftonline.com/common/oauth2/v2.0/authorize") == false {
+					// We've been redirected away from the login page
+					a.logger.Info().Str("new_url", currentURL).Msg("Microsoft redirected away from login page - transition successful")
+					screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_redirect_away_from_login")
+					transitionDetected = true
+					break
+				}
+			}
+
+			// Also check if we've already reached callback (OAuth completed)
+			currentURL := page.MustInfo().URL
+			if strings.Contains(currentURL, a.config.CallbackURLPattern) || strings.Contains(currentURL, "code=") {
+				a.logger.Info().Msg("OAuth callback detected - Microsoft flow completed")
+				transitionDetected = true
+				break
+			}
+
+			if checkCount%4 == 0 { // Log every 2 seconds
+				a.logger.Info().
+					Int("check_count", checkCount).
+					Msg("Microsoft transition check - waiting for password field")
+			}
+		}
+	}
+
+	// Wait for page to fully update after transition
+	a.logger.Info().Msg("Microsoft transition detected - waiting for page to fully update")
+	time.Sleep(1 * time.Second)
+
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_auth_page_after_transition")
 
 	return nil
 }
