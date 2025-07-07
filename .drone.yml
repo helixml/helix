@@ -149,6 +149,15 @@ steps:
       from_secret: github_skill_test_oauth_password
     GITHUB_SKILL_TEST_SETUP_PAT:
       from_secret: github_skill_test_setup_pat
+    # Google OAuth test credentials
+    GOOGLE_SKILL_TEST_OAUTH_CLIENT_ID:
+      from_secret: google_skill_test_oauth_client_id
+    GOOGLE_SKILL_TEST_OAUTH_CLIENT_SECRET:
+      from_secret: google_skill_test_oauth_client_secret
+    GOOGLE_SKILL_TEST_OAUTH_USERNAME:
+      from_secret: google_skill_test_oauth_username
+    GOOGLE_SKILL_TEST_OAUTH_PASSWORD:
+      from_secret: google_skill_test_oauth_password
     # Gmail credentials for device verification
     GMAIL_CREDENTIALS_BASE64:
       from_secret: gmail_credentials_base64
