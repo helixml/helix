@@ -641,6 +641,10 @@ export interface TypesAuthenticatedResponse {
   authenticated?: boolean;
 }
 
+export interface TypesAzureDevOpsTrigger {
+  enabled?: boolean;
+}
+
 export interface TypesChatCompletionMessage {
   content?: string;
   multiContent?: TypesChatMessagePart[];
@@ -1882,9 +1886,48 @@ export interface TypesToolZapierConfig {
 }
 
 export interface TypesTrigger {
+  azure_devops?: TypesAzureDevOpsTrigger;
   cron?: TypesCronTrigger;
   discord?: TypesDiscordTrigger;
   slack?: TypesSlackTrigger;
+}
+
+export interface TypesTriggerConfiguration {
+  /** App ID */
+  app_id?: string;
+  created?: string;
+  executions?: TypesTriggerExecution[];
+  id?: string;
+  /** Name of the trigger configuration */
+  name?: string;
+  /** Organization ID */
+  organization_id?: string;
+  /** User ID */
+  owner?: string;
+  /** User or Organization */
+  owner_type?: TypesOwnerType;
+  trigger?: TypesTrigger;
+  updated?: string;
+  /** Webhook URL for the trigger configuration, applicable to webhook type triggers like Azure DevOps, GitHub, etc. */
+  webhook_url?: string;
+}
+
+export interface TypesTriggerExecution {
+  created?: string;
+  error?: string;
+  id?: string;
+  output?: string;
+  session_id?: string;
+  status?: TypesTriggerExecutionStatus;
+  trigger_configuration_id?: string;
+  updated?: string;
+}
+
+export enum TypesTriggerExecutionStatus {
+  TriggerExecutionStatusPending = "pending",
+  TriggerExecutionStatusRunning = "running",
+  TriggerExecutionStatusSuccess = "success",
+  TriggerExecutionStatusError = "error",
 }
 
 export interface TypesTriggerStatus {
@@ -1895,6 +1938,7 @@ export interface TypesTriggerStatus {
 
 export enum TypesTriggerType {
   TriggerTypeSlack = "slack",
+  TriggerTypeAzureDevOps = "azure_devops",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -2177,6 +2221,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description List triggers for the app
+     *
+     * @tags apps
+     * @name V1AppsTriggersDetail
+     * @summary List app triggers
+     * @request GET:/api/v1/apps/{app_id}/triggers
+     * @secure
+     */
+    v1AppsTriggersDetail: (appId: string, params: RequestParams = {}) =>
+      this.request<TypesTriggerConfiguration[], any>({
+        path: `/api/v1/apps/${appId}/triggers`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
