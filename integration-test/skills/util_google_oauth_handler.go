@@ -62,7 +62,10 @@ func (h *GoogleOAuthHandler) Handle(page *rod.Page, _ *BrowserOAuthAutomator) er
 		return h.handle2FAChallenge(page)
 	}
 
-	if strings.Contains(currentURL, "/o/oauth2/") {
+	// Handle OAuth consent pages (both old and new Google patterns)
+	if strings.Contains(currentURL, "/o/oauth2/") ||
+		strings.Contains(currentURL, "/signin/oauth/consent") ||
+		strings.Contains(currentURL, "/signin/oauth/id") {
 		return h.handleOAuthConsent(page)
 	}
 
@@ -274,25 +277,67 @@ func (h *GoogleOAuthHandler) handleOAuthConsent(page *rod.Page) error {
 	// Wait for consent page to load
 	time.Sleep(2 * time.Second)
 
-	// Look for Allow/Continue buttons
-	allowSelectors := []string{
-		`input[type="submit"][value="Allow"]`,
-		`input[type="submit"][value="Continue"]`,
-		`button[value="Allow"]`,
-		`button[value="Continue"]`,
-		`button[data-l*="allow"]`,
-		`button[id*="submit"]`,
-		`button[type="submit"]`,
+	// First try the same successful class pattern approach that worked for Next/Login buttons
+	h.logger.Info().Msg("Attempting to find consent button using same class pattern as other Google buttons")
+
+	// Use the same class patterns that successfully worked for Next/Login buttons
+	specificSelectors := []string{
+		// Same Google button class pattern that worked for Next/Login
+		"button.VfPpkd-LgbsSe.VfPpkd-LgbsSe-OWXEXe-k8QpJ.VfPpkd-LgbsSe-OWXEXe-dgl2Hf.nCP5yc.AjY5Oe.DuMIQc.LQeN7.BqKGqe.Jskylb.TrZEUc.lw1w4b",
+		// Shorter pattern with key classes
+		"button.VfPpkd-LgbsSe.nCP5yc.AjY5Oe.DuMIQc",
+		// Even shorter pattern
+		"button.VfPpkd-LgbsSe.nCP5yc",
+		// Fallback to core Google button class
+		"button.VfPpkd-LgbsSe",
 	}
 
 	var allowButton *rod.Element
-	var err error
+	for _, selector := range specificSelectors {
+		// Set shorter timeout for each attempt
+		elements, err := page.Timeout(3 * time.Second).Elements(selector)
+		if err == nil && len(elements) > 0 {
+			// Check each element to find one with consent-related text
+			for _, element := range elements {
+				buttonText, textErr := element.Timeout(1 * time.Second).Text()
+				if textErr == nil {
+					buttonTextLower := strings.ToLower(strings.TrimSpace(buttonText))
+					// Look for consent/permission buttons
+					if buttonTextLower == "allow" || buttonTextLower == "continue" ||
+						buttonTextLower == "accept" || buttonTextLower == "grant" ||
+						strings.Contains(buttonTextLower, "allow") || strings.Contains(buttonTextLower, "continue") {
+						h.logger.Info().Str("selector", selector).Str("button_text", buttonText).Msg("Found consent button using class pattern")
+						allowButton = element
+						break
+					}
+				}
+			}
+			if allowButton != nil {
+				break
+			}
+		}
+	}
 
-	for _, selector := range allowSelectors {
-		allowButton, err = page.Element(selector)
-		if err == nil && allowButton != nil {
-			h.logger.Info().Str("selector", selector).Msg("Found OAuth consent button")
-			break
+	// Fallback to original selectors if class patterns don't work
+	if allowButton == nil {
+		h.logger.Warn().Msg("Class pattern approach failed, falling back to original selectors")
+		allowSelectors := []string{
+			`input[type="submit"][value="Allow"]`,
+			`input[type="submit"][value="Continue"]`,
+			`button[value="Allow"]`,
+			`button[value="Continue"]`,
+			`button[data-l*="allow"]`,
+			`button[id*="submit"]`,
+			`button[type="submit"]`,
+		}
+
+		var err error
+		for _, selector := range allowSelectors {
+			allowButton, err = page.Element(selector)
+			if err == nil && allowButton != nil {
+				h.logger.Info().Str("selector", selector).Msg("Found OAuth consent button using fallback selector")
+				break
+			}
 		}
 	}
 
@@ -300,7 +345,7 @@ func (h *GoogleOAuthHandler) handleOAuthConsent(page *rod.Page) error {
 		return fmt.Errorf("could not find OAuth consent button")
 	}
 
-	err = allowButton.Click(proto.InputMouseButtonLeft, 1)
+	err := allowButton.Click(proto.InputMouseButtonLeft, 1)
 	if err != nil {
 		return fmt.Errorf("failed to click OAuth consent button: %w", err)
 	}

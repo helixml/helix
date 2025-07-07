@@ -84,8 +84,8 @@ var GmailOAuthProviderConfig = OAuthProviderConfig{
 	CallbackPathSuffix: "google",
 	AuthURL:            "https://accounts.google.com/o/oauth2/v2/auth",
 	TokenURL:           "https://oauth2.googleapis.com/token",
-	UserInfoURL:        "https://www.googleapis.com/oauth2/v2/userinfo",
-	Scopes:             []string{"https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.send"},
+	UserInfoURL:        "https://openidconnect.googleapis.com/v1/userinfo",
+	Scopes:             []string{"openid", "email", "profile", "https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.send"},
 	// ClientID, ClientSecret, Username, Password, and functions will be set during test setup
 }
 
@@ -116,7 +116,7 @@ func TestGmailOAuthSkillsE2E(t *testing.T) {
 	}
 
 	// Set a reasonable timeout for the OAuth browser automation
-	timeout := 2 * time.Minute
+	timeout := 45 * time.Second // Reduced timeout to fail faster during debugging
 	deadline := time.Now().Add(timeout)
 	t.Deadline() // Check if deadline is already set
 
