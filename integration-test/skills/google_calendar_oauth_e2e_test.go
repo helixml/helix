@@ -141,7 +141,7 @@ func TestGoogleCalendarOAuthSkillsE2E(t *testing.T) {
 	}
 
 	// Initialize test dependencies using base class
-	err = suite.SetupBaseInfrastructure("google_calendar_oauth_e2e")
+	err = suite.SetupBaseInfrastructure("gcal_oauth_e2e")
 	require.NoError(t, err, "Failed to setup base infrastructure")
 
 	// Google Calendar-specific setup
