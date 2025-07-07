@@ -113,18 +113,6 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 			Str("model", modelToUse.Model).
 			Msg("Received completion from LLM")
 
-		// Check if both tool call and content are non-empty
-		bothToolCallAndContent := completion.Choices[0].Message.ToolCalls != nil && completion.Choices[0].Message.Content != ""
-		if bothToolCallAndContent {
-			log.Debug().
-				Interface("message", completion.Choices[0].Message).
-				Str("original_content", completion.Choices[0].Message.Content).
-				Int("tool_calls_count", len(completion.Choices[0].Message.ToolCalls)).
-				Msg("LLM returned both tool calls and content - clearing content for API compatibility")
-			// Clear the content to avoid API errors with Anthropic
-			completion.Choices[0].Message.Content = ""
-		}
-
 		// if there is no tool call, check if we have a valid direct response
 		// if completion.Choices[0].Message.ToolCalls == nil || len(completion.Choices[0].Message.ToolCalls) == 0 {
 		if len(completion.Choices[0].Message.ToolCalls) == 0 {
