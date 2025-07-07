@@ -79,7 +79,7 @@ steps:
     
   commands:
     - cd api
-    - go test -v -tags='!oauth_integration' ./...
+    - go test -v ./...
   when:
     event:
     - push
