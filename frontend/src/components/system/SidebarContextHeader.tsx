@@ -2,11 +2,12 @@ import React, { useState } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import IconButton from '@mui/material/IconButton'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
-import DarkMenu, { DarkMenuItem } from './DarkMenu'
 
 const SidebarContextHeader: React.FC = () => {
   const account = useAccount()
@@ -98,47 +99,47 @@ const SidebarContextHeader: React.FC = () => {
       >
         <MoreVertIcon />
       </IconButton>
-      <DarkMenu
+      <Menu
         id={isOrgContext ? "org-context-menu" : "personal-context-menu"}
         anchorEl={anchorEl}
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-        menuListProps={{
+        MenuListProps={{
           'aria-labelledby': isOrgContext ? 'org-context-menu' : 'personal-context-menu',
         }}
       >
         {isOrgContext ? (
           <>
-            <DarkMenuItem onClick={handlePeople}>
+            <MenuItem onClick={handlePeople}>
               People
-            </DarkMenuItem>
-            <DarkMenuItem onClick={handleTeams}>
+            </MenuItem>
+            <MenuItem onClick={handleTeams}>
               Teams
-            </DarkMenuItem>
-            <DarkMenuItem onClick={handleSettings}>
+            </MenuItem>
+            <MenuItem onClick={handleSettings}>
               Settings
-            </DarkMenuItem>
+            </MenuItem>
             {/* Disabled for now "AI Providers" */}
-            <DarkMenuItem disabled>
+            <MenuItem disabled>
               AI Providers
-            </DarkMenuItem>
-            <DarkMenuItem disabled>
+            </MenuItem>
+            <MenuItem disabled>
               Usage
-            </DarkMenuItem>
+            </MenuItem>
           </>
         ) : (
           <>
-            <DarkMenuItem onClick={handleAccountSettings}>
+            <MenuItem onClick={handleAccountSettings}>
               Settings
-            </DarkMenuItem>
-            <DarkMenuItem onClick={handleCreateOrganization}>
+            </MenuItem>
+            <MenuItem onClick={handleCreateOrganization}>
               Add new organization
-            </DarkMenuItem>
+            </MenuItem>
           </>
         )}
-      </DarkMenu>
+      </Menu>
     </Box>
   )
 }

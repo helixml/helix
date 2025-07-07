@@ -27,6 +27,9 @@ func (s *PostgresStore) CreateApp(ctx context.Context, app *types.App) (*types.A
 	setAppDefaults(app)
 	sortAppTools(app)
 
+	// Filter out empty triggers
+	app.Config.Helix.Triggers = filterOutEmptyTriggers(app.Config.Helix.Triggers)
+
 	err := s.gdb.WithContext(ctx).Create(app).Error
 	if err != nil {
 		return nil, err
@@ -55,6 +58,9 @@ func (s *PostgresStore) UpdateApp(ctx context.Context, app *types.App) (*types.A
 	app.Updated = time.Now()
 
 	sortAppTools(app)
+
+	// Filter out empty triggers
+	app.Config.Helix.Triggers = filterOutEmptyTriggers(app.Config.Helix.Triggers)
 
 	err := s.gdb.WithContext(ctx).Save(&app).Error
 	if err != nil {
@@ -350,4 +356,32 @@ func setAppDefaults(apps ...*types.App) {
 			}
 		}
 	}
+}
+
+func filterOutEmptyTriggers(triggers []types.Trigger) []types.Trigger {
+	var filtered []types.Trigger
+	for _, trigger := range triggers {
+		if trigger.Cron != nil {
+			filtered = append(filtered, trigger)
+			continue
+		}
+
+		if trigger.AzureDevOps != nil {
+			filtered = append(filtered, trigger)
+			continue
+		}
+
+		if trigger.Slack != nil {
+			filtered = append(filtered, trigger)
+			continue
+		}
+
+		if trigger.Discord != nil {
+			filtered = append(filtered, trigger)
+			continue
+		}
+
+		// If we get here, the trigger is empty, safe to skip
+	}
+	return filtered
 }
