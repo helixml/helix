@@ -29,6 +29,7 @@ import (
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog"
 	goai "github.com/sashabaranov/go-openai"
@@ -257,6 +258,9 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 	// Update config with Keycloak settings
 	cfg.Keycloak = keycloakConfig
 
+	// Create trigger manager
+	triggerManager := trigger.NewTriggerManager(&cfg, suite.store, controller)
+
 	// Create the API server
 	avatarsBucket := memblob.OpenBucket(nil)
 	helixAPIServer, err := server.NewServer(
@@ -275,6 +279,7 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 		nil,
 		suite.oauth,
 		avatarsBucket,
+		triggerManager,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create Helix API server: %w", err)
