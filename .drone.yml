@@ -79,7 +79,7 @@ steps:
     
   commands:
     - cd api
-    - go test -v -tags='!oauth_integration' ./...
+    - go test -v ./...
   when:
     event:
     - push
@@ -132,10 +132,10 @@ steps:
     - push
   # depends_on: [unit-test]
 
-- name: oauth-integration-test
-  image: golang:1.24-alpine3.21
+- name: oauth-github-integration-test
+  image: golang:1.24
   volumes:
-  - name: oauth-test-results
+  - name: oauth-github-test-results
     path: /tmp/helix-oauth-test-results
   environment:
     # GitHub OAuth test credentials
@@ -149,6 +149,82 @@ steps:
       from_secret: github_skill_test_oauth_password
     GITHUB_SKILL_TEST_SETUP_PAT:
       from_secret: github_skill_test_setup_pat
+    # Database config (running in a sidecar)
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DATABASE: postgres
+    TYPESENSE_URL: http://typesense:8108
+    TYPESENSE_API_KEY: typesense
+    TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+    RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+    KEYCLOAK_URL: http://keycloak:8080/auth
+    KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
+    KEYCLOAK_PASSWORD: REPLACE_ME
+    ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+    # CI-specific configuration for OAuth test
+    WEB_SERVER_HOST: "localhost"
+    # API Keys for LLM providers
+    OPENAI_API_KEY:
+      from_secret: openai_api_key
+    ANTHROPIC_API_KEY:
+      from_secret: anthropic_api_key
+    # Agent configuration
+    REASONING_MODEL_PROVIDER: openai
+    REASONING_MODEL: o3-mini    
+    REASONING_MODEL_EFFORT: none
+    GENERATION_MODEL_PROVIDER: openai
+    GENERATION_MODEL: gpt-4o
+    SMALL_REASONING_MODEL_PROVIDER: openai
+    SMALL_REASONING_MODEL: o3-mini
+    SMALL_REASONING_MODEL_EFFORT: none
+    SMALL_GENERATION_MODEL_PROVIDER: openai
+    SMALL_GENERATION_MODEL: gpt-4o-mini
+
+  commands:
+    - chmod +x scripts/run-oauth-integration-test.sh
+    - ./scripts/run-oauth-integration-test.sh github TestGitHubOAuthSkillsE2E
+  when:
+    event:
+    - push
+  # depends_on: [unit-test]
+
+- name: upload-oauth-github-test-artifacts
+  image: golang:1.24
+  volumes:
+  - name: oauth-github-test-results
+    path: /tmp/helix-oauth-test-results
+  environment:
+    LAUNCHPAD_URL: "https://deploy.helix.ml"
+    CI_SHARED_SECRET:
+      from_secret: ci_shared_secret
+  commands:
+    - chmod +x scripts/upload-oauth-test-artifacts.sh
+    - ./scripts/upload-oauth-test-artifacts.sh github
+  when:
+    event:
+    - push
+    status:
+    - success
+    - failure
+  depends_on: [oauth-github-integration-test]
+
+- name: oauth-gmail-integration-test
+  image: golang:1.24
+  volumes:
+  - name: oauth-gmail-test-results
+    path: /tmp/helix-oauth-test-results
+  environment:
+    # Google OAuth test credentials
+    GOOGLE_SKILL_TEST_OAUTH_CLIENT_ID:
+      from_secret: google_skill_test_oauth_client_id
+    GOOGLE_SKILL_TEST_OAUTH_CLIENT_SECRET:
+      from_secret: google_skill_test_oauth_client_secret
+    GOOGLE_SKILL_TEST_OAUTH_USERNAME:
+      from_secret: google_skill_test_oauth_username
+    GOOGLE_SKILL_TEST_OAUTH_PASSWORD:
+      from_secret: google_skill_test_oauth_password
     # Gmail credentials for device verification
     GMAIL_CREDENTIALS_BASE64:
       from_secret: gmail_credentials_base64
@@ -186,230 +262,111 @@ steps:
     SMALL_GENERATION_MODEL: gpt-4o-mini
 
   commands:
-    # Ensure test results directory exists and has proper permissions
-    - mkdir -p /tmp/helix-oauth-test-results
-    - chmod 755 /tmp/helix-oauth-test-results
-    # Run OAuth integration tests from the new location
-    - cd integration-test/skills
-    - |
-      echo "=== Starting OAuth Integration Test ==="
-      echo "Test results will be saved to: /tmp/helix-oauth-test-results"
-      
-      # Record test start time
-      TEST_START_TIME=$(date +%s)
-      echo "Test started at: $(date -d @$TEST_START_TIME)"
-      
-      # Run the test and capture exit code, but don't fail the step immediately
-      set +e
-      go test -v ./...
-      TEST_EXIT_CODE=$?
-      set -e
-      
-      # Record test end time and calculate duration
-      TEST_END_TIME=$(date +%s)
-      TEST_DURATION=$((TEST_END_TIME - TEST_START_TIME))
-      echo "Test ended at: $(date -d @$TEST_END_TIME)"
-      echo "Test duration: $TEST_DURATION seconds"
-      
-      # Write test results to file for upload step
-      echo "exit_code=$TEST_EXIT_CODE" > /tmp/helix-oauth-test-results/test_result.txt
-      echo "duration=$TEST_DURATION" >> /tmp/helix-oauth-test-results/test_result.txt
-      echo "start_time=$TEST_START_TIME" >> /tmp/helix-oauth-test-results/test_result.txt
-      echo "end_time=$TEST_END_TIME" >> /tmp/helix-oauth-test-results/test_result.txt
-      
-      # Determine human-readable status
-      if [ "$TEST_EXIT_CODE" -eq 0 ]; then
-        echo "status=passed" >> /tmp/helix-oauth-test-results/test_result.txt
-        echo "=== OAuth Integration Test PASSED ==="
-      else
-        echo "status=failed" >> /tmp/helix-oauth-test-results/test_result.txt
-        echo "=== OAuth Integration Test FAILED (exit code: $TEST_EXIT_CODE) ==="
-      fi
-      
-      # List any artifacts that were created during the test
-      echo "=== Test Results Directory Contents ==="
-      if [ -d "/tmp/helix-oauth-test-results" ]; then
-        ls -la /tmp/helix-oauth-test-results/ || echo "No files in test_results directory"
-        echo "=== Screenshot Files ==="
-        find /tmp/helix-oauth-test-results -name "*.png" -exec ls -l {} \; || echo "No screenshot files found"
-        echo "=== Log Files ==="
-        find /tmp/helix-oauth-test-results -name "*.log" -exec ls -l {} \; || echo "No log files found"
-        echo "=== Conversation Files ==="
-        find /tmp/helix-oauth-test-results -name "*conversation*.txt" -exec ls -l {} \; || echo "No conversation files found"
-      else
-        echo "test_results directory does not exist"
-      fi
-      
-      # Exit with original test exit code
-      exit $TEST_EXIT_CODE
+    - chmod +x scripts/run-oauth-integration-test.sh
+    - ./scripts/run-oauth-integration-test.sh gmail TestGmailOAuthSkillsE2E
   when:
     event:
     - push
   # depends_on: [unit-test]
 
-- name: upload-oauth-test-artifacts
-  image: alpine:latest
+- name: upload-oauth-gmail-test-artifacts
+  image: golang:1.24
   volumes:
-  - name: oauth-test-results
+  - name: oauth-gmail-test-results
     path: /tmp/helix-oauth-test-results
   environment:
     LAUNCHPAD_URL: "https://deploy.helix.ml"
     CI_SHARED_SECRET:
       from_secret: ci_shared_secret
   commands:
-    # Install required tools
-    - apk add --no-cache curl zip
-    # Debug environment variables
-    - echo "DEBUG - LAUNCHPAD_URL='${LAUNCHPAD_URL}'"
-    - echo "DEBUG - CI_SHARED_SECRET present='${CI_SHARED_SECRET:+YES}'"
-    - echo "DEBUG - All environment variables:"
-    - env | grep -E "(LAUNCHPAD|CI_)" | sort || echo "No matching environment variables found"
-    - echo "DEBUG - Expected value should be 'https://deploy.helix.ml'"
-    # Determine test status from actual test results file
-    - |
-      # Check if we have actual test results from the test step
-      if [ -f "/tmp/helix-oauth-test-results/test_result.txt" ]; then
-        echo "=== Reading actual test results ==="
-        cat /tmp/helix-oauth-test-results/test_result.txt
-        
-        # Source the test results file to get variables
-        . /tmp/helix-oauth-test-results/test_result.txt
-        
-        TEST_STATUS="$status"
-        TEST_DURATION="$duration"
-        TEST_EXIT_CODE="$exit_code"
-        
-        echo "Actual test status: $TEST_STATUS"
-        echo "Actual test duration: $TEST_DURATION seconds"
-        echo "Actual test exit code: $TEST_EXIT_CODE"
-      else
-        echo "=== No test results file found, using fallback ==="
-        if [ "${DRONE_BUILD_STATUS}" = "success" ]; then
-          TEST_STATUS="passed"
-        else
-          TEST_STATUS="failed"
-        fi
-        TEST_DURATION="unknown"
-        TEST_EXIT_CODE="unknown"
-        echo "Fallback test status: $TEST_STATUS"
-        echo "Fallback test duration: $TEST_DURATION"
-      fi
-      
-      # Construct Drone build URL
-      DRONE_BUILD_URL="https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}"
-      echo "Drone build URL: $DRONE_BUILD_URL"
-    # Create artifacts zip - include basic info even if test didn't run
-    - cd /tmp
-    - |
-      echo "=== OAuth Test Artifacts Collection ==="
-      echo "Collecting artifacts from: /tmp/helix-oauth-test-results"
-      
-      if [ -d "helix-oauth-test-results" ]; then
-        echo "Test results directory exists"
-        echo "=== Directory Contents ==="
-        ls -la helix-oauth-test-results/ || echo "Directory exists but is empty"
-        
-        # Count different types of artifacts
-        SCREENSHOT_COUNT=$(find helix-oauth-test-results -name "*.png" | wc -l)
-        LOG_COUNT=$(find helix-oauth-test-results -name "*.log" | wc -l)
-        CONVERSATION_COUNT=$(find helix-oauth-test-results -name "*conversation*.txt" | wc -l)
-        
-        echo "=== Artifact Summary ==="
-        echo "Screenshots found: $SCREENSHOT_COUNT"
-        echo "Log files found: $LOG_COUNT"
-        echo "Conversation files found: $CONVERSATION_COUNT"
-        
-        if [ "$SCREENSHOT_COUNT" -gt 0 ]; then
-          echo "=== Screenshot Files ==="
-          find helix-oauth-test-results -name "*.png" -exec ls -l {} \;
-        fi
-        
-        if [ "$LOG_COUNT" -gt 0 ]; then
-          echo "=== Log Files ==="
-          find helix-oauth-test-results -name "*.log" -exec ls -l {} \;
-        fi
-        
-        if [ "$CONVERSATION_COUNT" -gt 0 ]; then
-          echo "=== Conversation Files ==="
-          find helix-oauth-test-results -name "*conversation*.txt" -exec ls -l {} \;
-        fi
-        
-        # Check if there are any files at all
-        if [ "$(find helix-oauth-test-results -type f | wc -l)" -gt 0 ]; then
-          echo "Creating artifacts zip from test results"
-          zip -r artifacts.zip helix-oauth-test-results/
-          ARTIFACTS_FILE="artifacts.zip"
-          echo "Artifacts zip created: $(ls -lh artifacts.zip)"
-        else
-          echo "No test result files found, creating basic artifact"
-          echo "OAuth integration test run at $(date)" > helix-oauth-test-results/test_summary.txt
-          echo "Build: ${DRONE_BUILD_NUMBER}" >> helix-oauth-test-results/test_summary.txt
-          echo "Build URL: $DRONE_BUILD_URL" >> helix-oauth-test-results/test_summary.txt
-          echo "Branch: ${DRONE_BRANCH}" >> helix-oauth-test-results/test_summary.txt
-          echo "Commit: ${DRONE_COMMIT}" >> helix-oauth-test-results/test_summary.txt
-          echo "Status: ${TEST_STATUS}" >> helix-oauth-test-results/test_summary.txt
-          echo "Duration: ${TEST_DURATION} seconds" >> helix-oauth-test-results/test_summary.txt
-          echo "Exit Code: ${TEST_EXIT_CODE}" >> helix-oauth-test-results/test_summary.txt
-          echo "Note: Test failed before generating artifacts (likely GitHub device verification)" >> helix-oauth-test-results/test_summary.txt
-          zip -r artifacts.zip helix-oauth-test-results/
-          ARTIFACTS_FILE="artifacts.zip"
-        fi
-      else
-        echo "Test results directory does not exist, creating basic artifact"
-        mkdir -p helix-oauth-test-results
-        echo "OAuth integration test run at $(date)" > helix-oauth-test-results/test_summary.txt
-        echo "Build: ${DRONE_BUILD_NUMBER}" >> helix-oauth-test-results/test_summary.txt
-        echo "Build URL: $DRONE_BUILD_URL" >> helix-oauth-test-results/test_summary.txt
-        echo "Branch: ${DRONE_BRANCH}" >> helix-oauth-test-results/test_summary.txt
-        echo "Commit: ${DRONE_COMMIT}" >> helix-oauth-test-results/test_summary.txt
-        echo "Status: ${TEST_STATUS}" >> helix-oauth-test-results/test_summary.txt
-        echo "Duration: ${TEST_DURATION} seconds" >> helix-oauth-test-results/test_summary.txt
-        echo "Exit Code: ${TEST_EXIT_CODE}" >> helix-oauth-test-results/test_summary.txt
-        echo "Note: Test failed before creating test_results directory" >> helix-oauth-test-results/test_summary.txt
-        zip -r artifacts.zip helix-oauth-test-results/
-        ARTIFACTS_FILE="artifacts.zip"
-      fi
-    # Upload to Launchpad with explicit URL construction
-    - |
-      # Don't override LAUNCHPAD_URL if it's already set from environment
-      if [ -n "$LAUNCHPAD_URL" ] && [ -n "$CI_SHARED_SECRET" ]; then
-        echo "Uploading test results to Launchpad at $LAUNCHPAD_URL"
-        UPLOAD_URL="$LAUNCHPAD_URL/api/ci/test-results"
-        echo "Upload URL: $UPLOAD_URL"
-        echo "Artifact file: $ARTIFACTS_FILE"
-        
-        # Show curl command for debugging
-        echo "curl -X POST -H 'X-CI-Secret: ***' -F 'branch=${DRONE_BRANCH}' -F 'commit=${DRONE_COMMIT}' -F 'build_number=${DRONE_BUILD_NUMBER}' -F 'build_url=$DRONE_BUILD_URL' -F 'test_type=oauth_integration' -F 'status=$TEST_STATUS' -F 'duration=$TEST_DURATION' -F 'exit_code=$TEST_EXIT_CODE' -F 'artifacts=@$ARTIFACTS_FILE' '$UPLOAD_URL'"
-        
-        # Execute the upload with verbose output
-        curl -v -X POST \
-          -H "X-CI-Secret: $CI_SHARED_SECRET" \
-          -F "branch=${DRONE_BRANCH}" \
-          -F "commit=${DRONE_COMMIT}" \
-          -F "build_number=${DRONE_BUILD_NUMBER}" \
-          -F "build_url=$DRONE_BUILD_URL" \
-          -F "test_type=oauth_integration" \
-          -F "status=$TEST_STATUS" \
-          -F "duration=$TEST_DURATION" \
-          -F "exit_code=$TEST_EXIT_CODE" \
-          -F "artifacts=@$ARTIFACTS_FILE" \
-          "$UPLOAD_URL"
-      else
-        echo "LAUNCHPAD_URL or CI_SHARED_SECRET not set, skipping test result upload"
-        echo "LAUNCHPAD_URL: '${LAUNCHPAD_URL:-'(not set)'}'"
-        if [ -n "$CI_SHARED_SECRET" ]; then
-          echo "CI_SHARED_SECRET: '(set)'"
-        else
-          echo "CI_SHARED_SECRET: '(not set)'"
-        fi
-      fi
+    - chmod +x scripts/upload-oauth-test-artifacts.sh
+    - ./scripts/upload-oauth-test-artifacts.sh gmail
   when:
     event:
     - push
     status:
     - success
     - failure
-  depends_on: [oauth-integration-test]
+  depends_on: [oauth-gmail-integration-test]
+
+- name: oauth-google-calendar-integration-test
+  image: golang:1.24
+  volumes:
+  - name: oauth-google-calendar-test-results
+    path: /tmp/helix-oauth-test-results
+  environment:
+    # Google OAuth test credentials
+    GOOGLE_SKILL_TEST_OAUTH_CLIENT_ID:
+      from_secret: google_skill_test_oauth_client_id
+    GOOGLE_SKILL_TEST_OAUTH_CLIENT_SECRET:
+      from_secret: google_skill_test_oauth_client_secret
+    GOOGLE_SKILL_TEST_OAUTH_USERNAME:
+      from_secret: google_skill_test_oauth_username
+    GOOGLE_SKILL_TEST_OAUTH_PASSWORD:
+      from_secret: google_skill_test_oauth_password
+    # Gmail credentials for device verification
+    GMAIL_CREDENTIALS_BASE64:
+      from_secret: gmail_credentials_base64
+    # Database config (running in a sidecar)
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DATABASE: postgres
+    TYPESENSE_URL: http://typesense:8108
+    TYPESENSE_API_KEY: typesense
+    TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+    RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+    KEYCLOAK_URL: http://keycloak:8080/auth
+    KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
+    KEYCLOAK_PASSWORD: REPLACE_ME
+    ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+    # CI-specific configuration for OAuth test
+    WEB_SERVER_HOST: "localhost"
+    # API Keys for LLM providers
+    OPENAI_API_KEY:
+      from_secret: openai_api_key
+    ANTHROPIC_API_KEY:
+      from_secret: anthropic_api_key
+    # Agent configuration
+    REASONING_MODEL_PROVIDER: openai
+    REASONING_MODEL: o3-mini    
+    REASONING_MODEL_EFFORT: none
+    GENERATION_MODEL_PROVIDER: openai
+    GENERATION_MODEL: gpt-4o
+    SMALL_REASONING_MODEL_PROVIDER: openai
+    SMALL_REASONING_MODEL: o3-mini
+    SMALL_REASONING_MODEL_EFFORT: none
+    SMALL_GENERATION_MODEL_PROVIDER: openai
+    SMALL_GENERATION_MODEL: gpt-4o-mini
+
+  commands:
+    - chmod +x scripts/run-oauth-integration-test.sh
+    - ./scripts/run-oauth-integration-test.sh google-calendar TestGoogleCalendarOAuthSkillsE2E
+  when:
+    event:
+    - push
+  # depends_on: [unit-test]
+
+- name: upload-oauth-google-calendar-test-artifacts
+  image: golang:1.24
+  volumes:
+  - name: oauth-google-calendar-test-results
+    path: /tmp/helix-oauth-test-results
+  environment:
+    LAUNCHPAD_URL: "https://deploy.helix.ml"
+    CI_SHARED_SECRET:
+      from_secret: ci_shared_secret
+  commands:
+    - chmod +x scripts/upload-oauth-test-artifacts.sh
+    - ./scripts/upload-oauth-test-artifacts.sh google-calendar
+  when:
+    event:
+    - push
+    status:
+    - success
+    - failure
+  depends_on: [oauth-google-calendar-integration-test]
 
 - name: release-backend
   image: golang:1.24-bullseye
@@ -501,7 +458,11 @@ services:
     KC_HTTP_RELATIVE_PATH: /auth/
 
 volumes:
-- name: oauth-test-results
+- name: oauth-github-test-results
+  temp: {}
+- name: oauth-gmail-test-results
+  temp: {}
+- name: oauth-google-calendar-test-results
   temp: {}
 ---
 kind: pipeline
