@@ -8,7 +8,6 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/jsonschema"
 
-	"github.com/microsoft/azure-devops-go-api/azuredevops/v7"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/git"
 	"github.com/sashabaranov/go-openai"
 )
@@ -16,7 +15,7 @@ import (
 const createThreadSkillDescription = `Create a thread in a pull request, use it when you need to add a comment to a pull request.
 DO NOT try to pass repository ID or project ID to this skill, it is set automatically to the correct values by the trigger.`
 
-var createThreadSkillParameters = jsonschema.Definition{
+var createThreadParameters = jsonschema.Definition{
 	Type: jsonschema.Object,
 	Properties: map[string]jsonschema.Definition{
 		"content": {
@@ -30,24 +29,23 @@ var createThreadSkillParameters = jsonschema.Definition{
 // NewCreateThreadSkill - creates a skill that allows the agent to create a thread in a pull request. This is a dedicated skill
 // that expects the agent to be told what comment to write
 func NewCreateThreadSkill(organizationURL string, personalAccessToken string) agent.Skill {
+	client := newAzureDevOpsClient(organizationURL, personalAccessToken)
 	return agent.Skill{
 		Name:        "AzureDevOpsCreateThread",
 		Description: createThreadSkillDescription,
-		Parameters:  createThreadSkillParameters,
+		Parameters:  createThreadParameters,
 		Direct:      true,
 		Tools: []agent.Tool{
 			&AzureDevOpsPullRequestCreateThreadTool{
-				organizationURL:     organizationURL,
-				personalAccessToken: personalAccessToken,
+				client: client,
 			},
 		},
 	}
 }
 
 // AzureDevOpsPullRequestCommentTool - allows the agent to comment on a pull request
-type AzureDevOpsPullRequestCreateThreadTool struct {
-	organizationURL     string
-	personalAccessToken string
+type AzureDevOpsPullRequestCreateThreadTool struct { //nolint:revive
+	client *azureDevOpsClient
 }
 
 func (t *AzureDevOpsPullRequestCreateThreadTool) Name() string {
@@ -77,7 +75,7 @@ func (t *AzureDevOpsPullRequestCreateThreadTool) OpenAI() []openai.Tool {
 			Function: &openai.FunctionDefinition{
 				Name:        "CreateThread",
 				Description: createThreadSkillDescription,
-				Parameters:  createThreadSkillParameters,
+				Parameters:  createThreadParameters,
 			},
 		},
 	}
@@ -94,9 +92,7 @@ func (t *AzureDevOpsPullRequestCreateThreadTool) Execute(ctx context.Context, me
 		return "", fmt.Errorf("azure devops repository context not found")
 	}
 
-	connection := azuredevops.NewPatConnection(t.organizationURL, t.personalAccessToken)
-
-	gitClient, err := git.NewClient(ctx, connection)
+	gitClient, err := git.NewClient(ctx, t.client.connection)
 	if err != nil {
 		return "", fmt.Errorf("failed to create Azure DevOps client: %w", err)
 	}
