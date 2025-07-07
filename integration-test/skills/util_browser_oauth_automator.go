@@ -303,34 +303,74 @@ func (a *BrowserOAuthAutomator) debugDumpPageElements(page *rod.Page, stepName s
 	a.logger.Info().Msg("=== END DEBUG ELEMENTS ===")
 }
 
-// performLogin handles the login process (with Google's two-step process)
+// performLogin handles the login process (different flows for different providers)
 func (a *BrowserOAuthAutomator) performLogin(page *rod.Page, username, password string, screenshotTaker ScreenshotTaker) error {
 	a.logger.Info().Msg("Login required - starting login process")
 
 	// Debug: dump page elements
 	a.debugDumpPageElements(page, "login_start")
 
-	// Step 1: Handle email input (Google's first step)
-	err := a.handleEmailInput(page, username, screenshotTaker)
-	if err != nil {
-		return fmt.Errorf("failed to handle email input: %w", err)
-	}
+	// Detect provider type and handle appropriate login flow
+	if a.config.ProviderName == "google" {
+		// Google: Two-step process (email → Next → password → Next)
+		a.logger.Info().Msg("Using Google two-step login flow")
 
-	// Step 2: Handle password input (Google's second step)
-	err = a.handlePasswordInput(page, password, screenshotTaker)
-	if err != nil {
-		return fmt.Errorf("failed to handle password input: %w", err)
+		// Step 1: Handle email input (Google's first step)
+		err := a.handleEmailInput(page, username, screenshotTaker)
+		if err != nil {
+			return fmt.Errorf("failed to handle email input: %w", err)
+		}
+
+		// Step 2: Handle password input (Google's second step)
+		err = a.handlePasswordInput(page, password, screenshotTaker)
+		if err != nil {
+			return fmt.Errorf("failed to handle password input: %w", err)
+		}
+	} else {
+		// GitHub and other providers: Single-step process (username + password → Sign in)
+		a.logger.Info().Str("provider", a.config.ProviderName).Msg("Using single-step login flow")
+
+		err := a.handleSingleStepLogin(page, username, password, screenshotTaker)
+		if err != nil {
+			return fmt.Errorf("failed to handle single-step login: %w", err)
+		}
 	}
 
 	return nil
 }
 
-// handleEmailInput handles the email input step
-func (a *BrowserOAuthAutomator) handleEmailInput(page *rod.Page, username string, screenshotTaker ScreenshotTaker) error {
-	a.logger.Info().Msg("Handling email input step")
+// handleSingleStepLogin handles single-step login (username + password → Sign in)
+func (a *BrowserOAuthAutomator) handleSingleStepLogin(page *rod.Page, username, password string, screenshotTaker ScreenshotTaker) error {
+	a.logger.Info().Msg("Handling single-step login")
 
 	// Set timeout for operations
 	page = page.Timeout(15 * time.Second)
+
+	// Step 1: Fill username field
+	err := a.fillUsernameField(page, username, screenshotTaker)
+	if err != nil {
+		return fmt.Errorf("failed to fill username field: %w", err)
+	}
+
+	// Step 2: Fill password field
+	err = a.fillPasswordField(page, password, screenshotTaker)
+	if err != nil {
+		return fmt.Errorf("failed to fill password field: %w", err)
+	}
+
+	// Step 3: Click login button
+	err = a.clickLoginButton(page, screenshotTaker)
+	if err != nil {
+		return fmt.Errorf("failed to click login button: %w", err)
+	}
+
+	// Wait for navigation after login
+	return a.waitForNavigation(page, screenshotTaker)
+}
+
+// fillUsernameField fills the username field (shared by both login flows)
+func (a *BrowserOAuthAutomator) fillUsernameField(page *rod.Page, username string, screenshotTaker ScreenshotTaker) error {
+	a.logger.Info().Msg("Filling username field")
 
 	// Try to find username field using multiple selectors
 	usernameSelectors := strings.Split(a.config.LoginUsernameSelector, ", ")
@@ -341,14 +381,14 @@ func (a *BrowserOAuthAutomator) handleEmailInput(page *rod.Page, username string
 		selector = strings.TrimSpace(selector)
 		usernameElement, err = page.Element(selector)
 		if err == nil && usernameElement != nil {
-			a.logger.Info().Str("selector", selector).Msg("Found username/email field")
+			a.logger.Info().Str("selector", selector).Msg("Found username field")
 			break
 		}
 	}
 
 	if usernameElement == nil {
-		a.debugDumpPageElements(page, "email_field_not_found")
-		return fmt.Errorf("failed to find username/email field using selectors: %s", a.config.LoginUsernameSelector)
+		a.debugDumpPageElements(page, "username_field_not_found")
+		return fmt.Errorf("failed to find username field using selectors: %s", a.config.LoginUsernameSelector)
 	}
 
 	// Set timeout for element operations
@@ -368,8 +408,70 @@ func (a *BrowserOAuthAutomator) handleEmailInput(page *rod.Page, username string
 		return fmt.Errorf("failed to enter username: %w", err)
 	}
 
-	a.logger.Info().Str("username", username).Msg("Successfully entered username/email")
-	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_email_filled")
+	a.logger.Info().Str("username", username).Msg("Successfully entered username")
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_username_filled")
+
+	return nil
+}
+
+// fillPasswordField fills the password field (shared by both login flows)
+func (a *BrowserOAuthAutomator) fillPasswordField(page *rod.Page, password string, screenshotTaker ScreenshotTaker) error {
+	a.logger.Info().Msg("Filling password field")
+
+	// Try to find password field using multiple selectors
+	passwordSelectors := strings.Split(a.config.LoginPasswordSelector, ", ")
+	var passwordElement *rod.Element
+	var err error
+
+	for _, selector := range passwordSelectors {
+		selector = strings.TrimSpace(selector)
+		passwordElement, err = page.Element(selector)
+		if err == nil && passwordElement != nil {
+			a.logger.Info().Str("selector", selector).Msg("Found password field")
+			break
+		}
+	}
+
+	if passwordElement == nil {
+		a.debugDumpPageElements(page, "password_field_not_found")
+		return fmt.Errorf("failed to find password field using selectors: %s", a.config.LoginPasswordSelector)
+	}
+
+	// Set timeout for element operations
+	passwordElement = passwordElement.Timeout(5 * time.Second)
+
+	// Clear any existing content and enter password
+	err = passwordElement.SelectAllText()
+	if err == nil {
+		err = passwordElement.Input("")
+		if err != nil {
+			a.logger.Warn().Err(err).Msg("Failed to clear password field")
+		}
+	}
+
+	err = passwordElement.Input(password)
+	if err != nil {
+		return fmt.Errorf("failed to enter password: %w", err)
+	}
+
+	a.logger.Info().Msg("Successfully entered password")
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_password_filled")
+
+	return nil
+}
+
+// handleEmailInput handles the email input step (Google's first step)
+func (a *BrowserOAuthAutomator) handleEmailInput(page *rod.Page, username string, screenshotTaker ScreenshotTaker) error {
+	a.logger.Info().Msg("Handling email input step")
+
+	// Set timeout for operations
+	page = page.Timeout(15 * time.Second)
+
+	// Fill username field (reusing common function)
+	err := a.fillUsernameField(page, username, screenshotTaker)
+	if err != nil {
+		return fmt.Errorf("failed to fill username field: %w", err)
+	}
 
 	// Try Rod's native element selection using exact class pattern from debug output
 	a.logger.Info().Msg("Attempting to find Next button using specific class pattern")
