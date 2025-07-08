@@ -159,6 +159,7 @@ type PullRequestComment struct {
 			PublishedDate          time.Time `json:"publishedDate"`
 			LastUpdatedDate        time.Time `json:"lastUpdatedDate"`
 			LastContentUpdatedDate time.Time `json:"lastContentUpdatedDate"`
+			IsDeleted              bool      `json:"isDeleted"`
 			CommentType            string    `json:"commentType"`
 			UsersLiked             []any     `json:"usersLiked"`
 			Links                  struct {

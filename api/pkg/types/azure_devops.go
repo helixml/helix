@@ -10,6 +10,9 @@ type AzureDevopsRepositoryContext struct {
 	RepositoryID  string
 	PullRequestID int
 	ProjectID     string
+
+	ThreadID  int // Thread that triggered this event
+	CommentID int // Comment that triggered this event
 }
 
 type AzureDevopsRepositoryContextKeyType string
