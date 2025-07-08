@@ -80,14 +80,13 @@ var GoogleCalendarTestQueries = []AgentTestQuery{
 
 // GoogleCalendarOAuthProviderConfig defines the OAuth provider configuration for Google Calendar
 var GoogleCalendarOAuthProviderConfig = OAuthProviderConfig{
-	ProviderName:       "Google Calendar Skills Test",
-	ProviderType:       types.OAuthProviderTypeGoogle,
-	SkillName:          "google-calendar",
-	CallbackPathSuffix: "google",
-	AuthURL:            "https://accounts.google.com/o/oauth2/v2/auth",
-	TokenURL:           "https://oauth2.googleapis.com/token",
-	UserInfoURL:        "https://openidconnect.googleapis.com/v1/userinfo",
-	Scopes:             []string{"openid", "email", "profile", "https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/calendar.events"},
+	ProviderName: "Google Calendar Skills Test",
+	ProviderType: types.OAuthProviderTypeGoogle,
+	SkillName:    "google-calendar",
+	AuthURL:      "https://accounts.google.com/o/oauth2/v2/auth",
+	TokenURL:     "https://oauth2.googleapis.com/token",
+	UserInfoURL:  "https://openidconnect.googleapis.com/v1/userinfo",
+	Scopes:       []string{"openid", "email", "profile", "https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/calendar.events"},
 	// ClientID, ClientSecret, Username, Password, and functions will be set during test setup
 }
 
@@ -121,7 +120,7 @@ func TestGoogleCalendarOAuthSkillsE2E(t *testing.T) {
 	t.Parallel()
 
 	// Set a reasonable timeout for the OAuth browser automation
-	timeout := 45 * time.Second // Reduced timeout to fail faster during debugging
+	timeout := 2 * time.Minute
 	deadline := time.Now().Add(timeout)
 	t.Deadline() // Check if deadline is already set
 
@@ -308,7 +307,7 @@ func (suite *GoogleCalendarOAuthE2ETestSuite) getGoogleAuthorizationCode(authURL
 		LoginPasswordSelector:   `input[type="password"], input[name="password"], input[autocomplete="current-password"]`,
 		LoginButtonSelector:     `button[id="identifierNext"], button[id="passwordNext"], button[type="submit"], input[type="submit"]`,
 		AuthorizeButtonSelector: `input[type="submit"][value="Allow"], button[type="submit"], button[data-l*="allow"]`,
-		CallbackURLPattern:      "/api/v1/oauth/callback",
+		CallbackURLPattern:      "/api/v1/oauth/flow/callback",
 		DeviceVerificationCheck: googleHandler.IsRequiredForURL,
 		TwoFactorHandler:        googleHandler,
 	}
