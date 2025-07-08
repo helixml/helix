@@ -221,6 +221,21 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 			})
 		}
 
+		if assistant.AzureDevOps.Enabled {
+			tools = append(tools, &types.Tool{
+				Name:        "Azure DevOps",
+				Description: "Use the Azure DevOps to interact with Azure DevOps",
+				ToolType:    types.ToolTypeAzureDevOps,
+				Config: types.ToolConfig{
+					AzureDevOps: &types.ToolAzureDevOpsConfig{
+						Enabled:             assistant.AzureDevOps.Enabled,
+						OrganizationURL:     assistant.AzureDevOps.OrganizationURL,
+						PersonalAccessToken: assistant.AzureDevOps.PersonalAccessToken,
+					},
+				},
+			})
+		}
+
 		// Convert APIs to Tools
 		for _, api := range assistant.APIs {
 			t, err := ConvertAPIToTool(api)

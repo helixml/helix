@@ -45,6 +45,7 @@ require (
 	github.com/mark3labs/mcp-go v0.13.0
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/mendableai/firecrawl-go v0.0.0-20240815202540-ebd79458547a
+	github.com/microsoft/azure-devops-go-api/azuredevops/v7 v7.1.0
 	github.com/nats-io/nats-server/v2 v2.10.14
 	github.com/nats-io/nats.go v1.38.0
 	github.com/nikoksr/notify v0.41.0

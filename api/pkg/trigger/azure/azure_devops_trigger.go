@@ -73,6 +73,13 @@ func (a *AzureDevOps) processPullRequestCreateUpdateEvent(ctx context.Context, t
 		return fmt.Errorf("failed to render pull request created/updated event: %w", err)
 	}
 
+	// Set PR context
+	ctx = types.SetAzureDevopsRepositoryContext(ctx, types.AzureDevopsRepositoryContext{
+		RepositoryID:  pr.Resource.Repository.ID,
+		PullRequestID: pr.Resource.PullRequestID,
+		ProjectID:     pr.Resource.Repository.Project.ID,
+	})
+
 	// Process the rendered template
 	return a.processEvent(ctx, triggerConfig, event, rendered)
 }
@@ -84,10 +91,31 @@ func (a *AzureDevOps) processPullRequestCommentEvent(ctx context.Context, trigge
 		return err
 	}
 
+	if prc.Resource.Comment.IsDeleted {
+		// Nothing to do
+		log.Info().
+			Str("app_id", triggerConfig.AppID).
+			Str("trigger_config_id", triggerConfig.ID).
+			Str("event_type", event.EventType).
+			Msg("AzureDevOps: pull request comment deleted, nothing to do")
+		return nil
+	}
+
 	rendered, err := renderPullRequestCommentedEvent(prc)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal pull request comment event: %w", err)
 	}
+
+	// TODO: get messages from the thread
+
+	// Set PR context
+	ctx = types.SetAzureDevopsRepositoryContext(ctx, types.AzureDevopsRepositoryContext{
+		RepositoryID:  prc.Resource.PullRequest.Repository.ID,
+		PullRequestID: prc.Resource.PullRequest.PullRequestID,
+		ProjectID:     prc.Resource.PullRequest.Repository.Project.ID,
+		ThreadID:      getThreadID(prc),
+		CommentID:     prc.Resource.Comment.ID,
+	})
 
 	// Process the rendered template
 	return a.processEvent(ctx, triggerConfig, event, rendered)
