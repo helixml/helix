@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, IconButton, Menu, MenuItem, useTheme, Tooltip, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Alert, Collapse, Link, Chip, FormControl, InputLabel, Select, SelectChangeEvent, Tabs, Tab, TextField, InputAdornment } from '@mui/material';
 import { PROVIDER_ICONS, PROVIDER_COLORS, SlackLogo } from '../icons/ProviderIcons';
 import atlassianLogo from '../../../assets/img/atlassian-logo.png';
+import azureDevOpsLogo from '../../../assets/img/azure-devops/logo.png';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
@@ -32,6 +33,7 @@ import { alphaVantageTool } from './examples/skillAlphaVantageApi';
 import { airQualityTool } from './examples/skillAirQualityApi';
 import { exchangeRatesSkill } from './examples/skillExchangeRatesApi';
 import WebSearchSkill from './WebSearchSkill';
+import AzureDevOpsSkill from './AzureDevOpsSkill';
 
 // OAuth Provider Skills (now served from backend via API)
 // import { gmailTool } from './examples/skillGmailApi';
@@ -79,6 +81,7 @@ const SKILL_TYPE_BROWSER = 'Browser';
 const SKILL_TYPE_WEB_SEARCH = 'Web Search';
 const SKILL_TYPE_CALCULATOR = 'Calculator';
 const SKILL_TYPE_EMAIL = 'Email';
+const SKILL_TYPE_AZURE_DEVOPS = 'Azure DevOps';
 
 const SKILL_CATEGORY_CORE = 'Core';
 const SKILL_CATEGORY_DATA = 'Data & APIs';
@@ -183,6 +186,25 @@ const BASE_SKILLS: ISkill[] = [
     skill: {
       name: 'Email',
       description: 'Enable the AI to send emails to the user.',
+      systemPrompt: '',
+      apiSkill: {
+        schema: '',
+        url: '',
+        requiredParameters: [],
+      },
+      configurable: true,
+    },
+  },
+  {
+    id: 'azure-devops',
+    icon: <img src={azureDevOpsLogo} style={{ width: 24, height: 24 }} alt="Azure DevOps" />,
+    name: 'Azure DevOps',
+    description: 'Enable the AI to interact with Azure DevOps repositories, pipelines, and work items. Access pull requests, builds, and project management features.',
+    type: SKILL_TYPE_AZURE_DEVOPS,
+    category: SKILL_CATEGORY_MICROSOFT,
+    skill: {
+      name: 'Azure DevOps',
+      description: 'Enable the AI to interact with Azure DevOps.',
       systemPrompt: '',
       apiSkill: {
         schema: '',
@@ -688,6 +710,9 @@ const Skills: React.FC<SkillsProps> = ({
     if (skillName === 'Email') {
       return app.emailTool?.enabled ?? false;
     }
+    if (skillName === 'Azure DevOps') {
+      return app.azureDevOpsTool?.enabled ?? false;
+    }
     return app.apiTools?.some(tool => tool.name === skillName) ?? false;
   };
 
@@ -860,6 +885,23 @@ const Skills: React.FC<SkillsProps> = ({
           app={app}
           onUpdate={onUpdate}
           isEnabled={isSkillEnabled('Email')}
+        />
+      );
+    }
+
+    if (selectedSkill.name === 'Azure DevOps') {
+      return (
+        <AzureDevOpsSkill
+          open={isDialogOpen}
+          onClose={() => {
+            setIsDialogOpen(false);
+          }}
+          onClosed={() => {
+            setSelectedSkill(null);
+          }}
+          app={app}
+          onUpdate={onUpdate}
+          isEnabled={isSkillEnabled('Azure DevOps')}
         />
       );
     }

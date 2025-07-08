@@ -1,10 +1,12 @@
 package azure
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,10 +29,9 @@ func TestRenderPullRequestCommentedEvent(t *testing.T) {
 
 	// Looking for specific pieces of information
 	expected := []string{
-		"Azure DevOps Pull Request Comment Event",
-		"- Content: who wrote this code?",
-		"- Project Name: helix-agents",
-		"- PR ID: 1",
+		"Here's the Azure DevOps Pull Request Comment Event",
+		"- What happened: nessie has commented on a pull request",
+		"- User message: who wrote this code?",
 	}
 
 	for _, expected := range expected {
@@ -91,4 +92,17 @@ func TestRenderPullRequestCreatedUpdatedEvent(t *testing.T) {
 	for _, expected := range expected {
 		require.Contains(t, rendered, expected)
 	}
+}
+
+func TestIgnoreDeletedComment(t *testing.T) {
+	// Load the test data
+	bts, err := os.ReadFile("testdata/pr_comment_deleted.json")
+	require.NoError(t, err)
+
+	ad := &AzureDevOps{}
+
+	err = ad.processPullRequestCommentEvent(context.Background(), &types.TriggerConfiguration{
+		ID: "1",
+	}, Event{}, bts)
+	require.NoError(t, err)
 }

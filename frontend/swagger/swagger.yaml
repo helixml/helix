@@ -34,6 +34,7 @@ definitions:
     - calculator
     - email
     - web_search
+    - azure_devops
     type: string
     x-enum-varnames:
     - ToolTypeAPI
@@ -43,6 +44,7 @@ definitions:
     - ToolTypeCalculator
     - ToolTypeEmail
     - ToolTypeWebSearch
+    - ToolTypeAzureDevOps
   github_com_helixml_helix_api_pkg_types.Usage:
     properties:
       completion_tokens:
@@ -757,6 +759,15 @@ definitions:
       url:
         type: string
     type: object
+  types.AssistantAzureDevOps:
+    properties:
+      enabled:
+        type: boolean
+      organization_url:
+        type: string
+      personal_access_token:
+        type: string
+    type: object
   types.AssistantBrowser:
     properties:
       enabled:
@@ -781,6 +792,8 @@ definitions:
         type: array
       avatar:
         type: string
+      azure_devops:
+        $ref: '#/definitions/types.AssistantAzureDevOps'
       browser:
         $ref: '#/definitions/types.AssistantBrowser'
       calculator:
@@ -3050,6 +3063,15 @@ definitions:
         description: Server override
         type: string
     type: object
+  types.ToolAzureDevOpsConfig:
+    properties:
+      enabled:
+        type: boolean
+      organization_url:
+        type: string
+      personal_access_token:
+        type: string
+    type: object
   types.ToolBrowserConfig:
     properties:
       enabled:
@@ -3067,6 +3089,8 @@ definitions:
     properties:
       api:
         $ref: '#/definitions/types.ToolAPIConfig'
+      azure_devops:
+        $ref: '#/definitions/types.ToolAzureDevOpsConfig'
       browser:
         $ref: '#/definitions/types.ToolBrowserConfig'
       calculator:
@@ -3201,9 +3225,11 @@ definitions:
   types.TriggerType:
     enum:
     - slack
+    - azure_devops
     type: string
     x-enum-varnames:
     - TriggerTypeSlack
+    - TriggerTypeAzureDevOps
   types.UpdateOrganizationMemberRequest:
     properties:
       role:

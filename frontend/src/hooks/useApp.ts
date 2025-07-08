@@ -417,6 +417,10 @@ export const useApp = (appId: string) => {
     if (updates.emailTool !== undefined) {
       assistants[0].email = updates.emailTool
     }
+
+    if (updates.azureDevOpsTool !== undefined) {
+      assistants[0].azure_devops = updates.azureDevOpsTool
+    }
     
     if (updates.tests !== undefined) {
       assistants[0].tests = updates.tests
