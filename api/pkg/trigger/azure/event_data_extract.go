@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-var pullRequestCommentedEventTemplate = `Here's theAzure DevOps Pull Request Comment Event:
+var pullRequestCommentedEventTemplate = `Here's the Azure DevOps Pull Request Comment Event:
 - Event Type: {{.EventType}}
 - What happened: {{.Message.Text}}
 - User message: {{.Resource.Comment.Content}}
