@@ -17,10 +17,9 @@ import (
 // OAuthProviderConfig defines the configuration for an OAuth provider test
 type OAuthProviderConfig struct {
 	// Provider identification
-	ProviderName       string                  // Human-readable name (e.g., "GitHub Skills Test")
-	ProviderType       types.OAuthProviderType // Provider type enum
-	SkillName          string                  // Skill name for skills manager (e.g., "github")
-	CallbackPathSuffix string                  // Callback URL suffix (e.g., "github")
+	ProviderName string                  // Human-readable name (e.g., "GitHub Skills Test")
+	ProviderType types.OAuthProviderType // Provider type enum
+	SkillName    string                  // Skill name for skills manager (e.g., "github")
 
 	// OAuth endpoints
 	AuthURL     string   // Authorization URL
@@ -94,7 +93,7 @@ func (template *OAuthProviderTestTemplate) TestSetupOAuthProvider(t *testing.T) 
 	log.Info().Str("provider_name", template.config.ProviderName).Msg("Setting up OAuth provider")
 
 	// Create OAuth provider
-	callbackURL := template.baseSuite.serverURL + "/api/v1/oauth/callback/" + template.config.CallbackPathSuffix
+	callbackURL := template.baseSuite.serverURL + "/api/v1/oauth/flow/callback"
 	provider := &types.OAuthProvider{
 		Name:         template.config.ProviderName,
 		Type:         template.config.ProviderType,
@@ -218,7 +217,7 @@ func (template *OAuthProviderTestTemplate) TestPerformOAuthFlow(t *testing.T) {
 	template.baseSuite.logger.Info().Str("provider", template.skillConfig.DisplayName).Msg("Testing Helix OAuth flow")
 
 	// Step 1: Start OAuth flow using Helix's endpoint
-	callbackURL := template.baseSuite.serverURL + "/api/v1/oauth/callback/" + template.config.CallbackPathSuffix
+	callbackURL := template.baseSuite.serverURL + "/api/v1/oauth/flow/callback"
 	authURL, state, err := template.baseSuite.StartOAuthFlow(template.oauthProvider.ID, callbackURL)
 	require.NoError(t, err, "Failed to start Helix OAuth flow")
 

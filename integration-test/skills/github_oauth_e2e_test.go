@@ -63,14 +63,13 @@ var GitHubTestQueries = []AgentTestQuery{
 
 // GitHubOAuthProviderConfig defines the OAuth provider configuration for GitHub
 var GitHubOAuthProviderConfig = OAuthProviderConfig{
-	ProviderName:       "GitHub Skills Test",
-	ProviderType:       types.OAuthProviderTypeGitHub,
-	SkillName:          "github",
-	CallbackPathSuffix: "github",
-	AuthURL:            "https://github.com/login/oauth/authorize",
-	TokenURL:           "https://github.com/login/oauth/access_token",
-	UserInfoURL:        "https://api.github.com/user",
-	Scopes:             []string{"repo", "user:read"},
+	ProviderName: "GitHub Skills Test",
+	ProviderType: types.OAuthProviderTypeGitHub,
+	SkillName:    "github",
+	AuthURL:      "https://github.com/login/oauth/authorize",
+	TokenURL:     "https://github.com/login/oauth/access_token",
+	UserInfoURL:  "https://api.github.com/user",
+	Scopes:       []string{"repo", "user:read"},
 	// ClientID, ClientSecret, Username, Password, and functions will be set during test setup
 }
 
@@ -284,7 +283,7 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 		LoginPasswordSelector:   `input[name="password"]`,
 		LoginButtonSelector:     `input[type="submit"][value="Sign in"], button[type="submit"]`,
 		AuthorizeButtonSelector: `input[type="submit"][value="Authorize"], button[value="authorize"], button[name="authorize"], input[name="authorize"], form button[type="submit"]:nth-of-type(1)`,
-		CallbackURLPattern:      "/api/v1/oauth/callback",
+		CallbackURLPattern:      "/api/v1/oauth/flow/callback",
 		DeviceVerificationCheck: IsGitHubDeviceVerificationPage,
 		TwoFactorHandler:        deviceHandler,
 	}
