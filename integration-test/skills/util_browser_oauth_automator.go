@@ -1018,16 +1018,24 @@ func (a *BrowserOAuthAutomator) navigateBackToOAuthIfNeeded(page *rod.Page, auth
 		needsRedirect = strings.Contains(currentURL, "/session") || !strings.Contains(currentURL, "oauth")
 	}
 
+	// Handle Microsoft enterprise authentication pages
+	if strings.Contains(currentURL, "login.microsoftonline.com/common/login") {
+		a.logger.Info().Str("current_url", currentURL).Msg("Microsoft enterprise authentication page detected - attempting to handle")
+		// Don't redirect away, let the Microsoft handler deal with this page
+		return nil
+	}
+
 	if needsRedirect {
 		a.logger.Info().Str("current_url", currentURL).Msg("Redirected away from OAuth, navigating back to OAuth URL")
 
-		// Navigate back to the OAuth authorization URL
+		// Navigate back to the OAuth authorization URL with timeout
+		page = page.Timeout(15 * time.Second)
 		err := page.Navigate(authURL)
 		if err != nil {
 			return fmt.Errorf("failed to re-navigate to OAuth URL: %w", err)
 		}
 
-		// Wait for page to load
+		// Wait for page to load with timeout
 		err = page.WaitLoad()
 		if err != nil {
 			return fmt.Errorf("failed to wait for OAuth page load: %w", err)
