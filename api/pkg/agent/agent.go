@@ -675,3 +675,24 @@ func SanitizeToolName(name string) string {
 	// Replace all non-alphanumeric characters with underscores
 	return sanitizeToolNameRegex.ReplaceAllString(name, "_")
 }
+
+var sanitizeParameterNameRegex = regexp.MustCompile("[^a-zA-Z0-9_.-]")
+
+// OpenAI function parameter names must match the pattern '^[a-zA-Z0-9_.-]{1,64}$'
+// This function sanitizes parameter names to conform to OpenAI requirements
+func SanitizeParameterName(name string) string {
+	// Replace all characters that don't match the pattern with underscores
+	sanitized := sanitizeParameterNameRegex.ReplaceAllString(name, "_")
+
+	// Ensure the name is within the 64 character limit
+	if len(sanitized) > 64 {
+		sanitized = sanitized[:64]
+	}
+
+	// Ensure the name is at least 1 character long
+	if len(sanitized) == 0 {
+		sanitized = "param"
+	}
+
+	return sanitized
+}

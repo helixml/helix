@@ -25,14 +25,22 @@ func NewAPICallingSkill(planner tools.Planner, tool *types.Tool) agent.Skill {
 			continue
 		}
 
+		// Build parameter name mapping
+		parameterNameMap := make(map[string]string)
+		for _, param := range parameters {
+			sanitizedName := agent.SanitizeParameterName(param.Name)
+			parameterNameMap[sanitizedName] = param.Name
+		}
+
 		skillTools = append(skillTools, &APICallingTool{
-			toolID:      tool.ID,
-			toolName:    agent.SanitizeToolName(action.Name), // Summary field of the API path
-			description: action.Description,                  // OpenAPI API path description
-			tool:        tool,
-			action:      action,
-			parameters:  parameters,
-			planner:     planner,
+			toolID:           tool.ID,
+			toolName:         agent.SanitizeToolName(action.Name), // Summary field of the API path
+			description:      action.Description,                  // OpenAPI API path description
+			tool:             tool,
+			action:           action,
+			parameters:       parameters,
+			planner:          planner,
+			parameterNameMap: parameterNameMap,
 		})
 	}
 
@@ -45,13 +53,14 @@ func NewAPICallingSkill(planner tools.Planner, tool *types.Tool) agent.Skill {
 }
 
 type APICallingTool struct {
-	toolID      string
-	toolName    string
-	description string
-	tool        *types.Tool
-	action      *types.ToolAPIAction
-	parameters  []*tools.Parameter
-	planner     tools.Planner
+	toolID           string
+	toolName         string
+	description      string
+	tool             *types.Tool
+	action           *types.ToolAPIAction
+	parameters       []*tools.Parameter
+	planner          tools.Planner
+	parameterNameMap map[string]string
 }
 
 var _ agent.Tool = &APICallingTool{}
@@ -167,9 +176,11 @@ func (t *APICallingTool) OpenAI() []openai.Tool {
 			}
 		}
 
-		properties[param.Name] = property
+		// Use sanitized parameter name for OpenAI function definition
+		sanitizedName := agent.SanitizeParameterName(param.Name)
+		properties[sanitizedName] = property
 		if param.Required {
-			required = append(required, param.Name)
+			required = append(required, sanitizedName)
 		}
 	}
 
@@ -201,14 +212,20 @@ func (t *APICallingTool) Execute(ctx context.Context, meta agent.Meta, args map[
 
 	params := make(map[string]interface{})
 
-	// Convert the args to the correct types
-	for _, param := range t.parameters {
-		// For cases like "params={"candidate_name":"marcus","job_title":null}", skip the null values
-		if args[param.Name] == nil {
+	// Convert sanitized parameter names back to original parameter names
+	for sanitizedName, value := range args {
+		if value == nil {
 			continue
 		}
 
-		params[param.Name] = args[param.Name]
+		// Look up the original parameter name
+		originalName, exists := t.parameterNameMap[sanitizedName]
+		if !exists {
+			// If not found in map, it might be an unchanged parameter name
+			originalName = sanitizedName
+		}
+
+		params[originalName] = value
 	}
 
 	req := &types.RunAPIActionRequest{
