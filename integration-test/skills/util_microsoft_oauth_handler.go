@@ -126,9 +126,8 @@ func (h *MicrosoftOAuthHandler) handleEnterpriseAuthentication(page *rod.Page) e
 					h.logger.Info().Str("selector", selector).Msg("Successfully clicked Accept button")
 					time.Sleep(3 * time.Second)
 					return nil
-				} else {
-					h.logger.Error().Str("selector", selector).Err(clickErr).Msg("Failed to click Accept button")
 				}
+				h.logger.Error().Str("selector", selector).Err(clickErr).Msg("Failed to click Accept button")
 			}
 		}
 	}

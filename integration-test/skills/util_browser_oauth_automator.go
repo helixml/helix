@@ -972,7 +972,7 @@ func (a *BrowserOAuthAutomator) waitForMicrosoftPageTransition(page *rod.Page, s
 
 				// Check if we've been redirected to success/error pages
 				currentURL := page.MustInfo().URL
-				if strings.Contains(currentURL, "login.microsoftonline.com/common/oauth2/v2.0/authorize") == false {
+				if !strings.Contains(currentURL, "login.microsoftonline.com/common/oauth2/v2.0/authorize") {
 					// We've been redirected away from the login page
 					a.logger.Info().Str("new_url", currentURL).Msg("Microsoft redirected away from login page - transition successful")
 					screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_redirect_away_from_login")
