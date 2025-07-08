@@ -29,10 +29,9 @@ func TestRenderPullRequestCommentedEvent(t *testing.T) {
 
 	// Looking for specific pieces of information
 	expected := []string{
-		"Azure DevOps Pull Request Comment Event",
-		"- Content: who wrote this code?",
-		"- Project Name: helix-agents",
-		"- PR ID: 1",
+		"Here's the Azure DevOps Pull Request Comment Event",
+		"- What happened: nessie has commented on a pull request",
+		"- User message: who wrote this code?",
 	}
 
 	for _, expected := range expected {
