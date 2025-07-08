@@ -106,6 +106,8 @@ func (a *AzureDevOps) processPullRequestCommentEvent(ctx context.Context, trigge
 		return fmt.Errorf("failed to unmarshal pull request comment event: %w", err)
 	}
 
+	// TODO: get messages from the thread
+
 	// Set PR context
 	ctx = types.SetAzureDevopsRepositoryContext(ctx, types.AzureDevopsRepositoryContext{
 		RepositoryID:  prc.Resource.PullRequest.Repository.ID,

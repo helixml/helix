@@ -1,10 +1,12 @@
 package azure
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -91,4 +93,17 @@ func TestRenderPullRequestCreatedUpdatedEvent(t *testing.T) {
 	for _, expected := range expected {
 		require.Contains(t, rendered, expected)
 	}
+}
+
+func TestIgnoreDeletedComment(t *testing.T) {
+	// Load the test data
+	bts, err := os.ReadFile("testdata/pr_comment_deleted.json")
+	require.NoError(t, err)
+
+	ad := &AzureDevOps{}
+
+	err = ad.processPullRequestCommentEvent(context.Background(), &types.TriggerConfiguration{
+		ID: "1",
+	}, Event{}, bts)
+	require.NoError(t, err)
 }
