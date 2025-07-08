@@ -81,7 +81,7 @@ func (t *AzureDevOpsPullRequestCreateThreadTool) OpenAI() []openai.Tool {
 	}
 }
 
-func (t *AzureDevOpsPullRequestCreateThreadTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
+func (t *AzureDevOpsPullRequestCreateThreadTool) Execute(ctx context.Context, _ agent.Meta, args map[string]interface{}) (string, error) {
 	content, ok := args["content"].(string)
 	if !ok {
 		return "", fmt.Errorf("content is required")
