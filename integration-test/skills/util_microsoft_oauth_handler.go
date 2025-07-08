@@ -106,12 +106,12 @@ func (h *MicrosoftOAuthHandler) handleEnterpriseAuthentication(page *rod.Page) e
 	currentURL := page.MustInfo().URL
 	h.logger.Info().Str("url", currentURL).Msg("Enterprise authentication page URL")
 
-	// Strategy 1: Try to click the Accept button immediately (we know it's there from page dumps)
-	// This is the most direct approach since we consistently see the same Accept button structure
+	// Strategy 1: Try to click the Yes button immediately (we know it's there from page dumps)
+	// This is the most direct approach since we consistently see the same Yes button structure
 	immediateSelectors := []string{
-		`input[type="submit"][name="idSIButton9"][value="Accept"]`, // Exact match from consistent page dumps
-		`input[name="idSIButton9"][value="Accept"]`,                // Accept button with name
-		`input[type="submit"][value="Accept"]`,                     // Accept button by value
+		`input[type="submit"][id="idSIButton9"][value="Yes"]`, // Exact match from consistent page dumps
+		`input[id="idSIButton9"][value="Yes"]`,                // Yes button with id
+		`input[type="submit"][value="Yes"]`,                   // Yes button by value
 	}
 
 	for _, selector := range immediateSelectors {
@@ -177,15 +177,16 @@ func (h *MicrosoftOAuthHandler) handleEnterpriseAuthentication(page *rod.Page) e
 	}
 
 	// Strategy 4: Look for specific Microsoft enterprise buttons (from page dump analysis)
-	// We know from the page dump that the Accept button has name="idSIButton9" and value="Accept"
+	// We know from the page dump that the button has id="idSIButton9" and value="Yes"
 	enterpriseButtonSelectors := []string{
-		`input[type="submit"][name="idSIButton9"][value="Accept"]`, // Exact match from page dump
-		`input[name="idSIButton9"][value="Accept"]`,                // Accept button with name
-		`input[type="submit"][value="Accept"]`,                     // Accept button specifically
-		`input[name="idSIButton9"]`,                                // Microsoft enterprise Accept button (from page dump)
-		`input[id="idSIButton9"]`,                                  // Microsoft standard button (often "Continue")
+		`input[type="submit"][id="idSIButton9"][value="Yes"]`, // Exact match from page dump
+		`input[id="idSIButton9"][value="Yes"]`,                // Yes button with id
+		`input[type="submit"][value="Yes"]`,                   // Yes button specifically
+		`input[name="idSIButton9"][value="Accept"]`,           // Accept button with name
+		`input[type="submit"][value="Accept"]`,                // Accept button specifically
+		`input[name="idSIButton9"]`,                           // Microsoft enterprise button (from page dump)
+		`input[id="idSIButton9"]`,                             // Microsoft standard button (often "Continue")
 		`input[type="submit"][value="Continue"]`,
-		`input[type="submit"][value="Yes"]`,
 		`input[type="submit"][value="Allow"]`,
 		`input[type="submit"][value="Next"]`,
 		`input[type="submit"][value="Sign in"]`,
