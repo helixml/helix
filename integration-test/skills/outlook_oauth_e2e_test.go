@@ -119,7 +119,7 @@ func TestOutlookOAuthSkillsE2E(t *testing.T) {
 	t.Parallel()
 
 	// Set a reasonable timeout for the OAuth browser automation
-	timeout := 2 * time.Minute // Increased for Microsoft enterprise authentication
+	timeout := 90 * time.Second // Reasonable timeout for fast iteration
 	deadline := time.Now().Add(timeout)
 	t.Deadline() // Check if deadline is already set
 
