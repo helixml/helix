@@ -12,15 +12,15 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
-const updateThreadSkillDescription = `Update a thread in a pull request, use it when you need to add a comment to a pull request.
+const replyToCommentSkillDescription = `Reply to a comment in a pull request, use it when you need to add a comment to a pull request.
 DO NOT try to pass repository ID or project ID to this skill, it is set automatically to the correct values by the trigger.`
 
-var updateThreadParameters = jsonschema.Definition{
+var replyToCommentParameters = jsonschema.Definition{
 	Type: jsonschema.Object,
 	Properties: map[string]jsonschema.Definition{
 		"content": {
 			Type:        jsonschema.String,
-			Description: "The content of the thread",
+			Description: "Contents of the reply that will be sent to the thread",
 		},
 	},
 	Required: []string{"content"},
@@ -28,12 +28,12 @@ var updateThreadParameters = jsonschema.Definition{
 
 // NewUpdateThreadSkill - creates a skill that allows the agent to update a thread in a pull request. This is a dedicated skill
 // that expects the agent to be told what comment to write
-func NewUpdateThreadSkill(organizationURL string, personalAccessToken string) agent.Skill {
+func NewReplyToCommentSkill(organizationURL string, personalAccessToken string) agent.Skill {
 	client := newAzureDevOpsClient(organizationURL, personalAccessToken)
 	return agent.Skill{
-		Name:        "AzureDevOpsUpdateThread",
-		Description: updateThreadSkillDescription,
-		Parameters:  updateThreadParameters,
+		Name:        "AzureDevOpsReplyToComment",
+		Description: replyToCommentSkillDescription,
+		Parameters:  replyToCommentParameters,
 		Direct:      true,
 		Tools: []agent.Tool{
 			&AzureDevOpsPullRequestUpdateThreadTool{
@@ -73,20 +73,15 @@ func (t *AzureDevOpsPullRequestUpdateThreadTool) OpenAI() []openai.Tool {
 		{
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
-				Name:        "UpdateThread",
-				Description: updateThreadSkillDescription,
-				Parameters:  updateThreadParameters,
+				Name:        "ReplyToComment",
+				Description: replyToCommentSkillDescription,
+				Parameters:  replyToCommentParameters,
 			},
 		},
 	}
 }
 
 func (t *AzureDevOpsPullRequestUpdateThreadTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
-	threadID, ok := args["thread_id"].(int)
-	if !ok {
-		return "", fmt.Errorf("thread_id is required")
-	}
-
 	content, ok := args["content"].(string)
 	if !ok {
 		return "", fmt.Errorf("content is required")
@@ -115,7 +110,11 @@ func (t *AzureDevOpsPullRequestUpdateThreadTool) Execute(ctx context.Context, me
 		RepositoryId:  &azureCtx.RepositoryID,
 		PullRequestId: &azureCtx.PullRequestID,
 		Project:       &azureCtx.ProjectID,
-		ThreadId:      &threadID,
+		ThreadId:      &azureCtx.ThreadID,
+	}
+
+	if azureCtx.CommentID != 0 {
+		updateThreadArgs.CommentThread.Id = &azureCtx.CommentID
 	}
 
 	createdThread, err := gitClient.UpdateThread(ctx, updateThreadArgs)
