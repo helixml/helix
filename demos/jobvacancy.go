@@ -38,7 +38,7 @@ var JobVacancyCandidates = []JobVacancyCandidate{
 		JobTitle:       "Human Resources Manager",
 		JobDescription: "We are looking for an experienced and professional Human Resources Manager to join our team. The HR Manager will lead all HR’s practices and objectives that will provide an employee-oriented, high-performance culture. This includes overseeing recruitment efforts, employee relations, regulatory compliance, and training and development. The ideal candidate should have a deep knowledge of HR principles, proven experience in conflict resolution and the ability to manage multiple priorities in a dynamic environment.",
 		CV:             "As a dedicated Human Resources professional with over 10 years of experience, I have a strong foundation in all facets of HR management from recruitment to retirement. My expertise lies in developing effective HR strategies, enhancing workforce performance, streamlining HR processes, and fostering a positive work environment. I hold a Master's degree in Human Resources Management and am certified as a Professional in Human Resources (PHR). I have successfully implemented HR policies that have improved employee productivity, engagement, and satisfaction in my previous roles.",
-		SalaryUSD:      50,
+		SalaryUSD:      50000,
 	},
 	{
 		ID:             "3",
