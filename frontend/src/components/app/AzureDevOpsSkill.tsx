@@ -8,7 +8,10 @@ import {
   Alert,
   TextField,
   Link,
+  InputAdornment,
+  IconButton,
 } from '@mui/material';
+import { Visibility, VisibilityOff } from '@mui/icons-material';
 import { IAppFlatState } from '../../types';
 import { TypesAssistantAzureDevOps } from '../../api/api';
 import { styled } from '@mui/material/styles';
@@ -84,6 +87,7 @@ const AzureDevOpsSkill: React.FC<AzureDevOpsSkillProps> = ({
     personal_access_token: '',
     enabled: false,
   });
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (app.azureDevOpsTool) {
@@ -100,31 +104,16 @@ const AzureDevOpsSkill: React.FC<AzureDevOpsSkillProps> = ({
     }
   }, [app.azureDevOpsTool]);
 
-  const handleChange = async (field: keyof TypesAssistantAzureDevOps, value: string) => {
-    try {
-      setError(null);
-      
-      // Create a copy of the app state
-      const appCopy = JSON.parse(JSON.stringify(app));
-      
-      // Update the Azure DevOps config
-      const updatedConfig = {
-        ...azureDevOpsConfig,
-        [field]: value,
-        enabled: true, // Set enabled to true when configuring
-      };
-      
-      // Update the Azure DevOps tool configuration
-      appCopy.azureDevOpsTool = updatedConfig;
-      
-      // Update the application
-      await onUpdate(appCopy);
-      
-      // Update local state
-      setAzureDevOpsConfig(updatedConfig);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update Azure DevOps configuration');
-    }
+  const handleChange = (field: keyof TypesAssistantAzureDevOps, value: string) => {
+    setError(null);
+    
+    // Only update local state, don't send to server
+    const updatedConfig = {
+      ...azureDevOpsConfig,
+      [field]: value,
+    };
+    
+    setAzureDevOpsConfig(updatedConfig);
   };
 
   const handleEnable = async () => {
@@ -224,7 +213,7 @@ const AzureDevOpsSkill: React.FC<AzureDevOpsSkillProps> = ({
               label="Personal Access Token"
               value={azureDevOpsConfig.personal_access_token || ''}
               onChange={(e) => handleChange('personal_access_token', e.target.value)}
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               placeholder="Enter your Azure DevOps Personal Access Token"
               helperText={
                 <Box>
@@ -244,6 +233,20 @@ const AzureDevOpsSkill: React.FC<AzureDevOpsSkillProps> = ({
               margin="normal"
               required
               autoComplete="new-azure-pat"
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      aria-label="toggle password visibility"
+                      onClick={() => setShowPassword(!showPassword)}
+                      onMouseDown={(event) => event.preventDefault()}
+                      edge="end"
+                    >
+                      {showPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
             />            
           </SectionCard>
         </Box>
@@ -279,17 +282,15 @@ const AzureDevOpsSkill: React.FC<AzureDevOpsSkillProps> = ({
                   Disable
                 </Button>
               )}
-              {!initialIsEnabled && (
-                <Button
-                  onClick={handleEnable}
-                  size="small"
-                  variant="outlined"
-                  color="secondary"
-                  disabled={!isConfigured}
-                >
-                  Enable
-                </Button>
-              )}
+              <Button
+                onClick={handleEnable}
+                size="small"
+                variant="outlined"
+                color="secondary"
+                disabled={!isConfigured}
+              >
+                {initialIsEnabled ? 'Update' : 'Enable'}
+              </Button>
             </Box>
           </Box>
         </Box>
