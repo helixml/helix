@@ -139,13 +139,14 @@ func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Pl
 			return system.NewHTTPError400("Azure DevOps config is required for Azure DevOps tools")
 		}
 
-		if tool.Config.AzureDevOps.OrganizationURL == "" {
-			return system.NewHTTPError400("Organization URL is required for Azure DevOps tools")
-		}
+		// TODO: re-enable this when we have a way to validate the credentials
+		// if tool.Config.AzureDevOps.OrganizationURL == "" {
+		// 	return system.NewHTTPError400("Organization URL is required for Azure DevOps tools")
+		// }
 
-		if tool.Config.AzureDevOps.PersonalAccessToken == "" {
-			return system.NewHTTPError400("Personal access token is required for Azure DevOps tools")
-		}
+		// if tool.Config.AzureDevOps.PersonalAccessToken == "" {
+		// 	return system.NewHTTPError400("Personal access token is required for Azure DevOps tools")
+		// }
 
 	case types.ToolTypeBrowser, types.ToolTypeCalculator, types.ToolTypeEmail, types.ToolTypeWebSearch:
 		// No validation needed
