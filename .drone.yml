@@ -550,6 +550,9 @@ name: build-controlplane
 trigger:
   event:
     - tag
+    - push
+  branch:
+    - main
 
 volumes:
   - name: dockersocket
@@ -586,6 +589,9 @@ name: build-keycloak
 trigger:
   event:
     - tag
+    - push
+  branch:
+    - main
 
 volumes:
   - name: dockersocket
@@ -622,6 +628,9 @@ name: build-keycloak-bitnami
 trigger:
   event:
     - tag
+    - push
+  branch:
+    - main
 
 volumes:
   - name: dockersocket
@@ -658,6 +667,9 @@ name: build-haystack
 trigger:
   event:
     - tag
+    - push
+  branch:
+    - main
 
 volumes:
   - name: dockersocket
@@ -695,6 +707,9 @@ name: build-runner
 trigger:
   event:
     - tag
+    - push
+  branch:
+    - main
 
 volumes:
   - name: dockersocket
@@ -735,6 +750,9 @@ name: build-runner-small
 trigger:
   event:
     - tag
+    - push
+  branch:
+    - main
 
 volumes:
   - name: dockersocket
@@ -805,6 +823,9 @@ name: build-runner-large
 trigger:
   event:
     - tag
+    - push
+  branch:
+    - main
 
 volumes:
   - name: dockersocket
@@ -875,6 +896,9 @@ name: build-gptscript-runner
 trigger:
   event:
     - tag
+    - push
+  branch:
+    - main
 
 volumes:
   - name: dockersocket
@@ -909,6 +933,9 @@ name: build-gptscript_devserver
 trigger:
   event:
     - tag
+    - push
+  branch:
+    - main
 
 volumes:
   - name: dockersocket
@@ -943,6 +970,9 @@ name: build-typesense_baked_models
 trigger:
   event:
     - tag
+    - push
+  branch:
+    - main
 
 volumes:
   - name: dockersocket
@@ -977,6 +1007,9 @@ name: build-demos
 trigger:
   event:
     - tag
+    - push
+  branch:
+    - main
 
 volumes:
   - name: dockersocket
