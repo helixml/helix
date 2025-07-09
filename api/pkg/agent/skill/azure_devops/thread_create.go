@@ -29,7 +29,7 @@ var createThreadParameters = jsonschema.Definition{
 // NewCreateThreadSkill - creates a skill that allows the agent to create a thread in a pull request. This is a dedicated skill
 // that expects the agent to be told what comment to write
 func NewCreateThreadSkill(organizationURL string, personalAccessToken string) agent.Skill {
-	client := newAzureDevOpsClient(organizationURL, personalAccessToken)
+	client := NewAzureDevOpsClient(organizationURL, personalAccessToken)
 	return agent.Skill{
 		Name:        "AzureDevOpsCreateThread",
 		Description: createThreadSkillDescription,
@@ -45,7 +45,7 @@ func NewCreateThreadSkill(organizationURL string, personalAccessToken string) ag
 
 // AzureDevOpsPullRequestCommentTool - allows the agent to comment on a pull request
 type AzureDevOpsPullRequestCreateThreadTool struct { //nolint:revive
-	client *azureDevOpsClient
+	client *AzureDevOpsClient
 }
 
 func (t *AzureDevOpsPullRequestCreateThreadTool) Name() string {
