@@ -1119,8 +1119,8 @@ func (a *BrowserOAuthAutomator) performAuthorization(page *rod.Page, screenshotT
 func (a *BrowserOAuthAutomator) findAuthorizationButton(page *rod.Page) (*rod.Element, error) {
 	a.logger.Info().Str("configured_selector", a.config.AuthorizeButtonSelector).Msg("Starting authorization button search")
 
-	// Set timeout for operations
-	page = page.Timeout(10 * time.Second)
+	// Set timeout for operations - increased for Microsoft enterprise auth
+	page = page.Timeout(60 * time.Second)
 
 	// First try the configured selector
 	authButtonElement, err := page.Element(a.config.AuthorizeButtonSelector)
@@ -1154,7 +1154,7 @@ func (a *BrowserOAuthAutomator) findAuthorizationButton(page *rod.Page) (*rod.El
 
 	for _, selector := range buttonSelectors {
 		a.logger.Info().Str("selector", selector).Msg("Searching for buttons with selector")
-		elements, err := page.Elements(selector)
+		elements, err := page.Timeout(30 * time.Second).Elements(selector)
 		if err != nil {
 			a.logger.Info().Err(err).Str("selector", selector).Msg("Error finding elements with selector")
 			continue

@@ -106,17 +106,20 @@ func (h *MicrosoftOAuthHandler) handleEnterpriseAuthentication(page *rod.Page) e
 	currentURL := page.MustInfo().URL
 	h.logger.Info().Str("url", currentURL).Msg("Enterprise authentication page URL")
 
-	// Strategy 1: Try to click the Yes button immediately (we know it's there from page dumps)
-	// This is the most direct approach since we consistently see the same Yes button structure
+	// Strategy 1: Try to click the Accept/Yes button immediately (we know it's there from page dumps)
+	// This is the most direct approach since we consistently see the same button structure
 	immediateSelectors := []string{
-		`input[type="submit"][id="idSIButton9"][value="Yes"]`, // Exact match from consistent page dumps
-		`input[id="idSIButton9"][value="Yes"]`,                // Yes button with id
-		`input[type="submit"][value="Yes"]`,                   // Yes button by value
+		`input[type="submit"][name="idSIButton9"][value="Accept"]`, // Accept button with name (most common)
+		`input[type="submit"][value="Accept"]`,                     // Accept button specifically
+		`input[name="idSIButton9"]`,                                // Microsoft enterprise button (from page dump)
+		`input[type="submit"][id="idSIButton9"][value="Yes"]`,      // Yes button for older flows
+		`input[id="idSIButton9"][value="Yes"]`,                     // Yes button with id
+		`input[type="submit"][value="Yes"]`,                        // Yes button by value
 	}
 
 	for _, selector := range immediateSelectors {
 		h.logger.Info().Str("selector", selector).Msg("Trying immediate click of enterprise Accept button")
-		element, err := page.Element(selector)
+		element, err := page.Timeout(30 * time.Second).Element(selector)
 		if err == nil && element != nil {
 			visible, visErr := element.Visible()
 			if visErr == nil && visible {
@@ -160,7 +163,7 @@ func (h *MicrosoftOAuthHandler) handleEnterpriseAuthentication(page *rod.Page) e
 	}
 
 	for _, selector := range skipSelectors {
-		element, err := freshPage.Element(selector)
+		element, err := freshPage.Timeout(30 * time.Second).Element(selector)
 		if err == nil && element != nil {
 			visible, visErr := element.Visible()
 			if visErr == nil && visible {
@@ -176,15 +179,16 @@ func (h *MicrosoftOAuthHandler) handleEnterpriseAuthentication(page *rod.Page) e
 	}
 
 	// Strategy 4: Look for specific Microsoft enterprise buttons (from page dump analysis)
-	// We know from the page dump that the button has id="idSIButton9" and value="Yes"
+	// We know from the page dump that the button has name="idSIButton9" and value="Accept"
 	enterpriseButtonSelectors := []string{
-		`input[type="submit"][id="idSIButton9"][value="Yes"]`, // Exact match from page dump
-		`input[id="idSIButton9"][value="Yes"]`,                // Yes button with id
-		`input[type="submit"][value="Yes"]`,                   // Yes button specifically
-		`input[name="idSIButton9"][value="Accept"]`,           // Accept button with name
-		`input[type="submit"][value="Accept"]`,                // Accept button specifically
-		`input[name="idSIButton9"]`,                           // Microsoft enterprise button (from page dump)
-		`input[id="idSIButton9"]`,                             // Microsoft standard button (often "Continue")
+		`input[type="submit"][name="idSIButton9"][value="Accept"]`, // Accept button with name (most common)
+		`input[type="submit"][value="Accept"]`,                     // Accept button specifically
+		`input[name="idSIButton9"]`,                                // Microsoft enterprise button (from page dump)
+		`input[type="submit"][id="idSIButton9"][value="Yes"]`,      // Yes button for older flows
+		`input[id="idSIButton9"][value="Yes"]`,                     // Yes button with id
+		`input[type="submit"][value="Yes"]`,                        // Yes button specifically
+		`input[type="submit"][id="idSIButton9"][value="Accept"]`,   // Accept button with id (alternative)
+		`input[id="idSIButton9"]`,                                  // Microsoft standard button (often "Continue")
 		`input[type="submit"][value="Continue"]`,
 		`input[type="submit"][value="Allow"]`,
 		`input[type="submit"][value="Next"]`,
@@ -201,7 +205,7 @@ func (h *MicrosoftOAuthHandler) handleEnterpriseAuthentication(page *rod.Page) e
 
 	for _, selector := range enterpriseButtonSelectors {
 		h.logger.Info().Str("selector", selector).Msg("Trying to find enterprise authentication button")
-		element, err := freshPage.Element(selector)
+		element, err := freshPage.Timeout(30 * time.Second).Element(selector)
 		if err != nil {
 			h.logger.Info().Str("selector", selector).Err(err).Msg("Could not find element with selector")
 			continue
@@ -234,7 +238,7 @@ func (h *MicrosoftOAuthHandler) handleEnterpriseAuthentication(page *rod.Page) e
 	}
 
 	// Strategy 5: Look for any clickable element with helpful text
-	allButtons, err := freshPage.Elements(`button, input[type="submit"], input[type="button"], a`)
+	allButtons, err := freshPage.Timeout(30 * time.Second).Elements(`button, input[type="submit"], input[type="button"], a`)
 	if err == nil {
 		for _, button := range allButtons {
 			visible, visErr := button.Visible()
