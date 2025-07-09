@@ -580,6 +580,9 @@ steps:
   when:
     event:
     - tag
+    - push
+    branch:
+    - main
 
 ---
 kind: pipeline
@@ -619,6 +622,9 @@ steps:
   when:
     event:
     - tag
+    - push
+    branch:
+    - main
 
 ---
 kind: pipeline
@@ -658,6 +664,9 @@ steps:
   when:
     event:
     - tag
+    - push
+    branch:
+    - main
 
 ---
 kind: pipeline
@@ -698,6 +707,9 @@ steps:
   when:
     event:
     - tag
+    - push
+    branch:
+    - main
 
 ---
 kind: pipeline
@@ -741,6 +753,9 @@ steps:
   when:
     event:
     - tag
+    - push
+    branch:
+    - main
 
 ---
 kind: pipeline
@@ -786,6 +801,9 @@ steps:
   when:
     event:
     - tag
+    - push
+    branch:
+    - main
 
 - name: publish-runner-branch
   image: plugins/docker
@@ -859,6 +877,9 @@ steps:
   when:
     event:
     - tag
+    - push
+    branch:
+    - main
 
 - name: publish-runner-branch
   image: plugins/docker
@@ -924,6 +945,9 @@ steps:
   when:
     event:
     - tag
+    - push
+    branch:
+    - main
 
 ---
 kind: pipeline
@@ -961,6 +985,9 @@ steps:
   when:
     event:
     - tag
+    - push
+    branch:
+    - main
 
 ---
 kind: pipeline
@@ -998,6 +1025,9 @@ steps:
   when:
     event:
     - tag
+    - push
+    branch:
+    - main
 
 ---
 kind: pipeline
@@ -1035,6 +1065,9 @@ steps:
   when:
     event:
     - tag
+    - push
+    branch:
+    - main
 
 ---
 # See integration-test/smoke/README.md
