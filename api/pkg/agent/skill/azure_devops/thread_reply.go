@@ -29,7 +29,7 @@ var replyToCommentParameters = jsonschema.Definition{
 // NewUpdateThreadSkill - creates a skill that allows the agent to update a thread in a pull request. This is a dedicated skill
 // that expects the agent to be told what comment to write
 func NewReplyToCommentSkill(organizationURL string, personalAccessToken string) agent.Skill {
-	client := newAzureDevOpsClient(organizationURL, personalAccessToken)
+	client := NewAzureDevOpsClient(organizationURL, personalAccessToken)
 	return agent.Skill{
 		Name:        "AzureDevOpsReplyToComment",
 		Description: replyToCommentSkillDescription,
@@ -45,7 +45,7 @@ func NewReplyToCommentSkill(organizationURL string, personalAccessToken string) 
 
 // AzureDevOpsPullRequestCommentTool - allows the agent to comment on a pull request
 type AzureDevOpsPullRequestUpdateThreadTool struct { //nolint:revive
-	client *azureDevOpsClient
+	client *AzureDevOpsClient
 }
 
 func (t *AzureDevOpsPullRequestUpdateThreadTool) Name() string {
