@@ -330,13 +330,14 @@ func (suite *BaseOAuthTestSuite) setupBrowser() error {
 
 // createTestUser creates a test user in both Keycloak and database
 func (suite *BaseOAuthTestSuite) createTestUser() (*types.User, error) {
-	// Use test ID for unique identifiers in parallel tests
-	uniqueID := fmt.Sprintf("%d-%s", time.Now().Unix(), suite.testID)
+	// Use shorter unique identifiers for parallel tests
+	// Generate a short random suffix to avoid collisions
+	shortID := fmt.Sprintf("%d%d", time.Now().Unix()%100000, rand.Intn(1000))
 
 	user := &types.User{
-		ID:       fmt.Sprintf("test-user-%s", uniqueID),
-		Email:    fmt.Sprintf("oauth-test-%s@helix.test", uniqueID),
-		Username: fmt.Sprintf("oauth-test-%s", uniqueID),
+		ID:       fmt.Sprintf("test-user-%s", shortID),
+		Email:    fmt.Sprintf("oauth-test-%s@helix.test", shortID),
+		Username: fmt.Sprintf("oauth-test-%s", shortID),
 		FullName: "OAuth Test User",
 		Admin:    false,
 	}
