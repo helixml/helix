@@ -115,8 +115,8 @@ func TestOutlookOAuthSkillsE2E(t *testing.T) {
 		t.Skip("Skipping end-to-end test in short mode")
 	}
 
-	// Enable parallel execution with other tests
-	t.Parallel()
+	// Disable parallel execution due to Keycloak concurrency issues
+	// t.Parallel()
 
 	// Set a reasonable timeout for the OAuth browser automation
 	timeout := 90 * time.Second // Reasonable timeout for fast iteration
