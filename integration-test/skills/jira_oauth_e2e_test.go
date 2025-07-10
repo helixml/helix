@@ -87,7 +87,7 @@ var JiraOAuthProviderConfig = OAuthProviderConfig{
 	AuthURL:      "https://auth.atlassian.com/authorize",
 	TokenURL:     "https://auth.atlassian.com/oauth/token",
 	UserInfoURL:  "https://api.atlassian.com/me",
-	Scopes:       []string{"read:jira-work", "write:jira-work", "read:jira-user"},
+	Scopes:       []string{"read:jira-work", "write:jira-work", "read:jira-user", "read:me", "read:account"},
 	// ClientID, ClientSecret, Username, Password, and functions will be set during test setup
 }
 
@@ -194,6 +194,8 @@ func (suite *JiraOAuthE2ETestSuite) testValidateJiraSkillYAML(t *testing.T) {
 	require.Contains(t, skill.OAuthScopes, "read:jira-work", "Should have read:jira-work scope")
 	require.Contains(t, skill.OAuthScopes, "write:jira-work", "Should have write:jira-work scope")
 	require.Contains(t, skill.OAuthScopes, "read:jira-user", "Should have read:jira-user scope")
+	require.Contains(t, skill.OAuthScopes, "read:me", "Should have read:me scope")
+	require.Contains(t, skill.OAuthScopes, "read:account", "Should have read:account scope")
 
 	// Validate API configuration
 	require.Equal(t, "https://api.atlassian.com", skill.BaseURL, "Base URL should be Atlassian API URL")
