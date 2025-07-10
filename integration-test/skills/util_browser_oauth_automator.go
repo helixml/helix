@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/input"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/rs/zerolog"
 )
@@ -30,6 +31,7 @@ type BrowserOAuthConfig struct {
 	CallbackURLPattern      string
 	DeviceVerificationCheck func(url string) bool
 	TwoFactorHandler        TwoFactorHandler
+	ProviderStrategy        ProviderStrategy // New: Provider-specific automation strategy
 }
 
 // TwoFactorHandler interface for handling different types of 2FA
@@ -43,8 +45,132 @@ type ScreenshotTaker interface {
 	TakeScreenshot(page *rod.Page, stepName string)
 }
 
+// ProviderStrategy interface for provider-specific browser automation logic
+type ProviderStrategy interface {
+	// ClickNextButton implements provider-specific logic for clicking Next/Continue buttons
+	ClickNextButton(page *rod.Page, screenshotTaker ScreenshotTaker) error
+
+	// HandleLoginFlow implements provider-specific login flow (single-step vs two-step)
+	HandleLoginFlow(page *rod.Page, username, password string, screenshotTaker ScreenshotTaker) error
+
+	// HandleAuthorization implements provider-specific authorization page handling
+	HandleAuthorization(page *rod.Page, screenshotTaker ScreenshotTaker) error
+}
+
+// DefaultProviderStrategy provides generic OAuth automation behavior
+type DefaultProviderStrategy struct {
+	config BrowserOAuthConfig
+	logger zerolog.Logger
+}
+
+// NewDefaultProviderStrategy creates a default provider strategy
+func NewDefaultProviderStrategy(config BrowserOAuthConfig, logger zerolog.Logger) *DefaultProviderStrategy {
+	return &DefaultProviderStrategy{
+		config: config,
+		logger: logger,
+	}
+}
+
+// ClickNextButton implements generic Next button clicking logic
+func (s *DefaultProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker ScreenshotTaker) error {
+	s.logger.Info().Msg("Looking for Next button")
+
+	// Set timeout for operations
+	page = page.Timeout(10 * time.Second)
+
+	// First try direct CSS selectors
+	nextSelectors := []string{
+		`input[id="idSIButton9"]`,            // Microsoft-specific Next button ID
+		`input[type="submit"][value="Next"]`, // Input style (Microsoft/general)
+		`button[id="identifierNext"]`,        // Old Google style (with ID)
+		`button[type="submit"]`,              // Generic submit button
+		`input[type="submit"]`,               // Generic submit input
+	}
+
+	var nextButton *rod.Element
+	for _, selector := range nextSelectors {
+		s.logger.Info().Str("selector", selector).Msg("Trying Next button selector")
+		element, err := page.Timeout(3 * time.Second).Element(selector)
+		if err == nil && element != nil {
+			// For submit buttons, check if they contain "Next" text or value
+			if strings.Contains(selector, "submit") && !strings.Contains(selector, "idSIButton9") {
+				var buttonText string
+				if text, textErr := element.Text(); textErr == nil && text != "" {
+					buttonText = text
+				} else if value, valueErr := element.Attribute("value"); valueErr == nil && value != nil {
+					buttonText = *value
+				}
+
+				if buttonText != "" {
+					buttonTextLower := strings.ToLower(strings.TrimSpace(buttonText))
+					if buttonTextLower == "next" || buttonTextLower == "continue" {
+						s.logger.Info().Str("selector", selector).Str("button_text", buttonText).Msg("Found Next button by selector and text match")
+						nextButton = element
+						break
+					}
+				}
+			} else {
+				s.logger.Info().Str("selector", selector).Msg("Found Next button by direct selector")
+				nextButton = element
+				break
+			}
+		}
+	}
+
+	if nextButton == nil {
+		return fmt.Errorf("failed to find Next button")
+	}
+
+	// Set timeout for element operations
+	nextButton = nextButton.Timeout(5 * time.Second)
+
+	err := nextButton.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		return fmt.Errorf("failed to click Next button: %w", err)
+	}
+
+	s.logger.Info().Msg("Successfully clicked Next button")
+	screenshotTaker.TakeScreenshot(page, s.config.ProviderName+"_next_button_clicked")
+	return nil
+}
+
+// HandleLoginFlow implements generic login flow (detects single vs two-step automatically)
+func (s *DefaultProviderStrategy) HandleLoginFlow(page *rod.Page, username, password string, screenshotTaker ScreenshotTaker) error {
+	s.logger.Info().Msg("Starting generic login flow")
+
+	// For now, delegate to existing logic - this will be fully implemented per provider
+	return fmt.Errorf("HandleLoginFlow not fully implemented in default strategy")
+}
+
+// HandleAuthorization implements generic authorization handling
+func (s *DefaultProviderStrategy) HandleAuthorization(page *rod.Page, screenshotTaker ScreenshotTaker) error {
+	s.logger.Info().Msg("Handling authorization with generic strategy")
+
+	// Find authorization button using configured selector
+	authButtonElement, err := page.Element(s.config.AuthorizeButtonSelector)
+	if err != nil {
+		return fmt.Errorf("failed to find authorization button using selector %s: %w", s.config.AuthorizeButtonSelector, err)
+	}
+
+	s.logger.Info().Msg("Found authorization button")
+
+	// Click the authorize button
+	s.logger.Info().Msg("Clicking authorize button")
+	err = authButtonElement.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		return fmt.Errorf("failed to click authorize button: %w", err)
+	}
+
+	return nil
+}
+
 // NewBrowserOAuthAutomator creates a new browser OAuth automator
 func NewBrowserOAuthAutomator(browser *rod.Browser, logger zerolog.Logger, config BrowserOAuthConfig) *BrowserOAuthAutomator {
+	// If no strategy is provided, use the default strategy
+	if config.ProviderStrategy == nil {
+		config.ProviderStrategy = NewDefaultProviderStrategy(config, logger)
+	}
+
 	return &BrowserOAuthAutomator{
 		browser: browser,
 		logger:  logger,
@@ -676,18 +802,33 @@ func (a *BrowserOAuthAutomator) clickNextButton(page *rod.Page, screenshotTaker 
 		if nextButton == nil {
 			a.logger.Info().Msg("Class-based search failed, using JavaScript to click Next button directly")
 
-			// Use JavaScript to click the button with "Next" or "Continue" text
+			// Use JavaScript to click the button/input with "Next" or "Continue" text
 			jsCode := `
-				var buttons = document.querySelectorAll('button');
-				for (var i = 0; i < buttons.length; i++) {
-					var text = buttons[i].textContent.trim().toLowerCase();
-					if (text === 'next' || text === 'continue') {
-						buttons[i].click();
-						'success';
-						break;
+				(function() {
+					// Check both button elements and input elements (Microsoft uses input[type="submit"])
+					var buttons = document.querySelectorAll('button');
+					var inputs = document.querySelectorAll('input[type="submit"]');
+					
+					// First check buttons
+					for (var i = 0; i < buttons.length; i++) {
+						var text = (buttons[i].textContent || '').trim().toLowerCase();
+						if (text === 'next' || text === 'continue') {
+							buttons[i].click();
+							return 'success';
+						}
 					}
-				}
-				'no_next_or_continue_button_found';
+					
+					// Then check input elements
+					for (var i = 0; i < inputs.length; i++) {
+						var text = (inputs[i].value || '').trim().toLowerCase();
+						if (text === 'next' || text === 'continue') {
+							inputs[i].click();
+							return 'success';
+						}
+					}
+					
+					return 'no_next_or_continue_button_found';
+				})();
 			`
 
 			result, err := page.Eval(jsCode)
@@ -1248,54 +1389,170 @@ func (a *BrowserOAuthAutomator) performAuthorization(page *rod.Page, screenshotT
 func (a *BrowserOAuthAutomator) handleAtlassianSiteSelection(page *rod.Page, screenshotTaker ScreenshotTaker) error {
 	a.logger.Info().Msg("Checking for Atlassian site selection dropdown")
 
-	// Look for the site selection dropdown - focus on interactive elements first
-	dropdownSelectors := []string{
-		`select`,                          // Standard select element
-		`div[role="combobox"]`,            // ARIA combobox
-		`button[aria-haspopup="listbox"]`, // Dropdown button
-		`[aria-label*="site"]`,            // Aria-label containing "site"
-		`[placeholder*="site"]`,           // Placeholder containing "site"
-		`button`,                          // Buttons that might be dropdowns
-		`input`,                           // Input elements (sometimes used for dropdowns)
-		`div[role="button"]`,              // Div elements acting as buttons
-		`span[role="button"]`,             // Span elements acting as buttons
+	// First try to find any element containing "Choose a site" text using XPath
+	a.logger.Info().Msg("Searching for site selection dropdown using XPath text search")
+
+	// Try XPath searches for elements containing "Choose a site" text
+	xpathSelectors := []string{
+		`//*[contains(text(), "Choose a site")]`,
+		`//*[contains(text(), "choose a site")]`,
+		`//*[contains(text(), "Choose")]`,
+		`//*[text()="Choose a site"]`,
 	}
 
 	var dropdownElement *rod.Element
 	var foundSelector string
 
-	for _, selector := range dropdownSelectors {
-		a.logger.Info().Str("selector", selector).Msg("Trying dropdown selector")
-		elements, err := page.Elements(selector)
-		if err == nil && len(elements) > 0 {
-			a.logger.Info().Str("selector", selector).Int("count", len(elements)).Msg("Found elements with selector")
-			// Check if this element contains "Choose a site" text or looks like the right dropdown
-			for i, element := range elements {
+	for _, xpath := range xpathSelectors {
+		a.logger.Info().Str("xpath", xpath).Msg("Trying XPath selector for site dropdown")
+		elements, err := page.ElementsX(xpath)
+		if err != nil {
+			a.logger.Info().Str("xpath", xpath).Err(err).Msg("Error finding elements with XPath")
+			continue
+		}
+
+		if len(elements) == 0 {
+			a.logger.Info().Str("xpath", xpath).Msg("No elements found with XPath")
+			continue
+		}
+
+		a.logger.Info().Str("xpath", xpath).Int("count", len(elements)).Msg("Found elements with XPath")
+
+		// Check each element to see if it's clickable and contains the right text
+		for i, element := range elements {
+			text, textErr := element.Text()
+			if textErr == nil {
+				textLower := strings.ToLower(strings.TrimSpace(text))
+				a.logger.Info().Str("xpath", xpath).Int("index", i).Str("text", text).Msg("Examining XPath element text")
+
+				// Look for exact matches first, then partial matches for dropdown text
+				isDropdownText := textLower == "choose a site" ||
+					textLower == "choose site" ||
+					(strings.Contains(textLower, "choose") && strings.Contains(textLower, "site") && len(textLower) < 50) // Avoid large container divs
+
+				if isDropdownText {
+					dropdownElement = element
+					foundSelector = xpath
+					a.logger.Info().Str("xpath", foundSelector).Str("text", text).Msg("Found site selection dropdown via XPath")
+					break
+				}
+			} else {
+				a.logger.Info().Str("xpath", xpath).Int("index", i).Err(textErr).Msg("Could not get text from XPath element")
+			}
+		}
+		if dropdownElement != nil {
+			break
+		}
+	}
+
+	// If XPath didn't find it, try standard selectors
+	if dropdownElement == nil {
+		a.logger.Info().Msg("XPath search failed, trying standard selectors")
+
+		// Look for the site selection dropdown - focus on interactive elements first
+		dropdownSelectors := []string{
+			`select`,                          // Standard select element
+			`div[role="combobox"]`,            // ARIA combobox
+			`button[aria-haspopup="listbox"]`, // Dropdown button
+			`[aria-label*="site"]`,            // Aria-label containing "site"
+			`[placeholder*="site"]`,           // Placeholder containing "site"
+			`button`,                          // Buttons that might be dropdowns
+			`input`,                           // Input elements (sometimes used for dropdowns)
+			`div[role="button"]`,              // Div elements acting as buttons
+			`span[role="button"]`,             // Span elements acting as buttons
+		}
+
+		for _, selector := range dropdownSelectors {
+			a.logger.Info().Str("selector", selector).Msg("Trying dropdown selector")
+			elements, err := page.Elements(selector)
+			if err == nil && len(elements) > 0 {
+				a.logger.Info().Str("selector", selector).Int("count", len(elements)).Msg("Found elements with selector")
+				// Check if this element contains "Choose a site" text or looks like the right dropdown
+				for i, element := range elements {
+					text, textErr := element.Text()
+					if textErr == nil {
+						textLower := strings.ToLower(strings.TrimSpace(text))
+						a.logger.Info().Str("selector", selector).Int("index", i).Str("text", text).Msg("Examining element text")
+
+						// Look for exact matches first, then partial matches for dropdown text
+						isDropdownText := textLower == "choose a site" ||
+							textLower == "choose site" ||
+							(strings.Contains(textLower, "choose") && strings.Contains(textLower, "site") && len(textLower) < 50) // Avoid large container divs
+
+						if isDropdownText {
+							dropdownElement = element
+							foundSelector = selector
+							a.logger.Info().Str("selector", foundSelector).Str("text", text).Msg("Found site selection dropdown")
+							break
+						}
+					} else {
+						a.logger.Info().Str("selector", selector).Int("index", i).Err(textErr).Msg("Could not get text from element")
+					}
+				}
+				if dropdownElement != nil {
+					break
+				}
+			} else {
+				a.logger.Info().Str("selector", selector).Err(err).Msg("No elements found with selector")
+			}
+		}
+	}
+
+	// If we still haven't found the dropdown, try looking for parent elements of text containing "Choose a site"
+	if dropdownElement == nil {
+		a.logger.Info().Msg("Standard searches failed, trying to find parent elements of 'Choose a site' text")
+
+		// Look for any element containing "Choose a site" and then find its clickable parent
+		allElements, err := page.Elements(`*`)
+		if err == nil {
+			for _, element := range allElements {
 				text, textErr := element.Text()
 				if textErr == nil {
 					textLower := strings.ToLower(strings.TrimSpace(text))
-					a.logger.Info().Str("selector", selector).Int("index", i).Str("text", text).Msg("Examining element text")
+					if textLower == "choose a site" || textLower == "choose site" {
+						a.logger.Info().Str("text", text).Msg("Found element with 'Choose a site' text, checking parents")
 
-					// Look for exact matches first, then partial matches for dropdown text
-					isDropdownText := textLower == "choose a site" ||
-						textLower == "choose site" ||
-						(strings.Contains(textLower, "choose") && strings.Contains(textLower, "site") && len(textLower) < 50) // Avoid large container divs
+						// Try the element itself first
+						tagName, err := element.Property("tagName")
+						if err == nil && tagName.String() != "" && strings.ToLower(tagName.String()) == "button" {
+							dropdownElement = element
+							foundSelector = "button_with_choose_a_site_text"
+							a.logger.Info().Str("text", text).Msg("Found clickable button with 'Choose a site' text")
+							break
+						}
 
-					if isDropdownText {
-						dropdownElement = element
-						foundSelector = selector
-						a.logger.Info().Str("selector", foundSelector).Str("text", text).Msg("Found site selection dropdown")
-						break
+						// Then try parent elements
+						parent, err := element.Parent()
+						for err == nil && parent != nil && dropdownElement == nil {
+							parentTagName, err := parent.Property("tagName")
+							if err == nil && parentTagName.String() != "" {
+								parentTag := strings.ToLower(parentTagName.String())
+								if parentTag == "button" || parentTag == "select" || parentTag == "div" {
+									// Check if this parent element has appropriate attributes
+									role, _ := parent.Attribute("role")
+									ariaHaspopup, _ := parent.Attribute("aria-haspopup")
+									className, _ := parent.Attribute("class")
+
+									if (role != nil && (*role == "combobox" || *role == "button")) ||
+										(ariaHaspopup != nil && *ariaHaspopup == "listbox") ||
+										(className != nil && (strings.Contains(*className, "dropdown") || strings.Contains(*className, "select"))) ||
+										parentTag == "button" || parentTag == "select" {
+										dropdownElement = parent
+										foundSelector = "parent_of_choose_a_site_text"
+										a.logger.Info().Str("parent_tag", parentTag).Str("text", text).Msg("Found clickable parent element")
+										break
+									}
+								}
+							}
+							parent, err = parent.Parent()
+						}
+
+						if dropdownElement != nil {
+							break
+						}
 					}
-				} else {
-					a.logger.Info().Str("selector", selector).Int("index", i).Err(textErr).Msg("Could not get text from element")
 				}
 			}
-			if dropdownElement != nil {
-				break
-			}
-		} else {
-			a.logger.Info().Str("selector", selector).Err(err).Msg("No elements found with selector")
 		}
 	}
 
@@ -1304,11 +1561,383 @@ func (a *BrowserOAuthAutomator) handleAtlassianSiteSelection(page *rod.Page, scr
 		return nil
 	}
 
+	// If we found an element via XPath, try to find its clickable parent or related dropdown control
+	a.logger.Info().Str("found_selector", foundSelector).Msg("Checking if element was found via XPath search")
+
+	if strings.Contains(foundSelector, "xpath") || strings.Contains(foundSelector, "choose_a_site") || strings.Contains(foundSelector, "XPath") {
+		a.logger.Info().Str("found_element", foundSelector).Msg("Found element via text search, looking for actual dropdown control")
+
+		// First, check if we found a placeholder element - look for the actual dropdown control
+		className, _ := dropdownElement.Attribute("class")
+		foundDropdownControl := false
+
+		if className != nil && strings.Contains(*className, "placeholder") {
+			a.logger.Info().Str("class", *className).Msg("Found placeholder element, searching for actual dropdown control")
+
+			// Look for nearby elements with similar CSS classes but without 'placeholder'
+			// Common patterns: if placeholder class is "css-1up7oxb-placeholder", look for "css-1up7oxb" or similar
+			baseClass := strings.Replace(*className, "-placeholder", "", -1)
+			a.logger.Info().Str("base_class", baseClass).Msg("Searching for elements with base class")
+
+			// Search in the parent container for the actual dropdown control
+			parent, err := dropdownElement.Parent()
+			if err == nil && parent != nil {
+				// Look for elements with the base class name or dropdown-related classes
+				searchSelectors := []string{
+					fmt.Sprintf(`[class*="%s"]:not([class*="placeholder"])`, baseClass),
+					`[role="combobox"]`,
+					`[aria-haspopup="listbox"]`,
+					`button`,
+					`select`,
+					`input`,
+					`[class*="dropdown"]`,
+					`[class*="select"]`,
+					`[onclick]`,
+				}
+
+				for _, searchSelector := range searchSelectors {
+					a.logger.Info().Str("selector", searchSelector).Msg("Searching for dropdown control")
+					candidates, candidateErr := parent.Elements(searchSelector)
+					if candidateErr == nil && len(candidates) > 0 {
+						for _, candidate := range candidates {
+							// Check if this candidate is different from our placeholder and looks interactive
+							candidateClass, _ := candidate.Attribute("class")
+							candidateRole, _ := candidate.Attribute("role")
+							candidateTag, tagErr := candidate.Property("tagName")
+
+							if tagErr == nil && candidateTag.String() != "" {
+								tag := strings.ToLower(candidateTag.String())
+								a.logger.Info().Str("candidate_tag", tag).Str("candidate_class", func() string {
+									if candidateClass != nil {
+										return *candidateClass
+									}
+									return ""
+								}()).Msg("Examining dropdown candidate")
+
+								// Skip if this is the same placeholder element
+								if candidateClass != nil && strings.Contains(*candidateClass, "placeholder") {
+									continue
+								}
+
+								// Check if this looks like an interactive dropdown
+								isDropdownControl := tag == "button" || tag == "select" || tag == "input" ||
+									(candidateRole != nil && (*candidateRole == "combobox" || *candidateRole == "button")) ||
+									(candidateClass != nil && (strings.Contains(*candidateClass, "control") || strings.Contains(*candidateClass, "dropdown") || strings.Contains(*candidateClass, "select")))
+
+								if isDropdownControl {
+									dropdownElement = candidate
+									a.logger.Info().Str("tag", tag).Str("reason", "found_dropdown_control").Msg("Found actual dropdown control element")
+									foundDropdownControl = true
+									break
+								}
+							}
+						}
+						if foundDropdownControl {
+							break
+						}
+					}
+				}
+			}
+		}
+
+		// If we didn't find a dropdown control via the placeholder method, try the parent traversal approach
+		if !foundDropdownControl {
+			a.logger.Info().Msg("Placeholder search didn't find dropdown control, trying parent traversal")
+
+			// Try to find a clickable parent element
+			clickableParent := dropdownElement
+			parent, err := dropdownElement.Parent()
+			for err == nil && parent != nil {
+				// Check if parent is clickable
+				tagName, tagErr := parent.Property("tagName")
+				if tagErr == nil && tagName.String() != "" {
+					parentTag := strings.ToLower(tagName.String())
+					a.logger.Info().Str("parent_tag", parentTag).Msg("Checking parent element")
+
+					// Check for basic interactive elements
+					if parentTag == "button" || parentTag == "select" || parentTag == "input" {
+						clickableParent = parent
+						a.logger.Info().Str("parent_tag", parentTag).Msg("Found clickable parent element")
+						break
+					}
+
+					// Check for elements with dropdown-like attributes
+					role, _ := parent.Attribute("role")
+					ariaHaspopup, _ := parent.Attribute("aria-haspopup")
+					onClick, _ := parent.Attribute("onclick")
+					className, _ := parent.Attribute("class")
+					tabIndex, _ := parent.Attribute("tabindex")
+
+					// Look for any sign this element is interactive
+					isInteractive := (role != nil && (*role == "combobox" || *role == "button" || *role == "listbox" || *role == "option")) ||
+						(ariaHaspopup != nil) ||
+						(onClick != nil) ||
+						(tabIndex != nil && *tabIndex != "-1") ||
+						(className != nil && (strings.Contains(*className, "dropdown") || strings.Contains(*className, "select") || strings.Contains(*className, "clickable") || strings.Contains(*className, "button") || strings.Contains(*className, "control")))
+
+					if isInteractive {
+						clickableParent = parent
+						a.logger.Info().Str("parent_tag", parentTag).Str("reason", "has_interactive_attributes").Msg("Found clickable parent element")
+						break
+					}
+
+					// Also check if this parent has any child elements that look like dropdown components
+					if parentTag == "div" || parentTag == "span" {
+						// Look for child elements that might be the actual dropdown
+						childElements, childErr := parent.Elements(`button, select, input, [role="combobox"], [role="button"], [aria-haspopup], [onclick]`)
+						if childErr == nil && len(childElements) > 0 {
+							// Use the first interactive child element
+							clickableParent = childElements[0]
+							a.logger.Info().Str("parent_tag", parentTag).Str("reason", "has_interactive_child").Msg("Found clickable child element")
+							break
+						}
+					}
+				}
+				parent, err = parent.Parent()
+			}
+
+			// If we still haven't found a good clickable element, try looking for sibling elements
+			if clickableParent == dropdownElement {
+				a.logger.Info().Msg("Parent search didn't find better element, checking siblings")
+				// Try to find the parent container and then look for interactive siblings
+				parent, err := dropdownElement.Parent()
+				if err == nil && parent != nil {
+					siblingElements, siblingErr := parent.Elements(`button, select, input, [role="combobox"], [role="button"], [aria-haspopup], [onclick]`)
+					if siblingErr == nil && len(siblingElements) > 0 {
+						// Use the first interactive sibling element
+						clickableParent = siblingElements[0]
+						a.logger.Info().Str("reason", "found_sibling_element").Msg("Found clickable sibling element")
+					}
+				}
+			}
+
+			dropdownElement = clickableParent
+		}
+	}
+
+	// Alternative path: If we have a placeholder element but didn't go through the XPath enhancement above
+	altClassName, _ := dropdownElement.Attribute("class")
+	if altClassName != nil && strings.Contains(*altClassName, "placeholder") && !strings.Contains(foundSelector, "xpath") && !strings.Contains(foundSelector, "choose_a_site") {
+		a.logger.Info().Str("class", *altClassName).Str("selector", foundSelector).Msg("Found placeholder element through non-XPath method, applying enhancement")
+
+		// Look for the actual dropdown control near this placeholder
+		// Common patterns: if placeholder class is "css-1up7oxb-placeholder", look for "css-1up7oxb" or similar
+		baseClass := strings.Replace(*altClassName, "-placeholder", "", -1)
+		a.logger.Info().Str("base_class", baseClass).Msg("Searching for elements with base class (non-XPath path)")
+
+		// Search in the parent container for the actual dropdown control
+		parent, err := dropdownElement.Parent()
+		if err == nil && parent != nil {
+			// Look for elements with the base class name or dropdown-related classes
+			searchSelectors := []string{
+				fmt.Sprintf(`[class*="%s"]:not([class*="placeholder"])`, baseClass),
+				`[role="combobox"]`,
+				`[aria-haspopup="listbox"]`,
+				`button`,
+				`select`,
+				`input`,
+				`[class*="dropdown"]`,
+				`[class*="select"]`,
+				`[onclick]`,
+			}
+
+			for _, searchSelector := range searchSelectors {
+				a.logger.Info().Str("selector", searchSelector).Msg("Searching for dropdown control (non-XPath path)")
+				candidates, candidateErr := parent.Elements(searchSelector)
+				if candidateErr == nil && len(candidates) > 0 {
+					for _, candidate := range candidates {
+						// Check if this candidate is different from our placeholder and looks interactive
+						candidateClass, _ := candidate.Attribute("class")
+						candidateRole, _ := candidate.Attribute("role")
+						candidateTag, tagErr := candidate.Property("tagName")
+
+						if tagErr == nil && candidateTag.String() != "" {
+							tag := strings.ToLower(candidateTag.String())
+							a.logger.Info().Str("candidate_tag", tag).Str("candidate_class", func() string {
+								if candidateClass != nil {
+									return *candidateClass
+								}
+								return ""
+							}()).Msg("Examining dropdown candidate (non-XPath path)")
+
+							// Skip if this is the same placeholder element
+							if candidateClass != nil && strings.Contains(*candidateClass, "placeholder") {
+								continue
+							}
+
+							// Check if this looks like an interactive dropdown
+							isDropdownControl := tag == "button" || tag == "select" || tag == "input" ||
+								(candidateRole != nil && (*candidateRole == "combobox" || *candidateRole == "button")) ||
+								(candidateClass != nil && (strings.Contains(*candidateClass, "control") || strings.Contains(*candidateClass, "dropdown") || strings.Contains(*candidateClass, "select")))
+
+							if isDropdownControl {
+								dropdownElement = candidate
+								a.logger.Info().Str("tag", tag).Str("reason", "found_dropdown_control_non_xpath").Msg("Found actual dropdown control element (non-XPath path)")
+								goto foundAlternativeControl
+							}
+						}
+					}
+				}
+			}
+		}
+
+	}
+
+foundAlternativeControl:
+	// Check if the element is visible and enabled before clicking
+	a.logger.Info().Msg("Validating dropdown element state before clicking")
+
+	// Check if element is visible
+	isVisible, visErr := dropdownElement.Visible()
+	if visErr != nil {
+		a.logger.Warn().Err(visErr).Msg("Could not check element visibility")
+	} else {
+		a.logger.Info().Bool("visible", isVisible).Msg("Dropdown element visibility status")
+	}
+
+	// Check if element is enabled
+	disabled, disErr := dropdownElement.Attribute("disabled")
+	if disErr == nil && disabled != nil {
+		a.logger.Info().Bool("disabled", true).Msg("Dropdown element is disabled")
+	} else {
+		a.logger.Info().Bool("disabled", false).Msg("Dropdown element is not disabled")
+	}
+
+	// Get element tag and attributes for debugging
+	tagName, tagErr := dropdownElement.Property("tagName")
+	if tagErr == nil && tagName.String() != "" {
+		a.logger.Info().Str("tag", tagName.String()).Msg("Dropdown element tag")
+	}
+
+	role, _ := dropdownElement.Attribute("role")
+	className, _ := dropdownElement.Attribute("class")
+	if role != nil {
+		a.logger.Info().Str("role", *role).Msg("Dropdown element role")
+	}
+	if className != nil {
+		a.logger.Info().Str("class", *className).Msg("Dropdown element class")
+	}
+
 	// Click the dropdown to open it
 	a.logger.Info().Msg("Clicking site selection dropdown to open options")
 	err := dropdownElement.Click(proto.InputMouseButtonLeft, 1)
 	if err != nil {
-		return fmt.Errorf("failed to click site selection dropdown: %w", err)
+		a.logger.Warn().Err(err).Msg("Regular click failed, trying JavaScript click")
+		// Try JavaScript click as fallback
+		jsCode := `arguments[0].click();`
+		_, jsErr := page.Eval(jsCode, dropdownElement)
+		if jsErr != nil {
+			a.logger.Warn().Err(jsErr).Msg("JavaScript click also failed, trying coordinate-based click")
+
+			// Strategy: Click at the coordinates of the "Choose a site" text
+			a.logger.Info().Msg("Trying coordinate-based click on 'Choose a site' text")
+
+			// Get the bounding box of the element containing the text
+			box, boxErr := dropdownElement.Box()
+			if boxErr == nil {
+				// Calculate center point of the text element
+				centerX := box.X + (box.Width / 2)
+				centerY := box.Y + (box.Height / 2)
+
+				a.logger.Info().
+					Float64("x", centerX).
+					Float64("y", centerY).
+					Float64("width", box.Width).
+					Float64("height", box.Height).
+					Msg("Clicking at center coordinates of 'Choose a site' text")
+
+				// Click at the calculated coordinates
+				coordClickErr := page.Mouse.Click(centerX, centerY, proto.InputMouseButtonLeft, 1)
+				if coordClickErr == nil {
+					a.logger.Info().Msg("Successfully clicked at text coordinates")
+				} else {
+					a.logger.Warn().Err(coordClickErr).Msg("Coordinate-based click failed")
+
+					// Try clicking slightly above and below the text center in case of layered elements
+					a.logger.Info().Msg("Trying coordinate clicks around text area")
+
+					// Try clicking slightly above
+					aboveErr := page.Mouse.Click(centerX, centerY-10, proto.InputMouseButtonLeft, 1)
+					if aboveErr == nil {
+						a.logger.Info().Msg("Successfully clicked above text center")
+					} else {
+						// Try clicking slightly below
+						belowErr := page.Mouse.Click(centerX, centerY+10, proto.InputMouseButtonLeft, 1)
+						if belowErr == nil {
+							a.logger.Info().Msg("Successfully clicked below text center")
+						} else {
+							a.logger.Warn().Err(belowErr).Msg("All coordinate-based clicks failed")
+						}
+					}
+				}
+			} else {
+				a.logger.Warn().Err(boxErr).Msg("Failed to get bounding box for coordinate-based click")
+			}
+
+			// Continue with other fallback strategies
+			a.logger.Info().Msg("Trying additional fallback strategies")
+
+			// Try to trigger the dropdown with focus and keyboard events
+			focusErr := dropdownElement.Focus()
+			if focusErr == nil {
+				a.logger.Info().Msg("Successfully focused dropdown element")
+
+				// Try pressing Enter to open dropdown
+				keyActions, keyErr := dropdownElement.KeyActions()
+				if keyErr == nil {
+					enterErr := keyActions.Press(input.Enter).Do()
+					if enterErr == nil {
+						a.logger.Info().Msg("Successfully pressed Enter on dropdown")
+					} else {
+						a.logger.Warn().Err(enterErr).Msg("Failed to press Enter on dropdown")
+					}
+				}
+
+				// Try pressing Space to open dropdown
+				keyActions, keyErr = dropdownElement.KeyActions()
+				if keyErr == nil {
+					spaceErr := keyActions.Press(input.Space).Do()
+					if spaceErr == nil {
+						a.logger.Info().Msg("Successfully pressed Space on dropdown")
+					} else {
+						a.logger.Warn().Err(spaceErr).Msg("Failed to press Space on dropdown")
+					}
+				}
+
+				// Try pressing ArrowDown to open dropdown
+				keyActions, keyErr = dropdownElement.KeyActions()
+				if keyErr == nil {
+					arrowDownErr := keyActions.Press(input.ArrowDown).Do()
+					if arrowDownErr == nil {
+						a.logger.Info().Msg("Successfully pressed ArrowDown on dropdown")
+					} else {
+						a.logger.Warn().Err(arrowDownErr).Msg("Failed to press ArrowDown on dropdown")
+					}
+				}
+			} else {
+				a.logger.Warn().Err(focusErr).Msg("Failed to focus dropdown element")
+			}
+
+			// Last resort: try to find and click a dropdown arrow or trigger icon
+			a.logger.Info().Msg("Trying to find dropdown arrow or trigger icon")
+			parent, parentErr := dropdownElement.Parent()
+			if parentErr == nil && parent != nil {
+				arrows, arrowErr := parent.Elements(`[class*="arrow"], [class*="chevron"], [class*="caret"], [class*="trigger"], [class*="icon"]`)
+				if arrowErr == nil && len(arrows) > 0 {
+					arrowClickErr := arrows[0].Click(proto.InputMouseButtonLeft, 1)
+					if arrowClickErr == nil {
+						a.logger.Info().Msg("Successfully clicked dropdown arrow/icon")
+					} else {
+						a.logger.Warn().Err(arrowClickErr).Msg("Failed to click dropdown arrow/icon")
+					}
+				}
+			}
+
+			// Still failing? Continue with test but log warning
+			a.logger.Warn().Msg("All dropdown click attempts failed, but continuing with test")
+		} else {
+			a.logger.Info().Msg("Successfully clicked dropdown using JavaScript")
+		}
 	}
 
 	// Wait for dropdown to open

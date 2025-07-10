@@ -298,7 +298,7 @@ func (suite *OutlookOAuthE2ETestSuite) getMicrosoftAuthorizationCode(authURL, st
 	// Set up Microsoft-specific OAuth handler
 	microsoftHandler := NewMicrosoftOAuthHandler(suite.logger)
 
-	// Configure Microsoft browser automation with improved selectors
+	// Configure Microsoft browser automation with Microsoft-specific strategy
 	microsoftConfig := BrowserOAuthConfig{
 		ProviderName:            "microsoft",
 		LoginUsernameSelector:   `input[type="email"], input[name="loginfmt"], input[placeholder*="email"], input[placeholder*="Email"]`,
@@ -309,6 +309,9 @@ func (suite *OutlookOAuthE2ETestSuite) getMicrosoftAuthorizationCode(authURL, st
 		DeviceVerificationCheck: microsoftHandler.IsRequiredForURL,
 		TwoFactorHandler:        microsoftHandler,
 	}
+
+	// Add Microsoft-specific strategy to the config
+	microsoftConfig.ProviderStrategy = NewMicrosoftProviderStrategy(microsoftConfig, suite.logger)
 
 	// Create automator with Microsoft configuration
 	automator := NewBrowserOAuthAutomator(suite.browser, suite.logger, microsoftConfig)
