@@ -183,6 +183,7 @@ steps:
     SMALL_GENERATION_MODEL: gpt-4o-mini
 
   commands:
+    - sleep 1
     - chmod +x scripts/run-oauth-integration-test.sh
     - ./scripts/run-oauth-integration-test.sh github TestGitHubOAuthSkillsE2E
   when:
@@ -262,6 +263,7 @@ steps:
     SMALL_GENERATION_MODEL: gpt-4o-mini
 
   commands:
+    - sleep 2
     - chmod +x scripts/run-oauth-integration-test.sh
     - ./scripts/run-oauth-integration-test.sh gmail TestGmailOAuthSkillsE2E
   when:
@@ -338,6 +340,7 @@ steps:
     SMALL_GENERATION_MODEL: gpt-4o-mini
 
   commands:
+    - sleep 3
     - chmod +x scripts/run-oauth-integration-test.sh
     - ./scripts/run-oauth-integration-test.sh outlook TestOutlookOAuthSkillsE2E
   when:
@@ -417,6 +420,7 @@ steps:
     SMALL_GENERATION_MODEL: gpt-4o-mini
 
   commands:
+    - sleep 4
     - chmod +x scripts/run-oauth-integration-test.sh
     - ./scripts/run-oauth-integration-test.sh google-calendar TestGoogleCalendarOAuthSkillsE2E
   when:
