@@ -26,8 +26,8 @@ func NewGoogleProviderStrategy(logger zerolog.Logger) *GoogleProviderStrategy {
 func (s *GoogleProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Looking for Google Next button")
 
-	// Set reasonable timeout for operations
-	page = page.Timeout(10 * time.Second)
+	// Set longer timeout for operations - increased from 10 seconds for better reliability
+	page = page.Timeout(45 * time.Second)
 
 	// Use modern Google button selectors based on debug output - prioritize class-based selectors
 	nextButtonSelectors := []string{
@@ -46,16 +46,16 @@ func (s *GoogleProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker
 
 		if strings.Contains(selector, "VfPpkd-LgbsSe") {
 			// For class-based selectors, find all matching elements and check for "Next" text
-			elements, err := page.Elements(selector)
+			elements, err := page.Timeout(20 * time.Second).Elements(selector)
 			if err != nil {
 				lastError = err
-				time.Sleep(3 * time.Second)
+				time.Sleep(1 * time.Second) // Reduced sleep time
 				continue
 			}
 
 			// Check each element for "Next" text
 			for _, element := range elements {
-				text, textErr := element.Text()
+				text, textErr := element.Timeout(10 * time.Second).Text()
 				if textErr == nil {
 					textLower := strings.ToLower(strings.TrimSpace(text))
 					if textLower == "next" || textLower == "continue" {
@@ -67,7 +67,7 @@ func (s *GoogleProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker
 							s.logger.Warn().Err(err).Msg("Failed to scroll element into view, trying click anyway")
 						}
 
-						err = element.Click(proto.InputMouseButtonLeft, 1)
+						err = element.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
 						if err != nil {
 							s.logger.Warn().Err(err).Str("selector", selector).Msg("Failed to click Next button")
 							lastError = err
@@ -85,19 +85,19 @@ func (s *GoogleProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker
 			}
 		} else {
 			// For ID and submit selectors, try direct match
-			element, err := page.Element(selector)
+			element, err := page.Timeout(20 * time.Second).Element(selector)
 			if err != nil {
 				lastError = err
-				time.Sleep(3 * time.Second)
+				time.Sleep(1 * time.Second) // Reduced sleep time
 				continue
 			}
 
 			// For generic submit buttons, verify text contains "Next"
 			if strings.Contains(selector, "submit") {
-				text, textErr := element.Text()
+				text, textErr := element.Timeout(5 * time.Second).Text()
 				if textErr != nil || !strings.Contains(strings.ToLower(text), "next") {
 					s.logger.Info().Str("selector", selector).Str("text", text).Msg("Button found but doesn't contain 'Next' text")
-					time.Sleep(3 * time.Second)
+					time.Sleep(1 * time.Second) // Reduced sleep time
 					continue
 				}
 			}
@@ -110,11 +110,11 @@ func (s *GoogleProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker
 				s.logger.Warn().Err(err).Msg("Failed to scroll element into view, trying click anyway")
 			}
 
-			err = element.Click(proto.InputMouseButtonLeft, 1)
+			err = element.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
 			if err != nil {
 				s.logger.Warn().Err(err).Str("selector", selector).Msg("Failed to click Next button")
 				lastError = err
-				time.Sleep(3 * time.Second)
+				time.Sleep(1 * time.Second) // Reduced sleep time
 				continue
 			}
 
@@ -135,8 +135,9 @@ func (s *GoogleProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker
 func (s *GoogleProviderStrategy) ClickAuthorizeButton(page *rod.Page, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Looking for Google Authorize button")
 
-	// Set reasonable timeout for operations - OAuth consent pages can be slower
-	page = page.Timeout(10 * time.Second)
+	// Set longer timeout for operations - OAuth consent pages can be slower
+	// Use 45 seconds per element operation to allow for page loading delays
+	page = page.Timeout(45 * time.Second)
 
 	// Use modern Google button selectors - same pattern that worked for Next button
 	authSelectors := []string{
@@ -154,16 +155,16 @@ func (s *GoogleProviderStrategy) ClickAuthorizeButton(page *rod.Page, screenshot
 
 		if strings.Contains(selector, "VfPpkd-LgbsSe") {
 			// For class-based selectors, find all matching elements and check for authorization text
-			elements, err := page.Elements(selector)
+			elements, err := page.Timeout(20 * time.Second).Elements(selector)
 			if err != nil {
 				lastError = err
-				time.Sleep(3 * time.Second)
+				time.Sleep(1 * time.Second) // Reduced sleep time from 3 seconds to 1 second
 				continue
 			}
 
 			// Check each element for authorization text
 			for _, element := range elements {
-				text, textErr := element.Text()
+				text, textErr := element.Timeout(10 * time.Second).Text()
 				if textErr == nil {
 					textLower := strings.ToLower(strings.TrimSpace(text))
 					if textLower == "allow" || textLower == "authorize" ||
@@ -176,7 +177,7 @@ func (s *GoogleProviderStrategy) ClickAuthorizeButton(page *rod.Page, screenshot
 							s.logger.Warn().Err(err).Msg("Failed to scroll element into view, trying click anyway")
 						}
 
-						err = element.Click(proto.InputMouseButtonLeft, 1)
+						err = element.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
 						if err != nil {
 							s.logger.Warn().Err(err).Str("selector", selector).Msg("Failed to click authorization button")
 							lastError = err
@@ -194,22 +195,22 @@ func (s *GoogleProviderStrategy) ClickAuthorizeButton(page *rod.Page, screenshot
 			}
 		} else {
 			// For legacy selectors, try direct match
-			element, err := page.Element(selector)
+			element, err := page.Timeout(20 * time.Second).Element(selector)
 			if err != nil {
 				lastError = err
-				time.Sleep(3 * time.Second)
+				time.Sleep(1 * time.Second) // Reduced sleep time from 3 seconds to 1 second
 				continue
 			}
 
 			// For generic submit buttons, check if text contains allow/consent related words
 			if selector == `button[type="submit"]` {
-				text, textErr := element.Text()
+				text, textErr := element.Timeout(5 * time.Second).Text()
 				if textErr == nil {
 					textLower := strings.ToLower(strings.TrimSpace(text))
 					if !strings.Contains(textLower, "allow") && !strings.Contains(textLower, "authorize") &&
 						!strings.Contains(textLower, "consent") && !strings.Contains(textLower, "continue") {
 						s.logger.Info().Str("selector", selector).Str("text", text).Msg("Button found but doesn't contain authorization text")
-						time.Sleep(3 * time.Second)
+						time.Sleep(1 * time.Second) // Reduced sleep time
 						continue
 					}
 				}
@@ -223,11 +224,11 @@ func (s *GoogleProviderStrategy) ClickAuthorizeButton(page *rod.Page, screenshot
 				s.logger.Warn().Err(err).Msg("Failed to scroll element into view, trying click anyway")
 			}
 
-			err = element.Click(proto.InputMouseButtonLeft, 1)
+			err = element.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
 			if err != nil {
 				s.logger.Warn().Err(err).Str("selector", selector).Msg("Failed to click authorization button")
 				lastError = err
-				time.Sleep(3 * time.Second)
+				time.Sleep(1 * time.Second) // Reduced sleep time
 				continue
 			}
 
