@@ -352,6 +352,24 @@ func (a *BrowserOAuthAutomator) handleSingleStepLogin(page *rod.Page, username, 
 		return fmt.Errorf("failed to fill username field: %w", err)
 	}
 
+	// Special handling for Atlassian: click Continue button before filling password
+	if a.config.ProviderName == "atlassian" {
+		a.logger.Info().Msg("Atlassian provider detected - clicking Continue button before password")
+
+		// Wait a moment for form validation
+		time.Sleep(1 * time.Second)
+
+		// Click Continue button to enable password field
+		err = a.clickNextButton(page, screenshotTaker)
+		if err != nil {
+			return fmt.Errorf("failed to click Continue button: %w", err)
+		}
+
+		// Wait for password field to become enabled
+		time.Sleep(2 * time.Second)
+		a.logger.Info().Msg("Waited for password field to become enabled")
+	}
+
 	// Step 2: Fill password field
 	err = a.fillPasswordField(page, password, screenshotTaker)
 	if err != nil {
@@ -473,6 +491,10 @@ func (a *BrowserOAuthAutomator) handleEmailInput(page *rod.Page, username string
 		return fmt.Errorf("failed to fill username field: %w", err)
 	}
 
+	// Wait a moment for any form validation or JavaScript to complete (especially for Atlassian)
+	time.Sleep(1 * time.Second)
+	a.logger.Info().Msg("Waited 1 second for form validation to complete")
+
 	// Try Rod's native element selection using exact class pattern from debug output
 	a.logger.Info().Msg("Attempting to find Next button using specific class pattern")
 
@@ -493,13 +515,16 @@ func (a *BrowserOAuthAutomator) handleEmailInput(page *rod.Page, username string
 		// Set shorter timeout for each attempt
 		elements, err := page.Timeout(3 * time.Second).Elements(selector)
 		if err == nil && len(elements) > 0 {
-			// Check each element to find the one with "Next" text
+			// Check each element to find the one with "Next" or "Continue" text
 			for _, element := range elements {
 				buttonText, textErr := element.Timeout(1 * time.Second).Text()
-				if textErr == nil && strings.ToLower(strings.TrimSpace(buttonText)) == "next" {
-					a.logger.Info().Str("selector", selector).Str("button_text", buttonText).Msg("Found Next button using class pattern")
-					nextButton = element
-					break
+				if textErr == nil {
+					buttonTextLower := strings.ToLower(strings.TrimSpace(buttonText))
+					if buttonTextLower == "next" || buttonTextLower == "continue" {
+						a.logger.Info().Str("selector", selector).Str("button_text", buttonText).Msg("Found Next/Continue button using class pattern")
+						nextButton = element
+						break
+					}
 				}
 			}
 			if nextButton != nil {
@@ -592,8 +617,10 @@ func (a *BrowserOAuthAutomator) clickNextButton(page *rod.Page, screenshotTaker 
 	// Set timeout for operations
 	page = page.Timeout(10 * time.Second)
 
-	// First try direct CSS selectors
+	// First try direct CSS selectors - Atlassian selectors first
 	nextSelectors := []string{
+		`button[id="login-submit"]`,          // Atlassian Continue button ID (button) - try first!
+		`input[id="login-submit"]`,           // Atlassian Continue button ID (input) - try second!
 		`input[id="idSIButton9"]`,            // Microsoft-specific Next button ID
 		`input[type="submit"][value="Next"]`, // Input style (Microsoft/general)
 		`button[id="identifierNext"]`,        // Old Google style (with ID)
@@ -632,8 +659,8 @@ func (a *BrowserOAuthAutomator) clickNextButton(page *rod.Page, screenshotTaker 
 					buttonText, textErr := button.Text()
 					if textErr == nil {
 						buttonTextLower := strings.ToLower(strings.TrimSpace(buttonText))
-						if buttonTextLower == "next" {
-							a.logger.Info().Str("button_text", buttonText).Str("selector", selector).Msg("Found Next button by class and text")
+						if buttonTextLower == "next" || buttonTextLower == "continue" {
+							a.logger.Info().Str("button_text", buttonText).Str("selector", selector).Msg("Found Next/Continue button by class and text")
 							nextButton = button
 							break
 						}
@@ -649,18 +676,18 @@ func (a *BrowserOAuthAutomator) clickNextButton(page *rod.Page, screenshotTaker 
 		if nextButton == nil {
 			a.logger.Info().Msg("Class-based search failed, using JavaScript to click Next button directly")
 
-			// Use JavaScript to click the 4th button (index 3) which is consistently the Next button
+			// Use JavaScript to click the button with "Next" or "Continue" text
 			jsCode := `
-				if (document.querySelectorAll('button').length > 3) {
-					if (document.querySelectorAll('button')[3].textContent.trim().toLowerCase() === 'next') {
-						document.querySelectorAll('button')[3].click();
+				var buttons = document.querySelectorAll('button');
+				for (var i = 0; i < buttons.length; i++) {
+					var text = buttons[i].textContent.trim().toLowerCase();
+					if (text === 'next' || text === 'continue') {
+						buttons[i].click();
 						'success';
-					} else {
-						'wrong_button_text:' + document.querySelectorAll('button')[3].textContent.trim().toLowerCase();
+						break;
 					}
-				} else {
-					'not_enough_buttons:' + document.querySelectorAll('button').length;
 				}
+				'no_next_or_continue_button_found';
 			`
 
 			result, err := page.Eval(jsCode)
@@ -868,9 +895,16 @@ func (a *BrowserOAuthAutomator) waitForNavigation(page *rod.Page, screenshotTake
 		}
 	}
 
-	// Wait for page to fully load after navigation
+	// Wait for page to fully load after navigation (with timeout handling)
 	a.logger.Info().Msg("Navigation detected - waiting for page to fully load")
-	page.MustWaitLoad()
+
+	// Try to wait for load event, but don't fail if it doesn't fire (some SPAs never fire load event)
+	loadErr := page.Timeout(10 * time.Second).WaitLoad()
+	if loadErr != nil {
+		a.logger.Warn().Err(loadErr).Msg("Page load event timed out, but continuing (common with SPAs)")
+	} else {
+		a.logger.Info().Msg("Page load event fired successfully")
+	}
 
 	// Additional small wait to ensure all dynamic content loads
 	a.logger.Info().Msg("Waiting additional 2 seconds for dynamic content to load")
@@ -1105,13 +1139,235 @@ func (a *BrowserOAuthAutomator) performAuthorization(page *rod.Page, screenshotT
 
 	a.logger.Info().Msg("Found authorization button")
 
-	// Click the authorize button
+	// Click the authorize button with robust handling
 	a.logger.Info().Msg("Clicking authorize button")
-	err = authButtonElement.Click(proto.InputMouseButtonLeft, 1)
-	if err != nil {
-		return fmt.Errorf("failed to click authorize button: %w", err)
+
+	// First scroll the entire page to the bottom to ensure all content is visible
+	a.logger.Info().Msg("Scrolling page to bottom to reveal Accept button")
+	_, scrollErr := page.Eval(`() => window.scrollTo(0, document.body.scrollHeight)`)
+	if scrollErr != nil {
+		a.logger.Warn().Err(scrollErr).Msg("Failed to scroll page to bottom, continuing anyway")
 	}
 
+	// Wait for scroll to complete
+	time.Sleep(2 * time.Second)
+
+	// Now scroll the specific button into view
+	a.logger.Info().Msg("Scrolling authorization button into view")
+	err = authButtonElement.ScrollIntoView()
+	if err != nil {
+		a.logger.Warn().Err(err).Msg("Failed to scroll authorization button into view, continuing anyway")
+	}
+
+	// Wait for JavaScript to initialize and page to become fully interactive
+	a.logger.Info().Msg("Waiting 3 seconds for page to become fully interactive")
+	time.Sleep(3 * time.Second)
+
+	// Take screenshot after scrolling to see the final state
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_after_scrolling_to_accept_button")
+
+	// Handle Atlassian site selection dropdown if present
+	if a.config.ProviderName == "atlassian" {
+		err = a.handleAtlassianSiteSelection(page, screenshotTaker)
+		if err != nil {
+			a.logger.Warn().Err(err).Msg("Failed to handle site selection, continuing anyway")
+		}
+	}
+
+	// Try clicking with timeout and retry logic (including JavaScript fallback)
+	clickRetries := 3
+	for i := 0; i < clickRetries; i++ {
+		a.logger.Info().Int("attempt", i+1).Msg("Attempting to click authorization button")
+
+		var clickErr error
+
+		if i < 2 {
+			// First two attempts: use normal Rod click
+			clickErr = authButtonElement.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
+		} else {
+			// Last attempt: use JavaScript click as fallback with higher timeout
+			a.logger.Info().Msg("Using JavaScript click as fallback")
+			_, clickErr = authButtonElement.Timeout(30 * time.Second).Eval(`() => this.click()`)
+		}
+
+		if clickErr == nil {
+			a.logger.Info().Msg("Successfully clicked authorization button")
+			break
+		}
+
+		a.logger.Warn().Err(clickErr).Int("attempt", i+1).Msg("Click attempt failed")
+
+		if i < clickRetries-1 {
+			// Wait before retry
+			time.Sleep(2 * time.Second)
+		} else {
+			// Last attempt failed - try one more JavaScript approach
+			a.logger.Info().Msg("All click attempts failed, trying final JavaScript approach")
+
+			// Try to click using page.Eval with button selector
+			jsCode := `
+				var buttons = document.querySelectorAll('button[type="submit"]');
+				for (var i = 0; i < buttons.length; i++) {
+					var text = buttons[i].textContent.trim().toLowerCase();
+					if (text === 'accept' || text === 'allow' || text === 'authorize') {
+						buttons[i].click();
+						return 'clicked_button_' + i + '_text_' + text;
+					}
+				}
+				return 'no_matching_button_found';
+			`
+
+			result, jsErr := page.Timeout(30 * time.Second).Eval(jsCode)
+			if jsErr != nil {
+				return fmt.Errorf("failed to click authorize button after %d attempts, final JavaScript attempt also failed: %w", clickRetries, clickErr)
+			}
+
+			resultStr := result.Value.String()
+			a.logger.Info().Str("result", resultStr).Msg("JavaScript click attempt result")
+
+			if strings.Contains(resultStr, "clicked_button") {
+				a.logger.Info().Msg("Successfully clicked authorization button using JavaScript")
+				break
+			} else {
+				return fmt.Errorf("failed to click authorize button after %d attempts and JavaScript fallback: %s", clickRetries, resultStr)
+			}
+		}
+	}
+
+	// Wait a moment for page to load after clicking authorization button
+	time.Sleep(2 * time.Second)
+	a.logger.Info().Msg("Waited for page to load after authorization button click")
+
+	// Take screenshot to see what page we're on after clicking authorization button
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_after_auth_button_clicked")
+
+	return nil
+}
+
+// handleAtlassianSiteSelection handles the site selection dropdown on Atlassian OAuth consent pages
+func (a *BrowserOAuthAutomator) handleAtlassianSiteSelection(page *rod.Page, screenshotTaker ScreenshotTaker) error {
+	a.logger.Info().Msg("Checking for Atlassian site selection dropdown")
+
+	// Look for the site selection dropdown - focus on interactive elements first
+	dropdownSelectors := []string{
+		`select`,                          // Standard select element
+		`div[role="combobox"]`,            // ARIA combobox
+		`button[aria-haspopup="listbox"]`, // Dropdown button
+		`[aria-label*="site"]`,            // Aria-label containing "site"
+		`[placeholder*="site"]`,           // Placeholder containing "site"
+		`button`,                          // Buttons that might be dropdowns
+		`input`,                           // Input elements (sometimes used for dropdowns)
+		`div[role="button"]`,              // Div elements acting as buttons
+		`span[role="button"]`,             // Span elements acting as buttons
+	}
+
+	var dropdownElement *rod.Element
+	var foundSelector string
+
+	for _, selector := range dropdownSelectors {
+		a.logger.Info().Str("selector", selector).Msg("Trying dropdown selector")
+		elements, err := page.Elements(selector)
+		if err == nil && len(elements) > 0 {
+			a.logger.Info().Str("selector", selector).Int("count", len(elements)).Msg("Found elements with selector")
+			// Check if this element contains "Choose a site" text or looks like the right dropdown
+			for i, element := range elements {
+				text, textErr := element.Text()
+				if textErr == nil {
+					textLower := strings.ToLower(strings.TrimSpace(text))
+					a.logger.Info().Str("selector", selector).Int("index", i).Str("text", text).Msg("Examining element text")
+
+					// Look for exact matches first, then partial matches for dropdown text
+					isDropdownText := textLower == "choose a site" ||
+						textLower == "choose site" ||
+						(strings.Contains(textLower, "choose") && strings.Contains(textLower, "site") && len(textLower) < 50) // Avoid large container divs
+
+					if isDropdownText {
+						dropdownElement = element
+						foundSelector = selector
+						a.logger.Info().Str("selector", foundSelector).Str("text", text).Msg("Found site selection dropdown")
+						break
+					}
+				} else {
+					a.logger.Info().Str("selector", selector).Int("index", i).Err(textErr).Msg("Could not get text from element")
+				}
+			}
+			if dropdownElement != nil {
+				break
+			}
+		} else {
+			a.logger.Info().Str("selector", selector).Err(err).Msg("No elements found with selector")
+		}
+	}
+
+	if dropdownElement == nil {
+		a.logger.Info().Msg("No site selection dropdown found, proceeding with authorization")
+		return nil
+	}
+
+	// Click the dropdown to open it
+	a.logger.Info().Msg("Clicking site selection dropdown to open options")
+	err := dropdownElement.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		return fmt.Errorf("failed to click site selection dropdown: %w", err)
+	}
+
+	// Wait for dropdown to open
+	time.Sleep(2 * time.Second)
+
+	// Take screenshot to see dropdown options
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_site_dropdown_opened")
+
+	// Look for dropdown options
+	optionSelectors := []string{
+		`option`,                // Standard option elements
+		`li[role="option"]`,     // ARIA option elements
+		`div[role="option"]`,    // Div-based options
+		`button[role="option"]`, // Button-based options
+		`li`,                    // Generic list items
+	}
+
+	var firstOption *rod.Element
+	for _, selector := range optionSelectors {
+		options, err := page.Elements(selector)
+		if err == nil && len(options) > 0 {
+			// Skip the first option if it's a placeholder
+			for i, option := range options {
+				text, textErr := option.Text()
+				if textErr == nil {
+					// Skip empty options or placeholder text
+					if strings.TrimSpace(text) != "" &&
+						!strings.Contains(strings.ToLower(text), "choose") &&
+						!strings.Contains(strings.ToLower(text), "select") {
+						firstOption = option
+						a.logger.Info().Str("selector", selector).Int("index", i).Str("text", text).Msg("Found first valid site option")
+						break
+					}
+				}
+			}
+			if firstOption != nil {
+				break
+			}
+		}
+	}
+
+	if firstOption == nil {
+		return fmt.Errorf("no site options found in dropdown")
+	}
+
+	// Click the first site option
+	a.logger.Info().Msg("Selecting first site option")
+	err = firstOption.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		return fmt.Errorf("failed to click first site option: %w", err)
+	}
+
+	// Wait for selection to complete
+	time.Sleep(2 * time.Second)
+
+	// Take screenshot after site selection
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_site_selected")
+
+	a.logger.Info().Msg("Successfully selected site, Accept button should now be enabled")
 	return nil
 }
 
@@ -1187,7 +1443,9 @@ func (a *BrowserOAuthAutomator) findAuthorizationButton(page *rod.Page) (*rod.El
 				isAuthorizeButton := (strings.Contains(buttonTextLower, "authorize") ||
 					strings.Contains(buttonTextLower, "allow") ||
 					strings.Contains(buttonTextLower, "approve") ||
-					strings.Contains(buttonTextLower, "grant")) &&
+					strings.Contains(buttonTextLower, "grant") ||
+					strings.Contains(buttonTextLower, "continue") ||
+					strings.Contains(buttonTextLower, "accept")) &&
 					!strings.Contains(buttonTextLower, "cancel") &&
 					!strings.Contains(buttonTextLower, "deny") &&
 					!strings.Contains(buttonTextLower, "reject")
