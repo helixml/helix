@@ -1833,45 +1833,55 @@ foundAlternativeControl:
 			a.logger.Info().Msg("Trying coordinate-based click on 'Choose a site' text")
 
 			// Get the bounding box of the element containing the text
-			box, boxErr := dropdownElement.Box()
-			if boxErr == nil {
-				// Calculate center point of the text element
-				centerX := box.X + (box.Width / 2)
-				centerY := box.Y + (box.Height / 2)
+			shape, shapeErr := dropdownElement.Shape()
+			if shapeErr == nil && len(shape.Quads) > 0 {
+				// Calculate center point of the text element using the first quad
+				quad := shape.Quads[0]
+				centerX := (quad[0] + quad[2] + quad[4] + quad[6]) / 4
+				centerY := (quad[1] + quad[3] + quad[5] + quad[7]) / 4
 
 				a.logger.Info().
 					Float64("x", centerX).
 					Float64("y", centerY).
-					Float64("width", box.Width).
-					Float64("height", box.Height).
 					Msg("Clicking at center coordinates of 'Choose a site' text")
 
-				// Click at the calculated coordinates
-				coordClickErr := page.Mouse.Click(centerX, centerY, proto.InputMouseButtonLeft, 1)
-				if coordClickErr == nil {
-					a.logger.Info().Msg("Successfully clicked at text coordinates")
-				} else {
-					a.logger.Warn().Err(coordClickErr).Msg("Coordinate-based click failed")
-
-					// Try clicking slightly above and below the text center in case of layered elements
-					a.logger.Info().Msg("Trying coordinate clicks around text area")
-
-					// Try clicking slightly above
-					aboveErr := page.Mouse.Click(centerX, centerY-10, proto.InputMouseButtonLeft, 1)
-					if aboveErr == nil {
-						a.logger.Info().Msg("Successfully clicked above text center")
+					// Move mouse to the center of the text and click
+				moveErr := page.Mouse.MoveTo(proto.Point{X: centerX, Y: centerY})
+				if moveErr == nil {
+					coordClickErr := page.Mouse.Click(proto.InputMouseButtonLeft, 1)
+					if coordClickErr == nil {
+						a.logger.Info().Msg("Successfully clicked at text coordinates")
 					} else {
-						// Try clicking slightly below
-						belowErr := page.Mouse.Click(centerX, centerY+10, proto.InputMouseButtonLeft, 1)
-						if belowErr == nil {
-							a.logger.Info().Msg("Successfully clicked below text center")
-						} else {
-							a.logger.Warn().Err(belowErr).Msg("All coordinate-based clicks failed")
+						a.logger.Warn().Err(coordClickErr).Msg("Coordinate-based click failed")
+
+						// Try clicking slightly above and below the text center in case of layered elements
+						a.logger.Info().Msg("Trying coordinate clicks around text area")
+
+						// Try clicking slightly above
+						aboveErr := page.Mouse.MoveTo(proto.Point{X: centerX, Y: centerY - 10})
+						if aboveErr == nil {
+							aboveClickErr := page.Mouse.Click(proto.InputMouseButtonLeft, 1)
+							if aboveClickErr == nil {
+								a.logger.Info().Msg("Successfully clicked above text center")
+							} else {
+								// Try clicking slightly below
+								belowErr := page.Mouse.MoveTo(proto.Point{X: centerX, Y: centerY + 10})
+								if belowErr == nil {
+									belowClickErr := page.Mouse.Click(proto.InputMouseButtonLeft, 1)
+									if belowClickErr == nil {
+										a.logger.Info().Msg("Successfully clicked below text center")
+									} else {
+										a.logger.Warn().Err(belowClickErr).Msg("All coordinate-based clicks failed")
+									}
+								}
+							}
 						}
 					}
+				} else {
+					a.logger.Warn().Err(moveErr).Msg("Failed to move mouse to text coordinates")
 				}
 			} else {
-				a.logger.Warn().Err(boxErr).Msg("Failed to get bounding box for coordinate-based click")
+				a.logger.Warn().Err(shapeErr).Msg("Failed to get element shape for coordinate-based click")
 			}
 
 			// Continue with other fallback strategies
