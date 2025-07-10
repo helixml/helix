@@ -30,7 +30,14 @@ func (h *GoogleOAuthHandler) IsRequired(page *rod.Page) bool {
 
 // IsRequiredForURL checks if Google-specific handling is required for a given URL
 func (h *GoogleOAuthHandler) IsRequiredForURL(url string) bool {
-	// Check if we're on a Google authentication page
+	// Exclude OAuth consent pages - these should be handled by the provider strategy
+	if strings.Contains(url, "/signin/oauth/consent") ||
+		strings.Contains(url, "/o/oauth2/") {
+		h.logger.Info().Str("url", url).Msg("Google OAuth consent page detected - will be handled by provider strategy")
+		return false
+	}
+
+	// Check if we're on a Google authentication page that needs 2FA handling
 	isGoogleAuthPage := strings.Contains(url, "accounts.google.com") ||
 		strings.Contains(url, "myaccount.google.com") ||
 		strings.Contains(url, "google.com/signin")

@@ -276,7 +276,7 @@ func (suite *GoogleCalendarOAuthE2ETestSuite) createOAuthTemplate() error {
 	config.ClientSecret = suite.googleClientSecret
 	config.Username = suite.googleUsername
 	config.Password = suite.googlePassword
-	config.GetAuthorizationCodeFunc = suite.getGoogleAuthorizationCode
+	config.GetAuthorizationCodeFunc = suite.getGoogleCalendarAuthorizationCode
 	config.SetupTestDataFunc = func() error { return nil }   // No setup needed for Google Calendar
 	config.CleanupTestDataFunc = func() error { return nil } // No cleanup needed for Google Calendar
 	config.AgentTestQueries = GoogleCalendarTestQueries
@@ -295,8 +295,8 @@ func (suite *GoogleCalendarOAuthE2ETestSuite) createOAuthTemplate() error {
 // OAUTH FLOW IMPLEMENTATION
 // ======================================================================================
 
-// getGoogleAuthorizationCode performs real browser automation to complete Google OAuth flow
-func (suite *GoogleCalendarOAuthE2ETestSuite) getGoogleAuthorizationCode(authURL, state string) (string, error) {
+// getGoogleCalendarAuthorizationCode performs real browser automation to complete Google Calendar OAuth flow
+func (suite *GoogleCalendarOAuthE2ETestSuite) getGoogleCalendarAuthorizationCode(authURL, state string) (string, error) {
 	// Set up Google-specific OAuth handler
 	googleHandler := NewGoogleOAuthHandler(suite.logger)
 
@@ -310,6 +310,7 @@ func (suite *GoogleCalendarOAuthE2ETestSuite) getGoogleAuthorizationCode(authURL
 		CallbackURLPattern:      "/api/v1/oauth/flow/callback",
 		DeviceVerificationCheck: googleHandler.IsRequiredForURL,
 		TwoFactorHandler:        googleHandler,
+		ProviderStrategy:        NewGoogleProviderStrategy(suite.logger), // Use Google-specific strategy
 	}
 
 	// Create automator with Google configuration

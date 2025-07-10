@@ -306,6 +306,7 @@ func (suite *GmailOAuthE2ETestSuite) getGoogleAuthorizationCode(authURL, state s
 		CallbackURLPattern:      "/api/v1/oauth/flow/callback",
 		DeviceVerificationCheck: googleHandler.IsRequiredForURL,
 		TwoFactorHandler:        googleHandler,
+		ProviderStrategy:        NewGoogleProviderStrategy(suite.logger), // Use Google-specific strategy
 	}
 
 	// Create automator with Google configuration
