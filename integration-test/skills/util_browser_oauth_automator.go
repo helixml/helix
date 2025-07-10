@@ -436,33 +436,8 @@ func (a *BrowserOAuthAutomator) performLogin(page *rod.Page, username, password 
 	// Debug: dump page elements
 	a.debugDumpPageElements(page, "login_start")
 
-	// Detect provider type and handle appropriate login flow
-	if a.config.ProviderName == "google" || a.config.ProviderName == "microsoft" {
-		// Google and Microsoft: Two-step process (email → Next → password → Next)
-		a.logger.Info().Str("provider", a.config.ProviderName).Msg("Using two-step login flow")
-
-		// Step 1: Handle email input (first step for Google/Microsoft)
-		err := a.handleEmailInput(page, username, screenshotTaker)
-		if err != nil {
-			return fmt.Errorf("failed to handle email input: %w", err)
-		}
-
-		// Step 2: Handle password input (second step for Google/Microsoft)
-		err = a.handlePasswordInput(page, password, screenshotTaker)
-		if err != nil {
-			return fmt.Errorf("failed to handle password input: %w", err)
-		}
-	} else {
-		// GitHub and other providers: Single-step process (username + password → Sign in)
-		a.logger.Info().Str("provider", a.config.ProviderName).Msg("Using single-step login flow")
-
-		err := a.handleSingleStepLogin(page, username, password, screenshotTaker)
-		if err != nil {
-			return fmt.Errorf("failed to handle single-step login: %w", err)
-		}
-	}
-
-	return nil
+	// Use the provider strategy to handle the login flow
+	return a.config.ProviderStrategy.HandleLoginFlow(page, username, password, screenshotTaker)
 }
 
 // handleSingleStepLogin handles single-step login (username + password → Sign in)
@@ -1266,123 +1241,10 @@ func (a *BrowserOAuthAutomator) checkOAuthCompleted(page *rod.Page, state string
 
 // performAuthorization handles clicking the authorization button
 func (a *BrowserOAuthAutomator) performAuthorization(page *rod.Page, screenshotTaker ScreenshotTaker) error {
-	a.logger.Info().Msg("Looking for authorization button")
+	a.logger.Info().Msg("Authorization required - delegating to provider strategy")
 
-	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_authorization_page")
-
-	// Find authorization button with smart text-based detection
-	authButtonElement, err := a.findAuthorizationButton(page)
-	if err != nil {
-		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_auth_button_not_found")
-		currentURL := page.MustInfo().URL
-		return fmt.Errorf("could not find authorization button on page %s: %w", currentURL, err)
-	}
-
-	a.logger.Info().Msg("Found authorization button")
-
-	// Click the authorize button with robust handling
-	a.logger.Info().Msg("Clicking authorize button")
-
-	// First scroll the entire page to the bottom to ensure all content is visible
-	a.logger.Info().Msg("Scrolling page to bottom to reveal Accept button")
-	_, scrollErr := page.Eval(`() => window.scrollTo(0, document.body.scrollHeight)`)
-	if scrollErr != nil {
-		a.logger.Warn().Err(scrollErr).Msg("Failed to scroll page to bottom, continuing anyway")
-	}
-
-	// Wait for scroll to complete
-	time.Sleep(2 * time.Second)
-
-	// Now scroll the specific button into view
-	a.logger.Info().Msg("Scrolling authorization button into view")
-	err = authButtonElement.ScrollIntoView()
-	if err != nil {
-		a.logger.Warn().Err(err).Msg("Failed to scroll authorization button into view, continuing anyway")
-	}
-
-	// Wait for JavaScript to initialize and page to become fully interactive
-	a.logger.Info().Msg("Waiting 3 seconds for page to become fully interactive")
-	time.Sleep(3 * time.Second)
-
-	// Take screenshot after scrolling to see the final state
-	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_after_scrolling_to_accept_button")
-
-	// Handle Atlassian site selection dropdown if present
-	if a.config.ProviderName == "atlassian" {
-		err = a.handleAtlassianSiteSelection(page, screenshotTaker)
-		if err != nil {
-			a.logger.Warn().Err(err).Msg("Failed to handle site selection, continuing anyway")
-		}
-	}
-
-	// Try clicking with timeout and retry logic (including JavaScript fallback)
-	clickRetries := 3
-	for i := 0; i < clickRetries; i++ {
-		a.logger.Info().Int("attempt", i+1).Msg("Attempting to click authorization button")
-
-		var clickErr error
-
-		if i < 2 {
-			// First two attempts: use normal Rod click
-			clickErr = authButtonElement.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
-		} else {
-			// Last attempt: use JavaScript click as fallback with higher timeout
-			a.logger.Info().Msg("Using JavaScript click as fallback")
-			_, clickErr = authButtonElement.Timeout(30 * time.Second).Eval(`() => this.click()`)
-		}
-
-		if clickErr == nil {
-			a.logger.Info().Msg("Successfully clicked authorization button")
-			break
-		}
-
-		a.logger.Warn().Err(clickErr).Int("attempt", i+1).Msg("Click attempt failed")
-
-		if i < clickRetries-1 {
-			// Wait before retry
-			time.Sleep(2 * time.Second)
-		} else {
-			// Last attempt failed - try one more JavaScript approach
-			a.logger.Info().Msg("All click attempts failed, trying final JavaScript approach")
-
-			// Try to click using page.Eval with button selector
-			jsCode := `
-				var buttons = document.querySelectorAll('button[type="submit"]');
-				for (var i = 0; i < buttons.length; i++) {
-					var text = buttons[i].textContent.trim().toLowerCase();
-					if (text === 'accept' || text === 'allow' || text === 'authorize') {
-						buttons[i].click();
-						return 'clicked_button_' + i + '_text_' + text;
-					}
-				}
-				return 'no_matching_button_found';
-			`
-
-			result, jsErr := page.Timeout(30 * time.Second).Eval(jsCode)
-			if jsErr != nil {
-				return fmt.Errorf("failed to click authorize button after %d attempts, final JavaScript attempt also failed: %w", clickRetries, clickErr)
-			}
-
-			resultStr := result.Value.String()
-			a.logger.Info().Str("result", resultStr).Msg("JavaScript click attempt result")
-
-			if strings.Contains(resultStr, "clicked_button") {
-				a.logger.Info().Msg("Successfully clicked authorization button using JavaScript")
-				break
-			} else {
-				return fmt.Errorf("failed to click authorize button after %d attempts and JavaScript fallback: %s", clickRetries, resultStr)
-			}
-		}
-	}
-
-	// Wait a moment for page to load after clicking authorization button
-	time.Sleep(2 * time.Second)
-	a.logger.Info().Msg("Waited for page to load after authorization button click")
-
-	// Take screenshot to see what page we're on after clicking authorization button
-	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_after_auth_button_clicked")
-
-	return nil
+	// Use the provider strategy to handle the authorization
+	return a.config.ProviderStrategy.HandleAuthorization(page, screenshotTaker)
 }
 
 // handleAtlassianSiteSelection handles the site selection dropdown on Atlassian OAuth consent pages
