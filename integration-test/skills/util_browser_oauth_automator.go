@@ -361,8 +361,8 @@ func (a *BrowserOAuthAutomator) PerformOAuthFlow(authURL, state, username, passw
 	}
 	defer page.Close()
 
-	// Set longer overall timeout for page operations - increased from 30 seconds
-	page = page.Timeout(60 * time.Second)
+	// Set longer overall timeout for page operations - increased for Atlassian OAuth reliability
+	page = page.Timeout(120 * time.Second)
 
 	// Navigate to OAuth authorization URL
 	a.logger.Info().Str("url", authURL).Msg("Navigating to OAuth authorization URL")

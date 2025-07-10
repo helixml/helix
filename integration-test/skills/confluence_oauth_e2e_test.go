@@ -317,7 +317,8 @@ func (suite *ConfluenceOAuthE2ETestSuite) getAtlassianAuthorizationCode(authURL,
 	// Set up Atlassian-specific OAuth handler
 	atlassianHandler := NewAtlassianOAuthHandler(suite.logger)
 
-	// Configure Atlassian browser automation with improved selectors
+	// Configure Atlassian browser automation with improved selectors and provider strategy
+	atlassianStrategy := NewAtlassianProviderStrategy(suite.logger)
 	atlassianConfig := BrowserOAuthConfig{
 		ProviderName:            "atlassian",
 		LoginUsernameSelector:   `input[type="email"], input[name="username"], input[id="username"], input[placeholder*="email"], input[placeholder*="Email"]`,
@@ -327,6 +328,7 @@ func (suite *ConfluenceOAuthE2ETestSuite) getAtlassianAuthorizationCode(authURL,
 		CallbackURLPattern:      "/api/v1/oauth/flow/callback",
 		DeviceVerificationCheck: atlassianHandler.IsRequiredForURL,
 		TwoFactorHandler:        atlassianHandler,
+		ProviderStrategy:        atlassianStrategy,
 	}
 
 	// Create automator with Atlassian configuration
