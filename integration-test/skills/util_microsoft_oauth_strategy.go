@@ -12,14 +12,12 @@ import (
 
 // MicrosoftProviderStrategy implements Microsoft-specific OAuth automation
 type MicrosoftProviderStrategy struct {
-	config BrowserOAuthConfig
 	logger zerolog.Logger
 }
 
 // NewMicrosoftProviderStrategy creates a Microsoft provider strategy
-func NewMicrosoftProviderStrategy(config BrowserOAuthConfig, logger zerolog.Logger) *MicrosoftProviderStrategy {
+func NewMicrosoftProviderStrategy(logger zerolog.Logger) *MicrosoftProviderStrategy {
 	return &MicrosoftProviderStrategy{
-		config: config,
 		logger: logger,
 	}
 }
@@ -103,7 +101,7 @@ func (s *MicrosoftProviderStrategy) ClickNextButton(page *rod.Page, screenshotTa
 			resultStr := result.Value.String()
 			if resultStr == "success" {
 				s.logger.Info().Msg("Successfully clicked Microsoft Next button using JavaScript")
-				screenshotTaker.TakeScreenshot(page, s.config.ProviderName+"_next_button_clicked")
+				screenshotTaker.TakeScreenshot(page, "microsoft_next_button_clicked")
 				return nil
 			}
 			s.logger.Warn().Str("result", resultStr).Msg("Microsoft JavaScript click failed or unexpected result")
@@ -120,7 +118,7 @@ func (s *MicrosoftProviderStrategy) ClickNextButton(page *rod.Page, screenshotTa
 	}
 
 	s.logger.Info().Msg("Successfully clicked Microsoft Next button")
-	screenshotTaker.TakeScreenshot(page, s.config.ProviderName+"_next_button_clicked")
+	screenshotTaker.TakeScreenshot(page, "microsoft_next_button_clicked")
 	return nil
 }
 
@@ -182,7 +180,7 @@ func (s *MicrosoftProviderStrategy) handleEmailInput(page *rod.Page, username st
 	}
 
 	s.logger.Info().Str("username", username).Msg("Successfully entered Microsoft username")
-	screenshotTaker.TakeScreenshot(page, s.config.ProviderName+"_username_filled")
+	screenshotTaker.TakeScreenshot(page, "microsoft_username_filled")
 
 	// Wait a moment for form validation
 	time.Sleep(1 * time.Second)
@@ -214,7 +212,7 @@ func (s *MicrosoftProviderStrategy) handlePasswordInput(page *rod.Page, password
 	}
 
 	s.logger.Info().Msg("Successfully entered Microsoft password")
-	screenshotTaker.TakeScreenshot(page, s.config.ProviderName+"_password_filled")
+	screenshotTaker.TakeScreenshot(page, "microsoft_password_filled")
 
 	// Click Sign in button
 	err = s.ClickNextButton(page, screenshotTaker)

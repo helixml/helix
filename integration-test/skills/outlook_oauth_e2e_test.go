@@ -311,7 +311,7 @@ func (suite *OutlookOAuthE2ETestSuite) getMicrosoftAuthorizationCode(authURL, st
 	}
 
 	// Add Microsoft-specific strategy to the config
-	microsoftConfig.ProviderStrategy = NewMicrosoftProviderStrategy(microsoftConfig, suite.logger)
+	microsoftConfig.ProviderStrategy = NewMicrosoftProviderStrategy(suite.logger)
 
 	// Create automator with Microsoft configuration
 	automator := NewBrowserOAuthAutomator(suite.browser, suite.logger, microsoftConfig)

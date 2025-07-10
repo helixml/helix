@@ -138,8 +138,171 @@ func (s *DefaultProviderStrategy) ClickNextButton(page *rod.Page, screenshotTake
 func (s *DefaultProviderStrategy) HandleLoginFlow(page *rod.Page, username, password string, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Starting generic login flow")
 
-	// For now, delegate to existing logic - this will be fully implemented per provider
-	return fmt.Errorf("HandleLoginFlow not fully implemented in default strategy")
+	// Detect provider type and handle appropriate login flow
+	if s.config.ProviderName == "google" || s.config.ProviderName == "microsoft" {
+		// Google and Microsoft: Two-step process (email → Next → password → Next)
+		s.logger.Info().Str("provider", s.config.ProviderName).Msg("Using two-step login flow")
+
+		// Step 1: Handle email input (first step for Google/Microsoft)
+		err := s.handleEmailInput(page, username, screenshotTaker)
+		if err != nil {
+			return fmt.Errorf("failed to handle email input: %w", err)
+		}
+
+		// Step 2: Handle password input (second step for Google/Microsoft)
+		err = s.handlePasswordInput(page, password, screenshotTaker)
+		if err != nil {
+			return fmt.Errorf("failed to handle password input: %w", err)
+		}
+	} else {
+		// All other providers: Single-step process (username + password → Sign in)
+		s.logger.Info().Str("provider", s.config.ProviderName).Msg("Using single-step login flow")
+
+		err := s.handleSingleStepLogin(page, username, password, screenshotTaker)
+		if err != nil {
+			return fmt.Errorf("failed to handle single-step login: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// handleEmailInput handles the first step of two-step login (email input)
+func (s *DefaultProviderStrategy) handleEmailInput(page *rod.Page, username string, screenshotTaker ScreenshotTaker) error {
+	s.logger.Info().Msg("Handling email input (first step)")
+
+	// Find and fill email field
+	emailField, err := page.Element(s.config.LoginUsernameSelector)
+	if err != nil {
+		return fmt.Errorf("could not find email field: %w", err)
+	}
+
+	err = emailField.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		return fmt.Errorf("could not click email field: %w", err)
+	}
+
+	err = emailField.SelectAllText()
+	if err != nil {
+		return fmt.Errorf("could not select all text in email field: %w", err)
+	}
+
+	err = emailField.Input(username)
+	if err != nil {
+		return fmt.Errorf("could not input email: %w", err)
+	}
+
+	screenshotTaker.TakeScreenshot(page, s.config.ProviderName+"_email_entered")
+
+	// Click Next button to proceed to password step
+	err = s.ClickNextButton(page, screenshotTaker)
+	if err != nil {
+		return fmt.Errorf("failed to click Next button after email: %w", err)
+	}
+
+	// Wait for password page to load
+	time.Sleep(2 * time.Second)
+	screenshotTaker.TakeScreenshot(page, s.config.ProviderName+"_password_page")
+
+	return nil
+}
+
+// handlePasswordInput handles the second step of two-step login (password input)
+func (s *DefaultProviderStrategy) handlePasswordInput(page *rod.Page, password string, screenshotTaker ScreenshotTaker) error {
+	s.logger.Info().Msg("Handling password input (second step)")
+
+	// Find and fill password field
+	passwordField, err := page.Element(s.config.LoginPasswordSelector)
+	if err != nil {
+		return fmt.Errorf("could not find password field: %w", err)
+	}
+
+	err = passwordField.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		return fmt.Errorf("could not click password field: %w", err)
+	}
+
+	err = passwordField.SelectAllText()
+	if err != nil {
+		return fmt.Errorf("could not select all text in password field: %w", err)
+	}
+
+	err = passwordField.Input(password)
+	if err != nil {
+		return fmt.Errorf("could not input password: %w", err)
+	}
+
+	screenshotTaker.TakeScreenshot(page, s.config.ProviderName+"_password_entered")
+
+	// Click Next/Sign in button to proceed
+	err = s.ClickNextButton(page, screenshotTaker)
+	if err != nil {
+		return fmt.Errorf("failed to click Next button after password: %w", err)
+	}
+
+	return nil
+}
+
+// handleSingleStepLogin handles single-step login (username + password in one step)
+func (s *DefaultProviderStrategy) handleSingleStepLogin(page *rod.Page, username, password string, screenshotTaker ScreenshotTaker) error {
+	s.logger.Info().Msg("Handling single-step login")
+
+	// Fill username field
+	usernameField, err := page.Element(s.config.LoginUsernameSelector)
+	if err != nil {
+		return fmt.Errorf("could not find username field: %w", err)
+	}
+
+	err = usernameField.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		return fmt.Errorf("could not click username field: %w", err)
+	}
+
+	err = usernameField.SelectAllText()
+	if err != nil {
+		return fmt.Errorf("could not select all text in username field: %w", err)
+	}
+
+	err = usernameField.Input(username)
+	if err != nil {
+		return fmt.Errorf("could not input username: %w", err)
+	}
+
+	// Fill password field
+	passwordField, err := page.Element(s.config.LoginPasswordSelector)
+	if err != nil {
+		return fmt.Errorf("could not find password field: %w", err)
+	}
+
+	err = passwordField.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		return fmt.Errorf("could not click password field: %w", err)
+	}
+
+	err = passwordField.SelectAllText()
+	if err != nil {
+		return fmt.Errorf("could not select all text in password field: %w", err)
+	}
+
+	err = passwordField.Input(password)
+	if err != nil {
+		return fmt.Errorf("could not input password: %w", err)
+	}
+
+	screenshotTaker.TakeScreenshot(page, s.config.ProviderName+"_credentials_entered")
+
+	// Click login button
+	loginButton, err := page.Element(s.config.LoginButtonSelector)
+	if err != nil {
+		return fmt.Errorf("could not find login button: %w", err)
+	}
+
+	err = loginButton.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		return fmt.Errorf("could not click login button: %w", err)
+	}
+
+	return nil
 }
 
 // HandleAuthorization implements generic authorization handling
