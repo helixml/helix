@@ -361,8 +361,8 @@ func (a *BrowserOAuthAutomator) PerformOAuthFlow(authURL, state, username, passw
 	}
 	defer page.Close()
 
-	// Set overall timeout for page operations
-	page = page.Timeout(30 * time.Second)
+	// Set longer overall timeout for page operations - increased from 30 seconds
+	page = page.Timeout(60 * time.Second)
 
 	// Navigate to OAuth authorization URL
 	a.logger.Info().Str("url", authURL).Msg("Navigating to OAuth authorization URL")
@@ -371,9 +371,9 @@ func (a *BrowserOAuthAutomator) PerformOAuthFlow(authURL, state, username, passw
 		return "", fmt.Errorf("failed to navigate to OAuth URL: %w", err)
 	}
 
-	// Wait for page to load with timeout
+	// Wait for page to load with longer timeout - increased from 15 seconds
 	a.logger.Info().Msg("Waiting for page to load")
-	err = page.Timeout(15 * time.Second).WaitLoad()
+	err = page.Timeout(30 * time.Second).WaitLoad()
 	if err != nil {
 		return "", fmt.Errorf("failed to wait for page load: %w", err)
 	}
@@ -442,8 +442,8 @@ func (a *BrowserOAuthAutomator) checkLoginRequired(page *rod.Page) (bool, error)
 		Str("username_selector", a.config.LoginUsernameSelector).
 		Msg("Checking if login is required")
 
-	// Set timeout for operations
-	page = page.Timeout(10 * time.Second)
+	// Set longer timeout for operations - increased from 10 seconds
+	page = page.Timeout(20 * time.Second)
 
 	// Wait a moment for the page to fully load
 	a.logger.Info().Msg("Waiting 2 seconds for page to fully load")
@@ -467,8 +467,8 @@ func (a *BrowserOAuthAutomator) checkLoginRequired(page *rod.Page) (bool, error)
 func (a *BrowserOAuthAutomator) debugDumpPageElements(page *rod.Page, stepName string) {
 	a.logger.Info().Str("step", stepName).Msg("=== DEBUGGING PAGE ELEMENTS ===")
 
-	// Set timeout for all operations
-	page = page.Timeout(10 * time.Second)
+	// Set longer timeout for all operations - increased from 10 seconds
+	page = page.Timeout(20 * time.Second)
 
 	// Get page HTML with timeout
 	html, err := page.HTML()
@@ -490,8 +490,8 @@ func (a *BrowserOAuthAutomator) debugDumpPageElements(page *rod.Page, stepName s
 				break
 			}
 
-			// Add timeout to attribute operations
-			input = input.Timeout(2 * time.Second)
+			// Add longer timeout to attribute operations - increased from 2 seconds
+			input = input.Timeout(5 * time.Second)
 
 			inputType, _ := input.Attribute("type")
 			inputName, _ := input.Attribute("name")
@@ -549,8 +549,8 @@ func (a *BrowserOAuthAutomator) debugDumpPageElements(page *rod.Page, stepName s
 				break
 			}
 
-			// Add timeout to attribute operations
-			button = button.Timeout(2 * time.Second)
+			// Add longer timeout to attribute operations - increased from 2 seconds
+			button = button.Timeout(5 * time.Second)
 
 			buttonType, _ := button.Attribute("type")
 			buttonID, _ := button.Attribute("id")
