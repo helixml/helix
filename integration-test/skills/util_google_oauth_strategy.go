@@ -2,6 +2,7 @@ package skills
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -25,170 +26,222 @@ func NewGoogleProviderStrategy(logger zerolog.Logger) *GoogleProviderStrategy {
 func (s *GoogleProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Looking for Google Next button")
 
-	// Set timeout for operations
+	// Set reasonable timeout for operations
 	page = page.Timeout(10 * time.Second)
 
-	// Google-specific button selectors
-	nextSelectors := []string{
-		`button[id="identifierNext"]`,        // Google Next button ID
-		`button[type="submit"]`,              // Generic submit button
-		`input[type="submit"][value="Next"]`, // Input style Next button
-		`button:contains("Next")`,            // Button containing "Next" text
+	// Use modern Google button selectors based on debug output - prioritize class-based selectors
+	nextButtonSelectors := []string{
+		// Modern Google button class patterns first (from actual debug output)
+		`button.VfPpkd-LgbsSe.nCP5yc`, // Core Google button classes that appear consistently
+		`button.VfPpkd-LgbsSe`,        // Fallback to core Google button class
+		`button[id="identifierNext"]`, // Legacy Google identifier Next button
+		`button[id="passwordNext"]`,   // Legacy Google password Next button
+		`button[type="submit"]`,       // Generic submit button
+		`input[type="submit"]`,        // Input submit button
 	}
 
-	var nextButton *rod.Element
-	for _, selector := range nextSelectors {
-		s.logger.Info().Str("selector", selector).Msg("Trying Google Next button selector")
-		element, err := page.Timeout(3 * time.Second).Element(selector)
-		if err == nil && element != nil {
-			s.logger.Info().Str("selector", selector).Msg("Found Google Next button")
-			nextButton = element
-			break
-		}
-	}
+	var lastError error
+	for _, selector := range nextButtonSelectors {
+		s.logger.Info().Str("selector", selector).Msg("Trying Next button selector")
 
-	// If direct selectors failed, try Google-specific JavaScript approach
-	if nextButton == nil {
-		s.logger.Info().Msg("Direct selectors failed, using Google-specific JavaScript to click Next button")
+		if strings.Contains(selector, "VfPpkd-LgbsSe") {
+			// For class-based selectors, find all matching elements and check for "Next" text
+			elements, err := page.Elements(selector)
+			if err != nil {
+				lastError = err
+				time.Sleep(3 * time.Second)
+				continue
+			}
 
-		// Google-specific JavaScript that handles button elements
-		jsCode := `
-			(function() {
-				// Check button elements (Google's primary pattern)
-				var buttons = document.querySelectorAll('button');
-				
-				// First check for specific Google button IDs
-				var nextButton = document.getElementById('identifierNext');
-				if (nextButton) {
-					nextButton.click();
-					return 'success';
-				}
-				
-				// Then check button text content
-				for (var i = 0; i < buttons.length; i++) {
-					var text = (buttons[i].textContent || '').trim().toLowerCase();
-					if (text === 'next' || text === 'continue') {
-						buttons[i].click();
-						return 'success';
+			// Check each element for "Next" text
+			for _, element := range elements {
+				text, textErr := element.Text()
+				if textErr == nil {
+					textLower := strings.ToLower(strings.TrimSpace(text))
+					if textLower == "next" || textLower == "continue" {
+						s.logger.Info().Str("selector", selector).Str("text", text).Msg("Found Google Next button by class and text")
+
+						// Click this button
+						err = element.ScrollIntoView()
+						if err != nil {
+							s.logger.Warn().Err(err).Msg("Failed to scroll element into view, trying click anyway")
+						}
+
+						err = element.Click(proto.InputMouseButtonLeft, 1)
+						if err != nil {
+							s.logger.Warn().Err(err).Str("selector", selector).Msg("Failed to click Next button")
+							lastError = err
+							break // Try next selector
+						}
+
+						s.logger.Info().Str("selector", selector).Msg("Successfully clicked Google Next button")
+						screenshotTaker.TakeScreenshot(page, "google_next_button_clicked")
+
+						// Wait a moment for the click to register
+						time.Sleep(2 * time.Second)
+						return nil
 					}
 				}
-				
-				return 'no_next_button_found';
-			})();
-		`
-
-		result, err := page.Eval(jsCode)
-		if err != nil {
-			s.logger.Error().Err(err).Msg("Failed to execute Google JavaScript click")
-		} else {
-			resultStr := result.Value.String()
-			if resultStr == "success" {
-				s.logger.Info().Msg("Successfully clicked Google Next button using JavaScript")
-				screenshotTaker.TakeScreenshot(page, "google_next_button_clicked")
-				return nil
 			}
-			s.logger.Warn().Str("result", resultStr).Msg("Google JavaScript click failed or unexpected result")
+		} else {
+			// For ID and submit selectors, try direct match
+			element, err := page.Element(selector)
+			if err != nil {
+				lastError = err
+				time.Sleep(3 * time.Second)
+				continue
+			}
+
+			// For generic submit buttons, verify text contains "Next"
+			if strings.Contains(selector, "submit") {
+				text, textErr := element.Text()
+				if textErr != nil || !strings.Contains(strings.ToLower(text), "next") {
+					s.logger.Info().Str("selector", selector).Str("text", text).Msg("Button found but doesn't contain 'Next' text")
+					time.Sleep(3 * time.Second)
+					continue
+				}
+			}
+
+			// Try to click the element
+			s.logger.Info().Str("selector", selector).Msg("Found Next button, attempting to click")
+
+			err = element.ScrollIntoView()
+			if err != nil {
+				s.logger.Warn().Err(err).Msg("Failed to scroll element into view, trying click anyway")
+			}
+
+			err = element.Click(proto.InputMouseButtonLeft, 1)
+			if err != nil {
+				s.logger.Warn().Err(err).Str("selector", selector).Msg("Failed to click Next button")
+				lastError = err
+				time.Sleep(3 * time.Second)
+				continue
+			}
+
+			s.logger.Info().Str("selector", selector).Msg("Successfully clicked Google Next button")
+			screenshotTaker.TakeScreenshot(page, "google_next_button_clicked")
+
+			// Wait a moment for the click to register
+			time.Sleep(2 * time.Second)
+			return nil
 		}
-
-		return fmt.Errorf("failed to find Google Next button")
 	}
 
-	// Click the found button
-	nextButton = nextButton.Timeout(5 * time.Second)
-	err := nextButton.Click(proto.InputMouseButtonLeft, 1)
-	if err != nil {
-		return fmt.Errorf("failed to click Google Next button: %w", err)
-	}
-
-	s.logger.Info().Msg("Successfully clicked Google Next button")
-	screenshotTaker.TakeScreenshot(page, "google_next_button_clicked")
-	return nil
+	// If no selector worked, return the last error
+	return fmt.Errorf("failed to find Next button: %w", lastError)
 }
 
 // ClickAuthorizeButton implements Google-specific Authorize button clicking logic
 func (s *GoogleProviderStrategy) ClickAuthorizeButton(page *rod.Page, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Looking for Google Authorize button")
 
-	// Set timeout for operations
+	// Set reasonable timeout for operations - OAuth consent pages can be slower
 	page = page.Timeout(10 * time.Second)
 
-	// Google-specific authorization button selectors
+	// Use modern Google button selectors - same pattern that worked for Next button
 	authSelectors := []string{
-		`button[id="submit_approve_access"]`,   // Google authorization button ID
-		`button:contains("Allow")`,             // Button containing "Allow" text
-		`button:contains("Accept")`,            // Button containing "Accept" text
-		`button[type="submit"]`,                // Generic submit button
-		`input[type="submit"][value="Allow"]`,  // Input style Allow button
-		`input[type="submit"][value="Accept"]`, // Input style Accept button
+		// Modern Google button class patterns first (same as Next button)
+		`button.VfPpkd-LgbsSe.nCP5yc`,         // Core Google button classes
+		`button.VfPpkd-LgbsSe`,                // Fallback to core Google button class
+		`input[type="submit"][value="Allow"]`, // Legacy input style Allow button
+		`button[type="submit"]`,               // Generic submit button
+		`button[data-l*="allow"]`,             // Button with allow data attribute
 	}
 
-	var authButton *rod.Element
+	var lastError error
 	for _, selector := range authSelectors {
-		s.logger.Info().Str("selector", selector).Msg("Trying Google Authorize button selector")
-		element, err := page.Timeout(3 * time.Second).Element(selector)
-		if err == nil && element != nil {
-			s.logger.Info().Str("selector", selector).Msg("Found Google Authorize button")
-			authButton = element
-			break
-		}
-	}
+		s.logger.Info().Str("selector", selector).Msg("Trying authorization button selector")
 
-	// If direct selectors failed, try Google-specific JavaScript approach
-	if authButton == nil {
-		s.logger.Info().Msg("Direct selectors failed, using Google-specific JavaScript to click Authorize button")
+		if strings.Contains(selector, "VfPpkd-LgbsSe") {
+			// For class-based selectors, find all matching elements and check for authorization text
+			elements, err := page.Elements(selector)
+			if err != nil {
+				lastError = err
+				time.Sleep(3 * time.Second)
+				continue
+			}
 
-		// Google-specific JavaScript that handles authorization buttons
-		jsCode := `
-			(function() {
-				// Check button elements (Google's primary pattern)
-				var buttons = document.querySelectorAll('button');
-				
-				// First check for specific Google button IDs
-				var authButton = document.getElementById('submit_approve_access');
-				if (authButton) {
-					authButton.click();
-					return 'success';
-				}
-				
-				// Then check button text content
-				for (var i = 0; i < buttons.length; i++) {
-					var text = (buttons[i].textContent || '').trim().toLowerCase();
-					if (text === 'allow' || text === 'accept' || text === 'authorize') {
-						buttons[i].click();
-						return 'success';
+			// Check each element for authorization text
+			for _, element := range elements {
+				text, textErr := element.Text()
+				if textErr == nil {
+					textLower := strings.ToLower(strings.TrimSpace(text))
+					if textLower == "allow" || textLower == "authorize" ||
+						textLower == "consent" || textLower == "continue" || textLower == "accept" {
+						s.logger.Info().Str("selector", selector).Str("text", text).Msg("Found Google authorization button by class and text")
+
+						// Click this button
+						err = element.ScrollIntoView()
+						if err != nil {
+							s.logger.Warn().Err(err).Msg("Failed to scroll element into view, trying click anyway")
+						}
+
+						err = element.Click(proto.InputMouseButtonLeft, 1)
+						if err != nil {
+							s.logger.Warn().Err(err).Str("selector", selector).Msg("Failed to click authorization button")
+							lastError = err
+							break // Try next selector
+						}
+
+						s.logger.Info().Str("selector", selector).Msg("Successfully clicked Google authorization button")
+						screenshotTaker.TakeScreenshot(page, "google_authorize_button_clicked")
+
+						// Wait a moment for the click to register
+						time.Sleep(2 * time.Second)
+						return nil
 					}
 				}
-				
-				return 'no_auth_button_found';
-			})();
-		`
-
-		result, err := page.Eval(jsCode)
-		if err != nil {
-			s.logger.Error().Err(err).Msg("Failed to execute Google JavaScript click")
-		} else {
-			resultStr := result.Value.String()
-			if resultStr == "success" {
-				s.logger.Info().Msg("Successfully clicked Google Authorize button using JavaScript")
-				screenshotTaker.TakeScreenshot(page, "google_authorize_button_clicked")
-				return nil
 			}
-			s.logger.Warn().Str("result", resultStr).Msg("Google JavaScript click failed or unexpected result")
+		} else {
+			// For legacy selectors, try direct match
+			element, err := page.Element(selector)
+			if err != nil {
+				lastError = err
+				time.Sleep(3 * time.Second)
+				continue
+			}
+
+			// For generic submit buttons, check if text contains allow/consent related words
+			if selector == `button[type="submit"]` {
+				text, textErr := element.Text()
+				if textErr == nil {
+					textLower := strings.ToLower(strings.TrimSpace(text))
+					if !strings.Contains(textLower, "allow") && !strings.Contains(textLower, "authorize") &&
+						!strings.Contains(textLower, "consent") && !strings.Contains(textLower, "continue") {
+						s.logger.Info().Str("selector", selector).Str("text", text).Msg("Button found but doesn't contain authorization text")
+						time.Sleep(3 * time.Second)
+						continue
+					}
+				}
+			}
+
+			// Try to click the element
+			s.logger.Info().Str("selector", selector).Msg("Found authorization button, attempting to click")
+
+			err = element.ScrollIntoView()
+			if err != nil {
+				s.logger.Warn().Err(err).Msg("Failed to scroll element into view, trying click anyway")
+			}
+
+			err = element.Click(proto.InputMouseButtonLeft, 1)
+			if err != nil {
+				s.logger.Warn().Err(err).Str("selector", selector).Msg("Failed to click authorization button")
+				lastError = err
+				time.Sleep(3 * time.Second)
+				continue
+			}
+
+			s.logger.Info().Str("selector", selector).Msg("Successfully clicked Google authorization button")
+			screenshotTaker.TakeScreenshot(page, "google_authorize_button_clicked")
+
+			// Wait a moment for the click to register
+			time.Sleep(2 * time.Second)
+			return nil
 		}
-
-		return fmt.Errorf("failed to find Google Authorize button")
 	}
 
-	// Click the found button
-	authButton = authButton.Timeout(5 * time.Second)
-	err := authButton.Click(proto.InputMouseButtonLeft, 1)
-	if err != nil {
-		return fmt.Errorf("failed to click Google Authorize button: %w", err)
-	}
-
-	s.logger.Info().Msg("Successfully clicked Google Authorize button")
-	screenshotTaker.TakeScreenshot(page, "google_authorize_button_clicked")
-	return nil
+	// If no selector worked, return the last error
+	return fmt.Errorf("failed to find authorization button: %w", lastError)
 }
 
 // HandleLoginFlow implements Google-specific login flow (two-step: email first, then password)
@@ -266,6 +319,14 @@ func (s *GoogleProviderStrategy) handleEmailInput(page *rod.Page, username strin
 	screenshotTaker.TakeScreenshot(page, "google_password_page")
 
 	return nil
+}
+
+// HandleAuthorization implements provider-specific authorization page handling
+func (s *GoogleProviderStrategy) HandleAuthorization(page *rod.Page, screenshotTaker ScreenshotTaker) error {
+	s.logger.Info().Msg("Handling Google authorization page")
+
+	// For Google, we can try to click the authorization/consent button
+	return s.ClickAuthorizeButton(page, screenshotTaker)
 }
 
 // handlePasswordInput handles the second step of Google login (password input)
