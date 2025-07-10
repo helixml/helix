@@ -121,7 +121,7 @@ func TestJiraOAuthSkillsE2E(t *testing.T) {
 	t.Parallel()
 
 	// Set a reasonable timeout for the OAuth browser automation
-	timeout := 90 * time.Second // Reasonable timeout for fast iteration
+	timeout := 5 * time.Minute // Very long timeout for Atlassian browser automation
 	deadline := time.Now().Add(timeout)
 	t.Deadline() // Check if deadline is already set
 
@@ -298,6 +298,22 @@ func (suite *JiraOAuthE2ETestSuite) createOAuthTemplate() error {
 
 // getAtlassianAuthorizationCode performs real browser automation to complete Atlassian OAuth flow
 func (suite *JiraOAuthE2ETestSuite) getAtlassianAuthorizationCode(authURL, state string) (string, error) {
+	// Start enhanced screenshot capture for the OAuth flow
+	suite.logger.Info().Msg("Starting enhanced screenshot capture for Jira OAuth flow")
+	err := suite.StartEnhancedScreenshotCapture("jira_oauth_flow")
+	if err != nil {
+		suite.logger.Error().Err(err).Msg("Failed to start enhanced screenshot capture, continuing without recording")
+	}
+
+	// Ensure enhanced screenshot capture is stopped regardless of outcome
+	defer func() {
+		suite.logger.Info().Msg("Stopping enhanced screenshot capture for Jira OAuth flow")
+		stopErr := suite.StopEnhancedScreenshotCapture()
+		if stopErr != nil {
+			suite.logger.Error().Err(stopErr).Msg("Failed to stop enhanced screenshot capture")
+		}
+	}()
+
 	// Set up Atlassian-specific OAuth handler
 	atlassianHandler := NewAtlassianOAuthHandler(suite.logger)
 

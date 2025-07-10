@@ -13,6 +13,11 @@ import (
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
+
+	"github.com/rs/zerolog"
+	"go.uber.org/mock/gomock"
+	"gocloud.dev/blob/memblob"
+
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/config"
@@ -32,10 +37,7 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/rs/zerolog"
 	goai "github.com/sashabaranov/go-openai"
-	"go.uber.org/mock/gomock"
-	"gocloud.dev/blob/memblob"
 )
 
 // BaseOAuthTestSuite provides common OAuth testing infrastructure
@@ -63,6 +65,11 @@ type BaseOAuthTestSuite struct {
 	// Browser automation
 	browser           *rod.Browser
 	screenshotCounter int
+
+	// Enhanced screenshot capture
+	screenshotPrefix string
+	screenshotTimer  *time.Timer
+	screenshotActive bool
 }
 
 // GetTestResultsDir returns a fixed test results directory that works everywhere
@@ -306,9 +313,9 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 	return nil
 }
 
-// setupBrowser initializes the headless browser for OAuth automation
+// setupBrowser initializes the browser for OAuth automation (with anti-detection measures and video recording)
 func (suite *BaseOAuthTestSuite) setupBrowser() error {
-	suite.logger.Info().Msg("Setting up headless browser for OAuth automation")
+	suite.logger.Info().Msg("Setting up browser for OAuth automation with video recording capabilities")
 
 	chromeURL := os.Getenv("RAG_CRAWLER_LAUNCHER_URL")
 	if chromeURL == "" {
@@ -330,8 +337,9 @@ func (suite *BaseOAuthTestSuite) setupBrowser() error {
 
 // createTestUser creates a test user in both Keycloak and database
 func (suite *BaseOAuthTestSuite) createTestUser() (*types.User, error) {
-	// Use test ID for unique identifiers in parallel tests
-	uniqueID := fmt.Sprintf("%d-%s", time.Now().Unix(), suite.testID)
+	// Use shorter, simpler unique ID for Keycloak compatibility
+	// Generate a shorter ID using timestamp and random number (no underscores)
+	uniqueID := fmt.Sprintf("%d-%d", time.Now().Unix(), rand.Intn(9999))
 
 	user := &types.User{
 		ID:       fmt.Sprintf("test-user-%s", uniqueID),
@@ -340,6 +348,13 @@ func (suite *BaseOAuthTestSuite) createTestUser() (*types.User, error) {
 		FullName: "OAuth Test User",
 		Admin:    false,
 	}
+
+	suite.logger.Info().
+		Str("user_id", user.ID).
+		Str("email", user.Email).
+		Str("realm", "helix").
+		Str("username", user.Username).
+		Msg("creating user in Keycloak")
 
 	// Create user in Keycloak first
 	createdUser, err := suite.keycloak.CreateKeycloakUser(suite.ctx, user)
@@ -404,9 +419,116 @@ func (suite *BaseOAuthTestSuite) TakeScreenshot(page *rod.Page, stepName string)
 	}
 }
 
+// StartEnhancedScreenshotCapture starts taking screenshots at regular intervals during OAuth flow
+func (suite *BaseOAuthTestSuite) StartEnhancedScreenshotCapture(testName string) error {
+	if suite.screenshotActive {
+		suite.logger.Warn().Msg("Enhanced screenshot capture already active, skipping start")
+		return nil
+	}
+
+	suite.logger.Info().Msg("Starting enhanced screenshot capture for OAuth flow debugging")
+
+	// Set up screenshot prefix for this test run
+	suite.screenshotPrefix = fmt.Sprintf("%s_%s_%s", testName, suite.testTimestamp, suite.testID)
+	suite.screenshotActive = true
+
+	suite.logger.Info().Str("screenshot_prefix", suite.screenshotPrefix).Msg("Enhanced screenshot capture started successfully")
+	return nil
+}
+
+// TakeTimedScreenshot takes a screenshot with a timestamp for debugging OAuth flow
+func (suite *BaseOAuthTestSuite) TakeTimedScreenshot(page *rod.Page, stepName string) {
+	if !suite.screenshotActive {
+		return
+	}
+
+	suite.screenshotCounter++
+	timestamp := time.Now().Format("15:04:05.000")
+	filename := fmt.Sprintf("%s_%03d_%s_%s.png", suite.screenshotPrefix, suite.screenshotCounter, timestamp, stepName)
+	filepath := filepath.Join(GetTestResultsDir(), filename)
+
+	// Take screenshot
+	quality := 90
+	screenshot, err := page.Screenshot(true, &proto.PageCaptureScreenshot{
+		Format:  proto.PageCaptureScreenshotFormatPng,
+		Quality: &quality,
+	})
+	if err != nil {
+		suite.logger.Error().Err(err).Str("step", stepName).Msg("Failed to take screenshot")
+		return
+	}
+
+	// Save screenshot
+	err = os.WriteFile(filepath, screenshot, 0644)
+	if err != nil {
+		suite.logger.Error().Err(err).Str("filename", filename).Msg("Failed to save screenshot")
+		return
+	}
+
+	suite.logger.Info().Str("filename", filename).Str("step", stepName).Msg("Screenshot saved with timestamp")
+}
+
+// StartAutoScreenshots starts taking screenshots automatically every 2 seconds
+func (suite *BaseOAuthTestSuite) StartAutoScreenshots(page *rod.Page, stepName string) {
+	if !suite.screenshotActive {
+		return
+	}
+
+	suite.logger.Info().Msg("Starting automatic screenshots every 2 seconds")
+
+	// Take screenshots every 2 seconds
+	suite.screenshotTimer = time.NewTimer(2 * time.Second)
+	go func() {
+		for {
+			select {
+			case <-suite.screenshotTimer.C:
+				if !suite.screenshotActive {
+					return
+				}
+				suite.TakeTimedScreenshot(page, fmt.Sprintf("%s_auto", stepName))
+				suite.screenshotTimer.Reset(2 * time.Second)
+			}
+		}
+	}()
+}
+
+// StopAutoScreenshots stops the automatic screenshot timer
+func (suite *BaseOAuthTestSuite) StopAutoScreenshots() {
+	if suite.screenshotTimer != nil {
+		suite.screenshotTimer.Stop()
+		suite.screenshotTimer = nil
+		suite.logger.Info().Msg("Stopped automatic screenshots")
+	}
+}
+
+// StopEnhancedScreenshotCapture stops the enhanced screenshot capture
+func (suite *BaseOAuthTestSuite) StopEnhancedScreenshotCapture() error {
+	if !suite.screenshotActive {
+		suite.logger.Warn().Msg("Enhanced screenshot capture not active, skipping stop")
+		return nil
+	}
+
+	suite.logger.Info().Msg("Stopping enhanced screenshot capture")
+
+	// Stop any active auto screenshots
+	suite.StopAutoScreenshots()
+
+	suite.screenshotActive = false
+	suite.logger.Info().Msg("Enhanced screenshot capture stopped")
+	return nil
+}
+
 // CleanupBaseInfrastructure cleans up common test resources
 func (suite *BaseOAuthTestSuite) CleanupBaseInfrastructure() {
 	suite.logger.Info().Msg("=== Starting Base Infrastructure Cleanup ===")
+
+	// Stop enhanced screenshot capture if active
+	if suite.screenshotActive {
+		err := suite.StopEnhancedScreenshotCapture()
+		if err != nil {
+			suite.logger.Error().Err(err).Msg("Failed to stop enhanced screenshot capture during cleanup")
+		}
+	}
 
 	// Close browser
 	if suite.browser != nil {
