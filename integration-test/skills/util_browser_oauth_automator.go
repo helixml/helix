@@ -349,104 +349,14 @@ func (a *BrowserOAuthAutomator) debugDumpPageElements(page *rod.Page, stepName s
 	a.logger.Info().Msg("=== END DEBUG ELEMENTS ===")
 }
 
-// performLogin handles the login process (different flows for different providers)
+// performLogin handles the login process
 func (a *BrowserOAuthAutomator) performLogin(page *rod.Page, username, password string, screenshotTaker ScreenshotTaker) error {
-	a.logger.Info().Msg("Login required - starting login process")
+	a.logger.Info().Msg("Login required - filling in credentials")
 
-	// Debug: dump page elements
-	a.debugDumpPageElements(page, "login_start")
-
-	// Detect provider type and handle appropriate login flow
-	if a.config.ProviderName == "google" || a.config.ProviderName == "microsoft" || a.config.ProviderName == "atlassian" {
-		// Google, Microsoft, and Atlassian: Two-step process (email → Continue/Next → password → Login)
-		a.logger.Info().Str("provider", a.config.ProviderName).Msg("Using two-step login flow")
-
-		// Step 1: Handle email input (first step for Google/Microsoft/Atlassian)
-		err := a.handleEmailInput(page, username, screenshotTaker)
-		if err != nil {
-			return fmt.Errorf("failed to handle email input: %w", err)
-		}
-
-		// Step 2: Handle password input (second step for Google/Microsoft/Atlassian)
-		err = a.handlePasswordInput(page, password, screenshotTaker)
-		if err != nil {
-			return fmt.Errorf("failed to handle password input: %w", err)
-		}
-	} else {
-		// GitHub and other providers: Single-step process (username + password → Sign in)
-		a.logger.Info().Str("provider", a.config.ProviderName).Msg("Using single-step login flow")
-
-		err := a.handleSingleStepLogin(page, username, password, screenshotTaker)
-		if err != nil {
-			return fmt.Errorf("failed to handle single-step login: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// handleSingleStepLogin handles single-step login (username + password → Sign in)
-func (a *BrowserOAuthAutomator) handleSingleStepLogin(page *rod.Page, username, password string, screenshotTaker ScreenshotTaker) error {
-	a.logger.Info().Msg("Handling single-step login")
-
-	// Set timeout for operations
-	page = page.Timeout(15 * time.Second)
-
-	// Step 1: Fill username field
-	err := a.fillUsernameField(page, username, screenshotTaker)
+	// Fill in username
+	usernameElement, err := page.Element(a.config.LoginUsernameSelector)
 	if err != nil {
-		return fmt.Errorf("failed to fill username field: %w", err)
-	}
-
-	// Step 2: Fill password field
-	err = a.fillPasswordField(page, password, screenshotTaker)
-	if err != nil {
-		return fmt.Errorf("failed to fill password field: %w", err)
-	}
-
-	// Step 3: Click login button
-	err = a.clickLoginButton(page, screenshotTaker)
-	if err != nil {
-		return fmt.Errorf("failed to click login button: %w", err)
-	}
-
-	// Wait for navigation after login
-	return a.waitForNavigation(page, screenshotTaker)
-}
-
-// fillUsernameField fills the username field (shared by both login flows)
-func (a *BrowserOAuthAutomator) fillUsernameField(page *rod.Page, username string, screenshotTaker ScreenshotTaker) error {
-	a.logger.Info().Msg("Filling username field")
-
-	// Try to find username field using multiple selectors
-	usernameSelectors := strings.Split(a.config.LoginUsernameSelector, ", ")
-	var usernameElement *rod.Element
-	var err error
-
-	for _, selector := range usernameSelectors {
-		selector = strings.TrimSpace(selector)
-		usernameElement, err = page.Element(selector)
-		if err == nil && usernameElement != nil {
-			a.logger.Info().Str("selector", selector).Msg("Found username field")
-			break
-		}
-	}
-
-	if usernameElement == nil {
-		a.debugDumpPageElements(page, "username_field_not_found")
-		return fmt.Errorf("failed to find username field using selectors: %s", a.config.LoginUsernameSelector)
-	}
-
-	// Set timeout for element operations
-	usernameElement = usernameElement.Timeout(15 * time.Second)
-
-	// Clear any existing content and enter username
-	err = usernameElement.SelectAllText()
-	if err == nil {
-		err = usernameElement.Input("")
-		if err != nil {
-			a.logger.Warn().Err(err).Msg("Failed to clear username field")
-		}
+		return fmt.Errorf("failed to find username field: %w", err)
 	}
 
 	err = usernameElement.Input(username)
@@ -454,131 +364,25 @@ func (a *BrowserOAuthAutomator) fillUsernameField(page *rod.Page, username strin
 		return fmt.Errorf("failed to enter username: %w", err)
 	}
 
-	a.logger.Info().Str("username", username).Msg("Successfully entered username")
-	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_username_filled")
-
-	return nil
-}
-
-// fillPasswordField fills the password field using stealth mode (shared by both login flows)
-func (a *BrowserOAuthAutomator) fillPasswordField(page *rod.Page, password string, screenshotTaker ScreenshotTaker) error {
-	a.logger.Info().Msg("Filling password field with stealth mode")
-
-	// Take screenshot before starting password interaction
-	screenshotTaker.TakeScreenshot(page, "before_password_interaction")
-
-	// Find password field with extended timeout
-	passwordField, err := page.Timeout(30 * time.Second).Element(a.config.LoginPasswordSelector)
+	// Fill in password
+	passwordElement := page.MustElement(a.config.LoginPasswordSelector)
+	err = passwordElement.Input(password)
 	if err != nil {
-		return fmt.Errorf("failed to find password field: %w", err)
+		return fmt.Errorf("failed to enter password: %w", err)
 	}
 
-	// Implement stealth mode automation for password field
-	err = a.stealthPasswordInput(page, passwordField, password, screenshotTaker)
-	if err != nil {
-		return fmt.Errorf("failed to enter password with stealth methods: %w", err)
-	}
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_login_filled")
 
-	screenshotTaker.TakeScreenshot(page, "after_password_interaction")
-	a.logger.Info().Msg("Successfully filled password field with stealth mode")
-	return nil
-}
-
-// handleEmailInput handles the email input step (Google's first step)
-func (a *BrowserOAuthAutomator) handleEmailInput(page *rod.Page, username string, screenshotTaker ScreenshotTaker) error {
-	a.logger.Info().Msg("Handling email input step")
-
-	// Set timeout for operations
-	page = page.Timeout(15 * time.Second)
-
-	// Fill username field (reusing common function)
-	err := a.fillUsernameField(page, username, screenshotTaker)
-	if err != nil {
-		return fmt.Errorf("failed to fill username field: %w", err)
-	}
-
-	// Try Rod's native element selection using exact class pattern from debug output
-	a.logger.Info().Msg("Attempting to find Next button using specific class pattern")
-
-	// Use the exact class pattern we see in debug output for the Next button
-	specificSelectors := []string{
-		// Modern Google Next button class pattern (from debug output)
-		"button.VfPpkd-LgbsSe.VfPpkd-LgbsSe-OWXEXe-k8QpJ.VfPpkd-LgbsSe-OWXEXe-dgl2Hf.nCP5yc.AjY5Oe.DuMIQc.LQeN7.BqKGqe.Jskylb.TrZEUc.lw1w4b",
-		// Shorter pattern with key classes
-		"button.VfPpkd-LgbsSe.nCP5yc.AjY5Oe.DuMIQc",
-		// Even shorter pattern
-		"button.VfPpkd-LgbsSe.nCP5yc",
-		// Fallback to core Google button class
-		"button.VfPpkd-LgbsSe",
-	}
-
-	var nextButton *rod.Element
-	for _, selector := range specificSelectors {
-		// Set shorter timeout for each attempt
-		elements, err := page.Timeout(30 * time.Second).Elements(selector) // Increased from 3s to 30s
-		if err == nil && len(elements) > 0 {
-			// Check each element to find the one with "Next" text
-			for _, element := range elements {
-				buttonText, textErr := element.Timeout(15 * time.Second).Text() // Increased from 1s to 15s
-				if textErr == nil && (strings.ToLower(strings.TrimSpace(buttonText)) == "next" || strings.ToLower(strings.TrimSpace(buttonText)) == "continue") {
-					a.logger.Info().Str("selector", selector).Str("button_text", buttonText).Msg("Found Next/Continue button using class pattern")
-					nextButton = element
-					break
-				}
-			}
-			if nextButton != nil {
-				break
-			}
-		}
-	}
-
-	if nextButton != nil {
-		a.logger.Info().Msg("Clicking Next button using class pattern")
-		nextButton.MustClick()
-		a.logger.Info().Msg("Successfully clicked Next button via class pattern")
-		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_next_button_clicked")
-	} else {
-		a.logger.Warn().Msg("Class pattern selection failed, falling back to manual button search")
-		// Fall back to Rod element selection
-		err = a.clickNextButton(page, screenshotTaker)
-		if err != nil {
-			return fmt.Errorf("failed to click Next button: %w", err)
-		}
-	}
-
-	// Wait for navigation to password step
-	return a.waitForNavigation(page, screenshotTaker)
-}
-
-// handlePasswordInput handles the password input step with advanced anti-detection
-func (a *BrowserOAuthAutomator) handlePasswordInput(page *rod.Page, password string, screenshotTaker ScreenshotTaker) error {
-	a.logger.Info().Msg("Attempting to interact with password field using multiple approaches")
-
-	// Take screenshot before starting password interaction
-	screenshotTaker.TakeScreenshot(page, "before_password_interaction")
-
-	// Find password field with extended timeout
-	passwordField, err := page.Timeout(30 * time.Second).Element(a.config.LoginPasswordSelector)
-	if err != nil {
-		return fmt.Errorf("failed to find password field: %w", err)
-	}
-
-	// Implement stealth mode automation for password field
-	err = a.stealthPasswordInput(page, passwordField, password, screenshotTaker)
-	if err != nil {
-		return fmt.Errorf("failed to enter password with stealth methods: %w", err)
-	}
-
-	screenshotTaker.TakeScreenshot(page, "after_password_interaction")
-
-	// Click login/continue button after password entry
-	a.logger.Info().Msg("Password entered successfully, clicking login button")
-	err = a.clickLoginButton(page, screenshotTaker)
+	// Click login button
+	loginButton := page.MustElement(a.config.LoginButtonSelector)
+	err = loginButton.Click(proto.InputMouseButtonLeft, 1)
 	if err != nil {
 		return fmt.Errorf("failed to click login button: %w", err)
 	}
 
-	// Wait for navigation after login
+	a.logger.Info().Msg("Clicked login button")
+
+	// Wait for login navigation
 	return a.waitForNavigation(page, screenshotTaker)
 }
 
@@ -1101,98 +905,6 @@ func (a *BrowserOAuthAutomator) clickNextButton(page *rod.Page, screenshotTaker 
 	}
 
 	return nil
-}
-
-// clickLoginButton clicks the login/sign in button
-func (a *BrowserOAuthAutomator) clickLoginButton(page *rod.Page, _ ScreenshotTaker) error {
-	a.logger.Info().Msg("Looking for login button")
-
-	// Create a context with a very generous timeout for all operations
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-
-	// Simplify - focus on the exact button we know exists from debug output
-	a.logger.Info().Msg("Attempting to find the exact login-submit button")
-
-	// Try the exact selectors we know should work, one by one with contexts
-	exactSelectors := []string{
-		`button[id="login-submit"]`, // Exact match from debug output
-		`#login-submit`,             // CSS ID selector
-		`button[type="submit"]`,     // Type-based selector
-		`input[type="submit"]`,      // Alternative input type
-	}
-
-	var loginButton *rod.Element
-	for i, selector := range exactSelectors {
-		a.logger.Info().Int("selector_index", i).Str("selector", selector).Msg("Trying exact login button selector")
-
-		// Use context-based timeout for element finding
-		elemCtx, elemCancel := context.WithTimeout(ctx, 45*time.Second)
-		element, err := page.Context(elemCtx).Element(selector)
-		elemCancel()
-
-		if err == nil && element != nil {
-			a.logger.Info().Str("selector", selector).Msg("Found login button!")
-			loginButton = element
-			break
-		}
-		a.logger.Warn().Err(err).Str("selector", selector).Msg("Selector failed")
-	}
-
-	if loginButton != nil {
-		a.logger.Info().Msg("Attempting to click login button with stealth mode")
-
-		// Use our proven stealth click function that worked for other elements
-		err := a.performStealthClick(page, loginButton)
-		if err == nil {
-			a.logger.Info().Msg("Login button clicked successfully!")
-			return nil
-		}
-		a.logger.Warn().Err(err).Msg("Stealth click failed, trying simple click")
-
-		// Fallback to simple click
-		clickCtx, clickCancel := context.WithTimeout(ctx, 30*time.Second)
-		err = loginButton.Context(clickCtx).Click(proto.InputMouseButtonLeft, 1)
-		clickCancel()
-		if err == nil {
-			a.logger.Info().Msg("Simple click succeeded!")
-			return nil
-		}
-		a.logger.Warn().Err(err).Msg("Simple click failed, trying JavaScript click")
-
-		// Final fallback to JavaScript click
-		jsCtx, jsCancel := context.WithTimeout(ctx, 30*time.Second)
-		_, err = loginButton.Context(jsCtx).Eval(`(element) => {
-			console.log('Clicking button via JavaScript');
-			element.focus();
-			element.click();
-			// Also dispatch a mouse click event
-			element.dispatchEvent(new MouseEvent('click', {
-				bubbles: true,
-				cancelable: true,
-				view: window
-			}));
-		}`)
-		jsCancel()
-		if err == nil {
-			a.logger.Info().Msg("JavaScript click succeeded!")
-			return nil
-		}
-		a.logger.Error().Err(err).Msg("All click methods failed")
-	}
-
-	// If we get here, no button was found or clicked successfully
-	a.logger.Error().Msg("Could not find or click login button")
-
-	// Add final debugging but with very short timeout to avoid hanging
-	debugCtx, debugCancel := context.WithTimeout(ctx, 5*time.Second)
-	currentURL, _ := page.Context(debugCtx).Eval(`() => window.location.href`)
-	debugCancel()
-	if currentURL != nil {
-		a.logger.Info().Str("current_url", fmt.Sprintf("%v", currentURL.Value)).Msg("Current page URL for debugging")
-	}
-
-	return fmt.Errorf("failed to find or click login button after trying all methods")
 }
 
 // waitForNavigation waits for page navigation after login

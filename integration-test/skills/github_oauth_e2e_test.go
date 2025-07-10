@@ -281,7 +281,7 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 		ProviderName:            "github",
 		LoginUsernameSelector:   `input[name="login"]`,
 		LoginPasswordSelector:   `input[name="password"]`,
-		LoginButtonSelector:     `input[type="submit"][value="Sign in"], button[type="submit"]`,
+		LoginButtonSelector:     `input[type="submit"][name="commit"][value="Sign in"], input[type="submit"][value="Sign in"], button[type="submit"]`,
 		AuthorizeButtonSelector: `input[type="submit"][value="Authorize"], button[value="authorize"], button[name="authorize"], input[name="authorize"], form button[type="submit"]:nth-of-type(1)`,
 		CallbackURLPattern:      "/api/v1/oauth/flow/callback",
 		DeviceVerificationCheck: IsGitHubDeviceVerificationPage,

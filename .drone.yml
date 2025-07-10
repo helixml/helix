@@ -520,6 +520,55 @@ steps:
     - failure
   depends_on: [oauth-jira-integration-test]
 
+- name: oauth-confluence-integration-test
+  image: golang:1.24
+  volumes:
+  - name: oauth-confluence-test-results
+    path: /tmp/helix-oauth-test-results
+  environment:
+    # Atlassian OAuth test credentials (shared with Jira)
+    ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID:
+      from_secret: atlassian_skill_test_oauth_client_id
+    ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_SECRET:
+      from_secret: atlassian_skill_test_oauth_client_secret
+    ATLASSIAN_SKILL_TEST_OAUTH_USERNAME:
+      from_secret: atlassian_skill_test_oauth_username
+    ATLASSIAN_SKILL_TEST_OAUTH_PASSWORD:
+      from_secret: atlassian_skill_test_oauth_password
+    # Database config (running in a sidecar)
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DATABASE: postgres
+    # API URLs
+    HELIX_URL: http://localhost:8080
+    OPENAI_API_KEY:
+      from_secret: openai_api_key
+  commands:
+  - chmod +x scripts/run-oauth-integration-test.sh
+  - ./scripts/run-oauth-integration-test.sh confluence TestConfluenceOAuthSkillsE2E
+  depends_on: [oauth-google-calendar-integration-test]
+
+- name: upload-oauth-confluence-test-artifacts
+  image: plugins/s3
+  settings:
+    bucket: helix-ci-artifacts
+    region: us-east-1
+    source: /tmp/helix-oauth-test-results/**
+    target: oauth-test-results/confluence/${DRONE_BUILD_NUMBER}/
+    strip_prefix: /tmp/helix-oauth-test-results/
+    access_key:
+      from_secret: aws_access_key_id
+    secret_key:
+      from_secret: aws_secret_access_key
+  volumes:
+  - name: oauth-confluence-test-results
+    path: /tmp/helix-oauth-test-results
+  when:
+    status: [success, failure]
+  depends_on: [oauth-confluence-integration-test]
+
 - name: release-backend
   image: golang:1.24-bullseye
   when:
@@ -619,6 +668,8 @@ volumes:
 - name: oauth-google-calendar-test-results
   temp: {}
 - name: oauth-jira-test-results
+  temp: {}
+- name: oauth-confluence-test-results
   temp: {}
 ---
 kind: pipeline
