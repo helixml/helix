@@ -1,0 +1,574 @@
+apiVersion: v1
+kind: Skill
+metadata:
+  name: confluence
+  displayName: Confluence
+  provider: atlassian
+  category: Productivity
+  
+spec:
+  description: |
+    Access Confluence pages, spaces, and content with OAuth authentication.
+
+    This skill provides secure access to Atlassian Confluence API, allowing you to:
+    • View and manage pages and spaces
+    • Create and update content
+    • Search pages and spaces
+    • Manage attachments and comments
+    • Access user and space information
+
+    Example Queries:
+    - "Show me recent pages in my space"
+    - "Search for pages about the project"
+    - "Create a new page in the team space"
+    - "List all spaces I have access to"
+    - "Find pages with specific content"
+
+  systemPrompt: |
+    You are a Confluence knowledge management assistant. Your expertise is in helping users manage their Confluence spaces, pages, and content efficiently.
+
+    Key capabilities:
+    - Page and content management with Confluence API
+    - Space exploration and administration
+    - Content creation and editing
+    - Search and discovery capabilities
+    - User and space information access
+
+    When users ask about knowledge management, documentation, or Confluence content:
+    1. Help them search and discover pages and spaces
+    2. Assist with creating and updating content
+    3. Support content organization and structure
+    4. Provide space insights and statistics
+    5. Help with user and space information
+
+    Always focus on Confluence knowledge management. If asked about other Atlassian services or non-Confluence topics, politely redirect to Confluence-specific assistance.
+
+    Examples of what you can help with:
+    - "Show me all pages in the team space"
+    - "Create a new documentation page"
+    - "Find all pages mentioning the product feature"
+    - "List all spaces I'm watching"
+    - "Search for content created this week"
+
+  icon:
+    type: material-ui
+    name: Description
+    color: '#0052CC'
+    
+  oauth:
+    provider: atlassian
+    scopes:
+      - read:confluence-content.summary
+      - read:confluence-content.all
+      - write:confluence-content
+      - read:confluence-space.summary
+      
+  api:
+    baseUrl: https://api.atlassian.com
+    headers:
+      Accept: application/json
+    
+    schema: |
+      openapi: 3.0.3
+      info:
+        title: Atlassian Confluence API
+        description: Access Confluence pages, spaces, and content
+        version: "1"
+      servers:
+        - url: https://api.atlassian.com
+      paths:
+        /ex/confluence/{cloudId}/wiki/rest/api/user/current:
+          get:
+            summary: Get current user
+            operationId: getConfluenceCurrentUser
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: cloudId
+                in: path
+                required: true
+                schema:
+                  type: string
+            responses:
+              '200':
+                description: Current user information
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        accountId:
+                          type: string
+                        displayName:
+                          type: string
+                        email:
+                          type: string
+                        timeZone:
+                          type: string
+        /ex/confluence/{cloudId}/wiki/rest/api/content:
+          get:
+            summary: Get content
+            operationId: getConfluenceContent
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: cloudId
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: type
+                in: query
+                schema:
+                  type: string
+                  enum: [page, blogpost, attachment, comment]
+                  default: page
+              - name: spaceKey
+                in: query
+                schema:
+                  type: string
+                description: Space key to filter content
+              - name: title
+                in: query
+                schema:
+                  type: string
+                description: Page title to filter by
+              - name: status
+                in: query
+                schema:
+                  type: string
+                  enum: [current, trashed, draft, any]
+                  default: current
+              - name: start
+                in: query
+                schema:
+                  type: integer
+                  default: 0
+              - name: limit
+                in: query
+                schema:
+                  type: integer
+                  default: 25
+                  maximum: 100
+              - name: expand
+                in: query
+                schema:
+                  type: string
+                description: Comma-separated list of properties to expand
+            responses:
+              '200':
+                description: Content results
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        results:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              type:
+                                type: string
+                              title:
+                                type: string
+                              status:
+                                type: string
+                              space:
+                                type: object
+                                properties:
+                                  key:
+                                    type: string
+                                  name:
+                                    type: string
+                              version:
+                                type: object
+                                properties:
+                                  number:
+                                    type: integer
+                                  when:
+                                    type: string
+                                    format: date-time
+                                  by:
+                                    type: object
+                                    properties:
+                                      displayName:
+                                        type: string
+                                      email:
+                                        type: string
+                        start:
+                          type: integer
+                        limit:
+                          type: integer
+                        size:
+                          type: integer
+          post:
+            summary: Create content
+            operationId: createConfluenceContent
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: cloudId
+                in: path
+                required: true
+                schema:
+                  type: string
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required:
+                      - type
+                      - title
+                      - space
+                    properties:
+                      type:
+                        type: string
+                        enum: [page, blogpost]
+                        default: page
+                      title:
+                        type: string
+                      space:
+                        type: object
+                        properties:
+                          key:
+                            type: string
+                      ancestors:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                      body:
+                        type: object
+                        properties:
+                          storage:
+                            type: object
+                            properties:
+                              value:
+                                type: string
+                              representation:
+                                type: string
+                                default: storage
+            responses:
+              '200':
+                description: Content created
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        type:
+                          type: string
+                        title:
+                          type: string
+                        _links:
+                          type: object
+                          properties:
+                            webui:
+                              type: string
+        /ex/confluence/{cloudId}/wiki/rest/api/content/{id}:
+          get:
+            summary: Get content by ID
+            operationId: getConfluenceContentById
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: cloudId
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: id
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: expand
+                in: query
+                schema:
+                  type: string
+                description: Comma-separated list of properties to expand
+            responses:
+              '200':
+                description: Content details
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        type:
+                          type: string
+                        title:
+                          type: string
+                        space:
+                          type: object
+                          properties:
+                            key:
+                              type: string
+                            name:
+                              type: string
+                        body:
+                          type: object
+                          properties:
+                            storage:
+                              type: object
+                              properties:
+                                value:
+                                  type: string
+                                representation:
+                                  type: string
+                        version:
+                          type: object
+                          properties:
+                            number:
+                              type: integer
+                            when:
+                              type: string
+                              format: date-time
+                            by:
+                              type: object
+                              properties:
+                                displayName:
+                                  type: string
+                                email:
+                                  type: string
+          put:
+            summary: Update content
+            operationId: updateConfluenceContent
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: cloudId
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: id
+                in: path
+                required: true
+                schema:
+                  type: string
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required:
+                      - type
+                      - title
+                      - version
+                    properties:
+                      type:
+                        type: string
+                        enum: [page, blogpost]
+                      title:
+                        type: string
+                      body:
+                        type: object
+                        properties:
+                          storage:
+                            type: object
+                            properties:
+                              value:
+                                type: string
+                              representation:
+                                type: string
+                                default: storage
+                      version:
+                        type: object
+                        properties:
+                          number:
+                            type: integer
+            responses:
+              '200':
+                description: Content updated
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        type:
+                          type: string
+                        title:
+                          type: string
+                        version:
+                          type: object
+                          properties:
+                            number:
+                              type: integer
+        /ex/confluence/{cloudId}/wiki/rest/api/space:
+          get:
+            summary: Get spaces
+            operationId: getConfluenceSpaces
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: cloudId
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: spaceKey
+                in: query
+                schema:
+                  type: string
+                description: Space key to filter by
+              - name: type
+                in: query
+                schema:
+                  type: string
+                  enum: [global, personal]
+                description: Space type to filter by
+              - name: status
+                in: query
+                schema:
+                  type: string
+                  enum: [current, archived]
+                  default: current
+              - name: start
+                in: query
+                schema:
+                  type: integer
+                  default: 0
+              - name: limit
+                in: query
+                schema:
+                  type: integer
+                  default: 25
+                  maximum: 100
+              - name: expand
+                in: query
+                schema:
+                  type: string
+                description: Comma-separated list of properties to expand
+            responses:
+              '200':
+                description: List of spaces
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        results:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              key:
+                                type: string
+                              name:
+                                type: string
+                              type:
+                                type: string
+                              status:
+                                type: string
+                              description:
+                                type: object
+                                properties:
+                                  plain:
+                                    type: object
+                                    properties:
+                                      value:
+                                        type: string
+                        start:
+                          type: integer
+                        limit:
+                          type: integer
+                        size:
+                          type: integer
+        /ex/confluence/{cloudId}/wiki/rest/api/content/search:
+          get:
+            summary: Search content
+            operationId: searchConfluenceContent
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: cloudId
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: cql
+                in: query
+                required: true
+                schema:
+                  type: string
+                description: CQL (Confluence Query Language) query string
+              - name: start
+                in: query
+                schema:
+                  type: integer
+                  default: 0
+              - name: limit
+                in: query
+                schema:
+                  type: integer
+                  default: 25
+                  maximum: 100
+              - name: expand
+                in: query
+                schema:
+                  type: string
+                description: Comma-separated list of properties to expand
+            responses:
+              '200':
+                description: Search results
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        results:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              type:
+                                type: string
+                              title:
+                                type: string
+                              excerpt:
+                                type: string
+                              space:
+                                type: object
+                                properties:
+                                  key:
+                                    type: string
+                                  name:
+                                    type: string
+                              lastModified:
+                                type: string
+                                format: date-time
+                        start:
+                          type: integer
+                        limit:
+                          type: integer
+                        size:
+                          type: integer
+                        totalSize:
+                          type: integer
+      components:
+        securitySchemes:
+          BearerAuth:
+            type: http
+            scheme: bearer
+            bearerFormat: JWT
+
+  configurable: false 

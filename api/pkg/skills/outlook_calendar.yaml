@@ -1,0 +1,693 @@
+apiVersion: v1
+kind: Skill
+metadata:
+  name: outlook_calendar
+  displayName: Outlook Calendar
+  provider: microsoft
+  category: Productivity
+  
+spec:
+  description: |
+    Access Outlook Calendar with OAuth authentication.
+
+    This skill provides secure access to Microsoft Graph API for Outlook Calendar, allowing you to:
+    • View and manage calendar events
+    • Create and schedule meetings
+    • Access calendar information
+    • Manage multiple calendars
+    • Search for events and appointments
+
+    Example Queries:
+    - "Show me my calendar events for today"
+    - "Create a meeting for tomorrow at 2pm"
+    - "Find my next appointment"
+    - "List all my calendars"
+    - "What meetings do I have this week?"
+
+  systemPrompt: |
+    You are an Outlook Calendar assistant. Your expertise is in helping users manage their Outlook calendar, view events, and schedule meetings efficiently.
+
+    Key capabilities:
+    - Calendar event viewing and searching with Microsoft Graph API
+    - Meeting creation and scheduling
+    - Calendar management across multiple calendars
+    - Event details and attendee information
+    - Calendar availability checking
+
+    When users ask about calendar events, scheduling, or meeting management:
+    1. Help them search and filter calendar events using Microsoft Graph capabilities
+    2. Assist with viewing event details and attendee information
+    3. Support meeting creation and scheduling
+    4. Provide calendar organization and management tips
+    5. Help with calendar availability and time management
+
+    Always focus on Outlook Calendar management. If asked about other Microsoft services or non-calendar topics, politely redirect to Outlook Calendar-specific assistance.
+
+    Examples of what you can help with:
+    - "Show me my meetings for tomorrow"
+    - "Schedule a team meeting for Friday at 3pm"
+    - "Find all meetings with John next week"
+    - "What's my availability this afternoon?"
+    - "Show me my recurring meetings"
+
+  icon:
+    type: material-ui
+    name: CalendarToday
+    color: '#0078D4'
+    
+  oauth:
+    provider: microsoft
+    scopes:
+      - https://graph.microsoft.com/User.Read
+      - https://graph.microsoft.com/Calendars.Read
+      - https://graph.microsoft.com/Calendars.ReadWrite
+      
+  api:
+    baseUrl: https://graph.microsoft.com
+    headers:
+      Accept: application/json
+    
+    schema: |
+      openapi: 3.0.3
+      info:
+        title: Microsoft Graph API - Outlook Calendar
+        description: Access Outlook Calendar events and calendars
+        version: "v1.0"
+      servers:
+        - url: https://graph.microsoft.com
+      paths:
+        /v1.0/me:
+          get:
+            summary: Get user profile
+            operationId: getCalendarProfile
+            security:
+              - BearerAuth: []
+            responses:
+              '200':
+                description: User profile information
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        userPrincipalName:
+                          type: string
+                        displayName:
+                          type: string
+                        mail:
+                          type: string
+                        mobilePhone:
+                          type: string
+                        officeLocation:
+                          type: string
+        /v1.0/me/events:
+          get:
+            summary: List calendar events
+            operationId: listCalendarEvents
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: $filter
+                in: query
+                schema:
+                  type: string
+                description: Filter events (e.g., "start/dateTime ge '2023-01-01T00:00:00'")
+              - name: $search
+                in: query
+                schema:
+                  type: string
+                description: Search query for events
+              - name: $top
+                in: query
+                schema:
+                  type: integer
+                  default: 10
+                  maximum: 1000
+              - name: $skip
+                in: query
+                schema:
+                  type: integer
+                description: Number of events to skip
+              - name: $select
+                in: query
+                schema:
+                  type: string
+                description: Select specific fields
+              - name: $orderby
+                in: query
+                schema:
+                  type: string
+                  default: "start/dateTime asc"
+                description: Order events by field
+            responses:
+              '200':
+                description: List of calendar events
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        value:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              subject:
+                                type: string
+                              body:
+                                type: object
+                                properties:
+                                  contentType:
+                                    type: string
+                                  content:
+                                    type: string
+                              start:
+                                type: object
+                                properties:
+                                  dateTime:
+                                    type: string
+                                    format: date-time
+                                  timeZone:
+                                    type: string
+                              end:
+                                type: object
+                                properties:
+                                  dateTime:
+                                    type: string
+                                    format: date-time
+                                  timeZone:
+                                    type: string
+                              location:
+                                type: object
+                                properties:
+                                  displayName:
+                                    type: string
+                              attendees:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    status:
+                                      type: object
+                                      properties:
+                                        response:
+                                          type: string
+                                        time:
+                                          type: string
+                                          format: date-time
+                                    emailAddress:
+                                      type: object
+                                      properties:
+                                        name:
+                                          type: string
+                                        address:
+                                          type: string
+                              organizer:
+                                type: object
+                                properties:
+                                  emailAddress:
+                                    type: object
+                                    properties:
+                                      name:
+                                        type: string
+                                      address:
+                                        type: string
+                              isAllDay:
+                                type: boolean
+                              isCancelled:
+                                type: boolean
+                              importance:
+                                type: string
+                              sensitivity:
+                                type: string
+                              showAs:
+                                type: string
+                              type:
+                                type: string
+                              webLink:
+                                type: string
+          post:
+            summary: Create calendar event
+            operationId: createCalendarEvent
+            security:
+              - BearerAuth: []
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      subject:
+                        type: string
+                      body:
+                        type: object
+                        properties:
+                          contentType:
+                            type: string
+                            enum: [Text, HTML]
+                          content:
+                            type: string
+                      start:
+                        type: object
+                        properties:
+                          dateTime:
+                            type: string
+                            format: date-time
+                          timeZone:
+                            type: string
+                      end:
+                        type: object
+                        properties:
+                          dateTime:
+                            type: string
+                            format: date-time
+                          timeZone:
+                            type: string
+                      location:
+                        type: object
+                        properties:
+                          displayName:
+                            type: string
+                      attendees:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            emailAddress:
+                              type: object
+                              properties:
+                                address:
+                                  type: string
+                                name:
+                                  type: string
+                      isAllDay:
+                        type: boolean
+                      importance:
+                        type: string
+                        enum: [Low, Normal, High]
+                      sensitivity:
+                        type: string
+                        enum: [Normal, Personal, Private, Confidential]
+                      showAs:
+                        type: string
+                        enum: [Free, Tentative, Busy, Oof, WorkingElsewhere, Unknown]
+            responses:
+              '201':
+                description: Event created successfully
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        subject:
+                          type: string
+                        webLink:
+                          type: string
+        /v1.0/me/events/{id}:
+          get:
+            summary: Get calendar event by ID
+            operationId: getCalendarEvent
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: id
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: $select
+                in: query
+                schema:
+                  type: string
+                description: Select specific fields
+            responses:
+              '200':
+                description: Calendar event details
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        subject:
+                          type: string
+                        body:
+                          type: object
+                          properties:
+                            contentType:
+                              type: string
+                            content:
+                              type: string
+                        start:
+                          type: object
+                          properties:
+                            dateTime:
+                              type: string
+                              format: date-time
+                            timeZone:
+                              type: string
+                        end:
+                          type: object
+                          properties:
+                            dateTime:
+                              type: string
+                              format: date-time
+                            timeZone:
+                              type: string
+                        location:
+                          type: object
+                          properties:
+                            displayName:
+                              type: string
+                        attendees:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              status:
+                                type: object
+                                properties:
+                                  response:
+                                    type: string
+                                  time:
+                                    type: string
+                                    format: date-time
+                              emailAddress:
+                                type: object
+                                properties:
+                                  name:
+                                    type: string
+                                  address:
+                                    type: string
+                        organizer:
+                          type: object
+                          properties:
+                            emailAddress:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                                address:
+                                  type: string
+                        isAllDay:
+                          type: boolean
+                        isCancelled:
+                          type: boolean
+                        importance:
+                          type: string
+                        sensitivity:
+                          type: string
+                        showAs:
+                          type: string
+                        type:
+                          type: string
+                        webLink:
+                          type: string
+                        createdDateTime:
+                          type: string
+                          format: date-time
+                        lastModifiedDateTime:
+                          type: string
+                          format: date-time
+          patch:
+            summary: Update calendar event
+            operationId: updateCalendarEvent
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: id
+                in: path
+                required: true
+                schema:
+                  type: string
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      subject:
+                        type: string
+                      body:
+                        type: object
+                        properties:
+                          contentType:
+                            type: string
+                            enum: [Text, HTML]
+                          content:
+                            type: string
+                      start:
+                        type: object
+                        properties:
+                          dateTime:
+                            type: string
+                            format: date-time
+                          timeZone:
+                            type: string
+                      end:
+                        type: object
+                        properties:
+                          dateTime:
+                            type: string
+                            format: date-time
+                          timeZone:
+                            type: string
+                      location:
+                        type: object
+                        properties:
+                          displayName:
+                            type: string
+                      attendees:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            emailAddress:
+                              type: object
+                              properties:
+                                address:
+                                  type: string
+                                name:
+                                  type: string
+                      isAllDay:
+                        type: boolean
+                      importance:
+                        type: string
+                        enum: [Low, Normal, High]
+                      sensitivity:
+                        type: string
+                        enum: [Normal, Personal, Private, Confidential]
+                      showAs:
+                        type: string
+                        enum: [Free, Tentative, Busy, Oof, WorkingElsewhere, Unknown]
+            responses:
+              '200':
+                description: Event updated successfully
+          delete:
+            summary: Delete calendar event
+            operationId: deleteCalendarEvent
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: id
+                in: path
+                required: true
+                schema:
+                  type: string
+            responses:
+              '204':
+                description: Event deleted successfully
+        /v1.0/me/calendars:
+          get:
+            summary: List calendars
+            operationId: listCalendars
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: $top
+                in: query
+                schema:
+                  type: integer
+                  default: 10
+                  maximum: 1000
+            responses:
+              '200':
+                description: List of calendars
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        value:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              name:
+                                type: string
+                              color:
+                                type: string
+                              isDefaultCalendar:
+                                type: boolean
+                              canShare:
+                                type: boolean
+                              canViewPrivateItems:
+                                type: boolean
+                              canEdit:
+                                type: boolean
+                              owner:
+                                type: object
+                                properties:
+                                  name:
+                                    type: string
+                                  address:
+                                    type: string
+        /v1.0/me/calendar:
+          get:
+            summary: Get default calendar
+            operationId: getDefaultCalendar
+            security:
+              - BearerAuth: []
+            responses:
+              '200':
+                description: Default calendar information
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        color:
+                          type: string
+                        isDefaultCalendar:
+                          type: boolean
+                        canShare:
+                          type: boolean
+                        canViewPrivateItems:
+                          type: boolean
+                        canEdit:
+                          type: boolean
+                        owner:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            address:
+                              type: string
+        /v1.0/me/calendarview:
+          get:
+            summary: Get calendar view (events in date range)
+            operationId: getCalendarView
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: startDateTime
+                in: query
+                required: true
+                schema:
+                  type: string
+                  format: date-time
+                description: Start date and time for the calendar view
+              - name: endDateTime
+                in: query
+                required: true
+                schema:
+                  type: string
+                  format: date-time
+                description: End date and time for the calendar view
+              - name: $top
+                in: query
+                schema:
+                  type: integer
+                  default: 10
+                  maximum: 1000
+              - name: $skip
+                in: query
+                schema:
+                  type: integer
+                description: Number of events to skip
+              - name: $select
+                in: query
+                schema:
+                  type: string
+                description: Select specific fields
+              - name: $orderby
+                in: query
+                schema:
+                  type: string
+                  default: "start/dateTime asc"
+                description: Order events by field
+            responses:
+              '200':
+                description: Calendar view with events in specified date range
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        value:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              subject:
+                                type: string
+                              start:
+                                type: object
+                                properties:
+                                  dateTime:
+                                    type: string
+                                    format: date-time
+                                  timeZone:
+                                    type: string
+                              end:
+                                type: object
+                                properties:
+                                  dateTime:
+                                    type: string
+                                    format: date-time
+                                  timeZone:
+                                    type: string
+                              location:
+                                type: object
+                                properties:
+                                  displayName:
+                                    type: string
+                              organizer:
+                                type: object
+                                properties:
+                                  emailAddress:
+                                    type: object
+                                    properties:
+                                      name:
+                                        type: string
+                                      address:
+                                        type: string
+                              showAs:
+                                type: string
+                              isAllDay:
+                                type: boolean
+      components:
+        securitySchemes:
+          BearerAuth:
+            type: http
+            scheme: bearer
+            bearerFormat: JWT
+
+  configurable: false 
