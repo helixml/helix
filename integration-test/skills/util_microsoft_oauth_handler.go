@@ -108,37 +108,65 @@ func (h *MicrosoftOAuthHandler) handleEnterpriseAuthentication(page *rod.Page) e
 
 	// Strategy 1: Try to click the Accept/Yes button immediately (we know it's there from page dumps)
 	// This is the most direct approach since we consistently see the same button structure
+	// Based on page dumps, the button typically has id="idSIButton9" and value="Yes"
 	immediateSelectors := []string{
-		`input[type="submit"][name="idSIButton9"][value="Accept"]`, // Accept button with name (most common)
-		`input[type="submit"][value="Accept"]`,                     // Accept button specifically
-		`input[name="idSIButton9"]`,                                // Microsoft enterprise button (from page dump)
-		`input[type="submit"][id="idSIButton9"][value="Yes"]`,      // Yes button for older flows
-		`input[id="idSIButton9"][value="Yes"]`,                     // Yes button with id
-		`input[type="submit"][value="Yes"]`,                        // Yes button by value
+		`input[type="submit"][id="idSIButton9"][value="Yes"]`,    // Yes button with id (most common from page dumps)
+		`input[id="idSIButton9"][value="Yes"]`,                   // Yes button with id
+		`input[type="submit"][value="Yes"]`,                      // Yes button by value
+		`input[name="idSIButton9"]`,                              // Microsoft enterprise button (from page dump)
+		`input[type="submit"][id="idSIButton9"][value="Accept"]`, // Accept button with id (alternative)
+		`input[type="submit"][value="Accept"]`,                   // Accept button specifically
 	}
+
+	// Wait for JavaScript to complete loading before trying to click
+	h.logger.Info().Msg("Waiting for JavaScript to complete loading")
+	time.Sleep(5 * time.Second)
+
+	// Try to wait for page to be fully loaded
+	page.WaitLoad()
 
 	for _, selector := range immediateSelectors {
 		h.logger.Info().Str("selector", selector).Msg("Trying immediate click of enterprise Accept button")
-		element, err := page.Timeout(30 * time.Second).Element(selector)
+		element, err := page.Timeout(15 * time.Second).Element(selector)
 		if err == nil && element != nil {
+			// Check if element is visible
 			visible, visErr := element.Visible()
-			if visErr == nil && visible {
-				h.logger.Info().Str("selector", selector).Msg("Found Accept button - clicking immediately")
-				clickErr := element.Click(proto.InputMouseButtonLeft, 1)
-				if clickErr == nil {
-					h.logger.Info().Str("selector", selector).Msg("Successfully clicked Accept button")
-					time.Sleep(3 * time.Second)
-					return nil
-				}
-				h.logger.Error().Str("selector", selector).Err(clickErr).Msg("Failed to click Accept button")
+			if visErr != nil || !visible {
+				h.logger.Info().Str("selector", selector).Msg("Element not visible, skipping")
+				continue
 			}
+
+			// Check if element is interactable (not disabled)
+			disabled, disErr := element.Attribute("disabled")
+			if disErr == nil && disabled != nil && *disabled != "" {
+				h.logger.Info().Str("selector", selector).Msg("Element is disabled, skipping")
+				continue
+			}
+
+			// Check if element is truly interactable using JavaScript
+			if !h.isElementInteractable(element) {
+				h.logger.Info().Str("selector", selector).Msg("Element is not interactable (covered by other elements), skipping")
+				continue
+			}
+
+			// Wait a bit more for any overlays to disappear
+			time.Sleep(2 * time.Second)
+
+			h.logger.Info().Str("selector", selector).Msg("Found Accept button - clicking immediately")
+			clickErr := element.Click(proto.InputMouseButtonLeft, 1)
+			if clickErr == nil {
+				h.logger.Info().Str("selector", selector).Msg("Successfully clicked Accept button")
+				time.Sleep(3 * time.Second)
+				return nil
+			}
+			h.logger.Error().Str("selector", selector).Err(clickErr).Msg("Failed to click Accept button")
 		}
 	}
 
 	// Strategy 2: If immediate click failed, do full debugging and attempt fallback approaches
 	// Create a fresh context with longer timeout for enterprise auth page interactions
 	ctx := context.Background()
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
 	// Create a new page context for element searches
@@ -163,7 +191,7 @@ func (h *MicrosoftOAuthHandler) handleEnterpriseAuthentication(page *rod.Page) e
 	}
 
 	for _, selector := range skipSelectors {
-		element, err := freshPage.Timeout(30 * time.Second).Element(selector)
+		element, err := freshPage.Timeout(15 * time.Second).Element(selector)
 		if err == nil && element != nil {
 			visible, visErr := element.Visible()
 			if visErr == nil && visible {
@@ -179,23 +207,22 @@ func (h *MicrosoftOAuthHandler) handleEnterpriseAuthentication(page *rod.Page) e
 	}
 
 	// Strategy 4: Look for specific Microsoft enterprise buttons (from page dump analysis)
-	// We know from the page dump that the button has name="idSIButton9" and value="Accept"
+	// We know from the page dump that the button has id="idSIButton9" and value="Yes"
 	enterpriseButtonSelectors := []string{
-		`input[type="submit"][name="idSIButton9"][value="Accept"]`, // Accept button with name (most common)
-		`input[type="submit"][value="Accept"]`,                     // Accept button specifically
-		`input[name="idSIButton9"]`,                                // Microsoft enterprise button (from page dump)
-		`input[type="submit"][id="idSIButton9"][value="Yes"]`,      // Yes button for older flows
-		`input[id="idSIButton9"][value="Yes"]`,                     // Yes button with id
-		`input[type="submit"][value="Yes"]`,                        // Yes button specifically
-		`input[type="submit"][id="idSIButton9"][value="Accept"]`,   // Accept button with id (alternative)
-		`input[id="idSIButton9"]`,                                  // Microsoft standard button (often "Continue")
+		`input[type="submit"][id="idSIButton9"][value="Yes"]`,    // Yes button with id (most common from page dumps)
+		`input[id="idSIButton9"][value="Yes"]`,                   // Yes button with id
+		`input[type="submit"][value="Yes"]`,                      // Yes button specifically
+		`input[name="idSIButton9"]`,                              // Microsoft enterprise button (from page dump)
+		`input[type="submit"][id="idSIButton9"][value="Accept"]`, // Accept button with id (alternative)
+		`input[type="submit"][value="Accept"]`,                   // Accept button specifically
+		`input[id="idSIButton9"]`,                                // Microsoft standard button (often "Continue")
 		`input[type="submit"][value="Continue"]`,
 		`input[type="submit"][value="Allow"]`,
 		`input[type="submit"][value="Next"]`,
 		`input[type="submit"][value="Sign in"]`,
-		`button[value="Continue"]`,
-		`button[value="Accept"]`,
 		`button[value="Yes"]`,
+		`button[value="Accept"]`,
+		`button[value="Continue"]`,
 		`button[value="Allow"]`,
 		`button[value="Next"]`,
 		`button[value="Sign in"]`,
@@ -205,7 +232,7 @@ func (h *MicrosoftOAuthHandler) handleEnterpriseAuthentication(page *rod.Page) e
 
 	for _, selector := range enterpriseButtonSelectors {
 		h.logger.Info().Str("selector", selector).Msg("Trying to find enterprise authentication button")
-		element, err := freshPage.Timeout(30 * time.Second).Element(selector)
+		element, err := freshPage.Timeout(15 * time.Second).Element(selector)
 		if err != nil {
 			h.logger.Info().Str("selector", selector).Err(err).Msg("Could not find element with selector")
 			continue
@@ -225,6 +252,22 @@ func (h *MicrosoftOAuthHandler) handleEnterpriseAuthentication(page *rod.Page) e
 			continue
 		}
 
+		// Check if element is interactable (not disabled)
+		disabled, disErr := element.Attribute("disabled")
+		if disErr == nil && disabled != nil && *disabled != "" {
+			h.logger.Info().Str("selector", selector).Msg("Element is disabled, skipping")
+			continue
+		}
+
+		// Check if element is truly interactable using JavaScript
+		if !h.isElementInteractable(element) {
+			h.logger.Info().Str("selector", selector).Msg("Element is not interactable (covered by other elements), skipping")
+			continue
+		}
+
+		// Wait a bit for any overlays to disappear
+		time.Sleep(2 * time.Second)
+
 		h.logger.Info().Str("selector", selector).Msg("Found visible enterprise authentication button - attempting to click")
 		clickErr := element.Click(proto.InputMouseButtonLeft, 1)
 		if clickErr != nil {
@@ -238,7 +281,7 @@ func (h *MicrosoftOAuthHandler) handleEnterpriseAuthentication(page *rod.Page) e
 	}
 
 	// Strategy 5: Look for any clickable element with helpful text
-	allButtons, err := freshPage.Timeout(30 * time.Second).Elements(`button, input[type="submit"], input[type="button"], a`)
+	allButtons, err := freshPage.Timeout(15 * time.Second).Elements(`button, input[type="submit"], input[type="button"], a`)
 	if err == nil {
 		for _, button := range allButtons {
 			visible, visErr := button.Visible()
@@ -344,6 +387,43 @@ func getStringValue(ptr *string) string {
 		return ""
 	}
 	return *ptr
+}
+
+// isElementInteractable checks if element is truly interactable using JavaScript
+func (h *MicrosoftOAuthHandler) isElementInteractable(element *rod.Element) bool {
+	// Check if element is visible and not covered by other elements
+	// Use JavaScript to check computed styles and element positioning
+	js := `
+		(function(element) {
+			// Check if element is visible
+			var style = window.getComputedStyle(element);
+			if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+				return false;
+			}
+			
+			// Check if element is not covered by other elements
+			var rect = element.getBoundingClientRect();
+			var centerX = rect.left + rect.width / 2;
+			var centerY = rect.top + rect.height / 2;
+			var topElement = document.elementFromPoint(centerX, centerY);
+			
+			// The element is interactable if it's the top element or contains the top element
+			return element === topElement || element.contains(topElement);
+		})(this);
+	`
+
+	result, err := element.Eval(js)
+	if err != nil {
+		h.logger.Debug().Err(err).Msg("Failed to check element interactability via JavaScript")
+		return true // Default to true if we can't check
+	}
+
+	if result.Value.Bool() {
+		return true
+	}
+
+	h.logger.Debug().Msg("Element is not interactable (covered by other elements)")
+	return false
 }
 
 // handleAuthorizationPage handles the initial Microsoft authorization page
