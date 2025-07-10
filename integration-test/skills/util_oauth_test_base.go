@@ -479,15 +479,12 @@ func (suite *BaseOAuthTestSuite) StartAutoScreenshots(page *rod.Page, stepName s
 	// Take screenshots every 2 seconds
 	suite.screenshotTimer = time.NewTimer(2 * time.Second)
 	go func() {
-		for {
-			select {
-			case <-suite.screenshotTimer.C:
-				if !suite.screenshotActive {
-					return
-				}
-				suite.TakeTimedScreenshot(page, fmt.Sprintf("%s_auto", stepName))
-				suite.screenshotTimer.Reset(2 * time.Second)
+		for range suite.screenshotTimer.C {
+			if !suite.screenshotActive {
+				return
 			}
+			suite.TakeTimedScreenshot(page, fmt.Sprintf("%s_auto", stepName))
+			suite.screenshotTimer.Reset(2 * time.Second)
 		}
 	}()
 }

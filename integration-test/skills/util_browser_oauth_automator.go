@@ -59,203 +59,6 @@ func NewHumanLikeInteractor(logger zerolog.Logger) *HumanLikeInteractor {
 	}
 }
 
-// randomDelay creates a random delay between min and max milliseconds
-func (h *HumanLikeInteractor) randomDelay(minMs, maxMs int) time.Duration {
-	if minMs >= maxMs {
-		return time.Duration(minMs) * time.Millisecond
-	}
-	randomMs := minMs + int(time.Now().UnixNano()%int64(maxMs-minMs))
-	return time.Duration(randomMs) * time.Millisecond
-}
-
-// moveMouseToElement simulates human-like mouse movement to an element
-func (h *HumanLikeInteractor) moveMouseToElement(page *rod.Page, element *rod.Element) error {
-	h.logger.Info().Msg("Moving mouse to element with human-like movement")
-
-	// Get element shape for positioning
-	shape, err := element.Shape()
-	if err != nil {
-		return fmt.Errorf("failed to get element shape: %w", err)
-	}
-
-	// Get the first quad from the shape
-	if len(shape.Quads) == 0 {
-		return fmt.Errorf("element has no shape quads")
-	}
-
-	// Calculate center position from the first quad
-	quad := shape.Quads[0]
-	centerX := (quad[0] + quad[2] + quad[4] + quad[6]) / 4
-	centerY := (quad[1] + quad[3] + quad[5] + quad[7]) / 4
-
-	// Add small random offset to make it more human-like
-	offsetX := centerX + float64((time.Now().UnixNano()%11)-5) // Random offset -5 to +5
-	offsetY := centerY + float64((time.Now().UnixNano()%11)-5)
-
-	// Move mouse to element with human-like curve
-	return page.Mouse.MoveTo(proto.Point{X: offsetX, Y: offsetY})
-}
-
-// typeStringHumanLike types a string character by character with human-like timing
-func (h *HumanLikeInteractor) typeStringHumanLike(page *rod.Page, text string) error {
-	h.logger.Info().Str("text_length", fmt.Sprintf("%d", len(text))).Msg("Typing string with human-like timing")
-
-	for i, char := range text {
-		// Random delay between keystrokes (50-150ms)
-		delay := h.randomDelay(50, 150)
-		if i > 0 {
-			time.Sleep(delay)
-		}
-
-		// Type individual character
-		err := page.Keyboard.Press(input.Key(char))
-		if err != nil {
-			return fmt.Errorf("failed to type character at position %d: %w", i, err)
-		}
-	}
-
-	return nil
-}
-
-// waitForFieldReadiness waits for a field to be ready for interaction
-func (h *HumanLikeInteractor) waitForFieldReadiness(element *rod.Element, fieldType string) error {
-	h.logger.Info().Str("field_type", fieldType).Msg("Waiting for field to be ready for interaction")
-
-	// Wait for element to be visible
-	for i := 0; i < 10; i++ {
-		visible, err := element.Visible()
-		if err != nil {
-			return fmt.Errorf("failed to check visibility: %w", err)
-		}
-		if visible {
-			break
-		}
-		time.Sleep(h.randomDelay(200, 400))
-	}
-
-	// Wait for element to be interactable (simplified check)
-	// Skip interactable check as it's causing API issues
-	time.Sleep(h.randomDelay(500, 1000)) // Just wait a bit longer instead
-
-	// Additional wait for field stabilization
-	time.Sleep(h.randomDelay(300, 600))
-
-	return nil
-}
-
-// simulateHumanFieldInteraction simulates human-like field interaction
-func (h *HumanLikeInteractor) simulateHumanFieldInteraction(page *rod.Page, element *rod.Element, value string, fieldType string) error {
-	h.logger.Info().Str("field_type", fieldType).Msg("Starting human-like field interaction")
-
-	// Step 1: Wait for field readiness
-	err := h.waitForFieldReadiness(element, fieldType)
-	if err != nil {
-		return fmt.Errorf("field not ready: %w", err)
-	}
-
-	// Step 2: Move mouse to element (human-like)
-	err = h.moveMouseToElement(page, element)
-	if err != nil {
-		h.logger.Warn().Err(err).Msg("Failed to move mouse to element, continuing")
-	}
-
-	// Step 3: Random delay before clicking
-	time.Sleep(h.randomDelay(100, 300))
-
-	// Step 4: Click to focus
-	err = element.Click(proto.InputMouseButtonLeft, 1)
-	if err != nil {
-		h.logger.Warn().Err(err).Msg("Failed to click element, trying focus instead")
-		err = element.Focus()
-		if err != nil {
-			return fmt.Errorf("failed to focus element: %w", err)
-		}
-	}
-
-	// Step 5: Wait for focus to take effect
-	time.Sleep(h.randomDelay(100, 250))
-
-	// Step 6: Clear existing content (human-like)
-	err = h.clearFieldHumanLike(page, element)
-	if err != nil {
-		h.logger.Warn().Err(err).Msg("Failed to clear field, continuing")
-	}
-
-	// Step 7: Wait before typing
-	time.Sleep(h.randomDelay(150, 300))
-
-	// Step 8: Type value character by character
-	err = h.typeStringHumanLike(page, value)
-	if err != nil {
-		h.logger.Warn().Err(err).Msg("Human-like typing failed, trying fallback input")
-
-		// Fallback: Use Rod's input method
-		err = element.Input(value)
-		if err != nil {
-			return fmt.Errorf("all input methods failed: %w", err)
-		}
-	}
-
-	// Step 9: Wait after typing
-	time.Sleep(h.randomDelay(100, 250))
-
-	// Step 10: Simulate field blur to trigger validation
-	err = h.simulateFieldBlur(element)
-	if err != nil {
-		h.logger.Warn().Err(err).Msg("Failed to simulate field blur")
-	}
-
-	return nil
-}
-
-// clearFieldHumanLike clears a field in a human-like way
-func (h *HumanLikeInteractor) clearFieldHumanLike(page *rod.Page, element *rod.Element) error {
-	h.logger.Info().Msg("Clearing field with human-like interaction")
-
-	// Method 1: Select all and delete
-	err := page.Keyboard.Press(input.ControlLeft)
-	if err == nil {
-		time.Sleep(h.randomDelay(50, 100))
-		err = page.Keyboard.Press(input.KeyA)
-		if err == nil {
-			time.Sleep(h.randomDelay(50, 100))
-			err = page.Keyboard.Press(input.Delete)
-			if err == nil {
-				return nil
-			}
-		}
-	}
-
-	// Method 2: Use Rod's select all
-	err = element.SelectAllText()
-	if err == nil {
-		time.Sleep(h.randomDelay(50, 100))
-		err = element.Input("")
-		if err == nil {
-			return nil
-		}
-	}
-
-	// Method 3: JavaScript clear
-	_, err = element.Eval(`(element) => {
-		element.value = '';
-		element.dispatchEvent(new Event('input', { bubbles: true }));
-		element.dispatchEvent(new Event('change', { bubbles: true }));
-	}`)
-
-	return err
-}
-
-// simulateFieldBlur simulates field blur to trigger validation
-func (h *HumanLikeInteractor) simulateFieldBlur(element *rod.Element) error {
-	// Simulate blur event
-	_, err := element.Eval(`(element) => {
-		element.dispatchEvent(new Event('blur', { bubbles: true }));
-		element.dispatchEvent(new Event('focusout', { bubbles: true }));
-	}`)
-	return err
-}
-
 // NewBrowserOAuthAutomator creates a new browser OAuth automator
 func NewBrowserOAuthAutomator(browser *rod.Browser, logger zerolog.Logger, config BrowserOAuthConfig) *BrowserOAuthAutomator {
 	return &BrowserOAuthAutomator{
@@ -780,7 +583,7 @@ func (a *BrowserOAuthAutomator) handlePasswordInput(page *rod.Page, password str
 }
 
 // stealthPasswordInput implements stealth mode password entry with maximum anti-detection
-func (a *BrowserOAuthAutomator) stealthPasswordInput(page *rod.Page, passwordField *rod.Element, password string, screenshotTaker ScreenshotTaker) error {
+func (a *BrowserOAuthAutomator) stealthPasswordInput(page *rod.Page, passwordField *rod.Element, password string, _ ScreenshotTaker) error {
 	a.logger.Info().Msg("Implementing stealth mode password input with anti-detection")
 
 	// Step 1: Wait for natural user behavior timing
@@ -963,7 +766,7 @@ func (a *BrowserOAuthAutomator) simulateRealisticMouseMovement(page *rod.Page, e
 }
 
 // performStealthClick performs realistic click with multiple attempts
-func (a *BrowserOAuthAutomator) performStealthClick(page *rod.Page, element *rod.Element) error {
+func (a *BrowserOAuthAutomator) performStealthClick(_ *rod.Page, element *rod.Element) error {
 	a.logger.Info().Msg("Performing stealth click with realistic behavior")
 
 	// Create a context with a generous timeout for all operations
@@ -1301,7 +1104,7 @@ func (a *BrowserOAuthAutomator) clickNextButton(page *rod.Page, screenshotTaker 
 }
 
 // clickLoginButton clicks the login/sign in button
-func (a *BrowserOAuthAutomator) clickLoginButton(page *rod.Page, screenshotTaker ScreenshotTaker) error {
+func (a *BrowserOAuthAutomator) clickLoginButton(page *rod.Page, _ ScreenshotTaker) error {
 	a.logger.Info().Msg("Looking for login button")
 
 	// Create a context with a very generous timeout for all operations
@@ -1332,9 +1135,8 @@ func (a *BrowserOAuthAutomator) clickLoginButton(page *rod.Page, screenshotTaker
 			a.logger.Info().Str("selector", selector).Msg("Found login button!")
 			loginButton = element
 			break
-		} else {
-			a.logger.Warn().Err(err).Str("selector", selector).Msg("Selector failed")
 		}
+		a.logger.Warn().Err(err).Str("selector", selector).Msg("Selector failed")
 	}
 
 	if loginButton != nil {
@@ -1345,41 +1147,38 @@ func (a *BrowserOAuthAutomator) clickLoginButton(page *rod.Page, screenshotTaker
 		if err == nil {
 			a.logger.Info().Msg("Login button clicked successfully!")
 			return nil
-		} else {
-			a.logger.Warn().Err(err).Msg("Stealth click failed, trying simple click")
-
-			// Fallback to simple click
-			clickCtx, clickCancel := context.WithTimeout(ctx, 30*time.Second)
-			err = loginButton.Context(clickCtx).Click(proto.InputMouseButtonLeft, 1)
-			clickCancel()
-			if err == nil {
-				a.logger.Info().Msg("Simple click succeeded!")
-				return nil
-			} else {
-				a.logger.Warn().Err(err).Msg("Simple click failed, trying JavaScript click")
-
-				// Final fallback to JavaScript click
-				jsCtx, jsCancel := context.WithTimeout(ctx, 30*time.Second)
-				_, err = loginButton.Context(jsCtx).Eval(`(element) => {
-					console.log('Clicking button via JavaScript');
-					element.focus();
-					element.click();
-					// Also dispatch a mouse click event
-					element.dispatchEvent(new MouseEvent('click', {
-						bubbles: true,
-						cancelable: true,
-						view: window
-					}));
-				}`)
-				jsCancel()
-				if err == nil {
-					a.logger.Info().Msg("JavaScript click succeeded!")
-					return nil
-				} else {
-					a.logger.Error().Err(err).Msg("All click methods failed")
-				}
-			}
 		}
+		a.logger.Warn().Err(err).Msg("Stealth click failed, trying simple click")
+
+		// Fallback to simple click
+		clickCtx, clickCancel := context.WithTimeout(ctx, 30*time.Second)
+		err = loginButton.Context(clickCtx).Click(proto.InputMouseButtonLeft, 1)
+		clickCancel()
+		if err == nil {
+			a.logger.Info().Msg("Simple click succeeded!")
+			return nil
+		}
+		a.logger.Warn().Err(err).Msg("Simple click failed, trying JavaScript click")
+
+		// Final fallback to JavaScript click
+		jsCtx, jsCancel := context.WithTimeout(ctx, 30*time.Second)
+		_, err = loginButton.Context(jsCtx).Eval(`(element) => {
+			console.log('Clicking button via JavaScript');
+			element.focus();
+			element.click();
+			// Also dispatch a mouse click event
+			element.dispatchEvent(new MouseEvent('click', {
+				bubbles: true,
+				cancelable: true,
+				view: window
+			}));
+		}`)
+		jsCancel()
+		if err == nil {
+			a.logger.Info().Msg("JavaScript click succeeded!")
+			return nil
+		}
+		a.logger.Error().Err(err).Msg("All click methods failed")
 	}
 
 	// If we get here, no button was found or clicked successfully
