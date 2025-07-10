@@ -160,6 +160,9 @@ func (s *MicrosoftProviderStrategy) HandleAuthorization(page *rod.Page, screensh
 		return fmt.Errorf("failed to click Microsoft authorize button: %w", err)
 	}
 
+	// Take screenshot after successful authorization
+	screenshotTaker.TakeScreenshot(page, "microsoft_authorize_button_clicked")
+
 	return nil
 }
 
