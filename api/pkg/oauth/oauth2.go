@@ -303,6 +303,15 @@ func (p *OAuth2Provider) getUserInfo(ctx context.Context, token *oauth2.Token) (
 		email = getStringValue(data, "userPrincipalName")
 		name = getStringValue(data, "displayName")
 		displayName = getStringValue(data, "displayName")
+	case types.OAuthProviderTypeAtlassian:
+		id = getStringValue(data, "account_id")
+		email = getStringValue(data, "email")
+		name = getStringValue(data, "name")
+		displayName = getStringValue(data, "nickname")
+		if displayName == "" {
+			displayName = name
+		}
+		avatarURL = getStringValue(data, "picture")
 	default:
 		// For custom providers, try some common field names
 		id = getStringValue(data, "id")
