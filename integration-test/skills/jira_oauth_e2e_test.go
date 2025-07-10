@@ -364,7 +364,7 @@ func (h *AtlassianOAuthHandler) IsRequired(page *rod.Page) bool {
 }
 
 // Handle handles 2FA if required (TwoFactorHandler interface)
-func (h *AtlassianOAuthHandler) Handle(page *rod.Page, automator *BrowserOAuthAutomator) error {
+func (h *AtlassianOAuthHandler) Handle(page *rod.Page, _ *BrowserOAuthAutomator) error {
 	currentURL := page.MustInfo().URL
 	h.logger.Info().Str("url", currentURL).Msg("Handling Atlassian 2FA")
 
