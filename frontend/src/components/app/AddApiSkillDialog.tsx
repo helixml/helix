@@ -269,14 +269,12 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   useEffect(() => {
     if (existingTool) {
       if (existingTool.tool_type === 'api') {
-        existingTool.config.api?.actions?.forEach(action => {
-          setParsedActions(prev => [...prev, action]);
-        });
+        setParsedActions(existingTool.config.api?.actions || []);
       }   
     } else {
       setParsedActions([]);
     }
-  }, [skill.apiSkill.schema, schemaError]);
+  }, [skill, existingTool, existingTool?.config.api?.actions]);
 
   const handleChange = (field: string, value: string) => {
     setSkill((prev) => ({
