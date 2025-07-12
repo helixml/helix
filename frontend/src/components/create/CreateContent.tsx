@@ -45,10 +45,7 @@ import {
   getAssistantAvatar,  
 } from '../../utils/apps'
 
-// First, we need to import the necessary components
-import EditIcon from '@mui/icons-material/Edit'
-import IconButton from '@mui/material/IconButton'
-import Tooltip from '@mui/material/Tooltip'
+
 
 const PADDING_X_LARGE = 6
 const PADDING_X_SMALL = 4
@@ -234,40 +231,6 @@ const CreateContent: FC<CreateContentProps> = ({
           }}
         />
       )}
-      {userOwnsApp && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 4,
-            right: 4,
-            zIndex: 3,
-            opacity: 0,
-            transition: 'opacity 0.2s ease-in-out',
-            '#HEADER:hover &': {
-              opacity: 1,
-            },
-          }}
-        >
-          <Tooltip title="Edit App">
-            <IconButton
-              onClick={() => account.orgNavigate('app', { app_id: app?.id })}
-              sx={{
-                mt: 2,
-                mr: 4,
-                color: 'white',
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                },
-                width: 32,
-                height: 32,
-              }}
-            >
-              <EditIcon />
-            </IconButton>
-          </Tooltip>
-        </Box>
-      )}
       <Cell
         sx={{
           pt: 0.5,
@@ -281,6 +244,8 @@ const CreateContent: FC<CreateContentProps> = ({
       >
         <AppCreateHeader
           app={app}
+          showEditButton={userOwnsApp}
+          onEditClick={() => account.orgNavigate('app', { app_id: app?.id })}
         />
       </Cell>
     </Row>
