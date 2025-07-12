@@ -117,6 +117,70 @@ const DisabledProviderMenuItem = styled(MenuItem)(({ theme }) => ({
   },
 }));
 
+const parseActionsFromSchema = (schema: string): IToolApiAction[] => {
+  if (!schema.trim()) {
+    return [];
+  }
+
+  let parsedSchema: any;
+
+  // Try parsing as JSON first
+  try {
+    parsedSchema = JSON.parse(schema);
+  } catch (jsonError) {
+    // If JSON parsing fails, try parsing as YAML
+    try {
+      parsedSchema = yaml.load(schema);
+    } catch (yamlError) {
+      console.error('Failed to parse schema as JSON or YAML:', jsonError, yamlError);
+      return [];
+    }
+  }
+
+  // Validate that it's a valid OpenAPI schema
+  if (!parsedSchema || !parsedSchema.paths || !parsedSchema.openapi) {
+    console.warn('Schema is not a valid OpenAPI specification');
+    return [];
+  }
+
+  const actions: IToolApiAction[] = [];
+
+  // Iterate through all paths in the schema
+  for (const [path, pathItem] of Object.entries(parsedSchema.paths)) {
+    if (typeof pathItem === 'object' && pathItem !== null) {
+      // Check for HTTP methods (GET, POST, PUT, DELETE, etc.)
+      const methods = ['get', 'post', 'put', 'delete', 'patch', 'head', 'options'];
+      
+      for (const method of methods) {
+        const operation = (pathItem as any)[method];
+        if (operation && typeof operation === 'object') {
+          // Extract operation information
+          const operationId = operation.operationId;
+          const summary = operation.summary || '';
+          const description = operation.description || '';
+          
+          // Use operationId as name, fallback to a generated name if missing
+          const name = operationId || `${method.toUpperCase()}_${path.replace(/[^a-zA-Z0-9]/g, '_')}`;
+          
+          // Combine summary and description for the description field
+          const fullDescription = summary && description 
+            ? `${summary}. ${description}` 
+            : summary || description || 'No description available';
+
+          actions.push({
+            name,
+            description: fullDescription,
+            method: method.toUpperCase(),
+            path,
+          });
+        }
+      }
+    }
+  }
+
+  return actions;
+}
+
 const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   open,
   onClose,  
@@ -228,6 +292,10 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
       setOAuthProvider('');
       setOAuthScopes([]);
     }
+    
+    // Reset parsedActions when switching between skills
+    setParsedActions([]);
+    setExistingTool(null);
   }, [initialSkill, open, initialIsEnabled, app.apiTools]);
 
   useEffect(() => {
@@ -272,9 +340,15 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         setParsedActions(existingTool.config.api?.actions || []);
       }   
     } else {
-      setParsedActions([]);
+      // Attempt to parse actions from schema
+      if (skill.apiSkill.schema) {
+        const actions = parseActionsFromSchema(skill.apiSkill.schema);
+        setParsedActions(actions);
+      } else {
+        setParsedActions([]);
+      }
     }
-  }, [skill, existingTool, existingTool?.config.api?.actions]);
+  }, [skill.apiSkill.schema, existingTool, existingTool?.config.api?.actions]);
 
   const handleChange = (field: string, value: string) => {
     setSkill((prev) => ({
