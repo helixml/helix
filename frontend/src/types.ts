@@ -835,6 +835,8 @@ export interface IAppFlatState {
   conversation_starters?: string[];
   triggers?: TypesTrigger[];
   tests?: ITest[];
+
+  tools?: ITool[]
 }
 
 export interface IGptScriptRequest {
