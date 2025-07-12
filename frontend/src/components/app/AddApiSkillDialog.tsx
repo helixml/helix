@@ -22,11 +22,13 @@ import {
   Select,
   Avatar,
   Chip,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import SettingsIcon from '@mui/icons-material/Settings';
-import { IAgentSkill, IRequiredApiParameter, IAppFlatState, IAssistantApi } from '../../types';
+import { IAgentSkill, IRequiredApiParameter, IAppFlatState, IAssistantApi, ITool, IToolApiAction } from '../../types';
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme'
@@ -129,6 +131,10 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   const account = useAccount();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
+  // Tab state
+  const [activeTab, setActiveTab] = useState(0);
+  const [parsedActions, setParsedActions] = useState<IToolApiAction[]>([]);
+
   const [skill, setSkill] = useState<IAgentSkill>({
     name: '',
     description: '',
@@ -145,6 +151,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
   
   const [existingSkill, setExistingSkill] = useState<IAgentSkill | null>(null);
   const [existingSkillIndex, setExistingSkillIndex] = useState<number | null>(null);
+  const [existingTool, setExistingTool] = useState<ITool | null>(null);
   const [parameterValues, setParameterValues] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [schemaError, setSchemaError] = useState<string | null>(null);
@@ -178,7 +185,6 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
 
   useEffect(() => {
     if (initialSkill) {
-      console.log('initialSkill: ', initialSkill);
       setSkill({
         ...initialSkill,
         apiSkill: {
@@ -195,6 +201,12 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
       if (existingIndex !== -1) {
         setExistingSkill(initialSkill);
         setExistingSkillIndex(existingIndex);
+      }
+
+      // Find the existing tool in app.tools
+      const existingTool = app.tools?.find(tool => tool.name === initialSkill.name);
+      if (existingTool) {
+        setExistingTool(existingTool);
       }
     } else {
       // Reset form when opening for new skill
@@ -252,6 +264,19 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skill.apiSkill.requiredParameters, existingSkill, app.apiTools]);
+
+  // Parse actions from schema when schema changes
+  useEffect(() => {
+    if (existingTool) {
+      if (existingTool.tool_type === 'api') {
+        existingTool.config.api?.actions?.forEach(action => {
+          setParsedActions(prev => [...prev, action]);
+        });
+      }   
+    } else {
+      setParsedActions([]);
+    }
+  }, [skill.apiSkill.schema, schemaError]);
 
   const handleChange = (field: string, value: string) => {
     setSkill((prev) => ({
@@ -548,12 +573,616 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
     setOAuthProvider(providerName);
   };
 
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setActiveTab(newValue);
+  };
+
+  const renderGeneralTab = () => (
+    <Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <NameTypography>
+          {skill.name || 'New API Skill'}
+        </NameTypography>
+        {skill.configurable && (
+          <>
+            <Button
+              onClick={handleMenuClick}
+              variant="outlined"
+              size="small"
+              sx={{ 
+                color: '#A0AEC0',
+                borderColor: '#353945',
+                '&:hover': {
+                  borderColor: '#6366F1',
+                  color: '#6366F1',
+                },
+                textTransform: 'none',
+                fontSize: '0.875rem',
+                py: 0.5,
+                px: 1.5,
+              }}
+            >
+              Load from examples
+            </Button>
+            <Menu
+              anchorEl={anchorEl}
+              open={Boolean(anchorEl)}
+              onClose={handleMenuClose}
+              PaperProps={{
+                sx: {
+                  bgcolor: '#23262F',
+                  color: '#F1F1F1',
+                  '& .MuiMenuItem-root': {
+                    '&:hover': {
+                      bgcolor: '#353945',
+                    },
+                  },
+                },
+              }}
+            >
+              
+              <MenuItem onClick={() => handleExampleSelect(climateTool)}>Climate API</MenuItem>
+              <MenuItem onClick={() => handleExampleSelect(jobVacanciesTool)}>Job Vacancies API</MenuItem>
+              <MenuItem onClick={() => handleExampleSelect(exchangeRatesTool)}>Exchange Rates API</MenuItem>
+              <MenuItem onClick={() => handleExampleSelect(productsTool)}>Products API</MenuItem>
+            </Menu>
+          </>
+        )}
+      </Box>
+      <DescriptionTypography>
+        {renderDescriptionWithLinks(skill.description || 'No description provided.')}
+      </DescriptionTypography>
+
+      {skill.configurable && (
+        <SectionCard>
+          <DarkTextField
+            fullWidth
+            label="Name"
+            value={skill.name}
+            helperText="The name of the skill, make it informative and unique for the AI"
+            onChange={(e) => handleChange('name', e.target.value)}
+            margin="normal"
+            required
+          />
+          <DarkTextField
+            fullWidth
+            label="Description"
+            helperText="A short description of the skill, make it informative and unique for the AI"
+            value={skill.description}
+            onChange={(e) => handleChange('description', e.target.value)}
+            margin="normal"
+            required
+            multiline
+            rows={2}
+          />
+          <DarkTextField
+            fullWidth
+            label="Skill System Prompt"
+            helperText="Will be used when running the skill, add special instructions that could help the AI understand the skill better"
+            value={skill.systemPrompt}
+            onChange={(e) => handleChange('systemPrompt', e.target.value)}
+            margin="normal"
+            required
+            multiline
+            rows={4}
+          />
+          <DarkTextField
+            fullWidth
+            label="Server URL"
+            helperText={urlError || "This URL will be used to make API calls"}
+            value={skill.apiSkill.url}
+            onChange={(e) => handleApiSkillChange('url', e.target.value)}
+            margin="normal"
+            required
+            error={!!urlError}
+            sx={{
+              '& .MuiFormHelperText-root': {
+                color: urlError ? '#EF4444' : '#A0AEC0',
+                fontSize: '0.875rem',
+                marginTop: '4px',
+              },
+              '& .MuiOutlinedInput-root': {
+                '&.Mui-error': {
+                  '& fieldset': {
+                    borderColor: '#EF4444',
+                  },
+                },
+              },
+            }}
+          />
+
+          <Box sx={{ mt: 2, mb: 2, ml: 1 }}>
+            <Typography variant="subtitle1" sx={{ mb: 2, color: '#F8FAFC' }}>
+              API Configuration
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={6}>
+                <Tooltip title="Add additional query parameters that will always be set to the API calls that Helix makes.">
+                  <Typography variant="subtitle2" sx={{ mb: 1, color: '#A0AEC0' }}>
+                    Query Parameters
+                  </Typography>
+                </Tooltip>
+                <List>
+                  {Object.entries(skill.apiSkill.query || {}).map(([key, value], index) => (
+                    <ListItem key={`query-${index}`} sx={{ px: 0 }}>
+                      <Grid container spacing={1}>
+                        <Grid item xs={5}>
+                          <DarkTextField
+                            size="small"
+                            placeholder="Key"
+                            value={key}
+                            onChange={(e) => {
+                              const newQuery = { ...skill.apiSkill.query };
+                              delete newQuery[key];
+                              newQuery[e.target.value] = value;
+                              handleApiSkillChange('query', newQuery);
+                            }}
+                            fullWidth
+                          />
+                        </Grid>
+                        <Grid item xs={5}>
+                          <DarkTextField
+                            size="small"
+                            placeholder="Value"
+                            value={value}
+                            onChange={(e) => {
+                              const newQuery = { ...skill.apiSkill.query };
+                              newQuery[key] = e.target.value;
+                              handleApiSkillChange('query', newQuery);
+                            }}
+                            fullWidth
+                          />
+                        </Grid>
+                        <Grid item xs={2}>
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              const newQuery = { ...skill.apiSkill.query };
+                              delete newQuery[key];
+                              handleApiSkillChange('query', newQuery);
+                            }}
+                            sx={{ color: '#F87171' }}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Grid>
+                      </Grid>
+                    </ListItem>
+                  ))}
+                </List>
+                <Button
+                  startIcon={<AddIcon />}
+                  onClick={() => {
+                    const newQuery = { ...skill.apiSkill.query, '': '' };
+                    handleApiSkillChange('query', newQuery);
+                  }}
+                  size="small"
+                  sx={{ mt: 1 }}
+                >
+                  Add Query Parameter
+                </Button>
+              </Grid>
+              <Grid item xs={6}>
+                <Tooltip title="Add additional headers that will always be set to the API calls that Helix makes.">
+                  <Typography variant="subtitle2" sx={{ mb: 1, color: '#A0AEC0' }}>
+                    Headers
+                  </Typography>
+                </Tooltip>
+                <List>
+                  {Object.entries(skill.apiSkill.headers || {}).map(([key, value], index) => (
+                    <ListItem key={`header-${index}`} sx={{ px: 0 }}>
+                      <Grid container spacing={1}>
+                        <Grid item xs={5}>
+                          <DarkTextField
+                            size="small"
+                            placeholder="Key"
+                            value={key}
+                            onChange={(e) => {
+                              const newHeaders = { ...skill.apiSkill.headers };
+                              delete newHeaders[key];
+                              newHeaders[e.target.value] = value;
+                              handleApiSkillChange('headers', newHeaders);
+                            }}
+                            fullWidth
+                          />
+                        </Grid>
+                        <Grid item xs={5}>
+                          <DarkTextField
+                            size="small"
+                            placeholder="Value"
+                            value={value}
+                            onChange={(e) => {
+                              const newHeaders = { ...skill.apiSkill.headers };
+                              newHeaders[key] = e.target.value;
+                              handleApiSkillChange('headers', newHeaders);
+                            }}
+                            fullWidth
+                          />
+                        </Grid>
+                        <Grid item xs={2}>
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              const newHeaders = { ...skill.apiSkill.headers };
+                              delete newHeaders[key];
+                              handleApiSkillChange('headers', newHeaders);
+                            }}
+                            sx={{ color: '#F87171' }}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Grid>
+                      </Grid>
+                    </ListItem>
+                  ))}
+                </List>
+                <Button
+                  startIcon={<AddIcon />}
+                  onClick={() => {
+                    const newHeaders = { ...skill.apiSkill.headers, '': '' };
+                    handleApiSkillChange('headers', newHeaders);
+                  }}
+                  size="small"
+                  sx={{ mt: 1 }}
+                >
+                  Add Header
+                </Button>
+              </Grid>
+            </Grid>
+          </Box>
+
+          {/* OAuth Configuration Section */}
+          <Box sx={{ mt: 3 }}>
+            <Typography variant="h6" sx={{ mb: 2, color: '#F8FAFC' }}>
+              OAuth Configuration
+            </Typography>
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel id="oauth-provider-label" sx={{ color: '#A0AEC0' }}>OAuth Provider</InputLabel>
+              <Select
+                labelId="oauth-provider-label"
+                id="oauth-provider"
+                value={oauthProvider}
+                label="OAuth Provider"
+                onChange={(e) => handleOAuthProviderChange(e.target.value)}
+                sx={{
+                  '& .MuiInputBase-root': {
+                    color: '#F1F1F1',
+                  },
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#353945',
+                  },
+                  '&:hover .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#6366F1',
+                  },
+                  '& .MuiSvgIcon-root': {
+                    color: '#A0AEC0',
+                  },
+                }}
+              >
+                <MenuItem value="">None</MenuItem>
+                {allOAuthProviders.map((provider) => (
+                  <MenuItem key={provider.id} value={provider.name}>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Avatar 
+                        sx={{ 
+                          bgcolor: PROVIDER_COLORS[provider.type] || PROVIDER_COLORS.custom,
+                          color: 'white',
+                          mr: 1,
+                          width: 24,
+                          height: 24
+                        }}
+                      >
+                        {PROVIDER_ICONS[provider.type] || PROVIDER_ICONS.custom}
+                      </Avatar>
+                      <span>{provider.name}</span>
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {/* OAuth Provider Error Message */}
+            {oauthProviderError && (
+              <Alert severity="warning" sx={{ mt: 2, mb: 2 }}>
+                {oauthProviderError}
+              </Alert>
+            )}
+
+            {oauthProvider && (
+              <Box sx={{ mb: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="subtitle1" sx={{ color: '#F8FAFC' }}>Required Scopes</Typography>
+                  <Button 
+                    startIcon={<AddIcon />} 
+                    onClick={addScope}
+                    variant="outlined"
+                    size="small"
+                    sx={{
+                      borderColor: '#353945',
+                      color: '#A0AEC0',
+                      '&:hover': {
+                        borderColor: '#6366F1',
+                        color: '#6366F1',
+                      },
+                    }}
+                  >
+                    Add Scope
+                  </Button>
+                </Box>
+                
+                {oauthScopes.length === 0 ? (
+                  <Typography variant="body2" sx={{ color: '#A0AEC0' }}>
+                    No scopes defined. Add scopes to request specific permissions.
+                  </Typography>
+                ) : (
+                  oauthScopes.map((scope, index) => (
+                    <Box key={index} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                      <DarkTextField
+                        value={scope}
+                        onChange={(e) => handleScopeChange(index, e.target.value)}
+                        fullWidth
+                        placeholder="Enter scope"
+                        size="small"
+                      />
+                      <IconButton 
+                        onClick={() => removeScope(index)}
+                        sx={{ ml: 1, color: '#F87171' }}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </Box>
+                  ))
+                )}
+              </Box>
+            )}
+          </Box>
+
+          <DarkTextField
+            fullWidth
+            label="OpenAPI Schema"
+            value={skill.apiSkill.schema}
+            onChange={(e) => handleApiSkillChange('schema', e.target.value)}
+            margin="normal"
+            required
+            multiline
+            rows={10}
+            error={!!schemaError}
+            helperText={schemaError || "OpenAPI (Swagger) schema of the API, can be YAML or JSON"}
+            sx={{
+              '& .MuiFormHelperText-root': {
+                color: schemaError ? '#EF4444' : '#A0AEC0',
+                fontSize: '0.875rem',
+                marginTop: '4px',
+              },
+              '& .MuiOutlinedInput-root': {
+                '&.Mui-error': {
+                  '& fieldset': {
+                    borderColor: '#EF4444',
+                  },
+                },
+              },
+            }}
+          />
+        </SectionCard>
+      )}
+
+      {skill.apiSkill.requiredParameters.length > 0 && (
+        <SectionCard>
+          <Typography variant="h6" gutterBottom sx={{ color: '#F8FAFC' }}>
+            Settings
+          </Typography>
+          <List>
+            {skill.apiSkill.requiredParameters.map((param, index) => (
+              <ListItem key={index} alignItems="flex-start" sx={{ background: '#181A20', borderRadius: 2, mb: 1 }}>
+                <Box sx={{ flex: 1, mb: 2 }}>
+                  <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#F1F1F1' }}>
+                    {param.name}
+                  </Typography>
+                  <Typography variant="caption" color="#A0AEC0" sx={{ mb: 1, display: 'block' }}>
+                    {renderDescriptionWithLinks(param.description)}
+                  </Typography>
+                  <DarkTextField                      
+                    value={parameterValues[param.name] || ''}
+                    onChange={e => handleParameterValueChange(param.name, e.target.value)}
+                    size="small"
+                    fullWidth
+                    required={param.required}
+                    sx={{ mt: 0.5 }}
+                  />
+                </Box>
+                {param.required === false && skill.configurable && (
+                  <ListItemSecondaryAction>
+                    <IconButton
+                      edge="end"
+                      aria-label="delete"
+                      onClick={() => removeRequiredParameter(index)}
+                      sx={{ color: '#F87171' }}
+                    >
+                      <DeleteIcon />
+                    </IconButton>
+                  </ListItemSecondaryAction>
+                )}
+              </ListItem>
+            ))}
+          </List>
+          {skill.configurable && (
+            <DarkButton
+              startIcon={<AddIcon />}
+              onClick={addRequiredParameter}
+              variant="outlined"
+              size="small"
+              sx={{ mt: 1, borderColor: '#353945' }}
+            >
+              Add Parameter
+            </DarkButton>
+          )}
+        </SectionCard>
+      )}
+    </Box>
+  );
+
+  const renderDetailsTab = () => (
+    <Box>
+      <Typography variant="h6" sx={{ mb: 3, color: '#F8FAFC' }}>
+        API tools
+      </Typography>
+      
+      {/* URL display */}
+      {skill.apiSkill.url && (
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="subtitle2" sx={{ color: '#A0AEC0', mb: 1 }}>
+            Server URL:
+          </Typography>
+          <Typography variant="body1" sx={{ color: '#F1F1F1', fontFamily: 'monospace', bgcolor: '#23262F', p: 1, borderRadius: 1 }}>
+            {skill.apiSkill.url}
+          </Typography>
+        </Box>
+      )}
+      
+      {parsedActions.length === 0 ? (
+        <Box sx={{ 
+          border: '1px solid #757575', 
+          borderRadius: 2, 
+          p: 3, 
+          textAlign: 'center',
+          color: '#A0AEC0'
+        }}>
+          <Typography variant="body1" sx={{ mb: 1 }}>
+            No actions found
+          </Typography>
+          <Typography variant="body2">
+            {schemaError ? 
+              'Please fix the schema errors above to see parsed actions.' : 
+              'Add a valid OpenAPI schema to see the available actions.'
+            }
+          </Typography>
+        </Box>
+      ) : (
+        <Box sx={{ 
+          border: '1px solid #353945', 
+          borderRadius: 2,
+          overflow: 'hidden'
+        }}>
+          <Box sx={{ 
+            bgcolor: '#23262F', 
+            p: 2, 
+            borderBottom: '1px solid #353945',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1
+          }}>
+            <Tooltip title="API Tool">
+              <SettingsIcon fontSize="small" sx={{ color: lightTheme.textColorFaded }} />
+            </Tooltip>
+            <Typography variant="subtitle2" sx={{ color: lightTheme.textColorFaded, fontWeight: 500 }}>
+              Available Actions ({parsedActions.length})
+            </Typography>
+          </Box>
+          
+          <Box sx={{ maxHeight: '400px', overflow: 'auto' }}>
+            <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse' }}>
+              <Box component="thead" sx={{ bgcolor: '#181A20' }}>
+                <Box component="tr">
+                  <Box component="th" sx={{ 
+                    p: 2, 
+                    textAlign: 'left', 
+                    color: '#A0AEC0', 
+                    fontSize: '0.875rem',
+                    fontWeight: 500,
+                    borderBottom: '1px solid #353945'
+                  }}>
+                    Method
+                  </Box>
+                  <Box component="th" sx={{ 
+                    p: 2, 
+                    textAlign: 'left', 
+                    color: '#A0AEC0', 
+                    fontSize: '0.875rem',
+                    fontWeight: 500,
+                    borderBottom: '1px solid #353945'
+                  }}>
+                    Action Name
+                  </Box>
+                  <Box component="th" sx={{ 
+                    p: 2, 
+                    textAlign: 'left', 
+                    color: '#A0AEC0', 
+                    fontSize: '0.875rem',
+                    fontWeight: 500,
+                    borderBottom: '1px solid #353945'
+                  }}>
+                    Description
+                  </Box>
+                </Box>
+              </Box>
+              <Box component="tbody">
+                {parsedActions.map((action, index) => (
+                  <Tooltip 
+                    key={index}
+                    title={action.description || ''}
+                  >
+                    <Box component="tr" sx={{ 
+                      '&:hover': { bgcolor: '#23262F' },
+                      borderBottom: index < parsedActions.length - 1 ? '1px solid #353945' : 'none'
+                    }}>
+                      <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                        <Chip 
+                          label={action.method} 
+                          size="small" 
+                          sx={{ 
+                            fontSize: '0.7rem',
+                            height: '20px',
+                            backgroundColor: action.method === 'GET' ? '#10B981' : 
+                                           action.method === 'POST' ? '#3B82F6' : 
+                                           action.method === 'PUT' ? '#F59E0B' : 
+                                           action.method === 'DELETE' ? '#EF4444' : '#6B7280',
+                            color: 'white',
+                            fontWeight: 500
+                          }} 
+                        />
+                      </Box>
+                      <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                        <Typography sx={{ 
+                          color: lightTheme.textColorFaded,
+                          fontWeight: 500,
+                          fontSize: '0.875rem'
+                        }}>
+                          {action.name}
+                        </Typography>
+                      </Box>
+                      <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                        <Typography sx={{ 
+                          color: '#A0AEC0',
+                          fontSize: '0.8rem',
+                          lineHeight: 1.4
+                        }}>
+                          {action.description || 'No description available'}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </Tooltip>
+                ))}
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+      )}
+    </Box>
+  );
+
   return (
     <DarkDialog 
       open={open} 
       onClose={handleClose} 
       maxWidth="md" 
       fullWidth
+      PaperProps={{
+        sx: {
+          height: '90vh',
+          maxHeight: '800px',
+          minHeight: '600px'
+        }
+      }}
       TransitionProps={{
         onExited: () => {
           setSkill({
@@ -574,453 +1203,51 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
           setParameterValues({});
           setSchemaError(null);
           setUrlError(null);
+          setActiveTab(0);
+          setParsedActions([]);
           onClosed?.();
         }
       }}
     >
-      <DialogContent sx={lightTheme.scrollbar}>
+      <DialogContent sx={{ ...lightTheme.scrollbar, height: '100%', display: 'flex', flexDirection: 'column' }}>
         <Box sx={{ 
-          mt: 2,          
-          }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <NameTypography>
-              {skill.name || 'New API Skill'}
-            </NameTypography>
-            {skill.configurable && (
-              <>
-                <Button
-                  onClick={handleMenuClick}
-                  variant="outlined"
-                  size="small"
-                  sx={{ 
-                    color: '#A0AEC0',
-                    borderColor: '#353945',
-                    '&:hover': {
-                      borderColor: '#6366F1',
-                      color: '#6366F1',
-                    },
-                    textTransform: 'none',
-                    fontSize: '0.875rem',
-                    py: 0.5,
-                    px: 1.5,
-                  }}
-                >
-                  Load from examples
-                </Button>
-                <Menu
-                  anchorEl={anchorEl}
-                  open={Boolean(anchorEl)}
-                  onClose={handleMenuClose}
-                  PaperProps={{
-                    sx: {
-                      bgcolor: '#23262F',
-                      color: '#F1F1F1',
-                      '& .MuiMenuItem-root': {
-                        '&:hover': {
-                          bgcolor: '#353945',
-                        },
-                      },
-                    },
-                  }}
-                >
-                  
-                  <MenuItem onClick={() => handleExampleSelect(climateTool)}>Climate API</MenuItem>
-                  <MenuItem onClick={() => handleExampleSelect(jobVacanciesTool)}>Job Vacancies API</MenuItem>
-                  <MenuItem onClick={() => handleExampleSelect(exchangeRatesTool)}>Exchange Rates API</MenuItem>
-                  <MenuItem onClick={() => handleExampleSelect(productsTool)}>Products API</MenuItem>
-                </Menu>
-              </>
-            )}
+          mt: 2,
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden'
+        }}>
+          
+          {/* Tabs */}
+          <Box sx={{ borderBottom: 1, borderColor: '#353945', mb: 3 }}>
+            <Tabs 
+              value={activeTab} 
+              onChange={handleTabChange}
+              sx={{
+                '& .MuiTab-root': {
+                  color: '#A0AEC0',
+                  textTransform: 'none',
+                  fontSize: '1rem',
+                  fontWeight: 500,
+                  '&.Mui-selected': {
+                    color: '#F8FAFC',
+                  },
+                },
+                '& .MuiTabs-indicator': {
+                  backgroundColor: '#6366F1',
+                },
+              }}
+            >
+              <Tab label="General" />
+              <Tab label="Details" />
+            </Tabs>
           </Box>
-          <DescriptionTypography>
-            {renderDescriptionWithLinks(skill.description || 'No description provided.')}
-          </DescriptionTypography>
 
-          {skill.configurable && (
-            <SectionCard>
-              <DarkTextField
-                fullWidth
-                label="Name"
-                value={skill.name}
-                helperText="The name of the skill, make it informative and unique for the AI"
-                onChange={(e) => handleChange('name', e.target.value)}
-                margin="normal"
-                required
-              />
-              <DarkTextField
-                fullWidth
-                label="Description"
-                helperText="A short description of the skill, make it informative and unique for the AI"
-                value={skill.description}
-                onChange={(e) => handleChange('description', e.target.value)}
-                margin="normal"
-                required
-                multiline
-                rows={2}
-              />
-              <DarkTextField
-                fullWidth
-                label="Skill System Prompt"
-                helperText="Will be used when running the skill, add special instructions that could help the AI understand the skill better"
-                value={skill.systemPrompt}
-                onChange={(e) => handleChange('systemPrompt', e.target.value)}
-                margin="normal"
-                required
-                multiline
-                rows={4}
-              />
-              <DarkTextField
-                fullWidth
-                label="Server URL"
-                helperText={urlError || "This URL will be used to make API calls"}
-                value={skill.apiSkill.url}
-                onChange={(e) => handleApiSkillChange('url', e.target.value)}
-                margin="normal"
-                required
-                error={!!urlError}
-                sx={{
-                  '& .MuiFormHelperText-root': {
-                    color: urlError ? '#EF4444' : '#A0AEC0',
-                    fontSize: '0.875rem',
-                    marginTop: '4px',
-                  },
-                  '& .MuiOutlinedInput-root': {
-                    '&.Mui-error': {
-                      '& fieldset': {
-                        borderColor: '#EF4444',
-                      },
-                    },
-                  },
-                }}
-              />
-
-              <Box sx={{ mt: 2, mb: 2, ml: 1 }}>
-                <Typography variant="subtitle1" sx={{ mb: 2, color: '#F8FAFC' }}>
-                  API Configuration
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={6}>
-                    <Tooltip title="Add additional query parameters that will always be set to the API calls that Helix makes.">
-                      <Typography variant="subtitle2" sx={{ mb: 1, color: '#A0AEC0' }}>
-                        Query Parameters
-                      </Typography>
-                    </Tooltip>
-                    <List>
-                      {Object.entries(skill.apiSkill.query || {}).map(([key, value], index) => (
-                        <ListItem key={`query-${index}`} sx={{ px: 0 }}>
-                          <Grid container spacing={1}>
-                            <Grid item xs={5}>
-                              <DarkTextField
-                                size="small"
-                                placeholder="Key"
-                                value={key}
-                                onChange={(e) => {
-                                  const newQuery = { ...skill.apiSkill.query };
-                                  delete newQuery[key];
-                                  newQuery[e.target.value] = value;
-                                  handleApiSkillChange('query', newQuery);
-                                }}
-                                fullWidth
-                              />
-                            </Grid>
-                            <Grid item xs={5}>
-                              <DarkTextField
-                                size="small"
-                                placeholder="Value"
-                                value={value}
-                                onChange={(e) => {
-                                  const newQuery = { ...skill.apiSkill.query };
-                                  newQuery[key] = e.target.value;
-                                  handleApiSkillChange('query', newQuery);
-                                }}
-                                fullWidth
-                              />
-                            </Grid>
-                            <Grid item xs={2}>
-                              <IconButton
-                                size="small"
-                                onClick={() => {
-                                  const newQuery = { ...skill.apiSkill.query };
-                                  delete newQuery[key];
-                                  handleApiSkillChange('query', newQuery);
-                                }}
-                                sx={{ color: '#F87171' }}
-                              >
-                                <DeleteIcon />
-                              </IconButton>
-                            </Grid>
-                          </Grid>
-                        </ListItem>
-                      ))}
-                    </List>
-                    <Button
-                      startIcon={<AddIcon />}
-                      onClick={() => {
-                        const newQuery = { ...skill.apiSkill.query, '': '' };
-                        handleApiSkillChange('query', newQuery);
-                      }}
-                      size="small"
-                      sx={{ mt: 1 }}
-                    >
-                      Add Query Parameter
-                    </Button>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Tooltip title="Add additional headers that will always be set to the API calls that Helix makes.">
-                      <Typography variant="subtitle2" sx={{ mb: 1, color: '#A0AEC0' }}>
-                        Headers
-                      </Typography>
-                    </Tooltip>
-                    <List>
-                      {Object.entries(skill.apiSkill.headers || {}).map(([key, value], index) => (
-                        <ListItem key={`header-${index}`} sx={{ px: 0 }}>
-                          <Grid container spacing={1}>
-                            <Grid item xs={5}>
-                              <DarkTextField
-                                size="small"
-                                placeholder="Key"
-                                value={key}
-                                onChange={(e) => {
-                                  const newHeaders = { ...skill.apiSkill.headers };
-                                  delete newHeaders[key];
-                                  newHeaders[e.target.value] = value;
-                                  handleApiSkillChange('headers', newHeaders);
-                                }}
-                                fullWidth
-                              />
-                            </Grid>
-                            <Grid item xs={5}>
-                              <DarkTextField
-                                size="small"
-                                placeholder="Value"
-                                value={value}
-                                onChange={(e) => {
-                                  const newHeaders = { ...skill.apiSkill.headers };
-                                  newHeaders[key] = e.target.value;
-                                  handleApiSkillChange('headers', newHeaders);
-                                }}
-                                fullWidth
-                              />
-                            </Grid>
-                            <Grid item xs={2}>
-                              <IconButton
-                                size="small"
-                                onClick={() => {
-                                  const newHeaders = { ...skill.apiSkill.headers };
-                                  delete newHeaders[key];
-                                  handleApiSkillChange('headers', newHeaders);
-                                }}
-                                sx={{ color: '#F87171' }}
-                              >
-                                <DeleteIcon />
-                              </IconButton>
-                            </Grid>
-                          </Grid>
-                        </ListItem>
-                      ))}
-                    </List>
-                    <Button
-                      startIcon={<AddIcon />}
-                      onClick={() => {
-                        const newHeaders = { ...skill.apiSkill.headers, '': '' };
-                        handleApiSkillChange('headers', newHeaders);
-                      }}
-                      size="small"
-                      sx={{ mt: 1 }}
-                    >
-                      Add Header
-                    </Button>
-                  </Grid>
-                </Grid>
-              </Box>
-
-              {/* OAuth Configuration Section */}
-              <Box sx={{ mt: 3 }}>
-                <Typography variant="h6" sx={{ mb: 2, color: '#F8FAFC' }}>
-                  OAuth Configuration
-                </Typography>
-                <FormControl fullWidth sx={{ mb: 2 }}>
-                  <InputLabel id="oauth-provider-label" sx={{ color: '#A0AEC0' }}>OAuth Provider</InputLabel>
-                  <Select
-                    labelId="oauth-provider-label"
-                    id="oauth-provider"
-                    value={oauthProvider}
-                    label="OAuth Provider"
-                    onChange={(e) => handleOAuthProviderChange(e.target.value)}
-                    sx={{
-                      '& .MuiInputBase-root': {
-                        color: '#F1F1F1',
-                      },
-                      '& .MuiOutlinedInput-notchedOutline': {
-                        borderColor: '#353945',
-                      },
-                      '&:hover .MuiOutlinedInput-notchedOutline': {
-                        borderColor: '#6366F1',
-                      },
-                      '& .MuiSvgIcon-root': {
-                        color: '#A0AEC0',
-                      },
-                    }}
-                  >
-                    <MenuItem value="">None</MenuItem>
-                    {allOAuthProviders.map((provider) => (
-                      <MenuItem key={provider.id} value={provider.name}>
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          <Avatar 
-                            sx={{ 
-                              bgcolor: PROVIDER_COLORS[provider.type] || PROVIDER_COLORS.custom,
-                              color: 'white',
-                              mr: 1,
-                              width: 24,
-                              height: 24
-                            }}
-                          >
-                            {PROVIDER_ICONS[provider.type] || PROVIDER_ICONS.custom}
-                          </Avatar>
-                          <span>{provider.name}</span>
-                        </Box>
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-
-                {/* OAuth Provider Error Message */}
-                {oauthProviderError && (
-                  <Alert severity="warning" sx={{ mt: 2, mb: 2 }}>
-                    {oauthProviderError}
-                  </Alert>
-                )}
-
-                {oauthProvider && (
-                  <Box sx={{ mb: 2 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                      <Typography variant="subtitle1" sx={{ color: '#F8FAFC' }}>Required Scopes</Typography>
-                      <Button 
-                        startIcon={<AddIcon />} 
-                        onClick={addScope}
-                        variant="outlined"
-                        size="small"
-                        sx={{
-                          borderColor: '#353945',
-                          color: '#A0AEC0',
-                          '&:hover': {
-                            borderColor: '#6366F1',
-                            color: '#6366F1',
-                          },
-                        }}
-                      >
-                        Add Scope
-                      </Button>
-                    </Box>
-                    
-                    {oauthScopes.length === 0 ? (
-                      <Typography variant="body2" sx={{ color: '#A0AEC0' }}>
-                        No scopes defined. Add scopes to request specific permissions.
-                      </Typography>
-                    ) : (
-                      oauthScopes.map((scope, index) => (
-                        <Box key={index} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                          <DarkTextField
-                            value={scope}
-                            onChange={(e) => handleScopeChange(index, e.target.value)}
-                            fullWidth
-                            placeholder="Enter scope"
-                            size="small"
-                          />
-                          <IconButton 
-                            onClick={() => removeScope(index)}
-                            sx={{ ml: 1, color: '#F87171' }}
-                          >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Box>
-                      ))
-                    )}
-                  </Box>
-                )}
-              </Box>
-
-              <DarkTextField
-                fullWidth
-                label="OpenAPI Schema"
-                value={skill.apiSkill.schema}
-                onChange={(e) => handleApiSkillChange('schema', e.target.value)}
-                margin="normal"
-                required
-                multiline
-                rows={10}
-                error={!!schemaError}
-                helperText={schemaError || "OpenAPI (Swagger) schema of the API, can be YAML or JSON"}
-                sx={{
-                  '& .MuiFormHelperText-root': {
-                    color: schemaError ? '#EF4444' : '#A0AEC0',
-                    fontSize: '0.875rem',
-                    marginTop: '4px',
-                  },
-                  '& .MuiOutlinedInput-root': {
-                    '&.Mui-error': {
-                      '& fieldset': {
-                        borderColor: '#EF4444',
-                      },
-                    },
-                  },
-                }}
-              />
-            </SectionCard>
-          )}
-
-          {skill.apiSkill.requiredParameters.length > 0 && (
-            <SectionCard>
-              <Typography variant="h6" gutterBottom sx={{ color: '#F8FAFC' }}>
-                Settings
-              </Typography>
-              <List>
-                {skill.apiSkill.requiredParameters.map((param, index) => (
-                  <ListItem key={index} alignItems="flex-start" sx={{ background: '#181A20', borderRadius: 2, mb: 1 }}>
-                    <Box sx={{ flex: 1, mb: 2 }}>
-                      <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#F1F1F1' }}>
-                        {param.name}
-                      </Typography>
-                      <Typography variant="caption" color="#A0AEC0" sx={{ mb: 1, display: 'block' }}>
-                        {renderDescriptionWithLinks(param.description)}
-                      </Typography>
-                      <DarkTextField                      
-                        value={parameterValues[param.name] || ''}
-                        onChange={e => handleParameterValueChange(param.name, e.target.value)}
-                        size="small"
-                        fullWidth
-                        required={param.required}
-                        sx={{ mt: 0.5 }}
-                      />
-                    </Box>
-                    {param.required === false && skill.configurable && (
-                      <ListItemSecondaryAction>
-                        <IconButton
-                          edge="end"
-                          aria-label="delete"
-                          onClick={() => removeRequiredParameter(index)}
-                          sx={{ color: '#F87171' }}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </ListItemSecondaryAction>
-                    )}
-                  </ListItem>
-                ))}
-              </List>
-              {skill.configurable && (
-                <DarkButton
-                  startIcon={<AddIcon />}
-                  onClick={addRequiredParameter}
-                  variant="outlined"
-                  size="small"
-                  sx={{ mt: 1, borderColor: '#353945' }}
-                >
-                  Add Parameter
-                </DarkButton>
-              )}
-            </SectionCard>
-          )}
+          {/* Tab Content */}
+          <Box sx={{ flex: 1, overflow: 'auto' }}>
+            {activeTab === 0 && renderGeneralTab()}
+            {activeTab === 1 && renderDetailsTab()}
+          </Box>
         </Box>
       </DialogContent>
       <DialogActions sx={{ background: '#181A20', borderTop: '1px solid #23262F', flexDirection: 'column', alignItems: 'stretch' }}>
