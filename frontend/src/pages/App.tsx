@@ -286,6 +286,19 @@ const App: FC = () => {
                           readOnly={isReadOnly}
                         />
                       </Box>
+                    </Grid>                  
+                  ) : tabValue === 'access' ? (
+                    <Grid item xs={12} sx={{ overflow: 'auto', pb: 8, ...lightTheme.scrollbar }}>
+                      <Box sx={{ mt: 2, mr: 3 }}>
+                        <AccessManagement
+                          appId={appTools.id}
+                          accessGrants={appTools.accessGrants}
+                          isLoading={false}
+                          isReadOnly={isReadOnly}
+                          onCreateGrant={appTools.createAccessGrant}
+                          onDeleteGrant={appTools.deleteAccessGrant}
+                        />
+                      </Box>
                     </Grid>
                   ) : (
                     <>
@@ -317,19 +330,6 @@ const App: FC = () => {
                                 readOnly={isReadOnly}
                                 showErrors={appTools.showErrors}
                                 isAdmin={account.admin}
-                              />
-                            </Box>
-                          )}
-
-                          {tabValue === 'access' && (
-                            <Box sx={{ mt: 2 }}>
-                              <AccessManagement
-                                appId={appTools.id}
-                                accessGrants={appTools.accessGrants}
-                                isLoading={false}
-                                isReadOnly={isReadOnly}
-                                onCreateGrant={appTools.createAccessGrant}
-                                onDeleteGrant={appTools.deleteAccessGrant}
                               />
                             </Box>
                           )}

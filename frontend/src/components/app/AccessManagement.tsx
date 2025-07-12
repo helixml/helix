@@ -2,13 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
-import Table from '@mui/material/Table'
-import TableBody from '@mui/material/TableBody'
-import TableCell from '@mui/material/TableCell'
-import TableContainer from '@mui/material/TableContainer'
-import TableHead from '@mui/material/TableHead'
-import TableRow from '@mui/material/TableRow'
-import Paper from '@mui/material/Paper'
 import Chip from '@mui/material/Chip'
 import Dialog from '@mui/material/Dialog'
 import DialogTitle from '@mui/material/DialogTitle'
@@ -215,9 +208,9 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
       ) : (
         <>
           {/* Users with access */}
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 3, mb: 1 }}>
-            <Typography variant="subtitle1" sx={{ display: 'flex', alignItems: 'center' }}>
-              <PersonIcon sx={{ mr: 1 }} /> Users with access
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 3, mb: 2 }}>
+            <Typography variant="subtitle1" sx={{ display: 'flex', alignItems: 'center', color: '#F8FAFC', fontWeight: 500 }}>
+              <PersonIcon sx={{ mr: 1, color: '#A0AEC0' }} /> Users with access
             </Typography>
             {!isReadOnly && (
               <Button
@@ -225,71 +218,182 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                 size="small"
                 startIcon={<AddIcon />}
                 onClick={handleOpenUserDialog}
+                sx={{
+                  borderColor: '#353945',
+                  color: '#A0AEC0',
+                  '&:hover': {
+                    borderColor: '#6366F1',
+                    color: '#6366F1',
+                  },
+                }}
               >
                 Add User Access
               </Button>
             )}
           </Box>
-          <TableContainer component={Paper} sx={{ mb: 3 }}>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>User</TableCell>
-                  <TableCell>Email</TableCell>
-                  <TableCell>Roles</TableCell>
-                  {!isReadOnly && <TableCell width="100px">Actions</TableCell>}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {userGrants.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={isReadOnly ? 3 : 4} align="center">
-                      No users have been granted access
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  userGrants.map((grant) => {
-                    const user = (grant.user || {}) as any
-                    return (
-                      <TableRow key={grant.id}>
-                        <TableCell>{user.full_name || 'Unknown'}</TableCell>
-                        <TableCell>{user.email || 'No email'}</TableCell>
-                        <TableCell>
-                          {grant.roles && grant.roles.map(role => (
-                            <Chip 
-                              key={role.id} 
-                              label={getRoleDisplayName(role.name)}
-                              icon={getRoleIcon(role.name)} 
-                              size="small" 
-                              sx={{ mr: 0.5 }} 
-                            />
-                          ))}
-                        </TableCell>
-                        {!isReadOnly && (
-                          <TableCell>
-                            <Tooltip title="Remove access">
-                              <IconButton
-                                size="small"
-                                onClick={() => handleDeleteClick(grant.id)}
-                                color="error"
-                              >
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </TableCell>
-                        )}
-                      </TableRow>
-                    )
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          
+          {userGrants.length === 0 ? (
+            <Box sx={{ 
+              border: '1px solid #353945', 
+              borderRadius: 2, 
+              p: 3, 
+              textAlign: 'center',
+              color: '#A0AEC0',
+              mb: 3
+            }}>
+              <Typography variant="body1" sx={{ mb: 1 }}>
+                No users have been granted access
+              </Typography>
+              <Typography variant="body2">
+                Add users to grant them access to this agent.
+              </Typography>
+            </Box>
+          ) : (
+            <Box sx={{ 
+              border: '1px solid #353945', 
+              borderRadius: 2,
+              overflow: 'hidden',
+              mb: 3
+            }}>
+              <Box sx={{ 
+                bgcolor: '#23262F', 
+                p: 2, 
+                borderBottom: '1px solid #353945',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1
+              }}>
+                <PersonIcon fontSize="small" sx={{ color: '#A0AEC0' }} />
+                <Typography variant="subtitle2" sx={{ color: '#A0AEC0', fontWeight: 500 }}>
+                  Users with Access ({userGrants.length})
+                </Typography>
+              </Box>
+              
+              <Box sx={{ maxHeight: '400px', overflow: 'auto' }}>
+                <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <Box component="thead" sx={{ bgcolor: '#181A20' }}>
+                    <Box component="tr">
+                      <Box component="th" sx={{ 
+                        p: 2, 
+                        textAlign: 'left', 
+                        color: '#A0AEC0', 
+                        fontSize: '0.875rem',
+                        fontWeight: 500,
+                        borderBottom: '1px solid #353945'
+                      }}>
+                        User
+                      </Box>
+                      <Box component="th" sx={{ 
+                        p: 2, 
+                        textAlign: 'left', 
+                        color: '#A0AEC0', 
+                        fontSize: '0.875rem',
+                        fontWeight: 500,
+                        borderBottom: '1px solid #353945'
+                      }}>
+                        Email
+                      </Box>
+                      <Box component="th" sx={{ 
+                        p: 2, 
+                        textAlign: 'left', 
+                        color: '#A0AEC0', 
+                        fontSize: '0.875rem',
+                        fontWeight: 500,
+                        borderBottom: '1px solid #353945'
+                      }}>
+                        Roles
+                      </Box>
+                      {!isReadOnly && (
+                        <Box component="th" sx={{ 
+                          p: 2, 
+                          textAlign: 'left', 
+                          color: '#A0AEC0', 
+                          fontSize: '0.875rem',
+                          fontWeight: 500,
+                          borderBottom: '1px solid #353945',
+                          width: '100px'
+                        }}>
+                          Actions
+                        </Box>
+                      )}
+                    </Box>
+                  </Box>
+                  <Box component="tbody">
+                    {userGrants.map((grant, index) => {
+                      const user = (grant.user || {}) as any
+                      return (
+                        <Box component="tr" key={grant.id} sx={{ 
+                          '&:hover': { bgcolor: '#23262F' },
+                          borderBottom: index < userGrants.length - 1 ? '1px solid #353945' : 'none'
+                        }}>
+                          <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                            <Typography sx={{ 
+                              color: '#F1F1F1',
+                              fontWeight: 500,
+                              fontSize: '0.875rem'
+                            }}>
+                              {user.full_name || 'Unknown'}
+                            </Typography>
+                          </Box>
+                          <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                            <Typography sx={{ 
+                              color: '#A0AEC0',
+                              fontSize: '0.875rem'
+                            }}>
+                              {user.email || 'No email'}
+                            </Typography>
+                          </Box>
+                          <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                            {grant.roles && grant.roles.map(role => (
+                              <Chip 
+                                key={role.id} 
+                                label={getRoleDisplayName(role.name)}
+                                icon={getRoleIcon(role.name)} 
+                                size="small" 
+                                sx={{ 
+                                  mr: 0.5,
+                                  mb: 0.5,
+                                  backgroundColor: role.name.toLowerCase() === 'admin' ? '#EF4444' : '#6366F1',
+                                  color: 'white',
+                                  '& .MuiChip-icon': {
+                                    color: 'white'
+                                  }
+                                }} 
+                              />
+                            ))}
+                          </Box>
+                          {!isReadOnly && (
+                            <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                              <Tooltip title="Remove access">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleDeleteClick(grant.id)}
+                                  sx={{ 
+                                    color: '#F87171',
+                                    '&:hover': {
+                                      color: '#EF4444',
+                                      backgroundColor: 'rgba(239, 68, 68, 0.1)'
+                                    }
+                                  }}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          )}
+                        </Box>
+                      )
+                    })}
+                  </Box>
+                </Box>
+              </Box>
+            </Box>
+          )}
 
           {/* Teams with access */}
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 3, mb: 1 }}>
-            <Typography variant="subtitle1" sx={{ display: 'flex', alignItems: 'center' }}>
-              <GroupsIcon sx={{ mr: 1 }} /> Teams with access
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 3, mb: 2 }}>
+            <Typography variant="subtitle1" sx={{ display: 'flex', alignItems: 'center', color: '#F8FAFC', fontWeight: 500 }}>
+              <GroupsIcon sx={{ mr: 1, color: '#A0AEC0' }} /> Teams with access
             </Typography>
             {!isReadOnly && (
               <Button
@@ -297,85 +401,175 @@ const AccessManagement: React.FC<AccessManagementProps> = ({
                 size="small"
                 startIcon={<AddIcon />}
                 onClick={handleOpenTeamDialog}
+                sx={{
+                  borderColor: '#353945',
+                  color: '#A0AEC0',
+                  '&:hover': {
+                    borderColor: '#6366F1',
+                    color: '#6366F1',
+                  },
+                }}
               >
                 Add Team Access
               </Button>
             )}
           </Box>
-          <TableContainer component={Paper}>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Team</TableCell>
-                  <TableCell>Roles</TableCell>
-                  {!isReadOnly && <TableCell width="100px">Actions</TableCell>}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {teamGrants.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={isReadOnly ? 2 : 3} align="center">
-                      No teams have been granted access
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  teamGrants.map((grant) => {
-                    // Find team name
-                    const teamId = grant.team_id || '';
-                    const team = teams.find(t => t.id === teamId);
-                    return (
-                      <TableRow key={grant.id}>
-                        <TableCell>
-                          <Link
-                            sx={{
-                              textDecoration: 'none',
-                              fontWeight: 'bold',
-                              color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
-                            }}
-                            href={`/orgs/${organization?.name}/teams/${teamId}/people`}
-                            onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              router.navigate('team_people', {
-                                org_id: organization?.name,
-                                team_id: teamId,
-                              })
-                            }}
-                          >
-                            {team?.name || teamId}
-                          </Link>
-                        </TableCell>
-                        <TableCell>
-                          {grant.roles && grant.roles.map(role => (
-                            <Chip 
-                              key={role.id} 
-                              label={getRoleDisplayName(role.name)}
-                              icon={getRoleIcon(role.name)} 
-                              size="small" 
-                              sx={{ mr: 0.5 }} 
-                            />
-                          ))}
-                        </TableCell>
-                        {!isReadOnly && (
-                          <TableCell>
-                            <Tooltip title="Remove access">
-                              <IconButton
-                                size="small"
-                                onClick={() => handleDeleteClick(grant.id)}
-                                color="error"
-                              >
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </TableCell>
-                        )}
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          
+          {teamGrants.length === 0 ? (
+            <Box sx={{ 
+              border: '1px solid #353945', 
+              borderRadius: 2, 
+              p: 3, 
+              textAlign: 'center',
+              color: '#A0AEC0'
+            }}>
+              <Typography variant="body1" sx={{ mb: 1 }}>
+                No teams have been granted access
+              </Typography>
+              <Typography variant="body2">
+                Add teams to grant them access to this agent.
+              </Typography>
+            </Box>
+          ) : (
+            <Box sx={{ 
+              border: '1px solid #353945', 
+              borderRadius: 2,
+              overflow: 'hidden'
+            }}>
+              <Box sx={{ 
+                bgcolor: '#23262F', 
+                p: 2, 
+                borderBottom: '1px solid #353945',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1
+              }}>
+                <GroupsIcon fontSize="small" sx={{ color: '#A0AEC0' }} />
+                <Typography variant="subtitle2" sx={{ color: '#A0AEC0', fontWeight: 500 }}>
+                  Teams with Access ({teamGrants.length})
+                </Typography>
+              </Box>
+              
+              <Box sx={{ maxHeight: '400px', overflow: 'auto' }}>
+                <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <Box component="thead" sx={{ bgcolor: '#181A20' }}>
+                    <Box component="tr">
+                      <Box component="th" sx={{ 
+                        p: 2, 
+                        textAlign: 'left', 
+                        color: '#A0AEC0', 
+                        fontSize: '0.875rem',
+                        fontWeight: 500,
+                        borderBottom: '1px solid #353945'
+                      }}>
+                        Team
+                      </Box>
+                      <Box component="th" sx={{ 
+                        p: 2, 
+                        textAlign: 'left', 
+                        color: '#A0AEC0', 
+                        fontSize: '0.875rem',
+                        fontWeight: 500,
+                        borderBottom: '1px solid #353945'
+                      }}>
+                        Roles
+                      </Box>
+                      {!isReadOnly && (
+                        <Box component="th" sx={{ 
+                          p: 2, 
+                          textAlign: 'left', 
+                          color: '#A0AEC0', 
+                          fontSize: '0.875rem',
+                          fontWeight: 500,
+                          borderBottom: '1px solid #353945',
+                          width: '100px'
+                        }}>
+                          Actions
+                        </Box>
+                      )}
+                    </Box>
+                  </Box>
+                  <Box component="tbody">
+                    {teamGrants.map((grant, index) => {
+                      // Find team name
+                      const teamId = grant.team_id || '';
+                      const team = teams.find(t => t.id === teamId);
+                      return (
+                        <Box component="tr" key={grant.id} sx={{ 
+                          '&:hover': { bgcolor: '#23262F' },
+                          borderBottom: index < teamGrants.length - 1 ? '1px solid #353945' : 'none'
+                        }}>
+                          <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                            <Link
+                              sx={{
+                                textDecoration: 'none',
+                                fontWeight: 500,
+                                color: '#6366F1',
+                                fontSize: '0.875rem',
+                                '&:hover': {
+                                  color: '#8B5CF6',
+                                  textDecoration: 'underline'
+                                }
+                              }}
+                              href={`/orgs/${organization?.name}/teams/${teamId}/people`}
+                              onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                router.navigate('team_people', {
+                                  org_id: organization?.name,
+                                  team_id: teamId,
+                                })
+                              }}
+                            >
+                              {team?.name || teamId}
+                            </Link>
+                          </Box>
+                          <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                            {grant.roles && grant.roles.map(role => (
+                              <Chip 
+                                key={role.id} 
+                                label={getRoleDisplayName(role.name)}
+                                icon={getRoleIcon(role.name)} 
+                                size="small" 
+                                sx={{ 
+                                  mr: 0.5,
+                                  mb: 0.5,
+                                  backgroundColor: role.name.toLowerCase() === 'admin' ? '#EF4444' : '#6366F1',
+                                  color: 'white',
+                                  '& .MuiChip-icon': {
+                                    color: 'white'
+                                  }
+                                }} 
+                              />
+                            ))}
+                          </Box>
+                          {!isReadOnly && (
+                            <Box component="td" sx={{ p: 2, verticalAlign: 'top' }}>
+                              <Tooltip title="Remove access">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleDeleteClick(grant.id)}
+                                  sx={{ 
+                                    color: '#F87171',
+                                    '&:hover': {
+                                      color: '#EF4444',
+                                      backgroundColor: 'rgba(239, 68, 68, 0.1)'
+                                    }
+                                  }}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          )}
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </Box>
+              </Box>
+            </Box>
+          )}
         </>
       )}
 
