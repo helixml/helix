@@ -22,6 +22,7 @@ import ToolDetail from '../tools/ToolDetail'
 
 import useTheme from '@mui/material/styles/useTheme'
 import useApi from '../../hooks/useApi'
+import useAccount from '../../hooks/useAccount'
 
 import {
   IApp,
@@ -53,7 +54,8 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
 
   const api = useApi()
   const apiClient = api.getApiClient()
-  const theme = useTheme()  
+  const theme = useTheme()
+  const account = useAccount()
   // Add state for usage data with proper typing
   const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({})
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -81,6 +83,11 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       onDelete(currentApp);
     }
     handleMenuClose();
+  };
+
+  // Handle navigation to app details with skills tab
+  const handleSkillClick = (app: IApp) => {
+    account.orgNavigate('app', { app_id: app.id }, { tab: 'skills' });
   };
 
   // Fetch usage data for all apps
@@ -117,29 +124,38 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
             // TODO: support more than 1 assistant
             assistant.tools.map((apiTool, index) => {
               return (
-                <Chip
+                <Tooltip
                   key={index}
-                  label={apiTool.name || 'Unknown Tool'}
-                  size="small"
-                  sx={{
-                    mr: 0.5,
-                    mb: 0.5,
-                    background: `linear-gradient(135deg, ${theme.chartGradientStart} 0%, ${theme.chartGradientEnd} 100%)`,
-                    color: theme.palette.mode === 'dark' ? '#fff' : '#333',
-                    border: `1px solid ${theme.palette.mode === 'dark' ? '#444' : '#ddd'}`,
-                    boxShadow: theme.palette.mode === 'dark' 
-                      ? '0 2px 4px rgba(0, 0, 0, 0.3)' 
-                      : '0 2px 4px rgba(0, 0, 0, 0.1)',
-                    '&:hover': {
-                      background: `linear-gradient(135deg, ${theme.chartGradientEnd} 0%, ${theme.chartGradientStart} 100%)`,
+                  title={`${apiTool.description || 'No description available'} - Click to view skills`}
+                  placement="top"
+                  arrow
+                  slotProps={{ tooltip: { sx: { bgcolor: '#222', opacity: 1 } } }}
+                >
+                  <Chip
+                    label={apiTool.name || 'Unknown Tool'}
+                    size="small"
+                    onClick={() => handleSkillClick(app)}
+                    sx={{
+                      mr: 0.5,
+                      mb: 0.5,
+                      background: `linear-gradient(135deg, ${theme.chartGradientStart} 0%, ${theme.chartGradientEnd} 100%)`,
+                      color: theme.palette.mode === 'dark' ? '#fff' : '#333',
+                      border: `1px solid ${theme.palette.mode === 'dark' ? '#444' : '#ddd'}`,
                       boxShadow: theme.palette.mode === 'dark' 
-                        ? '0 4px 8px rgba(0, 0, 0, 0.4)' 
-                        : '0 4px 8px rgba(0, 0, 0, 0.15)',
-                      transform: 'translateY(-1px)',
-                    },
-                    transition: 'all 0.2s ease-in-out',
-                  }}
-                />
+                        ? '0 2px 4px rgba(0, 0, 0, 0.3)' 
+                        : '0 2px 4px rgba(0, 0, 0, 0.1)',
+                      '&:hover': {
+                        background: `linear-gradient(135deg, ${theme.chartGradientEnd} 0%, ${theme.chartGradientStart} 100%)`,
+                        boxShadow: theme.palette.mode === 'dark' 
+                          ? '0 4px 8px rgba(0, 0, 0, 0.4)' 
+                          : '0 4px 8px rgba(0, 0, 0, 0.15)',
+                        transform: 'translateY(-1px)',
+                      },
+                      transition: 'all 0.2s ease-in-out',
+                      cursor: 'pointer',
+                    }}
+                  />
+                </Tooltip>
               )
             })
           }
