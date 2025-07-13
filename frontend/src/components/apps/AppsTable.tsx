@@ -241,8 +241,8 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
               >
                 <defs>
                   <linearGradient id="usageGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#00c8ff" stopOpacity={0.5} />
-                    <stop offset="100%" stopColor="#070714" stopOpacity={0.1} />
+                    <stop offset="0%" stopColor={theme.chartGradientStart} stopOpacity={theme.chartGradientStartOpacity} />
+                    <stop offset="100%" stopColor={theme.chartGradientEnd} stopOpacity={theme.chartGradientEndOpacity} />
                   </linearGradient>
                 </defs>
               </LineChart>
