@@ -165,3 +165,145 @@ func (suite *AppTriggerSuite) TestCreateAppTrigger_Unauthorized() {
 
 	suite.Equal(http.StatusForbidden, httpError.StatusCode)
 }
+
+func (suite *AppTriggerSuite) TestUpdateAppTrigger_Success() {
+	app := &types.App{
+		ID:             "app_id_test",
+		OrganizationID: suite.orgID,
+	}
+
+	existingTrigger := &types.TriggerConfiguration{
+		ID:             "trigger_id_test",
+		AppID:          app.ID,
+		OrganizationID: app.OrganizationID,
+		Owner:          suite.userID,
+		OwnerType:      types.OwnerTypeUser,
+		Name:           "Original Trigger",
+		Trigger: types.Trigger{
+			Cron: &types.CronTrigger{
+				Enabled:  true,
+				Schedule: "0 0 * * *",
+				Input:    "Original input",
+			},
+		},
+	}
+
+	updatedTriggerConfig := &types.TriggerConfiguration{
+		Name: "Updated Trigger",
+		Trigger: types.Trigger{
+			Cron: &types.CronTrigger{
+				Enabled:  true,
+				Schedule: "0 12 * * *",
+				Input:    "Updated input",
+			},
+		},
+	}
+
+	expectedUpdatedTrigger := &types.TriggerConfiguration{
+		ID:             "trigger_id_test",
+		AppID:          app.ID,
+		OrganizationID: app.OrganizationID,
+		Owner:          suite.userID,
+		OwnerType:      types.OwnerTypeUser,
+		Name:           "Updated Trigger",
+		Trigger: types.Trigger{
+			Cron: &types.CronTrigger{
+				Enabled:  true,
+				Schedule: "0 12 * * *",
+				Input:    "Updated input",
+			},
+		},
+	}
+
+	// Authorization setup
+	orgMembership := &types.OrganizationMembership{
+		OrganizationID: app.OrganizationID,
+		Role:           types.OrganizationRoleMember,
+	}
+	suite.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: app.OrganizationID,
+		UserID:         suite.userID,
+	}).Return(orgMembership, nil)
+
+	setupAuthorizationMocks(suite.store, app, suite.userID, []types.Resource{types.ResourceApplication}, []types.Action{types.ActionUpdate})
+
+	suite.store.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
+	suite.store.EXPECT().GetTriggerConfiguration(gomock.Any(), &store.GetTriggerConfigurationQuery{
+		ID:             "trigger_id_test",
+		OrganizationID: app.OrganizationID,
+	}).Return(existingTrigger, nil)
+	suite.store.EXPECT().UpdateTriggerConfiguration(gomock.Any(), gomock.Any()).Return(expectedUpdatedTrigger, nil)
+
+	rec := httptest.NewRecorder()
+	reqBody, _ := json.Marshal(updatedTriggerConfig)
+	req := httptest.NewRequest("PUT", "/api/v1/apps/app_id_test/triggers/trigger_id_test", bytes.NewBuffer(reqBody))
+	req = req.WithContext(suite.authCtx)
+	vars := map[string]string{
+		"id":         "app_id_test",
+		"trigger_id": "trigger_id_test",
+	}
+	req = mux.SetURLVars(req, vars)
+
+	resp, _ := suite.server.updateAppTrigger(rec, req)
+
+	suite.Equal(expectedUpdatedTrigger.Name, resp.Name)
+	suite.Equal(expectedUpdatedTrigger.Trigger.Cron.Schedule, resp.Trigger.Cron.Schedule)
+	suite.Equal(expectedUpdatedTrigger.Trigger.Cron.Input, resp.Trigger.Cron.Input)
+}
+
+func (suite *AppTriggerSuite) TestDeleteAppTrigger_Success() {
+	app := &types.App{
+		ID:             "app_id_test",
+		OrganizationID: suite.orgID,
+	}
+
+	existingTrigger := &types.TriggerConfiguration{
+		ID:             "trigger_id_test",
+		AppID:          app.ID,
+		OrganizationID: app.OrganizationID,
+		Owner:          suite.userID,
+		OwnerType:      types.OwnerTypeUser,
+		Name:           "Test Trigger",
+		Trigger: types.Trigger{
+			Cron: &types.CronTrigger{
+				Enabled:  true,
+				Schedule: "0 0 * * *",
+				Input:    "Test input",
+			},
+		},
+	}
+
+	// Authorization setup
+	orgMembership := &types.OrganizationMembership{
+		OrganizationID: app.OrganizationID,
+		Role:           types.OrganizationRoleMember,
+	}
+	suite.store.EXPECT().GetOrganizationMembership(gomock.Any(), &store.GetOrganizationMembershipQuery{
+		OrganizationID: app.OrganizationID,
+		UserID:         suite.userID,
+	}).Return(orgMembership, nil)
+
+	setupAuthorizationMocks(suite.store, app, suite.userID, []types.Resource{types.ResourceApplication}, []types.Action{types.ActionGet})
+
+	suite.store.EXPECT().GetApp(gomock.Any(), app.ID).Return(app, nil)
+	suite.store.EXPECT().GetTriggerConfiguration(gomock.Any(), &store.GetTriggerConfigurationQuery{
+		ID:             "trigger_id_test",
+		OrganizationID: app.OrganizationID,
+	}).Return(existingTrigger, nil)
+	suite.store.EXPECT().DeleteTriggerConfiguration(gomock.Any(), "trigger_id_test").Return(nil)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("DELETE", "/api/v1/apps/app_id_test/triggers/trigger_id_test", nil)
+	req = req.WithContext(suite.authCtx)
+	vars := map[string]string{
+		"id":         "app_id_test",
+		"trigger_id": "trigger_id_test",
+	}
+	req = mux.SetURLVars(req, vars)
+
+	resp, _ := suite.server.deleteAppTrigger(rec, req)
+
+	suite.Equal(existingTrigger.ID, resp.ID)
+	suite.Equal(existingTrigger.Name, resp.Name)
+	suite.Equal(existingTrigger.AppID, resp.AppID)
+}
