@@ -49,3 +49,41 @@ func (s *HelixAPIServer) listAppTriggers(_ http.ResponseWriter, r *http.Request)
 
 	return triggers, nil
 }
+
+// createAppTriggers godoc
+// @Summary Create app triggers
+// @Description Create triggers for the app. Used to create standalone trigger configurations such as cron tasks for agents that could be owned by a different user than the owner of the app
+// @Tags    apps
+// @Success 200 {array} types.TriggerConfiguration
+// @Param app_id path string true "App ID"
+// @Router /api/v1/apps/{app_id}/triggers [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) createAppTriggers(_ http.ResponseWriter, r *http.Request) ([]*types.TriggerConfiguration, *system.HTTPError) {
+
+}
+
+// deleteAppTriggers godoc
+// @Summary Delete app triggers
+// @Description Delete triggers for the app
+// @Tags    apps
+// @Success 200 {array} types.TriggerConfiguration
+// @Param app_id path string true "App ID"
+// @Param trigger_id path string true "Trigger ID"
+// @Router /api/v1/apps/{app_id}/triggers/{trigger_id} [delete]
+// @Security BearerAuth
+func (s *HelixAPIServer) deleteAppTriggers(_ http.ResponseWriter, r *http.Request) ([]*types.TriggerConfiguration, *system.HTTPError) {
+
+}
+
+// updateAppTriggers godoc
+// @Summary Update app triggers
+// @Description Update triggers for the app, for example to change the cron schedule or enable/disable the trigger
+// @Tags    apps
+// @Success 200 {array} types.TriggerConfiguration
+// @Param app_id path string true "App ID"
+// @Param trigger_id path string true "Trigger ID"
+// @Router /api/v1/apps/{app_id}/triggers/{trigger_id} [put]
+// @Security BearerAuth
+func (s *HelixAPIServer) updateAppTriggers(_ http.ResponseWriter, r *http.Request) ([]*types.TriggerConfiguration, *system.HTTPError) {
+
+}
