@@ -2257,6 +2257,64 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Create triggers for the app. Used to create standalone trigger configurations such as cron tasks for agents that could be owned by a different user than the owner of the app
+     *
+     * @tags apps
+     * @name V1AppsTriggersCreate
+     * @summary Create app triggers
+     * @request POST:/api/v1/apps/{app_id}/triggers
+     * @secure
+     */
+    v1AppsTriggersCreate: (appId: string, request: TypesTriggerConfiguration, params: RequestParams = {}) =>
+      this.request<TypesTriggerConfiguration, any>({
+        path: `/api/v1/apps/${appId}/triggers`,
+        method: "POST",
+        body: request,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Delete triggers for the app
+     *
+     * @tags apps
+     * @name V1AppsTriggersDelete
+     * @summary Delete app triggers
+     * @request DELETE:/api/v1/apps/{app_id}/triggers/{trigger_id}
+     * @secure
+     */
+    v1AppsTriggersDelete: (appId: string, triggerId: string, params: RequestParams = {}) =>
+      this.request<TypesTriggerConfiguration, any>({
+        path: `/api/v1/apps/${appId}/triggers/${triggerId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Update triggers for the app, for example to change the cron schedule or enable/disable the trigger
+     *
+     * @tags apps
+     * @name V1AppsTriggersUpdate
+     * @summary Update app triggers
+     * @request PUT:/api/v1/apps/{app_id}/triggers/{trigger_id}
+     * @secure
+     */
+    v1AppsTriggersUpdate: (
+      appId: string,
+      triggerId: string,
+      request: TypesTriggerConfiguration,
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesTriggerConfiguration, any>({
+        path: `/api/v1/apps/${appId}/triggers/${triggerId}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1AppsDelete
