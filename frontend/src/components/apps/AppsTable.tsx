@@ -328,8 +328,8 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
             name: 'name',
             title: 'Name',
         }, {
-          name: 'actions',
-          title: 'Skills',
+          name: 'description',
+          title: 'Description',
         }, {
           name: 'usage',
           title: 'Token Usage',
