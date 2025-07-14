@@ -541,6 +541,12 @@ steps:
 
   commands:
     - chmod +x scripts/run-oauth-integration-test.sh
+    - echo "=== Environment Variable Check ==="
+    - echo "GMAIL_CREDENTIALS_BASE64 length:" $(echo -n "${GMAIL_CREDENTIALS_BASE64}" | wc -c)
+    - echo "ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID}" && echo "YES" || echo "NO")
+    - echo "ATLASSIAN_SKILL_TEST_OAUTH_USERNAME is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_USERNAME}" && echo "YES" || echo "NO")
+    - echo "ATLASSIAN_SKILL_TEST_CLOUD_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_CLOUD_ID}" && echo "YES" || echo "NO")
+    - echo "=== Starting Jira OAuth Test ==="
     - ./scripts/run-oauth-integration-test.sh jira TestJiraOAuthSkillsE2E
   when:
     event:
@@ -626,6 +632,12 @@ steps:
 
   commands:
     - chmod +x scripts/run-oauth-integration-test.sh
+    - echo "=== Environment Variable Check ==="
+    - echo "GMAIL_CREDENTIALS_BASE64 length:" $(echo -n "${GMAIL_CREDENTIALS_BASE64}" | wc -c)
+    - echo "ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID}" && echo "YES" || echo "NO")
+    - echo "ATLASSIAN_SKILL_TEST_OAUTH_USERNAME is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_USERNAME}" && echo "YES" || echo "NO")
+    - echo "ATLASSIAN_SKILL_TEST_CLOUD_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_CLOUD_ID}" && echo "YES" || echo "NO")
+    - echo "=== Starting Confluence OAuth Test ==="
     - ./scripts/run-oauth-integration-test.sh confluence TestConfluenceOAuthSkillsE2E
   when:
     event:
