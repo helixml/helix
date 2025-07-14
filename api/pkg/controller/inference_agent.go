@@ -128,7 +128,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		}
 
 		if assistantTool.ToolType == types.ToolTypeWebSearch {
-			skills = append(skills, skill.NewSearchSkill(assistantTool.Config.WebSearch, c.Options.SearchProvider))
+			skills = append(skills, skill.NewSearchSkill(assistantTool.Config.WebSearch, c.Options.SearchProvider, c.Options.Browser))
 		}
 
 		if assistantTool.ToolType == types.ToolTypeAzureDevOps {

@@ -76,7 +76,7 @@ func NewBrowserSkill(config *types.ToolBrowserConfig, browser *browser.Browser) 
 		Parameters:   browserSkillParameters,
 		Direct:       true,
 		Tools: []agent.Tool{
-			&BrowserTool{
+			&browserTool{
 				browser:   browser,
 				config:    config,
 				parser:    readability.NewParser(), // TODO: add config for this
@@ -86,34 +86,34 @@ func NewBrowserSkill(config *types.ToolBrowserConfig, browser *browser.Browser) 
 	}
 }
 
-type BrowserTool struct {
+type browserTool struct {
 	browser   *browser.Browser
 	config    *types.ToolBrowserConfig
 	parser    readability.Parser
 	converter *md.Converter
 }
 
-func (t *BrowserTool) Name() string {
+func (t *browserTool) Name() string {
 	return "Browser"
 }
 
-func (t *BrowserTool) Description() string {
+func (t *browserTool) Description() string {
 	return "Use the browser to open website URLs"
 }
 
-func (t *BrowserTool) String() string {
+func (t *browserTool) String() string {
 	return "Browser"
 }
 
-func (t *BrowserTool) StatusMessage() string {
+func (t *browserTool) StatusMessage() string {
 	return "Browsing the web, open URLs"
 }
 
-func (t *BrowserTool) Icon() string {
+func (t *browserTool) Icon() string {
 	return "LanguageIcon"
 }
 
-func (t *BrowserTool) OpenAI() []openai.Tool {
+func (t *browserTool) OpenAI() []openai.Tool {
 	return []openai.Tool{
 		{
 			Type: openai.ToolTypeFunction,
@@ -127,7 +127,7 @@ func (t *BrowserTool) OpenAI() []openai.Tool {
 }
 
 // TODO: write in the context
-func (t *BrowserTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
+func (t *browserTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {
 	url, ok := args["url"].(string)
 	if !ok {
 		return "", fmt.Errorf("url is required")
