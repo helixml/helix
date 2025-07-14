@@ -758,9 +758,8 @@ func (h *AtlassianOAuthHandler) getAtlassianMFACode() (string, error) {
 						emailBody = string(decoded)
 						h.logger.Debug().Str("mime_type", part.MimeType).Int("part_index", j).Msg("Found email body in part")
 						break
-					} else {
-						h.logger.Warn().Err(err).Str("mime_type", part.MimeType).Int("part_index", j).Msg("Failed to decode email part")
 					}
+					h.logger.Warn().Err(err).Str("mime_type", part.MimeType).Int("part_index", j).Msg("Failed to decode email part")
 				}
 			}
 		}
