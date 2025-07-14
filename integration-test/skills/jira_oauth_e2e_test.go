@@ -620,7 +620,7 @@ func (h *AtlassianOAuthHandler) handleMFAWithGmail(page *rod.Page) error {
 
 	for i, selector := range mfaInputSelectors {
 		h.logger.Info().Str("selector", selector).Int("attempt", i+1).Msg("Trying MFA input field selector")
-		mfaInput, err = page.Timeout(10 * time.Second).Element(selector)
+		mfaInput, err = page.Timeout(1 * time.Second).Element(selector)
 		if err == nil && mfaInput != nil {
 			h.logger.Info().Str("selector", selector).Msg("Found Atlassian MFA input field")
 			break

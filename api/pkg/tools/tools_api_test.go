@@ -470,7 +470,7 @@ func Test_filterOpenAPISchema_GetBody(t *testing.T) {
 				Schema: petStoreAPISpec,
 			},
 		},
-	}, "showPetById")
+	}, "showPetById", make(map[string]interface{}))
 	require.NoError(t, err)
 
 	golden.Assert(t, filtered, "filtered-one-pet.golden.json")
