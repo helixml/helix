@@ -108,8 +108,7 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 
 		// Get OAuth tokens if we have an app ID and user ID
 		if appID != "" && manager != nil {
-			// Note: Manager doesn't have a method to get all tokens for an app
-			// So we need to collect tokens for each tool configuration instead
+			// Initialize map for tokens
 			oauthTokens = make(map[string]string)
 
 			// Get the app to find owner
@@ -123,7 +122,7 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 					Msg("Failed to get app for OAuth tokens")
 			} else if app.Owner != "" && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
 				// Get token for this specific provider
-				token, err := manager.GetTokenForApp(ctx, app.Owner, tool.Config.API.OAuthProvider)
+				token, err := manager.GetTokenForTool(ctx, app.Owner, tool.Config.API.OAuthProvider, tool.Config.API.OAuthScopes)
 				if err != nil {
 					log.Warn().
 						Err(err).
@@ -136,6 +135,7 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 				} else if token != "" {
 					// Add the token to our map
 					oauthTokens[tool.Config.API.OAuthProvider] = token
+
 					log.Info().
 						Str("app_id", appID).
 						Str("user_id", app.Owner).

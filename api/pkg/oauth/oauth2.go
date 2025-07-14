@@ -162,6 +162,24 @@ func (p *OAuth2Provider) CompleteAuthorization(ctx context.Context, userID, code
 		return nil, fmt.Errorf("failed to get user info: %w", err)
 	}
 
+	// Retrieve additional parameters based on provider configuration
+	additionalParams, err := p.retrieveAdditionalParameters(ctx, token)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to retrieve additional OAuth parameters, continuing without them")
+		additionalParams = make(map[string]string)
+	}
+
+	// Store additional parameters in metadata
+	var metadata string
+	if len(additionalParams) > 0 {
+		metadataBytes, err := json.Marshal(additionalParams)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to marshal additional parameters to metadata")
+		} else {
+			metadata = string(metadataBytes)
+		}
+	}
+
 	// Create the connection
 	connection := &types.OAuthConnection{
 		UserID:         userID,
@@ -172,6 +190,7 @@ func (p *OAuth2Provider) CompleteAuthorization(ctx context.Context, userID, code
 		Scopes:         p.oauthConfig.Scopes,
 		ProviderUserID: userInfo.ID,
 		Profile:        userInfo,
+		Metadata:       metadata,
 	}
 
 	return connection, nil
@@ -345,6 +364,97 @@ func (p *OAuth2Provider) getUserInfo(ctx context.Context, token *oauth2.Token) (
 	}
 
 	return userInfo, nil
+}
+
+// retrieveAdditionalParameters fetches additional parameters based on provider configuration
+func (p *OAuth2Provider) retrieveAdditionalParameters(ctx context.Context, token *oauth2.Token) (map[string]string, error) {
+	result := make(map[string]string)
+
+	// Check if provider has additional parameters configuration
+	if p.config.AdditionalParameters == nil || len(p.config.AdditionalParameters.Parameters) == 0 {
+		return result, nil
+	}
+
+	// Create an HTTP client with the token
+	client := p.oauthConfig.Client(ctx, token)
+
+	// Retrieve each configured parameter
+	for paramName, paramConfig := range p.config.AdditionalParameters.Parameters {
+		value, err := p.retrieveParameter(ctx, client, paramName, paramConfig)
+		if err != nil {
+			log.Warn().Err(err).Str("parameter", paramName).Msg("Failed to retrieve additional parameter")
+			continue
+		}
+		if value != "" {
+			result[paramName] = value
+			log.Info().Str("parameter", paramName).Str("value", value).Msg("Retrieved additional parameter")
+		}
+	}
+
+	return result, nil
+}
+
+// retrieveParameter retrieves a single parameter from the configured endpoint
+func (p *OAuth2Provider) retrieveParameter(ctx context.Context, client *http.Client, paramName string, config types.OAuthParameterConfig) (string, error) {
+	// Make request to the configured endpoint
+	resp, err := client.Get(config.Endpoint)
+	if err != nil {
+		return "", fmt.Errorf("failed to get %s from %s: %w", paramName, config.Endpoint, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to get %s: status code %d", paramName, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read %s response: %w", paramName, err)
+	}
+
+	// Parse the JSON response
+	var responseData interface{}
+	if err := json.Unmarshal(body, &responseData); err != nil {
+		return "", fmt.Errorf("failed to parse %s response: %w", paramName, err)
+	}
+
+	// Extract the value using the configured path
+	value, err := extractValueFromJSON(responseData, config.ExtractionPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to extract %s using path %s: %w", paramName, config.ExtractionPath, err)
+	}
+
+	return value, nil
+}
+
+// extractValueFromJSON extracts a value from JSON data using a simple path
+// Supports paths like "[0].id", "data.value", etc.
+func extractValueFromJSON(data interface{}, path string) (string, error) {
+	if path == "" {
+		// If no path specified, try to convert the data directly to string
+		if str, ok := data.(string); ok {
+			return str, nil
+		}
+		return "", fmt.Errorf("no extraction path specified and data is not a string")
+	}
+
+	current := data
+
+	// Simple implementation for common cases like "[0].id"
+	// For Atlassian: path would be "[0].id" to get first element's id
+	if path == "[0].id" {
+		if array, ok := current.([]interface{}); ok && len(array) > 0 {
+			if item, ok := array[0].(map[string]interface{}); ok {
+				if id, ok := item["id"].(string); ok {
+					return id, nil
+				}
+			}
+		}
+		return "", fmt.Errorf("could not extract value using path %s", path)
+	}
+
+	// Add more path parsing as needed for other providers
+	return "", fmt.Errorf("unsupported extraction path: %s", path)
 }
 
 // MakeAuthorizedRequest makes a request to the provider's API with authorization
