@@ -461,6 +461,9 @@ steps:
       from_secret: atlassian_skill_test_oauth_password
     ATLASSIAN_SKILL_TEST_CLOUD_ID:
       from_secret: atlassian_skill_test_cloud_id
+    # Gmail credentials for MFA handling
+    GMAIL_CREDENTIALS_BASE64:
+      from_secret: gmail_credentials_base64
     # Database config (running in a sidecar)
     POSTGRES_HOST: postgres
     POSTGRES_PORT: "5432"
@@ -539,6 +542,9 @@ steps:
       from_secret: atlassian_skill_test_oauth_password
     ATLASSIAN_SKILL_TEST_CLOUD_ID:
       from_secret: atlassian_skill_test_cloud_id
+    # Gmail credentials for MFA handling
+    GMAIL_CREDENTIALS_BASE64:
+      from_secret: gmail_credentials_base64
     # Database config (running in a sidecar)
     POSTGRES_HOST: postgres
     POSTGRES_PORT: "5432"
