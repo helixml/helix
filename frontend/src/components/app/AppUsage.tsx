@@ -330,7 +330,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   return (
     <div>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, mr: 2 }}>
-        <Typography variant="h6">Token usage ({getPeriodLabel(selectedPeriod)})</Typography>
+        <Typography variant="h6">Token usage</Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <ToggleButtonGroup
             value={selectedPeriod}
@@ -374,6 +374,15 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
               },
               tickMinStep: 24 * 60 * 60 * 1000
             }]}
+            yAxis={[{                            
+              valueFormatter: (value: number) => {
+                if (value >= 1000) {
+                  return `${(value / 1000).toFixed(0)}k`;
+                }
+                return value.toString();
+              }
+            }]}
+            margin={{ left: 60, right: 20, top: 20, bottom: 40 }}
             series={chartData.series.map(series => ({
               ...series,
               showMarkers: false,
