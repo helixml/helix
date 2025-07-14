@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesTriggerConfiguration } from '../api/api';
+import { TypesTriggerConfiguration, TypesUsersAggregatedUsageMetric } from '../api/api';
 
 export const appStepsQueryKey = (id: string, interactionId: string) => [
   "app-steps",
@@ -176,13 +176,10 @@ export function useGetAppUsage(appId: string, from: string, to: string) {
   const apiClient = api.getApiClient()
 
   return useQuery({
-    queryKey: appUsageQueryKey(appId, from, to),
-    queryFn: () => apiClient.v1AppsUsersDailyUsageDetail(appId, { from, to }),
+    queryKey: appUsageQueryKey(appId, from, to), 
+    queryFn: async () => {
+      const response = await apiClient.v1AppsUsersDailyUsageDetail(appId, { from, to })
+      return response.data as unknown as TypesUsersAggregatedUsageMetric[]
+    },
   })
-}
-
-export function refreshAppUsage(appId: string, from: string, to: string) {
-  // Invalidate the app usage query
-  const queryClient = useQueryClient()
-  queryClient.invalidateQueries({ queryKey: appUsageQueryKey(appId, from, to) })
 }
