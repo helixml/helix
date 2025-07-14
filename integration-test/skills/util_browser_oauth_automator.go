@@ -362,7 +362,8 @@ func (a *BrowserOAuthAutomator) PerformOAuthFlow(authURL, state, username, passw
 	defer page.Close()
 
 	// Set longer overall timeout for page operations - increased for Atlassian OAuth reliability
-	page = page.Timeout(120 * time.Second)
+	// Google OAuth now includes account selection which adds significant processing time
+	page = page.Timeout(180 * time.Second)
 
 	// Navigate to OAuth authorization URL
 	a.logger.Info().Str("url", authURL).Msg("Navigating to OAuth authorization URL")
