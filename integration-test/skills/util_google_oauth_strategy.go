@@ -26,6 +26,9 @@ func NewGoogleProviderStrategy(logger zerolog.Logger) *GoogleProviderStrategy {
 func (s *GoogleProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Looking for Google Next button")
 
+	// Take screenshot before looking for Next button
+	screenshotTaker.TakeScreenshot(page, "google_next_button_search_start")
+
 	// Set longer timeout for operations - increased from 10 seconds for better reliability
 	page = page.Timeout(45 * time.Second)
 
@@ -134,6 +137,9 @@ func (s *GoogleProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker
 // ClickAuthorizeButton implements Google-specific Authorize button clicking logic
 func (s *GoogleProviderStrategy) ClickAuthorizeButton(page *rod.Page, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Looking for Google Authorize button")
+
+	// Take screenshot before looking for Authorize button
+	screenshotTaker.TakeScreenshot(page, "google_authorize_button_search_start")
 
 	// Set longer timeout for operations - OAuth consent pages can be slower
 	// Use 45 seconds per element operation to allow for page loading delays
@@ -268,6 +274,9 @@ func (s *GoogleProviderStrategy) HandleLoginFlow(page *rod.Page, username, passw
 func (s *GoogleProviderStrategy) handleEmailInput(page *rod.Page, username string, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Handling email input (first step)")
 
+	// Take screenshot at start of email input step
+	screenshotTaker.TakeScreenshot(page, "google_email_step_start")
+
 	// Find and fill email field using Google-specific selectors
 	emailSelectors := []string{
 		`input[type="email"]`,
@@ -289,11 +298,16 @@ func (s *GoogleProviderStrategy) handleEmailInput(page *rod.Page, username strin
 	}
 
 	if emailField == nil {
+		screenshotTaker.TakeScreenshot(page, "google_email_field_not_found")
 		return fmt.Errorf("could not find Google email field")
 	}
 
+	// Take screenshot after finding email field
+	screenshotTaker.TakeScreenshot(page, "google_email_field_found")
+
 	err = emailField.Click(proto.InputMouseButtonLeft, 1)
 	if err != nil {
+		screenshotTaker.TakeScreenshot(page, "google_email_field_click_failed")
 		return fmt.Errorf("could not click email field: %w", err)
 	}
 
@@ -304,16 +318,23 @@ func (s *GoogleProviderStrategy) handleEmailInput(page *rod.Page, username strin
 
 	err = emailField.Input(username)
 	if err != nil {
+		screenshotTaker.TakeScreenshot(page, "google_email_input_failed")
 		return fmt.Errorf("could not input email: %w", err)
 	}
 
-	screenshotTaker.TakeScreenshot(page, "google_email_entered")
+	// Take screenshot after filling email field
+	screenshotTaker.TakeScreenshot(page, "google_email_filled")
 
 	// Click Next button to proceed to password step
+	s.logger.Info().Msg("Attempting to click Next button after email")
 	err = s.ClickNextButton(page, screenshotTaker)
 	if err != nil {
+		screenshotTaker.TakeScreenshot(page, "google_next_button_click_failed")
 		return fmt.Errorf("failed to click Next button after email: %w", err)
 	}
+
+	// Take screenshot after clicking Next button
+	screenshotTaker.TakeScreenshot(page, "google_next_button_clicked")
 
 	// Wait for next page to load
 	time.Sleep(2 * time.Second)
@@ -349,6 +370,9 @@ func (s *GoogleProviderStrategy) handleAccountSelection(page *rod.Page, username
 		return nil
 	}
 
+	// Take screenshot before account selection validation
+	screenshotTaker.TakeScreenshot(page, "google_account_selection_validation")
+
 	// Additional validation: check for account selection page indicators
 	// Look for text that would only appear on account selection pages
 	bodyElement, bodyErr := page.Timeout(2 * time.Second).Element("body")
@@ -362,9 +386,11 @@ func (s *GoogleProviderStrategy) handleAccountSelection(page *rod.Page, username
 				!strings.Contains(pageTextLower, "which account") &&
 				!strings.Contains(pageTextLower, "choose your account") {
 				s.logger.Info().Str("url", currentURL).Msg("No account selection text found, assuming password page")
+				screenshotTaker.TakeScreenshot(page, "google_no_account_selection_text")
 				return nil
 			}
 			s.logger.Info().Msg("Found account selection text, proceeding with account selection")
+			screenshotTaker.TakeScreenshot(page, "google_account_selection_confirmed")
 		}
 	}
 
@@ -401,8 +427,12 @@ func (s *GoogleProviderStrategy) handleAccountSelection(page *rod.Page, username
 
 	if len(accountElements) == 0 {
 		s.logger.Info().Msg("No account selection elements found, assuming password page")
+		screenshotTaker.TakeScreenshot(page, "google_no_account_elements_found")
 		return nil
 	}
+
+	// Take screenshot after finding account elements
+	screenshotTaker.TakeScreenshot(page, "google_account_elements_found")
 
 	// Look for the account matching our username
 	for _, element := range accountElements {
@@ -497,6 +527,9 @@ func (s *GoogleProviderStrategy) HandleAuthorization(page *rod.Page, screenshotT
 func (s *GoogleProviderStrategy) handlePasswordInput(page *rod.Page, password string, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Handling password input (second step)")
 
+	// Take screenshot at start of password input step
+	screenshotTaker.TakeScreenshot(page, "google_password_step_start")
+
 	// Find and fill password field using Google-specific selectors
 	passwordSelectors := []string{
 		`input[type="password"]`,
@@ -517,11 +550,16 @@ func (s *GoogleProviderStrategy) handlePasswordInput(page *rod.Page, password st
 	}
 
 	if passwordField == nil {
+		screenshotTaker.TakeScreenshot(page, "google_password_field_not_found")
 		return fmt.Errorf("could not find Google password field")
 	}
 
+	// Take screenshot after finding password field
+	screenshotTaker.TakeScreenshot(page, "google_password_field_found")
+
 	err = passwordField.Click(proto.InputMouseButtonLeft, 1)
 	if err != nil {
+		screenshotTaker.TakeScreenshot(page, "google_password_field_click_failed")
 		return fmt.Errorf("could not click password field: %w", err)
 	}
 
@@ -532,16 +570,23 @@ func (s *GoogleProviderStrategy) handlePasswordInput(page *rod.Page, password st
 
 	err = passwordField.Input(password)
 	if err != nil {
+		screenshotTaker.TakeScreenshot(page, "google_password_input_failed")
 		return fmt.Errorf("could not input password: %w", err)
 	}
 
-	screenshotTaker.TakeScreenshot(page, "google_password_entered")
+	// Take screenshot after filling password field
+	screenshotTaker.TakeScreenshot(page, "google_password_filled")
 
 	// Click Next/Sign in button to proceed
+	s.logger.Info().Msg("Attempting to click Next/Sign in button after password")
 	err = s.ClickNextButton(page, screenshotTaker)
 	if err != nil {
+		screenshotTaker.TakeScreenshot(page, "google_password_next_button_click_failed")
 		return fmt.Errorf("failed to click Next button after password: %w", err)
 	}
+
+	// Take screenshot after clicking Next/Sign in button
+	screenshotTaker.TakeScreenshot(page, "google_password_next_button_clicked")
 
 	return nil
 }

@@ -367,8 +367,11 @@ func (a *BrowserOAuthAutomator) PerformOAuthFlow(authURL, state, username, passw
 
 	// Navigate to OAuth authorization URL
 	a.logger.Info().Str("url", authURL).Msg("Navigating to OAuth authorization URL")
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_before_navigation")
+
 	err = page.Navigate(authURL)
 	if err != nil {
+		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_navigation_failed")
 		return "", fmt.Errorf("failed to navigate to OAuth URL: %w", err)
 	}
 
@@ -376,6 +379,7 @@ func (a *BrowserOAuthAutomator) PerformOAuthFlow(authURL, state, username, passw
 	a.logger.Info().Msg("Waiting for page to load")
 	err = page.Timeout(30 * time.Second).WaitLoad()
 	if err != nil {
+		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_page_load_failed")
 		return "", fmt.Errorf("failed to wait for page load: %w", err)
 	}
 
@@ -386,8 +390,11 @@ func (a *BrowserOAuthAutomator) PerformOAuthFlow(authURL, state, username, passw
 
 	// Check if we need to login
 	a.logger.Info().Msg("Checking if login is required")
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_before_login_check")
+
 	loginRequired, err := a.checkLoginRequired(page)
 	if err != nil {
+		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_login_check_failed")
 		return "", fmt.Errorf("failed to check login requirement: %w", err)
 	}
 
@@ -395,45 +402,67 @@ func (a *BrowserOAuthAutomator) PerformOAuthFlow(authURL, state, username, passw
 
 	if loginRequired {
 		a.logger.Info().Msg("Login required - starting login process")
+		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_login_required")
+
 		err = a.performLogin(page, username, password, screenshotTaker)
 		if err != nil {
+			screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_login_failed")
 			return "", fmt.Errorf("failed to perform login: %w", err)
 		}
+
+		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_login_completed")
 
 		// Handle 2FA if required
 		if a.config.TwoFactorHandler != nil && a.config.TwoFactorHandler.IsRequired(page) {
 			a.logger.Info().Msg("Two-factor authentication required - handling 2FA")
+			screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_2fa_required")
+
 			err = a.config.TwoFactorHandler.Handle(page, a)
 			if err != nil {
+				screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_2fa_failed")
 				return "", fmt.Errorf("failed to handle 2FA: %w", err)
 			}
-		}
 
-		// Check if we need to navigate back to OAuth after login/2FA
-		a.logger.Info().Msg("Checking if navigation back to OAuth is needed")
-		err = a.navigateBackToOAuthIfNeeded(page, authURL, screenshotTaker)
-		if err != nil {
-			return "", fmt.Errorf("failed to navigate back to OAuth: %w", err)
+			screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_2fa_completed")
 		}
+	} else {
+		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_login_not_required")
+	}
+
+	// Check if we need to navigate back to OAuth after login/2FA
+	a.logger.Info().Msg("Checking if navigation back to OAuth is needed")
+	err = a.navigateBackToOAuthIfNeeded(page, authURL, screenshotTaker)
+	if err != nil {
+		return "", fmt.Errorf("failed to navigate back to OAuth: %w", err)
 	}
 
 	// Check if already at callback (OAuth completed)
 	a.logger.Info().Msg("Checking if OAuth flow is already completed")
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_before_oauth_completion_check")
+
 	authCode, completed := a.checkOAuthCompleted(page, state)
 	if completed {
 		a.logger.Info().Msg("OAuth flow already completed - returning authorization code")
+		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_oauth_already_completed")
 		return authCode, nil
 	}
 
 	// Look for and click authorization button
 	a.logger.Info().Msg("Starting authorization button search and click")
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_before_authorization")
+
 	err = a.performAuthorization(page, screenshotTaker)
 	if err != nil {
+		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_authorization_failed")
 		return "", fmt.Errorf("failed to perform authorization: %w", err)
 	}
 
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_authorization_completed")
+
 	// Wait for callback with authorization code
 	a.logger.Info().Msg("Starting callback wait process")
+	screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_before_callback_wait")
+
 	return a.waitForCallback(page, state, screenshotTaker)
 }
 
@@ -710,6 +739,8 @@ func (a *BrowserOAuthAutomator) waitForCallback(page *rod.Page, state string, sc
 					Str("current_url", currentURL).
 					Int("check_count", checkCount).
 					Msg("Still waiting for OAuth callback")
+				// Take periodic screenshots to show progress
+				screenshotTaker.TakeScreenshot(page, fmt.Sprintf("%s_callback_wait_%d", a.config.ProviderName, checkCount))
 			}
 
 			if strings.Contains(currentURL, a.config.CallbackURLPattern) || strings.Contains(currentURL, "code=") {
@@ -719,17 +750,20 @@ func (a *BrowserOAuthAutomator) waitForCallback(page *rod.Page, state string, sc
 				// Extract authorization code from callback URL
 				parsedURL, err := url.Parse(currentURL)
 				if err != nil {
+					screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_callback_url_parse_failed")
 					return "", fmt.Errorf("failed to parse callback URL: %w", err)
 				}
 
 				authCode := parsedURL.Query().Get("code")
 				if authCode == "" {
+					screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_no_auth_code_in_callback")
 					return "", fmt.Errorf("no authorization code in callback URL: %s", currentURL)
 				}
 
 				// Verify state parameter matches
 				callbackState := parsedURL.Query().Get("state")
 				if callbackState != state {
+					screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_state_mismatch")
 					return "", fmt.Errorf("state mismatch: expected %s, got %s", state, callbackState)
 				}
 
@@ -738,6 +772,8 @@ func (a *BrowserOAuthAutomator) waitForCallback(page *rod.Page, state string, sc
 					Str("state", callbackState).
 					Msg("Successfully extracted authorization code from callback")
 
+				// Take final success screenshot
+				screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_oauth_success")
 				return authCode, nil
 			}
 		}
