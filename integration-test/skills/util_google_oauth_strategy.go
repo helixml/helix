@@ -320,9 +320,11 @@ func (s *GoogleProviderStrategy) handleEmailInput(page *rod.Page, username strin
 	screenshotTaker.TakeScreenshot(page, "google_after_email_next")
 
 	// Check if we're on an account selection page
+	// Handle account selection gracefully - if it fails, continue with normal flow
 	err = s.handleAccountSelection(page, username, screenshotTaker)
 	if err != nil {
-		return fmt.Errorf("failed to handle account selection: %w", err)
+		s.logger.Warn().Err(err).Msg("Account selection failed, continuing with normal password flow")
+		// Don't return error - let the normal password flow continue
 	}
 
 	// Wait for password page to load
@@ -347,17 +349,33 @@ func (s *GoogleProviderStrategy) handleAccountSelection(page *rod.Page, username
 		return nil
 	}
 
-	// Look for account selection indicators
+	// Additional validation: check for account selection page indicators
+	// Look for text that would only appear on account selection pages
+	bodyElement, bodyErr := page.Timeout(2 * time.Second).Element("body")
+	if bodyErr == nil {
+		pageText, textErr := bodyElement.Text()
+		if textErr == nil {
+			pageTextLower := strings.ToLower(pageText)
+			// If we don't see typical account selection text, assume we're on password page
+			if !strings.Contains(pageTextLower, "choose an account") &&
+				!strings.Contains(pageTextLower, "select an account") &&
+				!strings.Contains(pageTextLower, "which account") &&
+				!strings.Contains(pageTextLower, "choose your account") {
+				s.logger.Info().Str("url", currentURL).Msg("No account selection text found, assuming password page")
+				return nil
+			}
+			s.logger.Info().Msg("Found account selection text, proceeding with account selection")
+		}
+	}
+
+	// Look for account selection indicators - use only very specific selectors
+	// to avoid matching elements on password page or other pages
 	accountSelectors := []string{
 		`div[data-email]`,                    // Account divs with email data attribute
 		`div[data-identifier]`,               // Account divs with identifier data attribute
-		`div[role="button"]`,                 // Account buttons
 		`button[data-email]`,                 // Account buttons with email
-		`div[aria-label*="account"]`,         // Account divs with aria-label
-		`div[aria-label*="Account"]`,         // Account divs with aria-label (capitalized)
 		`div[data-account-id]`,               // Account divs with account ID
 		`li[data-account-id]`,                // Account list items with account ID
-		`ul[role="listbox"] li`,              // Account options in listbox
 		`div[jscontroller][data-email]`,      // JS controller divs with email
 		`div[jscontroller][data-identifier]`, // JS controller divs with identifier
 	}
