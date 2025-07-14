@@ -782,9 +782,11 @@ volumes:
 - name: oauth-confluence-test-results
   temp: {}
 - name: go-build-cache
-  temp: {}
+  host:
+    path: /var/cache/drone/go-build
 - name: go-mod-cache
-  temp: {}
+  host:
+    path: /var/cache/drone/go-mod
 ---
 kind: pipeline
 type: docker
