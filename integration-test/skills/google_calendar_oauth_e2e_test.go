@@ -306,7 +306,7 @@ func (suite *GoogleCalendarOAuthE2ETestSuite) getGoogleCalendarAuthorizationCode
 		LoginUsernameSelector:   `input[type="email"], input[name="identifier"], input[id="identifierId"], input[autocomplete="username"]`,
 		LoginPasswordSelector:   `input[type="password"], input[name="password"], input[autocomplete="current-password"]`,
 		LoginButtonSelector:     `button[id="identifierNext"], button[id="passwordNext"], button[type="submit"], input[type="submit"]`,
-		AuthorizeButtonSelector: `input[type="submit"][value="Allow"], button[type="submit"], button[data-l*="allow"]`,
+		AuthorizeButtonSelector: `button.VfPpkd-LgbsSe, button[type="submit"], input[type="submit"][value="Allow"], button[data-l*="allow"]`, // FIXED: Use same working pattern as Gmail
 		CallbackURLPattern:      "/api/v1/oauth/flow/callback",
 		DeviceVerificationCheck: googleHandler.IsRequiredForURL,
 		TwoFactorHandler:        googleHandler,
