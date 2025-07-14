@@ -85,7 +85,7 @@ var ConfluenceOAuthProviderConfig = OAuthProviderConfig{
 	AuthURL:      "https://auth.atlassian.com/authorize",
 	TokenURL:     "https://auth.atlassian.com/oauth/token",
 	UserInfoURL:  "https://api.atlassian.com/me",
-	Scopes:       []string{"read:confluence-content.summary", "read:confluence-content.all", "write:confluence-content", "read:confluence-space.summary"},
+	Scopes:       []string{"read:confluence-content.summary", "read:confluence-content.all", "write:confluence-content", "read:confluence-space.summary", "read:me", "read:account"},
 	// ClientID, ClientSecret, Username, Password, and functions will be set during test setup
 }
 
