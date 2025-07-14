@@ -22,6 +22,7 @@ import ToolDetail from '../tools/ToolDetail'
 
 import useTheme from '@mui/material/styles/useTheme'
 import useApi from '../../hooks/useApi'
+import useAccount from '../../hooks/useAccount'
 
 import {
   IApp,
@@ -54,7 +55,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
   const api = useApi()
   const apiClient = api.getApiClient()
   const theme = useTheme()
-  const lightTheme = useLightTheme()
+  const account = useAccount()
   // Add state for usage data with proper typing
   const [usageData, setUsageData] = useState<{[key: string]: TypesAggregatedUsageMetric[] | null}>({})
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -84,6 +85,11 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
     handleMenuClose();
   };
 
+  // Handle navigation to app details with skills tab
+  const handleSkillClick = (app: IApp) => {
+    account.orgNavigate('app', { app_id: app.id }, { tab: 'skills' });
+  };
+
   // Fetch usage data for all apps
   useEffect(() => {
     const fetchUsageData = async () => {
@@ -101,11 +107,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
 
   const tableData = useMemo(() => {
     return data.map(app => {
-      const assistant = app.config.helix?.assistants?.[0]
-      const gptScripts = assistant?.gptscripts || []
-      const apiTools = (assistant?.tools || []).filter(t => t.tool_type == 'api')      
-
-      
+      const assistant = app.config.helix?.assistants?.[0]      
 
       // Get usage data for this app with proper typing
       const appUsage = usageData[app.id] || []
@@ -114,97 +116,51 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       const usageLabels = appUsage.map((day: TypesAggregatedUsageMetric) => {
         const date = new Date(day.date)
         return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' }) // e.g., "Mon 3"
-      })
-      const todayTokens = appUsage[appUsage.length - 1]?.total_tokens || 0
-      const totalTokens = appUsage.reduce((sum: number, day: TypesAggregatedUsageMetric) => sum + (day.total_tokens || 0), 0)
+      })      
 
-      const gptscriptsElem = gptScripts.length > 0 ? (
-        <>
-          <Box sx={{mb: 2}}>
-            <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline'}}>
-              GPTScripts
-            </Typography>
-          </Box>
-          {
-            // TODO: support more than 1 assistant
-            gptScripts.map((gptscript, index) => {
-              return (
-                <Box
-                  key={index}
-                >
-                  <Row>
-                    <Cell sx={{width:'50%'}}>
-                      <Chip color="secondary" size="small" label={gptscript.name} />
-                    </Cell>
-                    <Cell sx={{width:'50%'}}>
-                      <Typography variant="body2" sx={{color: '#999', fontSize: '0.8rem'}}>
-                        {gptscript.content?.split('\n').filter(r => r)[0] || ''}
-                      </Typography>
-                      <Typography variant="body2" sx={{color: '#999', fontSize: '0.8rem'}}>
-                        {gptscript.content?.split('\n').filter(r => r)[1] || ''}
-                      </Typography>
-                      <JsonWindowLink
-                        sx={{textDecoration: 'underline'}}
-                        data={gptscript.content}
-                      >
-                        expand
-                      </JsonWindowLink>
-                    </Cell>
-                  </Row>
-                </Box>
-              )
-            })
-          }
-        </>
-      ) : null
-
-      const apisElem = apiTools.length > 0 ? (
+      const skills = assistant?.tools && assistant.tools.length > 0 ? (
         <>
           {
             // TODO: support more than 1 assistant
-            apiTools.map((apiTool, index) => {
+            assistant.tools.map((apiTool, index) => {
               return (
-                <ToolDetail
-                  key={ index }
-                  tool={ apiTool }
-                />
-              )
-            })
-          }
-        </>
-      ) : null
-
-      const knowledgeElem = assistant && assistant.knowledge && assistant.knowledge.length > 0 ? (
-        <>
-          {
-            assistant.knowledge.map((knowledge, index) => {
-              return (
-                <Box
+                <Tooltip
                   key={index}
-                  sx={{ border: '1px solid #757575', borderRadius: 2, p: 2, mb: 1 }}
+                  title={`${apiTool.description || 'No description available'} - Click to view skills`}
+                  placement="top"
+                  arrow
+                  slotProps={{ tooltip: { sx: { bgcolor: '#222', opacity: 1 } } }}
                 >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                    <Tooltip title="Knowledge">
-                      <SchoolIcon fontSize="small" sx={{ color: lightTheme.textColorFaded, mr: 1 }} />
-                    </Tooltip>
-                    <Typography variant="body1" sx={{fontWeight: 'bold', color: lightTheme.textColorFaded}}>
-                      {knowledge.name}
-                    </Typography>
-                  </Box>
-                  {knowledge.description && (
-                    <Typography variant="caption" sx={{ color: lightTheme.textColorFaded, pl: 4.5 }}>
-                      {knowledge.description}
-                    </Typography>
-                  )}
-                </Box>
+                  <Chip
+                    label={apiTool.name || 'Unknown Tool'}
+                    size="small"
+                    onClick={() => handleSkillClick(app)}
+                    sx={{
+                      mr: 0.5,
+                      mb: 0.5,
+                      background: `linear-gradient(135deg, ${theme.chartGradientStart} 0%, ${theme.chartGradientEnd} 100%)`,
+                      color: theme.palette.mode === 'dark' ? '#fff' : '#333',
+                      border: `1px solid ${theme.palette.mode === 'dark' ? '#444' : '#ddd'}`,
+                      boxShadow: theme.palette.mode === 'dark' 
+                        ? '0 2px 4px rgba(0, 0, 0, 0.3)' 
+                        : '0 2px 4px rgba(0, 0, 0, 0.1)',
+                      '&:hover': {
+                        background: `linear-gradient(135deg, ${theme.chartGradientEnd} 0%, ${theme.chartGradientStart} 100%)`,
+                        boxShadow: theme.palette.mode === 'dark' 
+                          ? '0 4px 8px rgba(0, 0, 0, 0.4)' 
+                          : '0 4px 8px rgba(0, 0, 0, 0.15)',
+                        transform: 'translateY(-1px)',
+                      },
+                      transition: 'all 0.2s ease-in-out',
+                      cursor: 'pointer',
+                    }}
+                  />
+                </Tooltip>
               )
             })
           }
         </>
       ) : null
-
-      // TODO: add the list of apis also to this display
-      // we can grab stuff from the tools package that already renders endpoints    
 
       return {
         id: app.id,
@@ -235,13 +191,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
             </Cell>
           </Row>
         ),
-        actions: (
-          <>
-            { gptscriptsElem }
-            { apisElem }
-            { knowledgeElem }            
-          </>
-        ),
+        skills: skills,
         usage: (
           <Box sx={{ width: 200, height: 50 }}>
             <Box>
@@ -291,8 +241,8 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
               >
                 <defs>
                   <linearGradient id="usageGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#00c8ff" stopOpacity={0.5} />
-                    <stop offset="100%" stopColor="#070714" stopOpacity={0.1} />
+                    <stop offset="0%" stopColor={theme.chartGradientStart} stopOpacity={theme.chartGradientStartOpacity} />
+                    <stop offset="100%" stopColor={theme.chartGradientEnd} stopOpacity={theme.chartGradientEndOpacity} />
                   </linearGradient>
                 </defs>
               </LineChart>
@@ -328,7 +278,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
             name: 'name',
             title: 'Name',
         }, {
-          name: 'actions',
+          name: 'skills',
           title: 'Skills',
         }, {
           name: 'usage',
