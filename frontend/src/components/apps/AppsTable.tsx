@@ -134,23 +134,41 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
                   <Chip
                     label={apiTool.name || 'Unknown Tool'}
                     size="small"
+                    variant="outlined"
                     onClick={() => handleSkillClick(app)}
                     sx={{
                       mr: 0.5,
                       mb: 0.5,
-                      background: `linear-gradient(135deg, ${theme.chartGradientStart} 0%, ${theme.chartGradientEnd} 100%)`,
-                      color: theme.palette.mode === 'dark' ? '#fff' : '#333',
-                      border: `1px solid ${theme.palette.mode === 'dark' ? '#444' : '#ddd'}`,
-                      boxShadow: theme.palette.mode === 'dark' 
-                        ? '0 2px 4px rgba(0, 0, 0, 0.3)' 
-                        : '0 2px 4px rgba(0, 0, 0, 0.1)',
-                      '&:hover': {
-                        background: `linear-gradient(135deg, ${theme.chartGradientEnd} 0%, ${theme.chartGradientStart} 100%)`,
-                        boxShadow: theme.palette.mode === 'dark' 
-                          ? '0 4px 8px rgba(0, 0, 0, 0.4)' 
-                          : '0 4px 8px rgba(0, 0, 0, 0.15)',
-                        transform: 'translateY(-1px)',
+                      color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
+                      backgroundColor: 'transparent',
+                      border: `1px solid transparent`,
+                      position: 'relative',
+                      '&::before': {
+                        content: '""',
+                        position: 'absolute',
+                        top: '-1px',
+                        left: '-1px',
+                        right: '-1px',
+                        bottom: '-1px',
+                        borderRadius: 'inherit',
+                        background: `linear-gradient(135deg, ${theme.chartGradientStart} 0%, ${theme.chartGradientEnd} 100%)`,
+                        zIndex: -1,
+                        pointerEvents: 'none',
                       },
+                      '&::after': {
+                        content: '""',
+                        position: 'absolute',
+                        top: '1px',
+                        left: '1px',
+                        right: '1px',
+                        bottom: '1px',
+                        borderRadius: 'inherit',
+                        backgroundColor: theme.palette.mode === 'dark' ? theme.palette.background.paper : theme.palette.background.default,
+                        zIndex: -1,
+                        pointerEvents: 'none',
+                      },
+                      background: `linear-gradient(135deg, ${theme.chartGradientEnd} 0%, ${theme.chartGradientStart} 100%)`,
+                      transform: 'translateY(-1px)',
                       transition: 'all 0.2s ease-in-out',
                       cursor: 'pointer',
                     }}
@@ -191,7 +209,17 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
             </Cell>
           </Row>
         ),
-        skills: skills,
+        skills: (
+          <Box sx={{ 
+            maxWidth: 300, 
+            display: 'flex', 
+            flexWrap: 'wrap', 
+            gap: 0.5,
+            alignItems: 'flex-start'
+          }}>
+            {skills}
+          </Box>
+        ),
         usage: (
           <Box sx={{ width: 200, height: 50 }}>
             <Box>
