@@ -582,6 +582,18 @@ func (h *AtlassianOAuthHandler) handleMFAWithGmail(page *rod.Page) error {
 	// Find MFA input field
 	h.logger.Info().Msg("Step 1: Searching for Atlassian MFA input field")
 	mfaInputSelectors := []string{
+		// Modern Atlassian MFA selectors (2024/2025)
+		`input[data-testid*="verification"]`,
+		`input[data-testid*="code"]`,
+		`input[data-testid*="mfa"]`,
+		`input[data-testid*="otp"]`,
+		`input[class*="verification"]`,
+		`input[class*="code"]`,
+		`input[aria-label*="verification"]`,
+		`input[aria-label*="code"]`,
+		`input[aria-describedby*="verification"]`,
+		`input[aria-describedby*="code"]`,
+		// Legacy selectors
 		`input[name="otp"]`,
 		`input[id="otp"]`,
 		`input[name="code"]`,
@@ -595,6 +607,10 @@ func (h *AtlassianOAuthHandler) handleMFAWithGmail(page *rod.Page) error {
 		`input[type="text"][maxlength="6"]`,
 		`input[type="text"][maxlength="8"]`,
 		`input[type="tel"]`,
+		// More comprehensive fallbacks
+		`input[type="text"]:not([name="username"]):not([name="email"]):not([name="password"])`,
+		`input[inputmode="numeric"]`,
+		`input[pattern*="[0-9]"]`,
 	}
 
 	var mfaInput *rod.Element
