@@ -336,6 +336,10 @@ func (s *GoogleProviderStrategy) handleEmailInput(page *rod.Page, username strin
 func (s *GoogleProviderStrategy) handleAccountSelection(page *rod.Page, username string, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Checking for Google account selection page")
 
+	// Set overall timeout for account selection to prevent it from running too long
+	startTime := time.Now()
+	accountSelectionTimeout := 30 * time.Second
+
 	// Check if we're on an account selection page
 	currentURL := page.MustInfo().URL
 	if !strings.Contains(currentURL, "accounts.google.com") {
@@ -361,9 +365,15 @@ func (s *GoogleProviderStrategy) handleAccountSelection(page *rod.Page, username
 	var accountElements []*rod.Element
 	var err error
 
-	// Try to find account elements
+	// Try to find account elements with reduced timeout to avoid accumulating delays
 	for _, selector := range accountSelectors {
-		elements, elemErr := page.Timeout(5 * time.Second).Elements(selector)
+		// Check overall timeout
+		if time.Since(startTime) > accountSelectionTimeout {
+			s.logger.Warn().Msg("Account selection timeout exceeded, skipping")
+			break
+		}
+
+		elements, elemErr := page.Timeout(2 * time.Second).Elements(selector)
 		if elemErr == nil && len(elements) > 0 {
 			s.logger.Info().Str("selector", selector).Int("count", len(elements)).Msg("Found account selection elements")
 			accountElements = elements
@@ -378,6 +388,12 @@ func (s *GoogleProviderStrategy) handleAccountSelection(page *rod.Page, username
 
 	// Look for the account matching our username
 	for _, element := range accountElements {
+		// Check overall timeout
+		if time.Since(startTime) > accountSelectionTimeout {
+			s.logger.Warn().Msg("Account selection timeout exceeded during account matching")
+			break
+		}
+
 		// Check if this element contains our email
 		text, textErr := element.Text()
 		if textErr == nil && strings.Contains(strings.ToLower(text), strings.ToLower(username)) {
