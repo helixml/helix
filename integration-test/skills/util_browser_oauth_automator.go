@@ -411,20 +411,6 @@ func (a *BrowserOAuthAutomator) PerformOAuthFlow(authURL, state, username, passw
 		}
 
 		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_login_completed")
-
-		// Handle 2FA if required
-		if a.config.TwoFactorHandler != nil && a.config.TwoFactorHandler.IsRequired(page) {
-			a.logger.Info().Msg("Two-factor authentication required - handling 2FA")
-			screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_2fa_required")
-
-			err = a.config.TwoFactorHandler.Handle(page, a)
-			if err != nil {
-				screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_2fa_failed")
-				return "", fmt.Errorf("failed to handle 2FA: %w", err)
-			}
-
-			screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_2fa_completed")
-		}
 	} else {
 		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_login_not_required")
 	}
@@ -632,7 +618,27 @@ func (a *BrowserOAuthAutomator) performLogin(page *rod.Page, username, password 
 	a.debugDumpPageElements(page, "login_start")
 
 	// Use the provider strategy to handle the login flow
-	return a.config.ProviderStrategy.HandleLoginFlow(page, username, password, screenshotTaker)
+	err := a.config.ProviderStrategy.HandleLoginFlow(page, username, password, screenshotTaker)
+	if err != nil {
+		return fmt.Errorf("failed to handle login flow: %w", err)
+	}
+
+	// Check for MFA immediately after login completes
+	// This is crucial for providers like Atlassian that redirect to MFA immediately after login
+	if a.config.TwoFactorHandler != nil && a.config.TwoFactorHandler.IsRequired(page) {
+		a.logger.Info().Msg("Two-factor authentication required after login - handling MFA")
+		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_2fa_required_after_login")
+
+		err = a.config.TwoFactorHandler.Handle(page, a)
+		if err != nil {
+			screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_2fa_failed_after_login")
+			return fmt.Errorf("failed to handle 2FA after login: %w", err)
+		}
+
+		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_2fa_completed_after_login")
+	}
+
+	return nil
 }
 
 // navigateBackToOAuthIfNeeded checks if we need to navigate back to OAuth after login/2FA
