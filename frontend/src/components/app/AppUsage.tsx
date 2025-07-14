@@ -34,6 +34,54 @@ import LLMCallTimelineChart from './LLMCallTimelineChart';
 import LLMCallDialog from './LLMCallDialog';
 import { useGetAppUsage } from '../../services/appService';
 
+// Add TokenUsageIcon component
+const TokenUsageIcon = ({ promptTokens }: { promptTokens: number }) => {
+  const getBars = () => {
+    if (promptTokens < 100) {
+      // Blue for low usage
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
+          <Box sx={{ width: 3, height: 8, bgcolor: 'info.main' }} />
+        </Box>
+      )
+    } else if (promptTokens < 2000) {
+      // Green for moderate usage
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
+          <Box sx={{ width: 3, height: 8, bgcolor: 'success.main' }} />
+          <Box sx={{ width: 3, height: 12, bgcolor: 'success.main' }} />
+        </Box>
+      )
+    } else if (promptTokens < 10000) {
+      // Yellow warning for high usage
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
+          <Box sx={{ width: 3, height: 8, bgcolor: 'warning.main' }} />
+          <Box sx={{ width: 3, height: 12, bgcolor: 'warning.main' }} />
+          <Box sx={{ width: 3, height: 16, bgcolor: 'warning.main' }} />
+        </Box>
+      )
+    } else {
+      // Red for very high usage
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
+          {/* <Box sx={{ width: 3, height: 8, bgcolor: 'error.main' }} /> */}
+          <Box sx={{ width: 3, height: 12, bgcolor: 'error.main' }} />
+          <Box sx={{ width: 3, height: 16, bgcolor: 'error.main' }} />
+          <Box sx={{ width: 3, height: 20, bgcolor: 'error.main' }} />
+        </Box>
+      )
+    }
+  }
+
+  // Add a fixed width and center the bars
+  return (
+    <Box sx={{ width: 32, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+      {getBars()}
+    </Box>
+  )
+}
+
 interface AppLogsTableProps {
   appId: string;
 }
@@ -568,6 +616,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                               <TableRow>
                                 <TableCell>Timestamp</TableCell>
                                 <TableCell>Step</TableCell>
+                                <TableCell>Token Usage</TableCell>
                                 <TableCell>Duration (ms)</TableCell>
                                 <TableCell>Model</TableCell>
                                 <TableCell>Details</TableCell>
@@ -583,6 +632,13 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                                 >
                                   <TableCell>{call.created ? new Date(call.created).toLocaleString() : ''}</TableCell>
                                   <TableCell>{call.step || 'n/a'}</TableCell>
+                                  <TableCell>
+                                    <Tooltip title={`${call.prompt_tokens || 0} prompt tokens`}>
+                                      <span>
+                                        <TokenUsageIcon promptTokens={call.prompt_tokens || 0} />
+                                      </span>
+                                    </Tooltip>
+                                  </TableCell>
                                   <TableCell>
                                     {call.duration_ms ? formatDuration(call.duration_ms) : 'n/a'}
                                     {call.duration_ms && call.duration_ms > 5000 && (
