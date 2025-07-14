@@ -11,10 +11,14 @@ import (
 type Skill struct {
 	Name         string
 	Description  string
-	Direct       bool // If true, the skill can be executed directly without the skill context runner, examples: calculator, browser
-	Parameters   any  // Top level parameters for the skill
+	Parameters   any // Top level parameters for the skill
 	SystemPrompt string
 	Tools        []Tool
+
+	Direct bool // If true, the skill can be executed directly without the skill context runner, examples: calculator, browser
+	// If true, the skill will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser,
+	// however not useful for skills that return text such as WebSearch, Calculator, etc.
+	ProcessOutput bool
 }
 
 func (s *Skill) GetTools() []openai.Tool {
