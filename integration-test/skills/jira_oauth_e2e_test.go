@@ -19,17 +19,24 @@ package skills
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-rod/rod"
-	"github.com/helixml/helix/api/pkg/types"
+	"github.com/go-rod/rod/lib/proto"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/oauth2/google"
+	"google.golang.org/api/gmail/v1"
+	"google.golang.org/api/option"
+
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // ======================================================================================
@@ -324,7 +331,10 @@ func (suite *JiraOAuthE2ETestSuite) getAtlassianAuthorizationCode(authURL, state
 	// }()
 
 	// Set up Atlassian-specific OAuth handler
-	atlassianHandler := NewAtlassianOAuthHandler(suite.logger)
+	atlassianHandler, err := NewAtlassianOAuthHandler(os.Getenv("GMAIL_CREDENTIALS_BASE64"), suite.logger)
+	if err != nil {
+		return "", fmt.Errorf("failed to create Atlassian OAuth handler: %w", err)
+	}
 
 	// Configure Atlassian browser automation with improved selectors and provider strategy
 	atlassianStrategy := NewAtlassianProviderStrategy(suite.logger)
@@ -365,22 +375,35 @@ func (suite *JiraOAuthE2ETestSuite) cleanupJiraSpecifics(_ *testing.T) {
 // ATLASSIAN OAUTH HANDLER STUB
 // ======================================================================================
 
-// AtlassianOAuthHandler handles Atlassian-specific OAuth challenges
+// AtlassianOAuthHandler handles Atlassian-specific OAuth challenges including MFA
 type AtlassianOAuthHandler struct {
-	logger zerolog.Logger
+	gmailService           *gmail.Service
+	logger                 zerolog.Logger
+	gmailCredentialsBase64 string
 }
 
-// NewAtlassianOAuthHandler creates a new Atlassian OAuth handler
-func NewAtlassianOAuthHandler(logger zerolog.Logger) *AtlassianOAuthHandler {
-	return &AtlassianOAuthHandler{
-		logger: logger,
+// NewAtlassianOAuthHandler creates a new Atlassian OAuth handler with Gmail integration
+func NewAtlassianOAuthHandler(gmailCredentialsBase64 string, logger zerolog.Logger) (*AtlassianOAuthHandler, error) {
+	handler := &AtlassianOAuthHandler{
+		gmailCredentialsBase64: gmailCredentialsBase64,
+		logger:                 logger,
 	}
+
+	// Only set up Gmail service if credentials are provided
+	if gmailCredentialsBase64 != "" {
+		err := handler.setupGmailService()
+		if err != nil {
+			return nil, fmt.Errorf("failed to setup Gmail service: %w", err)
+		}
+	}
+
+	return handler, nil
 }
 
 // IsRequiredForURL checks if device verification is required for the given URL
 func (h *AtlassianOAuthHandler) IsRequiredForURL(url string) bool {
-	// Atlassian may require 2FA or device verification
-	return strings.Contains(url, "2fa") || strings.Contains(url, "verify") || strings.Contains(url, "device")
+	// Atlassian MFA pages contain these patterns
+	return strings.Contains(url, "/login/mfa") || strings.Contains(url, "mfa") || strings.Contains(url, "2fa") || strings.Contains(url, "verify") || strings.Contains(url, "device")
 }
 
 // IsRequired checks if 2FA is required for the current page (TwoFactorHandler interface)
@@ -393,19 +416,311 @@ func (h *AtlassianOAuthHandler) IsRequired(page *rod.Page) bool {
 // Handle handles 2FA if required (TwoFactorHandler interface)
 func (h *AtlassianOAuthHandler) Handle(page *rod.Page, _ *BrowserOAuthAutomator) error {
 	currentURL := page.MustInfo().URL
-	h.logger.Info().Str("url", currentURL).Msg("Handling Atlassian 2FA")
+	h.logger.Info().Str("url", currentURL).Msg("Handling Atlassian MFA")
 
-	// This would need to be implemented based on Atlassian's specific 2FA/device verification flow
-	// For now, we'll just log that it's not implemented
-	h.logger.Warn().Msg("Atlassian 2FA handling not implemented yet")
-	return nil
+	// Strategy 1: Try to find and click skip/alternative options
+	err := h.trySkipMFA(page)
+	if err == nil {
+		h.logger.Info().Msg("Successfully skipped Atlassian MFA")
+		return nil
+	}
+
+	h.logger.Info().Err(err).Msg("Could not skip MFA, trying Gmail integration")
+
+	// Strategy 2: Use Gmail integration if available
+	if h.gmailService != nil {
+		err = h.handleMFAWithGmail(page)
+		if err == nil {
+			h.logger.Info().Msg("Successfully handled Atlassian MFA using Gmail")
+			return nil
+		}
+		h.logger.Warn().Err(err).Msg("Gmail MFA handling failed")
+	}
+
+	// Strategy 3: Return informative error
+	return fmt.Errorf("Atlassian MFA detected but could not be handled automatically. URL: %s. Please disable MFA for the test account or implement manual MFA handling", currentURL)
 }
 
 // HandleDeviceVerification handles device verification if required
 func (h *AtlassianOAuthHandler) HandleDeviceVerification(url string) error {
 	h.logger.Info().Str("url", url).Msg("Handling Atlassian device verification")
-	// This would need to be implemented based on Atlassian's specific 2FA/device verification flow
-	// For now, we'll just log that it's not implemented
-	h.logger.Warn().Msg("Atlassian device verification not implemented yet")
+
+	// Use the same logic as Handle but without a page object
+	if h.gmailService != nil {
+		h.logger.Info().Msg("Gmail service available for device verification")
+		return fmt.Errorf("device verification with Gmail requires a page object - use Handle method instead")
+	}
+
+	return fmt.Errorf("Atlassian device verification detected but Gmail integration not available. URL: %s", url)
+}
+
+// setupGmailService initializes the Gmail API service for MFA code reading
+func (h *AtlassianOAuthHandler) setupGmailService() error {
+	h.logger.Info().Msg("Setting up Gmail service for Atlassian MFA")
+
+	// Decode base64 credentials
+	credentials, err := base64.StdEncoding.DecodeString(h.gmailCredentialsBase64)
+	if err != nil {
+		return fmt.Errorf("failed to decode Gmail credentials: %w", err)
+	}
+
+	// Create Gmail service with service account credentials and domain-wide delegation
+	ctx := context.Background()
+
+	// Parse the service account credentials
+	config, err := google.JWTConfigFromJSON(credentials, gmail.GmailReadonlyScope)
+	if err != nil {
+		return fmt.Errorf("failed to parse Gmail credentials: %w", err)
+	}
+
+	// Set the subject to impersonate the test@helix.ml user
+	config.Subject = "test@helix.ml"
+
+	// Create HTTP client with the JWT config
+	client := config.Client(ctx)
+
+	// Create Gmail service
+	service, err := gmail.NewService(ctx, option.WithHTTPClient(client))
+	if err != nil {
+		return fmt.Errorf("failed to create Gmail service: %w", err)
+	}
+
+	h.gmailService = service
+	h.logger.Info().Msg("Gmail service setup completed successfully")
 	return nil
+}
+
+// trySkipMFA attempts to skip MFA by finding skip/alternative options
+func (h *AtlassianOAuthHandler) trySkipMFA(page *rod.Page) error {
+	h.logger.Info().Msg("Trying to skip Atlassian MFA")
+
+	// Common skip button selectors for Atlassian
+	skipSelectors := []string{
+		`button[value="Skip"]`,
+		`input[type="submit"][value="Skip"]`,
+		`button:contains("Skip")`,
+		`button:contains("Not now")`,
+		`button:contains("Maybe later")`,
+		`a[href*="skip"]`,
+		`button[id*="skip"]`,
+		`button[class*="skip"]`,
+		`button:contains("Try another way")`,
+		`button:contains("Use a different method")`,
+	}
+
+	for _, selector := range skipSelectors {
+		element, err := page.Timeout(10 * time.Second).Element(selector)
+		if err != nil {
+			continue
+		}
+
+		// Check if element is visible and clickable
+		visible, visErr := element.Visible()
+		if visErr != nil || !visible {
+			continue
+		}
+
+		// Try to click the skip button
+		err = element.ScrollIntoView()
+		if err != nil {
+			h.logger.Warn().Err(err).Msg("Failed to scroll skip button into view")
+		}
+
+		err = element.Click(proto.InputMouseButtonLeft, 1)
+		if err != nil {
+			h.logger.Warn().Err(err).Str("selector", selector).Msg("Failed to click skip button")
+			continue
+		}
+
+		h.logger.Info().Str("selector", selector).Msg("Successfully clicked skip button")
+		time.Sleep(3 * time.Second)
+		return nil
+	}
+
+	return fmt.Errorf("no skip options found for Atlassian MFA")
+}
+
+// handleMFAWithGmail handles MFA using Gmail integration
+func (h *AtlassianOAuthHandler) handleMFAWithGmail(page *rod.Page) error {
+	h.logger.Info().Msg("Handling Atlassian MFA using Gmail integration")
+
+	// Find MFA input field
+	mfaInputSelectors := []string{
+		`input[name="otp"]`,
+		`input[id="otp"]`,
+		`input[name="code"]`,
+		`input[id="code"]`,
+		`input[name="verification_code"]`,
+		`input[id="verification_code"]`,
+		`input[name="mfa_code"]`,
+		`input[id="mfa_code"]`,
+		`input[placeholder*="code"]`,
+		`input[placeholder*="verification"]`,
+		`input[type="text"][maxlength="6"]`,
+		`input[type="text"][maxlength="8"]`,
+		`input[type="tel"]`,
+	}
+
+	var mfaInput *rod.Element
+	var err error
+
+	for _, selector := range mfaInputSelectors {
+		mfaInput, err = page.Timeout(10 * time.Second).Element(selector)
+		if err == nil && mfaInput != nil {
+			h.logger.Info().Str("selector", selector).Msg("Found Atlassian MFA input field")
+			break
+		}
+	}
+
+	if mfaInput == nil {
+		return fmt.Errorf("could not find Atlassian MFA input field")
+	}
+
+	// Get MFA code from Gmail
+	mfaCode, err := h.getAtlassianMFACode()
+	if err != nil {
+		return fmt.Errorf("failed to get Atlassian MFA code from Gmail: %w", err)
+	}
+
+	// Enter the MFA code
+	h.logger.Info().Str("code", mfaCode).Msg("Entering Atlassian MFA code")
+	err = mfaInput.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		return fmt.Errorf("failed to click MFA input field: %w", err)
+	}
+
+	err = mfaInput.SelectAllText()
+	if err != nil {
+		h.logger.Warn().Err(err).Msg("Failed to select all text in MFA input, continuing")
+	}
+
+	err = mfaInput.Input(mfaCode)
+	if err != nil {
+		return fmt.Errorf("failed to enter MFA code: %w", err)
+	}
+
+	// Find and click the submit button
+	submitSelectors := []string{
+		`button[type="submit"]`,
+		`input[type="submit"]`,
+		`button[id="otp-submit"]`,
+		`button:contains("Submit")`,
+		`button:contains("Verify")`,
+		`button:contains("Continue")`,
+		`button:contains("Confirm")`,
+	}
+
+	var submitButton *rod.Element
+	for _, selector := range submitSelectors {
+		submitButton, err = page.Timeout(10 * time.Second).Element(selector)
+		if err == nil && submitButton != nil {
+			h.logger.Info().Str("selector", selector).Msg("Found MFA submit button")
+			break
+		}
+	}
+
+	if submitButton == nil {
+		return fmt.Errorf("could not find MFA submit button")
+	}
+
+	err = submitButton.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		return fmt.Errorf("failed to click MFA submit button: %w", err)
+	}
+
+	h.logger.Info().Msg("Atlassian MFA submitted successfully")
+	time.Sleep(5 * time.Second)
+	return nil
+}
+
+// getAtlassianMFACode reads the latest Atlassian MFA email and extracts the code
+func (h *AtlassianOAuthHandler) getAtlassianMFACode() (string, error) {
+	h.logger.Info().Msg("Searching for Atlassian MFA email")
+
+	// Search for recent emails from Atlassian with MFA codes
+	// Use time filter to only get recent emails (last 10 minutes)
+	timeFilter := time.Now().Add(-10 * time.Minute).Format("2006/01/02")
+	query := fmt.Sprintf("from:no-reply@atlassian.com after:%s", timeFilter)
+
+	listCall := h.gmailService.Users.Messages.List("test@helix.ml").Q(query).MaxResults(10)
+
+	messages, err := listCall.Do()
+	if err != nil {
+		return "", fmt.Errorf("failed to search for Atlassian MFA emails: %w", err)
+	}
+
+	if len(messages.Messages) == 0 {
+		return "", fmt.Errorf("no recent Atlassian MFA emails found")
+	}
+
+	h.logger.Info().Int("message_count", len(messages.Messages)).Msg("Found Atlassian emails")
+
+	// Check each message for MFA codes (most recent first)
+	for _, msg := range messages.Messages {
+		messageID := msg.Id
+		message, err := h.gmailService.Users.Messages.Get("test@helix.ml", messageID).Do()
+		if err != nil {
+			h.logger.Warn().Err(err).Str("message_id", messageID).Msg("Failed to get message")
+			continue
+		}
+
+		// Extract email body
+		emailBody := ""
+		if message.Payload.Body.Data != "" {
+			decoded, err := base64.URLEncoding.DecodeString(message.Payload.Body.Data)
+			if err == nil {
+				emailBody = string(decoded)
+			}
+		}
+
+		// Check parts for the body if main body is empty
+		if emailBody == "" && len(message.Payload.Parts) > 0 {
+			for _, part := range message.Payload.Parts {
+				if (part.MimeType == "text/plain" || part.MimeType == "text/html") && part.Body.Data != "" {
+					decoded, err := base64.URLEncoding.DecodeString(part.Body.Data)
+					if err == nil {
+						emailBody = string(decoded)
+						break
+					}
+				}
+			}
+		}
+
+		if emailBody == "" {
+			h.logger.Warn().Str("message_id", messageID).Msg("Could not extract email body")
+			continue
+		}
+
+		// Log a snippet of the email for debugging
+		snippet := emailBody
+		if len(snippet) > 200 {
+			snippet = snippet[:200] + "..."
+		}
+		h.logger.Info().Str("email_snippet", snippet).Msg("Atlassian email content")
+
+		// Extract MFA code using multiple regex patterns
+		// Atlassian MFA codes are typically 6-character alphanumeric (e.g., "BRDV7G")
+		codePatterns := []string{
+			`\b([A-Z0-9]{6})\b`,                         // 6-character alphanumeric code
+			`code:\s*([A-Z0-9]{6})`,                     // "code: BRDV7G"
+			`following code:\s*([A-Z0-9]{6})`,           // "following code: BRDV7G"
+			`enter the following code:\s*([A-Z0-9]{6})`, // "enter the following code: BRDV7G"
+			`verification code:\s*([A-Z0-9]{6})`,        // "verification code: BRDV7G"
+			`\b([A-Z0-9]{4}-[A-Z0-9]{2})\b`,             // Alternative format like "BRDV-7G"
+		}
+
+		for _, pattern := range codePatterns {
+			codeRegex := regexp.MustCompile(pattern)
+			matches := codeRegex.FindStringSubmatch(emailBody)
+			if len(matches) > 1 {
+				mfaCode := matches[1]
+				h.logger.Info().Str("mfa_code", mfaCode).Str("pattern", pattern).Msg("Extracted Atlassian MFA code")
+				return mfaCode, nil
+			}
+		}
+
+		h.logger.Warn().Str("message_id", messageID).Msg("No MFA code found in this email")
+	}
+
+	return "", fmt.Errorf("could not find Atlassian MFA code in any recent emails")
 }

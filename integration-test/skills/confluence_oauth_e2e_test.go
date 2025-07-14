@@ -322,7 +322,10 @@ func (suite *ConfluenceOAuthE2ETestSuite) getAtlassianAuthorizationCode(authURL,
 	// }()
 
 	// Set up Atlassian-specific OAuth handler
-	atlassianHandler := NewAtlassianOAuthHandler(suite.logger)
+	atlassianHandler, err := NewAtlassianOAuthHandler(os.Getenv("GMAIL_CREDENTIALS_BASE64"), suite.logger)
+	if err != nil {
+		return "", fmt.Errorf("failed to create Atlassian OAuth handler: %w", err)
+	}
 
 	// Configure Atlassian browser automation with improved selectors and provider strategy
 	atlassianStrategy := NewAtlassianProviderStrategy(suite.logger)
