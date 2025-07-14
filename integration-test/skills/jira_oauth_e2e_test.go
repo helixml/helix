@@ -717,7 +717,7 @@ func (h *AtlassianOAuthHandler) getAtlassianMFACode() (string, error) {
 	// Search for recent emails from Atlassian with MFA codes
 	// Use time filter to only get recent emails (last 10 minutes)
 	timeFilter := time.Now().Add(-10 * time.Minute).Format("2006/01/02")
-	query := fmt.Sprintf("from:no-reply@atlassian.com after:%s", timeFilter)
+	query := fmt.Sprintf("from:noreply@id.atlassian.com after:%s", timeFilter)
 
 	h.logger.Info().Str("query", query).Msg("Gmail search query")
 	h.logger.Info().Msg("Executing Gmail API search")
@@ -730,9 +730,72 @@ func (h *AtlassianOAuthHandler) getAtlassianMFACode() (string, error) {
 		return "", fmt.Errorf("failed to search for Atlassian MFA emails: %w", err)
 	}
 
+	// If no messages found with primary search, try fallback searches
 	if len(messages.Messages) == 0 {
-		h.logger.Warn().Str("time_filter", timeFilter).Msg("No recent Atlassian MFA emails found")
+		h.logger.Warn().Str("primary_query", query).Msg("No messages found with primary search, trying fallback searches")
+
+		// Try different sender patterns that Atlassian might use
+		fallbackQueries := []string{
+			fmt.Sprintf("from:noreply+@id.atlassian.com after:%s", timeFilter), // Pattern with + prefix
+			fmt.Sprintf("from:no-reply@atlassian.com after:%s", timeFilter),    // Original pattern
+			fmt.Sprintf("from:noreply@atlassian.com after:%s", timeFilter),     // Without id subdomain
+			fmt.Sprintf("from:@id.atlassian.com after:%s", timeFilter),         // Any sender from id.atlassian.com
+			fmt.Sprintf("from:@atlassian.com after:%s", timeFilter),            // Any sender from atlassian.com
+		}
+
+		for i, fallbackQuery := range fallbackQueries {
+			h.logger.Info().Int("attempt", i+1).Str("query", fallbackQuery).Msg("Trying fallback Gmail search")
+			listCall := h.gmailService.Users.Messages.List("test@helix.ml").Q(fallbackQuery).MaxResults(10)
+			messages, err = listCall.Do()
+			if err != nil {
+				h.logger.Warn().Err(err).Str("query", fallbackQuery).Msg("Fallback search failed")
+				continue
+			}
+
+			if len(messages.Messages) > 0 {
+				h.logger.Info().Int("message_count", len(messages.Messages)).Str("successful_query", fallbackQuery).Msg("Found messages with fallback search")
+				break
+			}
+		}
+	}
+
+	if len(messages.Messages) == 0 {
+		h.logger.Warn().Str("time_filter", timeFilter).Msg("No recent Atlassian MFA emails found with any search pattern")
 		return "", fmt.Errorf("no recent Atlassian MFA emails found")
+	}
+
+	h.logger.Info().Int("message_count", len(messages.Messages)).Msg("Found Atlassian MFA emails")
+
+	// Debug: show details of found emails
+	for i, msg := range messages.Messages {
+		if i >= 3 { // Limit debug output to first 3 emails
+			break
+		}
+
+		// Get message details
+		msgCall := h.gmailService.Users.Messages.Get("test@helix.ml", msg.Id)
+		fullMessage, err := msgCall.Do()
+		if err != nil {
+			h.logger.Warn().Err(err).Str("message_id", msg.Id).Msg("Failed to get message details")
+			continue
+		}
+
+		var sender, subject string
+		for _, header := range fullMessage.Payload.Headers {
+			if header.Name == "From" {
+				sender = header.Value
+			}
+			if header.Name == "Subject" {
+				subject = header.Value
+			}
+		}
+
+		h.logger.Info().
+			Int("email_index", i).
+			Str("message_id", msg.Id).
+			Str("sender", sender).
+			Str("subject", subject).
+			Msg("Found email details")
 	}
 
 	h.logger.Info().Int("message_count", len(messages.Messages)).Msg("Found Atlassian emails")
