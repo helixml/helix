@@ -13,6 +13,11 @@ workspace:
 steps:
 - name: build-backend
   image: golang:1.24-alpine3.21
+  volumes:
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
   environment:
     GITHUB_TOKEN:
       from_secret: github_token
@@ -34,6 +39,11 @@ steps:
 
 - name: run-linter
   image: golangci/golangci-lint:v1.64-alpine
+  volumes:
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
   commands:
     - golangci-lint cache clean
     - golangci-lint run
@@ -54,6 +64,11 @@ steps:
 
 - name: unit-test
   image: golang:1.24-alpine3.21
+  volumes:
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
   environment:
     # Disabled until tested with togetherai
     DISABLE_AGENT_TESTS: "true"
@@ -87,6 +102,11 @@ steps:
 
 - name: api-integration-test
   image: golang:1.24-alpine3.21
+  volumes:
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
   environment:
     OPENAI_API_KEY:
       from_secret: openai_tools
@@ -137,6 +157,10 @@ steps:
   volumes:
   - name: oauth-github-test-results
     path: /tmp/helix-oauth-test-results
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
   environment:
     # GitHub OAuth test credentials
     GITHUB_SKILL_TEST_OAUTH_CLIENT_ID:
@@ -149,6 +173,8 @@ steps:
       from_secret: github_skill_test_oauth_password
     GITHUB_SKILL_TEST_SETUP_PAT:
       from_secret: github_skill_test_setup_pat
+    GMAIL_CREDENTIALS_BASE64:
+      from_secret: gmail_credentials_base64
     # Database config (running in a sidecar)
     POSTGRES_HOST: postgres
     POSTGRES_PORT: "5432"
@@ -215,6 +241,10 @@ steps:
   volumes:
   - name: oauth-gmail-test-results
     path: /tmp/helix-oauth-test-results
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
   environment:
     # Google OAuth test credentials
     GOOGLE_SKILL_TEST_OAUTH_CLIENT_ID:
@@ -294,6 +324,10 @@ steps:
   volumes:
   - name: oauth-outlook-test-results
     path: /tmp/helix-oauth-test-results
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
   environment:
     # Microsoft OAuth test credentials
     MICROSOFT_SKILL_TEST_OAUTH_CLIENT_ID:
@@ -370,6 +404,10 @@ steps:
   volumes:
   - name: oauth-google-calendar-test-results
     path: /tmp/helix-oauth-test-results
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
   environment:
     # Google OAuth test credentials
     GOOGLE_SKILL_TEST_OAUTH_CLIENT_ID:
@@ -449,6 +487,10 @@ steps:
   volumes:
   - name: oauth-jira-test-results
     path: /tmp/helix-oauth-test-results
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
   environment:
     # Atlassian OAuth test credentials
     ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID:
@@ -530,6 +572,10 @@ steps:
   volumes:
   - name: oauth-confluence-test-results
     path: /tmp/helix-oauth-test-results
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
   environment:
     # Atlassian OAuth test credentials
     ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID:
@@ -608,6 +654,11 @@ steps:
 
 - name: release-backend
   image: golang:1.24-bullseye
+  volumes:
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
   when:
     event:
     - tag
@@ -646,6 +697,11 @@ steps:
 
 - name: build-operator
   image: golang:1.24-alpine3.21
+  volumes:
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
   environment:
     GITHUB_TOKEN:
       from_secret: github_token
@@ -655,6 +711,11 @@ steps:
 
 - name: run-linter-operator
   image: golangci/golangci-lint:v1.64-alpine
+  volumes:
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
   commands:
     - cd operator && golangci-lint run
   when:
@@ -707,6 +768,10 @@ volumes:
 - name: oauth-jira-test-results
   temp: {}
 - name: oauth-confluence-test-results
+  temp: {}
+- name: go-build-cache
+  temp: {}
+- name: go-mod-cache
   temp: {}
 ---
 kind: pipeline
@@ -1255,6 +1320,13 @@ trigger:
 steps:
 - name: smoke-test-saas
   image: golang:1.24-alpine3.21
+  volumes:
+  - name: integration-test
+    path: /integration-test
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
   environment:
     BROWSER_URL: http://chrome:7317
     SERVER_URL: https://app.helix.ml
@@ -1262,9 +1334,6 @@ steps:
     HELIX_PASSWORD:
       from_secret: smoke_test_helix_password
     # Test setup
-  volumes:
-  - name: integration-test
-    path: /integration-test
   commands:
   - apk add --no-cache curl bash openssl
   - cp -r integration-test/* /integration-test
@@ -1313,13 +1382,17 @@ trigger:
 steps:
 - name: smoke-test-launchpad
   image: golang:1.24-alpine3.21
+  volumes:
+  - name: integration-test
+    path: /integration-test
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
   environment:
     BROWSER_URL: http://chrome:7317
     LAUNCHPAD_API_KEY:
       from_secret: LAUNCHPAD_API_KEY
-  volumes:
-  - name: integration-test
-    path: /integration-test
   commands:
   - apk add --no-cache curl bash openssl
   - cp -r integration-test/* /integration-test
