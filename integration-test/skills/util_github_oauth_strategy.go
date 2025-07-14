@@ -26,8 +26,8 @@ func NewGitHubProviderStrategy(logger zerolog.Logger) *GitHubProviderStrategy {
 func (s *GitHubProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Looking for GitHub Next/Continue button")
 
-	// Set timeout for operations
-	page = page.Timeout(30 * time.Second)
+	// Use a temporary page context to avoid affecting the main page timeout
+	nextPage := page.Timeout(30 * time.Second)
 
 	// GitHub-specific Next/Continue button selectors
 	nextSelectors := []string{
@@ -42,7 +42,7 @@ func (s *GitHubProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker
 	for _, selector := range nextSelectors {
 		s.logger.Info().Str("selector", selector).Msg("Trying Next button selector")
 
-		element, err := page.Timeout(10 * time.Second).Element(selector)
+		element, err := nextPage.Timeout(10 * time.Second).Element(selector)
 		if err != nil {
 			lastError = err
 			time.Sleep(1 * time.Second)
@@ -213,8 +213,9 @@ func (s *GitHubProviderStrategy) HandleAuthorization(page *rod.Page, screenshotT
 func (s *GitHubProviderStrategy) ClickAuthorizeButton(page *rod.Page, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Looking for GitHub authorization button")
 
-	// Set longer timeout for operations - GitHub auth pages can be slower
-	page = page.Timeout(45 * time.Second)
+	// Use a temporary page context to avoid affecting the main page timeout
+	// GitHub auth pages can be slower, so use a longer timeout
+	authPage := page.Timeout(45 * time.Second)
 
 	// GitHub-specific authorization button selectors
 	authSelectors := []string{
@@ -253,7 +254,7 @@ func (s *GitHubProviderStrategy) ClickAuthorizeButton(page *rod.Page, screenshot
 			text = strings.TrimSuffix(text, "\")")
 
 			// Find all buttons and check their text
-			buttons, err := page.Timeout(20 * time.Second).Elements("button")
+			buttons, err := authPage.Timeout(20 * time.Second).Elements("button")
 			if err != nil {
 				lastError = err
 				time.Sleep(1 * time.Second)
@@ -288,7 +289,7 @@ func (s *GitHubProviderStrategy) ClickAuthorizeButton(page *rod.Page, screenshot
 			}
 		} else {
 			// Standard selector
-			element, err := page.Timeout(20 * time.Second).Element(selector)
+			element, err := authPage.Timeout(20 * time.Second).Element(selector)
 			if err != nil {
 				lastError = err
 				time.Sleep(1 * time.Second)

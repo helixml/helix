@@ -26,8 +26,8 @@ func NewMicrosoftProviderStrategy(logger zerolog.Logger) *MicrosoftProviderStrat
 func (s *MicrosoftProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Looking for Microsoft Next button")
 
-	// Set timeout for operations
-	page = page.Timeout(10 * time.Second)
+	// Use a temporary page context to avoid affecting the main page timeout
+	nextPage := page.Timeout(10 * time.Second)
 
 	// Microsoft-specific button selectors (prioritize Microsoft patterns)
 	nextSelectors := []string{
@@ -41,7 +41,7 @@ func (s *MicrosoftProviderStrategy) ClickNextButton(page *rod.Page, screenshotTa
 	var nextButton *rod.Element
 	for _, selector := range nextSelectors {
 		s.logger.Info().Str("selector", selector).Msg("Trying Microsoft Next button selector")
-		element, err := page.Timeout(3 * time.Second).Element(selector)
+		element, err := nextPage.Timeout(3 * time.Second).Element(selector)
 		if err == nil && element != nil {
 			// For Microsoft input elements, check value attribute
 			if strings.Contains(selector, "input") && !strings.Contains(selector, "idSIButton9") {

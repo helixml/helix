@@ -74,8 +74,8 @@ func NewDefaultProviderStrategy(config BrowserOAuthConfig, logger zerolog.Logger
 func (s *DefaultProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Looking for Next button")
 
-	// Set timeout for operations
-	page = page.Timeout(10 * time.Second)
+	// Use a temporary page context to avoid affecting the main page timeout
+	nextPage := page.Timeout(10 * time.Second)
 
 	// First try direct CSS selectors
 	nextSelectors := []string{
@@ -89,7 +89,7 @@ func (s *DefaultProviderStrategy) ClickNextButton(page *rod.Page, screenshotTake
 	var nextButton *rod.Element
 	for _, selector := range nextSelectors {
 		s.logger.Info().Str("selector", selector).Msg("Trying Next button selector")
-		element, err := page.Timeout(3 * time.Second).Element(selector)
+		element, err := nextPage.Timeout(3 * time.Second).Element(selector)
 		if err == nil && element != nil {
 			// For submit buttons, check if they contain "Next" text or value
 			if strings.Contains(selector, "submit") && !strings.Contains(selector, "idSIButton9") {
@@ -376,8 +376,10 @@ func (a *BrowserOAuthAutomator) PerformOAuthFlow(authURL, state, username, passw
 	}
 
 	// Wait for page to load with longer timeout - increased from 15 seconds
+	// Use a temporary page context to avoid affecting the main page timeout
 	a.logger.Info().Msg("Waiting for page to load")
-	err = page.Timeout(30 * time.Second).WaitLoad()
+	pageLoadPage := page.Timeout(30 * time.Second)
+	err = pageLoadPage.WaitLoad()
 	if err != nil {
 		screenshotTaker.TakeScreenshot(page, a.config.ProviderName+"_page_load_failed")
 		return "", fmt.Errorf("failed to wait for page load: %w", err)
@@ -458,15 +460,14 @@ func (a *BrowserOAuthAutomator) checkLoginRequired(page *rod.Page) (bool, error)
 		Str("username_selector", a.config.LoginUsernameSelector).
 		Msg("Checking if login is required")
 
-	// Set longer timeout for operations - increased from 10 seconds
-	page = page.Timeout(20 * time.Second)
-
 	// Wait a moment for the page to fully load
 	a.logger.Info().Msg("Waiting 2 seconds for page to fully load")
 	time.Sleep(2 * time.Second)
 
 	// Check if we need to login first
-	loginElement, err := page.Element(a.config.LoginUsernameSelector)
+	// Use a temporary page context to avoid affecting the main page timeout
+	loginCheckPage := page.Timeout(20 * time.Second)
+	loginElement, err := loginCheckPage.Element(a.config.LoginUsernameSelector)
 	loginRequired := loginElement != nil
 
 	if err != nil {
@@ -483,22 +484,22 @@ func (a *BrowserOAuthAutomator) checkLoginRequired(page *rod.Page) (bool, error)
 func (a *BrowserOAuthAutomator) debugDumpPageElements(page *rod.Page, stepName string) {
 	a.logger.Info().Str("step", stepName).Msg("=== DEBUGGING PAGE ELEMENTS ===")
 
-	// Set longer timeout for all operations - increased from 10 seconds
-	page = page.Timeout(20 * time.Second)
+	// Use a temporary page context to avoid affecting the main page timeout
+	debugPage := page.Timeout(20 * time.Second)
 
 	// Get page HTML with timeout
-	html, err := page.HTML()
+	html, err := debugPage.HTML()
 	if err != nil {
 		a.logger.Error().Err(err).Msg("Failed to get page HTML")
 		return
 	}
 
 	// Log current URL
-	currentURL := page.MustInfo().URL
+	currentURL := debugPage.MustInfo().URL
 	a.logger.Info().Str("current_url", currentURL).Msg("Current page URL")
 
 	// Find all input elements with timeout
-	inputs, err := page.Elements("input")
+	inputs, err := debugPage.Elements("input")
 	if err == nil {
 		a.logger.Info().Int("count", len(inputs)).Msg("Found input elements")
 		for i, input := range inputs {
@@ -557,7 +558,7 @@ func (a *BrowserOAuthAutomator) debugDumpPageElements(page *rod.Page, stepName s
 	}
 
 	// Find all button elements with timeout
-	buttons, err := page.Elements("button")
+	buttons, err := debugPage.Elements("button")
 	if err == nil {
 		a.logger.Info().Int("count", len(buttons)).Msg("Found button elements")
 		for i, button := range buttons {
