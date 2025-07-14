@@ -380,7 +380,7 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 				s.logger.Warn().Err(err).Int("index", i).Msg("Failed to scroll permission button into view")
 			}
 
-			err = button.Timeout(20*time.Second).Click(proto.InputMouseButtonLeft, 1)
+			err = button.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
 			if err != nil {
 				s.logger.Warn().Err(err).Int("index", i).Msg("Failed to click permission button")
 				continue
@@ -444,7 +444,7 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 				// Wait a moment after scroll
 				time.Sleep(1 * time.Second)
 
-				err = acceptElement.Timeout(30*time.Second).Click(proto.InputMouseButtonLeft, 1)
+				err = acceptElement.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
 				if err == nil {
 					s.logger.Info().Str("selector", acceptSelector).Msg("Successfully clicked Atlassian Accept button with standard click")
 					screenshotTaker.TakeScreenshot(page, "atlassian_accept_button_clicked")
@@ -460,7 +460,7 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 				}
 				time.Sleep(500 * time.Millisecond)
 
-				err = acceptElement.Timeout(30*time.Second).Click(proto.InputMouseButtonLeft, 1)
+				err = acceptElement.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
 				if err == nil {
 					s.logger.Info().Str("selector", acceptSelector).Msg("Successfully clicked Atlassian Accept button with focus+click")
 					screenshotTaker.TakeScreenshot(page, "atlassian_accept_button_clicked")
@@ -503,9 +503,8 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 		for _, selector := range authSelectors[1:] { // Skip the first one since we already tried permission buttons
 			s.logger.Info().Str("selector", selector).Msg("Trying Atlassian authorization button selector")
 
-			element, err := page.Timeout(20 * time.Second).Element(selector)
+			element, err := page.Timeout(5 * time.Second).Element(selector)
 			if err != nil {
-				time.Sleep(1 * time.Second)
 				continue
 			}
 
@@ -539,10 +538,9 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 				s.logger.Warn().Err(err).Msg("Failed to scroll element into view, trying click anyway")
 			}
 
-			err = element.Timeout(20*time.Second).Click(proto.InputMouseButtonLeft, 1)
+			err = element.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
 			if err != nil {
 				s.logger.Warn().Err(err).Str("selector", selector).Msg("Failed to click authorization button")
-				time.Sleep(1 * time.Second)
 				continue
 			}
 
