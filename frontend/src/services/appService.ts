@@ -39,6 +39,14 @@ export const deleteAppTriggerMutationKey = (appId: string, triggerId: string) =>
   triggerId
 ];
 
+// App usage query key
+export const appUsageQueryKey = (appId: string, from: string, to: string) => [
+  "app-usage",
+  appId,
+  from,
+  to
+];
+
 // useListSessionSteps returns the steps for a session, it includes
 // steps for all interactions in the session
 export function useListAppSteps(appId: string, interactionId: string, options?: { enabled?: boolean }) {
@@ -161,4 +169,20 @@ export function useDeleteAppAvatar(appId: string) {
   return useMutation({
     mutationFn: () => apiClient.v1AppsAvatarDelete(appId)
   })
+}
+
+export function useGetAppUsage(appId: string, from: string, to: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: appUsageQueryKey(appId, from, to),
+    queryFn: () => apiClient.v1AppsUsersDailyUsageDetail(appId, { from, to }),
+  })
+}
+
+export function refreshAppUsage(appId: string, from: string, to: string) {
+  // Invalidate the app usage query
+  const queryClient = useQueryClient()
+  queryClient.invalidateQueries({ queryKey: appUsageQueryKey(appId, from, to) })
 }
