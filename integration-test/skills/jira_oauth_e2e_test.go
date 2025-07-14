@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -28,6 +29,7 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/input"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -658,14 +660,36 @@ func (h *AtlassianOAuthHandler) handleMFAWithGmail(page *rod.Page) error {
 		h.logger.Warn().Err(err).Msg("Failed to select all text in MFA input, continuing")
 	}
 
-	h.logger.Debug().Msg("Inputting MFA code")
-	err = mfaInput.Input(mfaCode)
+	h.logger.Debug().Str("code", mfaCode).Msg("Inputting MFA code character by character")
+
+	// Clear the field first
+	err = mfaInput.Input("")
 	if err != nil {
-		h.logger.Error().Err(err).Msg("Failed to enter MFA code")
-		return fmt.Errorf("failed to enter MFA code: %w", err)
+		h.logger.Warn().Err(err).Msg("Failed to clear MFA input field")
 	}
 
-	h.logger.Info().Msg("Successfully entered MFA code into input field")
+	// Click on the first input field to focus it
+	err = mfaInput.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		h.logger.Warn().Err(err).Msg("Failed to click MFA input field")
+	}
+
+	// Type each character individually with a small delay to allow JavaScript to move between fields
+	for i, char := range mfaCode {
+		h.logger.Debug().Str("char", string(char)).Int("position", i+1).Msg("Typing character")
+
+		// Type the character using keyboard input
+		err = page.Keyboard.Type(input.Key(char))
+		if err != nil {
+			h.logger.Error().Err(err).Str("char", string(char)).Msg("Failed to type character")
+			return fmt.Errorf("failed to type character %s: %w", string(char), err)
+		}
+
+		// Small delay to allow JavaScript to process and move to next field
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	h.logger.Info().Msg("Successfully entered MFA code character by character")
 
 	// Find and click the submit button
 	h.logger.Info().Msg("Step 4: Finding and clicking submit button")
@@ -704,7 +728,100 @@ func (h *AtlassianOAuthHandler) handleMFAWithGmail(page *rod.Page) error {
 
 	h.logger.Info().Msg("Successfully clicked submit button")
 	h.logger.Info().Msg("Waiting for MFA submission to process")
-	time.Sleep(5 * time.Second)
+
+	// Wait and check for redirect to authorization page
+	for i := 0; i < 12; i++ { // Check every 2 seconds for 24 seconds
+		time.Sleep(2 * time.Second)
+		currentURL := page.MustInfo().URL
+		h.logger.Info().Str("current_url", currentURL).Int("check_iteration", i+1).Msg("Checking URL after MFA submission")
+
+		// Check if we've been redirected away from the MFA page
+		if !strings.Contains(currentURL, "/login/mfa") {
+			h.logger.Info().Str("redirected_url", currentURL).Msg("Successfully redirected away from MFA page")
+			break
+		}
+
+		// Check if page has any success indicators
+		successSelectors := []string{
+			`.success`, `.alert-success`, `[class*="success"]`,
+			`[role="status"]`, `.message.success`,
+		}
+
+		for _, selector := range successSelectors {
+			elements, err := page.Elements(selector)
+			if err == nil && len(elements) > 0 {
+				for _, element := range elements {
+					text := element.MustText()
+					if text != "" {
+						h.logger.Info().Str("selector", selector).Str("success_text", text).Msg("Found success message on MFA page")
+					}
+				}
+			}
+		}
+
+		// Check if page has any error messages
+		errorSelectors := []string{
+			`.error`, `.alert-error`, `.alert-danger`,
+			`[class*="error"]`, `[class*="invalid"]`, `[class*="fail"]`,
+			`[role="alert"]`, `.message.error`,
+		}
+
+		for _, selector := range errorSelectors {
+			elements, err := page.Elements(selector)
+			if err == nil && len(elements) > 0 {
+				for _, element := range elements {
+					text := element.MustText()
+					if text != "" {
+						h.logger.Warn().Str("selector", selector).Str("error_text", text).Msg("Found error message on MFA page")
+					}
+				}
+			}
+		}
+
+		// Check if there are any "Continue" or "Next" buttons that might need clicking
+		continueSelectors := []string{
+			`button:contains("Continue")`,
+			`button:contains("Next")`,
+			`button:contains("Proceed")`,
+			`button[id*="continue"]`,
+			`button[class*="continue"]`,
+			`a:contains("Continue")`,
+			`a[href*="continue"]`,
+		}
+
+		for _, selector := range continueSelectors {
+			elements, err := page.Elements(selector)
+			if err == nil && len(elements) > 0 {
+				h.logger.Info().Str("selector", selector).Int("count", len(elements)).Msg("Found potential continue button on MFA page")
+				// Try clicking the first continue button
+				if err := elements[0].Click(proto.InputMouseButtonLeft, 1); err == nil {
+					h.logger.Info().Str("selector", selector).Msg("Successfully clicked continue button")
+					time.Sleep(3 * time.Second)
+					break
+				}
+			}
+		}
+	}
+
+	// Final URL check
+	finalURL := page.MustInfo().URL
+	h.logger.Info().Str("final_url", finalURL).Msg("Final URL after MFA completion")
+
+	// If we're still on MFA page, try to manually navigate to the continue URL
+	if strings.Contains(finalURL, "/login/mfa") {
+		// Extract the continue URL from the current URL
+		if u, err := url.Parse(finalURL); err == nil {
+			if continueURL := u.Query().Get("continue"); continueURL != "" {
+				h.logger.Info().Str("continue_url", continueURL).Msg("Attempting to manually navigate to continue URL")
+				if err := page.Navigate(continueURL); err == nil {
+					h.logger.Info().Msg("Successfully navigated to continue URL")
+					time.Sleep(3 * time.Second)
+				} else {
+					h.logger.Warn().Err(err).Msg("Failed to navigate to continue URL")
+				}
+			}
+		}
+	}
 
 	h.logger.Info().Msg("Atlassian MFA submitted successfully")
 	return nil
