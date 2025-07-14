@@ -388,7 +388,11 @@ func (suite *BaseOAuthTestSuite) TakeScreenshot(page *rod.Page, stepName string)
 	filename := filepath.Join(GetTestResultsDir(), fmt.Sprintf("oauth_test_%s_%s_step_%02d_%s.png",
 		suite.testTimestamp, suite.testID, suite.screenshotCounter, stepName))
 
-	data, err := page.Screenshot(false, &proto.PageCaptureScreenshot{
+	// Create a fresh page context with a reasonable timeout specifically for screenshot operations
+	// This prevents context deadline exceeded errors when the main page context has expired
+	screenshotPage := page.Timeout(30 * time.Second)
+
+	data, err := screenshotPage.Screenshot(false, &proto.PageCaptureScreenshot{
 		Format: proto.PageCaptureScreenshotFormatPng,
 	})
 

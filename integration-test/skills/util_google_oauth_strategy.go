@@ -29,8 +29,9 @@ func (s *GoogleProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker
 	// Take screenshot before looking for Next button
 	screenshotTaker.TakeScreenshot(page, "google_next_button_search_start")
 
-	// Set longer timeout for operations - increased from 10 seconds for better reliability
-	page = page.Timeout(45 * time.Second)
+	// Use a temporary page context to avoid affecting the main page timeout
+	// Google OAuth pages can be slow, so use a longer timeout
+	nextPage := page.Timeout(45 * time.Second)
 
 	// Use modern Google button selectors based on debug output - prioritize class-based selectors
 	nextButtonSelectors := []string{
@@ -49,7 +50,7 @@ func (s *GoogleProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker
 
 		if strings.Contains(selector, "VfPpkd-LgbsSe") {
 			// For class-based selectors, find all matching elements and check for "Next" text
-			elements, err := page.Timeout(20 * time.Second).Elements(selector)
+			elements, err := nextPage.Timeout(20 * time.Second).Elements(selector)
 			if err != nil {
 				lastError = err
 				time.Sleep(1 * time.Second) // Reduced sleep time
@@ -88,7 +89,7 @@ func (s *GoogleProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker
 			}
 		} else {
 			// For ID and submit selectors, try direct match
-			element, err := page.Timeout(20 * time.Second).Element(selector)
+			element, err := nextPage.Timeout(20 * time.Second).Element(selector)
 			if err != nil {
 				lastError = err
 				time.Sleep(1 * time.Second) // Reduced sleep time
@@ -141,9 +142,9 @@ func (s *GoogleProviderStrategy) ClickAuthorizeButton(page *rod.Page, screenshot
 	// Take screenshot before looking for Authorize button
 	screenshotTaker.TakeScreenshot(page, "google_authorize_button_search_start")
 
-	// Set longer timeout for operations - OAuth consent pages can be slower
-	// Use 45 seconds per element operation to allow for page loading delays
-	page = page.Timeout(45 * time.Second)
+	// Use a temporary page context to avoid affecting the main page timeout
+	// OAuth consent pages can be slower, so use a longer timeout
+	authPage := page.Timeout(45 * time.Second)
 
 	// Use modern Google button selectors - same pattern that worked for Next button
 	authSelectors := []string{
@@ -161,7 +162,7 @@ func (s *GoogleProviderStrategy) ClickAuthorizeButton(page *rod.Page, screenshot
 
 		if strings.Contains(selector, "VfPpkd-LgbsSe") {
 			// For class-based selectors, find all matching elements and check for authorization text
-			elements, err := page.Timeout(20 * time.Second).Elements(selector)
+			elements, err := authPage.Timeout(20 * time.Second).Elements(selector)
 			if err != nil {
 				lastError = err
 				time.Sleep(1 * time.Second) // Reduced sleep time from 3 seconds to 1 second
@@ -201,7 +202,7 @@ func (s *GoogleProviderStrategy) ClickAuthorizeButton(page *rod.Page, screenshot
 			}
 		} else {
 			// For legacy selectors, try direct match
-			element, err := page.Timeout(20 * time.Second).Element(selector)
+			element, err := authPage.Timeout(20 * time.Second).Element(selector)
 			if err != nil {
 				lastError = err
 				time.Sleep(1 * time.Second) // Reduced sleep time from 3 seconds to 1 second

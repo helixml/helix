@@ -26,8 +26,9 @@ func NewAtlassianProviderStrategy(logger zerolog.Logger) *AtlassianProviderStrat
 func (s *AtlassianProviderStrategy) ClickNextButton(page *rod.Page, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Looking for Atlassian Next/Continue button")
 
-	// Set longer timeout for operations - Atlassian pages can be very slow
-	page = page.Timeout(90 * time.Second)
+	// Use a temporary page context to avoid affecting the main page timeout
+	// Atlassian pages can be very slow, so use a longer timeout
+	nextPage := page.Timeout(90 * time.Second)
 
 	// Atlassian-specific button selectors
 	nextSelectors := []string{
@@ -44,7 +45,7 @@ func (s *AtlassianProviderStrategy) ClickNextButton(page *rod.Page, screenshotTa
 	for _, selector := range nextSelectors {
 		s.logger.Info().Str("selector", selector).Msg("Trying Atlassian Next button selector")
 
-		element, err := page.Timeout(30 * time.Second).Element(selector)
+		element, err := nextPage.Timeout(30 * time.Second).Element(selector)
 		if err != nil {
 			lastError = err
 			time.Sleep(1 * time.Second)
@@ -101,8 +102,9 @@ func (s *AtlassianProviderStrategy) HandleLoginFlow(page *rod.Page, username, pa
 func (s *AtlassianProviderStrategy) handleSingleStepLogin(page *rod.Page, username, password string, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Handling Atlassian single-step login")
 
-	// Set longer timeout for all operations - Atlassian pages can be very slow
-	page = page.Timeout(90 * time.Second)
+	// Use a temporary page context to avoid affecting the main page timeout
+	// Atlassian pages can be very slow, so use a longer timeout
+	loginPage := page.Timeout(90 * time.Second)
 
 	// Fill username field
 	usernameSelectors := []string{
@@ -117,7 +119,7 @@ func (s *AtlassianProviderStrategy) handleSingleStepLogin(page *rod.Page, userna
 	var err error
 
 	for _, selector := range usernameSelectors {
-		usernameField, err = page.Timeout(30 * time.Second).Element(selector)
+		usernameField, err = loginPage.Timeout(30 * time.Second).Element(selector)
 		if err == nil {
 			s.logger.Info().Str("selector", selector).Msg("Found Atlassian username field")
 			break
@@ -170,7 +172,7 @@ func (s *AtlassianProviderStrategy) handleSingleStepLogin(page *rod.Page, userna
 	var passwordField *rod.Element
 
 	for _, selector := range passwordSelectors {
-		passwordField, err = page.Timeout(30 * time.Second).Element(selector)
+		passwordField, err = loginPage.Timeout(30 * time.Second).Element(selector)
 		if err == nil {
 			s.logger.Info().Str("selector", selector).Msg("Found Atlassian password field")
 			break
@@ -261,7 +263,7 @@ func (s *AtlassianProviderStrategy) handleSingleStepLogin(page *rod.Page, userna
 	var loginButton *rod.Element
 
 	for _, selector := range loginSelectors {
-		loginButton, err = page.Timeout(30 * time.Second).Element(selector)
+		loginButton, err = loginPage.Timeout(30 * time.Second).Element(selector)
 		if err == nil {
 			s.logger.Info().Str("selector", selector).Msg("Found Atlassian login button")
 			break
@@ -297,8 +299,9 @@ func (s *AtlassianProviderStrategy) HandleAuthorization(page *rod.Page, screensh
 func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Looking for Atlassian Authorize button")
 
-	// Set longer timeout for operations
-	page = page.Timeout(90 * time.Second)
+	// Use a temporary page context to avoid affecting the main page timeout
+	// Atlassian pages can be very slow, so use a longer timeout
+	authPage := page.Timeout(90 * time.Second)
 
 	// First, wait for the page to fully load and take a screenshot for debugging
 	time.Sleep(3 * time.Second)
@@ -307,7 +310,7 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 	}
 
 	// Debug: dump all buttons on the consent page
-	buttons, err := page.Elements("button")
+	buttons, err := authPage.Elements("button")
 	if err == nil {
 		s.logger.Info().Int("count", len(buttons)).Msg("Found button elements on consent page")
 		for i, button := range buttons {
@@ -486,7 +489,7 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 	for _, acceptSelector := range acceptSelectors {
 		s.logger.Info().Str("selector", acceptSelector).Msg("Trying Accept button selector")
 
-		acceptElement, err := page.Timeout(15 * time.Second).Element(acceptSelector)
+		acceptElement, err := authPage.Timeout(15 * time.Second).Element(acceptSelector)
 		if err != nil {
 			s.logger.Info().Str("selector", acceptSelector).Msg("Accept button not found with this selector")
 			continue
