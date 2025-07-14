@@ -680,6 +680,7 @@ func processOAuthTokens(tool *types.Tool, oauthTokens map[string]string) {
 				Bool("auth_header_exists", tool.Config.API.Headers["Authorization"] != "").
 				Str("auth_header_prefix", authHeader[:12]+"...").
 				Msg("Added OAuth token to tool headers")
+
 		} else {
 			// Log available tokens for debugging
 			tokenKeys := make([]string, 0, len(oauthTokens))
