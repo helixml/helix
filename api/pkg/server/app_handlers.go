@@ -185,74 +185,23 @@ func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *type
 				func(p string) { assistant.SmallGenerationModelProvider = p },
 				func(m string) { assistant.SmallGenerationModel = m })
 		}
-
-		log.Info().
-			Str("user_id", user.ID).
-			Str("assistant_name", assistant.Name).
-			Str("final_provider", assistant.Provider).
-			Str("final_model", assistant.Model).
-			Str("final_reasoning_provider", assistant.ReasoningModelProvider).
-			Str("final_reasoning_model", assistant.ReasoningModel).
-			Str("final_generation_provider", assistant.GenerationModelProvider).
-			Str("final_generation_model", assistant.GenerationModel).
-			Str("final_small_reasoning_provider", assistant.SmallReasoningModelProvider).
-			Str("final_small_reasoning_model", assistant.SmallReasoningModel).
-			Str("final_small_generation_provider", assistant.SmallGenerationModelProvider).
-			Str("final_small_generation_model", assistant.SmallGenerationModel).
-			Bool("agent_mode", assistant.AgentMode).
-			Msg("Assistant model substitution completed")
 	}
-
-	log.Info().
-		Str("user_id", user.ID).
-		Int("substitution_count", len(substitutions)).
-		Msg("Model substitution process completed")
 
 	return substitutions, nil
 }
 
 // findModelSubstitution finds the first available model from the alternatives list
 func (s *HelixAPIServer) findModelSubstitution(originalProvider, originalModel string, modelClasses []ModelClass, providerSet map[types.Provider]bool) *AlternativeModelOption {
-	log.Debug().
-		Str("original_provider", originalProvider).
-		Str("original_model", originalModel).
-		Int("model_class_count", len(modelClasses)).
-		Msg("Starting model substitution lookup")
-
 	// First check if the original provider is available
 	if providerSet[types.Provider(originalProvider)] {
-		log.Debug().
-			Str("original_provider", originalProvider).
-			Str("original_model", originalModel).
-			Msg("Original provider is available, no substitution needed")
 		return nil
 	}
 
 	// Original provider is not available, look for substitutions
-	for classIndex, class := range modelClasses {
-		log.Debug().
-			Int("class_index", classIndex).
-			Str("class_name", class.Name).
-			Int("alternatives_count", len(class.Alternatives)).
-			Str("original_provider", originalProvider).
-			Str("original_model", originalModel).
-			Msg("Checking model class for original model")
-
+	for _, class := range modelClasses {
 		// Check if the original provider/model combination exists in this class
 		found := false
-		for altIndex, alt := range class.Alternatives {
-			log.Debug().
-				Int("class_index", classIndex).
-				Str("class_name", class.Name).
-				Int("alternative_index", altIndex).
-				Str("alt_provider", alt.Provider).
-				Str("alt_model", alt.Model).
-				Str("original_provider", originalProvider).
-				Str("original_model", originalModel).
-				Bool("provider_match", alt.Provider == originalProvider).
-				Bool("model_match", alt.Model == originalModel).
-				Msg("Comparing alternative with original")
-
+		for _, alt := range class.Alternatives {
 			if alt.Provider == originalProvider && alt.Model == originalModel {
 				found = true
 				break
@@ -260,56 +209,17 @@ func (s *HelixAPIServer) findModelSubstitution(originalProvider, originalModel s
 		}
 
 		if found {
-			log.Info().
-				Str("class_name", class.Name).
-				Str("original_provider", originalProvider).
-				Str("original_model", originalModel).
-				Msg("Found original model in class, will try alternatives")
-
 			// Found the original model in this class, now look for available alternatives
-			log.Info().
-				Str("class_name", class.Name).
-				Int("alternatives_count", len(class.Alternatives)).
-				Msg("Trying alternatives from matching class")
-
-			for altIndex, alt := range class.Alternatives {
-				log.Debug().
-					Int("alternative_index", altIndex).
-					Str("alt_provider", alt.Provider).
-					Str("alt_model", alt.Model).
-					Bool("provider_available", providerSet[types.Provider(alt.Provider)]).
-					Msg("Checking alternative availability")
-
+			for _, alt := range class.Alternatives {
 				if providerSet[types.Provider(alt.Provider)] {
-					log.Info().
-						Str("class_name", class.Name).
-						Str("original_provider", originalProvider).
-						Str("original_model", originalModel).
-						Str("substituted_provider", alt.Provider).
-						Str("substituted_model", alt.Model).
-						Msg("Found available substitution")
 					return &alt
 				}
 			}
 
-			log.Info().
-				Str("class_name", class.Name).
-				Str("original_provider", originalProvider).
-				Str("original_model", originalModel).
-				Msg("No available alternatives found in matching class")
 			return nil
 		}
-		log.Debug().
-			Str("class_name", class.Name).
-			Str("original_provider", originalProvider).
-			Str("original_model", originalModel).
-			Msg("Original model not found in this class")
 	}
 
-	log.Info().
-		Str("original_provider", originalProvider).
-		Str("original_model", originalModel).
-		Msg("No substitution found - original model not found in any class")
 	return nil
 }
 

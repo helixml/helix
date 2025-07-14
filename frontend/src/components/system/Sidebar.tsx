@@ -240,16 +240,6 @@ const SidebarContent: React.FC<{
 
   // Handle tab change between CHATS and APPS
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    // Get the resource types
-    const fromResourceType = RESOURCE_TYPES[activeTab]
-    const toResourceType = RESOURCE_TYPES[newValue]
-        
-    // If switching to chat tab, navigate to home screen directly
-    if (toResourceType === 'chat') {      
-      account.orgNavigate('home')
-      return
-    }
-    
     // For other cases (apps tab), proceed with normal parameter updates
     // Create a new params object with all existing params except resource_type
     const newParams: Record<string, any> = {
