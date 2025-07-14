@@ -5,7 +5,10 @@ import (
 	"context"
 	"fmt"
 
+	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/helixml/helix/api/pkg/agent"
+	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
+	"github.com/helixml/helix/api/pkg/controller/knowledge/readability"
 	"github.com/helixml/helix/api/pkg/searxng"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/jsonschema"
@@ -13,18 +16,27 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-func NewSearchSkill(config *types.ToolWebSearchConfig, provider searxng.SearchProvider) agent.Skill {
+func NewSearchSkill(config *types.ToolWebSearchConfig, provider searxng.SearchProvider, browser *browser.Browser) agent.Skill {
 	return agent.Skill{
 		Name:        "WebSearch",
-		Description: "Search the web for current information and recent data",
+		Description: "Search the web for current information and recent data, can open URLs, look for information in the page and return the results.",
 		SystemPrompt: `You are a web search expert that can search the internet for current information. 
 		Use the search tool to find recent news, facts, or any up-to-date information that the user requests.
 		Do not try to answer the question yourself, just use the search tool to find the information and present it
-		to the user in a structured way.`,
+		to the user in a structured way. Use the browser tool to deep dive into the information.`,
 		Tools: []agent.Tool{
 			&searchTool{
 				config:   config,
 				provider: provider,
+			},
+			&browserTool{
+				browser: browser,
+				config: &types.ToolBrowserConfig{
+					Enabled:                true,
+					MarkdownPostProcessing: true,
+				},
+				parser:    readability.NewParser(), // TODO: add config for this
+				converter: md.NewConverter("", true, nil),
 			},
 		},
 	}
@@ -152,7 +164,7 @@ func formatSearchResponse(output *searxng.Output) string {
 	buf.WriteString("## Results: \n")
 
 	for _, result := range output.Results {
-		buf.WriteString(fmt.Sprintf("### Source: %s\n- URL: %s\n- Excerpt: %s\n\n", result.Title, result.URL, result.Content))
+		buf.WriteString(fmt.Sprintf("### Source: %s\n- URL: %s\n- Snippet: %s\n\n", result.Title, result.URL, result.Content))
 	}
 
 	return buf.String()
