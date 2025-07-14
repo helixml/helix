@@ -369,8 +369,6 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 		`button[class*="approve"]`,                     // Button with approve in class
 	}
 
-	var lastError error
-
 	// Special handling for Atlassian consent: need to click ALL permission buttons first
 	permissionSelector := `button[data-testid="permission-button"]`
 	s.logger.Info().Str("selector", permissionSelector).Msg("Looking for ALL Atlassian permission buttons")
@@ -425,7 +423,6 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 
 			element, err := page.Timeout(20 * time.Second).Element(selector)
 			if err != nil {
-				lastError = err
 				time.Sleep(1 * time.Second)
 				continue
 			}
@@ -463,7 +460,6 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 			err = element.Timeout(20*time.Second).Click(proto.InputMouseButtonLeft, 1)
 			if err != nil {
 				s.logger.Warn().Err(err).Str("selector", selector).Msg("Failed to click authorization button")
-				lastError = err
 				time.Sleep(1 * time.Second)
 				continue
 			}
@@ -575,7 +571,4 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 
 	s.logger.Info().Msg("No Accept button found or clickable, assuming permission button click was sufficient")
 	return nil
-
-	// If no selector worked, return the last error
-	return fmt.Errorf("failed to find Atlassian authorization button: %w", lastError)
 }

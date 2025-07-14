@@ -12,7 +12,6 @@ import (
 
 // GitHubProviderStrategy implements GitHub-specific OAuth automation behavior
 type GitHubProviderStrategy struct {
-	config BrowserOAuthConfig
 	logger zerolog.Logger
 }
 
