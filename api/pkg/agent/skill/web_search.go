@@ -152,7 +152,7 @@ func formatSearchResponse(output *searxng.Output) string {
 	buf.WriteString("## Results: \n")
 
 	for _, result := range output.Results {
-		buf.WriteString(fmt.Sprintf("### Source: %s\n- URL: %s\n-Excerpt: %s\n\n", result.Title, result.URL, result.Content))
+		buf.WriteString(fmt.Sprintf("### Source: %s\n- URL: %s\n- Excerpt: %s\n\n", result.Title, result.URL, result.Content))
 	}
 
 	return buf.String()
