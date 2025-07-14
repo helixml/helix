@@ -1397,14 +1397,14 @@ func (s *HelixAPIServer) getAppDailyUsage(_ http.ResponseWriter, r *http.Request
 	var err error
 
 	if r.URL.Query().Get("from") != "" {
-		from, err = time.Parse(time.RFC3339, r.URL.Query().Get("from"))
+		from, err = time.Parse(time.DateOnly, r.URL.Query().Get("from"))
 		if err != nil {
 			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse from date: %s", err))
 		}
 	}
 
 	if r.URL.Query().Get("to") != "" {
-		to, err = time.Parse(time.RFC3339, r.URL.Query().Get("to"))
+		to, err = time.Parse(time.DateOnly, r.URL.Query().Get("to"))
 		if err != nil {
 			return nil, system.NewHTTPError400(fmt.Sprintf("failed to parse to date: %s", err))
 		}
