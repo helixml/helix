@@ -105,6 +105,7 @@ type JiraOAuthE2ETestSuite struct {
 	atlassianClientSecret string
 	atlassianUsername     string
 	atlassianPassword     string
+	atlassianCloudID      string
 
 	// OAuth provider test template
 	oauthTemplate *OAuthProviderTestTemplate
@@ -242,6 +243,11 @@ func (suite *JiraOAuthE2ETestSuite) loadTestConfig() error {
 		return fmt.Errorf("ATLASSIAN_SKILL_TEST_OAUTH_PASSWORD environment variable not set")
 	}
 
+	suite.atlassianCloudID = os.Getenv("ATLASSIAN_SKILL_TEST_CLOUD_ID")
+	if suite.atlassianCloudID == "" {
+		return fmt.Errorf("ATLASSIAN_SKILL_TEST_CLOUD_ID environment variable not set")
+	}
+
 	// Debug logging for CI environment (log lengths only, not actual values)
 	log.Info().
 		Str("username", suite.atlassianUsername).
@@ -283,6 +289,7 @@ func (suite *JiraOAuthE2ETestSuite) createOAuthTemplate() error {
 	config.SetupTestDataFunc = func() error { return nil }   // No setup needed for Jira
 	config.CleanupTestDataFunc = func() error { return nil } // No cleanup needed for Jira
 	config.AgentTestQueries = JiraTestQueries
+	config.AtlassianCloudID = suite.atlassianCloudID
 
 	// Create the OAuth template
 	template, err := NewOAuthProviderTestTemplate(config, &suite.BaseOAuthTestSuite)
