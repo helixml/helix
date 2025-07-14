@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect } from 'react';
+import React, { FC, useState, useEffect, useMemo } from 'react';
 import {
   Table,
   TableBody,
@@ -16,6 +16,8 @@ import {
   Collapse,
   Link,
   useTheme,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
@@ -30,6 +32,7 @@ import { TypesUsersAggregatedUsageMetric, TypesAggregatedUsageMetric } from '../
 import useAccount from '../../hooks/useAccount';
 import LLMCallTimelineChart from './LLMCallTimelineChart';
 import LLMCallDialog from './LLMCallDialog';
+import { useGetAppUsage } from '../../services/appService';
 
 interface AppLogsTableProps {
   appId: string;
@@ -47,6 +50,8 @@ interface GroupedLLMCall {
   session_id?: string;
 }
 
+type PeriodType = '1d' | '7d' | '1m' | '6m';
+
 const win = (window as any)
 
 const formatDuration = (ms: number): string => {
@@ -62,24 +67,72 @@ const formatDuration = (ms: number): string => {
   return `${minutes}m ${remainingSeconds}s`;
 };
 
+const getDateRange = (period: PeriodType): { from: string; to: string } => {
+  const now = new Date();
+  const to = now.toISOString().split('T')[0]; // YYYY-MM-DD format
+  
+  const from = new Date();
+  switch (period) {
+    case '1d':
+      from.setDate(from.getDate() - 1);
+      break;
+    case '7d':
+      from.setDate(from.getDate() - 7);
+      break;
+    case '1m':
+      from.setMonth(from.getMonth() - 1);
+      break;
+    case '6m':
+      from.setMonth(from.getMonth() - 6);
+      break;
+  }
+  
+  return {
+    from: from.toISOString().split('T')[0],
+    to
+  };
+};
+
+const getPeriodLabel = (period: PeriodType): string => {
+  switch (period) {
+    case '1d': return '1 day';
+    case '7d': return '7 days';
+    case '1m': return '1 month';
+    case '6m': return '6 months';
+  }
+};
+
 const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const api = useApi();
   const apiClient = api.getApiClient();
   const account = useAccount();
   const theme = useTheme();
   const [llmCalls, setLLMCalls] = useState<TypesPaginatedLLMCalls | null>(null);
-  const [usageData, setUsageData] = useState<TypesUsersAggregatedUsageMetric[]>([]);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(100);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [hoveredCallId, setHoveredCallId] = useState<string | null>(null);
   const [selectedLLMCall, setSelectedLLMCall] = useState<TypesLLMCall | null>(null);
   const [llmCallDialogOpen, setLlmCallDialogOpen] = useState(false);
+  const [selectedPeriod, setSelectedPeriod] = useState<PeriodType>('7d');
 
   const headerCellStyle = {
     bgcolor: 'rgba(0, 0, 0, 0.2)',
     backdropFilter: 'blur(10px)'
   };  
+
+  // Calculate date range based on selected period
+  const dateRange = getDateRange(selectedPeriod);
+
+  // Use the useGetAppUsage hook
+  const { data: usageData = [], isLoading: usageLoading, refetch: refetchUsage } = useGetAppUsage(
+    appId,
+    dateRange.from,
+    dateRange.to
+  );
+
+  // Extract usage data from the response
+  // const usageData = usageResponse?.data || []; // This line is no longer needed
 
   const parseRequest = (request: any): any => {
     try {
@@ -95,15 +148,6 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const getReasoningEffort = (request: any): string => {
     const parsed = parseRequest(request);
     return parsed?.reasoning_effort || 'n/a';
-  };
-
-  const fetchUsageData = async () => {
-    try {
-      const response = await apiClient.v1AppsUsersDailyUsageDetail(appId);
-      setUsageData(response.data as unknown as TypesUsersAggregatedUsageMetric[]);
-    } catch (error) {
-      console.error('Error fetching usage data:', error);
-    }
   };
 
   const fetchLLMCalls = async () => {
@@ -123,7 +167,6 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   useEffect(() => {
     if (appId !== 'new') {
       fetchLLMCalls();
-      fetchUsageData();
     }
   }, [page, rowsPerPage, appId]);
 
@@ -138,7 +181,13 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
 
   const handleRefresh = () => {
     fetchLLMCalls();
-    fetchUsageData();
+    refetchUsage();
+  };
+
+  const handlePeriodChange = (event: React.MouseEvent<HTMLElement>, newPeriod: PeriodType | null) => {
+    if (newPeriod !== null) {
+      setSelectedPeriod(newPeriod);
+    }
   };
 
   const toggleRow = (interactionId: string) => {
@@ -206,13 +255,18 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   }, [llmCalls?.calls]);
 
   // Prepare data for the line chart
-  const prepareChartData = () => {
-    if (!usageData.length) return { xAxis: [], series: [] };
+  const prepareChartData = (usageData: TypesUsersAggregatedUsageMetric[]) => {
+    console.log('prepareChartData')
+    console.log(usageData)
+
+    if (usageLoading) return { xAxis: [], series: [] };
+
+    if (!usageData || !Array.isArray(usageData) || usageData.length === 0) return { xAxis: [], series: [] };
 
     // Get all unique dates across all users
     const allDates = new Set<string>();
-    usageData.forEach(userData => {
-      userData.metrics?.forEach(metric => {
+    usageData.forEach((userData: TypesUsersAggregatedUsageMetric) => {
+      userData.metrics?.forEach((metric: TypesAggregatedUsageMetric) => {
         if (metric.date) allDates.add(metric.date);
       });
     });
@@ -222,9 +276,9 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
     const xAxisDates = sortedDates.map(date => new Date(date));
 
     // Create series data for each user
-    const series = usageData.map(userData => {
+    const series = usageData.map((userData: TypesUsersAggregatedUsageMetric) => {
       const userMetricsByDate = new Map<string, TypesAggregatedUsageMetric>();
-      userData.metrics?.forEach(metric => {
+      userData.metrics?.forEach((metric: TypesAggregatedUsageMetric) => {
         if (metric.date) userMetricsByDate.set(metric.date, metric);
       });
 
@@ -243,7 +297,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
     };
   };
 
-  const chartData = prepareChartData();
+  const chartData = useMemo(() => prepareChartData(usageData as TypesUsersAggregatedUsageMetric[]), [usageData, selectedPeriod, usageLoading]);
 
   const handleOpenLLMCallDialog = (call: TypesLLMCall) => {
     setSelectedLLMCall(call);
@@ -276,13 +330,36 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   return (
     <div>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, mr: 2 }}>
-        <Typography variant="h6">Token usage (last 7 days)</Typography>
-        <Button startIcon={<RefreshIcon />} onClick={handleRefresh}>
-          Refresh
-        </Button>
+        <Typography variant="h6">Token usage ({getPeriodLabel(selectedPeriod)})</Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <ToggleButtonGroup
+            value={selectedPeriod}
+            exclusive
+            onChange={handlePeriodChange}
+            size="small"
+            sx={{
+              '& .MuiToggleButton-root': {
+                px: 2,
+                py: 0.5,
+                fontSize: '0.875rem',
+                fontWeight: 500,
+              }
+            }}
+          >
+            <ToggleButton value="1d">1d</ToggleButton>
+            <ToggleButton value="7d">7d</ToggleButton>
+            <ToggleButton value="1m">1m</ToggleButton>
+            <ToggleButton value="6m">6m</ToggleButton>
+          </ToggleButtonGroup>
+          <Button startIcon={<RefreshIcon />} onClick={handleRefresh}>
+            Refresh
+          </Button>
+        </Box>
       </Box>
       <Box sx={{ p: 2, height: 300 }}> 
-        {chartData.series.length > 0 ? (
+        {usageLoading ? (
+          <Typography variant="body1" textAlign="center">Loading usage data...</Typography>
+        ) : chartData.series.length > 0 ? (
           <LineChart
             xAxis={[{
               data: chartData.xAxis,
