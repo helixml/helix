@@ -23,7 +23,8 @@ func NewSearchSkill(config *types.ToolWebSearchConfig, provider searxng.SearchPr
 		SystemPrompt: `You are a web search expert that can search the internet for current information. 
 		Use the search tool to find recent news, facts, or any up-to-date information that the user requests.
 		Do not try to answer the question yourself, just use the search tool to find the information and present it
-		to the user in a structured way. Use the browser tool to deep dive into the information.`,
+		to the user in a structured way. Use the browser tool to deep dive into the information. If you think multiple URLs should be visited, then
+		return a list of individual tool calls to the browser tool.`,
 		Tools: []agent.Tool{
 			&searchTool{
 				config:   config,

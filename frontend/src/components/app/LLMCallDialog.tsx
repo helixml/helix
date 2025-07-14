@@ -212,6 +212,31 @@ const LLMCallDialog: React.FC<LLMCallDialogProps> = ({
                   {llmCall.provider || 'N/A'}
                 </Typography>
               </Box>
+
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                  Messages:
+                </Typography>
+                <Typography variant="body2">
+                  {llmCall.request ? (() => {
+                    const messages = getRequestMessages(llmCall.request);
+                    const counts = messages.reduce((acc, msg) => {
+                      const role = msg.role?.toLowerCase() || 'unknown';
+                      acc[role] = (acc[role] || 0) + 1;
+                      return acc;
+                    }, {} as Record<string, number>);
+                    
+                    const parts = [];
+                    if (counts.system) parts.push(`System: ${counts.system}`);
+                    if (counts.developer) parts.push(`Developer: ${counts.developer}`);
+                    if (counts.user) parts.push(`User: ${counts.user}`);
+                    if (counts.assistant) parts.push(`Assistant: ${counts.assistant}`);
+                    if (counts.tool) parts.push(`Tool: ${counts.tool}`);
+                    
+                    return parts.length > 0 ? parts.join(' | ') : 'N/A';
+                  })() : 'N/A'}
+                </Typography>
+              </Box>
             </Box>
             {/* Right column */}
             <Box>
@@ -256,6 +281,8 @@ const LLMCallDialog: React.FC<LLMCallDialogProps> = ({
                   </Typography>
                 </Box>
               )}
+
+              
             </Box>
           </Box>
         </Box>
