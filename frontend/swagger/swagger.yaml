@@ -3459,6 +3459,86 @@ paths:
       summary: List app triggers
       tags:
       - apps
+    post:
+      description: Create triggers for the app. Used to create standalone trigger
+        configurations such as cron tasks for agents that could be owned by a different
+        user than the owner of the app
+      parameters:
+      - description: App ID
+        in: path
+        name: app_id
+        required: true
+        type: string
+      - description: Trigger configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.TriggerConfiguration'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.TriggerConfiguration'
+      security:
+      - BearerAuth: []
+      summary: Create app triggers
+      tags:
+      - apps
+  /api/v1/apps/{app_id}/triggers/{trigger_id}:
+    delete:
+      description: Delete triggers for the app
+      parameters:
+      - description: App ID
+        in: path
+        name: app_id
+        required: true
+        type: string
+      - description: Trigger ID
+        in: path
+        name: trigger_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.TriggerConfiguration'
+      security:
+      - BearerAuth: []
+      summary: Delete app triggers
+      tags:
+      - apps
+    put:
+      description: Update triggers for the app, for example to change the cron schedule
+        or enable/disable the trigger
+      parameters:
+      - description: App ID
+        in: path
+        name: app_id
+        required: true
+        type: string
+      - description: Trigger ID
+        in: path
+        name: trigger_id
+        required: true
+        type: string
+      - description: Trigger configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.TriggerConfiguration'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.TriggerConfiguration'
+      security:
+      - BearerAuth: []
+      summary: Update app triggers
+      tags:
+      - apps
   /api/v1/apps/{id}:
     delete:
       parameters:

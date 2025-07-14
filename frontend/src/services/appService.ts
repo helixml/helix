@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
+import { TypesTriggerConfiguration } from '../api/api';
 
 export const appStepsQueryKey = (id: string, interactionId: string) => [
   "app-steps",
@@ -16,6 +17,26 @@ export const appTriggerStatusQueryKey = (id: string, triggerType: string) => [
 export const appTriggersListQueryKey = (id: string) => [
   "app-triggers",
   id
+];
+
+// Create app trigger mutation
+export const createAppTriggerMutationKey = (appId: string) => [
+  "create-app-trigger",
+  appId
+];
+
+// Update app trigger mutation
+export const updateAppTriggerMutationKey = (appId: string, triggerId: string) => [
+  "update-app-trigger",
+  appId,  
+  triggerId
+];
+
+// Delete app trigger mutation
+export const deleteAppTriggerMutationKey = (appId: string, triggerId: string) => [
+  "delete-app-trigger",
+  appId,
+  triggerId
 ];
 
 // useListSessionSteps returns the steps for a session, it includes
@@ -40,6 +61,52 @@ export function useListAppTriggers(appId: string, options?: { enabled?: boolean,
     queryFn: () => apiClient.v1AppsTriggersDetail(appId),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval
+  })
+}
+
+// useCreateAppTrigger returns a mutation for creating a new app trigger
+export function useCreateAppTrigger(appId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (trigger: TypesTriggerConfiguration) => apiClient.v1AppsTriggersCreate(appId, trigger),
+    onSuccess: () => {
+      // Invalidate any cached trigger data
+      queryClient.invalidateQueries({ queryKey: appTriggersListQueryKey(appId) })
+    }
+  })
+}
+
+// useUpdateAppTrigger returns a mutation for updating an app trigger
+export function useUpdateAppTrigger(appId: string, triggerId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (trigger: TypesTriggerConfiguration) => apiClient.v1AppsTriggersUpdate(appId, triggerId, trigger),
+    onSuccess: () => {
+      // Invalidate any cached trigger data
+      queryClient.invalidateQueries({ queryKey: appTriggersListQueryKey(appId) })
+    }
+  })
+}
+
+// useDeleteAppTrigger returns a mutation for deleting an app trigger
+export function useDeleteAppTrigger(appId: string, triggerId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+
+    mutationFn: () => apiClient.v1AppsTriggersDelete(appId, triggerId),
+    onSuccess: () => {
+      // Invalidate any cached trigger data
+      queryClient.invalidateQueries({ queryKey: appTriggersListQueryKey(appId) })
+    }
   })
 }
 
