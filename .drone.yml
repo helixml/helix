@@ -30,6 +30,13 @@ steps:
 
 - name: build-frontend
   image: node:23-alpine
+  volumes:
+  - name: yarn-cache
+    path: /usr/local/share/.cache/yarn
+  - name: node-modules-cache
+    path: /go/src/github.com/helix-ml/helix/frontend/node_modules
+  - name: frontend-build-cache
+    path: /go/src/github.com/helix-ml/helix/frontend/dist
   commands:
     - cd frontend
     - yarn install
@@ -787,6 +794,15 @@ volumes:
 - name: go-mod-cache
   host:
     path: /var/cache/drone/go-mod
+- name: yarn-cache
+  host:
+    path: /var/cache/drone/yarn
+- name: node-modules-cache
+  host:
+    path: /var/cache/drone/node_modules
+- name: frontend-build-cache
+  host:
+    path: /var/cache/drone/frontend-build
 ---
 kind: pipeline
 type: docker
