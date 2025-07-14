@@ -63,12 +63,16 @@ spec:
       - read:jira-user
       - read:me
       - read:account
-      
+    
   api:
     baseUrl: https://api.atlassian.com
     headers:
       Accept: application/json
-    
+    requiredParameters:
+      - name: cloudId
+        description: "Your Atlassian Cloud ID (e.g., '93ac17d7-fe07-4ba3-a53c-5caeb380fff8'). You can find this in your Atlassian admin settings or by visiting https://admin.atlassian.com and looking at your site URL."
+        type: path
+        required: true
     schema: |
       openapi: 3.0.3
       info:

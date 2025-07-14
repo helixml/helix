@@ -148,11 +148,28 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 
 	q := req.URL.Query()
 
-	// Add path params
+	// Add path params - check both function parameters and tool query parameters
+	allParams := make(map[string]interface{})
+
+	// Add function parameters
 	for k, v := range params {
-		if k == "body" {
-			continue // Skip body parameter as it's already handled
+		if k != "body" { // Skip body parameter as it's already handled
+			allParams[k] = v
 		}
+	}
+
+	// Add tool query parameters (these can also be used for path replacement)
+	if tool.Config.API.Query != nil {
+		for k, v := range tool.Config.API.Query {
+			// Only add if not already present from function parameters
+			if _, exists := allParams[k]; !exists {
+				allParams[k] = v
+			}
+		}
+	}
+
+	// Replace path parameters
+	for k, v := range allParams {
 		if pathParams[k] {
 			if strVal, ok := v.(string); ok {
 				req.URL.Path = strings.Replace(req.URL.Path, "{"+k+"}", strVal, -1)
@@ -160,7 +177,13 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 				req.URL.Path = strings.Replace(req.URL.Path, "{"+k+"}", fmt.Sprintf("%v", v), -1)
 			}
 		}
+	}
 
+	// Add query parameters
+	for k, v := range params {
+		if k == "body" {
+			continue // Skip body parameter as it's already handled
+		}
 		if queryParams[k] {
 			if strVal, ok := v.(string); ok {
 				q.Add(k, strVal)
@@ -318,6 +341,11 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, client oai.
 	params, err := unmarshalParams(answer)
 	if err != nil {
 		return nil, err
+	}
+
+	// Add query parameters from tool configuration
+	for k, v := range tool.Config.API.Query {
+		params[k] = v
 	}
 
 	return params, nil

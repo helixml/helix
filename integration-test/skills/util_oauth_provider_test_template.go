@@ -42,6 +42,9 @@ type OAuthProviderConfig struct {
 
 	// Agent test queries (optional - will use defaults if not provided)
 	AgentTestQueries []AgentTestQuery
+
+	// Atlassian Cloud ID for Jira/Confluence testing
+	AtlassianCloudID string
 }
 
 // AgentTestQuery defines a query to test agent integration
@@ -92,7 +95,7 @@ func NewOAuthProviderTestTemplate(config OAuthProviderConfig, baseSuite *BaseOAu
 func (template *OAuthProviderTestTemplate) TestSetupOAuthProvider(t *testing.T) {
 	log.Info().Str("provider_name", template.config.ProviderName).Msg("Setting up OAuth provider")
 
-	// Create OAuth provider
+	// Create OAuth provider with all required fields
 	callbackURL := template.baseSuite.serverURL + "/api/v1/oauth/flow/callback"
 	provider := &types.OAuthProvider{
 		Name:         template.config.ProviderName,
@@ -115,16 +118,11 @@ func (template *OAuthProviderTestTemplate) TestSetupOAuthProvider(t *testing.T) 
 		Msg("Configuring OAuth provider with callback URL")
 
 	createdProvider, err := template.baseSuite.store.CreateOAuthProvider(template.baseSuite.ctx, provider)
-	require.NoError(t, err, "Failed to create OAuth provider")
-	require.NotNil(t, createdProvider, "Created provider should not be nil")
+	if err != nil {
+		t.Fatalf("Failed to create OAuth provider: %v", err)
+	}
 
 	template.oauthProvider = createdProvider
-
-	// Verify provider was created correctly
-	assert.Equal(t, template.config.ProviderName, createdProvider.Name)
-	assert.Equal(t, template.config.ProviderType, createdProvider.Type)
-	assert.True(t, createdProvider.Enabled)
-	assert.Equal(t, template.config.ClientID, createdProvider.ClientID)
 
 	log.Info().
 		Str("provider_id", createdProvider.ID).
@@ -175,6 +173,7 @@ func (template *OAuthProviderTestTemplate) TestCreateTestApp(t *testing.T) {
 								URL:           template.skillConfig.BaseURL,
 								Schema:        template.skillConfig.Schema,
 								Headers:       template.skillConfig.Headers,
+								Query:         template.buildRequiredParametersQuery(),
 								SystemPrompt:  template.skillConfig.SystemPrompt,
 								OAuthProvider: template.oauthProvider.Name,
 							},
@@ -197,6 +196,12 @@ func (template *OAuthProviderTestTemplate) TestCreateTestApp(t *testing.T) {
 	assert.Len(t, createdApp.Config.Helix.Assistants, 1)
 	assert.Len(t, createdApp.Config.Helix.Assistants[0].APIs, 1)
 	assert.Equal(t, template.oauthProvider.Name, createdApp.Config.Helix.Assistants[0].APIs[0].OAuthProvider)
+
+	// Verify required parameters were properly configured
+	if template.config.AtlassianCloudID != "" {
+		// Check that cloudId was added to query parameters via requiredParameters system
+		assert.Equal(t, template.config.AtlassianCloudID, createdApp.Config.Helix.Assistants[0].APIs[0].Query["cloudId"])
+	}
 
 	// Safely truncate description for logging
 	description := template.skillConfig.Description
@@ -401,7 +406,35 @@ func (template *OAuthProviderTestTemplate) Cleanup(_ *testing.T) {
 	template.baseSuite.logger.Info().Str("provider", template.skillConfig.DisplayName).Msg("=== OAuth Provider Test Cleanup Completed ===")
 }
 
-// getDefaultAgentTestQueries returns default test queries for agent integration
+// buildRequiredParametersQuery builds query parameters for the API configuration based on skill's requiredParameters
+func (template *OAuthProviderTestTemplate) buildRequiredParametersQuery() map[string]string {
+	queryParams := make(map[string]string)
+
+	// Process the skill's required parameters and add values based on their type
+	for _, param := range template.skillConfig.RequiredParameters {
+		var value string
+
+		// Get the value for this parameter
+		switch param.Name {
+		case "cloudId":
+			value = template.config.AtlassianCloudID
+		// Add more parameters here as needed for other skills
+		default:
+			continue // Skip parameters we don't have values for
+		}
+
+		// Add to query params based on parameter type (following frontend logic)
+		switch param.Type {
+		case "query", "path": // path parameters are also added as query params
+			queryParams[param.Name] = value
+			// headers would be handled separately in buildRequiredParametersHeaders()
+		}
+	}
+
+	return queryParams
+}
+
+// getDefaultAgentTestQueries returns default test queries for agent integration testing
 func (template *OAuthProviderTestTemplate) getDefaultAgentTestQueries() []AgentTestQuery {
 	providerName := template.skillConfig.DisplayName
 

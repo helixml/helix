@@ -20,20 +20,6 @@ const (
 	OAuthProviderTypeCustom    OAuthProviderType = "custom"
 )
 
-// OAuthAdditionalParametersConfig defines how to retrieve additional parameters from OAuth provider
-type OAuthAdditionalParametersConfig struct {
-	// Parameters to retrieve with their configuration
-	Parameters map[string]OAuthParameterConfig `json:"parameters"`
-}
-
-// OAuthParameterConfig defines how to retrieve a specific parameter
-type OAuthParameterConfig struct {
-	// HTTP endpoint to call to retrieve the parameter
-	Endpoint string `json:"endpoint"`
-	// JSON path to extract the value from the response (e.g., "[0].id" for first array element's id)
-	ExtractionPath string `json:"extraction_path"`
-}
-
 // OAuthProvider represents an OAuth provider configuration
 type OAuthProvider struct {
 	ID          string            `json:"id" gorm:"primaryKey;type:uuid"`
@@ -62,9 +48,6 @@ type OAuthProvider struct {
 	// Misc configuration
 	Scopes  []string `json:"scopes" gorm:"type:text;serializer:json"`
 	Enabled bool     `json:"enabled" gorm:"not null;default:true"`
-
-	// Additional parameters configuration for provider-specific data
-	AdditionalParameters *OAuthAdditionalParametersConfig `json:"additional_parameters" gorm:"type:text;serializer:json"`
 }
 
 // OAuthConnection represents a user's connection to an OAuth provider
