@@ -372,7 +372,9 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                 angle: 0,
                 textAnchor: 'middle'
               },
-              tickMinStep: 24 * 60 * 60 * 1000
+              tickMinStep: 24 * 60 * 60 * 1000,
+              min: chartData.xAxis.length > 0 ? chartData.xAxis[0].getTime() : undefined,
+              max: chartData.xAxis.length > 0 ? chartData.xAxis[chartData.xAxis.length - 1].getTime() : undefined
             }]}
             yAxis={[{                            
               valueFormatter: (value: number) => {
