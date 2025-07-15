@@ -84,6 +84,7 @@ type ListTriggerConfigurationsQuery struct {
 	Owner          string
 	OwnerType      types.OwnerType
 	OrganizationID string
+	TriggerType    types.TriggerType
 }
 
 type ListUsersQuery struct {

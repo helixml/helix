@@ -3154,6 +3154,9 @@ definitions:
         type: string
       created:
         type: string
+      description:
+        description: Description of the trigger configuration
+        type: string
       executions:
         items:
           $ref: '#/definitions/types.TriggerExecution'
@@ -3175,6 +3178,8 @@ definitions:
         description: User or Organization
       trigger:
         $ref: '#/definitions/types.Trigger'
+      trigger_type:
+        $ref: '#/definitions/types.TriggerType'
       updated:
         type: string
       webhook_url:
@@ -3226,10 +3231,12 @@ definitions:
     enum:
     - slack
     - azure_devops
+    - cron
     type: string
     x-enum-varnames:
     - TriggerTypeSlack
     - TriggerTypeAzureDevOps
+    - TriggerTypeCron
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
@@ -5069,6 +5076,32 @@ paths:
       summary: Reload skills
       tags:
       - skills
+  /api/v1/triggers:
+    get:
+      description: List all triggers configurations for either user or the org or
+        user within an org
+      parameters:
+      - description: Organization ID
+        in: query
+        name: org_id
+        type: string
+      - description: Trigger type, defaults to 'cron'
+        in: query
+        name: trigger_type
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.TriggerConfiguration'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List all triggers configurations for either user or the org or user
+        within an org
+      tags:
+      - apps
   /api/v1/users/search:
     get:
       description: Search users by email, name, or username

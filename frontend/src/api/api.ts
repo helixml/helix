@@ -1911,6 +1911,8 @@ export interface TypesTriggerConfiguration {
   /** App ID */
   app_id?: string;
   created?: string;
+  /** Description of the trigger configuration */
+  description?: string;
   executions?: TypesTriggerExecution[];
   id?: string;
   /** Name of the trigger configuration */
@@ -1922,6 +1924,7 @@ export interface TypesTriggerConfiguration {
   /** User or Organization */
   owner_type?: TypesOwnerType;
   trigger?: TypesTrigger;
+  trigger_type?: TypesTriggerType;
   updated?: string;
   /** Webhook URL for the trigger configuration, applicable to webhook type triggers like Azure DevOps, GitHub, etc. */
   webhook_url?: string;
@@ -1954,6 +1957,7 @@ export interface TypesTriggerStatus {
 export enum TypesTriggerType {
   TriggerTypeSlack = "slack",
   TriggerTypeAzureDevOps = "azure_devops",
+  TriggerTypeCron = "cron",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -3811,6 +3815,32 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, string>, any>({
         path: `/api/v1/skills/reload`,
         method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List all triggers configurations for either user or the org or user within an org
+     *
+     * @tags apps
+     * @name V1TriggersList
+     * @summary List all triggers configurations for either user or the org or user within an org
+     * @request GET:/api/v1/triggers
+     * @secure
+     */
+    v1TriggersList: (
+      query?: {
+        /** Organization ID */
+        org_id?: string;
+        /** Trigger type, defaults to 'cron' */
+        trigger_type?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesTriggerConfiguration[], any>({
+        path: `/api/v1/triggers`,
+        method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),
