@@ -9,6 +9,8 @@ import (
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/rs/zerolog"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 // AtlassianProviderStrategy implements Atlassian-specific OAuth automation behavior
@@ -632,10 +634,10 @@ func (s *AtlassianProviderStrategy) HandleSiteSelection(page *rod.Page, screensh
 		// Try different variations of the site name
 		siteVariations := []string{
 			s.siteName, // Original: "helixml-confluence"
-			strings.Replace(s.siteName, "-", " ", -1), // "helixml confluence"
-			strings.ToLower(s.siteName),               // "helixml-confluence"
-			strings.ToUpper(s.siteName),               // "HELIXML-CONFLUENCE"
-			strings.Title(s.siteName),                 // "Helixml-Confluence"
+			strings.Replace(s.siteName, "-", " ", -1),        // "helixml confluence"
+			strings.ToLower(s.siteName),                      // "helixml-confluence"
+			strings.ToUpper(s.siteName),                      // "HELIXML-CONFLUENCE"
+			cases.Title(language.English).String(s.siteName), // "Helixml-Confluence"
 		}
 
 		// Also try just the base name without suffix

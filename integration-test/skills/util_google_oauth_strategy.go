@@ -398,6 +398,7 @@ func (s *GoogleProviderStrategy) handleAccountSelection(page *rod.Page, username
 	// Look for account selection indicators - use only very specific selectors
 	// to avoid matching elements on password page or other pages
 	accountSelectors := []string{
+		// Modern Google account selection UI selectors (2024+)
 		`div[data-email]`,                    // Account divs with email data attribute
 		`div[data-identifier]`,               // Account divs with identifier data attribute
 		`button[data-email]`,                 // Account buttons with email
@@ -405,10 +406,25 @@ func (s *GoogleProviderStrategy) handleAccountSelection(page *rod.Page, username
 		`li[data-account-id]`,                // Account list items with account ID
 		`div[jscontroller][data-email]`,      // JS controller divs with email
 		`div[jscontroller][data-identifier]`, // JS controller divs with identifier
+
+		// Additional selectors for modern Google UI
+		`div[role="listitem"]`,   // Account list items
+		`li[role="option"]`,      // Account options in dropdown
+		`div[role="button"]`,     // Account buttons
+		`div[data-value]`,        // Account divs with data-value
+		`div[jsname]`,            // JS name divs (Google internal)
+		`div[jsaction*="click"]`, // Clickable divs with jsaction
+
+		// Fallback selectors for account elements
+		`div[aria-label*="account"]`,    // Account divs with aria-label
+		`div[aria-label*="Account"]`,    // Account divs with aria-label (capitalized)
+		`button[aria-label*="account"]`, // Account buttons with aria-label
+		`div[title*="@"]`,               // Elements with email in title
+		`div[data-identifier*="@"]`,     // Elements with email in data-identifier
+		`div[data-email*="@"]`,          // Elements with email in data-email
 	}
 
 	var accountElements []*rod.Element
-	var err error
 
 	// Try to find account elements with reduced timeout to avoid accumulating delays
 	for _, selector := range accountSelectors {
@@ -435,84 +451,118 @@ func (s *GoogleProviderStrategy) handleAccountSelection(page *rod.Page, username
 	// Take screenshot after finding account elements
 	screenshotTaker.TakeScreenshot(page, "google_account_elements_found")
 
+	// Enhanced account matching logic
+	s.logger.Info().Str("target_username", username).Msg("Looking for account matching target username")
+
 	// Look for the account matching our username
-	for _, element := range accountElements {
+	for i, element := range accountElements {
 		// Check overall timeout
 		if time.Since(startTime) > accountSelectionTimeout {
 			s.logger.Warn().Msg("Account selection timeout exceeded during account matching")
 			break
 		}
 
-		// Check if this element contains our email
+		s.logger.Info().Int("element_index", i).Msg("Checking account element")
+
+		// Method 1: Check if element text contains our email
 		text, textErr := element.Text()
-		if textErr == nil && strings.Contains(strings.ToLower(text), strings.ToLower(username)) {
-			s.logger.Info().Str("text", text).Str("username", username).Msg("Found matching account, clicking")
-
-			err = element.ScrollIntoView()
-			if err != nil {
-				s.logger.Warn().Err(err).Msg("Failed to scroll account element into view")
+		if textErr == nil && text != "" {
+			s.logger.Info().Str("element_text", text).Msg("Found element text")
+			if strings.Contains(strings.ToLower(text), strings.ToLower(username)) {
+				s.logger.Info().Str("text", text).Str("username", username).Msg("Found matching account by text, clicking")
+				return s.clickAccountElement(element, screenshotTaker, "google_account_selected_by_text")
 			}
-
-			err = element.Click(proto.InputMouseButtonLeft, 1)
-			if err != nil {
-				s.logger.Warn().Err(err).Msg("Failed to click account element")
-				continue
-			}
-
-			s.logger.Info().Msg("Successfully clicked account selection")
-			screenshotTaker.TakeScreenshot(page, "google_account_selected")
-
-			// Wait for the page to navigate after account selection
-			time.Sleep(3 * time.Second)
-			return nil
 		}
 
-		// Also check data attributes for email
+		// Method 2: Check data-email attribute
 		dataEmail, dataErr := element.Attribute("data-email")
-		if dataErr == nil && dataEmail != nil && strings.EqualFold(*dataEmail, username) {
-			s.logger.Info().Str("data-email", *dataEmail).Str("username", username).Msg("Found matching account by data-email, clicking")
-
-			err = element.ScrollIntoView()
-			if err != nil {
-				s.logger.Warn().Err(err).Msg("Failed to scroll account element into view")
+		if dataErr == nil && dataEmail != nil && *dataEmail != "" {
+			s.logger.Info().Str("data_email", *dataEmail).Msg("Found data-email attribute")
+			if strings.EqualFold(*dataEmail, username) {
+				s.logger.Info().Str("data-email", *dataEmail).Str("username", username).Msg("Found matching account by data-email, clicking")
+				return s.clickAccountElement(element, screenshotTaker, "google_account_selected_by_data_email")
 			}
+		}
 
-			err = element.Click(proto.InputMouseButtonLeft, 1)
-			if err != nil {
-				s.logger.Warn().Err(err).Msg("Failed to click account element")
-				continue
+		// Method 3: Check data-identifier attribute
+		dataIdentifier, identifierErr := element.Attribute("data-identifier")
+		if identifierErr == nil && dataIdentifier != nil && *dataIdentifier != "" {
+			s.logger.Info().Str("data_identifier", *dataIdentifier).Msg("Found data-identifier attribute")
+			if strings.EqualFold(*dataIdentifier, username) {
+				s.logger.Info().Str("data-identifier", *dataIdentifier).Str("username", username).Msg("Found matching account by data-identifier, clicking")
+				return s.clickAccountElement(element, screenshotTaker, "google_account_selected_by_data_identifier")
 			}
+		}
 
-			s.logger.Info().Msg("Successfully clicked account selection")
-			screenshotTaker.TakeScreenshot(page, "google_account_selected")
+		// Method 4: Check for child elements that might contain the email
+		childElements, childErr := element.Elements("*")
+		if childErr == nil {
+			for _, child := range childElements {
+				childText, childTextErr := child.Text()
+				if childTextErr == nil && childText != "" {
+					if strings.Contains(strings.ToLower(childText), strings.ToLower(username)) {
+						s.logger.Info().Str("child_text", childText).Str("username", username).Msg("Found matching account by child text, clicking")
+						return s.clickAccountElement(element, screenshotTaker, "google_account_selected_by_child_text")
+					}
+				}
+			}
+		}
 
-			// Wait for the page to navigate after account selection
-			time.Sleep(3 * time.Second)
-			return nil
+		// Method 5: Check aria-label for email
+		ariaLabel, ariaErr := element.Attribute("aria-label")
+		if ariaErr == nil && ariaLabel != nil && *ariaLabel != "" {
+			s.logger.Info().Str("aria_label", *ariaLabel).Msg("Found aria-label attribute")
+			if strings.Contains(strings.ToLower(*ariaLabel), strings.ToLower(username)) {
+				s.logger.Info().Str("aria-label", *ariaLabel).Str("username", username).Msg("Found matching account by aria-label, clicking")
+				return s.clickAccountElement(element, screenshotTaker, "google_account_selected_by_aria_label")
+			}
+		}
+
+		// Method 6: Check title attribute for email
+		title, titleErr := element.Attribute("title")
+		if titleErr == nil && title != nil && *title != "" {
+			s.logger.Info().Str("title", *title).Msg("Found title attribute")
+			if strings.Contains(strings.ToLower(*title), strings.ToLower(username)) {
+				s.logger.Info().Str("title", *title).Str("username", username).Msg("Found matching account by title, clicking")
+				return s.clickAccountElement(element, screenshotTaker, "google_account_selected_by_title")
+			}
 		}
 	}
 
 	// If we couldn't find the exact account, try clicking the first account
 	if len(accountElements) > 0 {
 		s.logger.Info().Msg("Could not find exact account match, trying first account")
-
-		err = accountElements[0].ScrollIntoView()
-		if err != nil {
-			s.logger.Warn().Err(err).Msg("Failed to scroll first account element into view")
-		}
-
-		err = accountElements[0].Click(proto.InputMouseButtonLeft, 1)
-		if err != nil {
-			s.logger.Warn().Err(err).Msg("Failed to click first account element")
-		} else {
-			s.logger.Info().Msg("Successfully clicked first account")
-			screenshotTaker.TakeScreenshot(page, "google_first_account_selected")
-			time.Sleep(3 * time.Second)
-			return nil
-		}
+		return s.clickAccountElement(accountElements[0], screenshotTaker, "google_first_account_selected")
 	}
 
 	s.logger.Info().Msg("No suitable account found or failed to click, continuing with flow")
+	return nil
+}
+
+// clickAccountElement is a helper method to click an account element with proper error handling
+func (s *GoogleProviderStrategy) clickAccountElement(element *rod.Element, screenshotTaker ScreenshotTaker, screenshotName string) error {
+	err := element.ScrollIntoView()
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to scroll account element into view")
+	}
+
+	// Try to click the element
+	err = element.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to click account element, trying alternative click")
+		// Try clicking with different approach
+		element.MustClick()
+		s.logger.Info().Msg("Used alternative click method")
+	}
+
+	s.logger.Info().Msg("Successfully clicked account selection")
+
+	// Take screenshot by getting the page from the element
+	page := element.Page()
+	screenshotTaker.TakeScreenshot(page, screenshotName)
+
+	// Wait for the page to navigate after account selection
+	time.Sleep(3 * time.Second)
 	return nil
 }
 
