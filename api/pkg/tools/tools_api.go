@@ -171,7 +171,7 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 
 	q := req.URL.Query()
 
-	// Add path params - check both function parameters and tool query parameters
+	// Add path params - check both function parameters and tool path parameters
 	allParams := make(map[string]interface{})
 
 	// Add function parameters
@@ -181,10 +181,10 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		}
 	}
 
-	// Add tool query parameters (these can also be used for path replacement)
+	// Add tool path parameters (these are specifically for path substitution)
 	// Pre-configured parameters override LLM-generated ones
-	if tool.Config.API.Query != nil {
-		for k, v := range tool.Config.API.Query {
+	if tool.Config.API.PathParams != nil {
+		for k, v := range tool.Config.API.PathParams {
 			allParams[k] = v
 		}
 	}
@@ -194,7 +194,7 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		Str("action", action).
 		Interface("all_params", allParams).
 		Interface("function_params", params).
-		Interface("tool_query_params", tool.Config.API.Query).
+		Interface("tool_path_params", tool.Config.API.PathParams).
 		Msg("Parameter merging for path and query substitution")
 
 	// Replace path parameters
@@ -325,6 +325,11 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, client oai.
 			preConfiguredParams[k] = v
 		}
 	}
+	if tool.Config.API.PathParams != nil {
+		for k, v := range tool.Config.API.PathParams {
+			preConfiguredParams[k] = v
+		}
+	}
 
 	systemPrompt, err := c.getAPISystemPrompt(tool, action)
 	if err != nil {
@@ -420,6 +425,13 @@ func (c *ChainStrategy) getAPISystemPrompt(tool *types.Tool, action string) (ope
 	// Add query params
 	if tool.Config.API.Query != nil {
 		for k, v := range tool.Config.API.Query {
+			preConfiguredParams[k] = v
+		}
+	}
+
+	// Add path params
+	if tool.Config.API.PathParams != nil {
+		for k, v := range tool.Config.API.PathParams {
 			preConfiguredParams[k] = v
 		}
 	}

@@ -174,6 +174,7 @@ func (template *OAuthProviderTestTemplate) TestCreateTestApp(t *testing.T) {
 								Schema:        template.skillConfig.Schema,
 								Headers:       template.skillConfig.Headers,
 								Query:         template.buildRequiredParametersQuery(),
+								PathParams:    template.buildRequiredParametersPath(),
 								SystemPrompt:  template.skillConfig.SystemPrompt,
 								OAuthProvider: template.oauthProvider.Name,
 							},
@@ -408,7 +409,20 @@ func (template *OAuthProviderTestTemplate) Cleanup(_ *testing.T) {
 
 // buildRequiredParametersQuery builds query parameters for the API configuration based on skill's requiredParameters
 func (template *OAuthProviderTestTemplate) buildRequiredParametersQuery() map[string]string {
+	queryParams, _ := template.buildRequiredParameters()
+	return queryParams
+}
+
+// buildRequiredParametersPath builds path parameters for the API configuration based on skill's requiredParameters
+func (template *OAuthProviderTestTemplate) buildRequiredParametersPath() map[string]string {
+	_, pathParams := template.buildRequiredParameters()
+	return pathParams
+}
+
+// buildRequiredParameters builds both query and path parameters for the API configuration
+func (template *OAuthProviderTestTemplate) buildRequiredParameters() (map[string]string, map[string]string) {
 	queryParams := make(map[string]string)
+	pathParams := make(map[string]string)
 
 	// Process the skill's required parameters and add values based on their type
 	for _, param := range template.skillConfig.RequiredParameters {
@@ -423,19 +437,17 @@ func (template *OAuthProviderTestTemplate) buildRequiredParametersQuery() map[st
 			continue // Skip parameters we don't have values for
 		}
 
-		// Add to query params based on parameter type
+		// Add to appropriate parameter type
 		switch param.Type {
 		case "query":
 			queryParams[param.Name] = value
 		case "path":
-			// Path parameters should NOT be added to query parameters
-			// They will be handled by path substitution in prepareRequest
-			continue
+			pathParams[param.Name] = value
 			// headers would be handled separately in buildRequiredParametersHeaders()
 		}
 	}
 
-	return queryParams
+	return queryParams, pathParams
 }
 
 // getDefaultAgentTestQueries returns default test queries for agent integration testing
