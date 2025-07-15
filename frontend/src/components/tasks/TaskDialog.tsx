@@ -41,9 +41,31 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
   // Initialize selected agent when apps are available
   useEffect(() => {
     if (apps.length > 0 && !selectedAgent) {
-      setSelectedAgent(apps[0]);
+      // If editing an existing task, find the associated agent
+      if (task?.app_id) {
+        const associatedAgent = apps.find(app => app.id === task.app_id);
+        if (associatedAgent) {
+          setSelectedAgent(associatedAgent);
+        } else {
+          // Fallback to first app if associated agent not found
+          setSelectedAgent(apps[0]);
+        }
+      } else {
+        // For new tasks, select the first agent
+        setSelectedAgent(apps[0]);
+      }
     }
-  }, [apps, selectedAgent]);
+  }, [apps, task?.app_id]);
+
+  // Update selected agent when task changes (for editing existing tasks)
+  useEffect(() => {
+    if (task?.app_id && apps.length > 0) {
+      const associatedAgent = apps.find(app => app.id === task.app_id);
+      if (associatedAgent) {
+        setSelectedAgent(associatedAgent);
+      }
+    }
+  }, [task?.app_id, apps]);
 
   // Update task name when task prop changes
   useEffect(() => {

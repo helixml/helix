@@ -8,6 +8,7 @@ import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import Page from '../components/system/Page'
 import TaskDialog from '../components/tasks/TaskDialog'
 import TasksTable from '../components/tasks/TasksTable'
+import EmptyTasksState from '../components/tasks/EmptyTasksState'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 
 import { useListUserCronTriggers } from '../services/appService'
@@ -84,31 +85,7 @@ const Tasks: FC = () => {
     }
 
     if (!triggers?.data || triggers.data.length === 0) {
-      return (
-        <Box sx={{ 
-          display: 'flex', 
-          flexDirection: 'column', 
-          alignItems: 'center', 
-          py: 8,
-          textAlign: 'center'
-        }}>
-          <Box sx={{ mb: 2 }}>
-            <AddIcon sx={{ fontSize: 64, color: 'text.secondary' }} />
-          </Box>
-          <Box sx={{ mb: 3 }}>
-            <h3>No tasks yet</h3>
-            <p>Create your first scheduled task to get started</p>
-          </Box>
-          <Button
-            variant="contained"
-            color="secondary"
-            endIcon={<AddIcon />}
-            onClick={handleCreateTask}
-          >
-            Create Task
-          </Button>
-        </Box>
-      )
+      return <EmptyTasksState onCreateTask={handleCreateTask} />
     }
 
     return (
