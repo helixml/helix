@@ -1910,6 +1910,7 @@ export interface TypesTrigger {
 export interface TypesTriggerConfiguration {
   /** App ID */
   app_id?: string;
+  archived?: boolean;
   created?: string;
   /** Description of the trigger configuration */
   description?: string;
