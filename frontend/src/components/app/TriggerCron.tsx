@@ -18,6 +18,9 @@ interface TriggerCronProps {
   triggers?: TypesTrigger[]
   onUpdate: (triggers: TypesTrigger[]) => void
   readOnly?: boolean
+  showTitle?: boolean
+  showToggle?: boolean
+  defaultEnabled?: boolean
 }
 
 const DAYS_OF_WEEK = [
@@ -114,7 +117,10 @@ const getUserTimezone = () => {
 const TriggerCron: FC<TriggerCronProps> = ({
   triggers = [],
   onUpdate,
-  readOnly = false
+  readOnly = false,
+  showTitle = true,
+  showToggle = true,
+  defaultEnabled = false
 }) => {
   const hasCronTrigger = triggers.some(t => t.cron && t.cron.enabled === true)
   const cronTrigger = triggers.find(t => t.cron)?.cron
@@ -163,6 +169,22 @@ const TriggerCron: FC<TriggerCronProps> = ({
       setScheduleInput(cronTrigger.input || '')
     }
   }, [cronTrigger])
+
+  // Handle defaultEnabled prop
+  useEffect(() => {
+    if (defaultEnabled && !hasCronTrigger && triggers.length === 0) {
+      // Create a default cron trigger when defaultEnabled is true and no triggers exist
+      const userTz = getUserTimezone()
+      let schedule: string
+      if (scheduleMode === 'intervals') {
+        schedule = `*/${selectedInterval} * * * *`
+      } else {
+        schedule = `CRON_TZ=${userTz} ${selectedMinute} ${selectedHour} * * ${selectedDays.join(',')}`
+      }
+      const newTriggers = [{ cron: { enabled: true, schedule, input: '' } }]
+      onUpdate(newTriggers)
+    }
+  }, [defaultEnabled, hasCronTrigger, triggers.length, scheduleMode, selectedInterval, selectedDays, selectedHour, selectedMinute, selectedTimezone, onUpdate])
 
   const handleCronToggle = (enabled: boolean) => {
     if (enabled) {
@@ -280,27 +302,31 @@ const TriggerCron: FC<TriggerCronProps> = ({
 
   return (
     <Box sx={{ p: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <ScheduleIcon sx={{ mr: 2, color: 'primary.main' }} />
-          <Box>
-            <Typography gutterBottom>Recurring</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Run your agent on a schedule
-            </Typography>
+      {showTitle && (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <ScheduleIcon sx={{ mr: 2, color: 'primary.main' }} />
+            <Box>
+              <Typography gutterBottom>Recurring</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Run your agent on a schedule
+              </Typography>
+            </Box>
           </Box>
-        </Box>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={hasCronTrigger}
-              onChange={(e) => handleCronToggle(e.target.checked)}
-              disabled={readOnly}
+          {showToggle && (
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={hasCronTrigger}
+                  onChange={(e) => handleCronToggle(e.target.checked)}
+                  disabled={readOnly}
+                />
+              }
+              label=""
             />
-          }
-          label=""
-        />
-      </Box>
+          )}
+        </Box>
+      )}
 
       {(hasCronTrigger) && (
         <Box sx={{ mt: 2, p: 2, borderRadius: 1, opacity: hasCronTrigger ? 1 : 0.6 }}>
@@ -312,7 +338,7 @@ const TriggerCron: FC<TriggerCronProps> = ({
           {/* Schedule Mode Selection */}
           <Box sx={{ mb: 2 }}>
             <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
-              Schedule Type
+              Schedule
             </Typography>
             <FormControl size="small" sx={{ minWidth: 200 }}>
               <Select
