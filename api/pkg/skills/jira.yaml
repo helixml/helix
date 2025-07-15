@@ -1,0 +1,569 @@
+apiVersion: v1
+kind: Skill
+metadata:
+  name: jira
+  displayName: Jira
+  provider: atlassian
+  category: Productivity
+  
+spec:
+  description: |
+    Access Jira issues, projects, and workflows with OAuth authentication.
+
+    This skill provides secure access to Atlassian Jira API, allowing you to:
+    • View and manage issues and projects
+    • Create and update issues
+    • Search issues and projects
+    • Manage workflows and transitions
+    • Access user and project information
+
+    Example Queries:
+    - "Show me my assigned issues"
+    - "List all open issues in the project"
+    - "Create a new bug report"
+    - "Search for issues with 'urgent' priority"
+    - "Show me recent updates on issues"
+
+  systemPrompt: |
+    You are a Jira project management assistant. Your expertise is in helping users manage their Jira projects, issues, and workflows efficiently.
+
+    Key capabilities:
+    - Issue management and tracking with Jira API
+    - Project exploration and administration
+    - Workflow management and transitions
+    - Search and filtering capabilities
+    - User and project information access
+
+    IMPORTANT: The cloudId parameter is automatically provided by the system from the user's OAuth connection. You should NEVER ask the user for their cloud ID or prompt them to provide it. When making API calls, the system will automatically inject the correct cloud ID value.
+
+    When users ask about project management, issue tracking, or Jira workflows:
+    1. Help them search and filter issues using JQL and standard search
+    2. Assist with creating and updating issues
+    3. Support workflow transitions and issue management
+    4. Provide project insights and statistics
+    5. Help with user and project information
+
+    Always focus on Jira project management. If asked about other Atlassian services or non-Jira topics, politely redirect to Jira-specific assistance.
+
+    Examples of what you can help with:
+    - "Show me all high priority issues assigned to me"
+    - "Create a new task for the feature implementation"
+    - "Find all bugs reported in the last week"
+    - "List all issues in 'In Progress' status"
+    - "Show me project statistics and insights"
+
+  icon:
+    type: material-ui
+    name: BugReport
+    color: '#0052CC'
+    
+  oauth:
+    provider: atlassian
+    scopes:
+      - read:jira-work
+      - write:jira-work
+      - read:jira-user
+      - read:me
+      - read:account
+    
+  api:
+    baseUrl: https://api.atlassian.com
+    headers:
+      Accept: application/json
+    requiredParameters:
+      - name: cloudId
+        description: "Your Atlassian Cloud ID (e.g., '93ac17d7-fe07-4ba3-a53c-5caeb380fff8'). You can find this in your Atlassian admin settings or by visiting https://admin.atlassian.com and looking at your site URL."
+        type: path
+        required: true
+    request_prep_template: |
+      Your output must be a valid json, without any commentary or additional formatting.
+
+      Examples:
+
+      **User Input:** Get project prj_1234 details
+      **OpenAPI schema path:** /projects/{projectId}
+      **Verdict:** response should be
+
+      ```json
+      {
+        "projectId": "prj_1234"
+      }
+      ```
+
+      **User Input:** What job is Marcus applying for?
+      **OpenAPI schema path:** /jobvacancies/v1/list
+      **OpenAPI schema parameters:** [
+        {
+          "in": "query",
+          "name": "candidate_name",
+          "schema": {
+            "type": "string"
+          },
+          "required": false,
+          "description": "Filter vacancies by candidate name"
+        }
+      ]
+      **Verdict:** response should be:
+
+      ```json
+      {
+        "candidate_name": "Marcus"
+      }
+      ```
+
+      **User Input:** List all users with status "active"
+      **OpenAPI schema path:** /users/findByStatus
+      **OpenAPI schema parameters:** [
+        {
+          "name": "status",
+          "in": "query",
+          "description": "Status values that need to be considered for filter",
+          "required": true,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["active", "pending", "sold"],
+            "default": "active"
+          }
+        }
+      ]
+      **Verdict:** response should be:
+
+      ```json
+      {
+        "status": "active"
+      }
+      ```
+
+      **Response Format:** Always respond with JSON without any commentary, wrapped in markdown json tags, for example:
+      ```json
+      {
+        "parameterName": "parameterValue",
+        "parameterName2": "parameterValue2"
+      }
+      ```
+
+      ===END EXAMPLES===
+
+      OpenAPI schema:
+
+      {{.Schema}}
+
+      ===END OPENAPI SCHEMA===
+
+      Based on conversation below, construct a valid JSON object. In cases where user input does not contain information for a query, DO NOT add that specific query parameter to the output. If a user doesn't provide a required parameter, use sensible defaults for required params, and leave optional params out. Do not pass parameters as null, instead just don't include them.
+      
+      IMPORTANT: The cloudId parameter is automatically provided by the system and should never be requested from users or included in your JSON response.
+      This parameter is pre-configured and will be automatically substituted in API paths. Do not generate cloudId parameters.
+    schema: |
+      openapi: 3.0.3
+      info:
+        title: Atlassian Jira API
+        description: Access Jira issues, projects, and workflows
+        version: "3"
+      servers:
+        - url: https://api.atlassian.com
+      paths:
+        /ex/jira/{cloudId}/rest/api/3/myself:
+          get:
+            summary: Get current user
+            operationId: getJiraCurrentUser
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: cloudId
+                in: path
+                required: true
+                schema:
+                  type: string
+            responses:
+              '200':
+                description: Current user information
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        accountId:
+                          type: string
+                        displayName:
+                          type: string
+                        emailAddress:
+                          type: string
+                        active:
+                          type: boolean
+                        timeZone:
+                          type: string
+        /ex/jira/{cloudId}/rest/api/3/search:
+          get:
+            summary: Search for issues using JQL
+            operationId: searchJiraIssues
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: cloudId
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: jql
+                in: query
+                schema:
+                  type: string
+                description: JQL query string
+              - name: startAt
+                in: query
+                schema:
+                  type: integer
+                  default: 0
+              - name: maxResults
+                in: query
+                schema:
+                  type: integer
+                  default: 50
+                  maximum: 100
+              - name: fields
+                in: query
+                schema:
+                  type: string
+                description: Comma-separated list of fields to return
+              - name: expand
+                in: query
+                schema:
+                  type: string
+                description: Comma-separated list of fields to expand
+            responses:
+              '200':
+                description: Search results
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        issues:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              key:
+                                type: string
+                              fields:
+                                type: object
+                                properties:
+                                  summary:
+                                    type: string
+                                  description:
+                                    type: object
+                                  status:
+                                    type: object
+                                    properties:
+                                      name:
+                                        type: string
+                                      statusCategory:
+                                        type: object
+                                        properties:
+                                          name:
+                                            type: string
+                                  priority:
+                                    type: object
+                                    properties:
+                                      name:
+                                        type: string
+                                  assignee:
+                                    type: object
+                                    properties:
+                                      displayName:
+                                        type: string
+                                      emailAddress:
+                                        type: string
+                                  reporter:
+                                    type: object
+                                    properties:
+                                      displayName:
+                                        type: string
+                                      emailAddress:
+                                        type: string
+                                  created:
+                                    type: string
+                                    format: date-time
+                                  updated:
+                                    type: string
+                                    format: date-time
+                        total:
+                          type: integer
+                        startAt:
+                          type: integer
+                        maxResults:
+                          type: integer
+        /ex/jira/{cloudId}/rest/api/3/issue:
+          post:
+            summary: Create issue
+            operationId: createJiraIssue
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: cloudId
+                in: path
+                required: true
+                schema:
+                  type: string
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required:
+                      - fields
+                    properties:
+                      fields:
+                        type: object
+                        properties:
+                          project:
+                            type: object
+                            properties:
+                              key:
+                                type: string
+                          summary:
+                            type: string
+                          description:
+                            type: object
+                            properties:
+                              type:
+                                type: string
+                                default: doc
+                              version:
+                                type: integer
+                                default: 1
+                              content:
+                                type: array
+                                items:
+                                  type: object
+                          issuetype:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                          priority:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                          assignee:
+                            type: object
+                            properties:
+                              accountId:
+                                type: string
+            responses:
+              '201':
+                description: Issue created
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        key:
+                          type: string
+                        self:
+                          type: string
+        /ex/jira/{cloudId}/rest/api/3/issue/{issueIdOrKey}:
+          get:
+            summary: Get issue
+            operationId: getJiraIssue
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: cloudId
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: issueIdOrKey
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: fields
+                in: query
+                schema:
+                  type: string
+                description: Comma-separated list of fields to return
+              - name: expand
+                in: query
+                schema:
+                  type: string
+                description: Comma-separated list of fields to expand
+            responses:
+              '200':
+                description: Issue details
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        key:
+                          type: string
+                        fields:
+                          type: object
+                          properties:
+                            summary:
+                              type: string
+                            description:
+                              type: object
+                            status:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                            priority:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                            assignee:
+                              type: object
+                              properties:
+                                displayName:
+                                  type: string
+                                emailAddress:
+                                  type: string
+                            reporter:
+                              type: object
+                              properties:
+                                displayName:
+                                  type: string
+                                emailAddress:
+                                  type: string
+                            created:
+                              type: string
+                              format: date-time
+                            updated:
+                              type: string
+                              format: date-time
+          put:
+            summary: Update issue
+            operationId: updateJiraIssue
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: cloudId
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: issueIdOrKey
+                in: path
+                required: true
+                schema:
+                  type: string
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      fields:
+                        type: object
+                        properties:
+                          summary:
+                            type: string
+                          description:
+                            type: object
+                          priority:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                          assignee:
+                            type: object
+                            properties:
+                              accountId:
+                                type: string
+            responses:
+              '204':
+                description: Issue updated
+        /ex/jira/{cloudId}/rest/api/3/project/search:
+          get:
+            summary: Search projects
+            operationId: searchJiraProjects
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: cloudId
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: startAt
+                in: query
+                schema:
+                  type: integer
+                  default: 0
+              - name: maxResults
+                in: query
+                schema:
+                  type: integer
+                  default: 50
+                  maximum: 100
+              - name: orderBy
+                in: query
+                schema:
+                  type: string
+                  enum: [category, key, name, owner, issueCount, lastIssueUpdatedDate, archivedDate]
+                  default: key
+              - name: query
+                in: query
+                schema:
+                  type: string
+                description: Filter projects by name, key, or description
+            responses:
+              '200':
+                description: List of projects
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        values:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              key:
+                                type: string
+                              name:
+                                type: string
+                              description:
+                                type: string
+                              projectTypeKey:
+                                type: string
+                              lead:
+                                type: object
+                                properties:
+                                  displayName:
+                                    type: string
+                                  emailAddress:
+                                    type: string
+                        total:
+                          type: integer
+                        startAt:
+                          type: integer
+                        maxResults:
+                          type: integer
+      components:
+        securitySchemes:
+          BearerAuth:
+            type: http
+            scheme: bearer
+            bearerFormat: JWT
+
+  configurable: false 
