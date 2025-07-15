@@ -56,7 +56,17 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
     if (task?.trigger) {
       setTriggers([task.trigger]);
     } else {
-      setTriggers([]);
+      // For new tasks, create a default trigger structure
+      // This ensures the TriggerCron component has a proper initial state
+      const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const defaultSchedule = `CRON_TZ=${userTz} 0 9 * * 1`; // Monday 9 AM
+      setTriggers([{
+        cron: {
+          enabled: true,
+          schedule: defaultSchedule,
+          input: ''
+        }
+      }]);
     }
   }, [task]);
 
