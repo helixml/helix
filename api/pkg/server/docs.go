@@ -7355,6 +7355,9 @@ const docTemplate = `{
                     "description": "App ID",
                     "type": "string"
                 },
+                "archived": {
+                    "type": "boolean"
+                },
                 "created": {
                     "type": "string"
                 },
