@@ -41,6 +41,18 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// getJiraScopes loads OAuth scopes from jira.yaml and adds additional OAuth flow scopes
+func getJiraScopes() []string {
+	jiraScopes, err := loadScopesFromYAML("jira")
+	if err != nil {
+		panic(fmt.Sprintf("failed to load scopes from jira.yaml: %v", err))
+	}
+
+	// Add additional scopes needed for the OAuth flow itself
+	allScopes := append(jiraScopes, "read:me", "read:account")
+	return allScopes
+}
+
 // ======================================================================================
 // TEST QUERIES AND CONFIGURATION - Most important part for understanding what's tested
 // ======================================================================================
@@ -96,7 +108,7 @@ var JiraOAuthProviderConfig = OAuthProviderConfig{
 	AuthURL:      "https://auth.atlassian.com/authorize",
 	TokenURL:     "https://auth.atlassian.com/oauth/token",
 	UserInfoURL:  "https://api.atlassian.com/me",
-	Scopes:       []string{"read:jira-work", "write:jira-work", "read:jira-user", "read:me", "read:account"},
+	Scopes:       getJiraScopes(),
 	// ClientID, ClientSecret, Username, Password, and functions will be set during test setup
 }
 

@@ -30,6 +30,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// getConfluenceScopes loads OAuth scopes from confluence.yaml and adds additional OAuth flow scopes
+func getConfluenceScopes() []string {
+	confluenceScopes, err := loadScopesFromYAML("confluence")
+	if err != nil {
+		panic(fmt.Sprintf("failed to load scopes from confluence.yaml: %v", err))
+	}
+
+	// Add additional scopes needed for the OAuth flow itself
+	allScopes := append(confluenceScopes, "read:me", "read:account")
+	return allScopes
+}
+
 // ======================================================================================
 // TEST QUERIES AND CONFIGURATION - Most important part for understanding what's tested
 // ======================================================================================
@@ -85,7 +97,7 @@ var ConfluenceOAuthProviderConfig = OAuthProviderConfig{
 	AuthURL:      "https://auth.atlassian.com/authorize",
 	TokenURL:     "https://auth.atlassian.com/oauth/token",
 	UserInfoURL:  "https://api.atlassian.com/me",
-	Scopes:       []string{"read:confluence-content.summary", "read:confluence-content.all", "write:confluence-content", "read:confluence-space.summary", "read:confluence-user", "search:confluence", "read:me", "read:account"},
+	Scopes:       getConfluenceScopes(),
 	// ClientID, ClientSecret, Username, Password, and functions will be set during test setup
 }
 

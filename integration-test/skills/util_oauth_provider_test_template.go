@@ -16,6 +16,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// loadScopesFromYAML loads OAuth scopes from a skill's YAML file
+func loadScopesFromYAML(skillName string) ([]string, error) {
+	manager := skills.NewManager()
+	if err := manager.LoadSkills(nil); err != nil {
+		return nil, fmt.Errorf("failed to load skills: %w", err)
+	}
+
+	skill, err := manager.GetSkill(skillName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get skill '%s': %w", skillName, err)
+	}
+
+	if len(skill.OAuthScopes) == 0 {
+		return nil, fmt.Errorf("no OAuth scopes found for skill '%s'", skillName)
+	}
+
+	return skill.OAuthScopes, nil
+}
+
 // OAuthProviderConfig defines the configuration for an OAuth provider test
 type OAuthProviderConfig struct {
 	// Provider identification
