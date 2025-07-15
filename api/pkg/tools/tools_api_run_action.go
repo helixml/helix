@@ -511,8 +511,36 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 		}()).
 		Msg("Outgoing API request headers")
 
+	// Log complete request details for API debugging
+	var requestBody string
+	if req.Body != nil {
+		if bodyBytes, err := io.ReadAll(req.Body); err == nil {
+			requestBody = string(bodyBytes)
+			// Restore the request body for the actual request
+			req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+		}
+	}
+
+	log.Info().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Str("method", req.Method).
+		Str("url", req.URL.String()).
+		Interface("headers", req.Header).
+		Str("request_body", requestBody).
+		Bool("has_request_body", requestBody != "").
+		Msg("Complete API request details")
+
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		// Log the HTTP error for debugging
+		log.Error().
+			Err(err).
+			Str("tool", tool.Name).
+			Str("action", action).
+			Str("method", req.Method).
+			Str("url", req.URL.String()).
+			Msg("HTTP request failed")
 		return nil, fmt.Errorf("failed to make api call: %w", err)
 	}
 
@@ -523,24 +551,46 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 		Dur("time_taken", time.Since(started)).
 		Msg("API call done")
 
-	// Log response details for all API requests
+	// Always log response details for all API requests (success or failure)
 	// Read response body for logging but keep a copy
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to read API response body for logging")
-	} else {
-		// Log response details
-		log.Info().
+		log.Error().
+			Err(err).
 			Str("tool", tool.Name).
 			Str("action", action).
 			Int("status_code", resp.StatusCode).
 			Str("status", resp.Status).
-			Str("response_body", string(bodyBytes)).
-			Msg("API response details")
-
-		// Restore the response body for further processing
-		resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			Msg("Failed to read API response body for logging")
+		// Return the response even if we can't read the body
+		return resp, nil
 	}
+
+	// Log comprehensive response details (for both success and error responses)
+	log.Info().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Str("method", req.Method).
+		Str("url", req.URL.String()).
+		Int("status_code", resp.StatusCode).
+		Str("status", resp.Status).
+		Interface("response_headers", resp.Header).
+		Str("response_body", string(bodyBytes)).
+		Int("response_body_length", len(bodyBytes)).
+		Bool("is_success", resp.StatusCode >= 200 && resp.StatusCode < 300).
+		Msg("Complete API response details")
+
+	// Log response details at Info level for test visibility
+	log.Info().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Int("status_code", resp.StatusCode).
+		Str("status", resp.Status).
+		Str("response_body", string(bodyBytes)).
+		Msg("API response details")
+
+	// Restore the response body for further processing
+	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
 	return resp, nil
 }
