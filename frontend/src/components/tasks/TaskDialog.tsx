@@ -5,24 +5,22 @@ import {
   DialogActions,
   Button,
   Box,
-  Typography,
-  TextField,
+  TextField,  
   IconButton,
-  InputAdornment,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import NotificationsIcon from '@mui/icons-material/Notifications';
-import SearchIcon from '@mui/icons-material/Search';
 import DarkDialog from '../dialog/DarkDialog';
 import TriggerCron from '../app/TriggerCron';
 import AgentSelector from './AgentSelector';
 import { IApp } from '../../types'
-import { TypesTrigger } from '../../api/api'
+import { TypesTrigger, TypesTriggerConfiguration } from '../../api/api'
+
+import { useCreateAppTrigger, useUpdateAppTrigger } from '../../services/appService';
 
 interface TaskDialogProps {
   open: boolean;
   onClose: () => void;
-  task?: any; // Will be properly typed when we implement the full dialog
+  task?: TypesTriggerConfiguration;
   apps: IApp[]; // Agents
 }
 
