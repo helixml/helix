@@ -159,335 +159,335 @@ steps:
     - push
   # depends_on: [unit-test]
 
-# - name: oauth-github-integration-test
-#   image: golang:1.24
-#   volumes:
-#   - name: oauth-github-test-results
-#     path: /tmp/helix-oauth-test-results
-#   - name: go-build-cache
-#     path: /root/.cache/go-build
-#   - name: go-mod-cache
-#     path: /go/pkg/mod
-#   environment:
-#     # GitHub OAuth test credentials
-#     GITHUB_SKILL_TEST_OAUTH_CLIENT_ID:
-#       from_secret: github_skill_test_oauth_client_id
-#     GITHUB_SKILL_TEST_OAUTH_CLIENT_SECRET:
-#       from_secret: github_skill_test_oauth_client_secret
-#     GITHUB_SKILL_TEST_OAUTH_USERNAME:
-#       from_secret: github_skill_test_oauth_username
-#     GITHUB_SKILL_TEST_OAUTH_PASSWORD:
-#       from_secret: github_skill_test_oauth_password
-#     GITHUB_SKILL_TEST_SETUP_PAT:
-#       from_secret: github_skill_test_setup_pat
-#     GMAIL_CREDENTIALS_BASE64:
-#       from_secret: gmail_credentials_base64
-#     # Database config (running in a sidecar)
-#     POSTGRES_HOST: postgres
-#     POSTGRES_PORT: "5432"
-#     POSTGRES_USER: postgres
-#     POSTGRES_PASSWORD: postgres
-#     POSTGRES_DATABASE: postgres
-#     TYPESENSE_URL: http://typesense:8108
-#     TYPESENSE_API_KEY: typesense
-#     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
-#     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-#     KEYCLOAK_URL: http://keycloak:8080/auth
-#     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-#     KEYCLOAK_PASSWORD: REPLACE_ME
-#     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
-#     # CI-specific configuration for OAuth test
-#     WEB_SERVER_HOST: "localhost"
-#     # API Keys for LLM providers
-#     OPENAI_API_KEY:
-#       from_secret: openai_api_key
-#     ANTHROPIC_API_KEY:
-#       from_secret: anthropic_api_key
-#     # Agent configuration
-#     REASONING_MODEL_PROVIDER: openai
-#     REASONING_MODEL: o3-mini    
-#     REASONING_MODEL_EFFORT: none
-#     GENERATION_MODEL_PROVIDER: openai
-#     GENERATION_MODEL: gpt-4o
-#     SMALL_REASONING_MODEL_PROVIDER: openai
-#     SMALL_REASONING_MODEL: o3-mini
-#     SMALL_REASONING_MODEL_EFFORT: none
-#     SMALL_GENERATION_MODEL_PROVIDER: openai
-#     SMALL_GENERATION_MODEL: gpt-4o-mini
+- name: oauth-github-integration-test
+  image: golang:1.24
+  volumes:
+  - name: oauth-github-test-results
+    path: /tmp/helix-oauth-test-results
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
+  environment:
+    # GitHub OAuth test credentials
+    GITHUB_SKILL_TEST_OAUTH_CLIENT_ID:
+      from_secret: github_skill_test_oauth_client_id
+    GITHUB_SKILL_TEST_OAUTH_CLIENT_SECRET:
+      from_secret: github_skill_test_oauth_client_secret
+    GITHUB_SKILL_TEST_OAUTH_USERNAME:
+      from_secret: github_skill_test_oauth_username
+    GITHUB_SKILL_TEST_OAUTH_PASSWORD:
+      from_secret: github_skill_test_oauth_password
+    GITHUB_SKILL_TEST_SETUP_PAT:
+      from_secret: github_skill_test_setup_pat
+    GMAIL_CREDENTIALS_BASE64:
+      from_secret: gmail_credentials_base64
+    # Database config (running in a sidecar)
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DATABASE: postgres
+    TYPESENSE_URL: http://typesense:8108
+    TYPESENSE_API_KEY: typesense
+    TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+    RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+    KEYCLOAK_URL: http://keycloak:8080/auth
+    KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
+    KEYCLOAK_PASSWORD: REPLACE_ME
+    ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+    # CI-specific configuration for OAuth test
+    WEB_SERVER_HOST: "localhost"
+    # API Keys for LLM providers
+    OPENAI_API_KEY:
+      from_secret: openai_api_key
+    ANTHROPIC_API_KEY:
+      from_secret: anthropic_api_key
+    # Agent configuration
+    REASONING_MODEL_PROVIDER: openai
+    REASONING_MODEL: o3-mini    
+    REASONING_MODEL_EFFORT: none
+    GENERATION_MODEL_PROVIDER: openai
+    GENERATION_MODEL: gpt-4o
+    SMALL_REASONING_MODEL_PROVIDER: openai
+    SMALL_REASONING_MODEL: o3-mini
+    SMALL_REASONING_MODEL_EFFORT: none
+    SMALL_GENERATION_MODEL_PROVIDER: openai
+    SMALL_GENERATION_MODEL: gpt-4o-mini
 
-#   commands:
-#     - chmod +x scripts/run-oauth-integration-test.sh
-#     - ./scripts/run-oauth-integration-test.sh github TestGitHubOAuthSkillsE2E
-#   when:
-#     event:
-#     - push
-#   # depends_on: [unit-test]
+  commands:
+    - chmod +x scripts/run-oauth-integration-test.sh
+    - ./scripts/run-oauth-integration-test.sh github TestGitHubOAuthSkillsE2E
+  when:
+    event:
+    - push
+  # depends_on: [unit-test]
 
-# - name: upload-oauth-github-test-artifacts
-#   image: golang:1.24
-#   volumes:
-#   - name: oauth-github-test-results
-#     path: /tmp/helix-oauth-test-results
-#   environment:
-#     LAUNCHPAD_URL: "https://deploy.helix.ml"
-#     CI_SHARED_SECRET:
-#       from_secret: ci_shared_secret
-#   commands:
-#     - chmod +x scripts/upload-oauth-test-artifacts.sh
-#     - ./scripts/upload-oauth-test-artifacts.sh github
-#   when:
-#     event:
-#     - push
-#     status:
-#     - success
-#     - failure
-#   depends_on: [oauth-github-integration-test]
+- name: upload-oauth-github-test-artifacts
+  image: golang:1.24
+  volumes:
+  - name: oauth-github-test-results
+    path: /tmp/helix-oauth-test-results
+  environment:
+    LAUNCHPAD_URL: "https://deploy.helix.ml"
+    CI_SHARED_SECRET:
+      from_secret: ci_shared_secret
+  commands:
+    - chmod +x scripts/upload-oauth-test-artifacts.sh
+    - ./scripts/upload-oauth-test-artifacts.sh github
+  when:
+    event:
+    - push
+    status:
+    - success
+    - failure
+  depends_on: [oauth-github-integration-test]
 
-# - name: oauth-gmail-integration-test
-#   image: golang:1.24
-#   volumes:
-#   - name: oauth-gmail-test-results
-#     path: /tmp/helix-oauth-test-results
-#   - name: go-build-cache
-#     path: /root/.cache/go-build
-#   - name: go-mod-cache
-#     path: /go/pkg/mod
-#   environment:
-#     # Google OAuth test credentials
-#     GOOGLE_SKILL_TEST_OAUTH_CLIENT_ID:
-#       from_secret: google_skill_test_oauth_client_id
-#     GOOGLE_SKILL_TEST_OAUTH_CLIENT_SECRET:
-#       from_secret: google_skill_test_oauth_client_secret
-#     GOOGLE_SKILL_TEST_OAUTH_USERNAME:
-#       from_secret: google_skill_test_oauth_username
-#     GOOGLE_SKILL_TEST_OAUTH_PASSWORD:
-#       from_secret: google_skill_test_oauth_password
-#     # Gmail credentials for device verification
-#     GMAIL_CREDENTIALS_BASE64:
-#       from_secret: gmail_credentials_base64
-#     # Database config (running in a sidecar)
-#     POSTGRES_HOST: postgres
-#     POSTGRES_PORT: "5432"
-#     POSTGRES_USER: postgres
-#     POSTGRES_PASSWORD: postgres
-#     POSTGRES_DATABASE: postgres
-#     TYPESENSE_URL: http://typesense:8108
-#     TYPESENSE_API_KEY: typesense
-#     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
-#     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-#     KEYCLOAK_URL: http://keycloak:8080/auth
-#     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-#     KEYCLOAK_PASSWORD: REPLACE_ME
-#     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
-#     # CI-specific configuration for OAuth test
-#     WEB_SERVER_HOST: "localhost"
-#     # API Keys for LLM providers
-#     OPENAI_API_KEY:
-#       from_secret: openai_api_key
-#     ANTHROPIC_API_KEY:
-#       from_secret: anthropic_api_key
-#     # Agent configuration
-#     REASONING_MODEL_PROVIDER: openai
-#     REASONING_MODEL: o3-mini    
-#     REASONING_MODEL_EFFORT: none
-#     GENERATION_MODEL_PROVIDER: openai
-#     GENERATION_MODEL: gpt-4o
-#     SMALL_REASONING_MODEL_PROVIDER: openai
-#     SMALL_REASONING_MODEL: o3-mini
-#     SMALL_REASONING_MODEL_EFFORT: none
-#     SMALL_GENERATION_MODEL_PROVIDER: openai
-#     SMALL_GENERATION_MODEL: gpt-4o-mini
+- name: oauth-gmail-integration-test
+  image: golang:1.24
+  volumes:
+  - name: oauth-gmail-test-results
+    path: /tmp/helix-oauth-test-results
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
+  environment:
+    # Google OAuth test credentials
+    GOOGLE_SKILL_TEST_OAUTH_CLIENT_ID:
+      from_secret: google_skill_test_oauth_client_id
+    GOOGLE_SKILL_TEST_OAUTH_CLIENT_SECRET:
+      from_secret: google_skill_test_oauth_client_secret
+    GOOGLE_SKILL_TEST_OAUTH_USERNAME:
+      from_secret: google_skill_test_oauth_username
+    GOOGLE_SKILL_TEST_OAUTH_PASSWORD:
+      from_secret: google_skill_test_oauth_password
+    # Gmail credentials for device verification
+    GMAIL_CREDENTIALS_BASE64:
+      from_secret: gmail_credentials_base64
+    # Database config (running in a sidecar)
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DATABASE: postgres
+    TYPESENSE_URL: http://typesense:8108
+    TYPESENSE_API_KEY: typesense
+    TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+    RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+    KEYCLOAK_URL: http://keycloak:8080/auth
+    KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
+    KEYCLOAK_PASSWORD: REPLACE_ME
+    ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+    # CI-specific configuration for OAuth test
+    WEB_SERVER_HOST: "localhost"
+    # API Keys for LLM providers
+    OPENAI_API_KEY:
+      from_secret: openai_api_key
+    ANTHROPIC_API_KEY:
+      from_secret: anthropic_api_key
+    # Agent configuration
+    REASONING_MODEL_PROVIDER: openai
+    REASONING_MODEL: o3-mini    
+    REASONING_MODEL_EFFORT: none
+    GENERATION_MODEL_PROVIDER: openai
+    GENERATION_MODEL: gpt-4o
+    SMALL_REASONING_MODEL_PROVIDER: openai
+    SMALL_REASONING_MODEL: o3-mini
+    SMALL_REASONING_MODEL_EFFORT: none
+    SMALL_GENERATION_MODEL_PROVIDER: openai
+    SMALL_GENERATION_MODEL: gpt-4o-mini
 
-#   commands:
-#     - chmod +x scripts/run-oauth-integration-test.sh
-#     - ./scripts/run-oauth-integration-test.sh gmail TestGmailOAuthSkillsE2E
-#   when:
-#     event:
-#     - push
-#   # depends_on: [unit-test]
+  commands:
+    - chmod +x scripts/run-oauth-integration-test.sh
+    - ./scripts/run-oauth-integration-test.sh gmail TestGmailOAuthSkillsE2E
+  when:
+    event:
+    - push
+  # depends_on: [unit-test]
 
-# - name: upload-oauth-gmail-test-artifacts
-#   image: golang:1.24
-#   volumes:
-#   - name: oauth-gmail-test-results
-#     path: /tmp/helix-oauth-test-results
-#   environment:
-#     LAUNCHPAD_URL: "https://deploy.helix.ml"
-#     CI_SHARED_SECRET:
-#       from_secret: ci_shared_secret
-#   commands:
-#     - chmod +x scripts/upload-oauth-test-artifacts.sh
-#     - ./scripts/upload-oauth-test-artifacts.sh gmail
-#   when:
-#     event:
-#     - push
-#     status:
-#     - success
-#     - failure
-#   depends_on: [oauth-gmail-integration-test]
+- name: upload-oauth-gmail-test-artifacts
+  image: golang:1.24
+  volumes:
+  - name: oauth-gmail-test-results
+    path: /tmp/helix-oauth-test-results
+  environment:
+    LAUNCHPAD_URL: "https://deploy.helix.ml"
+    CI_SHARED_SECRET:
+      from_secret: ci_shared_secret
+  commands:
+    - chmod +x scripts/upload-oauth-test-artifacts.sh
+    - ./scripts/upload-oauth-test-artifacts.sh gmail
+  when:
+    event:
+    - push
+    status:
+    - success
+    - failure
+  depends_on: [oauth-gmail-integration-test]
 
-# - name: oauth-outlook-integration-test
-#   image: golang:1.24
-#   volumes:
-#   - name: oauth-outlook-test-results
-#     path: /tmp/helix-oauth-test-results
-#   - name: go-build-cache
-#     path: /root/.cache/go-build
-#   - name: go-mod-cache
-#     path: /go/pkg/mod
-#   environment:
-#     # Microsoft OAuth test credentials
-#     MICROSOFT_SKILL_TEST_OAUTH_CLIENT_ID:
-#       from_secret: microsoft_skill_test_oauth_client_id
-#     MICROSOFT_SKILL_TEST_OAUTH_CLIENT_SECRET:
-#       from_secret: microsoft_skill_test_oauth_client_secret
-#     MICROSOFT_SKILL_TEST_OAUTH_USERNAME:
-#       from_secret: microsoft_skill_test_oauth_username
-#     MICROSOFT_SKILL_TEST_OAUTH_PASSWORD:
-#       from_secret: microsoft_skill_test_oauth_password
-#     # Database config (running in a sidecar)
-#     POSTGRES_HOST: postgres
-#     POSTGRES_PORT: "5432"
-#     POSTGRES_USER: postgres
-#     POSTGRES_PASSWORD: postgres
-#     POSTGRES_DATABASE: postgres
-#     TYPESENSE_URL: http://typesense:8108
-#     TYPESENSE_API_KEY: typesense
-#     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
-#     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-#     KEYCLOAK_URL: http://keycloak:8080/auth
-#     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-#     KEYCLOAK_PASSWORD: REPLACE_ME
-#     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
-#     # CI-specific configuration for OAuth test
-#     WEB_SERVER_HOST: "localhost"
-#     # API Keys for LLM providers
-#     OPENAI_API_KEY:
-#       from_secret: openai_api_key
-#     ANTHROPIC_API_KEY:
-#       from_secret: anthropic_api_key
-#     # Agent configuration
-#     REASONING_MODEL_PROVIDER: openai
-#     REASONING_MODEL: o3-mini    
-#     REASONING_MODEL_EFFORT: none
-#     GENERATION_MODEL_PROVIDER: openai
-#     GENERATION_MODEL: gpt-4o
-#     SMALL_REASONING_MODEL_PROVIDER: openai
-#     SMALL_REASONING_MODEL: o3-mini
-#     SMALL_REASONING_MODEL_EFFORT: none
-#     SMALL_GENERATION_MODEL_PROVIDER: openai
-#     SMALL_GENERATION_MODEL: gpt-4o-mini
+- name: oauth-outlook-integration-test
+  image: golang:1.24
+  volumes:
+  - name: oauth-outlook-test-results
+    path: /tmp/helix-oauth-test-results
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
+  environment:
+    # Microsoft OAuth test credentials
+    MICROSOFT_SKILL_TEST_OAUTH_CLIENT_ID:
+      from_secret: microsoft_skill_test_oauth_client_id
+    MICROSOFT_SKILL_TEST_OAUTH_CLIENT_SECRET:
+      from_secret: microsoft_skill_test_oauth_client_secret
+    MICROSOFT_SKILL_TEST_OAUTH_USERNAME:
+      from_secret: microsoft_skill_test_oauth_username
+    MICROSOFT_SKILL_TEST_OAUTH_PASSWORD:
+      from_secret: microsoft_skill_test_oauth_password
+    # Database config (running in a sidecar)
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DATABASE: postgres
+    TYPESENSE_URL: http://typesense:8108
+    TYPESENSE_API_KEY: typesense
+    TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+    RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+    KEYCLOAK_URL: http://keycloak:8080/auth
+    KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
+    KEYCLOAK_PASSWORD: REPLACE_ME
+    ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+    # CI-specific configuration for OAuth test
+    WEB_SERVER_HOST: "localhost"
+    # API Keys for LLM providers
+    OPENAI_API_KEY:
+      from_secret: openai_api_key
+    ANTHROPIC_API_KEY:
+      from_secret: anthropic_api_key
+    # Agent configuration
+    REASONING_MODEL_PROVIDER: openai
+    REASONING_MODEL: o3-mini    
+    REASONING_MODEL_EFFORT: none
+    GENERATION_MODEL_PROVIDER: openai
+    GENERATION_MODEL: gpt-4o
+    SMALL_REASONING_MODEL_PROVIDER: openai
+    SMALL_REASONING_MODEL: o3-mini
+    SMALL_REASONING_MODEL_EFFORT: none
+    SMALL_GENERATION_MODEL_PROVIDER: openai
+    SMALL_GENERATION_MODEL: gpt-4o-mini
 
-#   commands:
-#     - chmod +x scripts/run-oauth-integration-test.sh
-#     - ./scripts/run-oauth-integration-test.sh outlook TestOutlookOAuthSkillsE2E
-#   when:
-#     event:
-#     - push
-#   # depends_on: [unit-test]
+  commands:
+    - chmod +x scripts/run-oauth-integration-test.sh
+    - ./scripts/run-oauth-integration-test.sh outlook TestOutlookOAuthSkillsE2E
+  when:
+    event:
+    - push
+  # depends_on: [unit-test]
 
-# - name: upload-oauth-outlook-test-artifacts
-#   image: golang:1.24
-#   volumes:
-#   - name: oauth-outlook-test-results
-#     path: /tmp/helix-oauth-test-results
-#   environment:
-#     LAUNCHPAD_URL: "https://deploy.helix.ml"
-#     CI_SHARED_SECRET:
-#       from_secret: ci_shared_secret
-#   commands:
-#     - chmod +x scripts/upload-oauth-test-artifacts.sh
-#     - ./scripts/upload-oauth-test-artifacts.sh outlook
-#   when:
-#     event:
-#     - push
-#     status:
-#     - success
-#     - failure
-#   depends_on: [oauth-outlook-integration-test]
+- name: upload-oauth-outlook-test-artifacts
+  image: golang:1.24
+  volumes:
+  - name: oauth-outlook-test-results
+    path: /tmp/helix-oauth-test-results
+  environment:
+    LAUNCHPAD_URL: "https://deploy.helix.ml"
+    CI_SHARED_SECRET:
+      from_secret: ci_shared_secret
+  commands:
+    - chmod +x scripts/upload-oauth-test-artifacts.sh
+    - ./scripts/upload-oauth-test-artifacts.sh outlook
+  when:
+    event:
+    - push
+    status:
+    - success
+    - failure
+  depends_on: [oauth-outlook-integration-test]
 
-# - name: oauth-google-calendar-integration-test
-#   image: golang:1.24
-#   volumes:
-#   - name: oauth-google-calendar-test-results
-#     path: /tmp/helix-oauth-test-results
-#   - name: go-build-cache
-#     path: /root/.cache/go-build
-#   - name: go-mod-cache
-#     path: /go/pkg/mod
-#   environment:
-#     # Google OAuth test credentials
-#     GOOGLE_SKILL_TEST_OAUTH_CLIENT_ID:
-#       from_secret: google_skill_test_oauth_client_id
-#     GOOGLE_SKILL_TEST_OAUTH_CLIENT_SECRET:
-#       from_secret: google_skill_test_oauth_client_secret
-#     GOOGLE_SKILL_TEST_OAUTH_USERNAME:
-#       from_secret: google_skill_test_oauth_username
-#     GOOGLE_SKILL_TEST_OAUTH_PASSWORD:
-#       from_secret: google_skill_test_oauth_password
-#     # Gmail credentials for device verification
-#     GMAIL_CREDENTIALS_BASE64:
-#       from_secret: gmail_credentials_base64
-#     # Database config (running in a sidecar)
-#     POSTGRES_HOST: postgres
-#     POSTGRES_PORT: "5432"
-#     POSTGRES_USER: postgres
-#     POSTGRES_PASSWORD: postgres
-#     POSTGRES_DATABASE: postgres
-#     TYPESENSE_URL: http://typesense:8108
-#     TYPESENSE_API_KEY: typesense
-#     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
-#     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-#     KEYCLOAK_URL: http://keycloak:8080/auth
-#     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-#     KEYCLOAK_PASSWORD: REPLACE_ME
-#     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
-#     # CI-specific configuration for OAuth test
-#     WEB_SERVER_HOST: "localhost"
-#     # API Keys for LLM providers
-#     OPENAI_API_KEY:
-#       from_secret: openai_api_key
-#     ANTHROPIC_API_KEY:
-#       from_secret: anthropic_api_key
-#     # Agent configuration
-#     REASONING_MODEL_PROVIDER: openai
-#     REASONING_MODEL: o3-mini    
-#     REASONING_MODEL_EFFORT: none
-#     GENERATION_MODEL_PROVIDER: openai
-#     GENERATION_MODEL: gpt-4o
-#     SMALL_REASONING_MODEL_PROVIDER: openai
-#     SMALL_REASONING_MODEL: o3-mini
-#     SMALL_REASONING_MODEL_EFFORT: none
-#     SMALL_GENERATION_MODEL_PROVIDER: openai
-#     SMALL_GENERATION_MODEL: gpt-4o-mini
+- name: oauth-google-calendar-integration-test
+  image: golang:1.24
+  volumes:
+  - name: oauth-google-calendar-test-results
+    path: /tmp/helix-oauth-test-results
+  - name: go-build-cache
+    path: /root/.cache/go-build
+  - name: go-mod-cache
+    path: /go/pkg/mod
+  environment:
+    # Google OAuth test credentials
+    GOOGLE_SKILL_TEST_OAUTH_CLIENT_ID:
+      from_secret: google_skill_test_oauth_client_id
+    GOOGLE_SKILL_TEST_OAUTH_CLIENT_SECRET:
+      from_secret: google_skill_test_oauth_client_secret
+    GOOGLE_SKILL_TEST_OAUTH_USERNAME:
+      from_secret: google_skill_test_oauth_username
+    GOOGLE_SKILL_TEST_OAUTH_PASSWORD:
+      from_secret: google_skill_test_oauth_password
+    # Gmail credentials for device verification
+    GMAIL_CREDENTIALS_BASE64:
+      from_secret: gmail_credentials_base64
+    # Database config (running in a sidecar)
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DATABASE: postgres
+    TYPESENSE_URL: http://typesense:8108
+    TYPESENSE_API_KEY: typesense
+    TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+    RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+    KEYCLOAK_URL: http://keycloak:8080/auth
+    KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
+    KEYCLOAK_PASSWORD: REPLACE_ME
+    ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+    # CI-specific configuration for OAuth test
+    WEB_SERVER_HOST: "localhost"
+    # API Keys for LLM providers
+    OPENAI_API_KEY:
+      from_secret: openai_api_key
+    ANTHROPIC_API_KEY:
+      from_secret: anthropic_api_key
+    # Agent configuration
+    REASONING_MODEL_PROVIDER: openai
+    REASONING_MODEL: o3-mini    
+    REASONING_MODEL_EFFORT: none
+    GENERATION_MODEL_PROVIDER: openai
+    GENERATION_MODEL: gpt-4o
+    SMALL_REASONING_MODEL_PROVIDER: openai
+    SMALL_REASONING_MODEL: o3-mini
+    SMALL_REASONING_MODEL_EFFORT: none
+    SMALL_GENERATION_MODEL_PROVIDER: openai
+    SMALL_GENERATION_MODEL: gpt-4o-mini
 
-#   commands:
-#     - chmod +x scripts/run-oauth-integration-test.sh
-#     - ./scripts/run-oauth-integration-test.sh google-calendar TestGoogleCalendarOAuthSkillsE2E
-#   when:
-#     event:
-#     - push
-#   # depends_on: [unit-test]
+  commands:
+    - chmod +x scripts/run-oauth-integration-test.sh
+    - ./scripts/run-oauth-integration-test.sh google-calendar TestGoogleCalendarOAuthSkillsE2E
+  when:
+    event:
+    - push
+  # depends_on: [unit-test]
 
-# - name: upload-oauth-google-calendar-test-artifacts
-#   image: golang:1.24
-#   volumes:
-#   - name: oauth-google-calendar-test-results
-#     path: /tmp/helix-oauth-test-results
-#   environment:
-#     LAUNCHPAD_URL: "https://deploy.helix.ml"
-#     CI_SHARED_SECRET:
-#       from_secret: ci_shared_secret
-#   commands:
-#     - chmod +x scripts/upload-oauth-test-artifacts.sh
-#     - ./scripts/upload-oauth-test-artifacts.sh google-calendar
-#   when:
-#     event:
-#     - push
-#     status:
-#     - success
-#     - failure
-#   depends_on: [oauth-google-calendar-integration-test]
+- name: upload-oauth-google-calendar-test-artifacts
+  image: golang:1.24
+  volumes:
+  - name: oauth-google-calendar-test-results
+    path: /tmp/helix-oauth-test-results
+  environment:
+    LAUNCHPAD_URL: "https://deploy.helix.ml"
+    CI_SHARED_SECRET:
+      from_secret: ci_shared_secret
+  commands:
+    - chmod +x scripts/upload-oauth-test-artifacts.sh
+    - ./scripts/upload-oauth-test-artifacts.sh google-calendar
+  when:
+    event:
+    - push
+    status:
+    - success
+    - failure
+  depends_on: [oauth-google-calendar-integration-test]
 
 - name: oauth-jira-integration-test
   image: golang:1.24
