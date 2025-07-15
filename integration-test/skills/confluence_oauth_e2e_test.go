@@ -341,7 +341,7 @@ func (suite *ConfluenceOAuthE2ETestSuite) getAtlassianAuthorizationCode(authURL,
 	}
 
 	// Configure Atlassian browser automation with improved selectors and provider strategy
-	atlassianStrategy := NewAtlassianProviderStrategy(suite.logger)
+	atlassianStrategy := NewAtlassianProviderStrategy(suite.logger, "helixml-confluence")
 	atlassianConfig := BrowserOAuthConfig{
 		ProviderName:            "atlassian",
 		LoginUsernameSelector:   `input[type="email"], input[name="username"], input[id="username"], input[placeholder*="email"], input[placeholder*="Email"]`,

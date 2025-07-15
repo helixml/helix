@@ -12,13 +12,15 @@ import (
 
 // AtlassianProviderStrategy implements Atlassian-specific OAuth automation behavior
 type AtlassianProviderStrategy struct {
-	logger zerolog.Logger
+	logger   zerolog.Logger
+	siteName string // The site name to select (e.g., "helixml" for Jira, "helixml-confluence" for Confluence)
 }
 
 // NewAtlassianProviderStrategy creates a new Atlassian provider strategy
-func NewAtlassianProviderStrategy(logger zerolog.Logger) *AtlassianProviderStrategy {
+func NewAtlassianProviderStrategy(logger zerolog.Logger, siteName string) *AtlassianProviderStrategy {
 	return &AtlassianProviderStrategy{
-		logger: logger,
+		logger:   logger,
+		siteName: siteName,
 	}
 }
 
@@ -292,7 +294,116 @@ func (s *AtlassianProviderStrategy) handleSingleStepLogin(page *rod.Page, userna
 func (s *AtlassianProviderStrategy) HandleAuthorization(page *rod.Page, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Msg("Handling Atlassian authorization page")
 
+	// Step 1: Handle site selection dropdown first
+	err := s.HandleSiteSelection(page, screenshotTaker)
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to handle site selection, continuing with authorization")
+		// Don't fail the entire flow if site selection fails - continue with authorization
+	}
+
+	// Step 2: Click authorize button
 	return s.ClickAuthorizeButton(page, screenshotTaker)
+}
+
+// HandleSiteSelection handles the "Use app on" dropdown selection for Atlassian sites
+func (s *AtlassianProviderStrategy) HandleSiteSelection(page *rod.Page, screenshotTaker ScreenshotTaker) error {
+	s.logger.Info().Str("site_name", s.siteName).Msg("Handling Atlassian site selection dropdown")
+
+	// Take screenshot before site selection
+	if screenshotTaker != nil {
+		screenshotTaker.TakeScreenshot(page, "atlassian_before_site_selection")
+	}
+
+	// Wait for page to load
+	time.Sleep(2 * time.Second)
+
+	// Look for the site selection dropdown
+	dropdownSelectors := []string{
+		`button:contains("Choose a site")`,
+		`div:contains("Choose a site")`,
+		`[data-testid="site-selector"]`,
+		`[data-testid="site-picker"]`,
+		`button[role="combobox"]`,
+		`div[role="combobox"]`,
+		`select[name="site"]`,
+		`select[name="resourceId"]`,
+	}
+
+	var dropdownElement *rod.Element
+	for _, selector := range dropdownSelectors {
+		s.logger.Info().Str("selector", selector).Msg("Trying site dropdown selector")
+		element, err := page.Timeout(5 * time.Second).Element(selector)
+		if err == nil {
+			dropdownElement = element
+			s.logger.Info().Str("selector", selector).Msg("Found site dropdown element")
+			break
+		}
+	}
+
+	if dropdownElement == nil {
+		s.logger.Warn().Msg("Site dropdown not found, site may already be selected")
+		return nil
+	}
+
+	// Click the dropdown to open it using element's Click method
+	s.logger.Info().Msg("Clicking site dropdown to open it")
+
+	err := dropdownElement.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		return fmt.Errorf("failed to click dropdown: %w", err)
+	}
+
+	// Wait for dropdown to open
+	time.Sleep(2 * time.Second)
+
+	if screenshotTaker != nil {
+		screenshotTaker.TakeScreenshot(page, "atlassian_dropdown_opened")
+	}
+
+	// Look for the specific site option based on the siteName parameter
+	siteSelectors := []string{
+		fmt.Sprintf(`li:contains("%s")`, s.siteName),
+		fmt.Sprintf(`div:contains("%s")`, s.siteName),
+		fmt.Sprintf(`option:contains("%s")`, s.siteName),
+		fmt.Sprintf(`[data-testid*="%s"]`, s.siteName),
+		fmt.Sprintf(`span:contains("%s")`, s.siteName),
+	}
+
+	var siteElement *rod.Element
+	var selectedSite string
+	for _, selector := range siteSelectors {
+		s.logger.Info().Str("selector", selector).Msg("Looking for site option")
+		element, err := page.Timeout(5 * time.Second).Element(selector)
+		if err == nil {
+			siteElement = element
+			selectedSite = selector
+			s.logger.Info().Str("selector", selector).Msg("Found site option")
+			break
+		}
+	}
+
+	if siteElement == nil {
+		s.logger.Warn().Str("site_name", s.siteName).Msg("Specified site not found in dropdown options")
+		return fmt.Errorf("site '%s' not found in dropdown options", s.siteName)
+	}
+
+	// Click the site option using element's Click method
+	s.logger.Info().Str("site", selectedSite).Msg("Clicking site option")
+
+	err = siteElement.Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		return fmt.Errorf("failed to click site option: %w", err)
+	}
+
+	// Wait for selection to register
+	time.Sleep(2 * time.Second)
+
+	if screenshotTaker != nil {
+		screenshotTaker.TakeScreenshot(page, "atlassian_site_selected")
+	}
+
+	s.logger.Info().Str("site", s.siteName).Msg("Successfully selected site")
+	return nil
 }
 
 // ClickAuthorizeButton implements Atlassian-specific authorization button detection and clicking
