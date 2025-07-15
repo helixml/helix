@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+        "strings"
 	"net/http/httptest"
 	"os"
 	"reflect"
@@ -803,4 +804,62 @@ func Test_GetParametersFromSchema(t *testing.T) {
 		require.Equal(t, "string", schema.Properties["name"].Value.Type.Slice()[0])
 		require.Equal(t, "string", schema.Properties["tag"].Value.Type.Slice()[0])
 	})
+}
+
+// Test_filterOpenAPISchema_CloudId tests that cloudId parameter is properly filtered
+func Test_filterOpenAPISchema_CloudId(t *testing.T) {
+	// Simple OpenAPI schema with cloudId parameter
+	schema := `{
+		"openapi": "3.0.0",
+		"info": {"title": "Test API", "version": "1.0"},
+		"paths": {
+			"/test/{cloudId}/endpoint": {
+				"get": {
+					"operationId": "testOperation",
+					"parameters": [
+						{
+							"name": "cloudId",
+							"in": "path",
+							"required": true,
+							"schema": {"type": "string"}
+						},
+						{
+							"name": "otherParam",
+							"in": "query",
+							"schema": {"type": "string"}
+						}
+					]
+				}
+			}
+		}
+	}`
+
+	// Create tool with the schema
+	tool := &types.Tool{
+		Name: "test-tool",
+		Config: types.ToolConfig{
+			API: &types.ToolAPIConfig{
+				Schema: schema,
+			},
+		},
+	}
+
+	// Test with cloudId pre-configured
+	preConfiguredParams := map[string]interface{}{
+		"cloudId": "test-cloud-id-123",
+	}
+
+	filtered, err := filterOpenAPISchema(tool, "testOperation", preConfiguredParams)
+	require.NoError(t, err)
+
+	t.Logf("Filtered schema: %s", filtered)
+
+	// Check that cloudId parameter is NOT present in filtered schema
+	require.False(t, strings.Contains(filtered, `"name": "cloudId"`), "cloudId parameter should be filtered out")
+	
+	// Check that otherParam is still present
+	require.True(t, strings.Contains(filtered, `"name": "otherParam"`), "otherParam should still be present")
+	
+	// Check that path has been substituted
+	require.True(t, strings.Contains(filtered, "/test/test-cloud-id-123/endpoint"), "path should have cloudId substituted")
 }

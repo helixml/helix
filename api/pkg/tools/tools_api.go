@@ -20,6 +20,14 @@ import (
 )
 
 func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, action string, params map[string]interface{}) (*http.Request, error) {
+	// Log the input parameters for debugging
+	log.Debug().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Interface("params", params).
+		Interface("tool_query", tool.Config.API.Query).
+		Msg("prepareRequest called with parameters")
+
 	loader := openapi3.NewLoader()
 
 	schema, err := loader.LoadFromData([]byte(tool.Config.API.Schema))
@@ -65,28 +73,36 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		return nil, fmt.Errorf("failed to find path and method for action %s", action)
 	}
 
+	log.Debug().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Str("path", path).
+		Str("method", method).
+		Interface("query_params", queryParams).
+		Interface("path_params", pathParams).
+		Bool("has_request_body_schema", requestBodySchema != nil).
+		Msg("OpenAPI schema parsed for request preparation")
+
 	// Prepare request
 	var body io.Reader
 	if requestBodySchema != nil {
-		// Check if we have a nested body parameter
-		if bodyStr, exists := params["body"]; exists {
-			// If body parameter exists, use it directly
-			if bodyStrStr, ok := bodyStr.(string); ok {
-				body = bytes.NewReader([]byte(bodyStrStr))
-			} else {
-				// If body is not a string, marshal it to JSON
-				jsonBody, err := json.Marshal(bodyStr)
-				if err != nil {
-					return nil, fmt.Errorf("failed to marshal body parameter: %w", err)
+		// Build request body from parameters
+		bodyParams := make(map[string]interface{})
+
+		// Check if there's a body parameter
+		if bodyParam, exists := params["body"]; exists {
+			// Try to parse as JSON
+			if bodyJSON, ok := bodyParam.(string); ok {
+				var bodyObj map[string]interface{}
+				if err := json.Unmarshal([]byte(bodyJSON), &bodyObj); err == nil {
+					bodyParams = bodyObj
 				}
-				body = bytes.NewReader(jsonBody)
+			} else if bodyObj, ok := bodyParam.(map[string]interface{}); ok {
+				bodyParams = bodyObj
 			}
 		} else {
-			// Create a map to hold the body parameters
-			bodyParams := make(map[string]interface{})
-
-			// Extract body parameters from the schema
-			if requestBodySchema.Value != nil {
+			// Build body from matching parameters
+			if requestBodySchema.Value != nil && requestBodySchema.Value.Properties != nil {
 				for propName, propSchema := range requestBodySchema.Value.Properties {
 					if value, exists := params[propName]; exists {
 						// Convert the value to the appropriate type based on the schema
@@ -134,6 +150,13 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 				return nil, fmt.Errorf("failed to marshal request body: %w", err)
 			}
 			body = bytes.NewReader(jsonBody)
+
+			log.Debug().
+				Str("tool", tool.Name).
+				Str("action", action).
+				Interface("body_params", bodyParams).
+				Str("json_body", string(jsonBody)).
+				Msg("Request body prepared")
 		}
 	}
 
@@ -166,7 +189,16 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		}
 	}
 
+	log.Debug().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Interface("all_params", allParams).
+		Interface("function_params", params).
+		Interface("tool_query_params", tool.Config.API.Query).
+		Msg("Parameter merging for path and query substitution")
+
 	// Replace path parameters
+	originalPath := req.URL.Path
 	for k, v := range allParams {
 		if pathParams[k] {
 			if strVal, ok := v.(string); ok {
@@ -177,7 +209,14 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		}
 	}
 
-	// Add query parameters
+	log.Debug().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Str("original_path", originalPath).
+		Str("final_path", req.URL.Path).
+		Msg("Path parameter substitution")
+
+	// Add query parameters from function parameters
 	for k, v := range params {
 		if k == "body" {
 			continue // Skip body parameter as it's already handled
@@ -193,12 +232,17 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 
 	req.URL.RawQuery = q.Encode()
 
+	// Add query parameters from tool configuration, but only if they're not path parameters
 	if tool.Config.API.Query != nil {
 		q := req.URL.Query()
 		for k, v := range tool.Config.API.Query {
-			log.Debug().Str("key", k).Str("value", v).Msg("Adding query param")
-
-			q.Set(k, v)
+			// Only add to query parameters if this parameter is NOT a path parameter
+			if !pathParams[k] {
+				log.Debug().Str("key", k).Str("value", v).Bool("is_path_param", false).Msg("Adding query param from tool config")
+				q.Set(k, v)
+			} else {
+				log.Debug().Str("key", k).Str("value", v).Bool("is_path_param", true).Msg("Skipping path parameter from being added to query string")
+			}
 		}
 
 		req.URL.RawQuery = q.Encode()
