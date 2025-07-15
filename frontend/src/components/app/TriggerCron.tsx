@@ -359,7 +359,7 @@ const TriggerCron: FC<TriggerCronProps> = ({
                     <Button
                       key={day.value}
                       variant={selectedDays.includes(day.value) ? "contained" : "outlined"}
-                      color={selectedDays.includes(day.value) ? "secondary" : "secondary"}
+                      color={selectedDays.includes(day.value) ? "secondary" : "primary"}
                       size="small"
                       onClick={() => handleDayToggle(day.value)}
                       disabled={readOnly || !hasCronTrigger}
