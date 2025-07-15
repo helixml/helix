@@ -200,8 +200,8 @@ func (template *OAuthProviderTestTemplate) TestCreateTestApp(t *testing.T) {
 
 	// Verify required parameters were properly configured
 	if template.config.AtlassianCloudID != "" {
-		// Check that cloudId was added to query parameters via requiredParameters system
-		assert.Equal(t, template.config.AtlassianCloudID, createdApp.Config.Helix.Assistants[0].APIs[0].Query["cloudId"])
+		// Check that cloudId was added to path parameters via requiredParameters system
+		assert.Equal(t, template.config.AtlassianCloudID, createdApp.Config.Helix.Assistants[0].APIs[0].PathParams["cloudId"])
 	}
 
 	// Safely truncate description for logging
