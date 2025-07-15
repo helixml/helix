@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-        "strings"
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
@@ -856,10 +856,10 @@ func Test_filterOpenAPISchema_CloudId(t *testing.T) {
 
 	// Check that cloudId parameter is NOT present in filtered schema
 	require.False(t, strings.Contains(filtered, `"name": "cloudId"`), "cloudId parameter should be filtered out")
-	
+
 	// Check that otherParam is still present
 	require.True(t, strings.Contains(filtered, `"name": "otherParam"`), "otherParam should still be present")
-	
+
 	// Check that path has been substituted
 	require.True(t, strings.Contains(filtered, "/test/test-cloud-id-123/endpoint"), "path should have cloudId substituted")
 }

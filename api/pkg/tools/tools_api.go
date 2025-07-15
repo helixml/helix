@@ -143,21 +143,21 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 					}
 				}
 			}
-
-			// Marshal the body parameters to JSON
-			jsonBody, err := json.Marshal(bodyParams)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal request body: %w", err)
-			}
-			body = bytes.NewReader(jsonBody)
-
-			log.Debug().
-				Str("tool", tool.Name).
-				Str("action", action).
-				Interface("body_params", bodyParams).
-				Str("json_body", string(jsonBody)).
-				Msg("Request body prepared")
 		}
+
+		// Marshal the body parameters to JSON
+		jsonBody, err := json.Marshal(bodyParams)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		body = bytes.NewReader(jsonBody)
+
+		log.Debug().
+			Str("tool", tool.Name).
+			Str("action", action).
+			Interface("body_params", bodyParams).
+			Str("json_body", string(jsonBody)).
+			Msg("Request body prepared")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, tool.Config.API.URL+path, body)
