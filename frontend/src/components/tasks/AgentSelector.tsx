@@ -48,8 +48,8 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
           borderColor: '#4A5568',
           color: '#A0AEC0',
           '&:hover': {
-            borderColor: '#3182CE',
-            color: '#3182CE',
+            borderColor: 'secondary.main',
+            color: 'secondary.main',
           },
           minWidth: '200px',
           justifyContent: 'space-between',
