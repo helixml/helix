@@ -3159,6 +3159,8 @@ definitions:
       description:
         description: Description of the trigger configuration
         type: string
+      enabled:
+        type: boolean
       executions:
         items:
           $ref: '#/definitions/types.TriggerExecution'

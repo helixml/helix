@@ -1914,6 +1914,7 @@ export interface TypesTriggerConfiguration {
   created?: string;
   /** Description of the trigger configuration */
   description?: string;
+  enabled?: boolean;
   executions?: TypesTriggerExecution[];
   id?: string;
   /** Name of the trigger configuration */

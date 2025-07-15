@@ -7365,6 +7365,9 @@ const docTemplate = `{
                     "description": "Description of the trigger configuration",
                     "type": "string"
                 },
+                "enabled": {
+                    "type": "boolean"
+                },
                 "executions": {
                     "type": "array",
                     "items": {
