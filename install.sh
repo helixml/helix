@@ -86,6 +86,7 @@ Options:
   --runner                 Install the runner (single container with runner.sh script to start it in $INSTALL_DIR)
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
   --haystack               Enable the haystack and vectorchord/postgres based RAG service (downloads tens of gigabytes of python but provides better RAG quality than default typesense/tika stack), also uses GPU-accelerated embeddings in helix runners
+  --kodit                  Enable the kodit code indexing service
   --api-host <host>        Specify the API host for the API to serve on and/or the runner to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
   --runner-token <token>   Specify the runner token when connecting a runner to an existing controlplane
   --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
@@ -156,6 +157,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --haystack)
             HAYSTACK=true
+            shift
+            ;;
+        --kodit)
+            KODIT=true
             shift
             ;;
         --api-host=*)
@@ -605,7 +610,7 @@ KEYCLOAK_FRONTEND_URL=${API_HOST}/auth/
 SERVER_URL=${API_HOST}
 
 # Docker Compose profiles
-COMPOSE_PROFILES=${HAYSTACK:+haystack}
+COMPOSE_PROFILES=${HAYSTACK:+haystack}${KODIT:+kodit}
 
 # Haystack features
 RAG_HAYSTACK_ENABLED=${HAYSTACK:-false}
