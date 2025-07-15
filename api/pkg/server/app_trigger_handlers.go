@@ -11,6 +11,42 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// listTriggers godoc
+// @Summary List all triggers configurations for either user or the org or user within an org
+// @Description List all triggers configurations for either user or the org or user within an org
+// @Tags    apps
+// @Success 200 {array} types.TriggerConfiguration
+// @Param org_id query string false "Organization ID"
+// @Param trigger_type query string false "Trigger type, defaults to 'cron'"
+// @Router /api/v1/triggers [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) listTriggers(_ http.ResponseWriter, r *http.Request) ([]*types.TriggerConfiguration, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+
+	orgID := r.URL.Query().Get("org_id")
+	triggerTypeStr := r.URL.Query().Get("trigger_type")
+
+	var triggerType types.TriggerType
+
+	if triggerTypeStr != "" {
+		triggerType = types.TriggerType(triggerTypeStr)
+	} else {
+		triggerType = types.TriggerTypeCron
+	}
+
+	triggers, err := s.Store.ListTriggerConfigurations(ctx, &store.ListTriggerConfigurationsQuery{
+		OrganizationID: orgID,
+		Owner:          user.ID,
+		TriggerType:    triggerType,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return triggers, nil
+}
+
 // listAppTriggers godoc
 // @Summary List app triggers
 // @Description List triggers for the app
@@ -210,6 +246,7 @@ func (s *HelixAPIServer) updateAppTrigger(_ http.ResponseWriter, r *http.Request
 
 	// Update the trigger configuration fields
 	existingTrigger.Name = updatedTrigger.Name
+	existingTrigger.Description = updatedTrigger.Description
 	existingTrigger.Trigger = updatedTrigger.Trigger
 
 	// Update the trigger configuration
