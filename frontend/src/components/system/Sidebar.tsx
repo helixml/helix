@@ -507,18 +507,25 @@ const SidebarContent: React.FC<{
                       open={Boolean(accountMenuAnchorEl)}
                       onClose={() => setAccountMenuAnchorEl(null)}
                     >                      
-                      {
-                        account.serverConfig.apps_enabled && (
-                          <MenuItem onClick={ () => {
-                            orgNavigateTo('apps')
-                          }}>
-                            <ListItemIcon>
-                              <AppsIcon fontSize="small" />
-                            </ListItemIcon> 
-                            Agents
-                          </MenuItem>
-                        )
-                      }
+                      
+                      <MenuItem onClick={ () => {
+                        orgNavigateTo('apps')
+                      }}>
+                        <ListItemIcon>
+                          <AppsIcon fontSize="small" />
+                        </ListItemIcon> 
+                        Agents
+                      </MenuItem>
+
+                      <MenuItem onClick={ () => {
+                        orgNavigateTo('tasks')
+                      }}>
+                        <ListItemIcon>
+                          <AssignmentIcon fontSize="small" />
+                        </ListItemIcon> 
+                        Tasks
+                      </MenuItem>
+
 
                       <MenuItem onClick={ () => {
                         navigateTo('account')
@@ -568,15 +575,6 @@ const SidebarContent: React.FC<{
                           </MenuItem>
                         )
                       }
-
-                      <MenuItem onClick={ () => {
-                        orgNavigateTo('tasks')
-                      }}>
-                        <ListItemIcon>
-                          <AssignmentIcon fontSize="small" />
-                        </ListItemIcon> 
-                        Tasks
-                      </MenuItem>
 
                       <MenuItem onClick={ () => {
                         setAccountMenuAnchorEl(null)
