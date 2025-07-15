@@ -330,20 +330,22 @@ func (s *AtlassianProviderStrategy) HandleSiteSelection(page *rod.Page, screensh
 		return fmt.Errorf("error page detected during site selection: %w", err)
 	}
 
-	// Look for the site selection dropdown
+	// Look for the site selection dropdown using multiple strategies
 	dropdownSelectors := []string{
-		`button:contains("Choose a site")`,
-		`div:contains("Choose a site")`,
-		`[data-testid="site-selector"]`,
-		`[data-testid="site-picker"]`,
 		`button[role="combobox"]`,
 		`div[role="combobox"]`,
+		`[data-testid="site-selector"]`,
+		`[data-testid="site-picker"]`,
 		`select[name="site"]`,
 		`select[name="resourceId"]`,
+		`button[aria-haspopup="true"]`,
+		`div[aria-haspopup="true"]`,
 	}
 
 	var dropdownElement *rod.Element
 	var foundSelector string
+
+	// Try to find dropdown by selectors first
 	for _, selector := range dropdownSelectors {
 		s.logger.Info().Str("selector", selector).Msg("Trying site dropdown selector")
 		element, err := page.Timeout(5 * time.Second).Element(selector)
@@ -352,6 +354,56 @@ func (s *AtlassianProviderStrategy) HandleSiteSelection(page *rod.Page, screensh
 			foundSelector = selector
 			s.logger.Info().Str("selector", selector).Msg("Found site dropdown element")
 			break
+		}
+	}
+
+	// If not found by selectors, try to find by text content
+	if dropdownElement == nil {
+		s.logger.Info().Msg("Dropdown not found by selectors, trying to find by text content")
+
+		// Find all buttons and divs that might contain the dropdown text
+		allElements, err := page.Elements(`button, div`)
+		if err == nil {
+			for _, element := range allElements {
+				// Add nil check for element
+				if element == nil {
+					continue
+				}
+
+				text, err := element.Text()
+				if err == nil && (strings.Contains(text, "Choose a site") || strings.Contains(text, "Use app on")) {
+					// Validate that the element is actually interactable
+					visible, visErr := element.Visible()
+					if visErr != nil || !visible {
+						s.logger.Info().Str("text", text).Msg("Found text but element not visible, skipping")
+						continue
+					}
+
+					// Check if element is clickable (has click handlers or is a button/div with role)
+					tagName, tagErr := element.Property("tagName")
+					role, roleErr := element.Attribute("role")
+
+					tagStr := "unknown"
+					if tagErr == nil {
+						tagStr = strings.ToLower(tagName.String())
+					}
+
+					roleStr := ""
+					if roleErr == nil && role != nil {
+						roleStr = *role
+					}
+
+					// Only accept elements that are likely to be clickable dropdowns
+					if tagStr == "button" || strings.Contains(roleStr, "combobox") || strings.Contains(roleStr, "button") {
+						dropdownElement = element
+						foundSelector = "text-based"
+						s.logger.Info().Str("text", text).Str("tag", tagStr).Str("role", roleStr).Msg("Found dropdown by text content")
+						break
+					} else {
+						s.logger.Info().Str("text", text).Str("tag", tagStr).Str("role", roleStr).Msg("Found text but element not clickable, skipping")
+					}
+				}
+			}
 		}
 	}
 
@@ -369,27 +421,59 @@ func (s *AtlassianProviderStrategy) HandleSiteSelection(page *rod.Page, screensh
 		screenshotTaker.TakeScreenshot(page, "atlassian_03_dropdown_found")
 	}
 
-	// Debug: Log dropdown element properties
-	dropdownText, _ := dropdownElement.Text()
-	dropdownTagName, _ := dropdownElement.Property("tagName")
-	dropdownClasses, _ := dropdownElement.Attribute("class")
+	// Additional safety check to ensure dropdown element is still valid
+	if dropdownElement == nil {
+		s.logger.Error().Msg("Dropdown element became nil after finding it")
+		return fmt.Errorf("dropdown element became nil")
+	}
+
+	// Debug: Log dropdown element properties with safe access
+	dropdownText, textErr := dropdownElement.Text()
+	if textErr != nil {
+		s.logger.Warn().Err(textErr).Msg("Failed to get dropdown text")
+		dropdownText = "unable to get text"
+	}
+
+	dropdownTagName, tagErr := dropdownElement.Property("tagName")
+	dropdownClasses, classErr := dropdownElement.Attribute("class")
+
+	// Safe string conversion with error checks
+	tagName := "unknown"
+	if tagErr == nil {
+		tagName = dropdownTagName.String()
+	}
+
+	classes := "unknown"
+	if classErr == nil && dropdownClasses != nil {
+		classes = *dropdownClasses
+	}
+
 	s.logger.Info().
 		Str("selector", foundSelector).
 		Str("text", dropdownText).
-		Str("tag_name", dropdownTagName.String()).
-		Str("classes", *dropdownClasses).
+		Str("tag_name", tagName).
+		Str("classes", classes).
 		Msg("Dropdown element details")
 
-	// Click the dropdown to open it using element's Click method
+	// Click the dropdown to open it
 	s.logger.Info().Msg("Clicking site dropdown to open it")
-
 	err = dropdownElement.Click(proto.InputMouseButtonLeft, 1)
 	if err != nil {
-		// Screenshot for debugging click failure
-		if screenshotTaker != nil {
-			screenshotTaker.TakeScreenshot(page, "atlassian_04_dropdown_click_failed")
+		// Try scrolling to element first, then clicking
+		s.logger.Info().Msg("Regular click failed, trying to scroll to element first")
+		err = dropdownElement.ScrollIntoView()
+		if err == nil {
+			time.Sleep(1 * time.Second)
+			err = dropdownElement.Click(proto.InputMouseButtonLeft, 1)
 		}
-		return fmt.Errorf("failed to click dropdown: %w", err)
+
+		if err != nil {
+			// Screenshot for debugging click failure
+			if screenshotTaker != nil {
+				screenshotTaker.TakeScreenshot(page, "atlassian_04_dropdown_click_failed")
+			}
+			return fmt.Errorf("failed to click dropdown: %w", err)
+		}
 	}
 
 	// Screenshot 4: Immediately after clicking dropdown
@@ -397,53 +481,79 @@ func (s *AtlassianProviderStrategy) HandleSiteSelection(page *rod.Page, screensh
 		screenshotTaker.TakeScreenshot(page, "atlassian_04_dropdown_clicked")
 	}
 
-	// Wait for dropdown to open
-	time.Sleep(2 * time.Second)
+	// Wait for dropdown to open and options to load
+	time.Sleep(3 * time.Second)
 
 	// Screenshot 5: After waiting for dropdown to open
 	if screenshotTaker != nil {
 		screenshotTaker.TakeScreenshot(page, "atlassian_05_dropdown_opened")
 	}
 
-	// Debug: Log all available options in the dropdown
-	s.logger.Info().Msg("Looking for all available options in dropdown")
-	allOptions, err := page.Elements(`li, div, option, span`)
-	if err == nil {
-		for i, option := range allOptions {
-			if i > 20 { // Limit to avoid spam
-				break
-			}
-			text, _ := option.Text()
-			if text != "" && len(text) < 100 {
-				s.logger.Info().Int("index", i).Str("text", text).Msg("Available option")
-			}
-		}
-	}
-
-	// Look for the specific site option based on the siteName parameter
-	siteSelectors := []string{
-		fmt.Sprintf(`li:contains("%s")`, s.siteName),
-		fmt.Sprintf(`div:contains("%s")`, s.siteName),
-		fmt.Sprintf(`option:contains("%s")`, s.siteName),
-		fmt.Sprintf(`[data-testid*="%s"]`, s.siteName),
-		fmt.Sprintf(`span:contains("%s")`, s.siteName),
-	}
+	// Find the site option by text content using Rod's proper methods
+	s.logger.Info().Str("site_name", s.siteName).Msg("Looking for site option by text content")
 
 	var siteElement *rod.Element
-	var selectedSite string
-	for _, selector := range siteSelectors {
-		s.logger.Info().Str("selector", selector).Msg("Looking for site option")
-		element, err := page.Timeout(5 * time.Second).Element(selector)
-		if err == nil {
-			siteElement = element
-			selectedSite = selector
-			s.logger.Info().Str("selector", selector).Msg("Found site option")
-			break
+
+	// Strategy 1: Look for elements that contain the site name
+	allElements, err := page.Elements(`li, div, option, span, button`)
+	if err == nil {
+		for _, element := range allElements {
+			text, err := element.Text()
+			if err == nil && strings.Contains(text, s.siteName) {
+				// Additional check: make sure it's clickable and visible
+				visible, err := element.Visible()
+				if err == nil && visible {
+					siteElement = element
+					s.logger.Info().Str("text", text).Msg("Found site option by text content")
+					break
+				}
+			}
 		}
 	}
 
+	// Strategy 2: If not found, try aria-label or data attributes
 	if siteElement == nil {
-		s.logger.Warn().Str("site_name", s.siteName).Msg("Specified site not found in dropdown options")
+		s.logger.Info().Msg("Site not found by text, trying aria-label and data attributes")
+
+		attrSelectors := []string{
+			fmt.Sprintf(`[aria-label*="%s"]`, s.siteName),
+			fmt.Sprintf(`[data-value*="%s"]`, s.siteName),
+			fmt.Sprintf(`[data-site*="%s"]`, s.siteName),
+			fmt.Sprintf(`[title*="%s"]`, s.siteName),
+		}
+
+		for _, selector := range attrSelectors {
+			element, err := page.Timeout(2 * time.Second).Element(selector)
+			if err == nil {
+				siteElement = element
+				s.logger.Info().Str("selector", selector).Msg("Found site option by attribute")
+				break
+			}
+		}
+	}
+
+	// Strategy 3: If still not found, log all available options for debugging
+	if siteElement == nil {
+		s.logger.Warn().Str("site_name", s.siteName).Msg("Site not found, logging all available options")
+
+		allOptions, err := page.Elements(`li, div, option, span`)
+		if err == nil {
+			for i, option := range allOptions {
+				if i > 30 { // Limit to avoid spam
+					break
+				}
+				text, err := option.Text()
+				if err == nil && text != "" && len(text) < 200 {
+					visible, _ := option.Visible()
+					s.logger.Info().
+						Int("index", i).
+						Str("text", text).
+						Bool("visible", visible).
+						Msg("Available option")
+				}
+			}
+		}
+
 		// Screenshot for debugging when site not found
 		if screenshotTaker != nil {
 			screenshotTaker.TakeScreenshot(page, "atlassian_06_site_not_found")
@@ -461,22 +571,31 @@ func (s *AtlassianProviderStrategy) HandleSiteSelection(page *rod.Page, screensh
 	siteTagName, _ := siteElement.Property("tagName")
 	siteClasses, _ := siteElement.Attribute("class")
 	s.logger.Info().
-		Str("selector", selectedSite).
 		Str("text", siteText).
 		Str("tag_name", siteTagName.String()).
 		Str("classes", *siteClasses).
 		Msg("Site element details")
 
-	// Click the site option using element's Click method
-	s.logger.Info().Str("site", selectedSite).Msg("Clicking site option")
+	// Click the site option
+	s.logger.Info().Str("site", s.siteName).Msg("Clicking site option")
 
 	err = siteElement.Click(proto.InputMouseButtonLeft, 1)
 	if err != nil {
-		// Screenshot for debugging click failure
-		if screenshotTaker != nil {
-			screenshotTaker.TakeScreenshot(page, "atlassian_07_site_click_failed")
+		// Try scrolling to element first, then clicking
+		s.logger.Info().Msg("Regular click failed, trying to scroll to element first")
+		err = siteElement.ScrollIntoView()
+		if err == nil {
+			time.Sleep(1 * time.Second)
+			err = siteElement.Click(proto.InputMouseButtonLeft, 1)
 		}
-		return fmt.Errorf("failed to click site option: %w", err)
+
+		if err != nil {
+			// Screenshot for debugging click failure
+			if screenshotTaker != nil {
+				screenshotTaker.TakeScreenshot(page, "atlassian_07_site_click_failed")
+			}
+			return fmt.Errorf("failed to click site option: %w", err)
+		}
 	}
 
 	// Screenshot 7: Immediately after clicking site option
@@ -677,20 +796,19 @@ func (s *AtlassianProviderStrategy) expandErrorDetails(page *rod.Page) error {
 	}
 
 	text := pageText.Value.Str()
-	isErrorPage := strings.Contains(strings.ToLower(text), "something went wrong") ||
-		strings.Contains(strings.ToUpper(text), "HELIX DEV") ||
-		strings.Contains(strings.ToLower(text), "information for the owner")
+	textLower := strings.ToLower(text)
+
+	// More specific error detection - only trigger on actual error pages
+	isErrorPage := strings.Contains(textLower, "something went wrong") ||
+		(strings.Contains(textLower, "information for the owner of helix dev") &&
+			!strings.Contains(textLower, "is requesting access")) // Exclude consent pages
 
 	if isErrorPage {
-		s.logger.Info().Msg("🚨 ERROR PAGE DETECTED - dumping full HTML for debugging")
-		err := s.dumpErrorPageHTML(page)
-		if err != nil {
-			s.logger.Fatal().Err(err).Msg("Exiting due to error page detected")
-		}
-		return fmt.Errorf("error page detected - 'Something went wrong' found on page")
+		s.logger.Warn().Msg("🚨 ERROR PAGE DETECTED - dumping full HTML for debugging")
+		return s.dumpErrorPageHTML(page)
 	}
 
-	s.logger.Info().Msg("No error page indicators found")
+	s.logger.Info().Msg("✅ No error page detected - continuing with OAuth flow")
 	return nil
 }
 
