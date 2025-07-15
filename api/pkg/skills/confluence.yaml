@@ -64,8 +64,11 @@ spec:
       - read:confluence-content.all
       - write:confluence-content
       - read:confluence-space.summary
+      - read:space:confluence
       - read:confluence-user
       - search:confluence
+      - read:me
+      - read:account
     
   api:
     baseUrl: https://api.atlassian.com
@@ -497,7 +500,7 @@ spec:
                           properties:
                             number:
                               type: integer
-        /ex/confluence/{cloudId}/wiki/rest/api/space:
+        /ex/confluence/{cloudId}/wiki/api/v2/spaces:
           get:
             summary: Get spaces
             operationId: getConfluenceSpaces
@@ -509,11 +512,20 @@ spec:
                 required: true
                 schema:
                   type: string
-              - name: spaceKey
+              - name: ids
                 in: query
                 schema:
-                  type: string
-                description: Space key to filter by
+                  type: array
+                  items:
+                    type: integer
+                description: Filter by space IDs
+              - name: keys
+                in: query
+                schema:
+                  type: array
+                  items:
+                    type: string
+                description: Filter by space keys
               - name: type
                 in: query
                 schema:
@@ -526,22 +538,39 @@ spec:
                   type: string
                   enum: [current, archived]
                   default: current
-              - name: start
+                description: Space status to filter by
+              - name: labels
                 in: query
                 schema:
-                  type: integer
-                  default: 0
+                  type: array
+                  items:
+                    type: string
+                description: Filter by space labels
+              - name: sort
+                in: query
+                schema:
+                  type: string
+                  enum: [id, key, name, created-date, modified-date]
+                  default: id
+                description: Sort order for results
+              - name: include-icon
+                in: query
+                schema:
+                  type: boolean
+                  default: false
+                description: Include space icon in response
               - name: limit
                 in: query
                 schema:
                   type: integer
                   default: 25
-                  maximum: 100
-              - name: expand
+                  maximum: 250
+                description: Maximum number of results to return
+              - name: cursor
                 in: query
                 schema:
                   type: string
-                description: Comma-separated list of properties to expand
+                description: Cursor for pagination
             responses:
               '200':
                 description: List of spaces
@@ -563,7 +592,16 @@ spec:
                                 type: string
                               type:
                                 type: string
+                                enum: [global, personal]
                               status:
+                                type: string
+                                enum: [current, archived]
+                              authorId:
+                                type: string
+                              createdAt:
+                                type: string
+                                format: date-time
+                              homepageId:
                                 type: string
                               description:
                                 type: object
@@ -573,12 +611,34 @@ spec:
                                     properties:
                                       value:
                                         type: string
-                        start:
-                          type: integer
-                        limit:
-                          type: integer
-                        size:
-                          type: integer
+                                      representation:
+                                        type: string
+                                  view:
+                                    type: object
+                                    properties:
+                                      value:
+                                        type: string
+                                      representation:
+                                        type: string
+                              icon:
+                                type: object
+                                properties:
+                                  path:
+                                    type: string
+                                  apiDownloadLink:
+                                    type: string
+                              _links:
+                                type: object
+                                properties:
+                                  webui:
+                                    type: string
+                        _links:
+                          type: object
+                          properties:
+                            next:
+                              type: string
+                            base:
+                              type: string
         /ex/confluence/{cloudId}/wiki/rest/api/content/search:
           get:
             summary: Search content

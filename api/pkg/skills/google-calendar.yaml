@@ -58,6 +58,7 @@ spec:
     provider: google
     scopes:
       - https://www.googleapis.com/auth/calendar
+      - https://www.googleapis.com/auth/calendar.events
       
   api:
     baseUrl: https://www.googleapis.com
