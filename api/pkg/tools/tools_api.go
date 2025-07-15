@@ -221,12 +221,15 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		if k == "body" {
 			continue // Skip body parameter as it's already handled
 		}
-		if queryParams[k] {
+		// Only add to query parameters if this parameter is NOT a path parameter
+		if queryParams[k] && !pathParams[k] {
 			if strVal, ok := v.(string); ok {
 				q.Add(k, strVal)
 			} else {
 				q.Add(k, fmt.Sprintf("%v", v))
 			}
+		} else if pathParams[k] {
+			log.Debug().Str("key", k).Str("value", fmt.Sprintf("%v", v)).Bool("is_path_param", true).Msg("Skipping path parameter from being added to query string from params")
 		}
 	}
 

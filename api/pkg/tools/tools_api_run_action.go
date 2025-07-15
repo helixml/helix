@@ -490,7 +490,7 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 
 	// Make API call
 	httpClient := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: 120 * time.Second,
 	}
 
 	// Log outgoing request headers
