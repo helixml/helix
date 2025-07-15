@@ -177,7 +177,7 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 				}
 
 				log.Info().Str("tool", tool.Name()).Str("arguments", toolCall.Function.Arguments).Msg("Tool")
-				arguments := map[string]interface{}{}
+				arguments := map[string]any{}
 				err = json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments)
 				if err != nil {
 					log.Error().Err(err).Msg("Error unmarshaling tool arguments")
@@ -295,7 +295,7 @@ func (a *Agent) SkillDirectRunner(ctx context.Context, meta Meta, skill *Skill, 
 
 	tool := skill.Tools[0]
 
-	arguments := map[string]interface{}{}
+	arguments := map[string]any{}
 	err := json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments)
 	if err != nil {
 		log.Error().Err(err).Msg("Error unmarshaling tool arguments")
