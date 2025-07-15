@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -19,7 +20,7 @@ import (
 // loadScopesFromYAML loads OAuth scopes from a skill's YAML file
 func loadScopesFromYAML(skillName string) ([]string, error) {
 	manager := skills.NewManager()
-	if err := manager.LoadSkills(nil); err != nil {
+	if err := manager.LoadSkills(context.TODO()); err != nil {
 		return nil, fmt.Errorf("failed to load skills: %w", err)
 	}
 
