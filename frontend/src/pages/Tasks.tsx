@@ -3,29 +3,27 @@ import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
-import Grid from '@mui/material/Grid'
-import Typography from '@mui/material/Typography'
-import Tabs from '@mui/material/Tabs'
-import Tab from '@mui/material/Tab'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
 
 import Page from '../components/system/Page'
 import TaskDialog from '../components/tasks/TaskDialog'
-import TaskCard from '../components/tasks/TaskCard'
-import EmptyTasksState from '../components/tasks/EmptyTasksState'
+import TasksTable from '../components/tasks/TasksTable'
+import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 
 import { useListUserCronTriggers } from '../services/appService'
 import useAccount from '../hooks/useAccount'
 import useApps from '../hooks/useApps'
+import useSnackbar from '../hooks/useSnackbar'
 
 import { TypesTriggerConfiguration } from '../api/api'
 
 const Tasks: FC = () => {
   const account = useAccount()
   const apps = useApps()
+  const snackbar = useSnackbar()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<TypesTriggerConfiguration | undefined>()
-  const [activeTab, setActiveTab] = useState(0)
+  const [deletingTask, setDeletingTask] = useState<TypesTriggerConfiguration | undefined>()
 
   const { data: triggers, isLoading } = useListUserCronTriggers(
     account.organizationTools.organization?.id || ''
@@ -52,14 +50,29 @@ const Tasks: FC = () => {
     setSelectedTask(undefined)
   }
 
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    setActiveTab(newValue)
+  const handleDeleteTask = (task: TypesTriggerConfiguration) => {
+    setDeletingTask(task)
   }
 
-  // Filter tasks based on active tab
-  const activeTasks = triggers?.data?.filter((task: TypesTriggerConfiguration) => !task.archived) || []
-  const archivedTasks = triggers?.data?.filter((task: TypesTriggerConfiguration) => task.archived) || []
-  const currentTasks = activeTab === 0 ? activeTasks : archivedTasks
+  const handleConfirmDelete = async () => {
+    if (!deletingTask) return
+    
+    // TODO: Implement delete API call
+    // const result = await deleteTask(deletingTask.id)
+    // if (result) {
+    //   snackbar.success('Task deleted')
+    // }
+    
+    setDeletingTask(undefined)
+  }
+
+  const handleToggleStatus = async (task: TypesTriggerConfiguration) => {
+    // TODO: Implement toggle status API call
+    // const result = await toggleTaskStatus(task.id, !task.enabled)
+    // if (result) {
+    //   snackbar.success(task.enabled ? 'Task paused' : 'Task enabled')
+    // }
+  }
 
   const renderContent = () => {
     if (isLoading) {
@@ -70,20 +83,42 @@ const Tasks: FC = () => {
       )
     }
 
-    if (currentTasks.length === 0) {
+    if (!triggers?.data || triggers.data.length === 0) {
       return (
-        <EmptyTasksState onCreateTask={handleCreateTask} />
+        <Box sx={{ 
+          display: 'flex', 
+          flexDirection: 'column', 
+          alignItems: 'center', 
+          py: 8,
+          textAlign: 'center'
+        }}>
+          <Box sx={{ mb: 2 }}>
+            <AddIcon sx={{ fontSize: 64, color: 'text.secondary' }} />
+          </Box>
+          <Box sx={{ mb: 3 }}>
+            <h3>No tasks yet</h3>
+            <p>Create your first scheduled task to get started</p>
+          </Box>
+          <Button
+            variant="contained"
+            color="secondary"
+            endIcon={<AddIcon />}
+            onClick={handleCreateTask}
+          >
+            Create Task
+          </Button>
+        </Box>
       )
     }
 
     return (
-      <Grid container spacing={3}>
-        {currentTasks.map((task: TypesTriggerConfiguration) => (
-          <Grid item xs={12} sm={6} md={4} key={task.id}>
-            <TaskCard task={task} onClick={handleEditTask} />
-          </Grid>
-        ))}
-      </Grid>
+      <TasksTable
+        data={triggers.data}
+        apps={apps.apps}
+        onEdit={handleEditTask}
+        onDelete={handleDeleteTask}
+        onToggleStatus={handleToggleStatus}
+      />
     )
   }
 
@@ -106,30 +141,6 @@ const Tasks: FC = () => {
       )}
     >
       <Container maxWidth="xl" sx={{ mb: 4 }}>
-        {/* Tabs */}
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-          <Tabs 
-            value={activeTab} 
-            onChange={handleTabChange}
-            sx={{
-              '& .MuiTab-root': {
-                textTransform: 'none',
-                fontWeight: 500,
-              }
-            }}
-          >
-            <Tab 
-              label={`Active (${activeTasks.length})`} 
-              id="active-tab"
-            />
-            <Tab 
-              label={`Archived (${archivedTasks.length})`} 
-              id="archived-tab"
-            />
-          </Tabs>
-        </Box>
-
-        {/* Content */}
         {renderContent()}
       </Container>
 
@@ -140,6 +151,15 @@ const Tasks: FC = () => {
         task={selectedTask}
         apps={apps.apps}
       />
+
+      {/* Delete Confirmation */}
+      {deletingTask && (
+        <DeleteConfirmWindow
+          title="this task"
+          onCancel={() => setDeletingTask(undefined)}
+          onSubmit={handleConfirmDelete}
+        />
+      )}
     </Page>
   )
 }

@@ -91,7 +91,7 @@ export function useListAppTriggers(appId: string, options?: { enabled?: boolean,
 }
 
 // useCreateAppTrigger returns a mutation for creating a new app trigger
-export function useCreateAppTrigger(appId: string) {
+export function useCreateAppTrigger(appId: string, orgId: string) {
   const api = useApi()
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
@@ -101,12 +101,13 @@ export function useCreateAppTrigger(appId: string) {
     onSuccess: () => {
       // Invalidate any cached trigger data
       queryClient.invalidateQueries({ queryKey: appTriggersListQueryKey(appId) })
+      queryClient.invalidateQueries({ queryKey: userTriggersListQueryKey(orgId) })
     }
   })
 }
 
 // useUpdateAppTrigger returns a mutation for updating an app trigger
-export function useUpdateAppTrigger(appId: string, triggerId: string) {
+export function useUpdateAppTrigger(appId: string, triggerId: string, orgId: string) {
   const api = useApi()
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
@@ -116,12 +117,13 @@ export function useUpdateAppTrigger(appId: string, triggerId: string) {
     onSuccess: () => {
       // Invalidate any cached trigger data
       queryClient.invalidateQueries({ queryKey: appTriggersListQueryKey(appId) })
+      queryClient.invalidateQueries({ queryKey: userTriggersListQueryKey(orgId) })
     }
   })
 }
 
 // useDeleteAppTrigger returns a mutation for deleting an app trigger
-export function useDeleteAppTrigger(appId: string, triggerId: string) {
+export function useDeleteAppTrigger(appId: string, triggerId: string, orgId: string) {
   const api = useApi()
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
@@ -132,6 +134,7 @@ export function useDeleteAppTrigger(appId: string, triggerId: string) {
     onSuccess: () => {
       // Invalidate any cached trigger data
       queryClient.invalidateQueries({ queryKey: appTriggersListQueryKey(appId) })
+      queryClient.invalidateQueries({ queryKey: userTriggersListQueryKey(orgId) })
     }
   })
 }
