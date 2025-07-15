@@ -1,7 +1,9 @@
 package skills
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -267,6 +269,258 @@ func (template *OAuthProviderTestTemplate) TestOAuthTokenDirectly(t *testing.T) 
 	require.NotEmpty(t, template.oauthConn.AccessToken, "OAuth access token should not be empty")
 
 	template.baseSuite.logger.Info().Msg("OAuth token test passed - connection exists with access token")
+}
+
+// TestOAuthDebugging performs comprehensive OAuth 2.0 3LO debugging tests
+func (template *OAuthProviderTestTemplate) TestOAuthDebugging(t *testing.T) {
+	require.NotNil(t, template.oauthConn, "OAuth connection should exist")
+	require.NotEmpty(t, template.oauthConn.AccessToken, "OAuth access token should not be empty")
+
+	template.baseSuite.logger.Info().Str("provider", template.skillConfig.DisplayName).Msg("=== Starting OAuth 2.0 3LO Debugging ===")
+
+	// Test 1: Validate OAuth token with accessible-resources endpoint
+	template.testAccessibleResources(t)
+
+	// Test 2: If this is an Atlassian provider, test the cloud ID and API endpoints
+	if template.isAtlassianProvider() {
+		template.testAtlassianCloudEndpoints(t)
+	}
+
+	// Test 3: Test user info endpoint
+	template.testUserInfoEndpoint(t)
+
+	template.baseSuite.logger.Info().Msg("=== OAuth 2.0 3LO Debugging Complete ===")
+}
+
+// testAccessibleResources tests the accessible-resources endpoint to verify OAuth token
+func (template *OAuthProviderTestTemplate) testAccessibleResources(t *testing.T) {
+	template.baseSuite.logger.Info().Msg("Testing accessible-resources endpoint")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	req, err := http.NewRequest("GET", "https://api.atlassian.com/oauth/token/accessible-resources", nil)
+	require.NoError(t, err, "Failed to create accessible-resources request")
+
+	req.Header.Set("Authorization", "Bearer "+template.oauthConn.AccessToken)
+	req.Header.Set("Accept", "application/json")
+
+	template.baseSuite.logger.Info().
+		Str("url", req.URL.String()).
+		Str("method", req.Method).
+		Str("auth_header", "Bearer "+template.oauthConn.AccessToken[:20]+"...").
+		Msg("Making accessible-resources request")
+
+	resp, err := client.Do(req)
+	require.NoError(t, err, "Failed to make accessible-resources request")
+	defer resp.Body.Close()
+
+	template.baseSuite.logger.Info().
+		Int("status_code", resp.StatusCode).
+		Str("status", resp.Status).
+		Msg("Accessible-resources response received")
+
+	// Read and log response body
+	var responseBody interface{}
+	err = json.NewDecoder(resp.Body).Decode(&responseBody)
+	if err != nil {
+		template.baseSuite.logger.Error().Err(err).Msg("Failed to decode accessible-resources response")
+		return
+	}
+
+	responseJSON, _ := json.MarshalIndent(responseBody, "", "  ")
+	template.baseSuite.logger.Info().
+		Str("response_body", string(responseJSON)).
+		Msg("Accessible-resources response body")
+
+	if resp.StatusCode == 200 {
+		// If successful, extract cloud IDs and site information
+		if resourcesArray, ok := responseBody.([]interface{}); ok {
+			template.baseSuite.logger.Info().
+				Int("sites_count", len(resourcesArray)).
+				Msg("Found accessible sites")
+
+			for i, resource := range resourcesArray {
+				if resourceMap, ok := resource.(map[string]interface{}); ok {
+					template.baseSuite.logger.Info().
+						Int("site_index", i).
+						Str("site_id", fmt.Sprintf("%v", resourceMap["id"])).
+						Str("site_name", fmt.Sprintf("%v", resourceMap["name"])).
+						Str("site_url", fmt.Sprintf("%v", resourceMap["url"])).
+						Msg("Found accessible site")
+				}
+			}
+		}
+	} else {
+		template.baseSuite.logger.Error().
+			Int("status_code", resp.StatusCode).
+			Str("error_response", string(responseJSON)).
+			Msg("Accessible-resources request failed")
+	}
+}
+
+// testAtlassianCloudEndpoints tests Atlassian-specific cloud endpoints
+func (template *OAuthProviderTestTemplate) testAtlassianCloudEndpoints(t *testing.T) {
+	if template.config.AtlassianCloudID == "" {
+		template.baseSuite.logger.Info().Msg("No Atlassian Cloud ID configured, skipping cloud endpoint tests")
+		return
+	}
+
+	template.baseSuite.logger.Info().
+		Str("cloud_id", template.config.AtlassianCloudID).
+		Msg("Testing Atlassian Cloud endpoints")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	// Test endpoints that should work with OAuth 2.0 3LO
+	testEndpoints := []struct {
+		name string
+		url  string
+	}{
+		{
+			name: "serverInfo",
+			url:  fmt.Sprintf("https://api.atlassian.com/ex/jira/%s/rest/api/3/serverInfo", template.config.AtlassianCloudID),
+		},
+		{
+			name: "myself",
+			url:  fmt.Sprintf("https://api.atlassian.com/ex/jira/%s/rest/api/3/myself", template.config.AtlassianCloudID),
+		},
+		{
+			name: "project search",
+			url:  fmt.Sprintf("https://api.atlassian.com/ex/jira/%s/rest/api/3/project/search", template.config.AtlassianCloudID),
+		},
+		{
+			name: "issue search",
+			url:  fmt.Sprintf("https://api.atlassian.com/ex/jira/%s/rest/api/3/search?jql=project is not empty", template.config.AtlassianCloudID),
+		},
+	}
+
+	for _, endpoint := range testEndpoints {
+		template.testAtlassianEndpoint(t, client, endpoint.name, endpoint.url)
+	}
+}
+
+// testAtlassianEndpoint tests a specific Atlassian endpoint
+func (template *OAuthProviderTestTemplate) testAtlassianEndpoint(t *testing.T, client *http.Client, name, url string) {
+	template.baseSuite.logger.Info().
+		Str("endpoint_name", name).
+		Str("url", url).
+		Msg("Testing Atlassian endpoint")
+
+	req, err := http.NewRequest("GET", url, nil)
+	require.NoError(t, err, "Failed to create request for "+name)
+
+	req.Header.Set("Authorization", "Bearer "+template.oauthConn.AccessToken)
+	req.Header.Set("Accept", "application/json")
+
+	template.baseSuite.logger.Info().
+		Str("endpoint_name", name).
+		Str("method", req.Method).
+		Str("auth_header", "Bearer "+template.oauthConn.AccessToken[:20]+"...").
+		Msg("Making endpoint request")
+
+	resp, err := client.Do(req)
+	require.NoError(t, err, "Failed to make request to "+name)
+	defer resp.Body.Close()
+
+	template.baseSuite.logger.Info().
+		Str("endpoint_name", name).
+		Int("status_code", resp.StatusCode).
+		Str("status", resp.Status).
+		Msg("Endpoint response received")
+
+	// Log response headers
+	for headerName, headerValues := range resp.Header {
+		for _, headerValue := range headerValues {
+			template.baseSuite.logger.Info().
+				Str("endpoint_name", name).
+				Str("header_name", headerName).
+				Str("header_value", headerValue).
+				Msg("Response header")
+		}
+	}
+
+	// Read and log response body (first 500 chars to avoid spam)
+	var responseBody map[string]interface{}
+	err = json.NewDecoder(resp.Body).Decode(&responseBody)
+	if err != nil {
+		template.baseSuite.logger.Error().
+			Str("endpoint_name", name).
+			Err(err).
+			Msg("Failed to decode endpoint response")
+		return
+	}
+
+	responseJSON, _ := json.MarshalIndent(responseBody, "", "  ")
+	responseStr := string(responseJSON)
+	if len(responseStr) > 500 {
+		responseStr = responseStr[:500] + "... (truncated)"
+	}
+
+	template.baseSuite.logger.Info().
+		Str("endpoint_name", name).
+		Str("response_body", responseStr).
+		Msg("Endpoint response body")
+
+	if resp.StatusCode != 200 {
+		template.baseSuite.logger.Error().
+			Str("endpoint_name", name).
+			Int("status_code", resp.StatusCode).
+			Str("error_response", responseStr).
+			Msg("Endpoint request failed")
+	} else {
+		template.baseSuite.logger.Info().
+			Str("endpoint_name", name).
+			Msg("Endpoint request successful")
+	}
+}
+
+// testUserInfoEndpoint tests the user info endpoint from the OAuth provider config
+func (template *OAuthProviderTestTemplate) testUserInfoEndpoint(t *testing.T) {
+	if template.config.UserInfoURL == "" {
+		template.baseSuite.logger.Info().Msg("No user info URL configured, skipping user info test")
+		return
+	}
+
+	template.baseSuite.logger.Info().
+		Str("user_info_url", template.config.UserInfoURL).
+		Msg("Testing user info endpoint")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	req, err := http.NewRequest("GET", template.config.UserInfoURL, nil)
+	require.NoError(t, err, "Failed to create user info request")
+
+	req.Header.Set("Authorization", "Bearer "+template.oauthConn.AccessToken)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	require.NoError(t, err, "Failed to make user info request")
+	defer resp.Body.Close()
+
+	template.baseSuite.logger.Info().
+		Int("status_code", resp.StatusCode).
+		Str("status", resp.Status).
+		Msg("User info response received")
+
+	var responseBody map[string]interface{}
+	err = json.NewDecoder(resp.Body).Decode(&responseBody)
+	if err != nil {
+		template.baseSuite.logger.Error().Err(err).Msg("Failed to decode user info response")
+		return
+	}
+
+	responseJSON, _ := json.MarshalIndent(responseBody, "", "  ")
+	template.baseSuite.logger.Info().
+		Str("response_body", string(responseJSON)).
+		Msg("User info response body")
+}
+
+// isAtlassianProvider checks if this is an Atlassian provider (Jira/Confluence)
+func (template *OAuthProviderTestTemplate) isAtlassianProvider() bool {
+	return template.config.ProviderType == types.OAuthProviderTypeAtlassian ||
+		strings.Contains(strings.ToLower(template.config.ProviderName), "jira") ||
+		strings.Contains(strings.ToLower(template.config.ProviderName), "confluence") ||
+		strings.Contains(strings.ToLower(template.config.ProviderName), "atlassian")
 }
 
 // TestAgentOAuthSkillsIntegration tests the complete agent integration with OAuth skills

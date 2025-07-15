@@ -169,6 +169,7 @@ func TestJiraOAuthSkillsE2E(t *testing.T) {
 	t.Run("CreateTestApp", suite.oauthTemplate.TestCreateTestApp)
 	t.Run("PerformOAuthFlow", suite.oauthTemplate.TestPerformOAuthFlow)
 	t.Run("TestOAuthTokenDirectly", suite.oauthTemplate.TestOAuthTokenDirectly)
+	t.Run("TestOAuthDebugging", suite.oauthTemplate.TestOAuthDebugging)
 	t.Run("TestAgentJiraSkillsIntegration", suite.oauthTemplate.TestAgentOAuthSkillsIntegration)
 
 	// Cleanup
@@ -252,9 +253,9 @@ func (suite *JiraOAuthE2ETestSuite) loadTestConfig() error {
 		return fmt.Errorf("ATLASSIAN_SKILL_TEST_OAUTH_PASSWORD environment variable not set")
 	}
 
-	suite.atlassianCloudID = os.Getenv("ATLASSIAN_SKILL_TEST_CLOUD_ID")
+	suite.atlassianCloudID = os.Getenv("ATLASSIAN_SKILL_TEST_JIRA_CLOUD_ID")
 	if suite.atlassianCloudID == "" {
-		return fmt.Errorf("ATLASSIAN_SKILL_TEST_CLOUD_ID environment variable not set")
+		return fmt.Errorf("ATLASSIAN_SKILL_TEST_JIRA_CLOUD_ID environment variable not set")
 	}
 
 	// Debug logging for CI environment (log lengths only, not actual values)
