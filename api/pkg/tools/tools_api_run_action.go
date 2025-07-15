@@ -785,16 +785,60 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 		}()).
 		Msg("Prepared API request with headers")
 
+	// Log before making HTTP request (agent mode)
+	log.Info().
+		Str("url", httpRequest.URL.String()).
+		Str("method", httpRequest.Method).
+		Msg("Making HTTP request (agent mode)")
+
 	resp, err := c.httpClient.Do(httpRequest)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("url", httpRequest.URL.String()).
+			Str("method", httpRequest.Method).
+			Msg("HTTP request failed (agent mode)")
 		return nil, fmt.Errorf("failed to make api call: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// Log HTTP response received (agent mode)
+	log.Info().
+		Str("url", httpRequest.URL.String()).
+		Str("method", httpRequest.Method).
+		Int("status_code", resp.StatusCode).
+		Str("status", resp.Status).
+		Interface("headers", resp.Header).
+		Msg("HTTP response received (agent mode)")
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("url", httpRequest.URL.String()).
+			Int("status_code", resp.StatusCode).
+			Msg("Failed to read response body (agent mode)")
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+
+	// Log complete response details (agent mode)
+	log.Info().
+		Str("url", httpRequest.URL.String()).
+		Str("method", httpRequest.Method).
+		Int("status_code", resp.StatusCode).
+		Str("status", resp.Status).
+		Interface("response_headers", resp.Header).
+		Str("response_body", string(body)).
+		Int("response_body_length", len(body)).
+		Msg("Complete API response details (agent mode)")
+
+	// Log API response summary (agent mode)
+	log.Info().
+		Str("url", httpRequest.URL.String()).
+		Int("status_code", resp.StatusCode).
+		Bool("success", resp.StatusCode >= 200 && resp.StatusCode < 300).
+		Int("body_length", len(body)).
+		Msg("API response details (agent mode)")
 
 	// If body is empty but status code is 200, return the status text
 	if len(body) == 0 && resp.StatusCode >= 200 && resp.StatusCode < 300 {
