@@ -64,8 +64,8 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
     setTriggers(newTriggers);
   };
 
-  const createTriggerMutation = useCreateAppTrigger(selectedAgent?.id || '');
-  const updateTriggerMutation = useUpdateAppTrigger(selectedAgent?.id || '', task?.id || '');
+  const createTriggerMutation = useCreateAppTrigger(selectedAgent?.id || '', account.organizationTools.organization?.id || '');
+  const updateTriggerMutation = useUpdateAppTrigger(selectedAgent?.id || '', task?.id || '', account.organizationTools.organization?.id || '');
 
   const handleSaveTask = async () => {
     if (!taskName.trim()) {
