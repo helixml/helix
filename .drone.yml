@@ -508,8 +508,8 @@ steps:
       from_secret: atlassian_skill_test_oauth_username
     ATLASSIAN_SKILL_TEST_OAUTH_PASSWORD:
       from_secret: atlassian_skill_test_oauth_password
-    ATLASSIAN_SKILL_TEST_CLOUD_ID:
-      from_secret: atlassian_skill_test_cloud_id
+    ATLASSIAN_SKILL_TEST_JIRA_CLOUD_ID:
+      from_secret: atlassian_skill_test_jira_cloud_id
     # Gmail credentials for MFA handling
     GMAIL_CREDENTIALS_BASE64:
       from_secret: gmail_credentials_base64
@@ -552,7 +552,7 @@ steps:
     - echo "GMAIL_CREDENTIALS_BASE64 length:" $(echo -n "${GMAIL_CREDENTIALS_BASE64}" | wc -c)
     - echo "ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID}" && echo "YES" || echo "NO")
     - echo "ATLASSIAN_SKILL_TEST_OAUTH_USERNAME is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_USERNAME}" && echo "YES" || echo "NO")
-    - echo "ATLASSIAN_SKILL_TEST_CLOUD_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_CLOUD_ID}" && echo "YES" || echo "NO")
+    - echo "ATLASSIAN_SKILL_TEST_JIRA_CLOUD_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_JIRA_CLOUD_ID}" && echo "YES" || echo "NO")
     - echo "=== Starting Jira OAuth Test ==="
     - ./scripts/run-oauth-integration-test.sh jira TestJiraOAuthSkillsE2E
   when:
@@ -599,8 +599,8 @@ steps:
       from_secret: atlassian_skill_test_oauth_username
     ATLASSIAN_SKILL_TEST_OAUTH_PASSWORD:
       from_secret: atlassian_skill_test_oauth_password
-    ATLASSIAN_SKILL_TEST_CLOUD_ID:
-      from_secret: atlassian_skill_test_cloud_id
+    ATLASSIAN_SKILL_TEST_CONFLUENCE_CLOUD_ID:
+      from_secret: atlassian_skill_test_confluence_cloud_id
     # Gmail credentials for MFA handling
     GMAIL_CREDENTIALS_BASE64:
       from_secret: gmail_credentials_base64
@@ -643,7 +643,7 @@ steps:
     - echo "GMAIL_CREDENTIALS_BASE64 length:" $(echo -n "${GMAIL_CREDENTIALS_BASE64}" | wc -c)
     - echo "ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID}" && echo "YES" || echo "NO")
     - echo "ATLASSIAN_SKILL_TEST_OAUTH_USERNAME is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_USERNAME}" && echo "YES" || echo "NO")
-    - echo "ATLASSIAN_SKILL_TEST_CLOUD_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_CLOUD_ID}" && echo "YES" || echo "NO")
+    - echo "ATLASSIAN_SKILL_TEST_CONFLUENCE_CLOUD_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_CONFLUENCE_CLOUD_ID}" && echo "YES" || echo "NO")
     - echo "=== Starting Confluence OAuth Test ==="
     - ./scripts/run-oauth-integration-test.sh confluence TestConfluenceOAuthSkillsE2E
   when:
