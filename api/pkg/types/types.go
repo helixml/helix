@@ -2019,6 +2019,7 @@ type TriggerConfiguration struct {
 	Created        time.Time          `json:"created"`
 	Updated        time.Time          `json:"updated"`
 	Archived       bool               `json:"archived"`
+	Enabled        bool               `json:"enabled"`
 	AppID          string             `json:"app_id"`          // App ID
 	OrganizationID string             `json:"organization_id"` // Organization ID
 	Owner          string             `json:"owner"`           // User ID
