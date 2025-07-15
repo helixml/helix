@@ -2,11 +2,27 @@ import os
 from typing import Optional
 
 
+def _build_pgvector_dsn() -> str:
+    """Build PGVECTOR_DSN from individual components or use existing DSN."""
+    # Check if individual components are provided
+    host = os.getenv("PGVECTOR_HOST")
+    port = os.getenv("PGVECTOR_PORT")
+    user = os.getenv("PGVECTOR_USER")
+    password = os.getenv("PGVECTOR_PASSWORD")
+    database = os.getenv("PGVECTOR_DATABASE")
+    
+    # If all individual components are provided, construct DSN
+    if all([host, user, password, database]):
+        port = port or "5432"  # Default port if not provided
+        return f"postgresql://{user}:{password}@{host}:{port}/{database}"
+    
+    # Otherwise, use the existing PGVECTOR_DSN or default
+    return os.getenv("PGVECTOR_DSN", "postgresql://postgres:postgres@pgvector:5432/postgres")
+
+
 class Settings:
     # PostgreSQL connection
-    PGVECTOR_DSN: str = os.getenv(
-        "PGVECTOR_DSN", "postgresql://postgres:postgres@pgvector:5432/postgres"
-    )
+    PGVECTOR_DSN: str = _build_pgvector_dsn()
     PGVECTOR_TABLE: str = os.getenv("PGVECTOR_TABLE", "haystack_documents")
 
     # Document processing
