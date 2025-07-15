@@ -2002,6 +2002,7 @@ type TriggerType string
 const (
 	TriggerTypeSlack       TriggerType = "slack"
 	TriggerTypeAzureDevOps TriggerType = "azure_devops"
+	TriggerTypeCron        TriggerType = "cron"
 	// TODO: discord
 )
 
@@ -2022,7 +2023,9 @@ type TriggerConfiguration struct {
 	Owner          string             `json:"owner"`           // User ID
 	OwnerType      OwnerType          `json:"owner_type"`      // User or Organization
 	Name           string             `json:"name"`            // Name of the trigger configuration
+	Description    string             `json:"description"`     // Description of the trigger configuration
 	Trigger        Trigger            `json:"trigger" gorm:"jsonb"`
+	TriggerType    TriggerType        `json:"trigger_type"`
 	Executions     []TriggerExecution `json:"executions" gorm:"foreignKey:TriggerConfigurationID"`
 
 	WebhookURL string `json:"webhook_url" gorm:"-"` // Webhook URL for the trigger configuration, applicable to webhook type triggers like Azure DevOps, GitHub, etc.

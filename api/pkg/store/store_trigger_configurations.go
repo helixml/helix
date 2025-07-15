@@ -28,8 +28,22 @@ func (s *PostgresStore) CreateTriggerConfiguration(ctx context.Context, triggerC
 		return nil, fmt.Errorf("app_id not specified")
 	}
 
+	var triggerType types.TriggerType
+
+	switch {
+	case triggerConfig.Trigger.Cron != nil:
+		triggerType = types.TriggerTypeCron
+	case triggerConfig.Trigger.AzureDevOps != nil:
+		triggerType = types.TriggerTypeAzureDevOps
+	case triggerConfig.Trigger.Slack != nil:
+		triggerType = types.TriggerTypeSlack
+	default:
+		return nil, fmt.Errorf("trigger type not specified")
+	}
+
 	triggerConfig.Created = time.Now()
 	triggerConfig.Updated = time.Now()
+	triggerConfig.TriggerType = triggerType
 
 	err := s.gdb.WithContext(ctx).Create(triggerConfig).Error
 	if err != nil {
@@ -112,6 +126,10 @@ func (s *PostgresStore) ListTriggerConfigurations(ctx context.Context, q *ListTr
 
 	if q.AppID != "" {
 		query = query.Where("app_id = ?", q.AppID)
+	}
+
+	if q.TriggerType != "" {
+		query = query.Where("trigger_type = ?", q.TriggerType)
 	}
 
 	err := query.Find(&triggerConfigs).Error

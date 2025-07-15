@@ -405,6 +405,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// Triggers provide an ability for users to create recurring tasks for agents or
 	// to connect an agent built by another user to their own slack/dicord/etc.
+	authRouter.HandleFunc("/triggers", system.Wrapper(apiServer.listTriggers)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps/{id}/triggers", system.Wrapper(apiServer.listAppTriggers)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/apps/{id}/triggers", system.Wrapper(apiServer.createAppTrigger)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/apps/{id}/triggers/{trigger_id}", system.Wrapper(apiServer.updateAppTrigger)).Methods(http.MethodPut)

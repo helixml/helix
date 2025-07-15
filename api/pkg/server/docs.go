@@ -2708,6 +2708,45 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/triggers": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all triggers configurations for either user or the org or user within an org",
+                "tags": [
+                    "apps"
+                ],
+                "summary": "List all triggers configurations for either user or the org or user within an org",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Trigger type, defaults to 'cron'",
+                        "name": "trigger_type",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.TriggerConfiguration"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users/search": {
             "get": {
                 "security": [
@@ -7319,6 +7358,10 @@ const docTemplate = `{
                 "created": {
                     "type": "string"
                 },
+                "description": {
+                    "description": "Description of the trigger configuration",
+                    "type": "string"
+                },
                 "executions": {
                     "type": "array",
                     "items": {
@@ -7350,6 +7393,9 @@ const docTemplate = `{
                 },
                 "trigger": {
                     "$ref": "#/definitions/types.Trigger"
+                },
+                "trigger_type": {
+                    "$ref": "#/definitions/types.TriggerType"
                 },
                 "updated": {
                     "type": "string"
@@ -7422,11 +7468,13 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "slack",
-                "azure_devops"
+                "azure_devops",
+                "cron"
             ],
             "x-enum-varnames": [
                 "TriggerTypeSlack",
-                "TriggerTypeAzureDevOps"
+                "TriggerTypeAzureDevOps",
+                "TriggerTypeCron"
             ]
         },
         "types.UpdateOrganizationMemberRequest": {
