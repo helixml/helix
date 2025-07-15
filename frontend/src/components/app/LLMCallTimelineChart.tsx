@@ -105,42 +105,96 @@ const getTooltipContent = (row: RowData): React.ReactNode => {
 
   if (row.action_info) {
     return (
-      <div>
-        <div style={{ fontWeight: 'bold' }}>Skill execution: {row.name}</div>
-        <div>Started: {formatTime(startTime)}</div>
-        <div>Finished: {formatTime(endTime)}</div>
-        <div>Duration: {formatMs(row.duration_ms)}</div>
+      <div >
+        <div style={{ fontWeight: 'bold', display: 'flex', justifyContent: 'space-between' }}>
+          <span>Skill execution:</span>
+          <span>{row.name}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>Started:</span>
+          <span>{formatTime(startTime)}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>Finished:</span>
+          <span>{formatTime(endTime)}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>Duration:</span>
+          <span>{formatMs(row.duration_ms)}</span>
+        </div>
         {row.action_info.details?.arguments && Object.keys(row.action_info.details.arguments).length > 0 && (
           <>
             <div style={{ marginTop: '4px', fontWeight: 'bold' }}>Arguments:</div>
             {Object.entries(row.action_info.details.arguments).map(([key, value]) => (
-              <div key={key} style={{ marginLeft: '8px' }}>
-                - {key}: {JSON.stringify(value)}
+              <div key={key} style={{ marginLeft: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                <span>- {key}:</span>
+                <span>{JSON.stringify(value)}</span>
               </div>
             ))}
           </>
         )}
         {row.action_info.error ? (
-          <div style={{ marginTop: '4px', color: 'red' }}>Error: {row.action_info.error}</div>
+          <div style={{ marginTop: '4px', color: 'red', display: 'flex', justifyContent: 'space-between' }}>
+            <span>Error:</span>
+            <span>{row.action_info.error}</span>
+          </div>
         ) : row.action_info.message && (
-          <div style={{ marginTop: '4px' }}>Response: {row.action_info.message.length > 100 ? `${row.action_info.message.substring(0, 100)}...` : row.action_info.message}</div>
+          <div style={{ marginTop: '4px', display: 'flex', justifyContent: 'space-between' }}>
+            <span>Response:</span>
+            <span>{row.action_info.message.length > 100 ? `${row.action_info.message.substring(0, 100)}...` : row.action_info.message}</span>
+          </div>
         )}
       </div>
     );
   }
 
   const content: React.ReactNode[] = [
-    <div key="times">
-      Started: {formatTime(startTime)}<br />
-      Finished: {formatTime(endTime)}
+    <div key="times" style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <span>Started:</span>
+      <span>{formatTime(startTime)}</span>
     </div>,
-    <div key="duration">Duration: {formatMs(row.duration_ms)}</div>
+    <div key="times2" style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <span>Finished:</span>
+      <span>{formatTime(endTime)}</span>
+    </div>
   ];
+
+  // Add token information for LLM calls
+  if (row.llm_call) {
+    if (row.llm_call.prompt_tokens) {
+      content.push(
+        <div key="prompt_tokens" style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>Prompt Tokens:</span>
+          <span>{row.llm_call.prompt_tokens}</span>
+        </div>
+      );
+    }
+    if (row.llm_call.completion_tokens) {
+      content.push(
+        <div key="completion_tokens" style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>Completion Tokens:</span>
+          <span>{row.llm_call.completion_tokens}</span>
+        </div>
+      );
+    }
+  }
+
+  content.push(
+    <div key="duration" style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <span>Duration:</span>
+      <span>{formatMs(row.duration_ms)}</span>
+    </div>
+  );
 
   if (row.llm_call) {
     if (row.llm_call.step?.startsWith('skill_context_runner') && row.llm_call.request) {
       const reasoningEffort = getReasoningEffort(row.llm_call.request);
-      content.push(<div key="reasoning">Reasoning Effort: {reasoningEffort}</div>);
+      content.push(
+        <div key="reasoning" style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>Reasoning Effort:</span>
+          <span>{reasoningEffort}</span>
+        </div>
+      );
     }
 
     if ((row.llm_call.step === 'decide_next_action' || row.llm_call.step === 'summarize_multiple_tool_results') && row.llm_call.response) {
@@ -148,7 +202,7 @@ const getTooltipContent = (row: RowData): React.ReactNode => {
       if (toolCalls.length > 0) {
         content.push(
           <div key="toolcalls">
-            <div>Tool Calls:</div>
+            <div style={{ fontWeight: 'bold' }}>Tool Calls:</div>
             <ul style={{ margin: 0, paddingLeft: 18 }}>
               {toolCalls.map((tc, idx) => (
                 <li key={idx}>{tc.function?.name || 'Unknown'}</li>
@@ -156,16 +210,21 @@ const getTooltipContent = (row: RowData): React.ReactNode => {
             </ul>
           </div>
         );
-      } else {
-        const message = getAssistantMessage(row.llm_call.response);
-        if (message !== 'n/a') {
-          content.push(<div key="message">Message: {message}</div>);
+              } else {
+          const message = getAssistantMessage(row.llm_call.response);
+          if (message !== 'n/a') {
+            content.push(
+              <div key="message">
+                <div style={{ fontWeight: 'bold' }}>Message:</div>
+                <div style={{ marginTop: '4px' }}>{message.length > 100 ? `${message.substring(0, 100)}...` : message}</div>
+              </div>
+            );
+          }
         }
-      }
     }
   }
 
-  return <div>{content}</div>;
+  return <div style={{ minWidth: '300px' }}>{content}</div>;
 };
 
 const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHoverCallId, highlightedCallId, appId, interactionId }) => {
@@ -430,7 +489,6 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
                       textAnchor="end"
                       opacity={0.7}
                     >
-                      Details
                     </text>
                   )}
                   {d.llm_call && (
@@ -444,7 +502,6 @@ const LLMCallTimelineChart: React.FC<LLMCallTimelineChartProps> = ({ calls, onHo
                       textAnchor="end"
                       opacity={0.7}
                     >
-                      Details
                     </text>
                   )}
                 </g>

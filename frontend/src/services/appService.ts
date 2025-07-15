@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesTriggerConfiguration } from '../api/api';
+import { TypesTriggerConfiguration, TypesUsersAggregatedUsageMetric } from '../api/api';
 
 export const appStepsQueryKey = (id: string, interactionId: string) => [
   "app-steps",
@@ -37,6 +37,14 @@ export const deleteAppTriggerMutationKey = (appId: string, triggerId: string) =>
   "delete-app-trigger",
   appId,
   triggerId
+];
+
+// App usage query key
+export const appUsageQueryKey = (appId: string, from: string, to: string) => [
+  "app-usage",
+  appId,
+  from,
+  to
 ];
 
 // useListSessionSteps returns the steps for a session, it includes
@@ -160,5 +168,18 @@ export function useDeleteAppAvatar(appId: string) {
 
   return useMutation({
     mutationFn: () => apiClient.v1AppsAvatarDelete(appId)
+  })
+}
+
+export function useGetAppUsage(appId: string, from: string, to: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: appUsageQueryKey(appId, from, to), 
+    queryFn: async () => {
+      const response = await apiClient.v1AppsUsersDailyUsageDetail(appId, { from, to })
+      return response.data as unknown as TypesUsersAggregatedUsageMetric[]
+    },
   })
 }

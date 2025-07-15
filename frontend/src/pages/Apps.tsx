@@ -23,8 +23,7 @@ import {
 const Apps: FC = () => {
   const account = useAccount()
   const apps = useApps()
-  const snackbar = useSnackbar()
-  const api = useApi()
+  const snackbar = useSnackbar()  
   
   const {
     params,
