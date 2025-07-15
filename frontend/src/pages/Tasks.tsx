@@ -28,8 +28,7 @@ const Tasks: FC = () => {
   const [activeTab, setActiveTab] = useState(0)
 
   const { data: triggers, isLoading } = useListUserCronTriggers(
-    account.organizationTools.organization?.id || '',
-    { enabled: !!account.organizationTools.organization?.id }
+    account.organizationTools.organization?.id || ''
   )
 
   useEffect(() => {
