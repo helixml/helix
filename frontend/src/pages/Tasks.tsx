@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useEffect, useState } from 'react'
 import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import Container from '@mui/material/Container'
@@ -16,10 +16,13 @@ import EmptyTasksState from '../components/tasks/EmptyTasksState'
 
 import { useListUserCronTriggers } from '../services/appService'
 import useAccount from '../hooks/useAccount'
+import useApps from '../hooks/useApps'
+
 import { TypesTriggerConfiguration } from '../api/api'
 
 const Tasks: FC = () => {
   const account = useAccount()
+  const apps = useApps()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<TypesTriggerConfiguration | undefined>()
   const [activeTab, setActiveTab] = useState(0)
@@ -28,6 +31,12 @@ const Tasks: FC = () => {
     account.organizationTools.organization?.id || '',
     { enabled: !!account.organizationTools.organization?.id }
   )
+
+  useEffect(() => {
+    apps.loadApps()
+  }, [
+    apps.loadApps,
+  ])
 
   const handleCreateTask = () => {
     setSelectedTask(undefined)
@@ -130,6 +139,7 @@ const Tasks: FC = () => {
         open={dialogOpen}
         onClose={handleCloseDialog}
         task={selectedTask}
+        apps={apps.apps}
       />
     </Page>
   )

@@ -16,31 +16,22 @@ import SearchIcon from '@mui/icons-material/Search';
 import DarkDialog from '../dialog/DarkDialog';
 import ScheduleSelector, { ScheduleType } from './ScheduleSelector';
 import AgentSelector from './AgentSelector';
-
-import useApps from '../../hooks/useApps'
+import { IApp } from '../../types'
 
 interface TaskDialogProps {
   open: boolean;
   onClose: () => void;
   task?: any; // Will be properly typed when we implement the full dialog
+  apps: IApp[]; // Agents
 }
 
-// Mock agents data - replace with actual data from your app
-const mockAgents = [
-  { id: '1', name: 'Assistant Agent', description: 'General purpose assistant' },
-  { id: '2', name: 'Email Agent', description: 'Handles email tasks' },
-  { id: '3', name: 'Research Agent', description: 'Research and analysis tasks' },
-];
-
-const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task }) => {
+const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) => {
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduleType>('daily');
-  const [selectedAgent, setSelectedAgent] = useState(mockAgents[0]);
+  const [selectedAgent, setSelectedAgent] = useState(apps[0]);
   const [time, setTime] = useState('23:20'); // 11:20 PM in 24-hour format
   const [prompt, setPrompt] = useState('');
   const [characterCount, setCharacterCount] = useState(0);
   const maxCharacters = 2000;
-
-  const apps = useApps()
 
   const handlePromptChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value;
@@ -70,12 +61,6 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task }) => {
     const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
     return `${displayHour}:${minutes} ${ampm}`;
   };
-
-  useEffect(() => {
-    apps.loadApps()
-  }, [
-    apps.loadApps,
-  ])
 
   return (
     <DarkDialog
@@ -225,8 +210,8 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task }) => {
             />
           </Box>
 
-          {/* Task Limit Display */}
-          <Box sx={{ 
+          {/* TODO: Task Limit Display */}
+          {/* <Box sx={{ 
             display: 'flex', 
             alignItems: 'center', 
             gap: 1,
@@ -248,7 +233,7 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task }) => {
                 Current: 0/2 daily tasks active
               </Typography>
             </Box>
-          </Box>
+          </Box> */}
         </Box>
       </DialogContent>
 
@@ -262,7 +247,7 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task }) => {
         <Box sx={{ display: 'flex', gap: 1 }}>
           {/* Agent Selector */}
           <AgentSelector
-            agents={mockAgents}
+            apps={apps}
             selectedAgent={selectedAgent}
             onAgentSelect={setSelectedAgent}
           />  
