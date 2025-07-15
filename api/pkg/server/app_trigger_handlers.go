@@ -248,6 +248,7 @@ func (s *HelixAPIServer) updateAppTrigger(_ http.ResponseWriter, r *http.Request
 	existingTrigger.Name = updatedTrigger.Name
 	existingTrigger.Description = updatedTrigger.Description
 	existingTrigger.Trigger = updatedTrigger.Trigger
+	existingTrigger.Archived = updatedTrigger.Archived
 
 	// Update the trigger configuration
 	updated, err := s.Store.UpdateTriggerConfiguration(ctx, existingTrigger)
