@@ -327,291 +327,434 @@ func (s *AtlassianProviderStrategy) HandleSiteSelection(page *rod.Page, screensh
 	s.logger.Info().Msg("Checking for error page during site selection")
 	err := s.expandErrorDetails(page)
 	if err != nil {
-		return fmt.Errorf("error page detected during site selection: %w", err)
+		s.logger.Warn().Err(err).Msg("Error expanding error details during site selection")
 	}
 
-	// Look for the site selection dropdown using multiple strategies
+	// Try more targeted selectors for the dropdown button/trigger
+	s.logger.Info().Msg("Looking for site dropdown trigger")
+
 	dropdownSelectors := []string{
-		`button[role="combobox"]`,
-		`div[role="combobox"]`,
-		`[data-testid="site-selector"]`,
-		`[data-testid="site-picker"]`,
-		`select[name="site"]`,
-		`select[name="resourceId"]`,
-		`button[aria-haspopup="true"]`,
-		`div[aria-haspopup="true"]`,
+		`div.site-selector`,                   // React Select container
+		`div.css-1vrwmt7-control`,             // React Select control element
+		`.site-selector .css-1vrwmt7-control`, // More specific React Select control
+		`div:contains("Choose a site")`,       // Div with the dropdown text
+		`select`,                              // Standard select element (fallback)
+		`button[aria-haspopup="listbox"]`,     // Button with dropdown role (fallback)
+		`div[role="button"]`,                  // Div acting as button (fallback)
 	}
 
-	var dropdownElement *rod.Element
-	var foundSelector string
+	var dropdownTrigger *rod.Element
+	var lastError error
 
-	// Try to find dropdown by selectors first
 	for _, selector := range dropdownSelectors {
-		s.logger.Info().Str("selector", selector).Msg("Trying site dropdown selector")
-		element, err := page.Timeout(5 * time.Second).Element(selector)
-		if err == nil {
-			dropdownElement = element
-			foundSelector = selector
-			s.logger.Info().Str("selector", selector).Msg("Found site dropdown element")
-			break
+		s.logger.Info().Str("selector", selector).Msg("Trying dropdown selector")
+
+		element, err := page.Timeout(10 * time.Second).Element(selector)
+		if err != nil {
+			lastError = err
+			continue
 		}
-	}
 
-	// If not found by selectors, try to find by text content
-	if dropdownElement == nil {
-		s.logger.Info().Msg("Dropdown not found by selectors, trying to find by text content")
+		// Check if element is visible and clickable
+		visible, visErr := element.Visible()
+		if visErr != nil || !visible {
+			s.logger.Info().Str("selector", selector).Msg("Element not visible, skipping")
+			continue
+		}
 
-		// Find all buttons and divs that might contain the dropdown text
-		allElements, err := page.Elements(`button, div`)
-		if err == nil {
-			for _, element := range allElements {
-				// Add nil check for element
-				if element == nil {
-					continue
-				}
-
-				text, err := element.Text()
-				if err == nil && (strings.Contains(text, "Choose a site") || strings.Contains(text, "Use app on")) {
-					// Validate that the element is actually interactable
-					visible, visErr := element.Visible()
-					if visErr != nil || !visible {
-						s.logger.Info().Str("text", text).Msg("Found text but element not visible, skipping")
-						continue
-					}
-
-					// Check if element is clickable (has click handlers or is a button/div with role)
-					tagName, tagErr := element.Property("tagName")
-					role, roleErr := element.Attribute("role")
-
-					tagStr := "unknown"
-					if tagErr == nil {
-						tagStr = strings.ToLower(tagName.String())
-					}
-
-					roleStr := ""
-					if roleErr == nil && role != nil {
-						roleStr = *role
-					}
-
-					// Only accept elements that are likely to be clickable dropdowns
-					if tagStr == "button" || strings.Contains(roleStr, "combobox") || strings.Contains(roleStr, "button") {
-						dropdownElement = element
-						foundSelector = "text-based"
-						s.logger.Info().Str("text", text).Str("tag", tagStr).Str("role", roleStr).Msg("Found dropdown by text content")
-						break
-					} else {
-						s.logger.Info().Str("text", text).Str("tag", tagStr).Str("role", roleStr).Msg("Found text but element not clickable, skipping")
-					}
-				}
+		// For text-based selectors, ensure the text actually contains "Choose a site"
+		if strings.Contains(selector, "Choose a site") {
+			text, textErr := element.Text()
+			if textErr != nil || !strings.Contains(text, "Choose a site") {
+				s.logger.Info().Str("selector", selector).Str("text", text).Msg("Element text doesn't match, skipping")
+				continue
 			}
 		}
+
+		dropdownTrigger = element
+		s.logger.Info().Str("selector", selector).Msg("Found dropdown trigger")
+		break
 	}
 
-	if dropdownElement == nil {
-		s.logger.Warn().Msg("Site dropdown not found, site may already be selected")
-		// Screenshot for debugging when dropdown not found
+	if dropdownTrigger == nil {
+		s.logger.Warn().Err(lastError).Msg("Site dropdown trigger not found")
 		if screenshotTaker != nil {
 			screenshotTaker.TakeScreenshot(page, "atlassian_03_dropdown_not_found")
 		}
-		return nil
+		return fmt.Errorf("site dropdown trigger not found: %w", lastError)
 	}
 
-	// Screenshot 3: After finding dropdown element, before clicking it
+	// Screenshot 3: Before clicking dropdown
 	if screenshotTaker != nil {
-		screenshotTaker.TakeScreenshot(page, "atlassian_03_dropdown_found")
+		screenshotTaker.TakeScreenshot(page, "atlassian_03_before_dropdown_click")
 	}
 
-	// Additional safety check to ensure dropdown element is still valid
-	if dropdownElement == nil {
-		s.logger.Error().Msg("Dropdown element became nil after finding it")
-		return fmt.Errorf("dropdown element became nil")
-	}
-
-	// Debug: Log dropdown element properties with safe access
-	dropdownText, textErr := dropdownElement.Text()
-	if textErr != nil {
-		s.logger.Warn().Err(textErr).Msg("Failed to get dropdown text")
-		dropdownText = "unable to get text"
-	}
-
-	dropdownTagName, tagErr := dropdownElement.Property("tagName")
-	dropdownClasses, classErr := dropdownElement.Attribute("class")
-
-	// Safe string conversion with error checks
-	tagName := "unknown"
-	if tagErr == nil {
-		tagName = dropdownTagName.String()
-	}
-
-	classes := "unknown"
-	if classErr == nil && dropdownClasses != nil {
-		classes = *dropdownClasses
-	}
-
-	s.logger.Info().
-		Str("selector", foundSelector).
-		Str("text", dropdownText).
-		Str("tag_name", tagName).
-		Str("classes", classes).
-		Msg("Dropdown element details")
-
-	// Click the dropdown to open it
-	s.logger.Info().Msg("Clicking site dropdown to open it")
-	err = dropdownElement.Click(proto.InputMouseButtonLeft, 1)
-	if err != nil {
-		// Try scrolling to element first, then clicking
-		s.logger.Info().Msg("Regular click failed, trying to scroll to element first")
-		err = dropdownElement.ScrollIntoView()
-		if err == nil {
-			time.Sleep(1 * time.Second)
-			err = dropdownElement.Click(proto.InputMouseButtonLeft, 1)
-		}
-
-		if err != nil {
-			// Screenshot for debugging click failure
-			if screenshotTaker != nil {
-				screenshotTaker.TakeScreenshot(page, "atlassian_04_dropdown_click_failed")
+	// DEBUG: Dump HTML structure around the dropdown area
+	s.logger.Info().Msg("=== DUMPING HTML STRUCTURE AROUND DROPDOWN ===")
+	htmlContent, err := page.MustWaitLoad().Eval(`() => {
+		// Find elements that might be the dropdown
+		const selectors = [
+			'select',
+			'button[aria-haspopup="listbox"]',
+			'button[aria-expanded="false"]',
+			'button[aria-expanded="true"]',
+			'div[role="button"]',
+			'*[class*="dropdown"]',
+			'*[class*="select"]',
+			'*:contains("Choose a site")',
+		];
+		
+		let result = "=== DROPDOWN AREA HTML STRUCTURE ===\n";
+		
+		// Try to find dropdown-related elements
+		for (let selector of selectors) {
+			try {
+				let elements;
+				if (selector.includes(':contains')) {
+					// For contains selector, search manually
+					elements = Array.from(document.querySelectorAll('*')).filter(el => 
+						el.textContent && el.textContent.includes('Choose a site')
+					);
+				} else {
+					elements = document.querySelectorAll(selector);
+				}
+				
+				if (elements.length > 0) {
+					result += "\n--- SELECTOR: " + selector + " ---\n";
+					for (let i = 0; i < Math.min(elements.length, 3); i++) {
+						let el = elements[i];
+						result += "Element " + i + ":\n";
+						result += "  Tag: " + el.tagName + "\n";
+						result += "  Text: " + (el.textContent || '').trim().substring(0, 100) + "\n";
+						result += "  Class: " + (el.className || '') + "\n";
+						result += "  ID: " + (el.id || '') + "\n";
+						result += "  Aria-expanded: " + (el.getAttribute('aria-expanded') || 'none') + "\n";
+						result += "  Aria-haspopup: " + (el.getAttribute('aria-haspopup') || 'none') + "\n";
+						result += "  HTML: " + el.outerHTML.substring(0, 200) + "...\n";
+						result += "  Parent HTML: " + (el.parentElement ? el.parentElement.outerHTML.substring(0, 200) : 'none') + "...\n";
+						result += "\n";
+					}
+				}
+			} catch (e) {
+				result += "Error with selector " + selector + ": " + e.message + "\n";
 			}
-			return fmt.Errorf("failed to click dropdown: %w", err)
 		}
+		
+		return result;
+	}`)
+
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to dump HTML structure")
+	} else {
+		s.logger.Info().Str("html_structure", htmlContent.Value.Str()).Msg("Dropdown HTML structure")
+	}
+	s.logger.Info().Msg("=== END HTML STRUCTURE DUMP ===")
+
+	// Click the dropdown trigger to open it
+	s.logger.Info().Msg("Clicking dropdown trigger to open site selection")
+	err = dropdownTrigger.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to click dropdown trigger")
+		return fmt.Errorf("failed to click dropdown trigger: %w", err)
 	}
 
-	// Screenshot 4: Immediately after clicking dropdown
+	// Wait for dropdown to open
+	time.Sleep(2 * time.Second)
+
+	// Screenshot 4: After clicking dropdown (should show options)
 	if screenshotTaker != nil {
-		screenshotTaker.TakeScreenshot(page, "atlassian_04_dropdown_clicked")
+		screenshotTaker.TakeScreenshot(page, "atlassian_04_dropdown_opened")
 	}
 
-	// Wait for dropdown to open and options to load
-	time.Sleep(3 * time.Second)
+	// DEBUG: Dump HTML structure again after clicking to see if it changed
+	s.logger.Info().Msg("=== DUMPING HTML STRUCTURE AFTER CLICKING ===")
+	htmlContentAfter, err := page.MustWaitLoad().Eval(`() => {
+		// Check if dropdown is now open
+		let result = "=== DROPDOWN STATE AFTER CLICK ===\n";
+		
+		// Look for opened dropdown indicators
+		const openSelectors = [
+			'button[aria-expanded="true"]',
+			'*[class*="open"]',
+			'*[class*="expanded"]',
+			'ul[role="listbox"]',
+			'div[role="listbox"]',
+			'option',
+			'li[role="option"]',
+		];
+		
+		for (let selector of openSelectors) {
+			try {
+				let elements = document.querySelectorAll(selector);
+				if (elements.length > 0) {
+					result += "\n--- OPEN SELECTOR: " + selector + " (Found " + elements.length + " elements) ---\n";
+					for (let i = 0; i < Math.min(elements.length, 5); i++) {
+						let el = elements[i];
+						result += "Element " + i + ":\n";
+						result += "  Tag: " + el.tagName + "\n";
+						result += "  Text: " + (el.textContent || '').trim().substring(0, 100) + "\n";
+						result += "  Class: " + (el.className || '') + "\n";
+						result += "  ID: " + (el.id || '') + "\n";
+						result += "  Visible: " + (el.offsetWidth > 0 && el.offsetHeight > 0) + "\n";
+						result += "  HTML: " + el.outerHTML.substring(0, 200) + "...\n";
+						result += "\n";
+					}
+				}
+			} catch (e) {
+				result += "Error with selector " + selector + ": " + e.message + "\n";
+			}
+		}
+		
+		return result;
+	}`)
 
-	// Screenshot 5: After waiting for dropdown to open
-	if screenshotTaker != nil {
-		screenshotTaker.TakeScreenshot(page, "atlassian_05_dropdown_opened")
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to dump HTML structure after click")
+	} else {
+		s.logger.Info().Str("html_structure_after", htmlContentAfter.Value.Str()).Msg("Dropdown HTML structure after click")
 	}
+	s.logger.Info().Msg("=== END HTML STRUCTURE DUMP AFTER CLICK ===")
 
-	// Find the site option by text content using Rod's proper methods
-	s.logger.Info().Str("site_name", s.siteName).Msg("Looking for site option by text content")
-
-	var siteElement *rod.Element
-
-	// Strategy 1: Look for elements that contain the site name
-	allElements, err := page.Elements(`li, div, option, span, button`)
+	// DEBUG: Log all available options in the dropdown
+	s.logger.Info().Msg("=== DEBUGGING DROPDOWN OPTIONS ===")
+	allOptions, err := page.Elements("option, li, div, span, button, a")
 	if err == nil {
-		for _, element := range allElements {
-			text, err := element.Text()
-			if err == nil && strings.Contains(text, s.siteName) {
-				// Additional check: make sure it's clickable and visible
-				visible, err := element.Visible()
-				if err == nil && visible {
-					siteElement = element
-					s.logger.Info().Str("text", text).Msg("Found site option by text content")
+		s.logger.Info().Int("total_elements", len(allOptions)).Msg("Found elements in dropdown area")
+		for i, option := range allOptions {
+			if i > 50 { // Limit output to avoid spam
+				s.logger.Info().Msg("... (truncated remaining elements)")
+				break
+			}
+
+			text, textErr := option.Text()
+			if textErr != nil {
+				text = "(error getting text)"
+			}
+
+			// Skip empty text elements
+			if strings.TrimSpace(text) == "" {
+				continue
+			}
+
+			// Get element attributes
+			tagName, _ := option.Eval("() => this.tagName")
+			className, _ := option.Attribute("class")
+			dataValue, _ := option.Attribute("data-value")
+			value, _ := option.Attribute("value")
+
+			classStr := ""
+			if className != nil {
+				classStr = *className
+			}
+			dataValueStr := ""
+			if dataValue != nil {
+				dataValueStr = *dataValue
+			}
+			valueStr := ""
+			if value != nil {
+				valueStr = *value
+			}
+
+			s.logger.Info().
+				Int("index", i).
+				Str("tag", tagName.Value.Str()).
+				Str("text", text).
+				Str("class", classStr).
+				Str("data-value", dataValueStr).
+				Str("value", valueStr).
+				Msg("Dropdown option found")
+		}
+	} else {
+		s.logger.Warn().Err(err).Msg("Failed to get dropdown options for debugging")
+	}
+	s.logger.Info().Msg("=== END DROPDOWN OPTIONS DEBUG ===")
+
+	// Now look for the specific site option in the dropdown
+	s.logger.Info().Str("site_name", s.siteName).Msg("Looking for specific site in dropdown options")
+
+	// Try various selectors for dropdown options
+	optionSelectors := []string{
+		// React Select specific selectors based on debug output
+		fmt.Sprintf(`div[id="react-select-2-option-0"]:contains("%s")`, s.siteName), // First option
+		fmt.Sprintf(`div[id="react-select-2-option-1"]:contains("%s")`, s.siteName), // Second option
+		fmt.Sprintf(`div[id*="react-select-2-option"]:contains("%s")`, s.siteName),  // Any option
+		fmt.Sprintf(`div.css-1npl3hl-option:contains("%s")`, s.siteName),            // Option class from debug
+		fmt.Sprintf(`div[role="option"]:contains("%s")`, s.siteName),                // React Select option with role
+		fmt.Sprintf(`.css-1n7v3ny-option:contains("%s")`, s.siteName),               // React Select option class
+		fmt.Sprintf(`div[id*="option"]:contains("%s")`, s.siteName),                 // React Select option with ID
+		fmt.Sprintf(`div.css-1ep3b46-option:contains("%s")`, s.siteName),            // Another React Select option class
+		// Standard selectors as fallback
+		fmt.Sprintf(`option:contains("%s")`, s.siteName), // Standard option element
+		fmt.Sprintf(`li:contains("%s")`, s.siteName),     // List item option
+		fmt.Sprintf(`div:contains("%s")`, s.siteName),    // Div option
+		fmt.Sprintf(`span:contains("%s")`, s.siteName),   // Span option
+		fmt.Sprintf(`button:contains("%s")`, s.siteName), // Button option
+		fmt.Sprintf(`a:contains("%s")`, s.siteName),      // Link option
+		fmt.Sprintf(`[data-value="%s"]`, s.siteName),     // Data attribute
+		fmt.Sprintf(`[value="%s"]`, s.siteName),          // Value attribute
+	}
+
+	var siteOption *rod.Element
+
+	for _, selector := range optionSelectors {
+		s.logger.Info().Str("selector", selector).Msg("Trying site option selector")
+
+		element, err := page.Timeout(10 * time.Second).Element(selector)
+		if err != nil {
+			continue
+		}
+
+		// Check if element is visible and clickable
+		visible, visErr := element.Visible()
+		if visErr != nil || !visible {
+			s.logger.Info().Str("selector", selector).Msg("Site option not visible, skipping")
+			continue
+		}
+
+		// For text-based selectors, verify the text contains the site name
+		if strings.Contains(selector, ":contains(") {
+			text, textErr := element.Text()
+			if textErr != nil || !strings.Contains(text, s.siteName) {
+				s.logger.Info().Str("selector", selector).Str("text", text).Msg("Site option text doesn't match, skipping")
+				continue
+			}
+		}
+
+		siteOption = element
+		s.logger.Info().Str("selector", selector).Msg("Found site option")
+		break
+	}
+
+	// If no exact match found, try partial matches
+	if siteOption == nil {
+		s.logger.Info().Str("site_name", s.siteName).Msg("No exact match found, trying partial matches")
+
+		// Try different variations of the site name
+		siteVariations := []string{
+			s.siteName, // Original: "helixml-confluence"
+			strings.Replace(s.siteName, "-", " ", -1), // "helixml confluence"
+			strings.ToLower(s.siteName),               // "helixml-confluence"
+			strings.ToUpper(s.siteName),               // "HELIXML-CONFLUENCE"
+			strings.Title(s.siteName),                 // "Helixml-Confluence"
+		}
+
+		// Also try just the base name without suffix
+		if strings.Contains(s.siteName, "-") {
+			parts := strings.Split(s.siteName, "-")
+			if len(parts) > 0 {
+				siteVariations = append(siteVariations, parts[0]) // "helixml"
+			}
+		}
+
+		for _, variation := range siteVariations {
+			s.logger.Info().Str("variation", variation).Msg("Trying site name variation")
+
+			partialSelectors := []string{
+				// React Select specific selectors based on debug output
+				fmt.Sprintf(`div[id="react-select-2-option-0"]:contains("%s")`, variation),
+				fmt.Sprintf(`div[id="react-select-2-option-1"]:contains("%s")`, variation),
+				fmt.Sprintf(`div[id*="react-select-2-option"]:contains("%s")`, variation),
+				fmt.Sprintf(`div.css-1npl3hl-option:contains("%s")`, variation),
+				fmt.Sprintf(`div[role="option"]:contains("%s")`, variation),
+				fmt.Sprintf(`.css-1n7v3ny-option:contains("%s")`, variation),
+				fmt.Sprintf(`div[id*="option"]:contains("%s")`, variation),
+				fmt.Sprintf(`div.css-1ep3b46-option:contains("%s")`, variation),
+				// Standard selectors
+				fmt.Sprintf(`option:contains("%s")`, variation),
+				fmt.Sprintf(`li:contains("%s")`, variation),
+				fmt.Sprintf(`div:contains("%s")`, variation),
+				fmt.Sprintf(`span:contains("%s")`, variation),
+				fmt.Sprintf(`button:contains("%s")`, variation),
+				fmt.Sprintf(`a:contains("%s")`, variation),
+			}
+
+			for _, selector := range partialSelectors {
+				element, err := page.Timeout(5 * time.Second).Element(selector)
+				if err != nil {
+					continue
+				}
+
+				visible, visErr := element.Visible()
+				if visErr != nil || !visible {
+					continue
+				}
+
+				text, textErr := element.Text()
+				if textErr != nil {
+					continue
+				}
+
+				// Check if the text contains the variation (case-insensitive)
+				if strings.Contains(strings.ToLower(text), strings.ToLower(variation)) {
+					siteOption = element
+					s.logger.Info().Str("variation", variation).Str("text", text).Str("selector", selector).Msg("Found site option with partial match")
 					break
 				}
 			}
-		}
-	}
 
-	// Strategy 2: If not found, try aria-label or data attributes
-	if siteElement == nil {
-		s.logger.Info().Msg("Site not found by text, trying aria-label and data attributes")
-
-		attrSelectors := []string{
-			fmt.Sprintf(`[aria-label*="%s"]`, s.siteName),
-			fmt.Sprintf(`[data-value*="%s"]`, s.siteName),
-			fmt.Sprintf(`[data-site*="%s"]`, s.siteName),
-			fmt.Sprintf(`[title*="%s"]`, s.siteName),
-		}
-
-		for _, selector := range attrSelectors {
-			element, err := page.Timeout(2 * time.Second).Element(selector)
-			if err == nil {
-				siteElement = element
-				s.logger.Info().Str("selector", selector).Msg("Found site option by attribute")
+			if siteOption != nil {
 				break
 			}
 		}
 	}
 
-	// Strategy 3: If still not found, log all available options for debugging
-	if siteElement == nil {
-		s.logger.Warn().Str("site_name", s.siteName).Msg("Site not found, logging all available options")
-
-		allOptions, err := page.Elements(`li, div, option, span`)
-		if err == nil {
-			for i, option := range allOptions {
-				if i > 30 { // Limit to avoid spam
-					break
-				}
-				text, err := option.Text()
-				if err == nil && text != "" && len(text) < 200 {
-					visible, _ := option.Visible()
-					s.logger.Info().
-						Int("index", i).
-						Str("text", text).
-						Bool("visible", visible).
-						Msg("Available option")
-				}
-			}
+	// Try direct click on first option as fallback
+	if siteOption == nil {
+		s.logger.Info().Msg("No exact or partial match found, trying to click first option")
+		firstOptionSelectors := []string{
+			`div[id="react-select-2-option-0"]`,                  // First option by ID
+			`div[role="option"][aria-selected="false"]`,          // First unselected option
+			`div[role="option"]:first-child`,                     // First option child
+			`div.css-1npl3hl-option:first-child`,                 // First option with class
+			`div[role="listbox"] div[role="option"]:first-child`, // First option in listbox
 		}
 
-		// Screenshot for debugging when site not found
+		for _, selector := range firstOptionSelectors {
+			s.logger.Info().Str("selector", selector).Msg("Trying first option selector")
+			elements, err := page.Elements(selector)
+			if err != nil {
+				s.logger.Debug().Err(err).Str("selector", selector).Msg("Failed to find elements")
+				continue
+			}
+
+			if len(elements) > 0 {
+				s.logger.Info().Str("selector", selector).Msg("Found first option, clicking it")
+				siteOption = elements[0]
+				break
+			}
+		}
+	}
+
+	if siteOption == nil {
+		s.logger.Warn().Str("site_name", s.siteName).Msg("Site option not found in dropdown")
 		if screenshotTaker != nil {
-			screenshotTaker.TakeScreenshot(page, "atlassian_06_site_not_found")
+			screenshotTaker.TakeScreenshot(page, "atlassian_05_site_option_not_found")
 		}
-		return fmt.Errorf("site '%s' not found in dropdown options", s.siteName)
+		return fmt.Errorf("site option '%s' not found in dropdown", s.siteName)
 	}
 
-	// Screenshot 6: After finding site option, before clicking it
+	// Screenshot 5: Before clicking site option
 	if screenshotTaker != nil {
-		screenshotTaker.TakeScreenshot(page, "atlassian_06_site_option_found")
+		screenshotTaker.TakeScreenshot(page, "atlassian_05_before_site_selection")
 	}
 
-	// Debug: Log site element properties
-	siteText, _ := siteElement.Text()
-	siteTagName, _ := siteElement.Property("tagName")
-	siteClasses, _ := siteElement.Attribute("class")
-	s.logger.Info().
-		Str("text", siteText).
-		Str("tag_name", siteTagName.String()).
-		Str("classes", *siteClasses).
-		Msg("Site element details")
-
-	// Click the site option
-	s.logger.Info().Str("site", s.siteName).Msg("Clicking site option")
-
-	err = siteElement.Click(proto.InputMouseButtonLeft, 1)
+	// Click the site option to select it
+	s.logger.Info().Str("site_name", s.siteName).Msg("Clicking site option to select it")
+	err = siteOption.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
 	if err != nil {
-		// Try scrolling to element first, then clicking
-		s.logger.Info().Msg("Regular click failed, trying to scroll to element first")
-		err = siteElement.ScrollIntoView()
-		if err == nil {
-			time.Sleep(1 * time.Second)
-			err = siteElement.Click(proto.InputMouseButtonLeft, 1)
-		}
-
-		if err != nil {
-			// Screenshot for debugging click failure
-			if screenshotTaker != nil {
-				screenshotTaker.TakeScreenshot(page, "atlassian_07_site_click_failed")
-			}
-			return fmt.Errorf("failed to click site option: %w", err)
-		}
+		s.logger.Warn().Err(err).Str("site_name", s.siteName).Msg("Failed to click site option")
+		return fmt.Errorf("failed to click site option '%s': %w", s.siteName, err)
 	}
 
-	// Screenshot 7: Immediately after clicking site option
-	if screenshotTaker != nil {
-		screenshotTaker.TakeScreenshot(page, "atlassian_07_site_clicked")
-	}
-
-	// Wait for selection to register
+	// Wait for selection to process
 	time.Sleep(2 * time.Second)
 
-	// Screenshot 8: After waiting for selection to register
+	// Screenshot 6: After site selection
 	if screenshotTaker != nil {
-		screenshotTaker.TakeScreenshot(page, "atlassian_08_site_selected")
+		screenshotTaker.TakeScreenshot(page, "atlassian_06_site_selected")
 	}
 
-	s.logger.Info().Str("site", s.siteName).Msg("Successfully selected site")
+	s.logger.Info().Str("site_name", s.siteName).Msg("Successfully selected site from dropdown")
 	return nil
 }
 
@@ -631,157 +774,74 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 
 	// Check if this is an error page and expand any collapsed sections for debugging
 	s.logger.Info().Msg("Attempting to expand error details on authorization page")
-	s.expandErrorDetails(page)
-
-	// Debug: dump all buttons on the consent page
-	buttons, err := authPage.Elements("button")
-	if err == nil {
-		s.logger.Info().Int("count", len(buttons)).Msg("Found button elements on consent page")
-		for i, button := range buttons {
-			buttonType, _ := button.Attribute("type")
-			buttonID, _ := button.Attribute("id")
-			buttonClass, _ := button.Attribute("class")
-			buttonText, _ := button.Text()
-			buttonTestID, _ := button.Attribute("data-testid")
-
-			// Safe string dereferencing to avoid nil pointer crashes
-			typeStr := ""
-			if buttonType != nil {
-				typeStr = *buttonType
-			}
-			idStr := ""
-			if buttonID != nil {
-				idStr = *buttonID
-			}
-			classStr := ""
-			if buttonClass != nil {
-				classStr = *buttonClass
-			}
-			testIDStr := ""
-			if buttonTestID != nil {
-				testIDStr = *buttonTestID
-			}
-
-			s.logger.Info().
-				Int("index", i).
-				Str("type", typeStr).
-				Str("id", idStr).
-				Str("class", classStr).
-				Str("text", buttonText).
-				Str("data-testid", testIDStr).
-				Msg("Button element found on consent page")
-		}
+	if err := s.expandErrorDetails(page); err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to expand error details")
 	}
 
-	// Special handling for Atlassian consent: need to click ALL permission buttons first
-	permissionSelector := `button[data-testid="permission-button"]`
-	s.logger.Info().Str("selector", permissionSelector).Msg("Looking for ALL Atlassian permission buttons")
+	// Skip clicking individual permission buttons - modern OAuth consent pages don't require this
+	s.logger.Info().Msg("Skipping individual permission button clicks - proceeding directly to Accept button")
 
-	permissionButtons, err := page.Elements(permissionSelector)
-	if err == nil && len(permissionButtons) > 0 {
-		s.logger.Info().Int("count", len(permissionButtons)).Msg("Found multiple permission buttons - need to click ALL of them")
-
-		clickedCount := 0
-		for i, button := range permissionButtons {
-			// Check if this button is visible and clickable
-			visible, visErr := button.Visible()
-			if visErr != nil || !visible {
-				s.logger.Info().Int("index", i).Msg("Permission button not visible, skipping")
-				continue
-			}
-
-			s.logger.Info().Int("index", i).Msg("Clicking permission button")
-
-			err = button.ScrollIntoView()
-			if err != nil {
-				s.logger.Warn().Err(err).Int("index", i).Msg("Failed to scroll permission button into view")
-			}
-
-			err = button.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
-			if err != nil {
-				s.logger.Warn().Err(err).Int("index", i).Msg("Failed to click permission button")
-				continue
-			}
-
-			s.logger.Info().Int("index", i).Msg("Successfully clicked permission button")
-			clickedCount++
-			time.Sleep(1 * time.Second) // Brief pause between clicks
-		}
-
-		if clickedCount > 0 {
-			s.logger.Info().Int("clicked", clickedCount).Msg("Finished clicking all permission buttons")
-			// Screenshot 10: After clicking all permission buttons
-			screenshotTaker.TakeScreenshot(page, "atlassian_10_permissions_clicked")
-
-			// Wait longer for all permission selections to register and JavaScript to enable Accept button
-			s.logger.Info().Msg("Waiting for JavaScript to process permission selections and enable Accept button")
-			time.Sleep(10 * time.Second)
-
-			// Screenshot 11: After waiting for JavaScript processing
-			if screenshotTaker != nil {
-				screenshotTaker.TakeScreenshot(page, "atlassian_11_js_processing_complete")
-			}
-
-			// For Atlassian consent pages, after clicking permission buttons, we may need to click a final "Accept" button
-			s.logger.Info().Msg("Looking for final Accept button on Atlassian consent page")
-
-			// Screenshot 12: Before looking for accept button
-			if screenshotTaker != nil {
-				screenshotTaker.TakeScreenshot(page, "atlassian_12_looking_for_accept_button")
-			}
-			acceptSelectors := []string{
-				`button[data-testid="permission-button"]`, // Primary Atlassian consent permission buttons (PROVEN WORKING)
-				`button[type="submit"]`,                   // Generic submit button (fallback)
-				`input[type="submit"]`,                    // Input submit button (fallback)
-			}
-
-			var lastError error
-
-			for _, selector := range acceptSelectors {
-				s.logger.Info().Str("selector", selector).Msg("Trying Atlassian Accept button selector")
-
-				element, err := authPage.Timeout(30 * time.Second).Element(selector)
-				if err != nil {
-					lastError = err
-					time.Sleep(1 * time.Second)
-					continue
-				}
-
-				// Check if element is visible and clickable
-				visible, visErr := element.Visible()
-				if visErr != nil || !visible {
-					s.logger.Info().Str("selector", selector).Msg("Element not visible, skipping")
-					time.Sleep(1 * time.Second)
-					continue
-				}
-
-				// Scroll element into view
-				err = element.ScrollIntoView()
-				if err != nil {
-					s.logger.Warn().Err(err).Msg("Failed to scroll element into view, trying click anyway")
-				}
-
-				// Click the button
-				err = element.Timeout(30*time.Second).Click(proto.InputMouseButtonLeft, 1)
-				if err != nil {
-					s.logger.Warn().Err(err).Str("selector", selector).Msg("Failed to click Accept button")
-					lastError = err
-					time.Sleep(1 * time.Second)
-					continue
-				}
-
-				s.logger.Info().Str("selector", selector).Msg("Successfully clicked Atlassian Accept button")
-				screenshotTaker.TakeScreenshot(page, "atlassian_accept_button_clicked")
-
-				time.Sleep(3 * time.Second)
-				return nil
-			}
-
-			return fmt.Errorf("failed to find Atlassian Accept button: %w", lastError)
-		}
+	// Screenshot 10: Before looking for accept button
+	if screenshotTaker != nil {
+		screenshotTaker.TakeScreenshot(page, "atlassian_10_before_accept_button")
 	}
 
-	return nil
+	// For Atlassian consent pages, we may need to click a final "Accept" button
+	s.logger.Info().Msg("Looking for final Accept button on Atlassian consent page")
+
+	// Screenshot 11: Before looking for accept button
+	if screenshotTaker != nil {
+		screenshotTaker.TakeScreenshot(page, "atlassian_11_looking_for_accept_button")
+	}
+
+	acceptSelectors := []string{
+		`button[type="submit"]`, // Generic submit button
+		`input[type="submit"]`,  // Input submit button
+	}
+
+	var lastError error
+
+	for _, selector := range acceptSelectors {
+		s.logger.Info().Str("selector", selector).Msg("Trying Atlassian Accept button selector")
+
+		element, err := authPage.Timeout(30 * time.Second).Element(selector)
+		if err != nil {
+			lastError = err
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		// Check if element is visible and clickable
+		visible, visErr := element.Visible()
+		if visErr != nil || !visible {
+			s.logger.Info().Str("selector", selector).Msg("Element not visible, skipping")
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		// Scroll element into view
+		err = element.ScrollIntoView()
+		if err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to scroll element into view, trying click anyway")
+		}
+
+		// Click the button
+		err = element.Timeout(30*time.Second).Click(proto.InputMouseButtonLeft, 1)
+		if err != nil {
+			s.logger.Warn().Err(err).Str("selector", selector).Msg("Failed to click Accept button")
+			lastError = err
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		s.logger.Info().Str("selector", selector).Msg("Successfully clicked Atlassian Accept button")
+		screenshotTaker.TakeScreenshot(page, "atlassian_accept_button_clicked")
+
+		time.Sleep(3 * time.Second)
+		return nil
+	}
+
+	return fmt.Errorf("failed to find Atlassian Accept button: %w", lastError)
 }
 
 // expandErrorDetails checks if we're on an error page and attempts to expand collapsed error details
@@ -837,8 +897,7 @@ func (s *AtlassianProviderStrategy) dumpErrorPageHTML(page *rod.Page) error {
 
 	// Also write to console with clear delimiters
 	s.logger.Info().Msg("--- HTML START ---")
-	// Use fmt.Println to ensure HTML is printed to console
-	fmt.Println(html)
+	s.logger.Info().Str("html", html).Msg("HTML content")
 	s.logger.Info().Msg("--- HTML END ---")
 
 	// Return error to exit test immediately
