@@ -352,7 +352,7 @@ func (suite *JiraOAuthE2ETestSuite) getAtlassianAuthorizationCode(authURL, state
 	}
 
 	// Configure Atlassian browser automation with improved selectors and provider strategy
-	atlassianStrategy := NewAtlassianProviderStrategy(suite.logger)
+	atlassianStrategy := NewAtlassianProviderStrategy(suite.logger, "helixml")
 	atlassianConfig := BrowserOAuthConfig{
 		ProviderName:            "atlassian",
 		LoginUsernameSelector:   `input[type="email"], input[name="username"], input[id="username"], input[placeholder*="email"], input[placeholder*="Email"]`,
