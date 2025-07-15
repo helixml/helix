@@ -64,7 +64,6 @@ spec:
       - read:confluence-content.all
       - write:confluence-content
       - read:confluence-space.summary
-      - read:space:confluence
       - read:confluence-user
       - search:confluence
       - read:me

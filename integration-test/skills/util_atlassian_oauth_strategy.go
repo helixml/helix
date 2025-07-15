@@ -2,6 +2,7 @@ package skills
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -322,6 +323,13 @@ func (s *AtlassianProviderStrategy) HandleSiteSelection(page *rod.Page, screensh
 		screenshotTaker.TakeScreenshot(page, "atlassian_02_page_loaded")
 	}
 
+	// Check if this is an error page and dump HTML if needed
+	s.logger.Info().Msg("Checking for error page during site selection")
+	err := s.expandErrorDetails(page)
+	if err != nil {
+		return fmt.Errorf("error page detected during site selection: %w", err)
+	}
+
 	// Look for the site selection dropdown
 	dropdownSelectors := []string{
 		`button:contains("Choose a site")`,
@@ -375,7 +383,7 @@ func (s *AtlassianProviderStrategy) HandleSiteSelection(page *rod.Page, screensh
 	// Click the dropdown to open it using element's Click method
 	s.logger.Info().Msg("Clicking site dropdown to open it")
 
-	err := dropdownElement.Click(proto.InputMouseButtonLeft, 1)
+	err = dropdownElement.Click(proto.InputMouseButtonLeft, 1)
 	if err != nil {
 		// Screenshot for debugging click failure
 		if screenshotTaker != nil {
@@ -502,6 +510,10 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 		screenshotTaker.TakeScreenshot(page, "atlassian_09_consent_page_loaded")
 	}
 
+	// Check if this is an error page and expand any collapsed sections for debugging
+	s.logger.Info().Msg("Attempting to expand error details on authorization page")
+	s.expandErrorDetails(page)
+
 	// Debug: dump all buttons on the consent page
 	buttons, err := authPage.Elements("button")
 	if err == nil {
@@ -540,13 +552,6 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 				Str("data-testid", testIDStr).
 				Msg("Button element found on consent page")
 		}
-	}
-
-	// Atlassian-specific authorization button selectors - only proven working selectors
-	authSelectors := []string{
-		`button[data-testid="permission-button"]`, // Primary Atlassian consent permission buttons (PROVEN WORKING)
-		`button[type="submit"]`,                   // Generic submit button (fallback)
-		`input[type="submit"]`,                    // Input submit button (fallback)
 	}
 
 	// Special handling for Atlassian consent: need to click ALL permission buttons first
@@ -606,161 +611,118 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 				screenshotTaker.TakeScreenshot(page, "atlassian_12_looking_for_accept_button")
 			}
 			acceptSelectors := []string{
-				`button[class*="css-9r91db"]`, // Specific class from debug output (PROVEN WORKING)
-				`button[type="submit"]`,       // Generic submit button (fallback)
+				`button[data-testid="permission-button"]`, // Primary Atlassian consent permission buttons (PROVEN WORKING)
+				`button[type="submit"]`,                   // Generic submit button (fallback)
+				`input[type="submit"]`,                    // Input submit button (fallback)
 			}
 
-			for _, acceptSelector := range acceptSelectors {
-				s.logger.Info().Str("selector", acceptSelector).Msg("Trying Accept button selector")
+			var lastError error
 
-				acceptElement, err := authPage.Timeout(5 * time.Second).Element(acceptSelector)
+			for _, selector := range acceptSelectors {
+				s.logger.Info().Str("selector", selector).Msg("Trying Atlassian Accept button selector")
+
+				element, err := authPage.Timeout(30 * time.Second).Element(selector)
 				if err != nil {
-					s.logger.Info().Str("selector", acceptSelector).Msg("Accept button not found with this selector")
-					continue
-				}
-
-				// Check if element is visible and clickable with reduced attempts
-				visible := false
-				for attempt := 0; attempt < 3; attempt++ {
-					visErr := error(nil)
-					visible, visErr = acceptElement.Visible()
-					if visErr == nil && visible {
-						break
-					}
-					s.logger.Info().Int("attempt", attempt+1).Str("selector", acceptSelector).Msg("Accept button not visible yet, waiting...")
+					lastError = err
 					time.Sleep(1 * time.Second)
-				}
-
-				if !visible {
-					s.logger.Info().Str("selector", acceptSelector).Msg("Accept button not visible after multiple attempts, skipping")
 					continue
 				}
 
-				// Try to click the Accept button with multiple strategies
-				s.logger.Info().Str("selector", acceptSelector).Msg("Found visible Accept button, attempting multiple click strategies")
+				// Check if element is visible and clickable
+				visible, visErr := element.Visible()
+				if visErr != nil || !visible {
+					s.logger.Info().Str("selector", selector).Msg("Element not visible, skipping")
+					time.Sleep(1 * time.Second)
+					continue
+				}
 
-				// Strategy 1: Standard click with scroll
-				err = acceptElement.ScrollIntoView()
+				// Scroll element into view
+				err = element.ScrollIntoView()
 				if err != nil {
-					s.logger.Warn().Err(err).Msg("Failed to scroll Accept button into view")
+					s.logger.Warn().Err(err).Msg("Failed to scroll element into view, trying click anyway")
 				}
 
-				// Wait a moment after scroll
-				time.Sleep(1 * time.Second)
-
-				err = acceptElement.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
-				if err == nil {
-					s.logger.Info().Str("selector", acceptSelector).Msg("Successfully clicked Atlassian Accept button with standard click")
-					// Screenshot 13: After successfully clicking accept button
-					screenshotTaker.TakeScreenshot(page, "atlassian_13_accept_button_clicked")
-					time.Sleep(5 * time.Second)
-					return nil
-				}
-				s.logger.Warn().Err(err).Str("selector", acceptSelector).Msg("Standard click failed, trying alternative strategies")
-
-				// Strategy 2: Focus then click
-				err = acceptElement.Focus()
+				// Click the button
+				err = element.Timeout(30*time.Second).Click(proto.InputMouseButtonLeft, 1)
 				if err != nil {
-					s.logger.Warn().Err(err).Msg("Failed to focus Accept button")
+					s.logger.Warn().Err(err).Str("selector", selector).Msg("Failed to click Accept button")
+					lastError = err
+					time.Sleep(1 * time.Second)
+					continue
 				}
-				time.Sleep(500 * time.Millisecond)
 
-				err = acceptElement.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
-				if err == nil {
-					s.logger.Info().Str("selector", acceptSelector).Msg("Successfully clicked Atlassian Accept button with focus+click")
-					// Screenshot 13: After successfully clicking accept button (focus+click)
-					screenshotTaker.TakeScreenshot(page, "atlassian_13_accept_button_clicked")
-					time.Sleep(5 * time.Second)
-					return nil
-				}
-				s.logger.Warn().Err(err).Str("selector", acceptSelector).Msg("Focus+click failed, trying JavaScript click")
+				s.logger.Info().Str("selector", selector).Msg("Successfully clicked Atlassian Accept button")
+				screenshotTaker.TakeScreenshot(page, "atlassian_accept_button_clicked")
 
-				// Strategy 3: JavaScript click
-				_, err = acceptElement.Eval("() => this.click()")
-				if err == nil {
-					s.logger.Info().Str("selector", acceptSelector).Msg("Successfully clicked Atlassian Accept button with JavaScript")
-					// Screenshot 13: After successfully clicking accept button (JavaScript)
-					screenshotTaker.TakeScreenshot(page, "atlassian_13_accept_button_clicked")
-					time.Sleep(5 * time.Second)
-					return nil
-				}
-				s.logger.Warn().Err(err).Str("selector", acceptSelector).Msg("JavaScript click failed")
-
-				// Strategy 4: Submit the form if this is a submit button
-				if strings.Contains(acceptSelector, "submit") {
-					_, err = acceptElement.Eval("() => { if (this.form) { this.form.submit(); } }")
-					if err == nil {
-						s.logger.Info().Str("selector", acceptSelector).Msg("Successfully submitted form via Accept button")
-						// Screenshot 13: After successfully submitting form
-						screenshotTaker.TakeScreenshot(page, "atlassian_13_accept_button_clicked")
-						time.Sleep(5 * time.Second)
-						return nil
-					}
-					s.logger.Warn().Err(err).Str("selector", acceptSelector).Msg("Form submit failed")
-				}
+				time.Sleep(3 * time.Second)
+				return nil
 			}
 
-			s.logger.Info().Msg("No Accept button found or clickable after permission buttons clicked")
-		} else {
-			s.logger.Warn().Msg("No permission buttons were clickable")
-		}
-	} else {
-		s.logger.Info().Msg("No permission buttons found with data-testid, trying other authorization selectors")
-
-		// Fallback to other selectors if permission buttons not found
-		for _, selector := range authSelectors[1:] { // Skip the first one since we already tried permission buttons
-			s.logger.Info().Str("selector", selector).Msg("Trying Atlassian authorization button selector")
-
-			element, err := page.Timeout(5 * time.Second).Element(selector)
-			if err != nil {
-				continue
-			}
-
-			// For generic submit buttons, check if text contains authorization-related words
-			if selector == `button[type="submit"]` || selector == `input[type="submit"]` {
-				text, textErr := element.Timeout(5 * time.Second).Text()
-				if textErr == nil {
-					textLower := strings.ToLower(strings.TrimSpace(text))
-					if !strings.Contains(textLower, "accept") && !strings.Contains(textLower, "allow") &&
-						!strings.Contains(textLower, "authorize") && !strings.Contains(textLower, "continue") {
-						s.logger.Info().Str("selector", selector).Str("text", text).Msg("Button found but doesn't contain authorization text")
-						time.Sleep(1 * time.Second)
-						continue
-					}
-				}
-			}
-
-			// Check if element is visible and clickable
-			visible, visErr := element.Visible()
-			if visErr != nil || !visible {
-				s.logger.Info().Str("selector", selector).Msg("Element not visible, skipping")
-				time.Sleep(1 * time.Second)
-				continue
-			}
-
-			// Try to click the element
-			s.logger.Info().Str("selector", selector).Msg("Found authorization button, attempting to click")
-
-			err = element.ScrollIntoView()
-			if err != nil {
-				s.logger.Warn().Err(err).Msg("Failed to scroll element into view, trying click anyway")
-			}
-
-			err = element.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
-			if err != nil {
-				s.logger.Warn().Err(err).Str("selector", selector).Msg("Failed to click authorization button")
-				continue
-			}
-
-			s.logger.Info().Str("selector", selector).Msg("Successfully clicked Atlassian authorization button")
-			// Screenshot 14: After successfully clicking authorization button (fallback path)
-			screenshotTaker.TakeScreenshot(page, "atlassian_14_authorize_button_clicked")
-
-			// Wait a moment for the click to register
-			time.Sleep(3 * time.Second)
-			break
+			return fmt.Errorf("failed to find Atlassian Accept button: %w", lastError)
 		}
 	}
 
 	return nil
+}
+
+// expandErrorDetails checks if we're on an error page and attempts to expand collapsed error details
+func (s *AtlassianProviderStrategy) expandErrorDetails(page *rod.Page) error {
+	s.logger.Info().Msg("Checking for error page indicators...")
+
+	// Check for error page indicators
+	pageText, err := page.MustWaitLoad().Eval(`() => document.body.innerText || document.body.textContent || ''`)
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to get page text")
+		return err
+	}
+
+	text := pageText.Value.Str()
+	isErrorPage := strings.Contains(strings.ToLower(text), "something went wrong") ||
+		strings.Contains(strings.ToUpper(text), "HELIX DEV") ||
+		strings.Contains(strings.ToLower(text), "information for the owner")
+
+	if isErrorPage {
+		s.logger.Info().Msg("🚨 ERROR PAGE DETECTED - dumping full HTML for debugging")
+		err := s.dumpErrorPageHTML(page)
+		if err != nil {
+			s.logger.Fatal().Err(err).Msg("Exiting due to error page detected")
+		}
+		return fmt.Errorf("error page detected - 'Something went wrong' found on page")
+	}
+
+	s.logger.Info().Msg("No error page indicators found")
+	return nil
+}
+
+// dumpErrorPageHTML dumps the full HTML content of an error page for debugging
+func (s *AtlassianProviderStrategy) dumpErrorPageHTML(page *rod.Page) error {
+	s.logger.Info().Msg("=== DUMPING ERROR PAGE HTML ===")
+
+	// Get the full HTML content
+	htmlContent, err := page.MustWaitLoad().Eval(`() => document.documentElement.outerHTML`)
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to get HTML content")
+		return fmt.Errorf("failed to get HTML content: %w", err)
+	}
+
+	html := htmlContent.Value.Str()
+	s.logger.Info().Int("full_html_length", len(html)).Msg("Full HTML content")
+
+	// Write HTML to file for debugging
+	filename := fmt.Sprintf("/tmp/helix-oauth-error-page-%d.html", time.Now().Unix())
+	err = os.WriteFile(filename, []byte(html), 0644)
+	if err != nil {
+		s.logger.Warn().Err(err).Str("filename", filename).Msg("Failed to write HTML to file")
+	} else {
+		s.logger.Info().Str("filename", filename).Msg("HTML content written to file")
+	}
+
+	// Also write to console with clear delimiters
+	s.logger.Info().Msg("--- HTML START ---")
+	// Use fmt.Println to ensure HTML is printed to console
+	fmt.Println(html)
+	s.logger.Info().Msg("--- HTML END ---")
+
+	// Return error to exit test immediately
+	return fmt.Errorf("error page detected - 'Something went wrong' found on page")
 }
