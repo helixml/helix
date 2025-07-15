@@ -19,6 +19,11 @@ export const appTriggersListQueryKey = (id: string) => [
   id
 ];
 
+export const userTriggersListQueryKey = (orgId: string) => [
+  "user-triggers",
+  orgId
+];
+
 // Create app trigger mutation
 export const createAppTriggerMutationKey = (appId: string) => [
   "create-app-trigger",
@@ -57,6 +62,19 @@ export function useListAppSteps(appId: string, interactionId: string, options?: 
     queryKey: appStepsQueryKey(appId, interactionId),
     queryFn: () => apiClient.v1AppsStepInfoDetail(appId, {interactionId}),
     enabled: options?.enabled ?? true
+  })
+}
+
+// List all cron triggers (recurring tasks) for the user
+export function useListUserCronTriggers(orgId: string, options?: { enabled?: boolean, refetchInterval?: number }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  
+  return useQuery({
+    queryKey: userTriggersListQueryKey(orgId),
+    queryFn: () => apiClient.v1TriggersList({ org_id: orgId }),
+    enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval
   })
 }
 
