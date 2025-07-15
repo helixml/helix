@@ -324,6 +324,18 @@ func (suite *BaseOAuthTestSuite) setupBrowser() error {
 		return fmt.Errorf("failed to connect to Chrome container: %w", err)
 	}
 
+	// Create a new incognito browser context for this test to provide session isolation
+	// This prevents concurrent tests from interfering with each other's cookies and sessions
+	suite.logger.Info().Msg("Creating incognito browser context for test isolation")
+	incognito, err := suite.browser.Incognito()
+	if err != nil {
+		suite.logger.Warn().Err(err).Msg("Failed to create incognito context, using regular browser context")
+		// Continue with regular browser if incognito fails
+	} else {
+		suite.browser = incognito
+		suite.logger.Info().Msg("Using incognito browser context for test isolation")
+	}
+
 	suite.logger.Info().Msg("Browser setup completed successfully")
 	return nil
 }
