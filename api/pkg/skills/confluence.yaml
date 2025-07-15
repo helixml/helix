@@ -64,6 +64,8 @@ spec:
       - read:confluence-content.all
       - write:confluence-content
       - read:confluence-space.summary
+      - read:confluence-user
+      - search:confluence
     
   api:
     baseUrl: https://api.atlassian.com
