@@ -309,13 +309,18 @@ func (s *AtlassianProviderStrategy) HandleAuthorization(page *rod.Page, screensh
 func (s *AtlassianProviderStrategy) HandleSiteSelection(page *rod.Page, screenshotTaker ScreenshotTaker) error {
 	s.logger.Info().Str("site_name", s.siteName).Msg("Handling Atlassian site selection dropdown")
 
-	// Take screenshot before site selection
+	// Screenshot 1: Initial page state before any site selection
 	if screenshotTaker != nil {
-		screenshotTaker.TakeScreenshot(page, "atlassian_before_site_selection")
+		screenshotTaker.TakeScreenshot(page, "atlassian_01_initial_page")
 	}
 
 	// Wait for page to load
 	time.Sleep(2 * time.Second)
+
+	// Screenshot 2: After page load, before looking for dropdown
+	if screenshotTaker != nil {
+		screenshotTaker.TakeScreenshot(page, "atlassian_02_page_loaded")
+	}
 
 	// Look for the site selection dropdown
 	dropdownSelectors := []string{
@@ -330,11 +335,13 @@ func (s *AtlassianProviderStrategy) HandleSiteSelection(page *rod.Page, screensh
 	}
 
 	var dropdownElement *rod.Element
+	var foundSelector string
 	for _, selector := range dropdownSelectors {
 		s.logger.Info().Str("selector", selector).Msg("Trying site dropdown selector")
 		element, err := page.Timeout(5 * time.Second).Element(selector)
 		if err == nil {
 			dropdownElement = element
+			foundSelector = selector
 			s.logger.Info().Str("selector", selector).Msg("Found site dropdown element")
 			break
 		}
@@ -342,22 +349,67 @@ func (s *AtlassianProviderStrategy) HandleSiteSelection(page *rod.Page, screensh
 
 	if dropdownElement == nil {
 		s.logger.Warn().Msg("Site dropdown not found, site may already be selected")
+		// Screenshot for debugging when dropdown not found
+		if screenshotTaker != nil {
+			screenshotTaker.TakeScreenshot(page, "atlassian_03_dropdown_not_found")
+		}
 		return nil
 	}
+
+	// Screenshot 3: After finding dropdown element, before clicking it
+	if screenshotTaker != nil {
+		screenshotTaker.TakeScreenshot(page, "atlassian_03_dropdown_found")
+	}
+
+	// Debug: Log dropdown element properties
+	dropdownText, _ := dropdownElement.Text()
+	dropdownTagName, _ := dropdownElement.Property("tagName")
+	dropdownClasses, _ := dropdownElement.Attribute("class")
+	s.logger.Info().
+		Str("selector", foundSelector).
+		Str("text", dropdownText).
+		Str("tag_name", dropdownTagName.String()).
+		Str("classes", *dropdownClasses).
+		Msg("Dropdown element details")
 
 	// Click the dropdown to open it using element's Click method
 	s.logger.Info().Msg("Clicking site dropdown to open it")
 
 	err := dropdownElement.Click(proto.InputMouseButtonLeft, 1)
 	if err != nil {
+		// Screenshot for debugging click failure
+		if screenshotTaker != nil {
+			screenshotTaker.TakeScreenshot(page, "atlassian_04_dropdown_click_failed")
+		}
 		return fmt.Errorf("failed to click dropdown: %w", err)
+	}
+
+	// Screenshot 4: Immediately after clicking dropdown
+	if screenshotTaker != nil {
+		screenshotTaker.TakeScreenshot(page, "atlassian_04_dropdown_clicked")
 	}
 
 	// Wait for dropdown to open
 	time.Sleep(2 * time.Second)
 
+	// Screenshot 5: After waiting for dropdown to open
 	if screenshotTaker != nil {
-		screenshotTaker.TakeScreenshot(page, "atlassian_dropdown_opened")
+		screenshotTaker.TakeScreenshot(page, "atlassian_05_dropdown_opened")
+	}
+
+	// Debug: Log all available options in the dropdown
+	s.logger.Info().Msg("Looking for all available options in dropdown")
+	allOptions, err := page.Elements(`li, div, option, span`)
+	if err == nil {
+		for i, option := range allOptions {
+			if i > 20 { // Limit to avoid spam
+				break
+			}
+			text, _ := option.Text()
+			if text != "" && len(text) < 100 {
+				s.logger.Info().Int("index", i).Str("text", text).Msg("Available option")
+			}
+		}
 	}
 
 	// Look for the specific site option based on the siteName parameter
@@ -384,22 +436,52 @@ func (s *AtlassianProviderStrategy) HandleSiteSelection(page *rod.Page, screensh
 
 	if siteElement == nil {
 		s.logger.Warn().Str("site_name", s.siteName).Msg("Specified site not found in dropdown options")
+		// Screenshot for debugging when site not found
+		if screenshotTaker != nil {
+			screenshotTaker.TakeScreenshot(page, "atlassian_06_site_not_found")
+		}
 		return fmt.Errorf("site '%s' not found in dropdown options", s.siteName)
 	}
+
+	// Screenshot 6: After finding site option, before clicking it
+	if screenshotTaker != nil {
+		screenshotTaker.TakeScreenshot(page, "atlassian_06_site_option_found")
+	}
+
+	// Debug: Log site element properties
+	siteText, _ := siteElement.Text()
+	siteTagName, _ := siteElement.Property("tagName")
+	siteClasses, _ := siteElement.Attribute("class")
+	s.logger.Info().
+		Str("selector", selectedSite).
+		Str("text", siteText).
+		Str("tag_name", siteTagName.String()).
+		Str("classes", *siteClasses).
+		Msg("Site element details")
 
 	// Click the site option using element's Click method
 	s.logger.Info().Str("site", selectedSite).Msg("Clicking site option")
 
 	err = siteElement.Click(proto.InputMouseButtonLeft, 1)
 	if err != nil {
+		// Screenshot for debugging click failure
+		if screenshotTaker != nil {
+			screenshotTaker.TakeScreenshot(page, "atlassian_07_site_click_failed")
+		}
 		return fmt.Errorf("failed to click site option: %w", err)
+	}
+
+	// Screenshot 7: Immediately after clicking site option
+	if screenshotTaker != nil {
+		screenshotTaker.TakeScreenshot(page, "atlassian_07_site_clicked")
 	}
 
 	// Wait for selection to register
 	time.Sleep(2 * time.Second)
 
+	// Screenshot 8: After waiting for selection to register
 	if screenshotTaker != nil {
-		screenshotTaker.TakeScreenshot(page, "atlassian_site_selected")
+		screenshotTaker.TakeScreenshot(page, "atlassian_08_site_selected")
 	}
 
 	s.logger.Info().Str("site", s.siteName).Msg("Successfully selected site")
@@ -414,10 +496,10 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 	// Atlassian pages can be very slow, so use a longer timeout
 	authPage := page.Timeout(90 * time.Second)
 
-	// First, wait for the page to fully load and take a screenshot for debugging
+	// Screenshot 9: First, wait for the page to fully load and take a screenshot for debugging
 	time.Sleep(3 * time.Second)
 	if screenshotTaker != nil {
-		screenshotTaker.TakeScreenshot(page, "atlassian_consent_page_loaded")
+		screenshotTaker.TakeScreenshot(page, "atlassian_09_consent_page_loaded")
 	}
 
 	// Debug: dump all buttons on the consent page
@@ -504,14 +586,25 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 
 		if clickedCount > 0 {
 			s.logger.Info().Int("clicked", clickedCount).Msg("Finished clicking all permission buttons")
-			screenshotTaker.TakeScreenshot(page, "atlassian_authorize_button_clicked")
+			// Screenshot 10: After clicking all permission buttons
+			screenshotTaker.TakeScreenshot(page, "atlassian_10_permissions_clicked")
 
 			// Wait longer for all permission selections to register and JavaScript to enable Accept button
 			s.logger.Info().Msg("Waiting for JavaScript to process permission selections and enable Accept button")
 			time.Sleep(10 * time.Second)
 
+			// Screenshot 11: After waiting for JavaScript processing
+			if screenshotTaker != nil {
+				screenshotTaker.TakeScreenshot(page, "atlassian_11_js_processing_complete")
+			}
+
 			// For Atlassian consent pages, after clicking permission buttons, we may need to click a final "Accept" button
 			s.logger.Info().Msg("Looking for final Accept button on Atlassian consent page")
+
+			// Screenshot 12: Before looking for accept button
+			if screenshotTaker != nil {
+				screenshotTaker.TakeScreenshot(page, "atlassian_12_looking_for_accept_button")
+			}
 			acceptSelectors := []string{
 				`button[class*="css-9r91db"]`, // Specific class from debug output (PROVEN WORKING)
 				`button[type="submit"]`,       // Generic submit button (fallback)
@@ -558,7 +651,8 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 				err = acceptElement.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
 				if err == nil {
 					s.logger.Info().Str("selector", acceptSelector).Msg("Successfully clicked Atlassian Accept button with standard click")
-					screenshotTaker.TakeScreenshot(page, "atlassian_accept_button_clicked")
+					// Screenshot 13: After successfully clicking accept button
+					screenshotTaker.TakeScreenshot(page, "atlassian_13_accept_button_clicked")
 					time.Sleep(5 * time.Second)
 					return nil
 				}
@@ -574,7 +668,8 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 				err = acceptElement.Timeout(10*time.Second).Click(proto.InputMouseButtonLeft, 1)
 				if err == nil {
 					s.logger.Info().Str("selector", acceptSelector).Msg("Successfully clicked Atlassian Accept button with focus+click")
-					screenshotTaker.TakeScreenshot(page, "atlassian_accept_button_clicked")
+					// Screenshot 13: After successfully clicking accept button (focus+click)
+					screenshotTaker.TakeScreenshot(page, "atlassian_13_accept_button_clicked")
 					time.Sleep(5 * time.Second)
 					return nil
 				}
@@ -584,7 +679,8 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 				_, err = acceptElement.Eval("() => this.click()")
 				if err == nil {
 					s.logger.Info().Str("selector", acceptSelector).Msg("Successfully clicked Atlassian Accept button with JavaScript")
-					screenshotTaker.TakeScreenshot(page, "atlassian_accept_button_clicked")
+					// Screenshot 13: After successfully clicking accept button (JavaScript)
+					screenshotTaker.TakeScreenshot(page, "atlassian_13_accept_button_clicked")
 					time.Sleep(5 * time.Second)
 					return nil
 				}
@@ -595,7 +691,8 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 					_, err = acceptElement.Eval("() => { if (this.form) { this.form.submit(); } }")
 					if err == nil {
 						s.logger.Info().Str("selector", acceptSelector).Msg("Successfully submitted form via Accept button")
-						screenshotTaker.TakeScreenshot(page, "atlassian_accept_button_clicked")
+						// Screenshot 13: After successfully submitting form
+						screenshotTaker.TakeScreenshot(page, "atlassian_13_accept_button_clicked")
 						time.Sleep(5 * time.Second)
 						return nil
 					}
@@ -656,7 +753,8 @@ func (s *AtlassianProviderStrategy) ClickAuthorizeButton(page *rod.Page, screens
 			}
 
 			s.logger.Info().Str("selector", selector).Msg("Successfully clicked Atlassian authorization button")
-			screenshotTaker.TakeScreenshot(page, "atlassian_authorize_button_clicked")
+			// Screenshot 14: After successfully clicking authorization button (fallback path)
+			screenshotTaker.TakeScreenshot(page, "atlassian_14_authorize_button_clicked")
 
 			// Wait a moment for the click to register
 			time.Sleep(3 * time.Second)
