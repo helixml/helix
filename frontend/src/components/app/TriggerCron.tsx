@@ -455,7 +455,7 @@ const TriggerCron: FC<TriggerCronProps> = ({
           )}
 
           {/* Input field */}
-          <Box sx={{ mb: 2, mt: 2 }}>            
+          <Box sx={{ mb: 2, mt: 4 }}>            
             <TextField
               fullWidth
               multiline
