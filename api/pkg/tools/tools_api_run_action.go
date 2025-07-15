@@ -531,6 +531,25 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 		Bool("has_request_body", requestBody != "").
 		Msg("Complete API request details")
 
+	// Log before making the HTTP request
+	log.Info().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Str("url", req.URL.String()).
+		Str("host", req.URL.Host).
+		Str("scheme", req.URL.Scheme).
+		Str("path", req.URL.Path).
+		Str("query", req.URL.RawQuery).
+		Msg("Making HTTP request...")
+
+	// Add more detailed network debugging
+	log.Info().
+		Str("tool", tool.Name).
+		Str("timeout", "120s").
+		Str("user_agent", req.Header.Get("User-Agent")).
+		Interface("request_headers", req.Header).
+		Msg("HTTP client configuration")
+
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		// Log the HTTP error for debugging
@@ -540,16 +559,22 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 			Str("action", action).
 			Str("method", req.Method).
 			Str("url", req.URL.String()).
+			Str("host", req.URL.Host).
+			Str("error_type", fmt.Sprintf("%T", err)).
+			Dur("time_taken", time.Since(started)).
 			Msg("HTTP request failed")
 		return nil, fmt.Errorf("failed to make api call: %w", err)
 	}
 
+	// Log immediately after getting response
 	log.Info().
 		Str("tool", tool.Name).
 		Str("action", action).
 		Str("url", req.URL.String()).
+		Int("status_code", resp.StatusCode).
+		Str("status", resp.Status).
 		Dur("time_taken", time.Since(started)).
-		Msg("API call done")
+		Msg("HTTP response received")
 
 	// Always log response details for all API requests (success or failure)
 	// Read response body for logging but keep a copy

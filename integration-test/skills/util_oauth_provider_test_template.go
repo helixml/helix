@@ -423,10 +423,14 @@ func (template *OAuthProviderTestTemplate) buildRequiredParametersQuery() map[st
 			continue // Skip parameters we don't have values for
 		}
 
-		// Add to query params based on parameter type (following frontend logic)
+		// Add to query params based on parameter type
 		switch param.Type {
-		case "query", "path": // path parameters are also added as query params
+		case "query":
 			queryParams[param.Name] = value
+		case "path":
+			// Path parameters should NOT be added to query parameters
+			// They will be handled by path substitution in prepareRequest
+			continue
 			// headers would be handled separately in buildRequiredParametersHeaders()
 		}
 	}

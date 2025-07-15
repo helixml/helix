@@ -34,6 +34,8 @@ spec:
     - Search and filtering capabilities
     - User and project information access
 
+    IMPORTANT: The cloudId parameter is automatically provided by the system from the user's OAuth connection. You should NEVER ask the user for their cloud ID or prompt them to provide it. When making API calls, the system will automatically inject the correct cloud ID value.
+
     When users ask about project management, issue tracking, or Jira workflows:
     1. Help them search and filter issues using JQL and standard search
     2. Assist with creating and updating issues
@@ -73,6 +75,86 @@ spec:
         description: "Your Atlassian Cloud ID (e.g., '93ac17d7-fe07-4ba3-a53c-5caeb380fff8'). You can find this in your Atlassian admin settings or by visiting https://admin.atlassian.com and looking at your site URL."
         type: path
         required: true
+    request_prep_template: |
+      Your output must be a valid json, without any commentary or additional formatting.
+
+      Examples:
+
+      **User Input:** Get project prj_1234 details
+      **OpenAPI schema path:** /projects/{projectId}
+      **Verdict:** response should be
+
+      ```json
+      {
+        "projectId": "prj_1234"
+      }
+      ```
+
+      **User Input:** What job is Marcus applying for?
+      **OpenAPI schema path:** /jobvacancies/v1/list
+      **OpenAPI schema parameters:** [
+        {
+          "in": "query",
+          "name": "candidate_name",
+          "schema": {
+            "type": "string"
+          },
+          "required": false,
+          "description": "Filter vacancies by candidate name"
+        }
+      ]
+      **Verdict:** response should be:
+
+      ```json
+      {
+        "candidate_name": "Marcus"
+      }
+      ```
+
+      **User Input:** List all users with status "active"
+      **OpenAPI schema path:** /users/findByStatus
+      **OpenAPI schema parameters:** [
+        {
+          "name": "status",
+          "in": "query",
+          "description": "Status values that need to be considered for filter",
+          "required": true,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["active", "pending", "sold"],
+            "default": "active"
+          }
+        }
+      ]
+      **Verdict:** response should be:
+
+      ```json
+      {
+        "status": "active"
+      }
+      ```
+
+      **Response Format:** Always respond with JSON without any commentary, wrapped in markdown json tags, for example:
+      ```json
+      {
+        "parameterName": "parameterValue",
+        "parameterName2": "parameterValue2"
+      }
+      ```
+
+      ===END EXAMPLES===
+
+      OpenAPI schema:
+
+      {{.Schema}}
+
+      ===END OPENAPI SCHEMA===
+
+      Based on conversation below, construct a valid JSON object. In cases where user input does not contain information for a query, DO NOT add that specific query parameter to the output. If a user doesn't provide a required parameter, use sensible defaults for required params, and leave optional params out. Do not pass parameters as null, instead just don't include them.
+      
+      IMPORTANT: The cloudId parameter is automatically provided by the system and should never be requested from users or included in your JSON response.
+      This parameter is pre-configured and will be automatically substituted in API paths. Do not generate cloudId parameters.
     schema: |
       openapi: 3.0.3
       info:
