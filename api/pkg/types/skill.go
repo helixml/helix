@@ -42,11 +42,20 @@ type SkillOAuth struct {
 	Scopes   []string `yaml:"scopes" json:"scopes"`
 }
 
-// SkillAPI defines the API configuration for the skill
+// SkillAPI defines API configuration for the skill
 type SkillAPI struct {
-	BaseURL string            `yaml:"baseUrl" json:"baseUrl"`
-	Headers map[string]string `yaml:"headers" json:"headers"`
-	Schema  string            `yaml:"schema" json:"schema"` // OpenAPI schema as YAML string
+	BaseURL            string                   `yaml:"baseUrl" json:"baseUrl"`
+	Headers            map[string]string        `yaml:"headers" json:"headers"`
+	Schema             string                   `yaml:"schema" json:"schema"` // OpenAPI schema as YAML string
+	RequiredParameters []SkillRequiredParameter `yaml:"requiredParameters" json:"requiredParameters"`
+}
+
+// SkillRequiredParameter defines a parameter that users must provide when configuring the skill
+type SkillRequiredParameter struct {
+	Name        string `yaml:"name" json:"name"`
+	Description string `yaml:"description" json:"description"`
+	Type        string `yaml:"type" json:"type"` // "query", "header", "path"
+	Required    bool   `yaml:"required" json:"required"`
 }
 
 // SkillDefinition is the internal representation used by the backend
@@ -65,9 +74,10 @@ type SkillDefinition struct {
 	OAuthScopes   []string `json:"oauthScopes"`
 
 	// API configuration
-	BaseURL string            `json:"baseUrl"`
-	Headers map[string]string `json:"headers"`
-	Schema  string            `json:"schema"`
+	BaseURL            string                   `json:"baseUrl"`
+	Headers            map[string]string        `json:"headers"`
+	Schema             string                   `json:"schema"`
+	RequiredParameters []SkillRequiredParameter `json:"requiredParameters"`
 
 	// Metadata
 	Configurable bool      `json:"configurable"`
