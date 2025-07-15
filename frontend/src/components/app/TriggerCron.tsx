@@ -429,16 +429,13 @@ const TriggerCron: FC<TriggerCronProps> = ({
           )}
 
           {/* Input field */}
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2  }}>
-              Agent Input
-            </Typography>
+          <Box sx={{ mb: 2, mt: 2 }}>            
             <TextField
               fullWidth
               multiline
               rows={4}
               size="small"
-              placeholder="'Check the news and send me an email with the summary', 'Check the weather in Tokyo'"
+              placeholder="Enter prompt here"
               value={scheduleInput}
               onChange={(e) => handleInputChange(e.target.value)}
               disabled={readOnly || !hasCronTrigger}
