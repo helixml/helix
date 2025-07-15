@@ -26,6 +26,7 @@ import CodeIcon from '@mui/icons-material/Code'
 import AddIcon from '@mui/icons-material/Add'
 import PsychologyIcon from '@mui/icons-material/Psychology'
 import GroupIcon from '@mui/icons-material/Group'
+import AssignmentIcon from '@mui/icons-material/Assignment'
 
 import TokenUsageDisplay from './TokenUsageDisplay'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -567,6 +568,15 @@ const SidebarContent: React.FC<{
                           </MenuItem>
                         )
                       }
+
+                      <MenuItem onClick={ () => {
+                        orgNavigateTo('tasks')
+                      }}>
+                        <ListItemIcon>
+                          <AssignmentIcon fontSize="small" />
+                        </ListItemIcon> 
+                        Tasks
+                      </MenuItem>
 
                       <MenuItem onClick={ () => {
                         setAccountMenuAnchorEl(null)
