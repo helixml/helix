@@ -20,16 +20,13 @@ const (
 type Event int
 
 const (
-	EventFinetuningStarted  Event = 1
-	EventFinetuningComplete Event = 2
+	EventCronTriggerComplete Event = 1
 )
 
 func (e Event) String() string {
 	switch e {
-	case EventFinetuningStarted:
-		return "finetuning_started"
-	case EventFinetuningComplete:
-		return "finetuning_complete"
+	case EventCronTriggerComplete:
+		return "cron_trigger_complete"
 	default:
 		return "unknown_event"
 	}
@@ -38,11 +35,14 @@ func (e Event) String() string {
 type Notification struct {
 	Event   Event
 	Session *types.Session
+	Message string
 
 	// Populated by the provider
 	Email     string
 	FirstName string
 }
+
+//go:generate mockgen -source $GOFILE -destination notification_mocks.go -package $GOPACKAGE
 
 type Notifier interface {
 	Notify(ctx context.Context, n *Notification) error

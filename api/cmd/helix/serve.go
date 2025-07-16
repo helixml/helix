@@ -438,7 +438,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		}
 	}()
 
-	trigger := trigger.NewTriggerManager(cfg, postgresStore, appController)
+	trigger := trigger.NewTriggerManager(cfg, postgresStore, notifier, appController)
 	// Start integrations
 	go trigger.Start(ctx)
 
