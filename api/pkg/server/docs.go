@@ -114,127 +114,6 @@ const docTemplate = `{
                         }
                     }
                 }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create triggers for the app. Used to create standalone trigger configurations such as cron tasks for agents that could be owned by a different user than the owner of the app",
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Create app triggers",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Trigger configuration",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.TriggerConfiguration"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.TriggerConfiguration"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/apps/{app_id}/triggers/{trigger_id}": {
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Update triggers for the app, for example to change the cron schedule or enable/disable the trigger",
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Update app triggers",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Trigger ID",
-                        "name": "trigger_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Trigger configuration",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.TriggerConfiguration"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.TriggerConfiguration"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Delete triggers for the app",
-                "tags": [
-                    "apps"
-                ],
-                "summary": "Delete app triggers",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "App ID",
-                        "name": "app_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Trigger ID",
-                        "name": "trigger_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.TriggerConfiguration"
-                        }
-                    }
-                }
             }
         },
         "/api/v1/apps/{id}": {
@@ -2742,6 +2621,106 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/types.TriggerConfiguration"
                             }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create triggers for the app. Used to create standalone trigger configurations such as cron tasks for agents that could be owned by a different user than the owner of the app",
+                "tags": [
+                    "apps"
+                ],
+                "summary": "Create app triggers",
+                "parameters": [
+                    {
+                        "description": "Trigger configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.TriggerConfiguration"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.TriggerConfiguration"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/triggers/{trigger_id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update triggers for the app, for example to change the cron schedule or enable/disable the trigger",
+                "tags": [
+                    "apps"
+                ],
+                "summary": "Update app triggers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Trigger ID",
+                        "name": "trigger_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Trigger configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.TriggerConfiguration"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.TriggerConfiguration"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete triggers for the app",
+                "tags": [
+                    "apps"
+                ],
+                "summary": "Delete app triggers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Trigger ID",
+                        "name": "trigger_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.TriggerConfiguration"
                         }
                     }
                 }
@@ -7359,10 +7338,6 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "created": {
-                    "type": "string"
-                },
-                "description": {
-                    "description": "Description of the trigger configuration",
                     "type": "string"
                 },
                 "enabled": {
