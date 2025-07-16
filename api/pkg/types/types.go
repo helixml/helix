@@ -2032,6 +2032,11 @@ type TriggerConfiguration struct {
 	WebhookURL string `json:"webhook_url" gorm:"-"` // Webhook URL for the trigger configuration, applicable to webhook type triggers like Azure DevOps, GitHub, etc.
 }
 
+type TriggerExecuteResponse struct {
+	SessionID string `json:"session_id"`
+	Content   string `json:"content"`
+}
+
 type TriggerExecutionStatus string
 
 const (
