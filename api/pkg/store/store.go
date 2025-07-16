@@ -85,6 +85,7 @@ type ListTriggerConfigurationsQuery struct {
 	OwnerType      types.OwnerType
 	OrganizationID string
 	TriggerType    types.TriggerType
+	Enabled        bool
 }
 
 type ListTriggerExecutionsQuery struct {

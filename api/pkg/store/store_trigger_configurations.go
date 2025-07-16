@@ -132,7 +132,7 @@ func (s *PostgresStore) ListTriggerConfigurations(ctx context.Context, q *ListTr
 		query = query.Where("trigger_type = ?", q.TriggerType)
 	}
 
-	err := query.Find(&triggerConfigs).Error
+	err := query.Order("enabled DESC, created DESC").Find(&triggerConfigs).Error
 	if err != nil {
 		return nil, err
 	}
