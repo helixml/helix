@@ -21,12 +21,15 @@ type Event int
 
 const (
 	EventCronTriggerComplete Event = 1
+	EventCronTriggerFailed   Event = 2
 )
 
 func (e Event) String() string {
 	switch e {
 	case EventCronTriggerComplete:
 		return "cron_trigger_complete"
+	case EventCronTriggerFailed:
+		return "cron_trigger_failed"
 	default:
 		return "unknown_event"
 	}
@@ -71,18 +74,22 @@ func (n *NotificationsProvider) Notify(ctx context.Context, notification *Notifi
 		return nil
 	}
 
+	if !n.email.Enabled() {
+		log.Debug().Str("notification", notification.Event.String()).Msg("email not enabled")
+		return nil
+	}
+
 	user, err := n.authenticator.GetUserByID(ctx, notification.Session.Owner)
 	if err != nil {
 		return fmt.Errorf("failed to get user '%s' details: %w", notification.Session.Owner, err)
 	}
 
-	log.Debug().
-		Str("email", user.Email).Str("notification", notification.Event.String()).Msg("sending notification")
-
 	notification.Email = user.Email
 	notification.FirstName = strings.Split(user.FullName, " ")[0]
 
 	if n.email.Enabled() {
+		log.Debug().
+			Str("email", user.Email).Str("notification", notification.Event.String()).Msg("sending notification")
 		err := n.email.Notify(ctx, notification)
 		if err != nil {
 			return err
