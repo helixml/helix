@@ -20,6 +20,7 @@ import { TypesTrigger, TypesTriggerConfiguration, TypesTriggerType, TypesOwnerTy
 import { useCreateAppTrigger, useUpdateAppTrigger } from '../../services/appService';
 import useAccount from '../../hooks/useAccount';
 import useSnackbar from '../../hooks/useSnackbar';
+import useApi from '../../hooks/useApi';
 
 interface TaskDialogProps {
   open: boolean;
@@ -31,12 +32,16 @@ interface TaskDialogProps {
 const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) => {
   const account = useAccount();
   const snackbar = useSnackbar();
+
+  const api = useApi()
+  const apiClient = api.getApiClient()
   
   const [selectedAgent, setSelectedAgent] = useState<IApp | undefined>(undefined);
   const [triggers, setTriggers] = useState<TypesTrigger[]>([]);
   const [taskName, setTaskName] = useState(task?.name || '');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [createdTaskId, setCreatedTaskId] = useState<string | undefined>(task?.id);
 
   // Initialize selected agent when apps are available
   useEffect(() => {
@@ -134,15 +139,17 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
 
       if (task?.id) {
         // Update existing task
-        await updateTriggerMutation.mutateAsync(triggerConfig);
+        const updatedTask = await updateTriggerMutation.mutateAsync(triggerConfig);
+        setCreatedTaskId(updatedTask.data?.id);
         snackbar.success('Task updated successfully');
       } else {
         // Create new task
-        await createTriggerMutation.mutateAsync(triggerConfig);
+        const newTask = await createTriggerMutation.mutateAsync(triggerConfig);
+        setCreatedTaskId(newTask.data?.id);
         snackbar.success('Task created successfully');
       }
 
-      onClose();
+      // Don't close the dialog - let user test the task
     } catch (err) {
       console.error('Error saving task:', err);
       setError(err instanceof Error ? err.message : 'Failed to save task');
@@ -157,6 +164,24 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
       onClose();
     }
   };
+
+  // Execute task and view response. Can only run on triggers that are already created
+  const handleExecuteTask = async () => {
+    const taskId = createdTaskId || task?.id;
+    if (!taskId) {
+      setError('Task not found');
+      return;
+    }
+
+    try {
+      const response = await apiClient.v1TriggersExecuteCreate(taskId);
+      console.log(response);
+      snackbar.success('Task executed successfully');
+    } catch (err) {
+      console.error('Error executing task:', err);
+      setError(err instanceof Error ? err.message : 'Failed to execute task');
+    }
+  }
 
   return (
     <DarkDialog
@@ -275,15 +300,25 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
             onAgentSelect={setSelectedAgent}
           />  
         </Box>
-        <Button
-          variant="outlined"
-          onClick={handleSaveTask}
-          color="secondary"
-          disabled={isSubmitting || !taskName.trim() || !selectedAgent || !triggers[0].cron?.input}
-          startIcon={isSubmitting ? <CircularProgress size={16} /> : undefined}
-        >
-          {isSubmitting ? 'Saving...' : (task ? 'Update Task' : 'Create Task')}
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            variant="outlined"
+            onClick={handleExecuteTask}
+            color="primary"
+            disabled={!createdTaskId && !task?.id}
+          >
+            Test
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={handleSaveTask}
+            color="secondary"
+            disabled={isSubmitting || !taskName.trim() || !selectedAgent || !triggers[0].cron?.input}
+            startIcon={isSubmitting ? <CircularProgress size={16} /> : undefined}
+          >
+            {isSubmitting ? 'Saving...' : (task ? 'Update Task' : 'Create Task')}
+          </Button>
+        </Box>
       </DialogActions>
     </DarkDialog>
   );
