@@ -488,9 +488,14 @@ const Home: FC = () => {
                       <Typography
                         sx={{
                           color: '#fff',
-                          fontSize: '1.2rem',
+                          fontSize: '1.1rem',
                           fontWeight: 'bold',
+                          cursor: 'pointer',
+                          '&:hover': {
+                            textDecoration: 'underline',
+                          },
                         }}
+                        onClick={() => account.orgNavigate('tasks')}
                       >
                         Tasks
                       </Typography>
@@ -645,14 +650,19 @@ const Home: FC = () => {
                   }}
                 >
                   <Typography
-                        sx={{
-                          color: '#fff',
-                          fontSize: '1.2rem',
-                          fontWeight: 'bold',
-                        }}
-                      >
-                        Agents
-                      </Typography>
+                    sx={{
+                      color: '#fff',
+                      fontSize: '1.1rem',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      '&:hover': {
+                        textDecoration: 'underline',
+                      },
+                    }}
+                    onClick={() => account.orgNavigate('apps')}
+                  >
+                    Agents
+                  </Typography>
                 </Row>
                 <Row
                   sx={{
