@@ -276,7 +276,7 @@ func (s *HelixAPIServer) executeAppTrigger(_ http.ResponseWriter, r *http.Reques
 	}
 
 	// Execute the trigger
-	response, err := cron.ExecuteCronTask(ctx, s.Store, s.Controller, s.Controller.Options.Notifier, app, triggerConfig.Trigger.Cron)
+	response, err := cron.ExecuteCronTask(ctx, s.Store, s.Controller, s.Controller.Options.Notifier, app, triggerConfig.Trigger.Cron, triggerConfig.Name)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}

@@ -33,3 +33,10 @@ Stack: Golang API server, Docker, Postgres, PGVector or Typesense for RAG, NATS 
 
   Naming:
   - Lots of places in the backend and frontend we have a name "App" which we are transitioning into "Agent". Those two are interchangable but all new code should be using "Agent" terminology when adding comments, titles, labels, etc. Over time all app code will be replaced by agent code.
+- Testing:
+  
+  Use `github.com/stretchr/testify/assert` and `github.com/stretchr/testify/require` for assertions
+  ```
+  assert.Equal(t, "github", skill.ID)
+  assert.Equal(t, "GitHub", skill.DisplayName)
+  ```

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Helix Notification</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f8f9fa;
+            color: #333;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 600px;
+            margin: 40px auto;
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+        }
+        .header {
+            background-color: white;
+            padding: 40px 30px 30px;
+            text-align: center;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .logo {
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 25px;
+            display: block;
+        }
+        .title {
+            font-size: 28px;
+            font-weight: 700;
+            margin: 0 0 15px 0;
+            color: #1a1a1a;
+            letter-spacing: -0.5px;
+        }
+        .session-name {
+            background-color: #f8f9fa;
+            color: #6c757d;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 14px;
+            font-weight: 500;
+            display: inline-block;
+            border: 1px solid #e9ecef;
+        }
+        .content {
+            padding: 40px 30px;
+            text-align: center;
+        }
+        .message {
+            font-size: 16px;
+            line-height: 1.7;
+            color: #495057;
+            margin-bottom: 35px;
+            max-width: 480px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .cta-button {
+            display: inline-block;
+            background-color: #1a1a1a;
+            color: white;
+            padding: 16px 32px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 16px;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(26, 26, 26, 0.15);
+        }
+        .cta-button:hover {
+            background-color: #333;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(26, 26, 26, 0.2);
+        }
+        .footer {
+            padding: 30px 20px;
+            text-align: center;
+            border-top: 1px solid #f0f0f0;
+            background-color: #fafafa;
+        }
+        .footer-logo {
+            width: 40px;
+            height: 40px;
+            margin: 0 auto 15px;
+            display: block;
+        }
+        .copyright {
+            font-size: 13px;
+            color: #6c757d;
+            margin: 0;
+            font-weight: 400;
+        }
+        @media (max-width: 600px) {
+            .container {
+                margin: 20px;
+                border-radius: 8px;
+            }
+            .header {
+                padding: 30px 20px 25px;
+            }
+            .content {
+                padding: 30px 20px;
+            }
+            .title {
+                font-size: 24px;
+            }
+            .cta-button {
+                padding: 14px 28px;
+                font-size: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="https://tryhelix.ai/assets/img/CDfWIfha3--900.webp" alt="Helix" class="logo">
+            <h1 class="title">Your session is ready</h1>
+            <div class="session-name">{{ .SessionName }}</div>
+        </div>
+        
+        <div class="content">
+            <div class="message">
+                {{ .Message }}
+            </div>
+            
+            <a href="{{ .SessionURL }}" class="cta-button" target="_blank">
+                Continue reading
+            </a>
+        </div>
+        
+        <div class="footer">
+            <img src="https://tryhelix.ai/assets/img/CDfWIfha3--900.webp" alt="Helix" class="footer-logo">
+            <p class="copyright">© 2025 Helix AI LLC</p>
+        </div>
+    </div>
+</body>
+</html>
