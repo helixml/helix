@@ -32,6 +32,7 @@ const (
 	StepInfoPrefix             = "step_"
 	CallPrefix                 = "call_"
 	TriggerConfigurationPrefix = "trgc_"
+	TriggerExecutionPrefix     = "trex_"
 )
 
 func GenerateUUID() string {
@@ -139,4 +140,8 @@ func GenerateCallID() string {
 
 func GenerateTriggerConfigurationID() string {
 	return fmt.Sprintf("%s%s", TriggerConfigurationPrefix, newID())
+}
+
+func GenerateTriggerExecutionID() string {
+	return fmt.Sprintf("%s%s", TriggerExecutionPrefix, newID())
 }
