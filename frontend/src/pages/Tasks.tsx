@@ -15,6 +15,7 @@ import { useListUserCronTriggers } from '../services/appService'
 import useAccount from '../hooks/useAccount'
 import useApps from '../hooks/useApps'
 import useSnackbar from '../hooks/useSnackbar'
+import useApi from '../hooks/useApi'
 
 import { TypesTriggerConfiguration } from '../api/api'
 
@@ -22,11 +23,12 @@ const Tasks: FC = () => {
   const account = useAccount()
   const apps = useApps()
   const snackbar = useSnackbar()
+  const api = useApi()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<TypesTriggerConfiguration | undefined>()
   const [deletingTask, setDeletingTask] = useState<TypesTriggerConfiguration | undefined>()
 
-  const { data: triggers, isLoading } = useListUserCronTriggers(
+  const { data: triggers, isLoading, refetch } = useListUserCronTriggers(
     account.organizationTools.organization?.id || ''
   )
 
@@ -68,11 +70,29 @@ const Tasks: FC = () => {
   }
 
   const handleToggleStatus = async (task: TypesTriggerConfiguration) => {
-    // TODO: Implement toggle status API call
-    // const result = await toggleTaskStatus(task.id, !task.enabled)
-    // if (result) {
-    //   snackbar.success(task.enabled ? 'Task paused' : 'Task enabled')
-    // }
+    if (!task.id) {
+      snackbar.error('Task ID is missing')
+      return
+    }
+
+    try {
+      const apiClient = api.getApiClient()
+      
+      // Toggle the enabled status
+      const updatedTask = {
+        ...task,
+        enabled: !task.enabled
+      }
+
+      await apiClient.v1TriggersUpdate(task.id, updatedTask)
+      snackbar.success(task.enabled ? 'Task paused' : 'Task enabled')
+      
+      // Refetch the triggers list to update the UI
+      refetch()
+    } catch (error) {
+      console.error('Error toggling task status:', error)
+      snackbar.error('Failed to update task status')
+    }
   }
 
   const renderContent = () => {

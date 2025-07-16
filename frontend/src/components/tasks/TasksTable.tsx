@@ -59,7 +59,7 @@ const formatCronSchedule = (schedule: string): string => {
 
 const formatCronParts = (parts: string[], timezone?: string): string => {
   const [minute, hour, day, month, weekday] = parts
-  
+    
   // Check if it's an interval schedule (e.g., "*/5 * * * *")
   if (minute.startsWith('*/')) {
     const interval = parseInt(minute.substring(2))
