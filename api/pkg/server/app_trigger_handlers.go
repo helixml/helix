@@ -8,6 +8,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/trigger/cron"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -238,6 +239,51 @@ func (s *HelixAPIServer) updateAppTrigger(_ http.ResponseWriter, r *http.Request
 	}
 
 	return updated, nil
+}
+
+// executeAppTrigger godoc
+// @Summary Execute app trigger
+// @Description Update triggers for the app, for example to change the cron schedule or enable/disable the trigger
+// @Tags    apps
+// @Success 200 {object} types.TriggerExecuteResponse
+// @Param trigger_id path string true "Trigger ID"
+// @Router /api/v1/triggers/{trigger_id}/execute [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) executeAppTrigger(_ http.ResponseWriter, r *http.Request) (*types.TriggerExecuteResponse, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	vars := mux.Vars(r)
+	triggerID := vars["trigger_id"]
+
+	// Get the trigger configuration to verify it exists
+	triggerConfig, err := s.Store.GetTriggerConfiguration(ctx, &store.GetTriggerConfigurationQuery{
+		ID:    triggerID,
+		Owner: user.ID,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError404("Trigger configuration not found")
+	}
+
+	app, err := s.Store.GetAppWithTools(ctx, triggerConfig.AppID)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// Authorize user to execute triggers for this app
+	err = s.authorizeUserToApp(ctx, user, app, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	// Execute the trigger
+	response, err := cron.ExecuteCronTask(ctx, s.Store, s.Controller, s.Controller.Options.Notifier, app, triggerConfig.Trigger.Cron)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return &types.TriggerExecuteResponse{
+		SessionID: response,
+	}, nil
 }
 
 func (s *HelixAPIServer) listTriggerExecutions(_ http.ResponseWriter, r *http.Request) ([]*types.TriggerExecution, *system.HTTPError) {

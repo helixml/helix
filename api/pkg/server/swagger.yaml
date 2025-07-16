@@ -3188,6 +3188,13 @@ definitions:
           type triggers like Azure DevOps, GitHub, etc.
         type: string
     type: object
+  types.TriggerExecuteResponse:
+    properties:
+      content:
+        type: string
+      session_id:
+        type: string
+    type: object
   types.TriggerExecution:
     properties:
       created:
@@ -5086,6 +5093,26 @@ paths:
       security:
       - BearerAuth: []
       summary: Update app triggers
+      tags:
+      - apps
+  /api/v1/triggers/{trigger_id}/execute:
+    post:
+      description: Update triggers for the app, for example to change the cron schedule
+        or enable/disable the trigger
+      parameters:
+      - description: Trigger ID
+        in: path
+        name: trigger_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.TriggerExecuteResponse'
+      security:
+      - BearerAuth: []
+      summary: Execute app trigger
       tags:
       - apps
   /api/v1/users/search:

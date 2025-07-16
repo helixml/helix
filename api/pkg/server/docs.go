@@ -2726,6 +2726,37 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/triggers/{trigger_id}/execute": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update triggers for the app, for example to change the cron schedule or enable/disable the trigger",
+                "tags": [
+                    "apps"
+                ],
+                "summary": "Execute app trigger",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Trigger ID",
+                        "name": "trigger_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.TriggerExecuteResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users/search": {
             "get": {
                 "security": [
@@ -7383,6 +7414,17 @@ const docTemplate = `{
                 },
                 "webhook_url": {
                     "description": "Webhook URL for the trigger configuration, applicable to webhook type triggers like Azure DevOps, GitHub, etc.",
+                    "type": "string"
+                }
+            }
+        },
+        "types.TriggerExecuteResponse": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "session_id": {
                     "type": "string"
                 }
             }

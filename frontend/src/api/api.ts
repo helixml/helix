@@ -1930,6 +1930,11 @@ export interface TypesTriggerConfiguration {
   webhook_url?: string;
 }
 
+export interface TypesTriggerExecuteResponse {
+  content?: string;
+  session_id?: string;
+}
+
 export interface TypesTriggerExecution {
   created?: string;
   error?: string;
@@ -3836,6 +3841,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/triggers/${triggerId}`,
         method: "PUT",
         body: request,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Update triggers for the app, for example to change the cron schedule or enable/disable the trigger
+     *
+     * @tags apps
+     * @name V1TriggersExecuteCreate
+     * @summary Execute app trigger
+     * @request POST:/api/v1/triggers/{trigger_id}/execute
+     * @secure
+     */
+    v1TriggersExecuteCreate: (triggerId: string, params: RequestParams = {}) =>
+      this.request<TypesTriggerExecuteResponse, any>({
+        path: `/api/v1/triggers/${triggerId}/execute`,
+        method: "POST",
         secure: true,
         ...params,
       }),
