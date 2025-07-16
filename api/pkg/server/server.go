@@ -412,6 +412,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/triggers/{trigger_id}", system.Wrapper(apiServer.updateAppTrigger)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/triggers/{trigger_id}", system.Wrapper(apiServer.deleteAppTrigger)).Methods(http.MethodDelete)
 
+	authRouter.HandleFunc("/triggers/{trigger_id}/executions", system.Wrapper(apiServer.listTriggerExecutions)).Methods(http.MethodGet)
+
 	// Avatar routes
 	authRouter.HandleFunc("/apps/{id}/avatar", apiServer.uploadAppAvatar).Methods(http.MethodPost)
 	authRouter.HandleFunc("/apps/{id}/avatar", apiServer.deleteAppAvatar).Methods(http.MethodDelete)

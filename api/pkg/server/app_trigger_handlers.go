@@ -239,3 +239,19 @@ func (s *HelixAPIServer) updateAppTrigger(_ http.ResponseWriter, r *http.Request
 
 	return updated, nil
 }
+
+func (s *HelixAPIServer) listTriggerExecutions(_ http.ResponseWriter, r *http.Request) ([]*types.TriggerExecution, *system.HTTPError) {
+	ctx := r.Context()
+
+	vars := mux.Vars(r)
+	triggerID := vars["trigger_id"]
+
+	executions, err := s.Store.ListTriggerExecutions(ctx, &store.ListTriggerExecutionsQuery{
+		TriggerID: triggerID,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return executions, nil
+}
