@@ -96,8 +96,8 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
     setTriggers(newTriggers);
   };
 
-  const createTriggerMutation = useCreateAppTrigger(selectedAgent?.id || '', account.organizationTools.organization?.id || '');
-  const updateTriggerMutation = useUpdateAppTrigger(selectedAgent?.id || '', task?.id || '', account.organizationTools.organization?.id || '');
+  const createTriggerMutation = useCreateAppTrigger(account.organizationTools.organization?.id || '');
+  const updateTriggerMutation = useUpdateAppTrigger(task?.id || '', account.organizationTools.organization?.id || '');
 
   const handleSaveTask = async () => {
     if (!taskName.trim()) {
@@ -130,7 +130,6 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
         enabled: true,
         trigger_type: TypesTriggerType.TriggerTypeCron,
         trigger: cronTrigger,
-        description: `Scheduled task: ${taskName.trim()}`,
       };
 
       if (task?.id) {
