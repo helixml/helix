@@ -91,16 +91,15 @@ export function useListAppTriggers(appId: string, options?: { enabled?: boolean,
 }
 
 // useCreateAppTrigger returns a mutation for creating a new app trigger
-export function useCreateAppTrigger(appId: string, orgId: string) {
+export function useCreateAppTrigger(orgId: string) {
   const api = useApi()
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (trigger: TypesTriggerConfiguration) => apiClient.v1AppsTriggersCreate(appId, trigger),
+    mutationFn: (trigger: TypesTriggerConfiguration) => apiClient.v1TriggersCreate(trigger),
     onSuccess: () => {
       // Invalidate any cached trigger data
-      queryClient.invalidateQueries({ queryKey: appTriggersListQueryKey(appId) })
       queryClient.invalidateQueries({ queryKey: userTriggersListQueryKey(orgId) })
     }
   })
@@ -113,7 +112,7 @@ export function useUpdateAppTrigger(appId: string, triggerId: string, orgId: str
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (trigger: TypesTriggerConfiguration) => apiClient.v1AppsTriggersUpdate(appId, triggerId, trigger),
+    mutationFn: (trigger: TypesTriggerConfiguration) => apiClient.v1TriggersUpdate(triggerId, trigger),
     onSuccess: () => {
       // Invalidate any cached trigger data
       queryClient.invalidateQueries({ queryKey: appTriggersListQueryKey(appId) })
@@ -130,7 +129,7 @@ export function useDeleteAppTrigger(appId: string, triggerId: string, orgId: str
 
   return useMutation({
 
-    mutationFn: () => apiClient.v1AppsTriggersDelete(appId, triggerId),
+    mutationFn: () => apiClient.v1TriggersDelete(triggerId),
     onSuccess: () => {
       // Invalidate any cached trigger data
       queryClient.invalidateQueries({ queryKey: appTriggersListQueryKey(appId) })
