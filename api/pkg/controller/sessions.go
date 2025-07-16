@@ -791,16 +791,6 @@ func (c *Controller) WriteSession(ctx context.Context, session *types.Session) e
 			newRagCount = len(session.Metadata.SessionRAGResults)
 		}
 
-		log.Debug().
-			Str("session_id", session.ID).
-			Interface("existing_document_ids", existingSession.Metadata.DocumentIDs).
-			Interface("new_document_ids", session.Metadata.DocumentIDs).
-			Int("existing_rag_results_count", existingRagCount).
-			Int("new_rag_results_count", newRagCount).
-			Bool("existing_has_rag_results", existingSession.Metadata.SessionRAGResults != nil).
-			Bool("new_has_rag_results", session.Metadata.SessionRAGResults != nil).
-			Msg("WriteSession: comparing document IDs and RAG results between existing and new session")
-
 		// If the existing session has document IDs and the new session doesn't, preserve them
 		if len(existingSession.Metadata.DocumentIDs) > 0 {
 			if session.Metadata.DocumentIDs == nil {
