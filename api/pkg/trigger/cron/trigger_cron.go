@@ -16,6 +16,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/notification"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -25,11 +26,12 @@ import (
 type Cron struct {
 	cfg        *config.ServerConfig
 	store      store.Store
+	notifier   notification.Notifier
 	controller *controller.Controller
 	cron       gocron.Scheduler
 }
 
-func New(cfg *config.ServerConfig, store store.Store, controller *controller.Controller) (*Cron, error) {
+func New(cfg *config.ServerConfig, store store.Store, notifier notification.Notifier, controller *controller.Controller) (*Cron, error) {
 	s, err := gocron.NewScheduler()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create scheduler: %w", err)
@@ -38,6 +40,7 @@ func New(cfg *config.ServerConfig, store store.Store, controller *controller.Con
 	return &Cron{
 		cfg:        cfg,
 		store:      store,
+		notifier:   notifier,
 		controller: controller,
 		cron:       s,
 	}, nil
