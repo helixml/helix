@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"html/template"
+	"text/template"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/nikoksr/notify"
@@ -89,23 +89,11 @@ func (e *Email) getClient(email string) *notify.Notify {
 
 func (e *Email) getEmailMessage(n *Notification) (title, message string, err error) {
 	switch n.Event {
-	case EventFinetuningStarted:
+	case EventCronTriggerComplete:
 		var buf bytes.Buffer
 
-		err = finetuningStartedTmpl.Execute(&buf, &templateData{
-			FirstName:  n.FirstName,
-			SessionURL: fmt.Sprintf("%s/session/%s", e.cfg.AppURL, n.Session.ID),
-		})
-		if err != nil {
-			return "", "", fmt.Errorf("failed to execute template: %w", err)
-		}
-
-		return fmt.Sprintf("Your Finetuning Process Has Begun [%s]", n.Session.Name), buf.String(), nil
-	case EventFinetuningComplete:
-		var buf bytes.Buffer
-
-		err = finetuningCompletedTmpl.Execute(&buf, &templateData{
-			FirstName:   n.FirstName,
+		err = cronTriggerCompleteTmpl.Execute(&buf, &templateData{
+			Message:     n.Message,
 			SessionURL:  fmt.Sprintf("%s/session/%s", e.cfg.AppURL, n.Session.ID),
 			SessionName: n.Session.Name,
 		})
@@ -113,7 +101,7 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 			return "", "", fmt.Errorf("failed to execute template: %w", err)
 		}
 
-		return fmt.Sprintf("Finetuning Complete - Ready for Action [%s]", n.Session.Name), buf.String(), nil
+		return n.Session.Name, buf.String(), nil
 	default:
 		return "", "", fmt.Errorf("unknown event '%s'", n.Event.String())
 	}
@@ -121,37 +109,174 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 
 type templateData struct {
 	SessionURL  string
-	FirstName   string
+	Message     string
 	SessionName string
 }
 
-var (
-	finetuningStartedTmpl   = template.Must(template.New("").Parse(finetuningStartedTemplate))
-	finetuningCompletedTmpl = template.Must(template.New("").Parse(finetuningCompletedTemplate))
-)
+var cronTriggerCompleteTmpl = template.Must(template.New("").Parse(cronTriggerCompleteTemplate))
 
-var finetuningStartedTemplate = `
-Dear {{ .FirstName }},
-<br/><br/>
-We are pleased to inform you that your finetuning process has commenced. Rest assured, we will send you a follow-up email once it is successfully completed.
-<br/><br/>
-In the meantime, you can track the progress of your session at the following link: <a href="{{ .SessionURL }}" target="_blank">{{ .SessionURL }}</a>.
-<br/><br/>
-Thank you for choosing us. Should you have any questions, feel free to reach out.
-<br/><br/>
-Warm regards,<br/>
-The Helix Team
-`
-
-var finetuningCompletedTemplate = `
-Dear {{ .FirstName }},
-<br/><br/>
-Great news! Your finetuning process for session '{{ .SessionName }}' is now complete. You can start experiencing the enhanced features immediately.
-<br/><br/>
-To view and interact with your session, please visit: <a href="{{ .SessionURL }}" target="_blank">{{ .SessionURL }}</a>.
-<br/><br/>
-We hope you enjoy the improvements. If you have any feedback or require assistance, our team is here to help.
-<br/><br/>
-Best regards,<br/><br/>
-The Helix Team
+const cronTriggerCompleteTemplate = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Helix Notification</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        .header {
+            background-color: #f8f9fa;
+            padding: 30px 20px;
+            text-align: center;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .logo {
+            width: 40px;
+            height: 40px;
+            background-color: #000;
+            border-radius: 50%;
+            display: inline-block;
+            margin-bottom: 20px;
+            position: relative;
+        }
+        .logo::after {
+            content: '';
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            width: 24px;
+            height: 24px;
+            background-color: white;
+            border-radius: 50%;
+        }
+        .logo::before {
+            content: '';
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            width: 16px;
+            height: 16px;
+            background-color: #000;
+            border-radius: 50%;
+        }
+        .title {
+            font-size: 24px;
+            font-weight: 600;
+            margin: 0 0 10px 0;
+            color: #000;
+        }
+        .session-name {
+            background-color: #e9ecef;
+            color: #495057;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            display: inline-block;
+            margin-top: 10px;
+        }
+        .content {
+            padding: 40px 30px;
+            text-align: center;
+        }
+        .message {
+            font-size: 16px;
+            line-height: 1.6;
+            color: #495057;
+            margin-bottom: 30px;
+        }
+        .cta-button {
+            display: inline-block;
+            background-color: #000;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 500;
+            font-size: 16px;
+            transition: background-color 0.2s;
+        }
+        .cta-button:hover {
+            background-color: #333;
+        }
+        .footer {
+            padding: 30px 20px;
+            text-align: center;
+            border-top: 1px solid #e9ecef;
+        }
+        .footer-logo {
+            width: 30px;
+            height: 30px;
+            background-color: #000;
+            border-radius: 50%;
+            display: inline-block;
+            margin-bottom: 15px;
+            position: relative;
+        }
+        .footer-logo::after {
+            content: '';
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            width: 18px;
+            height: 18px;
+            background-color: white;
+            border-radius: 50%;
+        }
+        .footer-logo::before {
+            content: '';
+            position: absolute;
+            top: 9px;
+            left: 9px;
+            width: 12px;
+            height: 12px;
+            background-color: #000;
+            border-radius: 50%;
+        }
+        .copyright {
+            font-size: 12px;
+            color: #6c757d;
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo"></div>
+            <h1 class="title">Your session is ready</h1>
+            <div class="session-name">{{ .SessionName }}</div>
+        </div>
+        
+        <div class="content">
+            <div class="message">
+                Your cron trigger has completed successfully. Click the button below to view your results in Helix.
+            </div>
+            
+            <a href="{{ .SessionURL }}" class="cta-button" target="_blank">
+                Continue reading
+            </a>
+        </div>
+        
+        <div class="footer">
+            <div class="footer-logo"></div>
+            <p class="copyright">© 2025 Helix AI LLC</p>
+        </div>
+    </div>
+</body>
+</html>
 `

@@ -17,7 +17,6 @@ import (
 	"github.com/sashabaranov/go-openai"
 
 	"github.com/helixml/helix/api/pkg/data"
-	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/scheduler"
@@ -170,16 +169,6 @@ func (c *Controller) StartSession(ctx context.Context, user *types.User, req typ
 	err = c.Options.Janitor.WriteSessionEvent(types.SessionEventTypeCreated, user, sessionData)
 	if err != nil {
 		return nil, err
-	}
-
-	if newSession.Mode == types.SessionModeFinetune && !newSession.Metadata.RagEnabled {
-		err := c.Options.Notifier.Notify(ctx, &notification.Notification{
-			Event:   notification.EventFinetuningStarted,
-			Session: &newSession,
-		})
-		if err != nil {
-			log.Error().Msgf("error notifying finetuning started: %s", err.Error())
-		}
 	}
 
 	return sessionData, nil
@@ -1260,14 +1249,6 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 					return nil, err
 				}
 				session.Metadata.LoraID = loraDataEntity.ID
-
-				err = c.Options.Notifier.Notify(ctx, &notification.Notification{
-					Event:   notification.EventFinetuningComplete,
-					Session: session,
-				})
-				if err != nil {
-					log.Ctx(ctx).Error().Msgf("error notifying finetuning completed: %s", err.Error())
-				}
 			}
 		}
 
