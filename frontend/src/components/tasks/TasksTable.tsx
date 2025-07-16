@@ -22,6 +22,7 @@ import useTheme from '@mui/material/styles/useTheme'
 import useAccount from '../../hooks/useAccount'
 
 import { TypesTriggerConfiguration } from '../../api/api'
+import { generateCronShortSummary } from '../../utils/cronUtils'
 
 import {
   IApp,
@@ -37,72 +38,7 @@ interface TasksTableProps {
 
 // Helper function to format cron schedule for display
 const formatCronSchedule = (schedule: string): string => {
-  if (!schedule) return 'No schedule'
-  
-  const parts = schedule.split(' ')
-  const hasTimezone = schedule.startsWith('CRON_TZ=')
-  
-  if (hasTimezone && parts.length >= 6) {
-    // Remove timezone prefix and parse the rest
-    const tzMatch = schedule.match(/^CRON_TZ=([^\s]+)\s/)
-    if (tzMatch) {
-      const timezone = tzMatch[1]
-      const cronParts = parts.slice(1) // Remove timezone part
-      return formatCronParts(cronParts, timezone)
-    }
-  } else if (parts.length >= 5) {
-    return formatCronParts(parts)
-  }
-  
-  return schedule // Return original if we can't parse it
-}
-
-const formatCronParts = (parts: string[], timezone?: string): string => {
-  const [minute, hour, day, month, weekday] = parts
-    
-  // Check if it's an interval schedule (e.g., "*/5 * * * *")
-  if (minute.startsWith('*/')) {
-    const interval = parseInt(minute.substring(2))
-    if (interval === 5) return 'Every 5 minutes'
-    if (interval === 10) return 'Every 10 minutes'
-    if (interval === 15) return 'Every 15 minutes'
-    if (interval === 30) return 'Every 30 minutes'
-    if (interval === 60) return 'Every hour'
-    if (interval === 120) return 'Every 2 hours'
-    if (interval === 240) return 'Every 4 hours'
-    return `Every ${interval} minutes`
-  }
-  
-  // Check if it's a specific time schedule
-  if (minute !== '*' && hour !== '*' && weekday !== '*') {
-    const hourNum = parseInt(hour)
-    const minuteNum = parseInt(minute)
-    const timeStr = `${hourNum.toString().padStart(2, '0')}:${minuteNum.toString().padStart(2, '0')}`
-    
-    // Parse weekdays
-    const weekdays = weekday.split(',').map(d => parseInt(d)).filter(d => !isNaN(d))
-    const dayNames = weekdays.map(d => {
-      const dayMap: { [key: number]: string } = {
-        0: 'Sun', 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat'
-      }
-      return dayMap[d] || ''
-    }).filter(Boolean)
-    
-    if (dayNames.length === 1) {
-      return `${dayNames[0]} at ${timeStr}`
-    } else if (dayNames.length === 7) {
-      return `Daily at ${timeStr}`
-    } else if (dayNames.length === 5 && weekdays.every(d => d >= 1 && d <= 5)) {
-      return `Weekdays at ${timeStr}`
-    } else if (dayNames.length === 2 && weekdays.includes(0) && weekdays.includes(6)) {
-      return `Weekends at ${timeStr}`
-    } else {
-      return `${dayNames.join(', ')} at ${timeStr}`
-    }
-  }
-  
-  // Fallback for other patterns - reconstruct the cron expression
-  return parts.join(' ')
+  return generateCronShortSummary(schedule)
 }
 
 const TasksTable: FC<TasksTableProps> = ({

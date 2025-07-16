@@ -13,6 +13,16 @@ import ScheduleIcon from '@mui/icons-material/Schedule'
 import Alert from '@mui/material/Alert'
 import { TypesTrigger } from '../../api/api'
 import { timezones } from '../../utils/timezones'
+import { 
+  parseCronDays, 
+  parseCronHour, 
+  parseCronMinute, 
+  parseCronTimezone, 
+  parseCronInterval, 
+  isIntervalCron, 
+  getUserTimezone,
+  generateCronSummary 
+} from '../../utils/cronUtils'
 
 interface TriggerCronProps {
   triggers?: TypesTrigger[]
@@ -38,81 +48,6 @@ const MINUTES = Array.from({ length: 60 }, (_, i) => i)
 const INTERVAL_MINUTES = [5, 10, 15, 30, 60, 120, 240] // 5min to 4h
 
 type ScheduleMode = 'intervals' | 'specific_time'
-
-// Helper functions to parse cron expressions
-const parseCronDays = (cronExpression: string): number[] => {
-  const parts = cronExpression.split(' ')
-  // Check if it has timezone prefix
-  const hasTimezone = cronExpression.startsWith('CRON_TZ=')
-  const dayIndex = hasTimezone ? 5 : 4 // weekday field is shifted by 1 if timezone is present
-  
-  if (parts.length >= (hasTimezone ? 6 : 5)) {
-    const dayPart = parts[dayIndex]
-    return dayPart.split(',').map(d => parseInt(d)).filter(d => !isNaN(d))
-  }
-  return []
-}
-
-const parseCronHour = (cronExpression: string): number => {
-  const parts = cronExpression.split(' ')
-  // Check if it has timezone prefix
-  const hasTimezone = cronExpression.startsWith('CRON_TZ=')
-  const hourIndex = hasTimezone ? 2 : 1 // hour field is shifted by 1 if timezone is present
-  
-  if (parts.length >= (hasTimezone ? 6 : 5)) {
-    return parseInt(parts[hourIndex]) || 9
-  }
-  return 9
-}
-
-const parseCronMinute = (cronExpression: string): number => {
-  const parts = cronExpression.split(' ')
-  // Check if it has timezone prefix
-  const hasTimezone = cronExpression.startsWith('CRON_TZ=')
-  const minuteIndex = hasTimezone ? 1 : 0 // minute field is shifted by 1 if timezone is present
-  
-  if (parts.length >= (hasTimezone ? 6 : 5)) {
-    return parseInt(parts[minuteIndex]) || 0
-  }
-  return 0
-}
-
-const parseCronTimezone = (cronExpression: string): string => {
-  // Check if the cron expression starts with CRON_TZ=
-  if (cronExpression.startsWith('CRON_TZ=')) {
-    const tzMatch = cronExpression.match(/^CRON_TZ=([^\s]+)\s/)
-    if (tzMatch) {
-      return tzMatch[1]
-    }
-  }
-  return getUserTimezone() // Use user's timezone as default instead of hardcoded UTC
-}
-
-const parseCronInterval = (cronExpression: string): number => {
-  const parts = cronExpression.split(' ')
-  // For interval mode, the expression should be like "*/5 * * * *" (every 5 minutes)
-  if (parts.length >= 5) {
-    const minutePart = parts[0]
-    if (minutePart.startsWith('*/')) {
-      return parseInt(minutePart.substring(2)) || 5
-    }
-  }
-  return 5
-}
-
-const isIntervalCron = (cronExpression: string): boolean => {
-  const parts = cronExpression.split(' ')
-  if (parts.length >= 5) {
-    const minutePart = parts[0]
-    return minutePart.startsWith('*/')
-  }
-  return false
-}
-
-const getUserTimezone = () => {
-  const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-  return timezones.includes(userTimezone) ? userTimezone : 'UTC'
-}
 
 const TriggerCron: FC<TriggerCronProps> = ({
   triggers = [],
@@ -471,12 +406,7 @@ const TriggerCron: FC<TriggerCronProps> = ({
           {/* Schedule summary */}
           <Box>
             <Typography variant="body2" color="text.secondary">
-              <strong>Summary:</strong> {scheduleMode === 'intervals' 
-                ? `Every ${selectedInterval} minute${selectedInterval > 1 ? 's' : ''}`
-                : selectedDays.length > 0 
-                  ? `Every ${selectedDays.map(d => DAYS_OF_WEEK[d].fullLabel).join(', ')} at ${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')} (${selectedTimezone})`
-                  : 'No days selected'
-              }
+              <strong>Summary:</strong> {generateCronSummary(cronTrigger?.schedule || '')}
             </Typography>
           </Box>
         </Box>
