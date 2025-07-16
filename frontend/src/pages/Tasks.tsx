@@ -38,6 +38,34 @@ const Tasks: FC = () => {
     apps.loadApps,
   ])
 
+  // Check for ?task=new or ?task=<id> query parameter on component mount
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const taskParam = urlParams.get('task')
+    
+    if (taskParam === 'new') {
+      setSelectedTask(undefined)
+      setDialogOpen(true)
+      
+      // Clean up the URL by removing the query parameter
+      const newUrl = new URL(window.location.href)
+      newUrl.searchParams.delete('task')
+      window.history.replaceState({}, '', newUrl.toString())
+    } else if (taskParam && taskParam !== 'new') {
+      // Find the task by ID
+      const task = triggers?.data?.find(t => t.id === taskParam)
+      if (task) {
+        setSelectedTask(task)
+        setDialogOpen(true)
+        
+        // Clean up the URL by removing the query parameter
+        const newUrl = new URL(window.location.href)
+        newUrl.searchParams.delete('task')
+        window.history.replaceState({}, '', newUrl.toString())
+      }
+    }
+  }, [triggers?.data])
+
   const handleCreateTask = () => {
     setSelectedTask(undefined)
     setDialogOpen(true)
