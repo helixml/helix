@@ -630,12 +630,6 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 					Msg("Validation failed: provider not available")
 				return fmt.Errorf("provider '%s' is not available for %s", provider, fieldName)
 			}
-			log.Debug().
-				Str("user_id", user.ID).
-				Str("assistant_name", assistantName).
-				Str("field_name", fieldName).
-				Str("provider", provider).
-				Msg("Provider validation passed")
 		}
 
 		return nil
