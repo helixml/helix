@@ -127,6 +127,7 @@ func (c *Cron) reconcileCronApps(ctx context.Context) error {
 
 type cronApp struct {
 	ID      string
+	Name    string
 	App     *types.App
 	Trigger *types.CronTrigger
 }
@@ -145,6 +146,7 @@ func (c *Cron) getCronApps(ctx context.Context) ([]*cronApp, error) {
 			if trigger.Cron != nil && trigger.Cron.Enabled {
 				cronApps = append(cronApps, &cronApp{
 					ID:      app.ID,
+					Name:    app.Config.Helix.Name,
 					Trigger: trigger.Cron,
 					App:     app,
 				})
@@ -179,6 +181,7 @@ func (c *Cron) getCronAppsFromTriggers(ctx context.Context) ([]*cronApp, error) 
 
 		apps = append(apps, &cronApp{
 			ID:      triggerConfig.ID,
+			Name:    triggerConfig.Name,
 			App:     app,
 			Trigger: triggerConfig.Trigger.Cron,
 		})
@@ -301,7 +304,7 @@ func (c *Cron) getCronAppTask(ctx context.Context, cronApp *cronApp) gocron.Task
 			Str("app_id", cronApp.App.ID).
 			Msg("running app cron job")
 
-		_, err := ExecuteCronTask(ctx, c.store, c.controller, c.notifier, cronApp.App, cronApp.Trigger)
+		_, err := ExecuteCronTask(ctx, c.store, c.controller, c.notifier, cronApp.App, cronApp.Trigger, cronApp.Name)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to execute cron task")
 			return
@@ -353,7 +356,7 @@ func getCronJobSchedule(job gocron.Job) string {
 	return currentSchedule
 }
 
-func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, app *types.App, trigger *types.CronTrigger) (string, error) {
+func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, app *types.App, trigger *types.CronTrigger, sessionName string) (string, error) {
 	app, err := str.GetAppWithTools(ctx, app.ID)
 	if err != nil {
 		log.Error().
@@ -369,7 +372,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 	// Prepare new session
 	session := &types.Session{
 		ID:             system.GenerateSessionID(),
-		Name:           "Recurring Trigger",
+		Name:           sessionName,
 		Created:        time.Now(),
 		Updated:        time.Now(),
 		Mode:           types.SessionModeInference,
