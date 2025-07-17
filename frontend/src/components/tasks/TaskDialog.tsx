@@ -173,21 +173,17 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
       setError('Task not found');
       return;
     }
-
-    console.log('Starting task execution, setting isTesting to true');
+    
     setIsTesting(true);
     setError(null);
 
     try {
-      console.log('Making API call to execute task:', taskId);
       const response = await apiClient.v1TriggersExecuteCreate(taskId);
-      console.log('Task execution response:', response);
       snackbar.success('Task executed successfully');
     } catch (err) {
       console.error('Error executing task:', err);
       setError(err instanceof Error ? err.message : 'Failed to execute task');
     } finally {
-      console.log('Task execution completed, setting isTesting to false');
       setIsTesting(false);
     }
   }
