@@ -6,6 +6,7 @@ import {
 } from '@mui/material';
 import { TypesTriggerExecution, TypesTriggerExecutionStatus } from '../../api/api';
 import { useListAppTriggerExecutions } from '../../services/appService';
+import useAccount from '../../hooks/useAccount';
 
 interface ExecutionsHistoryProps {
   taskId?: string;
@@ -13,6 +14,8 @@ interface ExecutionsHistoryProps {
 }
 
 const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName }) => {
+  const account = useAccount()
+
   // Fetch trigger executions if we have a task ID
   const { data: triggerExecutions, isLoading, error: triggerExecutionsError } = useListAppTriggerExecutions(taskId || '');
 
@@ -64,7 +67,13 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
   const handleExecutionClick = (execution: TypesTriggerExecution) => {
     if (execution.session_id) {
       // Open session in new tab
-      const sessionUrl = `/session/${execution.session_id}`;
+      let sessionUrl = `/session/${execution.session_id}`;
+
+      // if we are in an organization, need to have the prefix with /org/<org name>
+      if (account.organizationTools.organization) {
+        sessionUrl = `/org/${account.organizationTools.organization.name}/${sessionUrl}`;
+      }
+
       window.open(sessionUrl, '_blank');
     }
   };
