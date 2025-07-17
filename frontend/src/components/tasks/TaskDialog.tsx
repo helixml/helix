@@ -202,7 +202,7 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
     <DarkDialog
       open={open}
       onClose={handleClose}
-      maxWidth="lg"
+      maxWidth={currentTaskId ? "lg" : "md"}
       fullWidth
       PaperProps={{
         sx: {
