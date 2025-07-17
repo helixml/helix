@@ -60,6 +60,15 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
     return `${seconds}s`;
   };
 
+  // Helper function to handle execution click
+  const handleExecutionClick = (execution: TypesTriggerExecution) => {
+    if (execution.session_id) {
+      // Open session in new tab
+      const sessionUrl = `/session/${execution.session_id}`;
+      window.open(sessionUrl, '_blank');
+    }
+  };
+
   if (!taskId) {
     return null;
   }
@@ -95,15 +104,23 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
         <Box>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {triggerExecutions.data.map((execution: TypesTriggerExecution, index: number) => (
-              <Box key={execution.id || index} sx={{ 
-                display: 'flex', 
-                alignItems: 'flex-start', 
-                gap: 2,
-                p: 2,
-                backgroundColor: '#1F2937',
-                borderRadius: 1,
-                border: '1px solid #374151'
-              }}>
+              <Box 
+                key={execution.id || index} 
+                sx={{ 
+                  display: 'flex', 
+                  alignItems: 'flex-start', 
+                  gap: 2,
+                  p: 2,
+                  borderRadius: 1,
+                  cursor: execution.session_id ? 'pointer' : 'default',
+                  '&:hover': execution.session_id ? {
+                    backgroundColor: '#374151',
+                    transition: 'background-color 0.2s ease'
+                  } : {},
+                  transition: 'background-color 0.2s ease'
+                }}
+                onClick={() => handleExecutionClick(execution)}
+              >
                 <Box sx={{ 
                   width: 8, 
                   height: 8, 
