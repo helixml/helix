@@ -119,7 +119,7 @@ func TestGmailOAuthSkillsE2E(t *testing.T) {
 	t.Parallel()
 
 	// Set a reasonable timeout for the OAuth browser automation
-	timeout := 2 * time.Minute
+	timeout := 5 * time.Minute // Increased from 2 minutes for more reliable authorization button search
 	deadline := time.Now().Add(timeout)
 	t.Deadline() // Check if deadline is already set
 
@@ -306,6 +306,7 @@ func (suite *GmailOAuthE2ETestSuite) getGoogleAuthorizationCode(authURL, state s
 		CallbackURLPattern:      "/api/v1/oauth/flow/callback",
 		DeviceVerificationCheck: googleHandler.IsRequiredForURL,
 		TwoFactorHandler:        googleHandler,
+		ProviderStrategy:        NewGoogleProviderStrategy(suite.logger), // Use Google-specific strategy
 	}
 
 	// Create automator with Google configuration

@@ -111,7 +111,7 @@ func TestGitHubOAuthSkillsE2E(t *testing.T) {
 	t.Parallel()
 
 	// Set a reasonable timeout for the OAuth browser automation
-	timeout := 2 * time.Minute
+	timeout := 5 * time.Minute // Increased timeout to match other OAuth tests for reliability
 	deadline := time.Now().Add(timeout)
 	t.Deadline() // Check if deadline is already set
 
@@ -276,7 +276,7 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 		return "", fmt.Errorf("failed to create GitHub device verification handler: %w", err)
 	}
 
-	// Configure GitHub browser automation
+	// Configure GitHub browser automation with GitHub-specific strategy
 	githubConfig := BrowserOAuthConfig{
 		ProviderName:            "github",
 		LoginUsernameSelector:   `input[name="login"]`,
@@ -286,6 +286,7 @@ func (suite *GitHubOAuthE2ETestSuite) getGitHubAuthorizationCode(authURL, state 
 		CallbackURLPattern:      "/api/v1/oauth/flow/callback",
 		DeviceVerificationCheck: IsGitHubDeviceVerificationPage,
 		TwoFactorHandler:        deviceHandler,
+		ProviderStrategy:        NewGitHubProviderStrategy(suite.logger), // Use GitHub-specific strategy
 	}
 
 	// Create automator with GitHub configuration
