@@ -55,73 +55,73 @@ CLUSTER_NAME="my-helix-cluster"
 # Get a temporary working directory
 DIR=$(mktemp -d)
 
-# # If the cluster already exists, delete it
-# if kind get clusters | grep -q $CLUSTER_NAME; then
-#   echo "Deleting existing cluster named $CLUSTER_NAME..."
-#   kind delete cluster --name $CLUSTER_NAME
-# fi
+# If the cluster already exists, delete it
+if kind get clusters | grep -q $CLUSTER_NAME; then
+  echo "Deleting existing cluster named $CLUSTER_NAME..."
+  kind delete cluster --name $CLUSTER_NAME
+fi
 
-# # Create a kind cluster with the specified name
-# echo "Creating a kind cluster named $CLUSTER_NAME..."
-# kind create cluster --name $CLUSTER_NAME
+# Create a kind cluster with the specified name
+echo "Creating a kind cluster named $CLUSTER_NAME..."
+kind create cluster --name $CLUSTER_NAME
 
-# # Set kubectl context to the newly created cluster
-# echo "Setting kubectl context to $CLUSTER_NAME..."
-# kubectl cluster-info --context kind-$CLUSTER_NAME
+# Set kubectl context to the newly created cluster
+echo "Setting kubectl context to $CLUSTER_NAME..."
+kubectl cluster-info --context kind-$CLUSTER_NAME
 
-# # Install external postgres
-# if [ -n "$USE_EXTERNAL_POSTGRES" ] && [ "$USE_EXTERNAL_POSTGRES" != "false" ] && [ "$USE_EXTERNAL_POSTGRES" != "" ]; then
-#   echo "Using external postgres..."
-#   # Create a secret for the postgres credentials if they don't exist
-#   if ! kubectl get secret my-postgres-secret; then
-#     kubectl create secret generic my-postgres-secret \
-#       --from-literal=password=external-password \
-#       --from-literal=postgres-password=superuser-password
-#   fi
+# Install external postgres
+if [ -n "$USE_EXTERNAL_POSTGRES" ] && [ "$USE_EXTERNAL_POSTGRES" != "false" ] && [ "$USE_EXTERNAL_POSTGRES" != "" ]; then
+  echo "Using external postgres..."
+  # Create a secret for the postgres credentials if they don't exist
+  if ! kubectl get secret my-postgres-secret; then
+    kubectl create secret generic my-postgres-secret \
+      --from-literal=password=external-password \
+      --from-literal=postgres-password=superuser-password
+  fi
 
-#   helm upgrade --install postgres oci://registry-1.docker.io/bitnamicharts/postgresql \
-#     --version "14.x.x" \
-#     --set auth.existingSecret=my-postgres-secret \
-#     --set auth.secretKeys.userPasswordKey=password \
-#     --set auth.secretKeys.adminPasswordKey=postgres-password \
-#     --set auth.username=helix \
-#     --set auth.database=helix
+  helm upgrade --install postgres oci://registry-1.docker.io/bitnamicharts/postgresql \
+    --version "14.x.x" \
+    --set auth.existingSecret=my-postgres-secret \
+    --set auth.secretKeys.userPasswordKey=password \
+    --set auth.secretKeys.adminPasswordKey=postgres-password \
+    --set auth.username=helix \
+    --set auth.database=helix
 
-#   wait_for_pod_ready "postgresql"
-# fi
+  wait_for_pod_ready "postgresql"
+fi
 
 
-# HELM_VALUES_KEYCLOAK=()
-# HELM_VALUES_KEYCLOAK+=("--set" "auth.adminUser=admin")
-# HELM_VALUES_KEYCLOAK+=("--set" "auth.adminPassword=oh-hallo-insecure-password")
-# HELM_VALUES_KEYCLOAK+=("--set" "httpRelativePath=/auth/")
-# if [ -n "$USE_EXTERNAL_POSTGRES" ] && [ "$USE_EXTERNAL_POSTGRES" != "false" ] && [ "$USE_EXTERNAL_POSTGRES" != "" ]; then
-#   HELM_VALUES_KEYCLOAK+=("--set" "postgresql.enabled=false")
-#   HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.host=postgres-postgresql")
-#   HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.port=5432")
-#   HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.user=helix")
-#   HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.database=helix")
-#   HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.existingSecret=my-postgres-secret")
-#   HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.existingSecretPasswordKey=password")
-# fi
+HELM_VALUES_KEYCLOAK=()
+HELM_VALUES_KEYCLOAK+=("--set" "auth.adminUser=admin")
+HELM_VALUES_KEYCLOAK+=("--set" "auth.adminPassword=oh-hallo-insecure-password")
+HELM_VALUES_KEYCLOAK+=("--set" "httpRelativePath=/auth/")
+if [ -n "$USE_EXTERNAL_POSTGRES" ] && [ "$USE_EXTERNAL_POSTGRES" != "false" ] && [ "$USE_EXTERNAL_POSTGRES" != "" ]; then
+  HELM_VALUES_KEYCLOAK+=("--set" "postgresql.enabled=false")
+  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.host=postgres-postgresql")
+  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.port=5432")
+  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.user=helix")
+  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.database=helix")
+  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.existingSecret=my-postgres-secret")
+  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.existingSecretPasswordKey=password")
+fi
 
-# # Install Keycloak using Helm with official image
-# helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
-#   --version "24.3.1" \
-#   "${HELM_VALUES_KEYCLOAK[@]}"
+# Install Keycloak using Helm with official image
+helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
+  --version "24.3.1" \
+  "${HELM_VALUES_KEYCLOAK[@]}"
 
-# # TODO: This is OOMKilled on my machine. Likely best fix is to update the base image.
-# # Install Keycloak using Helm with custom Helix image
-# export KEYCLOAK_VERSION=${HELIX_VERSION:-$(curl -s https://get.helixml.tech/latest.txt)}
-# helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
-#   --set global.security.allowInsecureImages=true \
-#   --version "24.3.1" \
-#   --set auth.adminUser=admin \
-#   --set auth.adminPassword=oh-hallo-insecure-password \
-#   --set image.registry=registry.helixml.tech \
-#   --set image.repository=helix/keycloak-bitnami \
-#   --set image.tag="${KEYCLOAK_VERSION}" \
-#   --set httpRelativePath="/auth/"
+# TODO: This is OOMKilled on my machine. Likely best fix is to update the base image.
+# Install Keycloak using Helm with custom Helix image
+export KEYCLOAK_VERSION=${HELIX_VERSION:-$(curl -s https://get.helixml.tech/latest.txt)}
+helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
+  --set global.security.allowInsecureImages=true \
+  --version "24.3.1" \
+  --set auth.adminUser=admin \
+  --set auth.adminPassword=oh-hallo-insecure-password \
+  --set image.registry=registry.helixml.tech \
+  --set image.repository=helix/keycloak-bitnami \
+  --set image.tag="${KEYCLOAK_VERSION}" \
+  --set httpRelativePath="/auth/"
 
 wait_for_pod_ready "keycloak"
 
