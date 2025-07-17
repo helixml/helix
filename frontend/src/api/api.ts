@@ -1949,8 +1949,11 @@ export interface TypesTriggerExecuteResponse {
 
 export interface TypesTriggerExecution {
   created?: string;
+  duration_ms?: number;
   error?: string;
   id?: string;
+  /** Will most likely match session name, based on the trigger name at the time of execution */
+  name?: string;
   output?: string;
   session_id?: string;
   status?: TypesTriggerExecutionStatus;
