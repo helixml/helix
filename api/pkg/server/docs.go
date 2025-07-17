@@ -7518,10 +7518,17 @@ const docTemplate = `{
                 "created": {
                     "type": "string"
                 },
+                "duration_ms": {
+                    "type": "integer"
+                },
                 "error": {
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Will most likely match session name, based on the trigger name at the time of execution",
                     "type": "string"
                 },
                 "output": {
