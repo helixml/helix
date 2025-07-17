@@ -1765,11 +1765,6 @@ func (c *Controller) evalAndAddOAuthTokens(ctx context.Context, client oai.Clien
 				Int("token_count", len(oauthTokens)).
 				Interface("token_keys", maps.Keys(oauthTokens)).
 				Msg("Successfully retrieved OAuth tokens for tools")
-		} else {
-			log.Warn().
-				Str("app_id", app.ID).
-				Str("user_id", user.ID).
-				Msg("No OAuth tokens found for app")
 		}
 	} else {
 		if opts.AppID == "" {
