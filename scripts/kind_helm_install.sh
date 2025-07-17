@@ -24,17 +24,19 @@ check_command() {
 }
 
 # Function to check if a pod is ready
-wait_for_pod_ready() {
+wait_for_pod_ready_with_label() {
   # Wait for pod to exist
   echo "Waiting for $1 pod to exist..."
-  until echo $(kubectl get pod -l app.kubernetes.io/name=$1) | grep "$1"; do
+  # Check that there is at least one pod with the label.
+  # use jsonpath to get the labels
+  until kubectl get pod -l $1 -o jsonpath='{.items[0].metadata.labels}'; do
       sleep 2
       echo -n "."
   done
 
   # Wait for pod to be ready
   echo "Waiting for $1 pod to be ready..."
-  kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=$1 --timeout=300s
+  kubectl wait --for=condition=ready pod -l $1 --timeout=300s
 }
 
 # Check if kind is installed
@@ -72,22 +74,33 @@ kubectl cluster-info --context kind-$CLUSTER_NAME
 # Install external postgres
 if [ -n "$USE_EXTERNAL_POSTGRES" ] && [ "$USE_EXTERNAL_POSTGRES" != "false" ] && [ "$USE_EXTERNAL_POSTGRES" != "" ]; then
   echo "Using external postgres..."
-  # Create a secret for the postgres credentials if they don't exist
-  if ! kubectl get secret my-postgres-secret; then
-    kubectl create secret generic my-postgres-secret \
-      --from-literal=password=external-password \
-      --from-literal=postgres-password=superuser-password
-  fi
 
-  helm upgrade --install postgres oci://registry-1.docker.io/bitnamicharts/postgresql \
-    --version "14.x.x" \
-    --set auth.existingSecret=my-postgres-secret \
-    --set auth.secretKeys.userPasswordKey=password \
-    --set auth.secretKeys.adminPasswordKey=postgres-password \
-    --set auth.username=helix \
-    --set auth.database=helix
+  # Use cloudnative-pg to install postgres to match one of our clients.
+  kubectl apply --server-side -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.26/releases/cnpg-1.26.0.yaml
 
-  wait_for_pod_ready "postgresql"
+  # Create a really basic cluster
+  cat <<EOF > $DIR/cluster-example.yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: helix-external-postgres
+spec:
+  instances: 3
+  storage:
+    size: 1Gi
+EOF
+
+  # Apply the cluster, repeat until it succeeds.
+  while ! kubectl apply -f $DIR/cluster-example.yaml; do
+    sleep 1
+  done
+
+  # Verify that the secret is created
+  while ! kubectl get secret helix-external-postgres-app; do
+    sleep 1
+  done
+
+  wait_for_pod_ready_with_label "cnpg.io/cluster=helix-external-postgres"
 fi
 
 
@@ -97,11 +110,11 @@ HELM_VALUES_KEYCLOAK+=("--set" "auth.adminPassword=oh-hallo-insecure-password")
 HELM_VALUES_KEYCLOAK+=("--set" "httpRelativePath=/auth/")
 if [ -n "$USE_EXTERNAL_POSTGRES" ] && [ "$USE_EXTERNAL_POSTGRES" != "false" ] && [ "$USE_EXTERNAL_POSTGRES" != "" ]; then
   HELM_VALUES_KEYCLOAK+=("--set" "postgresql.enabled=false")
-  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.host=postgres-postgresql")
-  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.port=5432")
-  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.user=helix")
-  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.database=helix")
-  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.existingSecret=my-postgres-secret")
+  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.existingSecret=helix-external-postgres-app")
+  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.existingSecretHostKey=host")
+  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.existingSecretPortKey=port")
+  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.existingSecretUserKey=user")
+  HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.existingSecretDatabaseKey=dbname")
   HELM_VALUES_KEYCLOAK+=("--set" "externalDatabase.existingSecretPasswordKey=password")
 fi
 
@@ -110,20 +123,20 @@ helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloa
   --version "24.3.1" \
   "${HELM_VALUES_KEYCLOAK[@]}"
 
-# TODO: This is OOMKilled on my machine. Likely best fix is to update the base image.
-# Install Keycloak using Helm with custom Helix image
-export KEYCLOAK_VERSION=${HELIX_VERSION:-$(curl -s https://get.helixml.tech/latest.txt)}
-helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
-  --set global.security.allowInsecureImages=true \
-  --version "24.3.1" \
-  --set auth.adminUser=admin \
-  --set auth.adminPassword=oh-hallo-insecure-password \
-  --set image.registry=registry.helixml.tech \
-  --set image.repository=helix/keycloak-bitnami \
-  --set image.tag="${KEYCLOAK_VERSION}" \
-  --set httpRelativePath="/auth/"
+# # TODO: This is OOMKilled on my machine. Likely best fix is to update the base image.
+# # Install Keycloak using Helm with custom Helix image
+# export KEYCLOAK_VERSION=${HELIX_VERSION:-$(curl -s https://get.helixml.tech/latest.txt)}
+# helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
+#   --set global.security.allowInsecureImages=true \
+#   --version "24.3.1" \
+#   --set auth.adminUser=admin \
+#   --set auth.adminPassword=oh-hallo-insecure-password \
+#   --set image.registry=registry.helixml.tech \
+#   --set image.repository=helix/keycloak-bitnami \
+#   --set image.tag="${KEYCLOAK_VERSION}" \
+#   --set httpRelativePath="/auth/"
 
-wait_for_pod_ready "keycloak"
+wait_for_pod_ready_with_label "app.kubernetes.io/name=keycloak"
 
 if [ -n "$USE_LOCAL_HELM_CHART" ] && [ "$USE_LOCAL_HELM_CHART" != "false" ] && [ "$USE_LOCAL_HELM_CHART" != "" ]; then
   echo "Using local Helm chart..."
@@ -167,15 +180,15 @@ HELM_VALUES+=("--set" "controlplane.keycloak.password=oh-hallo-insecure-password
 
 if [ -n "$USE_EXTERNAL_POSTGRES" ] && [ "$USE_EXTERNAL_POSTGRES" != "false" ] && [ "$USE_EXTERNAL_POSTGRES" != "" ]; then
   HELM_VALUES+=("--set" "postgresql.enabled=false")
-  HELM_VALUES+=("--set" "postgresql.external.host=postgres-postgresql")
-  HELM_VALUES+=("--set" "postgresql.external.port=5432")
-  HELM_VALUES+=("--set" "postgresql.external.user=helix")
-  HELM_VALUES+=("--set" "postgresql.external.database=helix")
-  HELM_VALUES+=("--set" "postgresql.external.existingSecret=my-postgres-secret")
+  HELM_VALUES+=("--set" "postgresql.external.existingSecret=helix-external-postgres-app")
+  HELM_VALUES+=("--set" "postgresql.external.existingSecretHostKey=host")
+  HELM_VALUES+=("--set" "postgresql.external.existingSecretPortKey=port")
+  HELM_VALUES+=("--set" "postgresql.external.existingSecretUserKey=user")
+  HELM_VALUES+=("--set" "postgresql.external.existingSecretDatabaseKey=dbname")
   HELM_VALUES+=("--set" "postgresql.external.existingSecretPasswordKey=password")
 fi
 
 # Execute helm command with all accumulated values
 helm upgrade --install my-helix-controlplane $CHART "${HELM_VALUES[@]}"
 
-wait_for_pod_ready "helix-controlplane"
+wait_for_pod_ready_with_label "app.kubernetes.io/name=helix-controlplane"

@@ -237,5 +237,9 @@ postgresql:
     database: helix
     password: ""
     existingSecret: ""
+    existingSecretHostKey: ""
+    existingSecretPortKey: ""
+    existingSecretUserKey: ""
+    existingSecretDatabaseKey: ""
     existingSecretPasswordKey: ""
     annotations: {}

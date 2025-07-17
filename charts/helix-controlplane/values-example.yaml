@@ -59,7 +59,7 @@ pgvector:
   # Configuration for bundled pgvector (when enabled=true)
   auth:
     username: postgres
-    password: "secure-pgvector-password"
+    password: "pgvector"
     database: postgres
 
     # Option: Use existing secret for all auth credentials
@@ -392,6 +392,9 @@ postgresql:
     # Option: Use existing secret for all auth credentials
     # existingSecret: "postgresql-auth-secret"
     # postgresPasswordKey: "postgres-password"  # defaults to "postgres-password"
+    # usernameKey: "username"                   # defaults to "username"
+    # passwordKey: "password"                   # defaults to "password"
+    # databaseKey: "database"                   # defaults to "database"
 
   # PostgreSQL architecture
   architecture: standalone
