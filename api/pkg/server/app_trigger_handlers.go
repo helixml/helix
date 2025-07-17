@@ -303,6 +303,17 @@ func (s *HelixAPIServer) listTriggerExecutions(_ http.ResponseWriter, r *http.Re
 	vars := mux.Vars(r)
 	triggerID := vars["trigger_id"]
 
+	user := getRequestUser(r)
+
+	// Load trigger to verify it exists and for authorization
+	_, err := s.Store.GetTriggerConfiguration(ctx, &store.GetTriggerConfigurationQuery{
+		ID:    triggerID,
+		Owner: user.ID,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError404("Trigger configuration not found")
+	}
+
 	offsetStr := r.URL.Query().Get("offset")
 	limitStr := r.URL.Query().Get("limit")
 
