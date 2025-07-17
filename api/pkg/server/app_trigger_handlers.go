@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
@@ -292,6 +293,8 @@ func (s *HelixAPIServer) executeAppTrigger(_ http.ResponseWriter, r *http.Reques
 // @Tags    apps
 // @Success 200 {array} types.TriggerExecution
 // @Param trigger_id path string true "Trigger ID"
+// @Param offset query int false "Offset"
+// @Param limit query int false "Limit"
 // @Router /api/v1/triggers/{trigger_id}/executions [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listTriggerExecutions(_ http.ResponseWriter, r *http.Request) ([]*types.TriggerExecution, *system.HTTPError) {
@@ -300,8 +303,23 @@ func (s *HelixAPIServer) listTriggerExecutions(_ http.ResponseWriter, r *http.Re
 	vars := mux.Vars(r)
 	triggerID := vars["trigger_id"]
 
+	offsetStr := r.URL.Query().Get("offset")
+	limitStr := r.URL.Query().Get("limit")
+
+	offset, err := strconv.Atoi(offsetStr)
+	if err != nil {
+		return nil, system.NewHTTPError400("Invalid offset")
+	}
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil {
+		return nil, system.NewHTTPError400("Invalid limit")
+	}
+
 	executions, err := s.Store.ListTriggerExecutions(ctx, &store.ListTriggerExecutionsQuery{
 		TriggerID: triggerID,
+		Offset:    offset,
+		Limit:     limit,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
