@@ -3883,10 +3883,20 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/triggers/{trigger_id}/executions
      * @secure
      */
-    v1TriggersExecutionsDetail: (triggerId: string, params: RequestParams = {}) =>
+    v1TriggersExecutionsDetail: (
+      triggerId: string,
+      query?: {
+        /** Offset */
+        offset?: number;
+        /** Limit */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesTriggerExecution[], any>({
         path: `/api/v1/triggers/${triggerId}/executions`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),
