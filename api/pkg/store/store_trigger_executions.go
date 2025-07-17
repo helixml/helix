@@ -39,7 +39,22 @@ func (s *PostgresStore) UpdateTriggerExecution(ctx context.Context, execution *t
 
 func (s *PostgresStore) ListTriggerExecutions(ctx context.Context, q *ListTriggerExecutionsQuery) ([]*types.TriggerExecution, error) {
 	var executions []*types.TriggerExecution
-	err := s.gdb.WithContext(ctx).Where("trigger_configuration_id = ?", q.TriggerID).Order("created DESC").Find(&executions).Error
+
+	query := s.gdb.WithContext(ctx)
+
+	if q.TriggerID != "" {
+		query = query.Where("trigger_configuration_id = ?", q.TriggerID)
+	}
+
+	if q.Offset > 0 {
+		query = query.Offset(q.Offset)
+	}
+
+	if q.Limit > 0 {
+		query = query.Limit(q.Limit)
+	}
+
+	err := query.Order("created DESC").Find(&executions).Error
 	if err != nil {
 		return nil, err
 	}

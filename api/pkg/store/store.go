@@ -90,6 +90,8 @@ type ListTriggerConfigurationsQuery struct {
 
 type ListTriggerExecutionsQuery struct {
 	TriggerID string
+	Offset    int
+	Limit     int
 }
 
 type ListUsersQuery struct {
