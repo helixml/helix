@@ -2028,6 +2028,21 @@ func (mr *MockStoreMockRecorder) UpdateTriggerConfiguration(ctx, triggerConfig a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateTriggerConfiguration", reflect.TypeOf((*MockStore)(nil).UpdateTriggerConfiguration), ctx, triggerConfig)
 }
 
+// UpdateTriggerExecution mocks base method.
+func (m *MockStore) UpdateTriggerExecution(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateTriggerExecution", ctx, execution)
+	ret0, _ := ret[0].(*types.TriggerExecution)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateTriggerExecution indicates an expected call of UpdateTriggerExecution.
+func (mr *MockStoreMockRecorder) UpdateTriggerExecution(ctx, execution any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateTriggerExecution", reflect.TypeOf((*MockStore)(nil).UpdateTriggerExecution), ctx, execution)
+}
+
 // UpdateUser mocks base method.
 func (m *MockStore) UpdateUser(ctx context.Context, user *types.User) (*types.User, error) {
 	m.ctrl.T.Helper()

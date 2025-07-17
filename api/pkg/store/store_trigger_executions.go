@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -17,6 +18,19 @@ func (s *PostgresStore) CreateTriggerExecution(ctx context.Context, execution *t
 	execution.Updated = time.Now()
 
 	err := s.gdb.WithContext(ctx).Create(&execution).Error
+	if err != nil {
+		return nil, err
+	}
+	return execution, nil
+}
+
+func (s *PostgresStore) UpdateTriggerExecution(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+	if execution.ID == "" {
+		return nil, errors.New("execution ID is required")
+	}
+
+	execution.Updated = time.Now()
+	err := s.gdb.WithContext(ctx).Save(&execution).Error
 	if err != nil {
 		return nil, err
 	}
