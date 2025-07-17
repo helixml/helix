@@ -317,14 +317,23 @@ func (s *HelixAPIServer) listTriggerExecutions(_ http.ResponseWriter, r *http.Re
 	offsetStr := r.URL.Query().Get("offset")
 	limitStr := r.URL.Query().Get("limit")
 
-	offset, err := strconv.Atoi(offsetStr)
-	if err != nil {
-		return nil, system.NewHTTPError400("Invalid offset")
+	var (
+		offset int
+		limit  int
+	)
+
+	if offsetStr != "" {
+		offset, err = strconv.Atoi(offsetStr)
+		if err != nil {
+			return nil, system.NewHTTPError400("Invalid offset")
+		}
 	}
 
-	limit, err := strconv.Atoi(limitStr)
-	if err != nil {
-		return nil, system.NewHTTPError400("Invalid limit")
+	if limitStr != "" {
+		limit, err = strconv.Atoi(limitStr)
+		if err != nil {
+			return nil, system.NewHTTPError400("Invalid limit")
+		}
 	}
 
 	executions, err := s.Store.ListTriggerExecutions(ctx, &store.ListTriggerExecutionsQuery{
