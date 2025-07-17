@@ -9,11 +9,15 @@ import {
   IconButton,
   Alert,
   CircularProgress,
+  Typography,
+  Divider,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import DarkDialog from '../dialog/DarkDialog';
 import TriggerCron from '../app/TriggerCron';
 import AgentSelector from './AgentSelector';
+import ExecutionsHistory from './ExecutionsHistory';
 import { IApp } from '../../types'
 import { TypesTrigger, TypesTriggerConfiguration, TypesTriggerType, TypesOwnerType } from '../../api/api'
 
@@ -43,6 +47,9 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [createdTaskId, setCreatedTaskId] = useState<string | undefined>(task?.id);
+
+  // Get the current task ID for fetching executions
+  const currentTaskId = createdTaskId || task?.id;
 
   // Initialize selected agent when apps are available
   useEffect(() => {
@@ -189,11 +196,13 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
     }
   }
 
+
+
   return (
     <DarkDialog
       open={open}
       onClose={handleClose}
-      maxWidth="md"
+      maxWidth="lg"
       fullWidth
       PaperProps={{
         sx: {
@@ -247,48 +256,59 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
       </DialogTitle>
 
       <DialogContent sx={{ p: 3 }}>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {/* Error Alert */}
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
+        <Box sx={{ display: 'flex', gap: 3 }}>
+          {/* Left side - Task configuration */}
+          <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {/* Error Alert */}
+            {error && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {error}
+              </Alert>
+            )}
+
+            {/* Schedule Section - Using TriggerCron component */}
+            <TriggerCron
+              triggers={triggers}
+              onUpdate={handleTriggersUpdate}
+              readOnly={isSubmitting}
+              showTitle={false}
+              showToggle={false}
+              defaultEnabled={true}
+            />          
+
+            {/* TODO: Task Limit Display */}
+            {/* <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: 1,
+              p: 2,
+              backgroundColor: '#23262F',
+              borderRadius: 1,
+            }}>
+              <Box sx={{ 
+                width: 8, 
+                height: 8, 
+                borderRadius: '50%', 
+                backgroundColor: '#10B981' 
+              }} />
+              <Box>
+                <Typography variant="body2" sx={{ color: '#F1F1F1' }}>
+                  2 daily tasks remaining
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#A0AEC0' }}>
+                  Current: 0/2 daily tasks active
+                </Typography>
+              </Box>
+            </Box> */}
+          </Box>
+
+          {/* Right side - Trigger executions history */}
+          {currentTaskId && (
+            <ExecutionsHistory 
+              taskId={currentTaskId}
+              taskName={taskName}
+            />
           )}
-
-          {/* Schedule Section - Using TriggerCron component */}
-          <TriggerCron
-            triggers={triggers}
-            onUpdate={handleTriggersUpdate}
-            readOnly={isSubmitting}
-            showTitle={false}
-            showToggle={false}
-            defaultEnabled={true}
-          />          
-
-          {/* TODO: Task Limit Display */}
-          {/* <Box sx={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: 1,
-            p: 2,
-            backgroundColor: '#23262F',
-            borderRadius: 1,
-          }}>
-            <Box sx={{ 
-              width: 8, 
-              height: 8, 
-              borderRadius: '50%', 
-              backgroundColor: '#10B981' 
-            }} />
-            <Box>
-              <Typography variant="body2" sx={{ color: '#F1F1F1' }}>
-                2 daily tasks remaining
-              </Typography>
-              <Typography variant="caption" sx={{ color: '#A0AEC0' }}>
-                Current: 0/2 daily tasks active
-              </Typography>
-            </Box>
-          </Box> */}
         </Box>
       </DialogContent>
 
