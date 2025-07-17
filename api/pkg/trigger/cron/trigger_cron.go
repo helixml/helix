@@ -304,7 +304,7 @@ func (c *Cron) getCronAppTask(ctx context.Context, cronApp *cronApp) gocron.Task
 			Str("app_id", cronApp.App.ID).
 			Msg("running app cron job")
 
-		_, err := ExecuteCronTask(ctx, c.store, c.controller, c.notifier, cronApp.App, cronApp.Trigger, cronApp.Name)
+		_, err := ExecuteCronTask(ctx, c.store, c.controller, c.notifier, cronApp.App, cronApp.ID, cronApp.Trigger, cronApp.Name)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to execute cron task")
 			return
@@ -356,7 +356,7 @@ func getCronJobSchedule(job gocron.Job) string {
 	return currentSchedule
 }
 
-func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, app *types.App, trigger *types.CronTrigger, sessionName string) (string, error) {
+func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, app *types.App, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
 	app, err := str.GetAppWithTools(ctx, app.ID)
 	if err != nil {
 		log.Error().
@@ -474,6 +474,25 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		return "", err
 	}
 
+	// Create execution
+	execution := &types.TriggerExecution{
+		ID:                     system.GenerateUUID(),
+		TriggerConfigurationID: triggerID,
+		Created:                time.Now(),
+		Updated:                time.Now(),
+		Status:                 types.TriggerExecutionStatusRunning,
+		SessionID:              session.ID,
+	}
+
+	execution, err = str.CreateTriggerExecution(ctx, execution)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", app.ID).
+			Msg("failed to create trigger execution")
+		return "", fmt.Errorf("failed to create trigger execution: %w", err)
+	}
+
 	resp, _, err := ctrl.ChatCompletion(ctx, user,
 		request,
 		&controller.ChatCompletionOptions{
@@ -516,6 +535,18 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 				Msg("failed to send failure notification")
 		}
 
+		// Update execution with error
+		execution.Status = types.TriggerExecutionStatusError
+		execution.Error = err.Error()
+		execution, err = str.UpdateTriggerExecution(ctx, execution)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("app_id", app.ID).
+				Str("execution_id", execution.ID).
+				Msg("failed to update execution")
+		}
+
 		return "", err
 	}
 
@@ -552,6 +583,19 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 			Str("app_id", app.ID).
 			Str("session_id", session.ID).
 			Msg("failed to send success notification")
+	}
+
+	// Update execution with success
+	execution.Status = types.TriggerExecutionStatusSuccess
+	execution.Output = respContent
+	execution, err = str.UpdateTriggerExecution(ctx, execution)
+
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", app.ID).
+			Str("execution_id", execution.ID).
+			Msg("failed to update execution")
 	}
 
 	log.Info().
