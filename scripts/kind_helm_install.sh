@@ -49,16 +49,26 @@ kind create cluster --name $CLUSTER_NAME
 echo "Setting kubectl context to $CLUSTER_NAME..."
 kubectl cluster-info --context kind-$CLUSTER_NAME
 
+
 # Install Keycloak using Helm with custom Helix image
-export KEYCLOAK_VERSION=${HELIX_VERSION:-$(curl -s https://get.helixml.tech/latest.txt)}
 helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
   --version "24.3.1" \
   --set auth.adminUser=admin \
   --set auth.adminPassword=oh-hallo-insecure-password \
-  --set image.registry=registry.helixml.tech \
-  --set image.repository=helix/keycloak \
-  --set image.tag="${KEYCLOAK_VERSION}" \
   --set httpRelativePath="/auth/"
+
+# # TODO: This is OOMKilled on my machine. Likely best fix is to update the base image.
+# # Install Keycloak using Helm with custom Helix image
+# export KEYCLOAK_VERSION=${HELIX_VERSION:-$(curl -s https://get.helixml.tech/latest.txt)}
+# helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
+#   --set global.security.allowInsecureImages=true \
+#   --version "24.3.1" \
+#   --set auth.adminUser=admin \
+#   --set auth.adminPassword=oh-hallo-insecure-password \
+#   --set image.registry=registry.helixml.tech \
+#   --set image.repository=helix/keycloak-bitnami \
+#   --set image.tag="${KEYCLOAK_VERSION}" \
+#   --set httpRelativePath="/auth/"
 
 # Wait for pod to exist
 echo "Waiting for Keycloak pod to exist..."
@@ -89,7 +99,7 @@ if [ -n "$USE_LOCAL_HELM_CHART" ] && [ "$USE_LOCAL_HELM_CHART" != "false" ] && [
 else
   # Add the Helix Helm chart repository
   echo "Adding the Helix Helm chart repository..."
-  helm repo add helix https://charts.helixml.tech
+  helm repo add helix --force-update https://charts.helixml.tech
   helm repo update
   # Grab the latest values-example.yaml
   echo "Downloading the latest values-example.yaml..."
@@ -108,34 +118,6 @@ HELM_VALUES=()
 # Add base values
 HELM_VALUES+=("-f" "$DIR/values-example.yaml")
 HELM_VALUES+=("--set" "image.tag=${HELIX_VERSION}")
-
-# Add all Helix-specific environment variables
-for env_var in \
-    LOG_LEVEL \
-    APP_URL \
-    POSTGRES_HOST \
-    POSTGRES_USER \
-    POSTGRES_PASSWORD \
-    POSTGRES_DATABASE \
-    RUNNER_TOKEN \
-    INFERENCE_PROVIDER \
-    FINETUNING_PROVIDER \
-    OPENAI_API_KEY \
-    TOGETHER_API_KEY \
-    ANTHROPIC_API_KEY \
-    KEYCLOAK_URL \
-    KEYCLOAK_FRONTEND_URL \
-    KEYCLOAK_USER \
-    KEYCLOAK_PASSWORD \
-    ADMIN_USER_IDS \
-    ADMIN_USER_SOURCE \
-    EVAL_USER_ID \
-    HELIX_API_KEY; do
-    eval value=\${$env_var:-}
-    if [ ! -z "$value" ]; then
-        HELM_VALUES+=("--set" "envVariables.${env_var}=${value}")
-    fi
-done
 
 # Execute helm command with all accumulated values
 helm upgrade --install my-helix-controlplane $CHART "${HELM_VALUES[@]}"
