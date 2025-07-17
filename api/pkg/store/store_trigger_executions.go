@@ -39,7 +39,7 @@ func (s *PostgresStore) UpdateTriggerExecution(ctx context.Context, execution *t
 
 func (s *PostgresStore) ListTriggerExecutions(ctx context.Context, q *ListTriggerExecutionsQuery) ([]*types.TriggerExecution, error) {
 	var executions []*types.TriggerExecution
-	err := s.gdb.WithContext(ctx).Where("trigger_configuration_id = ?", q.TriggerID).Find(&executions).Error
+	err := s.gdb.WithContext(ctx).Where("trigger_configuration_id = ?", q.TriggerID).Order("created DESC").Find(&executions).Error
 	if err != nil {
 		return nil, err
 	}
