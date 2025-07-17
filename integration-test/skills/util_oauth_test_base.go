@@ -326,19 +326,32 @@ func (suite *BaseOAuthTestSuite) setupBrowser() error {
 		return fmt.Errorf("failed to connect to Chrome container: %w", err)
 	}
 
+	// Create a new incognito browser context for this test to provide session isolation
+	// This prevents concurrent tests from interfering with each other's cookies and sessions
+	suite.logger.Info().Msg("Creating incognito browser context for test isolation")
+	incognito, err := suite.browser.Incognito()
+	if err != nil {
+		suite.logger.Warn().Err(err).Msg("Failed to create incognito context, using regular browser context")
+		// Continue with regular browser if incognito fails
+	} else {
+		suite.browser = incognito
+		suite.logger.Info().Msg("Using incognito browser context for test isolation")
+	}
+
 	suite.logger.Info().Msg("Browser setup completed successfully")
 	return nil
 }
 
 // createTestUser creates a test user in both Keycloak and database
 func (suite *BaseOAuthTestSuite) createTestUser() (*types.User, error) {
-	// Use test ID for unique identifiers in parallel tests
-	uniqueID := fmt.Sprintf("%d-%s", time.Now().Unix(), suite.testID)
+	// Use shorter unique identifiers for parallel tests
+	// Generate a short random suffix to avoid collisions
+	shortID := fmt.Sprintf("%d%d", time.Now().Unix()%100000, rand.Intn(1000))
 
 	user := &types.User{
-		ID:       fmt.Sprintf("test-user-%s", uniqueID),
-		Email:    fmt.Sprintf("oauth-test-%s@helix.test", uniqueID),
-		Username: fmt.Sprintf("oauth-test-%s", uniqueID),
+		ID:       fmt.Sprintf("test-user-%s", shortID),
+		Email:    fmt.Sprintf("oauth-test-%s@helix.test", shortID),
+		Username: fmt.Sprintf("oauth-test-%s", shortID),
 		FullName: "OAuth Test User",
 		Admin:    false,
 	}
@@ -389,7 +402,11 @@ func (suite *BaseOAuthTestSuite) TakeScreenshot(page *rod.Page, stepName string)
 	filename := filepath.Join(GetTestResultsDir(), fmt.Sprintf("oauth_test_%s_%s_step_%02d_%s.png",
 		suite.testTimestamp, suite.testID, suite.screenshotCounter, stepName))
 
-	data, err := page.Screenshot(false, &proto.PageCaptureScreenshot{
+	// Create a fresh page context with a reasonable timeout specifically for screenshot operations
+	// This prevents context deadline exceeded errors when the main page context has expired
+	screenshotPage := page.Timeout(30 * time.Second)
+
+	data, err := screenshotPage.Screenshot(false, &proto.PageCaptureScreenshot{
 		Format: proto.PageCaptureScreenshotFormatPng,
 	})
 

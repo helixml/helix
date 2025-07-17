@@ -632,13 +632,6 @@ func (m *Manager) GetTokenForTool(ctx context.Context, userID string, providerNa
 		return "", fmt.Errorf("failed to get provider %s: %w", providerName, err)
 	}
 
-	log.Debug().
-		Str("provider_id", provider.ID).
-		Str("provider_name", provider.Name).
-		Str("provider_type", string(provider.Type)).
-		Bool("provider_enabled", provider.Enabled).
-		Msg("Found provider for GetTokenForTool")
-
 	connections, err := m.store.ListOAuthConnections(ctx, &store.ListOAuthConnectionsQuery{
 		UserID:     userID,
 		ProviderID: provider.ID,
@@ -647,13 +640,6 @@ func (m *Manager) GetTokenForTool(ctx context.Context, userID string, providerNa
 		log.Error().Err(err).Str("user_id", userID).Str("provider_id", provider.ID).Msg("Failed to list user connections")
 		return "", fmt.Errorf("failed to list user connections: %w", err)
 	}
-
-	log.Info().
-		Str("user_id", userID).
-		Str("provider_name", providerName).
-		Str("provider_id", provider.ID).
-		Int("connection_count", len(connections)).
-		Msg("Retrieved OAuth connections for user")
 
 	if len(connections) == 0 {
 		log.Warn().
@@ -664,20 +650,8 @@ func (m *Manager) GetTokenForTool(ctx context.Context, userID string, providerNa
 		return "", fmt.Errorf("no active connection found for provider %s", providerName)
 	}
 
-	for i, connection := range connections {
-		// Log connection details
-		log.Info().
-			Str("user_id", userID).
-			Str("provider_name", providerName).
-			Str("connection_id", connection.ID).
-			Int("connection_index", i).
-			Time("expires_at", connection.ExpiresAt).
-			Bool("token_expired", !connection.ExpiresAt.IsZero() && connection.ExpiresAt.Before(time.Now())).
-			Strs("connection_scopes", connection.Scopes).
-			Msg("Checking connection for token")
-
+	for _, connection := range connections {
 		// Check if token is expired
-		// Treat zero time value (0001-01-01T00:00:00Z) as non-expiring token
 		if !connection.ExpiresAt.IsZero() && connection.ExpiresAt.Before(time.Now()) {
 			log.Warn().
 				Str("user_id", userID).

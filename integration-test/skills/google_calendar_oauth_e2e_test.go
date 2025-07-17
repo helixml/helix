@@ -120,7 +120,7 @@ func TestGoogleCalendarOAuthSkillsE2E(t *testing.T) {
 	t.Parallel()
 
 	// Set a reasonable timeout for the OAuth browser automation
-	timeout := 2 * time.Minute
+	timeout := 5 * time.Minute // Increased timeout to match other OAuth tests for reliability
 	deadline := time.Now().Add(timeout)
 	t.Deadline() // Check if deadline is already set
 
@@ -276,7 +276,7 @@ func (suite *GoogleCalendarOAuthE2ETestSuite) createOAuthTemplate() error {
 	config.ClientSecret = suite.googleClientSecret
 	config.Username = suite.googleUsername
 	config.Password = suite.googlePassword
-	config.GetAuthorizationCodeFunc = suite.getGoogleAuthorizationCode
+	config.GetAuthorizationCodeFunc = suite.getGoogleCalendarAuthorizationCode
 	config.SetupTestDataFunc = func() error { return nil }   // No setup needed for Google Calendar
 	config.CleanupTestDataFunc = func() error { return nil } // No cleanup needed for Google Calendar
 	config.AgentTestQueries = GoogleCalendarTestQueries
@@ -295,8 +295,8 @@ func (suite *GoogleCalendarOAuthE2ETestSuite) createOAuthTemplate() error {
 // OAUTH FLOW IMPLEMENTATION
 // ======================================================================================
 
-// getGoogleAuthorizationCode performs real browser automation to complete Google OAuth flow
-func (suite *GoogleCalendarOAuthE2ETestSuite) getGoogleAuthorizationCode(authURL, state string) (string, error) {
+// getGoogleCalendarAuthorizationCode performs real browser automation to complete Google Calendar OAuth flow
+func (suite *GoogleCalendarOAuthE2ETestSuite) getGoogleCalendarAuthorizationCode(authURL, state string) (string, error) {
 	// Set up Google-specific OAuth handler
 	googleHandler := NewGoogleOAuthHandler(suite.logger)
 
@@ -306,10 +306,11 @@ func (suite *GoogleCalendarOAuthE2ETestSuite) getGoogleAuthorizationCode(authURL
 		LoginUsernameSelector:   `input[type="email"], input[name="identifier"], input[id="identifierId"], input[autocomplete="username"]`,
 		LoginPasswordSelector:   `input[type="password"], input[name="password"], input[autocomplete="current-password"]`,
 		LoginButtonSelector:     `button[id="identifierNext"], button[id="passwordNext"], button[type="submit"], input[type="submit"]`,
-		AuthorizeButtonSelector: `input[type="submit"][value="Allow"], button[type="submit"], button[data-l*="allow"]`,
+		AuthorizeButtonSelector: `button.VfPpkd-LgbsSe, button[type="submit"], input[type="submit"][value="Allow"], button[data-l*="allow"]`, // FIXED: Use same working pattern as Gmail
 		CallbackURLPattern:      "/api/v1/oauth/flow/callback",
 		DeviceVerificationCheck: googleHandler.IsRequiredForURL,
 		TwoFactorHandler:        googleHandler,
+		ProviderStrategy:        NewGoogleProviderStrategy(suite.logger), // Use Google-specific strategy
 	}
 
 	// Create automator with Google configuration

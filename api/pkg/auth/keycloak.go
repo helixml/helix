@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/Nerzal/gocloak/v13"
-	"github.com/avast/retry-go/v4"
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog/log"
 
@@ -64,8 +64,73 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak, store store.Store) (*Keycloa
 	}, nil
 }
 
+// isRetryableKeycloakError checks if an error is retryable based on 409 conflicts and optimistic lock exceptions
+func isRetryableKeycloakError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := err.Error()
+	// Check for 409 conflicts
+	if strings.Contains(errStr, "409") && strings.Contains(errStr, "Conflict") {
+		return true
+	}
+
+	// Check for optimistic lock exceptions
+	if strings.Contains(errStr, "OptimisticLockException") {
+		return true
+	}
+
+	// Check for 400 Bad Request with OptimisticLockException
+	if strings.Contains(errStr, "400 Bad Request") && strings.Contains(errStr, "OptimisticLockException") {
+		return true
+	}
+
+	return false
+}
+
+// retryWithExponentialBackoff performs exponential backoff with jitter for retryable errors
+func retryWithExponentialBackoff(operation func() error, maxRetries int, baseDelay time.Duration) error {
+	var lastErr error
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		err := operation()
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+
+		// Only retry on specific retryable errors
+		if !isRetryableKeycloakError(err) {
+			return err
+		}
+
+		// Don't sleep on the last attempt
+		if attempt == maxRetries-1 {
+			break
+		}
+
+		// Calculate exponential backoff with jitter
+		delay := baseDelay * time.Duration(1<<uint(attempt))   // 2^attempt
+		jitter := time.Duration(rand.Int63n(int64(delay / 2))) // Random jitter up to 50% of delay
+		totalDelay := delay + jitter
+
+		log.Info().
+			Err(err).
+			Int("attempt", attempt+1).
+			Int("max_retries", maxRetries).
+			Dur("delay", totalDelay).
+			Msg("Retrying Keycloak operation after retryable error")
+
+		time.Sleep(totalDelay)
+	}
+
+	return fmt.Errorf("failed after %d attempts: %w", maxRetries, lastErr)
+}
+
 func ensureConfiguration(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) error {
-	return retry.Do(func() error {
+	return retryWithExponentialBackoff(func() error {
 		err := setRealmConfigurations(gck, token, cfg)
 		if err != nil {
 			return err
@@ -89,10 +154,7 @@ func ensureConfiguration(gck *gocloak.GoCloak, token string, cfg *config.Keycloa
 		}
 
 		return nil
-	},
-		retry.Attempts(3),
-		retry.Delay(3*time.Second),
-	)
+	}, 5, 1*time.Second) // At least 5 retries with 1 second base delay
 }
 
 func setAPIClientConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) error {
@@ -163,7 +225,9 @@ func ensureAPIClientRedirectURIs(gck *gocloak.GoCloak, token string, cfg *config
 			*client.RedirectURIs = []string{u.String()}
 		}
 
-		err = gck.UpdateClient(context.Background(), token, cfg.Realm, *client)
+		err = retryWithExponentialBackoff(func() error {
+			return gck.UpdateClient(context.Background(), token, cfg.Realm, *client)
+		}, 5, 500*time.Millisecond)
 		if err != nil {
 			return fmt.Errorf("ensureAPIClientRedirectURIs: error updating client: %s", err.Error())
 		}
@@ -183,7 +247,9 @@ func ensureAPIClientRedirectURIs(gck *gocloak.GoCloak, token string, cfg *config
 			u.Path = "*"
 			*client.WebOrigins = []string{u.String()}
 		}
-		err = gck.UpdateClient(context.Background(), token, cfg.Realm, *client)
+		err = retryWithExponentialBackoff(func() error {
+			return gck.UpdateClient(context.Background(), token, cfg.Realm, *client)
+		}, 5, 500*time.Millisecond)
 		if err != nil {
 			return fmt.Errorf("ensureAPIClientRedirectURIs: error updating client: %s", err.Error())
 		}
@@ -210,7 +276,9 @@ func ensureAPIClientRedirectURIs(gck *gocloak.GoCloak, token string, cfg *config
 		}
 		*client.Attributes = attributes
 
-		err = gck.UpdateClient(context.Background(), token, cfg.Realm, *client)
+		err = retryWithExponentialBackoff(func() error {
+			return gck.UpdateClient(context.Background(), token, cfg.Realm, *client)
+		}, 5, 500*time.Millisecond)
 		if err != nil {
 			return fmt.Errorf("ensureAPIClientRedirectURIs: error updating client: %s", err.Error())
 		}
@@ -323,7 +391,9 @@ func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keyc
 		log.Info().Str("realm", cfg.Realm).Msg("Setting login theme to 'helix'")
 	}
 
-	err = gck.UpdateRealm(context.Background(), token, *realm)
+	err = retryWithExponentialBackoff(func() error {
+		return gck.UpdateRealm(context.Background(), token, *realm)
+	}, 5, 500*time.Millisecond)
 	if err != nil {
 		return fmt.Errorf("setRealmConfiguration: attempt to update realm config failed with: %s", err.Error())
 	}

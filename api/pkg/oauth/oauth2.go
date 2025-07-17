@@ -162,16 +162,18 @@ func (p *OAuth2Provider) CompleteAuthorization(ctx context.Context, userID, code
 		return nil, fmt.Errorf("failed to get user info: %w", err)
 	}
 
-	// Create the connection
+	// Create connection record
 	connection := &types.OAuthConnection{
-		UserID:         userID,
-		ProviderID:     p.config.ID,
-		AccessToken:    token.AccessToken,
-		RefreshToken:   token.RefreshToken,
-		ExpiresAt:      token.Expiry,
-		Scopes:         p.oauthConfig.Scopes,
-		ProviderUserID: userInfo.ID,
-		Profile:        userInfo,
+		UserID:            userID,
+		ProviderID:        p.config.ID,
+		AccessToken:       token.AccessToken,
+		RefreshToken:      token.RefreshToken,
+		ExpiresAt:         token.Expiry,
+		Scopes:            p.config.Scopes,
+		ProviderUserID:    userInfo.ID,
+		ProviderUserEmail: userInfo.Email,
+		ProviderUsername:  userInfo.DisplayName,
+		Profile:           userInfo,
 	}
 
 	return connection, nil
@@ -303,6 +305,15 @@ func (p *OAuth2Provider) getUserInfo(ctx context.Context, token *oauth2.Token) (
 		email = getStringValue(data, "userPrincipalName")
 		name = getStringValue(data, "displayName")
 		displayName = getStringValue(data, "displayName")
+	case types.OAuthProviderTypeAtlassian:
+		id = getStringValue(data, "account_id")
+		email = getStringValue(data, "email")
+		name = getStringValue(data, "name")
+		displayName = getStringValue(data, "nickname")
+		if displayName == "" {
+			displayName = name
+		}
+		avatarURL = getStringValue(data, "picture")
 	default:
 		// For custom providers, try some common field names
 		id = getStringValue(data, "id")

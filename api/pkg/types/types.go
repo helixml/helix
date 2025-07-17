@@ -1098,8 +1098,9 @@ type ToolAPIConfig struct {
 	Schema  string           `json:"schema" yaml:"schema"`
 	Actions []*ToolAPIAction `json:"actions" yaml:"actions"` // Read-only, parsed from schema on creation
 
-	Headers map[string]string `json:"headers" yaml:"headers"` // Headers (authentication, etc)
-	Query   map[string]string `json:"query" yaml:"query"`     // Query parameters that will be always set
+	Headers    map[string]string `json:"headers" yaml:"headers"`         // Headers (authentication, etc)
+	Query      map[string]string `json:"query" yaml:"query"`             // Query parameters that will be always set
+	PathParams map[string]string `json:"path_params" yaml:"path_params"` // Path parameters that will be substituted in URLs
 
 	SystemPrompt string `json:"system_prompt" yaml:"system_prompt"` // System prompt to guide the AI when using this API
 
@@ -1155,6 +1156,7 @@ type AssistantAPI struct {
 	URL         string            `json:"url" yaml:"url"`
 	Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	Query       map[string]string `json:"query,omitempty" yaml:"query,omitempty"`
+	PathParams  map[string]string `json:"path_params,omitempty" yaml:"path_params,omitempty"`
 
 	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 

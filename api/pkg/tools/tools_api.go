@@ -20,6 +20,14 @@ import (
 )
 
 func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, action string, params map[string]interface{}) (*http.Request, error) {
+	// Log the input parameters for debugging
+	log.Debug().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Interface("params", params).
+		Interface("tool_query", tool.Config.API.Query).
+		Msg("prepareRequest called with parameters")
+
 	loader := openapi3.NewLoader()
 
 	schema, err := loader.LoadFromData([]byte(tool.Config.API.Schema))
@@ -65,28 +73,36 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		return nil, fmt.Errorf("failed to find path and method for action %s", action)
 	}
 
+	log.Debug().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Str("path", path).
+		Str("method", method).
+		Interface("query_params", queryParams).
+		Interface("path_params", pathParams).
+		Bool("has_request_body_schema", requestBodySchema != nil).
+		Msg("OpenAPI schema parsed for request preparation")
+
 	// Prepare request
 	var body io.Reader
 	if requestBodySchema != nil {
-		// Check if we have a nested body parameter
-		if bodyStr, exists := params["body"]; exists {
-			// If body parameter exists, use it directly
-			if bodyStrStr, ok := bodyStr.(string); ok {
-				body = bytes.NewReader([]byte(bodyStrStr))
-			} else {
-				// If body is not a string, marshal it to JSON
-				jsonBody, err := json.Marshal(bodyStr)
-				if err != nil {
-					return nil, fmt.Errorf("failed to marshal body parameter: %w", err)
+		// Build request body from parameters
+		bodyParams := make(map[string]interface{})
+
+		// Check if there's a body parameter
+		if bodyParam, exists := params["body"]; exists {
+			// Try to parse as JSON
+			if bodyJSON, ok := bodyParam.(string); ok {
+				var bodyObj map[string]interface{}
+				if err := json.Unmarshal([]byte(bodyJSON), &bodyObj); err == nil {
+					bodyParams = bodyObj
 				}
-				body = bytes.NewReader(jsonBody)
+			} else if bodyObj, ok := bodyParam.(map[string]interface{}); ok {
+				bodyParams = bodyObj
 			}
 		} else {
-			// Create a map to hold the body parameters
-			bodyParams := make(map[string]interface{})
-
-			// Extract body parameters from the schema
-			if requestBodySchema.Value != nil {
+			// Build body from matching parameters
+			if requestBodySchema.Value != nil && requestBodySchema.Value.Properties != nil {
 				for propName, propSchema := range requestBodySchema.Value.Properties {
 					if value, exists := params[propName]; exists {
 						// Convert the value to the appropriate type based on the schema
@@ -127,14 +143,21 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 					}
 				}
 			}
-
-			// Marshal the body parameters to JSON
-			jsonBody, err := json.Marshal(bodyParams)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal request body: %w", err)
-			}
-			body = bytes.NewReader(jsonBody)
 		}
+
+		// Marshal the body parameters to JSON
+		jsonBody, err := json.Marshal(bodyParams)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		body = bytes.NewReader(jsonBody)
+
+		log.Debug().
+			Str("tool", tool.Name).
+			Str("action", action).
+			Interface("body_params", bodyParams).
+			Str("json_body", string(jsonBody)).
+			Msg("Request body prepared")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, tool.Config.API.URL+path, body)
@@ -148,11 +171,35 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 
 	q := req.URL.Query()
 
-	// Add path params
+	// Add path params - check both function parameters and tool path parameters
+	allParams := make(map[string]interface{})
+
+	// Add function parameters
 	for k, v := range params {
-		if k == "body" {
-			continue // Skip body parameter as it's already handled
+		if k != "body" { // Skip body parameter as it's already handled
+			allParams[k] = v
 		}
+	}
+
+	// Add tool path parameters (these are specifically for path substitution)
+	// Pre-configured parameters override LLM-generated ones
+	if tool.Config.API.PathParams != nil {
+		for k, v := range tool.Config.API.PathParams {
+			allParams[k] = v
+		}
+	}
+
+	log.Debug().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Interface("all_params", allParams).
+		Interface("function_params", params).
+		Interface("tool_path_params", tool.Config.API.PathParams).
+		Msg("Parameter merging for path and query substitution")
+
+	// Replace path parameters
+	originalPath := req.URL.Path
+	for k, v := range allParams {
 		if pathParams[k] {
 			if strVal, ok := v.(string); ok {
 				req.URL.Path = strings.Replace(req.URL.Path, "{"+k+"}", strVal, -1)
@@ -160,24 +207,45 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 				req.URL.Path = strings.Replace(req.URL.Path, "{"+k+"}", fmt.Sprintf("%v", v), -1)
 			}
 		}
+	}
 
-		if queryParams[k] {
+	log.Debug().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Str("original_path", originalPath).
+		Str("final_path", req.URL.Path).
+		Msg("Path parameter substitution")
+
+	// Add query parameters from function parameters
+	for k, v := range params {
+		if k == "body" {
+			continue // Skip body parameter as it's already handled
+		}
+		// Only add to query parameters if this parameter is NOT a path parameter
+		if queryParams[k] && !pathParams[k] {
 			if strVal, ok := v.(string); ok {
 				q.Add(k, strVal)
 			} else {
 				q.Add(k, fmt.Sprintf("%v", v))
 			}
+		} else if pathParams[k] {
+			log.Debug().Str("key", k).Str("value", fmt.Sprintf("%v", v)).Bool("is_path_param", true).Msg("Skipping path parameter from being added to query string from params")
 		}
 	}
 
 	req.URL.RawQuery = q.Encode()
 
+	// Add query parameters from tool configuration, but only if they're not path parameters
 	if tool.Config.API.Query != nil {
 		q := req.URL.Query()
 		for k, v := range tool.Config.API.Query {
-			log.Debug().Str("key", k).Str("value", v).Msg("Adding query param")
-
-			q.Set(k, v)
+			// Only add to query parameters if this parameter is NOT a path parameter
+			if !pathParams[k] {
+				log.Debug().Str("key", k).Str("value", v).Bool("is_path_param", false).Msg("Adding query param from tool config")
+				q.Set(k, v)
+			} else {
+				log.Debug().Str("key", k).Str("value", v).Bool("is_path_param", true).Msg("Skipping path parameter from being added to query string")
+			}
 		}
 
 		req.URL.RawQuery = q.Encode()
@@ -250,6 +318,19 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 }
 
 func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, client oai.Client, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (map[string]interface{}, error) {
+	// Pre-populate path parameters from tool configuration
+	preConfiguredParams := make(map[string]interface{})
+	if tool.Config.API.Query != nil {
+		for k, v := range tool.Config.API.Query {
+			preConfiguredParams[k] = v
+		}
+	}
+	if tool.Config.API.PathParams != nil {
+		for k, v := range tool.Config.API.PathParams {
+			preConfiguredParams[k] = v
+		}
+	}
+
 	systemPrompt, err := c.getAPISystemPrompt(tool, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
@@ -320,6 +401,11 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, client oai.
 		return nil, err
 	}
 
+	// Add pre-configured parameters (these will override any parameters with the same name that the agent generated)
+	for k, v := range preConfiguredParams {
+		params[k] = v
+	}
+
 	return params, nil
 }
 
@@ -333,6 +419,23 @@ func unmarshalParams(data string) (map[string]interface{}, error) {
 }
 
 func (c *ChainStrategy) getAPISystemPrompt(tool *types.Tool, action string) (openai.ChatCompletionMessage, error) {
+	// Build pre-configured parameters for filtering
+	preConfiguredParams := make(map[string]interface{})
+
+	// Add query params
+	if tool.Config.API.Query != nil {
+		for k, v := range tool.Config.API.Query {
+			preConfiguredParams[k] = v
+		}
+	}
+
+	// Add path params
+	if tool.Config.API.PathParams != nil {
+		for k, v := range tool.Config.API.PathParams {
+			preConfiguredParams[k] = v
+		}
+	}
+
 	// Render template
 	apiUserPromptTemplate := apiUserPrompt
 
@@ -345,7 +448,7 @@ func (c *ChainStrategy) getAPISystemPrompt(tool *types.Tool, action string) (ope
 		return openai.ChatCompletionMessage{}, err
 	}
 
-	jsonSpec, err := filterOpenAPISchema(tool, action)
+	jsonSpec, err := filterOpenAPISchema(tool, action, preConfiguredParams)
 	if err != nil {
 		return openai.ChatCompletionMessage{}, err
 	}
@@ -450,12 +553,14 @@ Based on conversation below, construct a valid JSON object. In cases where user 
 ONLY use search parameters from the user messages below - do NOT use search parameters provided in the examples.
 `
 
-func filterOpenAPISchema(tool *types.Tool, operationID string) (string, error) {
+func filterOpenAPISchema(tool *types.Tool, operationID string, preConfiguredParams map[string]interface{}) (string, error) {
 	loader := openapi3.NewLoader()
 
 	if tool.Config.API == nil || tool.Config.API.Schema == "" {
 		return "", fmt.Errorf("tool does not have an API schema")
 	}
+
+	log.Debug().Str("tool_name", tool.Name).Str("operation_id", operationID).Interface("pre_configured_params", preConfiguredParams).Msg("Filtering OpenAPI schema with pre-configured parameters")
 
 	schema, err := loader.LoadFromData([]byte(tool.Config.API.Schema))
 	if err != nil {
@@ -473,8 +578,67 @@ func filterOpenAPISchema(tool *types.Tool, operationID string) (string, error) {
 	for path, pathItem := range schema.Paths.Map() {
 		for method, operation := range pathItem.Operations() {
 			if operation.OperationID == operationID {
-				// filtered.addOperation(path, method, operation)
-				filtered.AddOperation(path, method, operation)
+				// Substitute pre-configured parameters in the path
+				substitutedPath := path
+				for paramName, paramValue := range preConfiguredParams {
+					if strVal, ok := paramValue.(string); ok {
+						substitutedPath = strings.Replace(substitutedPath, "{"+paramName+"}", strVal, -1)
+						log.Debug().Str("param_name", paramName).Str("param_value", strVal).Str("original_path", path).Str("substituted_path", substitutedPath).Msg("Substituted pre-configured parameter in OpenAPI path")
+					}
+				}
+
+				// Filter out pre-configured parameters from the operation
+				var filteredParams openapi3.Parameters
+				for _, param := range operation.Parameters {
+					if param.Value != nil {
+						// Skip parameters that are already pre-configured
+						if _, exists := preConfiguredParams[param.Value.Name]; !exists {
+							filteredParams = append(filteredParams, param)
+							log.Debug().Str("param_name", param.Value.Name).Str("operation_id", operationID).Msg("Parameter included in filtered OpenAPI spec")
+						} else {
+							log.Debug().Str("param_name", param.Value.Name).Str("operation_id", operationID).Interface("param_value", preConfiguredParams[param.Value.Name]).Msg("Parameter filtered out from OpenAPI spec (pre-configured)")
+						}
+					}
+				}
+
+				// Create a new operation with filtered parameters
+				filteredOperation := &openapi3.Operation{
+					Tags:        operation.Tags,
+					Summary:     operation.Summary,
+					Description: operation.Description,
+					OperationID: operation.OperationID,
+					Parameters:  filteredParams,
+					RequestBody: operation.RequestBody,
+					Responses:   operation.Responses,
+					Callbacks:   operation.Callbacks,
+					Deprecated:  operation.Deprecated,
+					Security:    operation.Security,
+					Servers:     operation.Servers,
+					Extensions:  operation.Extensions,
+				}
+
+				// Create new path item with filtered operation
+				filteredPathItem := &openapi3.PathItem{}
+				switch method {
+				case "GET":
+					filteredPathItem.Get = filteredOperation
+				case "POST":
+					filteredPathItem.Post = filteredOperation
+				case "PUT":
+					filteredPathItem.Put = filteredOperation
+				case "DELETE":
+					filteredPathItem.Delete = filteredOperation
+				case "PATCH":
+					filteredPathItem.Patch = filteredOperation
+				case "HEAD":
+					filteredPathItem.Head = filteredOperation
+				case "OPTIONS":
+					filteredPathItem.Options = filteredOperation
+				case "TRACE":
+					filteredPathItem.Trace = filteredOperation
+				}
+
+				filtered.Paths.Set(substitutedPath, filteredPathItem)
 
 				for _, resp := range operation.Responses.Map() {
 					jsonBody, ok := resp.Value.Content["application/json"]
@@ -680,6 +844,7 @@ func processOAuthTokens(tool *types.Tool, oauthTokens map[string]string) {
 				Bool("auth_header_exists", tool.Config.API.Headers["Authorization"] != "").
 				Str("auth_header_prefix", authHeader[:12]+"...").
 				Msg("Added OAuth token to tool headers")
+
 		} else {
 			// Log available tokens for debugging
 			tokenKeys := make([]string, 0, len(oauthTokens))

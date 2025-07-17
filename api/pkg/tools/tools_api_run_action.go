@@ -108,8 +108,7 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 
 		// Get OAuth tokens if we have an app ID and user ID
 		if appID != "" && manager != nil {
-			// Note: Manager doesn't have a method to get all tokens for an app
-			// So we need to collect tokens for each tool configuration instead
+			// Initialize map for tokens
 			oauthTokens = make(map[string]string)
 
 			// Get the app to find owner
@@ -123,7 +122,7 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 					Msg("Failed to get app for OAuth tokens")
 			} else if app.Owner != "" && tool.Config.API != nil && tool.Config.API.OAuthProvider != "" {
 				// Get token for this specific provider
-				token, err := manager.GetTokenForApp(ctx, app.Owner, tool.Config.API.OAuthProvider)
+				token, err := manager.GetTokenForTool(ctx, app.Owner, tool.Config.API.OAuthProvider, tool.Config.API.OAuthScopes)
 				if err != nil {
 					log.Warn().
 						Err(err).
@@ -136,6 +135,7 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 				} else if token != "" {
 					// Add the token to our map
 					oauthTokens[tool.Config.API.OAuthProvider] = token
+
 					log.Info().
 						Str("app_id", appID).
 						Str("user_id", app.Owner).
@@ -490,7 +490,7 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 
 	// Make API call
 	httpClient := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: 120 * time.Second,
 	}
 
 	// Log outgoing request headers
@@ -511,36 +511,111 @@ func (c *ChainStrategy) callAPI(ctx context.Context, client oai.Client, sessionI
 		}()).
 		Msg("Outgoing API request headers")
 
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make api call: %w", err)
+	// Log complete request details for API debugging
+	var requestBody string
+	if req.Body != nil {
+		if bodyBytes, err := io.ReadAll(req.Body); err == nil {
+			requestBody = string(bodyBytes)
+			// Restore the request body for the actual request
+			req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+		}
 	}
 
 	log.Info().
 		Str("tool", tool.Name).
 		Str("action", action).
+		Str("method", req.Method).
 		Str("url", req.URL.String()).
-		Dur("time_taken", time.Since(started)).
-		Msg("API call done")
+		Interface("headers", req.Header).
+		Str("request_body", requestBody).
+		Bool("has_request_body", requestBody != "").
+		Msg("Complete API request details")
 
-	// Log response details for all API requests
+	// Log before making the HTTP request
+	log.Info().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Str("url", req.URL.String()).
+		Str("host", req.URL.Host).
+		Str("scheme", req.URL.Scheme).
+		Str("path", req.URL.Path).
+		Str("query", req.URL.RawQuery).
+		Msg("Making HTTP request...")
+
+	// Add more detailed network debugging
+	log.Info().
+		Str("tool", tool.Name).
+		Str("timeout", "120s").
+		Str("user_agent", req.Header.Get("User-Agent")).
+		Interface("request_headers", req.Header).
+		Msg("HTTP client configuration")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		// Log the HTTP error for debugging
+		log.Error().
+			Err(err).
+			Str("tool", tool.Name).
+			Str("action", action).
+			Str("method", req.Method).
+			Str("url", req.URL.String()).
+			Str("host", req.URL.Host).
+			Str("error_type", fmt.Sprintf("%T", err)).
+			Dur("time_taken", time.Since(started)).
+			Msg("HTTP request failed")
+		return nil, fmt.Errorf("failed to make api call: %w", err)
+	}
+
+	// Log immediately after getting response
+	log.Info().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Str("url", req.URL.String()).
+		Int("status_code", resp.StatusCode).
+		Str("status", resp.Status).
+		Dur("time_taken", time.Since(started)).
+		Msg("HTTP response received")
+
+	// Always log response details for all API requests (success or failure)
 	// Read response body for logging but keep a copy
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to read API response body for logging")
-	} else {
-		// Log response details
-		log.Info().
+		log.Error().
+			Err(err).
 			Str("tool", tool.Name).
 			Str("action", action).
 			Int("status_code", resp.StatusCode).
 			Str("status", resp.Status).
-			Str("response_body", string(bodyBytes)).
-			Msg("API response details")
-
-		// Restore the response body for further processing
-		resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			Msg("Failed to read API response body for logging")
+		// Return the response even if we can't read the body
+		return resp, nil
 	}
+
+	// Log comprehensive response details (for both success and error responses)
+	log.Info().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Str("method", req.Method).
+		Str("url", req.URL.String()).
+		Int("status_code", resp.StatusCode).
+		Str("status", resp.Status).
+		Interface("response_headers", resp.Header).
+		Str("response_body", string(bodyBytes)).
+		Int("response_body_length", len(bodyBytes)).
+		Bool("is_success", resp.StatusCode >= 200 && resp.StatusCode < 300).
+		Msg("Complete API response details")
+
+	// Log response details at Info level for test visibility
+	log.Info().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Int("status_code", resp.StatusCode).
+		Str("status", resp.Status).
+		Str("response_body", string(bodyBytes)).
+		Msg("API response details")
+
+	// Restore the response body for further processing
+	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
 	return resp, nil
 }
@@ -710,16 +785,60 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 		}()).
 		Msg("Prepared API request with headers")
 
+	// Log before making HTTP request (agent mode)
+	log.Info().
+		Str("url", httpRequest.URL.String()).
+		Str("method", httpRequest.Method).
+		Msg("Making HTTP request (agent mode)")
+
 	resp, err := c.httpClient.Do(httpRequest)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("url", httpRequest.URL.String()).
+			Str("method", httpRequest.Method).
+			Msg("HTTP request failed (agent mode)")
 		return nil, fmt.Errorf("failed to make api call: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// Log HTTP response received (agent mode)
+	log.Info().
+		Str("url", httpRequest.URL.String()).
+		Str("method", httpRequest.Method).
+		Int("status_code", resp.StatusCode).
+		Str("status", resp.Status).
+		Interface("headers", resp.Header).
+		Msg("HTTP response received (agent mode)")
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("url", httpRequest.URL.String()).
+			Int("status_code", resp.StatusCode).
+			Msg("Failed to read response body (agent mode)")
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+
+	// Log complete response details (agent mode)
+	log.Info().
+		Str("url", httpRequest.URL.String()).
+		Str("method", httpRequest.Method).
+		Int("status_code", resp.StatusCode).
+		Str("status", resp.Status).
+		Interface("response_headers", resp.Header).
+		Str("response_body", string(body)).
+		Int("response_body_length", len(body)).
+		Msg("Complete API response details (agent mode)")
+
+	// Log API response summary (agent mode)
+	log.Info().
+		Str("url", httpRequest.URL.String()).
+		Int("status_code", resp.StatusCode).
+		Bool("success", resp.StatusCode >= 200 && resp.StatusCode < 300).
+		Int("body_length", len(body)).
+		Msg("API response details (agent mode)")
 
 	// If body is empty but status code is 200, return the status text
 	if len(body) == 0 && resp.StatusCode >= 200 && resp.StatusCode < 300 {
