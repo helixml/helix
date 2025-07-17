@@ -10,14 +10,14 @@ global:
   # something like https://helix.mycorp.net if you have set up ingress and TLS
   # termination etc
   serverUrl: http://localhost:8080
-  
+
   # Custom image registry (optional)
   # imageRegistry: "my-registry.example.com"
-  
+
   # Image pull secrets for private registries
   # imagePullSecrets:
   #   - name: my-registry-secret
-  
+
   # Default storage class for all persistent volumes
   # storageClass: "fast-ssd"
 
@@ -26,11 +26,11 @@ image:
   # It's good practice to pin the version of the software you're running!
   # Get this from https://get.helixml.tech/latest.txt or check https://github.com/helixml/helix/releases
   # YOU MUST SET THIS VALUE OR IT WILL NOT WORK
-  tag: ""  # Replace with actual version
-  
+  tag: "" # Replace with actual version
+
   # Use a custom registry if needed
   # repository: "my-registry.example.com/helix/controlplane"
-  
+
   # Image pull policy
   # pullPolicy: IfNotPresent
 
@@ -55,24 +55,24 @@ chrome:
 pgvector:
   # Whether to deploy pgvector alongside haystack for RAG functionality
   enabled: true
-  
+
   # Configuration for bundled pgvector (when enabled=true)
   auth:
     username: postgres
     password: "secure-pgvector-password"
     database: postgres
-    
+
     # Option: Use existing secret for all auth credentials
     # existingSecret: "pgvector-auth-secret"
     # usernameKey: "username"  # defaults to "username" if not specified
     # passwordKey: "password"  # defaults to "password" if not specified
     # databaseKey: "database"  # defaults to "database" if not specified
-  
+
   # Persistence configuration for bundled pgvector
   persistence:
     enabled: true
     size: 50Gi
-    storageClass: ""  # Use default storage class
+    storageClass: "" # Use default storage class
     annotations: {}
     accessModes:
       - ReadWriteOnce
@@ -87,7 +87,7 @@ pgvector:
     #   name: "my-snapshot"
     #   kind: "VolumeSnapshot"
     #   apiGroup: "snapshot.storage.k8s.io"
-  
+
   # Configuration for external pgvector (when enabled=false)
   # IMPORTANT: External pgvector must have the following extensions installed:
   # - vectorchord extension for vector similarity search
@@ -101,7 +101,7 @@ pgvector:
   #   user: "postgres"
   #   password: "secure-password"
   #   database: "helix_vectors"
-  #   
+  #
   #   # Option: Use existing secret for all connection details
   #   # existingSecret: "pgvector-external-secret"
   #   # existingSecretHostKey: "host"      # defaults to "host" if not specified
@@ -109,7 +109,7 @@ pgvector:
   #   # existingSecretUserKey: "user"      # defaults to "user" if not specified
   #   # existingSecretPasswordKey: "password"  # defaults to "password" if not specified
   #   # existingSecretDatabaseKey: "database"  # defaults to "database" if not specified
-  #   
+  #
   #   # Additional annotations for external secret
   #   # annotations:
   #   #   kubernetes.io/service-account.name: "pgvector-reader"
@@ -122,27 +122,27 @@ gptscript:
   # image:
   #   repository: my-registry.example.com/helix/gptscript-runner
   #   tag: "latest"
-  
+
   # Scaling configuration
   replicas: 3
   concurrency: 50
-  maxTasks: 100  # Set to 0 for unlimited
+  maxTasks: 100 # Set to 0 for unlimited
 
 ## Controlplane configuration
 controlplane:
   # Optional: Custom filestore path
   # filestorePath: "/shared/filestore"
-  
+
   # Log level for the controlplane
-  logLevel: "INFO"  # Options: DEBUG, INFO, WARN, ERROR
-  
+  logLevel: "INFO" # Options: DEBUG, INFO, WARN, ERROR
+
   # Runner token for authentication (should be a secure random string)
   runnerToken: "your-secure-runner-token-here"
-  
+
   # Option: Use existing secret for runner token
   # runnerTokenExistingSecret: "runner-token-secret"
   # runnerTokenExistingSecretKey: "token"  # defaults to "token" if not specified
-  
+
   # Keycloak configuration
   keycloak:
     # Internal Keycloak service URL
@@ -151,55 +151,55 @@ controlplane:
     # frontendUrl: "https://helix.mydomain.com/auth"
     user: "admin"
     password: "your-secure-keycloak-admin-password"
-    
+
     # Option: Use existing secret for Keycloak credentials
     # existingSecret: "keycloak-auth-secret"
     # existingSecretUserKey: "user"      # defaults to "user" if not specified
     # existingSecretPasswordKey: "password"  # defaults to "password" if not specified
-  
+
   # Admin configuration
   admin:
     # Where to source admin users from: "env" or "keycloak"
     userSource: "env"
     # Admin user IDs: comma-separated list of OIDC provider user IDs (e.g. keycloak UUIDs) or "all"
     userIds: ""
-  
+
   # Haystack configuration for production-ready RAG
   # If enabled, haystack will be deployed as a sidecar to the api pod
   # and connected via a UNIX socket for embeddings
   haystack:
     enabled: true
-    
+
     # Custom image configuration
     # image:
     #   repository: my-registry.example.com/helix/haystack
-    
+
     # Embedding model configuration
     embeddingsModel: "MrLight/dse-qwen2-2b-mrl-v1"
     embeddingsDim: "1536"
-    
+
     # Document chunking configuration
     chunkSize: "1000"
     chunkOverlap: "50"
     chunkUnit: "word"
-    
+
     # PGVector connection options (choose one):
-    
+
     # Option 1: Direct DSN specification
     # pgvectorDsn: "postgresql://postgres:secure-password@my-pgvector-host:5432/helix_vectors"
-    
+
     # Option 2: Reference DSN from existing secret
     # existingSecret: "helix-pgvector-creds"
     # existingSecretDsnKey: "dsn"  # defaults to "dsn" if not specified
-    
+
     # Option 3: Use pgvector.external configuration (recommended)
     # This will automatically use the pgvector.external settings above
-    
+
     # Additional environment variables for haystack
     # env:
     #   - name: CUSTOM_VAR
     #     value: "custom-value"
-    
+
     # Resource limits for haystack sidecar
     # resources:
     #   requests:
@@ -208,7 +208,7 @@ controlplane:
     #   limits:
     #     cpu: "2000m"
     #     memory: "4Gi"
-  
+
   # RAG configuration
   rag:
     # The default RAG provider to use. Valid values: haystack, typesense
@@ -230,7 +230,8 @@ controlplane:
 
   # Provider configurations (examples of the three fixed global provider names)
   # You can also add dynamic providers at runtime through the Dashboard
-  providers: {}
+  providers:
+    {}
     # Examples - uncomment and configure for your specific setup:
     # vllm:
     #   baseUrl: "http://vllm-service.default.svc.cluster.local:8000/v1"
@@ -238,28 +239,28 @@ controlplane:
     #   # Option: Use existing secret for API key
     #   # existingSecret: "vllm-credentials"
     #   # existingSecretApiKeyKey: "api-key"
-    # 
+    #
     # openai:
     #   baseUrl: "http://local-llm-service.default.svc.cluster.local:8000/v1"
     #   apiKey: "sk-your-api-key"
     #   # Option: Use existing secret for API key
     #   # existingSecret: "openai-credentials"
     #   # existingSecretApiKeyKey: "api-key"
-    # 
+    #
     # anthropic:
     #   baseUrl: "https://api.anthropic.com"
     #   apiKey: "sk-ant-your-api-key"
     #   # Option: Use existing secret for API key
     #   # existingSecret: "anthropic-credentials"
     #   # existingSecretApiKeyKey: "api-key"
-    # 
+    #
     # togetherai:
     #   baseUrl: "https://api.together.xyz/v1"
     #   apiKey: "your-together-api-key"
     #   # Option: Use existing secret for API key
     #   # existingSecret: "together-credentials"
     #   # existingSecretApiKeyKey: "api-key"
-  
+
   # Sidecar configuration (optional)
   sidecar:
     enabled: false
@@ -267,9 +268,9 @@ controlplane:
     # name: "log-shipper"
     # image: "fluent/fluent-bit:2.2.0"
     # imagePullPolicy: "IfNotPresent"
-    # command: 
+    # command:
     #   - "/fluent-bit/bin/fluent-bit"
-    # args: 
+    # args:
     #   - "--config=/fluent-bit/etc/fluent-bit.conf"
     # Environment variables for sidecar
     # envVariables:
@@ -288,21 +289,22 @@ controlplane:
     #   logs:
     #     mountPath: "/var/log/helix"
     #     readOnly: true
-  
+
   # Additional environment variables for unsupported/custom settings
-  extraEnv: []
+  extraEnv:
+    []
     # Examples:
     # - name: CUSTOM_FEATURE_FLAG
     #   value: "true"
     # - name: EXTERNAL_API_URL
     #   value: "https://api.external-service.com"
-  
+
   # Extra volume mounts for controlplane
   # extraVolumeMounts:
   #   custom-config:
   #     mountPath: "/etc/helix/config"
   #     readOnly: true
-  
+
   # Extra volumes for controlplane
   # extraVolumes:
   #   custom-config:
@@ -333,7 +335,8 @@ ingress:
 # choice for the user. This also increases chances charts run on environments with little
 # resources, such as Minikube. If you do want to specify resources, uncomment the following
 # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-resources: {}
+resources:
+  {}
   # requests:
   #   cpu: "1000m"
   #   memory: "2Gi"
@@ -345,7 +348,7 @@ resources: {}
 persistence:
   enabled: true
   size: 100Gi
-  storageClass: ""  # Use default storage class
+  storageClass: "" # Use default storage class
   annotations: {}
   accessModes:
     - ReadWriteOnce
@@ -353,7 +356,8 @@ persistence:
   # existingClaim: "helix-data-pvc"
 
 ## Additional volume mounts and volumes
-volumeMounts: []
+volumeMounts:
+  []
   # Examples:
   # - name: temp-storage
   #   mountPath: "/tmp"
@@ -375,7 +379,7 @@ volumes:
 postgresql:
   # Set to false to use external PostgreSQL
   enabled: true
-  
+
   # For bundled PostgreSQL auth configuration (when enabled=true):
   auth:
     # Password for the "postgres" admin user
@@ -384,17 +388,17 @@ postgresql:
     username: helix
     password: "secure-helix-db-password"
     database: helix
-    
+
     # Option: Use existing secret for all auth credentials
     # existingSecret: "postgresql-auth-secret"
     # postgresPasswordKey: "postgres-password"  # defaults to "postgres-password"
     # usernameKey: "username"                   # defaults to "username"
     # passwordKey: "password"                   # defaults to "password"
     # databaseKey: "database"                   # defaults to "database"
-  
+
   # PostgreSQL architecture
   architecture: standalone
-  
+
   # For external PostgreSQL configuration (when enabled=false):
   # external:
   #   host: "my-external-postgresql.example.com"
@@ -402,7 +406,7 @@ postgresql:
   #   user: "helix"
   #   password: "secure-password"
   #   database: "helix"
-  #   
+  #
   #   # Option: Use existing secret for all connection details
   #   # existingSecret: "postgresql-external-secret"
   #   # existingSecretHostKey: "host"        # defaults to "host"
@@ -410,7 +414,7 @@ postgresql:
   #   # existingSecretUserKey: "user"        # defaults to "user"
   #   # existingSecretPasswordKey: "password"  # defaults to "password"
   #   # existingSecretDatabaseKey: "database"  # defaults to "database"
-  #   
+  #
   #   # Additional annotations for external secret
   #   # annotations:
   #   #   kubernetes.io/service-account.name: "postgresql-reader"
@@ -421,10 +425,10 @@ secretEnvVariables:
   # Get your License key from https://deploy.helix.ml/licenses
   # Create the license secret with:
   #   kubectl create secret generic helix-license --from-literal=license="<base64 encoded secret contents here>"
-  LICENSE_KEY: 
-    secretName: helix-license
-    secretKey: license
-  
+  # LICENSE_KEY:
+  #   secretName: helix-license
+  #   secretKey: license
+
   # Additional secret-based environment variables
   # EXTERNAL_API_KEY:
   #   secretName: external-api-credentials
@@ -432,7 +436,6 @@ secretEnvVariables:
   # SMTP_PASSWORD:
   #   secretName: smtp-credentials
   #   secretKey: password
-
 
 ## Legacy Components
 # The following components are legacy and may be removed in future versions
@@ -458,7 +461,7 @@ typesense:
   persistence:
     enabled: true
     size: 20Gi
-    storageClass: ""  # Use default storage class
+    storageClass: "" # Use default storage class
     accessModes:
       - ReadWriteOnce
     # Use existing PVC
