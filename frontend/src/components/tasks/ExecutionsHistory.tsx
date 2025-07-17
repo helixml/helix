@@ -158,7 +158,7 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
                   height: 8, 
                   borderRadius: '50%', 
                   backgroundColor: getStatusColor(execution.status),
-                  mt: 0.5,
+                  mt: 0.9,
                   flexShrink: 0
                 }} />
                 

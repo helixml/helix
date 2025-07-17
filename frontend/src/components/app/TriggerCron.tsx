@@ -31,6 +31,8 @@ interface TriggerCronProps {
   showTitle?: boolean
   showToggle?: boolean
   defaultEnabled?: boolean
+  showBorder?: boolean
+  borderRadius?: number
 }
 
 const DAYS_OF_WEEK = [
@@ -55,7 +57,9 @@ const TriggerCron: FC<TriggerCronProps> = ({
   readOnly = false,
   showTitle = true,
   showToggle = true,
-  defaultEnabled = false
+  defaultEnabled = false,
+  showBorder = true,
+  borderRadius = 1
 }) => {
   const hasCronTrigger = triggers.some(t => t.cron && t.cron.enabled === true)
   const cronTrigger = triggers.find(t => t.cron)?.cron
@@ -236,7 +240,14 @@ const TriggerCron: FC<TriggerCronProps> = ({
   }
 
   return (
-    <Box sx={{ p: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+    <Box 
+      sx={{ 
+        p: 2, 
+        borderRadius: borderRadius, 
+        border: showBorder ? '1px solid' : 'none', 
+        borderColor: 'divider' 
+      }}
+    >
       {showTitle && (
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center' }}>

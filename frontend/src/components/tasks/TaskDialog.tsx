@@ -8,12 +8,9 @@ import {
   TextField,  
   IconButton,
   Alert,
-  CircularProgress,
-  Typography,
-  Divider,
+  CircularProgress,  
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import DarkDialog from '../dialog/DarkDialog';
 import TriggerCron from '../app/TriggerCron';
 import AgentSelector from './AgentSelector';
@@ -274,6 +271,7 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
               showTitle={false}
               showToggle={false}
               defaultEnabled={true}
+              showBorder={false}
             />          
 
             {/* TODO: Task Limit Display */}
