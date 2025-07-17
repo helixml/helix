@@ -496,12 +496,10 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		return "", fmt.Errorf("failed to create trigger execution: %w", err)
 	}
 
-	resp, _, err := ctrl.ChatCompletion(ctx, user,
-		request,
-		&controller.ChatCompletionOptions{
-			AppID:          app.ID,
-			Conversational: true,
-		})
+	resp, _, err := ctrl.ChatCompletion(ctx, user, request, &controller.ChatCompletionOptions{
+		AppID:          app.ID,
+		Conversational: true,
+	})
 	if err != nil {
 		log.Warn().
 			Err(err).
