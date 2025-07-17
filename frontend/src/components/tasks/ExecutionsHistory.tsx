@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -15,6 +15,16 @@ interface ExecutionsHistoryProps {
 
 const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName }) => {
   const account = useAccount()
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Update current time every second for running executions
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Fetch trigger executions if we have a task ID
   const { data: triggerExecutions, isLoading, error: triggerExecutionsError } = useListAppTriggerExecutions(taskId || '');
@@ -48,10 +58,12 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
   };
 
   // Helper function to format duration
-  const formatDuration = (startTime?: string, endTime?: string) => {
+  const formatDuration = (startTime?: string, endTime?: string, status?: TypesTriggerExecutionStatus) => {
     if (!startTime) return '';
     const start = new Date(startTime);
-    const end = endTime ? new Date(endTime) : new Date();
+    const end = status === TypesTriggerExecutionStatus.TriggerExecutionStatusRunning 
+      ? currentTime 
+      : endTime ? new Date(endTime) : new Date();
     const durationMs = end.getTime() - start.getTime();
     const seconds = Math.floor(durationMs / 1000);
     const minutes = Math.floor(seconds / 60);
@@ -61,6 +73,17 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
       return `${minutes}m ${remainingSeconds}s`;
     }
     return `${seconds}s`;
+  };
+
+  // Helper function to get duration text
+  const getDurationText = (execution: TypesTriggerExecution) => {
+    const duration = formatDuration(execution.created, execution.updated, execution.status);
+    
+    if (execution.status === TypesTriggerExecutionStatus.TriggerExecutionStatusRunning) {
+      return `Running for ${duration}`;
+    } else {
+      return `Ran for ${duration}`;
+    }
   };
 
   // Helper function to handle execution click
@@ -152,7 +175,7 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
                   </Typography>
                   
                   <Typography variant="caption" sx={{ color: '#A0AEC0' }}>
-                    {formatDate(execution.created)} · Ran for {formatDuration(execution.created, execution.updated)}
+                    {formatDate(execution.created)} · {getDurationText(execution)}
                   </Typography>
                 </Box>
               </Box>

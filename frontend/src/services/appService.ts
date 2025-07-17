@@ -155,13 +155,13 @@ export function useExecuteAppTrigger(triggerId: string) {
   })
 }
 
-export function useListAppTriggerExecutions(triggerId: string) {
+export function useListAppTriggerExecutions(triggerId: string, options?: { offset?: number, limit?: number }) {
   const api = useApi()
   const apiClient = api.getApiClient()
 
   return useQuery({
     queryKey: appTriggerExecutionsQueryKey(triggerId),
-    queryFn: () => apiClient.v1TriggersExecutionsDetail(triggerId),
+    queryFn: () => apiClient.v1TriggersExecutionsDetail(triggerId, { offset: options?.offset ?? 0, limit: options?.limit ?? 10 }),
     enabled: !!triggerId,
     refetchInterval: 5000
   })
