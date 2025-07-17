@@ -2017,19 +2017,18 @@ type TriggerStatus struct {
 }
 
 type TriggerConfiguration struct {
-	ID             string             `json:"id"`
-	Created        time.Time          `json:"created"`
-	Updated        time.Time          `json:"updated"`
-	Archived       bool               `json:"archived"`
-	Enabled        bool               `json:"enabled"`
-	AppID          string             `json:"app_id"`          // App ID
-	OrganizationID string             `json:"organization_id"` // Organization ID
-	Owner          string             `json:"owner"`           // User ID
-	OwnerType      OwnerType          `json:"owner_type"`      // User or Organization
-	Name           string             `json:"name"`            // Name of the trigger configuration
-	Trigger        Trigger            `json:"trigger" gorm:"jsonb"`
-	TriggerType    TriggerType        `json:"trigger_type"`
-	Executions     []TriggerExecution `json:"executions" gorm:"foreignKey:TriggerConfigurationID"`
+	ID             string      `json:"id"`
+	Created        time.Time   `json:"created"`
+	Updated        time.Time   `json:"updated"`
+	Archived       bool        `json:"archived"`
+	Enabled        bool        `json:"enabled"`
+	AppID          string      `json:"app_id"`          // App ID
+	OrganizationID string      `json:"organization_id"` // Organization ID
+	Owner          string      `json:"owner"`           // User ID
+	OwnerType      OwnerType   `json:"owner_type"`      // User or Organization
+	Name           string      `json:"name"`            // Name of the trigger configuration
+	Trigger        Trigger     `json:"trigger" gorm:"jsonb"`
+	TriggerType    TriggerType `json:"trigger_type"`
 
 	WebhookURL string `json:"webhook_url" gorm:"-"` // Webhook URL for the trigger configuration, applicable to webhook type triggers like Azure DevOps, GitHub, etc.
 }
