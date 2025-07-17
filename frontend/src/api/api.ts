@@ -475,6 +475,7 @@ export interface TypesAssistantAPI {
   oauth_provider?: string;
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
+  path_params?: Record<string, string>;
   query?: Record<string, string>;
   request_prep_template?: string;
   response_error_template?: string;
@@ -1705,6 +1706,7 @@ export interface TypesSkillDefinition {
   oauthProvider?: string;
   oauthScopes?: string[];
   provider?: string;
+  requiredParameters?: TypesSkillRequiredParameter[];
   schema?: string;
   systemPrompt?: string;
 }
@@ -1713,6 +1715,14 @@ export interface TypesSkillIcon {
   /** e.g., "GitHub", "Google" */
   name?: string;
   /** e.g., "material-ui", "custom" */
+  type?: string;
+}
+
+export interface TypesSkillRequiredParameter {
+  description?: string;
+  name?: string;
+  required?: boolean;
+  /** "query", "header", "path" */
   type?: string;
 }
 
@@ -1835,6 +1845,8 @@ export interface TypesToolAPIConfig {
   oauth_provider?: string;
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
+  /** Path parameters that will be substituted in URLs */
+  path_params?: Record<string, string>;
   /** Query parameters that will be always set */
   query?: Record<string, string>;
   /** Template for request preparation, leave empty for default */
@@ -3858,6 +3870,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesTriggerExecuteResponse, any>({
         path: `/api/v1/triggers/${triggerId}/execute`,
         method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List executions for the trigger
+     *
+     * @tags apps
+     * @name V1TriggersExecutionsDetail
+     * @summary List trigger executions
+     * @request GET:/api/v1/triggers/{trigger_id}/executions
+     * @secure
+     */
+    v1TriggersExecutionsDetail: (triggerId: string, params: RequestParams = {}) =>
+      this.request<TypesTriggerExecution[], any>({
+        path: `/api/v1/triggers/${triggerId}/executions`,
+        method: "GET",
         secure: true,
         ...params,
       }),

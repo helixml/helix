@@ -52,6 +52,11 @@ export const appUsageQueryKey = (appId: string, from: string, to: string) => [
   to
 ];
 
+export const appTriggerExecutionsQueryKey = (triggerId: string) => [
+  "app-trigger-executions",
+  triggerId
+];
+
 // useListSessionSteps returns the steps for a session, it includes
 // steps for all interactions in the session
 export function useListAppSteps(appId: string, interactionId: string, options?: { enabled?: boolean }) {
@@ -136,6 +141,32 @@ export function useDeleteAppTrigger(triggerId: string, orgId: string) {
   })
 }
 
+export function useExecuteAppTrigger(triggerId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: () => apiClient.v1TriggersExecuteCreate(triggerId),
+    onSuccess: () => {
+      // Invalidate any cached trigger data
+      queryClient.invalidateQueries({ queryKey: appTriggerExecutionsQueryKey(triggerId) })
+    }
+  })
+}
+
+export function useListAppTriggerExecutions(triggerId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: appTriggerExecutionsQueryKey(triggerId),
+    queryFn: () => apiClient.v1TriggersExecutionsDetail(triggerId),
+    enabled: !!triggerId,
+    refetchInterval: 5000
+  })
+}
+
 // useGetAppTriggerStatus returns the status of a specific trigger type for an app
 export function useGetAppTriggerStatus(appId: string, triggerType: string, options?: { enabled?: boolean, refetchInterval?: number }) {
   const api = useApi()
@@ -201,3 +232,4 @@ export function useGetAppUsage(appId: string, from: string, to: string) {
     },
   })
 }
+

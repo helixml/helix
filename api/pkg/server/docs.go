@@ -2757,6 +2757,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/triggers/{trigger_id}/executions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List executions for the trigger",
+                "tags": [
+                    "apps"
+                ],
+                "summary": "List trigger executions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Trigger ID",
+                        "name": "trigger_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.TriggerExecution"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users/search": {
             "get": {
                 "security": [
@@ -3956,6 +3990,12 @@ const docTemplate = `{
                     "description": "Required OAuth scopes for this API",
                     "type": "array",
                     "items": {
+                        "type": "string"
+                    }
+                },
+                "path_params": {
+                    "type": "object",
+                    "additionalProperties": {
                         "type": "string"
                     }
                 },
@@ -6872,6 +6912,12 @@ const docTemplate = `{
                 "provider": {
                     "type": "string"
                 },
+                "requiredParameters": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SkillRequiredParameter"
+                    }
+                },
                 "schema": {
                     "type": "string"
                 },
@@ -6889,6 +6935,24 @@ const docTemplate = `{
                 },
                 "type": {
                     "description": "e.g., \"material-ui\", \"custom\"",
+                    "type": "string"
+                }
+            }
+        },
+        "types.SkillRequiredParameter": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "description": "\"query\", \"header\", \"path\"",
                     "type": "string"
                 }
             }
@@ -7194,6 +7258,13 @@ const docTemplate = `{
                     "description": "Required OAuth scopes for this API",
                     "type": "array",
                     "items": {
+                        "type": "string"
+                    }
+                },
+                "path_params": {
+                    "description": "Path parameters that will be substituted in URLs",
+                    "type": "object",
+                    "additionalProperties": {
                         "type": "string"
                     }
                 },

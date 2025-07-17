@@ -293,6 +293,7 @@ func (s *HelixAPIServer) executeAppTrigger(_ http.ResponseWriter, r *http.Reques
 // @Success 200 {array} types.TriggerExecution
 // @Param trigger_id path string true "Trigger ID"
 // @Router /api/v1/triggers/{trigger_id}/executions [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) listTriggerExecutions(_ http.ResponseWriter, r *http.Request) ([]*types.TriggerExecution, *system.HTTPError) {
 	ctx := r.Context()
 
