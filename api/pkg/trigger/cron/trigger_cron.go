@@ -501,7 +501,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		Conversational: true,
 	})
 	if err != nil {
-		log.Warn().
+		log.Error().
 			Err(err).
 			Str("app_id", app.ID).
 			Msg("failed to run app cron job")
@@ -512,8 +512,8 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		session.Interactions[len(session.Interactions)-1].Finished = true
 		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
 
-		err = ctrl.WriteSession(ctx, session)
-		if err != nil {
+		writeErr := ctrl.WriteSession(ctx, session)
+		if writeErr != nil {
 			log.Error().
 				Err(err).
 				Str("app_id", app.ID).
@@ -523,14 +523,14 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		}
 
 		// Send failure notification
-		err = notifier.Notify(ctx, &notification.Notification{
+		notifyErr := notifier.Notify(ctx, &notification.Notification{
 			Event:   notification.EventCronTriggerFailed,
 			Session: session,
 			Message: err.Error(),
 		})
-		if err != nil {
+		if notifyErr != nil {
 			log.Error().
-				Err(err).
+				Err(notifyErr).
 				Str("app_id", app.ID).
 				Str("session_id", session.ID).
 				Msg("failed to send failure notification")
