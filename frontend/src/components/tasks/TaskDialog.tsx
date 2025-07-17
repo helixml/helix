@@ -17,7 +17,7 @@ import AgentSelector from './AgentSelector';
 import { IApp } from '../../types'
 import { TypesTrigger, TypesTriggerConfiguration, TypesTriggerType, TypesOwnerType } from '../../api/api'
 
-import { useCreateAppTrigger, useUpdateAppTrigger } from '../../services/appService';
+import { useCreateAppTrigger, useUpdateAppTrigger, useExecuteAppTrigger } from '../../services/appService';
 import useAccount from '../../hooks/useAccount';
 import useSnackbar from '../../hooks/useSnackbar';
 import useApi from '../../hooks/useApi';
@@ -104,6 +104,7 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
 
   const createTriggerMutation = useCreateAppTrigger(account.organizationTools.organization?.id || '');
   const updateTriggerMutation = useUpdateAppTrigger(task?.id || '', account.organizationTools.organization?.id || '');
+  const executeTriggerMutation = useExecuteAppTrigger(createdTaskId || task?.id || '');
 
   const handleSaveTask = async () => {
     if (!taskName.trim()) {
@@ -178,7 +179,7 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
     setError(null);
 
     try {
-      const response = await apiClient.v1TriggersExecuteCreate(taskId);
+      await executeTriggerMutation.mutateAsync();
       snackbar.success('Task executed successfully');
     } catch (err) {
       console.error('Error executing task:', err);

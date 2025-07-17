@@ -742,6 +742,10 @@ definitions:
         items:
           type: string
         type: array
+      path_params:
+        additionalProperties:
+          type: string
+        type: object
       query:
         additionalProperties:
           type: string
@@ -2816,6 +2820,10 @@ definitions:
         type: array
       provider:
         type: string
+      requiredParameters:
+        items:
+          $ref: '#/definitions/types.SkillRequiredParameter'
+        type: array
       schema:
         type: string
       systemPrompt:
@@ -2828,6 +2836,18 @@ definitions:
         type: string
       type:
         description: e.g., "material-ui", "custom"
+        type: string
+    type: object
+  types.SkillRequiredParameter:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      required:
+        type: boolean
+      type:
+        description: '"query", "header", "path"'
         type: string
     type: object
   types.SkillTestRequest:
@@ -3040,6 +3060,11 @@ definitions:
         items:
           type: string
         type: array
+      path_params:
+        additionalProperties:
+          type: string
+        description: Path parameters that will be substituted in URLs
+        type: object
       query:
         additionalProperties:
           type: string
@@ -5113,6 +5138,27 @@ paths:
       security:
       - BearerAuth: []
       summary: Execute app trigger
+      tags:
+      - apps
+  /api/v1/triggers/{trigger_id}/executions:
+    get:
+      description: List executions for the trigger
+      parameters:
+      - description: Trigger ID
+        in: path
+        name: trigger_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.TriggerExecution'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List trigger executions
       tags:
       - apps
   /api/v1/users/search:
