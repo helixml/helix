@@ -11,7 +11,7 @@ import TasksTable from '../components/tasks/TasksTable'
 import EmptyTasksState from '../components/tasks/EmptyTasksState'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 
-import { useListUserCronTriggers } from '../services/appService'
+import { useListUserCronTriggers, useDeleteAppTrigger } from '../services/appService'
 import useAccount from '../hooks/useAccount'
 import useApps from '../hooks/useApps'
 import useSnackbar from '../hooks/useSnackbar'
@@ -31,6 +31,9 @@ const Tasks: FC = () => {
   const { data: triggers, isLoading, refetch } = useListUserCronTriggers(
     account.organizationTools.organization?.id || ''
   )
+
+  const [deleteTriggerId, setDeleteTriggerId] = useState<string>('')
+  const deleteTriggerMutation = useDeleteAppTrigger(deleteTriggerId, account.organizationTools.organization?.id || '')
 
   useEffect(() => {
     apps.loadApps()
@@ -86,15 +89,19 @@ const Tasks: FC = () => {
   }
 
   const handleConfirmDelete = async () => {
-    if (!deletingTask) return
+    if (!deletingTask || !deletingTask.id) return
     
-    // TODO: Implement delete API call
-    // const result = await deleteTask(deletingTask.id)
-    // if (result) {
-    //   snackbar.success('Task deleted')
-    // }
-    
-    setDeletingTask(undefined)
+    try {
+      setDeleteTriggerId(deletingTask.id)
+      await deleteTriggerMutation.mutateAsync()
+      snackbar.success('Task deleted successfully')
+      setDeletingTask(undefined)
+      setDeleteTriggerId('')
+    } catch (error) {
+      console.error('Error deleting task:', error)
+      snackbar.error('Failed to delete task')
+      setDeleteTriggerId('')
+    }
   }
 
   const handleToggleStatus = async (task: TypesTriggerConfiguration) => {
