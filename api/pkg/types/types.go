@@ -2053,6 +2053,8 @@ type TriggerExecution struct {
 	Created                time.Time              `json:"created"`
 	Updated                time.Time              `json:"updated"`
 	TriggerConfigurationID string                 `json:"trigger_configuration_id"`
+	Name                   string                 `json:"name"` // Will most likely match session name, based on the trigger name at the time of execution
+	DurationMs             int64                  `json:"duration_ms"`
 	Status                 TriggerExecutionStatus `json:"status"`
 	Error                  string                 `json:"error"`
 	Output                 string                 `json:"output"`

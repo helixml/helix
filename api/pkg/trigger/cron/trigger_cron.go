@@ -477,12 +477,15 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 	// Create execution
 	execution := &types.TriggerExecution{
 		ID:                     system.GenerateUUID(),
+		Name:                   sessionName,
 		TriggerConfigurationID: triggerID,
 		Created:                time.Now(),
 		Updated:                time.Now(),
 		Status:                 types.TriggerExecutionStatusRunning,
 		SessionID:              session.ID,
 	}
+
+	startedAt := time.Now()
 
 	execution, err = str.CreateTriggerExecution(ctx, execution)
 	if err != nil {
@@ -538,6 +541,8 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		// Update execution with error
 		execution.Status = types.TriggerExecutionStatusError
 		execution.Error = err.Error()
+		execution.DurationMs = time.Since(startedAt).Milliseconds()
+
 		execution, err = str.UpdateTriggerExecution(ctx, execution)
 		if err != nil {
 			log.Error().
@@ -588,6 +593,8 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 	// Update execution with success
 	execution.Status = types.TriggerExecutionStatusSuccess
 	execution.Output = respContent
+	execution.DurationMs = time.Since(startedAt).Milliseconds()
+
 	execution, err = str.UpdateTriggerExecution(ctx, execution)
 
 	if err != nil {
