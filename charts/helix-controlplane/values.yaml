@@ -89,7 +89,7 @@ gptscript:
   concurrency: 20
   maxTasks: 0
 
-controlplane: 
+controlplane:
   logLevel: "INFO"
   runnerToken: ""
   runnerTokenExistingSecret: ""
@@ -105,15 +105,15 @@ controlplane:
   admin:
     userSource: "env"
     userIds: "all"
-  sidecar: 
+  sidecar:
     enabled: false
     name: sidecar
     image: curlimages/curl:8.11.1
     imagePullPolicy: IfNotPresent
-    command: 
-      - "/bin/sh" 
+    command:
+      - "/bin/sh"
       - "-c"
-    args: 
+    args:
       - 'echo "Hello World"'
   haystack:
     enabled: true
@@ -237,9 +237,5 @@ postgresql:
     database: helix
     password: ""
     existingSecret: ""
-    existingSecretHostKey: ""
-    existingSecretPortKey: ""
-    existingSecretUserKey: ""
-    existingSecretDatabaseKey: ""
     existingSecretPasswordKey: ""
     annotations: {}

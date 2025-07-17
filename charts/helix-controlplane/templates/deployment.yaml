@@ -107,6 +107,7 @@ spec:
               value: http://{{ include "helix-controlplane.fullname" . }}-chrome:7317
             # Postgres configuration
             {{- if .Values.postgresql.enabled }}
+            # If using internal postgres
             - name: POSTGRES_HOST
               value: {{ .Release.Name }}-postgresql
             {{- if .Values.postgresql.auth.existingSecret }}
@@ -133,36 +134,31 @@ spec:
             - name: POSTGRES_DATABASE
               value: {{ .Values.postgresql.auth.database }}
             {{- end }}
-            {{- else if .Values.postgresql.external.existingSecret }}
+            {{- else }}
+            # Else using external postgres
             - name: POSTGRES_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.postgresql.external.existingSecret }}
-                  key: {{ .Values.postgresql.external.existingSecretHostKey | default "host" }}
+              value: {{ .Values.postgresql.external.host }}
+            - name: POSTGRES_PORT
+              value: {{ .Values.postgresql.external.port | default "5432" | quote }}
+            - name: POSTGRES_DATABASE
+              value: {{ .Values.postgresql.external.database | default "helix" }}
             - name: POSTGRES_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.postgresql.external.existingSecret }}
-                  key: {{ .Values.postgresql.external.existingSecretUserKey | default "user" }}
+              value: {{ .Values.postgresql.external.user | default "helix" }}
+            - name: POSTGRES_SSL
+              value: {{ .Values.postgresql.external.ssl | default "false" }}
+            - name: POSTGRES_SCHEMA
+              value: {{ .Values.postgresql.external.schema | default "public" }}
+            {{- if .Values.postgresql.external.existingSecret }}
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.postgresql.external.existingSecret }}
                   key: {{ .Values.postgresql.external.existingSecretPasswordKey | default "password" }}
-            - name: POSTGRES_DATABASE
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.postgresql.external.existingSecret }}
-                  key: {{ .Values.postgresql.external.existingSecretDatabaseKey | default "database" }}
             {{- else }}
-            - name: POSTGRES_HOST
-              value: {{ .Values.postgresql.external.host }}
-            - name: POSTGRES_USER
-              value: {{ .Values.postgresql.external.user }}
             - name: POSTGRES_PASSWORD
               value: {{ .Values.postgresql.external.password }}
-            - name: POSTGRES_DATABASE
-              value: {{ .Values.postgresql.external.database }}
+            {{- end }}
+            # End of postgres configuration
             {{- end }}
             {{- if .Values.controlplane.rag }}
             {{- with (default "" .Values.controlplane.rag.defaultProvider) }}
