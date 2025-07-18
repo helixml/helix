@@ -68,8 +68,8 @@ services:
       - POSTGRES_DATABASES=keycloak
   # postgres 15 with pgvector installed for vector database
   pgvector:
-    profiles: [haystack]
-    image: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.1.1
+    profiles: [haystack, kodit]
+    image: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.2.1
     restart: always
     ports:
       - 5433:5432
@@ -177,6 +177,57 @@ services:
       - pgvector
     extra_hosts:
       - "host.docker.internal:host-gateway"
+  kodit:
+    profiles: [kodit]
+    image: registry.helix.ml/helix/kodit:latest
+    ports:
+      - 8632:8632
+    command: ["serve", "--host", "0.0.0.0", "--port", "8632"]
+    restart: always
+    depends_on:
+      - vectorchord-kodit # Wait for VectorChord to start before Kodit
+    environment:
+      - DATA_DIR=/data
+      - DB_URL=postgresql+asyncpg://postgres:${PGVECTOR_PASSWORD-pgvector}@vectorchord-kodit:5432/kodit
+      - DEFAULT_SEARCH_PROVIDER=vectorchord
+
+      # External embedding provider
+      - EMBEDDING_ENDPOINT_TYPE=openai
+      - EMBEDDING_ENDPOINT_BASE_URL=https://api.openai.com/v1
+      - EMBEDDING_ENDPOINT_API_KEY=${OPENAI_API_KEY:-}
+      - EMBEDDING_ENDPOINT_MODEL=text-embedding-3-large
+
+      # External enrichment provider
+      - ENRICHMENT_ENDPOINT_TYPE=openai
+      - ENRICHMENT_ENDPOINT_BASE_URL=https://api.openai.com/v1
+      - ENRICHMENT_ENDPOINT_API_KEY=${OPENAI_API_KEY:-}
+      - ENRICHMENT_ENDPOINT_MODEL=o3-mini
+
+      # Auto-indexing configuration
+      - AUTO_INDEXING_SOURCES_0_URI=https://github.com/helixml/kodit
+      - AUTO_INDEXING_SOURCES_1_URI=https://github.com/helixml/helix
+
+      # Sync configuration
+      - SYNC_PERIODIC_ENABLED=true
+      - SYNC_PERIODIC_INTERVAL_SECONDS=1800  # 30 minutes
+      - SYNC_PERIODIC_RETRY_ATTEMPTS=3
+
+      - LOG_LEVEL=INFO # INFO or DEBUG
+
+    volumes:
+      - helix-kodit:/data
+
+  vectorchord-kodit:
+    profiles: [kodit]
+    image: tensorchord/vchord-suite:pg17-20250601
+    environment:
+      - POSTGRES_DB=kodit
+      - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-pgvector}
+    volumes:
+      - ${PGVECTOR_DATA:-helix-vectorchord-kodit}:/var/lib/postgresql/data
+    ports:
+      - "5432"
+    restart: unless-stopped
 
 volumes:
   helix-postgres-db:
@@ -184,6 +235,8 @@ volumes:
   helix-filestore:
   helix-typesense-db:
   helix-socket:
+  helix-kodit:
+  helix-vectorchord-kodit:
 
 networks:
   default:
