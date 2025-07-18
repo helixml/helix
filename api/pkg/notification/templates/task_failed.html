@@ -169,7 +169,7 @@
         
         <div class="content">
             <div class="message">
-                Your cron trigger encountered an error and was unable to complete successfully. You can review the details below and try again.
+                {{ .Message }}
             </div>
             
             {{ if .ErrorMessage }}

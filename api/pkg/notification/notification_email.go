@@ -138,7 +138,7 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 		var buf bytes.Buffer
 
 		err = cronTriggerCompleteTmpl.Execute(&buf, &templateData{
-			Message:     n.Message,
+			Message:     template.HTML(n.Message),
 			SessionURL:  fmt.Sprintf("%s/session/%s", e.cfg.AppURL, n.Session.ID),
 			SessionName: n.Session.Name,
 		})
@@ -151,9 +151,10 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 		var buf bytes.Buffer
 
 		err = cronTriggerFailedTmpl.Execute(&buf, &templateData{
-			Message:     n.Message,
-			SessionURL:  fmt.Sprintf("%s/session/%s", e.cfg.AppURL, n.Session.ID),
-			SessionName: n.Session.Name,
+			Message:      template.HTML(n.Message),
+			SessionURL:   fmt.Sprintf("%s/session/%s", e.cfg.AppURL, n.Session.ID),
+			SessionName:  n.Session.Name,
+			ErrorMessage: n.Message,
 		})
 		if err != nil {
 			return "", "", fmt.Errorf("failed to execute template: %w", err)
@@ -166,7 +167,8 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 }
 
 type templateData struct {
-	SessionURL  string
-	Message     string
-	SessionName string
+	SessionURL   string
+	Message      template.HTML
+	SessionName  string
+	ErrorMessage string
 }
