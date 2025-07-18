@@ -214,6 +214,10 @@ services:
 
       - LOG_LEVEL=INFO # INFO or DEBUG
 
+      # API Key Configuration
+      - API_KEYS=${KODIT_API_KEYS:-}
+
+
     volumes:
       - ${KODIT_DATA:-helix-kodit}:/data
 
