@@ -19,6 +19,12 @@ import useApi from '../hooks/useApi'
 
 import { TypesTriggerConfiguration } from '../api/api'
 
+interface TaskData {
+  name: string
+  schedule: string
+  input: string
+}
+
 const Tasks: FC = () => {
   const account = useAccount()
   const apps = useApps()
@@ -27,6 +33,7 @@ const Tasks: FC = () => {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<TypesTriggerConfiguration | undefined>()
   const [deletingTask, setDeletingTask] = useState<TypesTriggerConfiguration | undefined>()
+  const [prepopulatedTaskData, setPrepopulatedTaskData] = useState<TaskData | undefined>()
 
   const { data: triggers, isLoading, refetch } = useListUserCronTriggers(
     account.organizationTools.organization?.id || ''
@@ -69,19 +76,22 @@ const Tasks: FC = () => {
     }
   }, [triggers?.data])
 
-  const handleCreateTask = () => {
+  const handleCreateTask = (taskData?: TaskData) => {
     setSelectedTask(undefined)
+    setPrepopulatedTaskData(taskData)
     setDialogOpen(true)
   }
 
   const handleEditTask = (task: TypesTriggerConfiguration) => {
     setSelectedTask(task)
+    setPrepopulatedTaskData(undefined)
     setDialogOpen(true)
   }
 
   const handleCloseDialog = () => {
     setDialogOpen(false)
     setSelectedTask(undefined)
+    setPrepopulatedTaskData(undefined)
   }
 
   const handleDeleteTask = (task: TypesTriggerConfiguration) => {
@@ -165,7 +175,7 @@ const Tasks: FC = () => {
             variant="contained"
             color="secondary"
             endIcon={<AddIcon />}
-            onClick={handleCreateTask}
+            onClick={() => handleCreateTask()}
           >
             Add new
           </Button>
@@ -182,6 +192,7 @@ const Tasks: FC = () => {
         onClose={handleCloseDialog}
         task={selectedTask}
         apps={apps.apps}
+        prepopulatedData={prepopulatedTaskData}
       />
 
       {/* Delete Confirmation */}
