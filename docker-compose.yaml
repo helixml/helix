@@ -215,7 +215,7 @@ services:
       - LOG_LEVEL=INFO # INFO or DEBUG
 
     volumes:
-      - helix-kodit:/data
+      - ${KODIT_DATA:-helix-kodit}:/data
 
   vectorchord-kodit:
     profiles: [kodit]
@@ -224,7 +224,7 @@ services:
       - POSTGRES_DB=kodit
       - POSTGRES_PASSWORD=${PGVECTOR_PASSWORD-pgvector}
     volumes:
-      - ${PGVECTOR_DATA:-helix-vectorchord-kodit}:/var/lib/postgresql/data
+      - ${VECTORCHORD_DATA:-helix-vectorchord-kodit}:/var/lib/postgresql/data
     ports:
       - "5432"
     restart: unless-stopped
