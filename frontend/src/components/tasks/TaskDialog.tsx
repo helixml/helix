@@ -33,9 +33,6 @@ interface TaskDialogProps {
 const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) => {
   const account = useAccount();
   const snackbar = useSnackbar();
-
-  const api = useApi()
-  const apiClient = api.getApiClient()
   
   const [selectedAgent, setSelectedAgent] = useState<IApp | undefined>(undefined);
   const [triggers, setTriggers] = useState<TypesTrigger[]>([]);
