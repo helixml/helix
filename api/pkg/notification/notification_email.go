@@ -8,10 +8,15 @@ import (
 	"html/template"
 
 	"github.com/helixml/helix/api/pkg/config"
+
 	"github.com/nikoksr/notify"
 	"github.com/nikoksr/notify/service/mail"
 	"github.com/nikoksr/notify/service/mailgun"
 	"github.com/rs/zerolog/log"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/renderer/html"
 )
 
 //go:embed templates/task_complete.html
@@ -99,7 +104,35 @@ func (e *Email) getClient(email string) *notify.Notify {
 	return ntf
 }
 
+func (e *Email) renderMarkdown(message string) (string, error) {
+	md := goldmark.New(
+		goldmark.WithExtensions(extension.GFM),
+		goldmark.WithParserOptions(
+			parser.WithAutoHeadingID(),
+		),
+		goldmark.WithRendererOptions(
+			html.WithHardWraps(),
+			html.WithXHTML(),
+		),
+	)
+	var buf bytes.Buffer
+	if err := md.Convert([]byte(message), &buf); err != nil {
+		return "", fmt.Errorf("failed to convert markdown to HTML: %w", err)
+	}
+
+	return buf.String(), nil
+}
+
 func (e *Email) getEmailMessage(n *Notification) (title, message string, err error) {
+
+	if n.RenderMarkdown {
+		message, err = e.renderMarkdown(n.Message)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to convert markdown to HTML: %w", err)
+		}
+		n.Message = message
+	}
+
 	switch n.Event {
 	case EventCronTriggerComplete:
 		var buf bytes.Buffer

@@ -40,6 +40,8 @@ type Notification struct {
 	Session *types.Session
 	Message string
 
+	RenderMarkdown bool // Set to true to render markdown to HTML when sending email
+
 	// Populated by the provider
 	Email     string
 	FirstName string

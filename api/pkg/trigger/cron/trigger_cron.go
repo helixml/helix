@@ -576,9 +576,10 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 
 	// Send success notification
 	err = notifier.Notify(ctx, &notification.Notification{
-		Event:   notification.EventCronTriggerComplete,
-		Session: session,
-		Message: respContent,
+		Event:          notification.EventCronTriggerComplete,
+		Session:        session,
+		Message:        respContent,
+		RenderMarkdown: true,
 	})
 	if err != nil {
 		log.Error().

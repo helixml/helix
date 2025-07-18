@@ -39,4 +39,7 @@ Stack: Golang API server, Docker, Postgres, PGVector or Typesense for RAG, NATS 
   ```
   assert.Equal(t, "github", skill.ID)
   assert.Equal(t, "GitHub", skill.DisplayName)
+  assert.Contains(t, message, "Test Message", "expected message to contain 'Test Message', but it doesn't")
+  require.NoError(t, err)
+  ... etc
   ```
