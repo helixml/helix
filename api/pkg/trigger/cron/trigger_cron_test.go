@@ -123,7 +123,7 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 
 	// Calling LLM chat completion
 	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, request oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
+		func(_ context.Context, _ oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
 
 			return oai.ChatCompletionResponse{
 				Choices: []oai.ChatCompletionChoice{
