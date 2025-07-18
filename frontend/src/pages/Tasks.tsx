@@ -16,6 +16,7 @@ import useAccount from '../hooks/useAccount'
 import useApps from '../hooks/useApps'
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
+import useRouter from '../hooks/useRouter'
 
 import { TypesTriggerConfiguration } from '../api/api'
 
@@ -30,13 +31,28 @@ const Tasks: FC = () => {
   const apps = useApps()
   const snackbar = useSnackbar()
   const api = useApi()
+  const router = useRouter()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<TypesTriggerConfiguration | undefined>()
   const [deletingTask, setDeletingTask] = useState<TypesTriggerConfiguration | undefined>()
-  const [prepopulatedTaskData, setPrepopulatedTaskData] = useState<TaskData | undefined>()
+  const [prepopulatedTaskData, setPrepopulatedTaskData] = useState<TaskData | undefined>() 
+
+  // Check if org slug is set in the URL
+  const orgSlug = router.params.org_id || ''
+
+  let listTriggersEnabled = false
+
+  if (orgSlug === '') {
+    listTriggersEnabled = true
+  } else if (account.organizationTools.organization?.id) {
+    listTriggersEnabled = true
+  }
 
   const { data: triggers, isLoading, refetch } = useListUserCronTriggers(
-    account.organizationTools.organization?.id || ''
+    account.organizationTools.organization?.id || '',
+    {
+      enabled: listTriggersEnabled,
+    }
   )
 
   const [deleteTriggerId, setDeleteTriggerId] = useState<string>('')
