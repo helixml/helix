@@ -420,11 +420,9 @@ func (suite *PostgresStoreTestSuite) TestTriggerConfigurationList() {
 		},
 	}
 
-	var createdConfigs []*types.TriggerConfiguration
 	for _, config := range triggerConfigs {
 		created, err := suite.db.CreateTriggerConfiguration(suite.ctx, config)
 		require.NoError(suite.T(), err)
-		createdConfigs = append(createdConfigs, created)
 
 		suite.T().Cleanup(func() {
 			err := suite.db.DeleteTriggerConfiguration(suite.ctx, created.ID)
