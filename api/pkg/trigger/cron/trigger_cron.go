@@ -606,7 +606,6 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 
 	log.Info().
 		Str("app_id", app.ID).
-		Str("resp_content", respContent).
 		Msg("app cron job completed")
 
 	return respContent, nil
