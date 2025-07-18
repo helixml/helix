@@ -25,7 +25,6 @@ import AppsIcon from '@mui/icons-material/Apps'
 import CodeIcon from '@mui/icons-material/Code'
 import AddIcon from '@mui/icons-material/Add'
 import PsychologyIcon from '@mui/icons-material/Psychology'
-import GroupIcon from '@mui/icons-material/Group'
 import AssignmentIcon from '@mui/icons-material/Assignment'
 
 import TokenUsageDisplay from './TokenUsageDisplay'

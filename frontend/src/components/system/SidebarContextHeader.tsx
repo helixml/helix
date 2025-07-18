@@ -8,6 +8,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
+import { TOOLBAR_HEIGHT } from '../../config'
 
 const SidebarContextHeader: React.FC = () => {
   const account = useAccount()
@@ -68,7 +69,7 @@ const SidebarContextHeader: React.FC = () => {
         alignItems: 'center',
         background: 'linear-gradient(90deg, #32042a 0%, #2a1a6e 100%)',
         borderBottom: lightTheme.border,
-        minHeight: 64,
+        minHeight: TOOLBAR_HEIGHT + 15,
         boxShadow: '0 2px 8px 0 rgba(0,229,255,0.08)',
         mb: 1,
       }}
