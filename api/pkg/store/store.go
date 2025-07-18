@@ -84,6 +84,14 @@ type ListTriggerConfigurationsQuery struct {
 	Owner          string
 	OwnerType      types.OwnerType
 	OrganizationID string
+	TriggerType    types.TriggerType
+	Enabled        bool
+}
+
+type ListTriggerExecutionsQuery struct {
+	TriggerID string
+	Offset    int
+	Limit     int
 }
 
 type ListUsersQuery struct {
@@ -293,6 +301,10 @@ type Store interface {
 	UpdateTriggerConfiguration(ctx context.Context, triggerConfig *types.TriggerConfiguration) (*types.TriggerConfiguration, error)
 	DeleteTriggerConfiguration(ctx context.Context, id string) error
 	ListTriggerConfigurations(ctx context.Context, q *ListTriggerConfigurationsQuery) ([]*types.TriggerConfiguration, error)
+
+	ListTriggerExecutions(ctx context.Context, q *ListTriggerExecutionsQuery) ([]*types.TriggerExecution, error)
+	CreateTriggerExecution(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error)
+	UpdateTriggerExecution(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error)
 }
 
 type EmbeddingsStore interface {

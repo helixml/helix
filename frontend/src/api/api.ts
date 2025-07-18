@@ -475,6 +475,7 @@ export interface TypesAssistantAPI {
   oauth_provider?: string;
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
+  path_params?: Record<string, string>;
   query?: Record<string, string>;
   request_prep_template?: string;
   response_error_template?: string;
@@ -1705,6 +1706,7 @@ export interface TypesSkillDefinition {
   oauthProvider?: string;
   oauthScopes?: string[];
   provider?: string;
+  requiredParameters?: TypesSkillRequiredParameter[];
   schema?: string;
   systemPrompt?: string;
 }
@@ -1713,6 +1715,14 @@ export interface TypesSkillIcon {
   /** e.g., "GitHub", "Google" */
   name?: string;
   /** e.g., "material-ui", "custom" */
+  type?: string;
+}
+
+export interface TypesSkillRequiredParameter {
+  description?: string;
+  name?: string;
+  required?: boolean;
+  /** "query", "header", "path" */
   type?: string;
 }
 
@@ -1835,6 +1845,8 @@ export interface TypesToolAPIConfig {
   oauth_provider?: string;
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
+  /** Path parameters that will be substituted in URLs */
+  path_params?: Record<string, string>;
   /** Query parameters that will be always set */
   query?: Record<string, string>;
   /** Template for request preparation, leave empty for default */
@@ -1910,7 +1922,9 @@ export interface TypesTrigger {
 export interface TypesTriggerConfiguration {
   /** App ID */
   app_id?: string;
+  archived?: boolean;
   created?: string;
+  enabled?: boolean;
   executions?: TypesTriggerExecution[];
   id?: string;
   /** Name of the trigger configuration */
@@ -1922,15 +1936,24 @@ export interface TypesTriggerConfiguration {
   /** User or Organization */
   owner_type?: TypesOwnerType;
   trigger?: TypesTrigger;
+  trigger_type?: TypesTriggerType;
   updated?: string;
   /** Webhook URL for the trigger configuration, applicable to webhook type triggers like Azure DevOps, GitHub, etc. */
   webhook_url?: string;
 }
 
+export interface TypesTriggerExecuteResponse {
+  content?: string;
+  session_id?: string;
+}
+
 export interface TypesTriggerExecution {
   created?: string;
+  duration_ms?: number;
   error?: string;
   id?: string;
+  /** Will most likely match session name, based on the trigger name at the time of execution */
+  name?: string;
   output?: string;
   session_id?: string;
   status?: TypesTriggerExecutionStatus;
@@ -1954,6 +1977,7 @@ export interface TypesTriggerStatus {
 export enum TypesTriggerType {
   TriggerTypeSlack = "slack",
   TriggerTypeAzureDevOps = "azure_devops",
+  TriggerTypeCron = "cron",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -2252,64 +2276,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesTriggerConfiguration[], any>({
         path: `/api/v1/apps/${appId}/triggers`,
         method: "GET",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Create triggers for the app. Used to create standalone trigger configurations such as cron tasks for agents that could be owned by a different user than the owner of the app
-     *
-     * @tags apps
-     * @name V1AppsTriggersCreate
-     * @summary Create app triggers
-     * @request POST:/api/v1/apps/{app_id}/triggers
-     * @secure
-     */
-    v1AppsTriggersCreate: (appId: string, request: TypesTriggerConfiguration, params: RequestParams = {}) =>
-      this.request<TypesTriggerConfiguration, any>({
-        path: `/api/v1/apps/${appId}/triggers`,
-        method: "POST",
-        body: request,
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Delete triggers for the app
-     *
-     * @tags apps
-     * @name V1AppsTriggersDelete
-     * @summary Delete app triggers
-     * @request DELETE:/api/v1/apps/{app_id}/triggers/{trigger_id}
-     * @secure
-     */
-    v1AppsTriggersDelete: (appId: string, triggerId: string, params: RequestParams = {}) =>
-      this.request<TypesTriggerConfiguration, any>({
-        path: `/api/v1/apps/${appId}/triggers/${triggerId}`,
-        method: "DELETE",
-        secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Update triggers for the app, for example to change the cron schedule or enable/disable the trigger
-     *
-     * @tags apps
-     * @name V1AppsTriggersUpdate
-     * @summary Update app triggers
-     * @request PUT:/api/v1/apps/{app_id}/triggers/{trigger_id}
-     * @secure
-     */
-    v1AppsTriggersUpdate: (
-      appId: string,
-      triggerId: string,
-      request: TypesTriggerConfiguration,
-      params: RequestParams = {},
-    ) =>
-      this.request<TypesTriggerConfiguration, any>({
-        path: `/api/v1/apps/${appId}/triggers/${triggerId}`,
-        method: "PUT",
-        body: request,
         secure: true,
         ...params,
       }),
@@ -3811,6 +3777,129 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, string>, any>({
         path: `/api/v1/skills/reload`,
         method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List all triggers configurations for either user or the org or user within an org
+     *
+     * @tags apps
+     * @name V1TriggersList
+     * @summary List all triggers configurations for either user or the org or user within an org
+     * @request GET:/api/v1/triggers
+     * @secure
+     */
+    v1TriggersList: (
+      query?: {
+        /** Organization ID */
+        org_id?: string;
+        /** Trigger type, defaults to 'cron' */
+        trigger_type?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesTriggerConfiguration[], any>({
+        path: `/api/v1/triggers`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create triggers for the app. Used to create standalone trigger configurations such as cron tasks for agents that could be owned by a different user than the owner of the app
+     *
+     * @tags apps
+     * @name V1TriggersCreate
+     * @summary Create app triggers
+     * @request POST:/api/v1/triggers
+     * @secure
+     */
+    v1TriggersCreate: (request: TypesTriggerConfiguration, params: RequestParams = {}) =>
+      this.request<TypesTriggerConfiguration, any>({
+        path: `/api/v1/triggers`,
+        method: "POST",
+        body: request,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Delete triggers for the app
+     *
+     * @tags apps
+     * @name V1TriggersDelete
+     * @summary Delete app triggers
+     * @request DELETE:/api/v1/triggers/{trigger_id}
+     * @secure
+     */
+    v1TriggersDelete: (triggerId: string, params: RequestParams = {}) =>
+      this.request<TypesTriggerConfiguration, any>({
+        path: `/api/v1/triggers/${triggerId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Update triggers for the app, for example to change the cron schedule or enable/disable the trigger
+     *
+     * @tags apps
+     * @name V1TriggersUpdate
+     * @summary Update app triggers
+     * @request PUT:/api/v1/triggers/{trigger_id}
+     * @secure
+     */
+    v1TriggersUpdate: (triggerId: string, request: TypesTriggerConfiguration, params: RequestParams = {}) =>
+      this.request<TypesTriggerConfiguration, any>({
+        path: `/api/v1/triggers/${triggerId}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Update triggers for the app, for example to change the cron schedule or enable/disable the trigger
+     *
+     * @tags apps
+     * @name V1TriggersExecuteCreate
+     * @summary Execute app trigger
+     * @request POST:/api/v1/triggers/{trigger_id}/execute
+     * @secure
+     */
+    v1TriggersExecuteCreate: (triggerId: string, params: RequestParams = {}) =>
+      this.request<TypesTriggerExecuteResponse, any>({
+        path: `/api/v1/triggers/${triggerId}/execute`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List executions for the trigger
+     *
+     * @tags apps
+     * @name V1TriggersExecutionsDetail
+     * @summary List trigger executions
+     * @request GET:/api/v1/triggers/{trigger_id}/executions
+     * @secure
+     */
+    v1TriggersExecutionsDetail: (
+      triggerId: string,
+      query?: {
+        /** Offset */
+        offset?: number;
+        /** Limit */
+        limit?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesTriggerExecution[], any>({
+        path: `/api/v1/triggers/${triggerId}/executions`,
+        method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),

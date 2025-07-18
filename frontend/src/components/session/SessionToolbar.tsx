@@ -125,7 +125,7 @@ export const SessionToolbar: FC<{
   return (
     <Row
       sx={{
-        height: `${TOOLBAR_HEIGHT}px`,
+        minHeight: TOOLBAR_HEIGHT,
       }}
     >
       <IconButton

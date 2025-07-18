@@ -22,10 +22,11 @@ import PolylineIcon from '@mui/icons-material/Polyline';
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import AppsIcon from '@mui/icons-material/Apps'
+import AlarmIcon from '@mui/icons-material/Alarm'
 import CodeIcon from '@mui/icons-material/Code'
 import AddIcon from '@mui/icons-material/Add'
 import PsychologyIcon from '@mui/icons-material/Psychology'
-import GroupIcon from '@mui/icons-material/Group'
+import AssignmentIcon from '@mui/icons-material/Assignment'
 
 import TokenUsageDisplay from './TokenUsageDisplay'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -506,18 +507,25 @@ const SidebarContent: React.FC<{
                       open={Boolean(accountMenuAnchorEl)}
                       onClose={() => setAccountMenuAnchorEl(null)}
                     >                      
-                      {
-                        account.serverConfig.apps_enabled && (
-                          <MenuItem onClick={ () => {
-                            orgNavigateTo('apps')
-                          }}>
-                            <ListItemIcon>
-                              <AppsIcon fontSize="small" />
-                            </ListItemIcon> 
-                            Agents
-                          </MenuItem>
-                        )
-                      }
+                      
+                      <MenuItem onClick={ () => {
+                        orgNavigateTo('apps')
+                      }}>
+                        <ListItemIcon>
+                          <AppsIcon fontSize="small" />
+                        </ListItemIcon> 
+                        Agents
+                      </MenuItem>
+
+                      <MenuItem onClick={ () => {
+                        orgNavigateTo('tasks')
+                      }}>
+                        <ListItemIcon>
+                          <AlarmIcon fontSize="small" />
+                        </ListItemIcon> 
+                        Tasks
+                      </MenuItem>
+
 
                       <MenuItem onClick={ () => {
                         navigateTo('account')

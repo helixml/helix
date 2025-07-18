@@ -3,20 +3,16 @@ import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
-import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
-import SearchIcon from '@mui/icons-material/Search'
 import Tooltip from '@mui/material/Tooltip'
 import Avatar from '@mui/material/Avatar'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 import ImageIcon from '@mui/icons-material/Image'
-import DescriptionIcon from '@mui/icons-material/Description'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
-import { styled } from '@mui/material/styles'
 
 import Page from '../components/system/Page'
 import LaunchpadCTAButton from '../components/widgets/LaunchpadCTAButton'
@@ -30,16 +26,12 @@ import { useAccount } from '../contexts/account'
 
 import useLightTheme from '../hooks/useLightTheme'
 import useIsBigScreen from '../hooks/useIsBigScreen'
-import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useSessions from '../hooks/useSessions'
 import useApps from '../hooks/useApps'
-import useThemeConfig from '../hooks/useThemeConfig'
 import { useStreaming } from '../contexts/streaming'
-
-import {
-  SESSION_MODE_FINETUNE,
-} from '../types'
+import { useListUserCronTriggers } from '../services/appService'
+import { generateCronShortSummary } from '../utils/cronUtils'
 
 const getTimeAgo = (date: Date) => {
   const now = new Date()
@@ -54,13 +46,33 @@ const getTimeAgo = (date: Date) => {
   return 'just now'
 }
 
+// Helper function to get schedule information from trigger
+const getScheduleInfo = (trigger: any) => {
+  if (trigger.cron?.schedule) {
+    return generateCronShortSummary(trigger.cron.schedule)
+  }
+  if (trigger.slack?.enabled) {
+    return 'Slack'
+  }
+  if (trigger.azure_devops?.enabled) {
+    return 'Azure DevOps'
+  }
+  if (trigger.discord) {
+    return 'Discord'
+  }
+  return 'Unknown'
+}
+
+// Helper function to find app by ID
+const findAppById = (apps: any[], appId: string) => {
+  return apps.find(app => app.id === appId)
+}
+
 const LOGGED_OUT_PROMPT_KEY = 'logged-out-prompt'
 
 const Home: FC = () => {
   const isBigScreen = useIsBigScreen()
   const lightTheme = useLightTheme()
-  const themeConfig = useThemeConfig()
-  const router = useRouter()
   const snackbar = useSnackbar()
   const sessions = useSessions()
   const account = useAccount()
@@ -76,6 +88,16 @@ const Home: FC = () => {
   const [attachmentMenuAnchorEl, setAttachmentMenuAnchorEl] = useState<null | HTMLElement>(null)
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [selectedImageName, setSelectedImageName] = useState<string | null>(null)
+
+  const { data: triggers, isLoading, refetch } = useListUserCronTriggers(
+    account.organizationTools.organization?.id || ''
+  )
+
+  useEffect(() => {
+    apps.loadApps()
+  }, [
+    apps.loadApps,
+  ])
 
   // Check for serialized page state on mount
   useEffect(() => {
@@ -443,6 +465,32 @@ const Home: FC = () => {
                     />
                   </Box>
                 </Row>
+                {/* Tasks Section */}
+                <Row
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'left',
+                    justifyContent: 'left',
+                    mb: 1,
+                    mt: 3,
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      color: '#fff',
+                      fontSize: '1.1rem',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      '&:hover': {
+                        textDecoration: 'underline',
+                      },
+                    }}
+                    onClick={() => account.orgNavigate('tasks')}
+                  >
+                    Tasks
+                  </Typography>
+                </Row>
                 <Row
                   sx={{
                     display: 'flex',
@@ -452,7 +500,158 @@ const Home: FC = () => {
                     mb: 1,
                   }}
                 >
-                  Agents
+                  <Grid container spacing={1} justifyContent="left">
+                    {
+                      triggers?.data
+                        ?.filter((trigger: any) => trigger.enabled && !trigger.archived)
+                        .sort((a: any, b: any) => new Date(b.updated).getTime() - new Date(a.updated).getTime())
+                        .slice(0, 5)
+                        .map((trigger: any) => {
+                          const app = findAppById(apps.apps, trigger.app_id)
+                          return (
+                            <Grid item xs={12} sm={6} md={4} lg={4} xl={4} sx={{ textAlign: 'left', maxWidth: '100%' }} key={trigger.id}>
+                              <Box
+                                sx={{
+                                  borderRadius: '12px',
+                                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                                  p: 1.5,
+                                  pb: 0.5,
+                                  cursor: 'pointer',
+                                  '&:hover': {
+                                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                                  },
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'flex-start',
+                                  gap: 1,
+                                  width: '100%',
+                                  minWidth: 0,
+                                }}
+                                onClick={() => account.orgNavigate('tasks', { task: trigger.id })}
+                              >
+                                <Avatar
+                                  sx={{
+                                    width: 28,
+                                    height: 28,
+                                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                    color: '#fff',
+                                    fontWeight: 'bold',
+                                    border: (theme) => app?.config.helix.avatar ? '2px solid rgba(255, 255, 255, 0.8)' : 'none',
+                                  }}
+                                  src={app?.config.helix.avatar ? (
+                                    app.config.helix.avatar.startsWith('http://') || app.config.helix.avatar.startsWith('https://')
+                                      ? app.config.helix.avatar
+                                      : `/api/v1/apps/${trigger.app_id}/avatar`
+                                  ) : undefined}
+                                >
+                                  {app?.config.helix.name && app.config.helix.name.length > 0 
+                                    ? app.config.helix.name[0].toUpperCase() 
+                                    : '?'}
+                                </Avatar>
+                                <Box sx={{ textAlign: 'left', width: '100%', minWidth: 0 }}>
+                                  <Typography sx={{ 
+                                    color: '#fff',
+                                    fontSize: '0.95rem',
+                                    lineHeight: 1.2,
+                                    fontWeight: 'bold',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    width: '100%',
+                                  }}>
+                                    { trigger.name }
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ 
+                                    color: 'rgba(255, 255, 255, 0.5)',
+                                    fontSize: '0.8rem',
+                                    lineHeight: 1.2,
+                                  }}>
+                                    { getScheduleInfo(trigger.trigger) }
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            </Grid>
+                          )
+                        }) || []
+                    }
+                    <Grid item xs={12} sm={6} md={4} lg={4} xl={4} sx={{ textAlign: 'center' }}>
+                      <Box
+                        sx={{
+                          borderRadius: '12px',
+                          border: '1px dashed rgba(255, 255, 255, 0.2)',
+                          p: 1.5,
+                          pb: 0.5,
+                          cursor: 'pointer',
+                          '&:hover': {
+                            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                          },
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-start',
+                          gap: 1,
+                        }}
+                        onClick={() => account.orgNavigate('tasks', { task: 'new' })}
+                      >
+                        <Box
+                          sx={{
+                            width: 28,
+                            height: 28,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: '50%',
+                            backgroundColor: 'rgb(0, 153, 255)',
+                          }}
+                        >
+                          <AddIcon sx={{ color: '#fff', fontSize: '20px' }} />
+                        </Box>
+                        <Box sx={{ textAlign: 'left' }}>
+                          <Typography sx={{ 
+                            color: '#fff',
+                            fontSize: '0.95rem',
+                            lineHeight: 1.2,
+                            fontWeight: 'bold',
+                          }}>
+                            New task
+                          </Typography>
+                          <Typography variant="caption" sx={{ 
+                            color: 'rgba(255, 255, 255, 0.5)',
+                            fontSize: '0.8rem',
+                            lineHeight: 1.2,
+                          }}>
+                            &nbsp;
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </Grid>
+                  </Grid>
+                </Row>
+
+                {/* Agents Section */}
+                <Row
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'left',
+                    justifyContent: 'left',
+                    mb: 1,
+                    mt: 3,
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      color: '#fff',
+                      fontSize: '1.1rem',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      '&:hover': {
+                        textDecoration: 'underline',
+                      },
+                    }}
+                    onClick={() => account.orgNavigate('apps')}
+                  >
+                    Agents
+                  </Typography>
                 </Row>
                 <Row
                   sx={{

@@ -403,12 +403,17 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/apps/{id}/access-grants", apiServer.createAppAccessGrant).Methods(http.MethodPost)
 	authRouter.HandleFunc("/apps/{id}/access-grants/{grant_id}", apiServer.deleteAppAccessGrant).Methods(http.MethodDelete)
 
+	authRouter.HandleFunc("/apps/{id}/triggers", system.Wrapper(apiServer.listAppTriggers)).Methods(http.MethodGet)
+
 	// Triggers provide an ability for users to create recurring tasks for agents or
 	// to connect an agent built by another user to their own slack/dicord/etc.
-	authRouter.HandleFunc("/apps/{id}/triggers", system.Wrapper(apiServer.listAppTriggers)).Methods(http.MethodGet)
-	authRouter.HandleFunc("/apps/{id}/triggers", system.Wrapper(apiServer.createAppTrigger)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/apps/{id}/triggers/{trigger_id}", system.Wrapper(apiServer.updateAppTrigger)).Methods(http.MethodPut)
-	authRouter.HandleFunc("/apps/{id}/triggers/{trigger_id}", system.Wrapper(apiServer.deleteAppTrigger)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/triggers", system.Wrapper(apiServer.listTriggers)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/triggers", system.Wrapper(apiServer.createAppTrigger)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/triggers/{trigger_id}", system.Wrapper(apiServer.updateAppTrigger)).Methods(http.MethodPut)
+	authRouter.HandleFunc("/triggers/{trigger_id}", system.Wrapper(apiServer.deleteAppTrigger)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/triggers/{trigger_id}/execute", system.Wrapper(apiServer.executeAppTrigger)).Methods(http.MethodPost)
+
+	authRouter.HandleFunc("/triggers/{trigger_id}/executions", system.Wrapper(apiServer.listTriggerExecutions)).Methods(http.MethodGet)
 
 	// Avatar routes
 	authRouter.HandleFunc("/apps/{id}/avatar", apiServer.uploadAppAvatar).Methods(http.MethodPost)

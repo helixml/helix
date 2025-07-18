@@ -16,6 +16,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/notification"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -25,11 +26,12 @@ import (
 type Cron struct {
 	cfg        *config.ServerConfig
 	store      store.Store
+	notifier   notification.Notifier
 	controller *controller.Controller
 	cron       gocron.Scheduler
 }
 
-func New(cfg *config.ServerConfig, store store.Store, controller *controller.Controller) (*Cron, error) {
+func New(cfg *config.ServerConfig, store store.Store, notifier notification.Notifier, controller *controller.Controller) (*Cron, error) {
 	s, err := gocron.NewScheduler()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create scheduler: %w", err)
@@ -38,6 +40,7 @@ func New(cfg *config.ServerConfig, store store.Store, controller *controller.Con
 	return &Cron{
 		cfg:        cfg,
 		store:      store,
+		notifier:   notifier,
 		controller: controller,
 		cron:       s,
 	}, nil
@@ -105,32 +108,108 @@ func (c *Cron) startScheduler(ctx context.Context) error {
 }
 
 func (c *Cron) reconcileCronApps(ctx context.Context) error {
-	apps, err := c.listApps(ctx)
+	cronApps, err := c.getCronApps(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to list apps: %w", err)
+		return fmt.Errorf("failed to get cron apps: %w", err)
+	}
+
+	triggerCronApps, err := c.getCronAppsFromTriggers(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to convert triggers to apps: %w", err)
 	}
 
 	jobs := c.cron.Jobs()
 
+	apps := append(cronApps, triggerCronApps...)
+
 	return c.createOrDeleteCronApps(ctx, apps, jobs)
 }
 
-func (c *Cron) createOrDeleteCronApps(ctx context.Context, apps []*types.App, jobs []gocron.Job) error {
-	appsMap := make(map[string]*types.App) // app id to app
-	jobsMap := make(map[string]gocron.Job) // app id to job
+type cronApp struct {
+	ID      string
+	Name    string
+	App     *types.App
+	Trigger *types.CronTrigger
+}
+
+func (c *Cron) getCronApps(ctx context.Context) ([]*cronApp, error) {
+
+	apps, err := c.listApps(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list apps: %w", err)
+	}
+
+	var cronApps []*cronApp
 
 	for _, app := range apps {
-		appsMap[app.ID] = app
+		for _, trigger := range app.Config.Helix.Triggers {
+			if trigger.Cron != nil && trigger.Cron.Enabled {
+				cronApps = append(cronApps, &cronApp{
+					ID:      app.ID,
+					Name:    app.Config.Helix.Name,
+					Trigger: trigger.Cron,
+					App:     app,
+				})
+			}
+		}
+	}
+
+	return cronApps, nil
+}
+
+func (c *Cron) getCronAppsFromTriggers(ctx context.Context) ([]*cronApp, error) {
+	triggerConfigs, err := c.store.ListTriggerConfigurations(ctx, &store.ListTriggerConfigurationsQuery{
+		Enabled:     true,
+		TriggerType: types.TriggerTypeCron,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list trigger configurations: %w", err)
+	}
+
+	var apps []*cronApp
+
+	// Go through triggers and convert them each into an app that can be then used by the cron scheduler to execute the workloads
+	for _, triggerConfig := range triggerConfigs {
+		if triggerConfig.Trigger.Cron == nil {
+			continue
+		}
+
+		app, err := c.store.GetApp(ctx, triggerConfig.AppID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get app: %w", err)
+		}
+
+		apps = append(apps, &cronApp{
+			ID:      triggerConfig.ID,
+			Name:    triggerConfig.Name,
+			App:     app,
+			Trigger: triggerConfig.Trigger.Cron,
+		})
+	}
+
+	return apps, nil
+}
+
+func getCronAppKey(cronApp *cronApp) string {
+	return fmt.Sprintf("%s:%s", cronApp.ID, cronApp.App.ID)
+}
+
+func (c *Cron) createOrDeleteCronApps(ctx context.Context, cronApps []*cronApp, jobs []gocron.Job) error {
+	appsMap := make(map[string]*cronApp)   // app id to app
+	jobsMap := make(map[string]gocron.Job) // app id to job
+
+	for _, cronApp := range cronApps {
+		appsMap[getCronAppKey(cronApp)] = cronApp
 	}
 
 	for _, job := range jobs {
 		jobsMap[job.Name()] = job
 
-		// If the job is not in the knowledges list, remove it
 		if _, ok := appsMap[job.Name()]; !ok {
 			log.Info().
 				Str("job_id", job.ID().String()).
 				Strs("job_tags", job.Tags()).
+				Str("job_name", job.Name()).
 				Msg("removing job")
 
 			err := c.cron.RemoveJob(job.ID())
@@ -140,20 +219,16 @@ func (c *Cron) createOrDeleteCronApps(ctx context.Context, apps []*types.App, jo
 		}
 	}
 
-	for _, app := range apps {
-		trigger, ok := getAppSchedule(app)
-		if !ok {
-			continue
-		}
+	for _, cronApp := range cronApps {
 
 		// If schedule is invalid or more often than every 90 seconds, skip it
-		cronSchedule, err := cronv3.ParseStandard(trigger.Schedule)
+		cronSchedule, err := cronv3.ParseStandard(cronApp.Trigger.Schedule)
 		if err != nil {
 			log.Error().
 				Err(err).
-				Str("app_id", app.ID).
-				Str("app_name", app.Config.Helix.Name).
-				Str("app_refresh_schedule", trigger.Schedule).
+				Str("app_id", cronApp.App.ID).
+				Str("app_name", cronApp.App.Config.Helix.Name).
+				Str("schedule", cronApp.Trigger.Schedule).
 				Msg("invalid cron schedule")
 			continue
 		}
@@ -162,56 +237,56 @@ func (c *Cron) createOrDeleteCronApps(ctx context.Context, apps []*types.App, jo
 		secondRun := cronSchedule.Next(nextRun)
 		if secondRun.Sub(nextRun) < 90*time.Second {
 			log.Warn().
-				Str("app_id", app.ID).
-				Str("app_name", app.Config.Helix.Name).
-				Str("app_refresh_schedule", trigger.Schedule).
+				Str("app_id", cronApp.App.ID).
+				Str("app_name", cronApp.App.Config.Helix.Name).
+				Str("schedule", cronApp.Trigger.Schedule).
 				Msg("cron schedule is too frequent")
 			continue
 		}
 
-		job, ok := jobsMap[app.ID]
+		job, ok := jobsMap[getCronAppKey(cronApp)]
 		if !ok {
 
 			// job doesn't exist, create it
 			job, err := c.cron.NewJob(
-				gocron.CronJob(trigger.Schedule, true),
-				c.getCronAppTask(ctx, app.ID),
-				c.getCronAppOptions(app)...,
+				gocron.CronJob(cronApp.Trigger.Schedule, true),
+				c.getCronAppTask(ctx, cronApp),
+				c.getCronAppOptions(cronApp)...,
 			)
 			if err != nil {
 				log.Error().
 					Err(err).
-					Str("app_id", app.ID).
-					Str("app_name", app.Config.Helix.Name).
-					Str("app_refresh_schedule", trigger.Schedule).
+					Str("app_id", cronApp.App.ID).
+					Str("app_name", cronApp.App.Config.Helix.Name).
+					Str("schedule", cronApp.Trigger.Schedule).
 					Msg("failed to create job")
 				continue
 			}
 
 			log.Info().
 				Str("job_id", job.ID().String()).
-				Str("app_id", app.ID).
-				Str("app_name", app.Config.Helix.Name).
-				Str("app_refresh_schedule", trigger.Schedule).
+				Str("app_id", cronApp.App.ID).
+				Str("app_name", cronApp.App.Config.Helix.Name).
+				Str("schedule", cronApp.Trigger.Schedule).
 				Msg("added cron job to the scheduler")
 
 		} else {
 			// Job exists, check schedule and update if needed
 			currentSchedule := getCronJobSchedule(job)
 
-			if currentSchedule != trigger.Schedule {
+			if currentSchedule != cronApp.Trigger.Schedule {
 				log.Info().
-					Str("app_id", app.ID).
-					Str("app_name", app.Config.Helix.Name).
-					Str("app_refresh_schedule", trigger.Schedule).
+					Str("app_id", cronApp.App.ID).
+					Str("app_name", cronApp.App.Config.Helix.Name).
+					Str("schedule", cronApp.Trigger.Schedule).
 					Str("current_schedule", currentSchedule).
 					Msg("updating cron job schedule")
 
 				_, err := c.cron.Update(
 					job.ID(),
-					gocron.CronJob(trigger.Schedule, true),
-					c.getCronAppTask(ctx, app.ID),
-					c.getCronAppOptions(app)...,
+					gocron.CronJob(cronApp.Trigger.Schedule, true),
+					c.getCronAppTask(ctx, cronApp),
+					c.getCronAppOptions(cronApp)...,
 				)
 				if err != nil {
 					return fmt.Errorf("failed to remove job: %w", err)
@@ -223,192 +298,19 @@ func (c *Cron) createOrDeleteCronApps(ctx context.Context, apps []*types.App, jo
 	return nil
 }
 
-func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
+func (c *Cron) getCronAppTask(ctx context.Context, cronApp *cronApp) gocron.Task {
 	return gocron.NewTask(func() {
 		log.Info().
-			Str("app_id", appID).
+			Str("app_id", cronApp.App.ID).
 			Msg("running app cron job")
 
-		app, err := c.store.GetAppWithTools(ctx, appID)
+		_, err := ExecuteCronTask(ctx, c.store, c.controller, c.notifier, cronApp.App, cronApp.ID, cronApp.Trigger, cronApp.Name)
 		if err != nil {
-			log.Error().
-				Err(err).
-				Str("app_id", appID).
-				Msg("failed to get app")
+			log.Error().Err(err).Msg("failed to execute cron task")
 			return
 		}
 
-		trigger, ok := getAppSchedule(app)
-		if !ok {
-			log.Error().
-				Str("app_id", app.ID).
-				Msg("no cron trigger found for app")
-			return
-		}
-
-		triggerInteractionID := system.GenerateUUID()
-		assistantResponseID := system.GenerateUUID()
-
-		// Prepare new session
-		session := &types.Session{
-			ID:             system.GenerateSessionID(),
-			Name:           "Recurring Trigger",
-			Created:        time.Now(),
-			Updated:        time.Now(),
-			Mode:           types.SessionModeInference,
-			Type:           types.SessionTypeText,
-			ParentApp:      app.ID,
-			OrganizationID: app.OrganizationID,
-			Owner:          app.Owner,
-			OwnerType:      app.OwnerType,
-			Metadata: types.SessionMetadata{
-				Stream:       false,
-				SystemPrompt: "",
-				AssistantID:  "",
-				Origin: types.SessionOrigin{
-					Type: types.SessionOriginTypeUserCreated,
-				},
-				HelixVersion: data.GetHelixVersion(),
-			},
-			Interactions: []*types.Interaction{
-				{
-					ID:        triggerInteractionID,
-					Created:   time.Now(),
-					Updated:   time.Now(),
-					Scheduled: time.Now(),
-					Completed: time.Now(),
-					Mode:      types.SessionModeInference,
-					Creator:   types.CreatorTypeUser,
-					State:     types.InteractionStateComplete,
-					Finished:  true,
-					Message:   trigger.Input,
-					Content: types.MessageContent{
-						ContentType: types.MessageContentTypeText,
-						Parts:       []any{trigger.Input},
-					},
-				},
-				{
-					ID:       assistantResponseID,
-					Created:  time.Now(),
-					Updated:  time.Now(),
-					Creator:  types.CreatorTypeAssistant,
-					Mode:     types.SessionModeInference,
-					Message:  "",
-					State:    types.InteractionStateWaiting,
-					Finished: false,
-					Metadata: map[string]string{},
-				},
-			},
-		}
-
-		ctx = oai.SetContextSessionID(ctx, session.ID)
-
-		messages := []openai.ChatCompletionMessage{
-			{
-				Role:    openai.ChatMessageRoleUser,
-				Content: trigger.Input,
-			},
-		}
-
-		request := openai.ChatCompletionRequest{
-			Stream:   false,
-			Messages: messages,
-		}
-
-		bts, err := json.MarshalIndent(request, "", "  ")
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("app_id", app.ID).
-				Msg("failed to marshal request")
-		}
-
-		ctx := oai.SetContextValues(ctx, &oai.ContextValues{
-			OwnerID:         app.Owner,
-			SessionID:       session.ID,
-			InteractionID:   assistantResponseID,
-			OriginalRequest: bts,
-		})
-
-		ctx = oai.SetContextAppID(ctx, app.ID)
-
-		// Write session to the database
-		err = c.controller.WriteSession(ctx, session)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("app_id", app.ID).
-				Msg("failed to create session")
-			return
-		}
-
-		user, err := c.store.GetUser(ctx, &store.GetUserQuery{
-			ID: app.Owner,
-		})
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("app_id", app.ID).
-				Str("user_id", app.Owner).
-				Msg("failed to get user")
-			return
-		}
-
-		resp, _, err := c.controller.ChatCompletion(ctx, user,
-			request,
-			&controller.ChatCompletionOptions{
-				AppID:          app.ID,
-				Conversational: true,
-			})
-		if err != nil {
-			log.Warn().
-				Err(err).
-				Str("app_id", app.ID).
-				Msg("failed to run app cron job")
-
-			// Update session with error
-			session.Interactions[len(session.Interactions)-1].Error = err.Error()
-			session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
-			session.Interactions[len(session.Interactions)-1].Finished = true
-			session.Interactions[len(session.Interactions)-1].Completed = time.Now()
-			err = c.controller.WriteSession(ctx, session)
-			if err != nil {
-				log.Error().
-					Err(err).
-					Str("app_id", app.ID).
-					Str("user_id", app.Owner).
-					Str("session_id", session.ID).
-					Msg("failed to update session")
-			}
-
-			return
-		}
-
-		var respContent string
-		if len(resp.Choices) > 0 {
-			respContent = resp.Choices[0].Message.Content
-		}
-
-		// Update session with response
-		session.Interactions[len(session.Interactions)-1].Message = respContent
-		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
-		session.Interactions[len(session.Interactions)-1].Finished = true
-		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
-
-		err = c.controller.WriteSession(ctx, session)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("app_id", app.ID).
-				Str("user_id", app.Owner).
-				Str("session_id", session.ID).
-				Msg("failed to update session")
-		}
-
-		log.Info().
-			Str("app_id", app.ID).
-			Str("resp_content", respContent).
-			Msg("app cron job completed")
+		log.Info().Msg("cron task completed")
 	})
 }
 
@@ -431,30 +333,12 @@ func (c *Cron) listApps(ctx context.Context) ([]*types.App, error) {
 	return filteredApps, nil
 }
 
-func (c *Cron) getCronAppOptions(app *types.App) []gocron.JobOption {
-	var schedule string
-
-	for _, trigger := range app.Config.Helix.Triggers {
-		if trigger.Cron != nil && trigger.Cron.Schedule != "" && trigger.Cron.Enabled {
-			schedule = trigger.Cron.Schedule
-			break
-		}
-	}
+func (c *Cron) getCronAppOptions(cronApp *cronApp) []gocron.JobOption {
 
 	return []gocron.JobOption{
-		gocron.WithName(app.ID),
-		gocron.WithTags(fmt.Sprintf("schedule:%s", schedule)),
+		gocron.WithName(getCronAppKey(cronApp)),
+		gocron.WithTags(fmt.Sprintf("schedule:%s", cronApp.Trigger.Schedule)),
 	}
-}
-
-func getAppSchedule(app *types.App) (*types.CronTrigger, bool) {
-	for _, trigger := range app.Config.Helix.Triggers {
-		if trigger.Cron != nil && trigger.Cron.Schedule != "" && trigger.Cron.Enabled {
-			return trigger.Cron, true
-		}
-	}
-
-	return nil, false
 }
 
 func getCronJobSchedule(job gocron.Job) string {
@@ -470,4 +354,259 @@ func getCronJobSchedule(job gocron.Job) string {
 	}
 
 	return currentSchedule
+}
+
+func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, a *types.App, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
+	app, err := str.GetAppWithTools(ctx, a.ID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", a.ID).
+			Msg("failed to get app")
+		return "", err
+	}
+
+	triggerInteractionID := system.GenerateUUID()
+	assistantResponseID := system.GenerateUUID()
+
+	// Prepare new session
+	session := &types.Session{
+		ID:             system.GenerateSessionID(),
+		Name:           sessionName,
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		Mode:           types.SessionModeInference,
+		Type:           types.SessionTypeText,
+		ParentApp:      app.ID,
+		OrganizationID: app.OrganizationID,
+		Owner:          app.Owner,
+		OwnerType:      app.OwnerType,
+		Metadata: types.SessionMetadata{
+			Stream:       false,
+			SystemPrompt: "",
+			AssistantID:  "",
+			Origin: types.SessionOrigin{
+				Type: types.SessionOriginTypeUserCreated,
+			},
+			HelixVersion: data.GetHelixVersion(),
+		},
+		Interactions: []*types.Interaction{
+			{
+				ID:        triggerInteractionID,
+				Created:   time.Now(),
+				Updated:   time.Now(),
+				Scheduled: time.Now(),
+				Completed: time.Now(),
+				Mode:      types.SessionModeInference,
+				Creator:   types.CreatorTypeUser,
+				State:     types.InteractionStateComplete,
+				Finished:  true,
+				Message:   trigger.Input,
+				Content: types.MessageContent{
+					ContentType: types.MessageContentTypeText,
+					Parts:       []any{trigger.Input},
+				},
+			},
+			{
+				ID:       assistantResponseID,
+				Created:  time.Now(),
+				Updated:  time.Now(),
+				Creator:  types.CreatorTypeAssistant,
+				Mode:     types.SessionModeInference,
+				Message:  "",
+				State:    types.InteractionStateWaiting,
+				Finished: false,
+				Metadata: map[string]string{},
+			},
+		},
+	}
+
+	ctx = oai.SetContextSessionID(ctx, session.ID)
+
+	messages := []openai.ChatCompletionMessage{
+		{
+			Role:    openai.ChatMessageRoleUser,
+			Content: trigger.Input,
+		},
+	}
+
+	request := openai.ChatCompletionRequest{
+		Stream:   false,
+		Messages: messages,
+	}
+
+	bts, err := json.MarshalIndent(request, "", "  ")
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", app.ID).
+			Msg("failed to marshal request")
+	}
+
+	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
+		OwnerID:         app.Owner,
+		SessionID:       session.ID,
+		InteractionID:   assistantResponseID,
+		OriginalRequest: bts,
+	})
+
+	ctx = oai.SetContextAppID(ctx, app.ID)
+
+	// Write session to the database
+	err = ctrl.WriteSession(ctx, session)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", app.ID).
+			Msg("failed to create session")
+		return "", err
+	}
+
+	user, err := str.GetUser(ctx, &store.GetUserQuery{
+		ID: app.Owner,
+	})
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", app.ID).
+			Str("user_id", app.Owner).
+			Msg("failed to get user")
+		return "", err
+	}
+
+	// Create execution
+	execution := &types.TriggerExecution{
+		ID:                     system.GenerateUUID(),
+		Name:                   sessionName,
+		TriggerConfigurationID: triggerID,
+		Created:                time.Now(),
+		Updated:                time.Now(),
+		Status:                 types.TriggerExecutionStatusRunning,
+		SessionID:              session.ID,
+	}
+
+	startedAt := time.Now()
+
+	execution, err = str.CreateTriggerExecution(ctx, execution)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", app.ID).
+			Msg("failed to create trigger execution")
+		return "", fmt.Errorf("failed to create trigger execution: %w", err)
+	}
+
+	resp, _, err := ctrl.ChatCompletion(ctx, user, request, &controller.ChatCompletionOptions{
+		AppID:          app.ID,
+		Conversational: true,
+	})
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", app.ID).
+			Msg("failed to run app cron job")
+
+		// Update session with error
+		session.Interactions[len(session.Interactions)-1].Error = err.Error()
+		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
+		session.Interactions[len(session.Interactions)-1].Finished = true
+		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+
+		writeErr := ctrl.WriteSession(ctx, session)
+		if writeErr != nil {
+			log.Error().
+				Err(err).
+				Str("app_id", app.ID).
+				Str("user_id", app.Owner).
+				Str("session_id", session.ID).
+				Msg("failed to update session")
+		}
+
+		// Send failure notification
+		notifyErr := notifier.Notify(ctx, &notification.Notification{
+			Event:   notification.EventCronTriggerFailed,
+			Session: session,
+			Message: err.Error(),
+		})
+		if notifyErr != nil {
+			log.Error().
+				Err(notifyErr).
+				Str("app_id", app.ID).
+				Str("session_id", session.ID).
+				Msg("failed to send failure notification")
+		}
+
+		// Update execution with error
+		execution.Status = types.TriggerExecutionStatusError
+		execution.Error = err.Error()
+		execution.DurationMs = time.Since(startedAt).Milliseconds()
+
+		execution, err = str.UpdateTriggerExecution(ctx, execution)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("app_id", app.ID).
+				Str("execution_id", execution.ID).
+				Msg("failed to update execution")
+		}
+
+		return "", err
+	}
+
+	var respContent string
+	if len(resp.Choices) > 0 {
+		respContent = resp.Choices[0].Message.Content
+	}
+
+	// Update session with response
+	session.Interactions[len(session.Interactions)-1].Message = respContent
+	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
+	session.Interactions[len(session.Interactions)-1].Finished = true
+	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+
+	err = ctrl.WriteSession(ctx, session)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", app.ID).
+			Str("user_id", app.Owner).
+			Str("session_id", session.ID).
+			Msg("failed to update session")
+	}
+
+	// Send success notification
+	err = notifier.Notify(ctx, &notification.Notification{
+		Event:          notification.EventCronTriggerComplete,
+		Session:        session,
+		Message:        respContent,
+		RenderMarkdown: true,
+	})
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", app.ID).
+			Str("session_id", session.ID).
+			Msg("failed to send success notification")
+	}
+
+	// Update execution with success
+	execution.Status = types.TriggerExecutionStatusSuccess
+	execution.Output = respContent
+	execution.DurationMs = time.Since(startedAt).Milliseconds()
+
+	execution, err = str.UpdateTriggerExecution(ctx, execution)
+
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("app_id", app.ID).
+			Str("execution_id", execution.ID).
+			Msg("failed to update execution")
+	}
+
+	log.Info().
+		Str("app_id", app.ID).
+		Msg("app cron job completed")
+
+	return respContent, nil
 }

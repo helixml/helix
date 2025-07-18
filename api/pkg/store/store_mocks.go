@@ -418,6 +418,21 @@ func (mr *MockStoreMockRecorder) CreateTriggerConfiguration(ctx, triggerConfig a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTriggerConfiguration", reflect.TypeOf((*MockStore)(nil).CreateTriggerConfiguration), ctx, triggerConfig)
 }
 
+// CreateTriggerExecution mocks base method.
+func (m *MockStore) CreateTriggerExecution(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateTriggerExecution", ctx, execution)
+	ret0, _ := ret[0].(*types.TriggerExecution)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateTriggerExecution indicates an expected call of CreateTriggerExecution.
+func (mr *MockStoreMockRecorder) CreateTriggerExecution(ctx, execution any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTriggerExecution", reflect.TypeOf((*MockStore)(nil).CreateTriggerExecution), ctx, execution)
+}
+
 // CreateUsageMetric mocks base method.
 func (m *MockStore) CreateUsageMetric(ctx context.Context, metric *types.UsageMetric) (*types.UsageMetric, error) {
 	m.ctrl.T.Helper()
@@ -1685,6 +1700,21 @@ func (mr *MockStoreMockRecorder) ListTriggerConfigurations(ctx, q any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTriggerConfigurations", reflect.TypeOf((*MockStore)(nil).ListTriggerConfigurations), ctx, q)
 }
 
+// ListTriggerExecutions mocks base method.
+func (m *MockStore) ListTriggerExecutions(ctx context.Context, q *ListTriggerExecutionsQuery) ([]*types.TriggerExecution, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTriggerExecutions", ctx, q)
+	ret0, _ := ret[0].([]*types.TriggerExecution)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTriggerExecutions indicates an expected call of ListTriggerExecutions.
+func (mr *MockStoreMockRecorder) ListTriggerExecutions(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTriggerExecutions", reflect.TypeOf((*MockStore)(nil).ListTriggerExecutions), ctx, q)
+}
+
 // ListUsers mocks base method.
 func (m *MockStore) ListUsers(ctx context.Context, query *ListUsersQuery) ([]*types.User, error) {
 	m.ctrl.T.Helper()
@@ -1996,6 +2026,21 @@ func (m *MockStore) UpdateTriggerConfiguration(ctx context.Context, triggerConfi
 func (mr *MockStoreMockRecorder) UpdateTriggerConfiguration(ctx, triggerConfig any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateTriggerConfiguration", reflect.TypeOf((*MockStore)(nil).UpdateTriggerConfiguration), ctx, triggerConfig)
+}
+
+// UpdateTriggerExecution mocks base method.
+func (m *MockStore) UpdateTriggerExecution(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateTriggerExecution", ctx, execution)
+	ret0, _ := ret[0].(*types.TriggerExecution)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateTriggerExecution indicates an expected call of UpdateTriggerExecution.
+func (mr *MockStoreMockRecorder) UpdateTriggerExecution(ctx, execution any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateTriggerExecution", reflect.TypeOf((*MockStore)(nil).UpdateTriggerExecution), ctx, execution)
 }
 
 // UpdateUser mocks base method.

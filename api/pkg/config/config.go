@@ -167,7 +167,7 @@ type Notifications struct {
 }
 
 type EmailConfig struct {
-	SenderAddress string `envconfig:"EMAIL_SENDER_ADDRESS" default:"chris@helixml.tech"`
+	SenderAddress string `envconfig:"EMAIL_SENDER_ADDRESS" default:"no-reply@helix.ml"`
 
 	AgentSkillSenderAddress string `envconfig:"EMAIL_AGENT_SKILL_SENDER_ADDRESS" default:"no-reply@helix.ml"`
 

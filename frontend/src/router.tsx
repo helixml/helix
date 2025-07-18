@@ -19,6 +19,7 @@ import OpenAPI from './pages/OpenAPI'
 import Secrets from './pages/Secrets'
 import NewAgent from './pages/NewAgent'
 import ImportAgent from './pages/ImportAgent'
+import Tasks from './pages/Tasks'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
@@ -71,6 +72,16 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     },
     render: () => (
       <Apps />
+    ),
+  }, {
+    name: namePrefix + 'tasks',
+    path: routePrefix + '/tasks',
+    meta: {
+      drawer: true,
+      orgRouteAware: true,
+    },
+    render: () => (
+      <Tasks />
     ),
   }, {
     name: namePrefix + 'app',

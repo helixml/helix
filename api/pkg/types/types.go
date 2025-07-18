@@ -2004,6 +2004,7 @@ type TriggerType string
 const (
 	TriggerTypeSlack       TriggerType = "slack"
 	TriggerTypeAzureDevOps TriggerType = "azure_devops"
+	TriggerTypeCron        TriggerType = "cron"
 	// TODO: discord
 )
 
@@ -2016,18 +2017,25 @@ type TriggerStatus struct {
 }
 
 type TriggerConfiguration struct {
-	ID             string             `json:"id"`
-	Created        time.Time          `json:"created"`
-	Updated        time.Time          `json:"updated"`
-	AppID          string             `json:"app_id"`          // App ID
-	OrganizationID string             `json:"organization_id"` // Organization ID
-	Owner          string             `json:"owner"`           // User ID
-	OwnerType      OwnerType          `json:"owner_type"`      // User or Organization
-	Name           string             `json:"name"`            // Name of the trigger configuration
-	Trigger        Trigger            `json:"trigger" gorm:"jsonb"`
-	Executions     []TriggerExecution `json:"executions" gorm:"foreignKey:TriggerConfigurationID"`
+	ID             string      `json:"id"`
+	Created        time.Time   `json:"created"`
+	Updated        time.Time   `json:"updated"`
+	Archived       bool        `json:"archived"`
+	Enabled        bool        `json:"enabled"`
+	AppID          string      `json:"app_id"`          // App ID
+	OrganizationID string      `json:"organization_id"` // Organization ID
+	Owner          string      `json:"owner"`           // User ID
+	OwnerType      OwnerType   `json:"owner_type"`      // User or Organization
+	Name           string      `json:"name"`            // Name of the trigger configuration
+	Trigger        Trigger     `json:"trigger" gorm:"jsonb"`
+	TriggerType    TriggerType `json:"trigger_type"`
 
 	WebhookURL string `json:"webhook_url" gorm:"-"` // Webhook URL for the trigger configuration, applicable to webhook type triggers like Azure DevOps, GitHub, etc.
+}
+
+type TriggerExecuteResponse struct {
+	SessionID string `json:"session_id"`
+	Content   string `json:"content"`
 }
 
 type TriggerExecutionStatus string
@@ -2044,6 +2052,8 @@ type TriggerExecution struct {
 	Created                time.Time              `json:"created"`
 	Updated                time.Time              `json:"updated"`
 	TriggerConfigurationID string                 `json:"trigger_configuration_id"`
+	Name                   string                 `json:"name"` // Will most likely match session name, based on the trigger name at the time of execution
+	DurationMs             int64                  `json:"duration_ms"`
 	Status                 TriggerExecutionStatus `json:"status"`
 	Error                  string                 `json:"error"`
 	Output                 string                 `json:"output"`
