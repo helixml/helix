@@ -59,6 +59,14 @@ const SidebarContextHeader: React.FC = () => {
     handleMenuClose()
   }
 
+  const handleNameClick = () => {
+    if (isOrgContext && org) {
+      router.navigate('org_home', { org_id: org.name })
+    } else {
+      router.navigate('home')
+    }
+  }
+
   return (
     <Box
       sx={{
@@ -76,6 +84,7 @@ const SidebarContextHeader: React.FC = () => {
     >
       <Typography
         variant="subtitle1"
+        onClick={handleNameClick}
         sx={{
           color: '#fff',
           fontWeight: 'bold',
@@ -85,6 +94,10 @@ const SidebarContextHeader: React.FC = () => {
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
+          cursor: 'pointer',
+          '&:hover': {
+            opacity: 0.8,
+          },
         }}
         title={displayName}
       >
