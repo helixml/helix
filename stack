@@ -251,7 +251,7 @@ function install() {
 }
 
 function update_openapi() {
-	go install github.com/swaggo/swag/cmd/swag@latest && \
+	go install github.com/swaggo/swag/cmd/swag@v1.16.4 && \
 	swag init -g api/pkg/server/swagger.go \
 	--parseDependency --parseInternal --parseDepth 3 \
 	-o api/pkg/server

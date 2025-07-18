@@ -56,4 +56,4 @@ export const COLORS = {
   'AI_BADGE': '#f0beb0',
 }
 
-export const TOOLBAR_HEIGHT = 78
+export const TOOLBAR_HEIGHT = 60

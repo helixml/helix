@@ -21,6 +21,7 @@ import (
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
@@ -203,6 +204,7 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 	filestoreMock := filestore.NewMockFileStore(ctrl)
 	extractorMock := extract.NewMockExtractor(ctrl)
 	ragMock := rag.NewMockRAG(ctrl)
+	notifierMock := notification.NewMockNotifier(ctrl)
 	gptScriptExecutor := gptscript.NewMockExecutor(ctrl)
 
 	// Create PubSub
@@ -276,7 +278,7 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 	cfg.Keycloak = keycloakConfig
 
 	// Create trigger manager
-	triggerManager := trigger.NewTriggerManager(&cfg, suite.store, controller)
+	triggerManager := trigger.NewTriggerManager(&cfg, suite.store, notifierMock, controller)
 
 	// Create the API server
 	avatarsBucket := memblob.OpenBucket(nil)

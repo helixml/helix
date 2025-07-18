@@ -8,6 +8,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/trigger/azure"
 	"github.com/helixml/helix/api/pkg/trigger/cron"
@@ -19,20 +20,21 @@ import (
 )
 
 type Manager struct {
-	cfg        *config.ServerConfig
-	store      store.Store
-	controller *controller.Controller
-
+	cfg         *config.ServerConfig
+	store       store.Store
+	controller  *controller.Controller
+	notifier    notification.Notifier
 	azureDevOps *azure.AzureDevOps
 
 	wg sync.WaitGroup
 }
 
-func NewTriggerManager(cfg *config.ServerConfig, store store.Store, controller *controller.Controller) *Manager {
+func NewTriggerManager(cfg *config.ServerConfig, store store.Store, notifier notification.Notifier, controller *controller.Controller) *Manager {
 	return &Manager{
 		cfg:         cfg,
 		store:       store,
 		controller:  controller,
+		notifier:    notifier,
 		azureDevOps: azure.New(cfg, store, controller),
 	}
 }
@@ -94,7 +96,7 @@ func (t *Manager) runDiscord(ctx context.Context) {
 }
 
 func (t *Manager) runCron(ctx context.Context) {
-	cronTrigger, err := cron.New(t.cfg, t.store, t.controller)
+	cronTrigger, err := cron.New(t.cfg, t.store, t.notifier, t.controller)
 	if err != nil {
 		log.Err(err).Msg("failed to create cron trigger")
 		return

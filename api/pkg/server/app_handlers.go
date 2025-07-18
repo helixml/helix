@@ -630,12 +630,6 @@ func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *t
 					Msg("Validation failed: provider not available")
 				return fmt.Errorf("provider '%s' is not available for %s", provider, fieldName)
 			}
-			log.Debug().
-				Str("user_id", user.ID).
-				Str("assistant_name", assistantName).
-				Str("field_name", fieldName).
-				Str("provider", provider).
-				Msg("Provider validation passed")
 		}
 
 		return nil
@@ -1268,12 +1262,7 @@ func (s *HelixAPIServer) getAppOAuthTokenEnv(ctx context.Context, user *types.Us
 	}
 
 	// Log if no OAuth tokens were found
-	if len(oauthTokens) == 0 {
-		log.Warn().
-			Str("app_id", appRecord.ID).
-			Str("user_id", user.ID).
-			Msg("No OAuth tokens found for app")
-	} else {
+	if len(oauthTokens) > 0 {
 		log.Info().
 			Str("app_id", appRecord.ID).
 			Str("user_id", user.ID).

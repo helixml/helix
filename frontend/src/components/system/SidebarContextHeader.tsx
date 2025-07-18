@@ -8,6 +8,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
+import { TOOLBAR_HEIGHT } from '../../config'
 
 const SidebarContextHeader: React.FC = () => {
   const account = useAccount()
@@ -58,6 +59,14 @@ const SidebarContextHeader: React.FC = () => {
     handleMenuClose()
   }
 
+  const handleNameClick = () => {
+    if (isOrgContext && org) {
+      router.navigate('org_home', { org_id: org.name })
+    } else {
+      router.navigate('home')
+    }
+  }
+
   return (
     <Box
       sx={{
@@ -68,13 +77,14 @@ const SidebarContextHeader: React.FC = () => {
         alignItems: 'center',
         background: 'linear-gradient(90deg, #32042a 0%, #2a1a6e 100%)',
         borderBottom: lightTheme.border,
-        minHeight: 64,
+        minHeight: TOOLBAR_HEIGHT + 15,
         boxShadow: '0 2px 8px 0 rgba(0,229,255,0.08)',
         mb: 1,
       }}
     >
       <Typography
         variant="subtitle1"
+        onClick={handleNameClick}
         sx={{
           color: '#fff',
           fontWeight: 'bold',
@@ -84,6 +94,10 @@ const SidebarContextHeader: React.FC = () => {
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
+          cursor: 'pointer',
+          '&:hover': {
+            opacity: 0.8,
+          },
         }}
         title={displayName}
       >

@@ -13,11 +13,26 @@ import ScheduleIcon from '@mui/icons-material/Schedule'
 import Alert from '@mui/material/Alert'
 import { TypesTrigger } from '../../api/api'
 import { timezones } from '../../utils/timezones'
+import { 
+  parseCronDays, 
+  parseCronHour, 
+  parseCronMinute, 
+  parseCronTimezone, 
+  parseCronInterval, 
+  isIntervalCron, 
+  getUserTimezone,
+  generateCronSummary 
+} from '../../utils/cronUtils'
 
 interface TriggerCronProps {
   triggers?: TypesTrigger[]
   onUpdate: (triggers: TypesTrigger[]) => void
   readOnly?: boolean
+  showTitle?: boolean
+  showToggle?: boolean
+  defaultEnabled?: boolean
+  showBorder?: boolean
+  borderRadius?: number
 }
 
 const DAYS_OF_WEEK = [
@@ -36,85 +51,15 @@ const INTERVAL_MINUTES = [5, 10, 15, 30, 60, 120, 240] // 5min to 4h
 
 type ScheduleMode = 'intervals' | 'specific_time'
 
-// Helper functions to parse cron expressions
-const parseCronDays = (cronExpression: string): number[] => {
-  const parts = cronExpression.split(' ')
-  // Check if it has timezone prefix
-  const hasTimezone = cronExpression.startsWith('CRON_TZ=')
-  const dayIndex = hasTimezone ? 5 : 4 // weekday field is shifted by 1 if timezone is present
-  
-  if (parts.length >= (hasTimezone ? 6 : 5)) {
-    const dayPart = parts[dayIndex]
-    return dayPart.split(',').map(d => parseInt(d)).filter(d => !isNaN(d))
-  }
-  return []
-}
-
-const parseCronHour = (cronExpression: string): number => {
-  const parts = cronExpression.split(' ')
-  // Check if it has timezone prefix
-  const hasTimezone = cronExpression.startsWith('CRON_TZ=')
-  const hourIndex = hasTimezone ? 2 : 1 // hour field is shifted by 1 if timezone is present
-  
-  if (parts.length >= (hasTimezone ? 6 : 5)) {
-    return parseInt(parts[hourIndex]) || 9
-  }
-  return 9
-}
-
-const parseCronMinute = (cronExpression: string): number => {
-  const parts = cronExpression.split(' ')
-  // Check if it has timezone prefix
-  const hasTimezone = cronExpression.startsWith('CRON_TZ=')
-  const minuteIndex = hasTimezone ? 1 : 0 // minute field is shifted by 1 if timezone is present
-  
-  if (parts.length >= (hasTimezone ? 6 : 5)) {
-    return parseInt(parts[minuteIndex]) || 0
-  }
-  return 0
-}
-
-const parseCronTimezone = (cronExpression: string): string => {
-  // Check if the cron expression starts with CRON_TZ=
-  if (cronExpression.startsWith('CRON_TZ=')) {
-    const tzMatch = cronExpression.match(/^CRON_TZ=([^\s]+)\s/)
-    if (tzMatch) {
-      return tzMatch[1]
-    }
-  }
-  return getUserTimezone() // Use user's timezone as default instead of hardcoded UTC
-}
-
-const parseCronInterval = (cronExpression: string): number => {
-  const parts = cronExpression.split(' ')
-  // For interval mode, the expression should be like "*/5 * * * *" (every 5 minutes)
-  if (parts.length >= 5) {
-    const minutePart = parts[0]
-    if (minutePart.startsWith('*/')) {
-      return parseInt(minutePart.substring(2)) || 5
-    }
-  }
-  return 5
-}
-
-const isIntervalCron = (cronExpression: string): boolean => {
-  const parts = cronExpression.split(' ')
-  if (parts.length >= 5) {
-    const minutePart = parts[0]
-    return minutePart.startsWith('*/')
-  }
-  return false
-}
-
-const getUserTimezone = () => {
-  const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-  return timezones.includes(userTimezone) ? userTimezone : 'UTC'
-}
-
 const TriggerCron: FC<TriggerCronProps> = ({
   triggers = [],
   onUpdate,
-  readOnly = false
+  readOnly = false,
+  showTitle = true,
+  showToggle = true,
+  defaultEnabled = false,
+  showBorder = true,
+  borderRadius = 1
 }) => {
   const hasCronTrigger = triggers.some(t => t.cron && t.cron.enabled === true)
   const cronTrigger = triggers.find(t => t.cron)?.cron
@@ -163,6 +108,22 @@ const TriggerCron: FC<TriggerCronProps> = ({
       setScheduleInput(cronTrigger.input || '')
     }
   }, [cronTrigger])
+
+  // Handle defaultEnabled prop
+  useEffect(() => {
+    if (defaultEnabled && !hasCronTrigger && triggers.length === 0) {
+      // Create a default cron trigger when defaultEnabled is true and no triggers exist
+      const userTz = getUserTimezone()
+      let schedule: string
+      if (scheduleMode === 'intervals') {
+        schedule = `*/${selectedInterval} * * * *`
+      } else {
+        schedule = `CRON_TZ=${userTz} ${selectedMinute} ${selectedHour} * * ${selectedDays.join(',')}`
+      }
+      const newTriggers = [{ cron: { enabled: true, schedule, input: '' } }]
+      onUpdate(newTriggers)
+    }
+  }, [defaultEnabled, hasCronTrigger, triggers.length, scheduleMode, selectedInterval, selectedDays, selectedHour, selectedMinute, selectedTimezone, onUpdate])
 
   const handleCronToggle = (enabled: boolean) => {
     if (enabled) {
@@ -279,28 +240,39 @@ const TriggerCron: FC<TriggerCronProps> = ({
   }
 
   return (
-    <Box sx={{ p: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <ScheduleIcon sx={{ mr: 2, color: 'primary.main' }} />
-          <Box>
-            <Typography gutterBottom>Recurring</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Run your agent on a schedule
-            </Typography>
+    <Box 
+      sx={{ 
+        p: 2, 
+        borderRadius: borderRadius, 
+        border: showBorder ? '1px solid' : 'none', 
+        borderColor: 'divider' 
+      }}
+    >
+      {showTitle && (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <ScheduleIcon sx={{ mr: 2, color: 'primary.main' }} />
+            <Box>
+              <Typography gutterBottom>Recurring</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Run your agent on a schedule
+              </Typography>
+            </Box>
           </Box>
-        </Box>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={hasCronTrigger}
-              onChange={(e) => handleCronToggle(e.target.checked)}
-              disabled={readOnly}
+          {showToggle && (
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={hasCronTrigger}
+                  onChange={(e) => handleCronToggle(e.target.checked)}
+                  disabled={readOnly}
+                />
+              }
+              label=""
             />
-          }
-          label=""
-        />
-      </Box>
+          )}
+        </Box>
+      )}
 
       {(hasCronTrigger) && (
         <Box sx={{ mt: 2, p: 2, borderRadius: 1, opacity: hasCronTrigger ? 1 : 0.6 }}>
@@ -312,7 +284,7 @@ const TriggerCron: FC<TriggerCronProps> = ({
           {/* Schedule Mode Selection */}
           <Box sx={{ mb: 2 }}>
             <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2 }}>
-              Schedule Type
+              Schedule
             </Typography>
             <FormControl size="small" sx={{ minWidth: 200 }}>
               <Select
@@ -359,7 +331,7 @@ const TriggerCron: FC<TriggerCronProps> = ({
                     <Button
                       key={day.value}
                       variant={selectedDays.includes(day.value) ? "contained" : "outlined"}
-                      color={selectedDays.includes(day.value) ? "secondary" : "secondary"}
+                      color={selectedDays.includes(day.value) ? "secondary" : "primary"}
                       size="small"
                       onClick={() => handleDayToggle(day.value)}
                       disabled={readOnly || !hasCronTrigger}
@@ -429,16 +401,13 @@ const TriggerCron: FC<TriggerCronProps> = ({
           )}
 
           {/* Input field */}
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 2  }}>
-              Agent Input
-            </Typography>
+          <Box sx={{ mb: 2, mt: 4 }}>            
             <TextField
               fullWidth
               multiline
               rows={4}
               size="small"
-              placeholder="'Check the news and send me an email with the summary', 'Check the weather in Tokyo'"
+              placeholder="Enter prompt here"
               value={scheduleInput}
               onChange={(e) => handleInputChange(e.target.value)}
               disabled={readOnly || !hasCronTrigger}
@@ -448,12 +417,7 @@ const TriggerCron: FC<TriggerCronProps> = ({
           {/* Schedule summary */}
           <Box>
             <Typography variant="body2" color="text.secondary">
-              <strong>Summary:</strong> {scheduleMode === 'intervals' 
-                ? `Every ${selectedInterval} minute${selectedInterval > 1 ? 's' : ''}`
-                : selectedDays.length > 0 
-                  ? `Every ${selectedDays.map(d => DAYS_OF_WEEK[d].fullLabel).join(', ')} at ${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')} (${selectedTimezone})`
-                  : 'No days selected'
-              }
+              <strong>Summary:</strong> {generateCronSummary(cronTrigger?.schedule || '')}
             </Typography>
           </Box>
         </Box>

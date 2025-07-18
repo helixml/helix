@@ -35,8 +35,6 @@ func (m *Manager) LoadSkills(_ context.Context) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	log.Info().Msg("Loading embedded YAML skills")
-
 	// Read all YAML files from embedded filesystem
 	entries, err := fs.ReadDir(skillFiles, ".")
 	if err != nil {
@@ -87,16 +85,8 @@ func (m *Manager) LoadSkills(_ context.Context) error {
 		// Store the skill
 		m.skills[skillDef.ID] = skillDef
 		loadedCount++
-
-		log.Info().
-			Str("skill_id", skillDef.ID).
-			Str("skill_name", skillDef.Name).
-			Str("provider", skillDef.Provider).
-			Str("oauth_provider", skillDef.OAuthProvider).
-			Msg("Loaded YAML skill")
 	}
 
-	log.Info().Int("count", loadedCount).Msg("Finished loading YAML skills")
 	return nil
 }
 

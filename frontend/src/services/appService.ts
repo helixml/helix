@@ -19,6 +19,11 @@ export const appTriggersListQueryKey = (id: string) => [
   id
 ];
 
+export const userTriggersListQueryKey = (orgId: string) => [
+  "user-triggers",
+  orgId
+];
+
 // Create app trigger mutation
 export const createAppTriggerMutationKey = (appId: string) => [
   "create-app-trigger",
@@ -47,6 +52,11 @@ export const appUsageQueryKey = (appId: string, from: string, to: string) => [
   to
 ];
 
+export const appTriggerExecutionsQueryKey = (triggerId: string) => [
+  "app-trigger-executions",
+  triggerId
+];
+
 // useListSessionSteps returns the steps for a session, it includes
 // steps for all interactions in the session
 export function useListAppSteps(appId: string, interactionId: string, options?: { enabled?: boolean }) {
@@ -57,6 +67,19 @@ export function useListAppSteps(appId: string, interactionId: string, options?: 
     queryKey: appStepsQueryKey(appId, interactionId),
     queryFn: () => apiClient.v1AppsStepInfoDetail(appId, {interactionId}),
     enabled: options?.enabled ?? true
+  })
+}
+
+// List all cron triggers (recurring tasks) for the user
+export function useListUserCronTriggers(orgId: string, options?: { enabled?: boolean, refetchInterval?: number }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  
+  return useQuery({
+    queryKey: userTriggersListQueryKey(orgId),
+    queryFn: () => apiClient.v1TriggersList({ org_id: orgId }),
+    enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval
   })
 }
 
@@ -73,48 +96,74 @@ export function useListAppTriggers(appId: string, options?: { enabled?: boolean,
 }
 
 // useCreateAppTrigger returns a mutation for creating a new app trigger
-export function useCreateAppTrigger(appId: string) {
+export function useCreateAppTrigger(orgId: string) {
   const api = useApi()
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (trigger: TypesTriggerConfiguration) => apiClient.v1AppsTriggersCreate(appId, trigger),
+    mutationFn: (trigger: TypesTriggerConfiguration) => apiClient.v1TriggersCreate(trigger),
     onSuccess: () => {
       // Invalidate any cached trigger data
-      queryClient.invalidateQueries({ queryKey: appTriggersListQueryKey(appId) })
+      queryClient.invalidateQueries({ queryKey: userTriggersListQueryKey(orgId) })
     }
   })
 }
 
 // useUpdateAppTrigger returns a mutation for updating an app trigger
-export function useUpdateAppTrigger(appId: string, triggerId: string) {
+export function useUpdateAppTrigger(triggerId: string, orgId: string) {
   const api = useApi()
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (trigger: TypesTriggerConfiguration) => apiClient.v1AppsTriggersUpdate(appId, triggerId, trigger),
+    mutationFn: (trigger: TypesTriggerConfiguration) => apiClient.v1TriggersUpdate(triggerId, trigger),
     onSuccess: () => {
       // Invalidate any cached trigger data
-      queryClient.invalidateQueries({ queryKey: appTriggersListQueryKey(appId) })
+      queryClient.invalidateQueries({ queryKey: userTriggersListQueryKey(orgId) })
     }
   })
 }
 
 // useDeleteAppTrigger returns a mutation for deleting an app trigger
-export function useDeleteAppTrigger(appId: string, triggerId: string) {
+export function useDeleteAppTrigger(triggerId: string, orgId: string) {
   const api = useApi()
   const apiClient = api.getApiClient()
   const queryClient = useQueryClient()
 
   return useMutation({
 
-    mutationFn: () => apiClient.v1AppsTriggersDelete(appId, triggerId),
+    mutationFn: () => apiClient.v1TriggersDelete(triggerId),
     onSuccess: () => {
       // Invalidate any cached trigger data
-      queryClient.invalidateQueries({ queryKey: appTriggersListQueryKey(appId) })
+      queryClient.invalidateQueries({ queryKey: userTriggersListQueryKey(orgId) })
     }
+  })
+}
+
+export function useExecuteAppTrigger(triggerId: string) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: () => apiClient.v1TriggersExecuteCreate(triggerId),
+    onSuccess: () => {
+      // Invalidate any cached trigger data
+      queryClient.invalidateQueries({ queryKey: appTriggerExecutionsQueryKey(triggerId) })
+    }
+  })
+}
+
+export function useListAppTriggerExecutions(triggerId: string, options?: { offset?: number, limit?: number }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: appTriggerExecutionsQueryKey(triggerId),
+    queryFn: () => apiClient.v1TriggersExecutionsDetail(triggerId, { offset: options?.offset ?? 0, limit: options?.limit ?? 100 }),
+    enabled: !!triggerId,
+    refetchInterval: 5000
   })
 }
 
@@ -183,3 +232,4 @@ export function useGetAppUsage(appId: string, from: string, to: string) {
     },
   })
 }
+

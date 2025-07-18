@@ -5,7 +5,8 @@ import ArrowBack from '@mui/icons-material/ArrowBack'
 import SettingsIcon from '@mui/icons-material/Settings'
 import Person from '@mui/icons-material/Person'
 import GroupsIcon from '@mui/icons-material/Groups'
-import PaymentIcon from '@mui/icons-material/Payment'
+import AppsIcon from '@mui/icons-material/Apps'
+import AlarmIcon from '@mui/icons-material/Alarm'
 import SlideMenuContainer, { triggerMenuChange } from '../system/SlideMenuContainer'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
@@ -84,6 +85,18 @@ const OrgsSidebarMenu: FC<{
           icon={<ArrowBack/>}
           includeOrgId={false}
           onBeforeNavigate={handleExitClick}
+        />
+        <OrgSidebarMainLink
+          id="agents-link"
+          routeName="org_apps"
+          title="Agents"
+          icon={<AppsIcon/>}
+        />
+        <OrgSidebarMainLink
+          id="tasks-link"
+          routeName="org_tasks"
+          title="Tasks"
+          icon={<AlarmIcon/>}
         />
         <OrgSidebarMainLink
           id="people-link"

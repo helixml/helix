@@ -14,7 +14,6 @@ import useApps from '../hooks/useApps'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
-import useApi from '../hooks/useApi'
 
 import {
   IApp,
