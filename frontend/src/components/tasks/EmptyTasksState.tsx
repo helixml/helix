@@ -6,6 +6,7 @@ import AddIcon from '@mui/icons-material/Add'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import { TypesTrigger } from '../../api/api'
+import { getUserTimezone } from '../../utils/cronUtils'
 
 interface EmptyTasksStateProps {
   onCreateTask: (taskData?: {
@@ -21,42 +22,42 @@ const EXAMPLE_TASKS = [
     name: 'Create a Daily Stock Tracker',
     description: 'Give me the latest updates on $TSLA, $BTC, $NVDA, $PLTR, $ETH, including current price, market cap, 24h change, and any significant news or events.',
     schedule: 'Daily at 1:10pm',
-    scheduleCron: 'CRON_TZ=America/New_York 10 13 * * 1-5', // Weekdays at 1:10 PM ET
+    scheduleCron: `CRON_TZ=${getUserTimezone()} 10 13 * * 1-5`, // Weekdays at 1:10 PM
     input: 'Give me the latest updates on $TSLA, $BTC, $NVDA, $PLTR, $ETH, including current price, recent changes, and projections. Analyze sentiment, market indicators, and possible reasons for movements..'
   },
   {
     name: 'Receive a Weekly Sports Update',
     description: 'Tell me about upcoming must-watch soccer games, including location, schedule, and key players to watch.',
     schedule: 'Thursdays at 7:50pm',
-    scheduleCron: 'CRON_TZ=America/New_York 50 19 * * 4', // Thursdays at 7:50 PM ET
+    scheduleCron: `CRON_TZ=${getUserTimezone()} 50 19 * * 4`, // Thursdays at 7:50 PM
     input: 'Tell me about upcoming must-watch soccer games, including location, schedule, and key players to watch.'
   },
   {
     name: 'Daily Weather Update',
     description: 'Provide a daily weather update for the location of the user.  ',
     schedule: 'Daily at 1:10pm',
-    scheduleCron: 'CRON_TZ=America/New_York 10 13 * * 1-5', // Weekdays at 1:10 PM ET
+    scheduleCron: `CRON_TZ=${getUserTimezone()} 10 13 * * 1-5`, // Weekdays at 1:10 PM
     input: 'Provide a daily weather update for the location of the user.'
   },
   {
     name: 'Daily News Update',
     description: 'Provide a daily news update for the user.',
     schedule: 'Daily at 1:10pm',
-    scheduleCron: 'CRON_TZ=America/New_York 10 13 * * 1-5', // Weekdays at 1:10 PM ET
+    scheduleCron: `CRON_TZ=${getUserTimezone()} 10 13 * * 1-5`, // Weekdays at 1:10 PM
     input: 'Provide a daily news update for the user.'
   },
   {
     name: 'Daily Productivity Tip',
     description: 'Suggest 1 actionable productivity tip for the day, tailored to someone working in a fast-paced environment. Include a motivational quote to start the day.',
     schedule: 'Daily at 8:00am',
-    scheduleCron: 'CRON_TZ=America/New_York 0 8 * * 1-5', // Weekdays at 8:00 AM ET
+    scheduleCron: `CRON_TZ=${getUserTimezone()} 0 8 * * 1-5`, // Weekdays at 8:00 AM
     input: 'Suggest 1 actionable productivity tip for the day, tailored to someone working in a fast-paced environment. Include a motivational quote to start the day.'
   },
   {
     name: 'Custom Newsletter',
     description: 'Provide a concise summary of the top 5 news stories from the past 24 hours, focusing on politics, technology, and science. Include one key takeaway for each story. Format as a Custom Newsletter with date, edition, and sources from web lookups. Deliver daily.',
     schedule: 'Daily at 7:00am',
-    scheduleCron: 'CRON_TZ=America/New_York 0 7 * * 1-5', // Weekdays at 7:00 AM ET
+    scheduleCron: `CRON_TZ=${getUserTimezone()} 0 7 * * 1-5`, // Weekdays at 7:00 AM
     input: 'Provide a concise summary of the top 5 news stories from the past 24 hours, focusing on politics, technology, and science. Include one key takeaway for each story. Format as a Custom Newsletter with date, edition, and sources from web lookups. Deliver daily.'
   }
 
