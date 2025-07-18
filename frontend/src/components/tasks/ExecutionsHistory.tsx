@@ -26,8 +26,8 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch trigger executions if we have a task ID - load last 50 items
-  const { data: triggerExecutions, isLoading, error: triggerExecutionsError } = useListAppTriggerExecutions(taskId || '', { limit: 50 });
+  // Fetch trigger executions if we have a task ID - load last 100 items
+  const { data: triggerExecutions, isLoading, error: triggerExecutionsError } = useListAppTriggerExecutions(taskId || '', { limit: 100 });
 
   // Helper function to format date
   const formatDate = (dateString?: string) => {

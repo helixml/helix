@@ -161,7 +161,7 @@ export function useListAppTriggerExecutions(triggerId: string, options?: { offse
 
   return useQuery({
     queryKey: appTriggerExecutionsQueryKey(triggerId),
-    queryFn: () => apiClient.v1TriggersExecutionsDetail(triggerId, { offset: options?.offset ?? 0, limit: options?.limit ?? 10 }),
+    queryFn: () => apiClient.v1TriggersExecutionsDetail(triggerId, { offset: options?.offset ?? 0, limit: options?.limit ?? 100 }),
     enabled: !!triggerId,
     refetchInterval: 5000
   })
