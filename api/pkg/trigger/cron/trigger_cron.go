@@ -356,12 +356,12 @@ func getCronJobSchedule(job gocron.Job) string {
 	return currentSchedule
 }
 
-func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, app *types.App, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
-	app, err := str.GetAppWithTools(ctx, app.ID)
+func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, a *types.App, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
+	app, err := str.GetAppWithTools(ctx, a.ID)
 	if err != nil {
 		log.Error().
 			Err(err).
-			Str("app_id", app.ID).
+			Str("app_id", a.ID).
 			Msg("failed to get app")
 		return "", err
 	}
