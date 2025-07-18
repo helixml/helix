@@ -26,8 +26,8 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch trigger executions if we have a task ID
-  const { data: triggerExecutions, isLoading, error: triggerExecutionsError } = useListAppTriggerExecutions(taskId || '');
+  // Fetch trigger executions if we have a task ID - load last 50 items
+  const { data: triggerExecutions, isLoading, error: triggerExecutionsError } = useListAppTriggerExecutions(taskId || '', { limit: 50 });
 
   // Helper function to format date
   const formatDate = (dateString?: string) => {
@@ -111,9 +111,10 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
       borderLeft: '1px solid #374151',
       pl: 3,
       display: 'flex',
-      flexDirection: 'column'
+      flexDirection: 'column',
+      height: '100%'
     }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexShrink: 0 }}>
         <Typography variant="h6" sx={{ color: '#F1F1F1' }}>
           History
         </Typography>
@@ -125,16 +126,41 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
       </Box>
       
       {isLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 2, flexShrink: 0 }}>
           <CircularProgress size={24} />
         </Box>
       ) : triggerExecutionsError ? (
-        <Typography variant="body2" sx={{ color: '#EF4444' }}>
+        <Typography variant="body2" sx={{ color: '#EF4444', flexShrink: 0 }}>
           Failed to load executions
         </Typography>
       ) : triggerExecutions?.data && triggerExecutions.data.length > 0 ? (
-        <Box>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <Box sx={{ 
+          flex: 1, 
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column'
+        }}>
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: 2,
+            overflowY: 'auto',
+            height: '400px',
+            '&::-webkit-scrollbar': {
+              width: '6px',
+            },
+            '&::-webkit-scrollbar-track': {
+              background: '#374151',
+              borderRadius: '3px',
+            },
+            '&::-webkit-scrollbar-thumb': {
+              background: '#6B7280',
+              borderRadius: '3px',
+              '&:hover': {
+                background: '#9CA3AF',
+              },
+            },
+          }}>
             {triggerExecutions.data.map((execution: TypesTriggerExecution, index: number) => (
               <Box 
                 key={execution.id || index} 
@@ -149,7 +175,8 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
                     backgroundColor: '#374151',
                     transition: 'background-color 0.2s ease'
                   } : {},
-                  transition: 'background-color 0.2s ease'
+                  transition: 'background-color 0.2s ease',
+                  flexShrink: 0
                 }}
                 onClick={() => handleExecutionClick(execution)}
               >
@@ -183,7 +210,7 @@ const ExecutionsHistory: React.FC<ExecutionsHistoryProps> = ({ taskId, taskName 
           </Box>
         </Box>
       ) : (
-        <Typography variant="body2" sx={{ color: '#A0AEC0', fontStyle: 'italic' }}>
+        <Typography variant="body2" sx={{ color: '#A0AEC0', fontStyle: 'italic', flexShrink: 0 }}>
           No executions yet
         </Typography>
       )}
