@@ -28,9 +28,14 @@ interface TaskDialogProps {
   onClose: () => void;
   task?: TypesTriggerConfiguration;
   apps: IApp[]; // Agents
+  prepopulatedData?: {
+    name: string;
+    schedule: string;
+    input: string;
+  };
 }
 
-const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) => {
+const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prepopulatedData }) => {
   const account = useAccount();
   const snackbar = useSnackbar();
   
@@ -80,12 +85,22 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
     setError(null);
   }, [task]);
 
-  // Initialize triggers from existing task
+  // Initialize triggers from existing task or prepopulated data
   useEffect(() => {
     if (task?.trigger) {
       setTriggers([task.trigger]);
+    } else if (prepopulatedData) {
+      // Use prepopulated data for new tasks
+      setTriggers([{
+        cron: {
+          enabled: true,
+          schedule: prepopulatedData.schedule,
+          input: prepopulatedData.input
+        }
+      }]);
+      setTaskName(prepopulatedData.name);
     } else {
-      // For new tasks, create a default trigger structure
+      // For new tasks without prepopulated data, create a default trigger structure
       // This ensures the TriggerCron component has a proper initial state
       const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const defaultSchedule = `CRON_TZ=${userTz} 0 9 * * 1`; // Monday 9 AM
@@ -97,7 +112,7 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps }) =>
         }
       }]);
     }
-  }, [task]);
+  }, [task, prepopulatedData]);
 
   const handleTriggersUpdate = (newTriggers: TypesTrigger[]) => {
     setTriggers(newTriggers);
