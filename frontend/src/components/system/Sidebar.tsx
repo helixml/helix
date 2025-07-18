@@ -22,6 +22,7 @@ import PolylineIcon from '@mui/icons-material/Polyline';
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import AppsIcon from '@mui/icons-material/Apps'
+import AlarmIcon from '@mui/icons-material/Alarm'
 import CodeIcon from '@mui/icons-material/Code'
 import AddIcon from '@mui/icons-material/Add'
 import PsychologyIcon from '@mui/icons-material/Psychology'
@@ -520,7 +521,7 @@ const SidebarContent: React.FC<{
                         orgNavigateTo('tasks')
                       }}>
                         <ListItemIcon>
-                          <AssignmentIcon fontSize="small" />
+                          <AlarmIcon fontSize="small" />
                         </ListItemIcon> 
                         Tasks
                       </MenuItem>
