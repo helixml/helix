@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
-  Dialog,
   DialogTitle,
   DialogContent,
   Box,
@@ -36,6 +35,8 @@ import vllmLogo from '../../../assets/img/vllm-logo.png'
 import helixLogo from '../../../assets/img/logo.png'
 import googleLogo from '../../../assets/img/providers/google.svg'
 import anthropicLogo from '../../../assets/img/providers/anthropic.png'
+import DarkDialog from '../dialog/DarkDialog';
+import useLightTheme from '../../hooks/useLightTheme';
 
 interface AdvancedModelPickerProps {
   selectedModelId?: string;
@@ -142,6 +143,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   hint,
   recommendedModels = [], // Default to empty array
 }) => {
+  const lightTheme = useLightTheme();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showOnlyEnabled, setShowOnlyEnabled] = useState(true);
@@ -288,7 +290,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
             endIcon={<ArrowDropDownIcon />}
             sx={{
               borderRadius: '8px',
-              color: 'text.primary',
+              color: '#F1F1F1',
               textTransform: 'none',
               fontSize: '0.875rem',
               padding: '4px 8px',
@@ -297,9 +299,10 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
               maxWidth: '200px',
               display: 'flex',
               alignItems: 'center',
-              border: buttonVariant === 'outlined' ? '1px solid #fff' : 'none',
+              border: buttonVariant === 'outlined' ? '1px solid #353945' : 'none',
               '&:hover': {
-                backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
+                backgroundColor: '#23262F',
+                borderColor: '#6366F1',
               },
               // More explicit styling for disabled state if needed
               ...(disabled && {
@@ -328,7 +331,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
         </span>
       </Tooltip>
 
-      <Dialog 
+      <DarkDialog 
         open={dialogOpen} 
         onClose={handleCloseDialog}
         maxWidth="sm"
@@ -337,16 +340,15 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
           sx: {
             height: '60vh',
             maxHeight: 600,
-            bgcolor: 'background.paper',
           }
         }}
       >
         <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="h6" component="div">Select Model</Typography>
+          <Typography variant="h6" component="div" sx={{ color: '#F8FAFC' }}>Select Model</Typography>
           <IconButton
             aria-label="close"
             onClick={handleCloseDialog}
-            sx={{ color: (theme) => theme.palette.grey[500] }}
+            sx={{ color: '#A0AEC0' }}
           >
             <CloseIcon />
           </IconButton>
@@ -358,14 +360,14 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
             p: 2, 
             overflow: 'hidden',
             display: 'flex', 
-            flexDirection: 'column' 
+            flexDirection: 'column',
+            ...lightTheme.scrollbar,
           }}
         >
           {hint && (
             <Typography 
               variant="body2" 
-              color="text.secondary" 
-              sx={{ mb: 2, fontStyle: 'italic' }}
+              sx={{ mb: 2, fontStyle: 'italic', color: '#A0AEC0' }}
             >
               {hint}
             </Typography>
@@ -408,21 +410,9 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
           </Box>
 
           <List sx={{ 
+            ...lightTheme.scrollbar,
             overflow: 'auto',
             flexGrow: 1,
-            '&::-webkit-scrollbar': {
-              width: '8px',
-            },
-            '&::-webkit-scrollbar-track': {
-              background: (theme) => theme.palette.mode === 'dark' ? '#2b2b2b' : '#f1f1f1',
-            },
-            '&::-webkit-scrollbar-thumb': {
-              background: (theme) => theme.palette.mode === 'dark' ? '#555' : '#888',
-              borderRadius: '4px',
-            },
-            '&::-webkit-scrollbar-thumb:hover': {
-              background: (theme) => theme.palette.mode === 'dark' ? '#777' : '#555',
-            },
             paddingRight: '8px',
             overscrollBehavior: 'contain',
             paddingBottom: '8px',
@@ -449,12 +439,12 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                   disabled={isModelDisabled}
                   sx={{
                     '&:hover': {
-                      backgroundColor: isModelDisabled ? 'transparent' : 'action.hover',
+                      backgroundColor: isModelDisabled ? 'transparent' : '#23262F',
                     },
                     borderRadius: 1,
                     mb: 0.5,
                     ...(model.id === selectedModelId && !isModelDisabled && {
-                      backgroundColor: 'action.selected',
+                      backgroundColor: '#353945',
                     }),
                     display: 'flex',
                     justifyContent: 'space-between',
@@ -492,12 +482,12 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                         sx: {
                           fontWeight: model.id === selectedModelId && !isModelDisabled ? 500 : 400,
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          color: isModelDisabled ? 'text.disabled' : 'text.primary',
+                          color: isModelDisabled ? '#A0AEC0' : '#F1F1F1',
                         }
                       }}
                       secondaryTypographyProps={{
                         variant: 'body2',
-                        sx: { color: isModelDisabled ? 'text.disabled' : 'text.secondary' }
+                        sx: { color: isModelDisabled ? '#A0AEC0' : '#A0AEC0' }
                       }}
                       sx={{ mr: 1 }}
                     />
@@ -510,11 +500,11 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                         size="small"
                         variant="outlined"
                         sx={{
-                          color: 'text.secondary',
+                          color: '#A0AEC0',
                           borderColor: 'transparent',
                           backgroundColor: 'transparent',
                           '& .MuiChip-icon': {
-                             color: 'success.main',
+                             color: '#10B981',
                              marginLeft: '4px',
                              marginRight: '-4px',
                           },
@@ -548,21 +538,21 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
             })}
             {!isLoading && filteredModels.length === 0 && searchQuery && (
               <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography color="text.secondary">
+                <Typography sx={{ color: '#A0AEC0' }}>
                   No models found matching "{searchQuery}"
                 </Typography>
               </Box>
             )}
              {!isLoading && filteredModels.length === 0 && !searchQuery && (
               <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography color="text.secondary">
+                <Typography sx={{ color: '#A0AEC0' }}>
                   No {showOnlyEnabled ? 'enabled ' : ''}chat models available or still loading.
                 </Typography>
               </Box>
             )}
           </List>
         </DialogContent>
-      </Dialog>
+      </DarkDialog>
     </>
   );
 };
