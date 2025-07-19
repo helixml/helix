@@ -546,15 +546,6 @@ const SidebarContent: React.FC<{
                       </MenuItem>
 
                       <MenuItem onClick={ () => {
-                        navigateTo('api-reference')
-                      }}>
-                        <ListItemIcon>
-                          <CodeIcon fontSize="small" />
-                        </ListItemIcon> 
-                        API Reference
-                      </MenuItem>
-
-                      <MenuItem onClick={ () => {
                         navigateTo('user-providers')
                       }}>
                         <ListItemIcon>
@@ -562,6 +553,19 @@ const SidebarContent: React.FC<{
                         </ListItemIcon> 
                         AI Providers
                       </MenuItem>
+
+                      {/* Divider */}
+                      <Divider />
+
+
+                      <MenuItem onClick={ () => {
+                        navigateTo('api-reference')
+                      }}>
+                        <ListItemIcon>
+                          <CodeIcon fontSize="small" />
+                        </ListItemIcon> 
+                        API Reference
+                      </MenuItem>                      
 
                       {
                         account.admin && (
