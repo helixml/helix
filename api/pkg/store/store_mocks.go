@@ -1370,18 +1370,18 @@ func (mr *MockStoreMockRecorder) GetUserMeta(ctx, id any) *gomock.Call {
 }
 
 // GetUserMonthlyTokenUsage mocks base method.
-func (m *MockStore) GetUserMonthlyTokenUsage(ctx context.Context, userID string) (int, error) {
+func (m *MockStore) GetUserMonthlyTokenUsage(ctx context.Context, userID string, providers []string) (int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetUserMonthlyTokenUsage", ctx, userID)
+	ret := m.ctrl.Call(m, "GetUserMonthlyTokenUsage", ctx, userID, providers)
 	ret0, _ := ret[0].(int)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetUserMonthlyTokenUsage indicates an expected call of GetUserMonthlyTokenUsage.
-func (mr *MockStoreMockRecorder) GetUserMonthlyTokenUsage(ctx, userID any) *gomock.Call {
+func (mr *MockStoreMockRecorder) GetUserMonthlyTokenUsage(ctx, userID, providers any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserMonthlyTokenUsage", reflect.TypeOf((*MockStore)(nil).GetUserMonthlyTokenUsage), ctx, userID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserMonthlyTokenUsage", reflect.TypeOf((*MockStore)(nil).GetUserMonthlyTokenUsage), ctx, userID, providers)
 }
 
 // GetUsersAggregatedUsageMetrics mocks base method.

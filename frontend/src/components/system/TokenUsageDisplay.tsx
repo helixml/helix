@@ -6,18 +6,40 @@ import Tooltip from '@mui/material/Tooltip'
 import Button from '@mui/material/Button'
 import InfoIcon from '@mui/icons-material/Info'
 import UpgradeIcon from '@mui/icons-material/Upgrade'
+import KeyIcon from '@mui/icons-material/Key'
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
 import { useGetUserTokenUsage } from '../../services/userService'
+import { useListProviders } from '../../services/providersService'
 
 const TokenUsageDisplay: React.FC = () => {  
   const router = useRouter()
   const lightTheme = useLightTheme()
   const { data: tokenUsage, isLoading: loading, error } = useGetUserTokenUsage()
 
+  // Load providers
+  const { data: providers, isLoading: loadingProviders } = useListProviders(true)
+
+  // While loading, don't render anything
+  if (loadingProviders) {
+    return null
+  }
+
+  // If there are user providers, don't show the upgrade button
+  const hasUserProviders = providers?.some(provider => provider.endpoint_type === 'user')
+
+  if (hasUserProviders) {
+    return null
+  }
+
   const handleUpgrade = () => {
     // Navigate to the account page for billing/upgrade
     router.navigate('account')
+  }
+
+  const handleAddProviders = () => {
+    // Navigate to the user providers page
+    router.navigate('user-providers')
   }
 
   // If loading, error, no data, or quotas not enabled, don't render
@@ -43,6 +65,7 @@ const TokenUsageDisplay: React.FC = () => {
 
   const tierName = tokenUsage.is_pro_tier ? 'Pro' : 'Free'
   const shouldShowUpgrade = !tokenUsage.is_pro_tier && tokenUsage.usage_percentage && tokenUsage.usage_percentage >= 50 // Show upgrade button when 50%+ used
+  const isLimitReached = tokenUsage.usage_percentage && tokenUsage.usage_percentage >= 100
 
   return (    
     <Box
@@ -62,7 +85,7 @@ const TokenUsageDisplay: React.FC = () => {
           {tierName} Plan - Monthly Tokens
         </Typography>
         <Tooltip 
-          title={`You've used ${formatNumber(tokenUsage.monthly_usage ?? 0)} out of ${formatNumber(tokenUsage.monthly_limit ?? 0)} tokens this month`}
+          title={`You've used ${formatNumber(tokenUsage.monthly_usage ?? 0)} out of ${formatNumber(tokenUsage.monthly_limit ?? 0)} tokens this month using Helix providers. Add your own LLM API keys to avoid running out of tokens.`}
           placement="top"
         >
           <InfoIcon sx={{ fontSize: 14, ml: 0.5, color: lightTheme.textColorFaded }} />
@@ -99,17 +122,64 @@ const TokenUsageDisplay: React.FC = () => {
             color: tokenUsage.usage_percentage && tokenUsage.usage_percentage >= 100 ? 'error.main' : 'warning.main',
             fontSize: '0.7rem',
             mt: 0.5,
-            display: 'block'
+            display: 'block',
+            wordWrap: 'break-word',
+            overflowWrap: 'break-word',
+            whiteSpace: 'normal'
           }}
         >
           {tokenUsage.usage_percentage && tokenUsage.usage_percentage >= 100 
-            ? 'Limit reached! Upgrade to continue.' 
-            : 'Approaching limit. Consider upgrading.'
+            ? 'Limit reached! Upgrade or add your own LLM API keys to continue.' 
+            : 'Approaching limit. Consider upgrading or adding your own LLM API keys.'
           }
         </Typography>
       )}
 
-      {shouldShowUpgrade && (
+      {isLimitReached && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
+          <Button
+            onClick={handleUpgrade}
+            size="small"
+            variant="contained"
+            startIcon={<UpgradeIcon />}
+            sx={{
+              width: '100%',
+              backgroundColor: '#00E5FF',
+              color: '#000',
+              fontSize: '0.7rem',
+              fontWeight: 'bold',
+              textTransform: 'none',
+              '&:hover': {
+                backgroundColor: '#00B8CC',
+              },
+            }}
+          >
+            Upgrade to Pro
+          </Button>
+          <Button
+            onClick={handleAddProviders}
+            size="small"
+            variant="outlined"
+            startIcon={<KeyIcon />}
+            sx={{
+              width: '100%',
+              borderColor: '#00E5FF',
+              color: '#00E5FF',
+              fontSize: '0.7rem',
+              fontWeight: 'bold',
+              textTransform: 'none',
+              '&:hover': {
+                borderColor: '#00B8CC',
+                backgroundColor: 'rgba(0, 229, 255, 0.1)',
+              },
+            }}
+          >
+            Add my own API Keys
+          </Button>
+        </Box>
+      )}
+
+      {shouldShowUpgrade && !isLimitReached && (
         <Button
           onClick={handleUpgrade}
           size="small"

@@ -31,6 +31,7 @@ const DEBUG = true
 
 var runnerResponseTimeout = 180 * time.Second
 
+// TODO: remove
 func (c *Controller) StartSession(ctx context.Context, user *types.User, req types.InternalSessionRequest) (*types.Session, error) {
 	assistantInteraction := &types.Interaction{
 		ID:             system.GenerateUUID(),
@@ -153,7 +154,7 @@ func (c *Controller) StartSession(ctx context.Context, user *types.User, req typ
 
 	// Check inference token quota for inference sessions
 	if newSession.Mode == types.SessionModeInference {
-		if err := c.CheckInferenceTokenQuota(ctx, req.Owner); err != nil {
+		if err := c.checkInferenceTokenQuota(ctx, req.Owner, newSession.Provider); err != nil {
 			return nil, err
 		}
 	}
@@ -190,15 +191,19 @@ func (c *Controller) isUserProTier(ctx context.Context, owner string) (bool, err
 	return false, nil
 }
 
-// CheckInferenceTokenQuota checks if the user has exceeded their monthly token quota
-func (c *Controller) CheckInferenceTokenQuota(ctx context.Context, userID string) error {
+// checkInferenceTokenQuota checks if the user has exceeded their monthly token quota for global providers
+func (c *Controller) checkInferenceTokenQuota(ctx context.Context, userID string, provider string) error {
 	// Skip quota check if inference quotas are disabled
 	if !c.Options.Config.SubscriptionQuotas.Enabled || !c.Options.Config.SubscriptionQuotas.Inference.Enabled {
 		return nil
 	}
 
+	if !types.IsGlobalProvider(provider) {
+		return nil
+	}
+
 	// Get user's current monthly usage
-	monthlyTokens, err := c.Options.Store.GetUserMonthlyTokenUsage(ctx, userID)
+	monthlyTokens, err := c.Options.Store.GetUserMonthlyTokenUsage(ctx, userID, types.GlobalProviders)
 	if err != nil {
 		return fmt.Errorf("failed to get user token usage: %w", err)
 	}
