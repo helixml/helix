@@ -198,6 +198,10 @@ func (c *Controller) checkInferenceTokenQuota(ctx context.Context, userID string
 		return nil
 	}
 
+	if !types.IsGlobalProvider(provider) {
+		return nil
+	}
+
 	// Get user's current monthly usage
 	monthlyTokens, err := c.Options.Store.GetUserMonthlyTokenUsage(ctx, userID, types.GlobalProviders)
 	if err != nil {
