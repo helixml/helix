@@ -65,28 +65,31 @@ const LaunchpadCTAButton: React.FC<LaunchpadCTAButtonProps> = ({
   
   const isLoggedOut = !account.user
 
-  const handleClick = () => {
-    const currentUrl = window.location.origin
-    const launchpadUrl = `https://deploy.helix.ml/agents?helix_url=${encodeURIComponent(currentUrl)}`
-    window.location.href = launchpadUrl
-  }
+  const currentUrl = window.location.origin
+  const launchpadUrl = `https://deploy.helix.ml/agents?helix_url=${encodeURIComponent(currentUrl)}`
 
   return (
-    <StyledCTAButton
-      themeConfig={themeConfig}
-      isLoggedOut={isLoggedOut}
-      variant="outlined"
-      startIcon={<OpenInNewIcon />}
-      size={size}
-      onClick={handleClick}
-      sx={{ 
-        width: fullWidth ? '100%' : { xs: '100%', sm: 'auto' },
-        minWidth: '280px',
-        ...sx,
-      }}
+    <a
+      href={launchpadUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{ textDecoration: 'none' }}
     >
-      Launchpad: Find &amp; Deploy Agents
-    </StyledCTAButton>
+      <StyledCTAButton
+        themeConfig={themeConfig}
+        isLoggedOut={isLoggedOut}
+        variant="outlined"
+        startIcon={<OpenInNewIcon />}
+        size={size}
+        sx={{ 
+          width: fullWidth ? '100%' : { xs: '100%', sm: 'auto' },
+          minWidth: '280px',
+          ...sx,
+        }}
+      >
+        Launchpad: Find &amp; Deploy Agents
+      </StyledCTAButton>
+    </a>
   )
 }
 
