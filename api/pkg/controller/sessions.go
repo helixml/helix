@@ -31,7 +31,7 @@ const DEBUG = true
 
 var runnerResponseTimeout = 180 * time.Second
 
-// Deprecated: Use Chat completions APIs
+// TODO: remove
 func (c *Controller) StartSession(ctx context.Context, user *types.User, req types.InternalSessionRequest) (*types.Session, error) {
 	assistantInteraction := &types.Interaction{
 		ID:             system.GenerateUUID(),
