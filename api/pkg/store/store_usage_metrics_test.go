@@ -127,3 +127,53 @@ func (suite *UsageMetricsTestSuite) TestDailyUsageMetricsWithGaps() {
 	suite.Equal(100, dailyMetrics[3].PromptTokens) // March 7th
 	suite.Equal(0, dailyMetrics[4].PromptTokens)   // March 8th
 }
+
+func (suite *UsageMetricsTestSuite) TestGetUserMonthlyTokenUsage_User() {
+	appID := "test-" + system.GenerateAppID()
+	userID := system.GenerateID()
+
+	metric1 := &types.UsageMetric{
+		AppID:             appID,
+		UserID:            userID,
+		Created:           time.Now(),
+		Date:              time.Now().Truncate(24 * time.Hour),
+		PromptTokens:      100,
+		CompletionTokens:  200,
+		TotalTokens:       300,
+		DurationMs:        50,
+		RequestSizeBytes:  1000,
+		ResponseSizeBytes: 2000,
+		Provider:          string(types.ProviderOpenAI),
+	}
+	_, err := suite.db.CreateUsageMetric(suite.ctx, metric1)
+	suite.NoError(err)
+
+	metric2 := &types.UsageMetric{
+		AppID:            appID,
+		Created:          time.Now(),
+		Date:             time.Now().Truncate(24 * time.Hour),
+		UserID:           userID,
+		PromptTokens:     100,
+		CompletionTokens: 200,
+		TotalTokens:      300,
+		Provider:         string(types.ProviderAnthropic),
+	}
+	_, err = suite.db.CreateUsageMetric(suite.ctx, metric2)
+	suite.NoError(err)
+
+	// Test getting monthly usage for the user, should be combined
+	monthlyTokens, err := suite.db.GetUserMonthlyTokenUsage(suite.ctx, userID, types.GlobalProviders)
+	suite.NoError(err)
+	suite.Equal(600, monthlyTokens)
+
+	// Test getting monthly usage for the user with a filter by provider, should be combined too
+	// as we are fetching all providers
+	monthlyTokens, err = suite.db.GetUserMonthlyTokenUsage(suite.ctx, userID, []string{})
+	suite.NoError(err)
+	suite.Equal(600, monthlyTokens)
+
+	// Test getting monthly usage for the user with a filter by provider
+	monthlyTokens, err = suite.db.GetUserMonthlyTokenUsage(suite.ctx, userID, []string{string(types.ProviderOpenAI)})
+	suite.NoError(err)
+	suite.Equal(300, monthlyTokens)
+}
