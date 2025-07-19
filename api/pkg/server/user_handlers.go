@@ -107,7 +107,7 @@ func (apiServer *HelixAPIServer) getUserTokenUsage(rw http.ResponseWriter, r *ht
 	}
 
 	// Get current monthly usage
-	monthlyTokens, err := apiServer.Store.GetUserMonthlyTokenUsage(r.Context(), user.ID)
+	monthlyTokens, err := apiServer.Store.GetUserMonthlyTokenUsage(r.Context(), user.ID, types.GlobalProviders)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("error getting token usage: %v", err), http.StatusInternalServerError)
 		return
