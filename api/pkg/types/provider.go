@@ -16,6 +16,23 @@ const (
 	ProviderVLLM       Provider = "vllm"
 )
 
+var GlobalProviders = []string{
+	string(ProviderOpenAI),
+	string(ProviderTogetherAI),
+	string(ProviderAnthropic),
+	string(ProviderHelix),
+	string(ProviderVLLM),
+}
+
+func IsGlobalProvider(provider string) bool {
+	for _, p := range GlobalProviders {
+		if p == provider {
+			return true
+		}
+	}
+	return false
+}
+
 type ProviderEndpointType string
 
 const (

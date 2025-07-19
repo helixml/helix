@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
-  Dialog,
   DialogTitle,
   DialogContent,
   Box,
@@ -28,6 +27,7 @@ import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import MemoryIcon from '@mui/icons-material/Memory';
 import StarIcon from '@mui/icons-material/Star';
 import { useListProviders } from '../../services/providersService';
+import { useGetUserTokenUsage } from '../../services/userService';
 import { TypesOpenAIModel, TypesProviderEndpoint } from '../../api/api';
 import openaiLogo from '../../../assets/img/openai-logo.png'
 import togetheraiLogo from '../../../assets/img/together-logo.png'
@@ -35,6 +35,8 @@ import vllmLogo from '../../../assets/img/vllm-logo.png'
 import helixLogo from '../../../assets/img/logo.png'
 import googleLogo from '../../../assets/img/providers/google.svg'
 import anthropicLogo from '../../../assets/img/providers/anthropic.png'
+import DarkDialog from '../dialog/DarkDialog';
+import useLightTheme from '../../hooks/useLightTheme';
 
 interface AdvancedModelPickerProps {
   selectedModelId?: string;
@@ -141,12 +143,15 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   hint,
   recommendedModels = [], // Default to empty array
 }) => {
+  const lightTheme = useLightTheme();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showOnlyEnabled, setShowOnlyEnabled] = useState(true);
   
   // Fetch providers and models
   const { data: providers, isLoading: isLoadingProviders } = useListProviders(true);  
+
+  const { data: tokenUsage, isLoading: isLoadingTokenUsage } = useGetUserTokenUsage();
 
   // Combine models from all providers
   const allModels: ModelWithProvider[] = useMemo(() => {
@@ -214,6 +219,17 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
     return displayModelName;
   }, [disabled, displayModelName]);
 
+  // Check if monthly token limit is reached
+  const isMonthlyLimitReached = useMemo(() => {
+    if (!tokenUsage) return false;
+
+    // If quotas are not enabled, return false
+    if (!tokenUsage.quotas_enabled) return false;
+
+    // Otherwise check if usage percentage is >= 100
+    return tokenUsage.usage_percentage && tokenUsage.usage_percentage >= 100;
+  }, [tokenUsage]);
+
   // Filter models based on search query and current type
   const filteredModels = useMemo(() => {
     // For text type, we need to use chat models
@@ -274,7 +290,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
             endIcon={<ArrowDropDownIcon />}
             sx={{
               borderRadius: '8px',
-              color: 'text.primary',
+              color: '#F1F1F1',
               textTransform: 'none',
               fontSize: '0.875rem',
               padding: '4px 8px',
@@ -283,9 +299,10 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
               maxWidth: '200px',
               display: 'flex',
               alignItems: 'center',
-              border: buttonVariant === 'outlined' ? '1px solid #fff' : 'none',
+              border: buttonVariant === 'outlined' ? '1px solid #353945' : 'none',
               '&:hover': {
-                backgroundColor: (theme) => theme.palette.mode === 'light' ? "#efefef" : "#13132b",
+                backgroundColor: '#23262F',
+                borderColor: '#6366F1',
               },
               // More explicit styling for disabled state if needed
               ...(disabled && {
@@ -314,7 +331,7 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
         </span>
       </Tooltip>
 
-      <Dialog 
+      <DarkDialog 
         open={dialogOpen} 
         onClose={handleCloseDialog}
         maxWidth="sm"
@@ -323,16 +340,15 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
           sx: {
             height: '60vh',
             maxHeight: 600,
-            bgcolor: 'background.paper',
           }
         }}
       >
         <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="h6" component="div">Select Model</Typography>
+          <Typography variant="h6" component="div" sx={{ color: '#F8FAFC' }}>Select Model</Typography>
           <IconButton
             aria-label="close"
             onClick={handleCloseDialog}
-            sx={{ color: (theme) => theme.palette.grey[500] }}
+            sx={{ color: '#A0AEC0' }}
           >
             <CloseIcon />
           </IconButton>
@@ -344,14 +360,14 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
             p: 2, 
             overflow: 'hidden',
             display: 'flex', 
-            flexDirection: 'column' 
+            flexDirection: 'column',
+            ...lightTheme.scrollbar,
           }}
         >
           {hint && (
             <Typography 
               variant="body2" 
-              color="text.secondary" 
-              sx={{ mb: 2, fontStyle: 'italic' }}
+              sx={{ mb: 2, fontStyle: 'italic', color: '#A0AEC0' }}
             >
               {hint}
             </Typography>
@@ -394,21 +410,9 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
           </Box>
 
           <List sx={{ 
+            ...lightTheme.scrollbar,
             overflow: 'auto',
             flexGrow: 1,
-            '&::-webkit-scrollbar': {
-              width: '8px',
-            },
-            '&::-webkit-scrollbar-track': {
-              background: (theme) => theme.palette.mode === 'dark' ? '#2b2b2b' : '#f1f1f1',
-            },
-            '&::-webkit-scrollbar-thumb': {
-              background: (theme) => theme.palette.mode === 'dark' ? '#555' : '#888',
-              borderRadius: '4px',
-            },
-            '&::-webkit-scrollbar-thumb:hover': {
-              background: (theme) => theme.palette.mode === 'dark' ? '#777' : '#555',
-            },
             paddingRight: '8px',
             overscrollBehavior: 'contain',
             paddingBottom: '8px',
@@ -422,28 +426,31 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
               const formattedContextLength = formatContextLength(model.context_length);
               const isDisabled = !model.enabled; // Check if the model is disabled
               const isRecommended = recommendedModels.includes(model.id || '');
+              
+              // Check if this is a global provider and monthly limit is reached
+              const isGlobalProvider = model.provider?.endpoint_type === 'global';
+              const isGlobalProviderDisabled = isGlobalProvider && isMonthlyLimitReached;
+              const isModelDisabled = Boolean(isDisabled || isGlobalProviderDisabled);
 
               const listItem = (
                 <ListItem
                   key={`${model.provider.name}-${model.id}`}
-                  button
-                  onClick={() => !isDisabled && model.id && handleSelectModel(model.provider?.name || '', model.id)}
-                  selected={model.id === selectedModelId}
-                  disabled={isDisabled}
+                  onClick={() => !isModelDisabled && model.id && handleSelectModel(model.provider?.name || '', model.id)}
+                  disabled={isModelDisabled}
                   sx={{
                     '&:hover': {
-                      backgroundColor: isDisabled ? 'transparent' : 'action.hover',
+                      backgroundColor: isModelDisabled ? 'transparent' : '#23262F',
                     },
                     borderRadius: 1,
                     mb: 0.5,
-                    ...(model.id === selectedModelId && !isDisabled && {
-                      backgroundColor: 'action.selected',
+                    ...(model.id === selectedModelId && !isModelDisabled && {
+                      backgroundColor: '#353945',
                     }),
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    opacity: isDisabled ? 0.5 : 1,
-                    cursor: isDisabled ? 'not-allowed' : 'pointer',
+                    opacity: isModelDisabled ? 0.5 : 1,
+                    cursor: isModelDisabled ? 'not-allowed' : 'pointer',
                   }}
                 >
                   <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, overflow: 'hidden' }}>
@@ -473,14 +480,14 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                       secondary={model.provider.name}
                       primaryTypographyProps={{
                         sx: {
-                          fontWeight: model.id === selectedModelId && !isDisabled ? 500 : 400,
+                          fontWeight: model.id === selectedModelId && !isModelDisabled ? 500 : 400,
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          color: isDisabled ? 'text.disabled' : 'text.primary',
+                          color: isModelDisabled ? '#A0AEC0' : '#F1F1F1',
                         }
                       }}
                       secondaryTypographyProps={{
                         variant: 'body2',
-                        sx: { color: isDisabled ? 'text.disabled' : 'text.secondary' }
+                        sx: { color: isModelDisabled ? '#A0AEC0' : '#A0AEC0' }
                       }}
                       sx={{ mr: 1 }}
                     />
@@ -493,11 +500,11 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                         size="small"
                         variant="outlined"
                         sx={{
-                          color: 'text.secondary',
+                          color: '#A0AEC0',
                           borderColor: 'transparent',
                           backgroundColor: 'transparent',
                           '& .MuiChip-icon': {
-                             color: 'success.main',
+                             color: '#10B981',
                              marginLeft: '4px',
                              marginRight: '-4px',
                           },
@@ -511,9 +518,17 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                 </ListItem>
               );
 
+              // Determine tooltip content based on why the model is disabled
+              let tooltipContent = '';
+              if (isGlobalProviderDisabled) {
+                tooltipContent = 'Monthly token limit reached. Upgrade your plan to increase your limit.';
+              } else if (isDisabled) {
+                tooltipContent = 'This model is not enabled for you';
+              }
+
               // Wrap disabled items in a tooltip
-              return isDisabled ? (
-                <Tooltip title="This model is not enabled for you" placement="top" key={`${model.provider.name}-${model.id}-tooltip`}>
+              return isModelDisabled ? (
+                <Tooltip title={tooltipContent} placement="top" key={`${model.provider.name}-${model.id}-tooltip`}>
                   {/* The Tooltip needs a child that can accept a ref, a simple div works here if ListItem causes issues */} 
                   <div>{listItem}</div>
                 </Tooltip>
@@ -523,21 +538,21 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
             })}
             {!isLoading && filteredModels.length === 0 && searchQuery && (
               <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography color="text.secondary">
+                <Typography sx={{ color: '#A0AEC0' }}>
                   No models found matching "{searchQuery}"
                 </Typography>
               </Box>
             )}
              {!isLoading && filteredModels.length === 0 && !searchQuery && (
               <Box sx={{ p: 2, textAlign: 'center' }}>
-                <Typography color="text.secondary">
+                <Typography sx={{ color: '#A0AEC0' }}>
                   No {showOnlyEnabled ? 'enabled ' : ''}chat models available or still loading.
                 </Typography>
               </Box>
             )}
           </List>
         </DialogContent>
-      </Dialog>
+      </DarkDialog>
     </>
   );
 };

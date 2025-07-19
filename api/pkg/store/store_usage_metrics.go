@@ -344,7 +344,7 @@ func (s *PostgresStore) DeleteUsageMetrics(ctx context.Context, appID string) er
 }
 
 // GetUserMonthlyTokenUsage returns the total tokens used by a user in the current month
-func (s *PostgresStore) GetUserMonthlyTokenUsage(ctx context.Context, userID string) (int, error) {
+func (s *PostgresStore) GetUserMonthlyTokenUsage(ctx context.Context, userID string, providers []string) (int, error) {
 	now := time.Now()
 	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 
@@ -352,11 +352,16 @@ func (s *PostgresStore) GetUserMonthlyTokenUsage(ctx context.Context, userID str
 		TotalTokens int `gorm:"column:total_tokens"`
 	}
 
-	err := s.gdb.WithContext(ctx).
+	query := s.gdb.WithContext(ctx).
 		Model(&types.UsageMetric{}).
 		Select("COALESCE(SUM(total_tokens), 0) as total_tokens").
-		Where("user_id = ? AND date >= ?", userID, startOfMonth).
-		Scan(&result).Error
+		Where("user_id = ? AND date >= ?", userID, startOfMonth)
+
+	if len(providers) > 0 {
+		query = query.Where("provider IN ?", providers)
+	}
+
+	err := query.Scan(&result).Error
 
 	return result.TotalTokens, err
 }
