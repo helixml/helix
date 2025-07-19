@@ -198,7 +198,7 @@ func (c *Controller) CheckInferenceTokenQuota(ctx context.Context, userID string
 	}
 
 	// Get user's current monthly usage
-	monthlyTokens, err := c.Options.Store.GetUserMonthlyTokenUsage(ctx, userID)
+	monthlyTokens, err := c.Options.Store.GetUserMonthlyTokenUsage(ctx, userID, types.GlobalProviders)
 	if err != nil {
 		return fmt.Errorf("failed to get user token usage: %w", err)
 	}

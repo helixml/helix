@@ -16,6 +16,14 @@ const (
 	ProviderVLLM       Provider = "vllm"
 )
 
+var GlobalProviders = []string{
+	string(ProviderOpenAI),
+	string(ProviderTogetherAI),
+	string(ProviderAnthropic),
+	string(ProviderHelix),
+	string(ProviderVLLM),
+}
+
 type ProviderEndpointType string
 
 const (
