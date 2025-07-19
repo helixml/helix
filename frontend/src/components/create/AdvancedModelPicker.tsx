@@ -219,7 +219,13 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
 
   // Check if monthly token limit is reached
   const isMonthlyLimitReached = useMemo(() => {
-    return tokenUsage?.usage_percentage && tokenUsage.usage_percentage >= 100;
+    if (!tokenUsage) return false;
+
+    // If quotas are not enabled, return false
+    if (!tokenUsage.quotas_enabled) return false;
+
+    // Otherwise check if usage percentage is >= 100
+    return tokenUsage.usage_percentage && tokenUsage.usage_percentage >= 100;
   }, [tokenUsage]);
 
   // Filter models based on search query and current type
