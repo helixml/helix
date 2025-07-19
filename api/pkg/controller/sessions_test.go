@@ -56,6 +56,26 @@ func (suite *ControllerSuite) Test_checkInferenceTokenQuota_LimitReached_FreeSub
 	suite.Contains(err.Error(), "monthly token limit exceeded")
 }
 
+func (suite *ControllerSuite) Test_checkInferenceTokenQuota_LimitReached_FreeSubscription_AboveLimit_TheirOwnProvider() {
+	suite.controller.Options.Config.SubscriptionQuotas.Enabled = true
+	suite.controller.Options.Config.SubscriptionQuotas.Inference.Enabled = true
+	suite.controller.Options.Config.SubscriptionQuotas.Inference.Pro.MaxMonthlyTokens = 100000
+	suite.controller.Options.Config.SubscriptionQuotas.Inference.Pro.Strict = true
+	suite.controller.Options.Config.SubscriptionQuotas.Inference.Free.MaxMonthlyTokens = 1000
+	suite.controller.Options.Config.SubscriptionQuotas.Inference.Free.Strict = true
+
+	defer func() {
+		suite.controller.Options.Config.SubscriptionQuotas.Enabled = false
+	}()
+
+	userID := "test-user-id"
+
+	// No need to check for monthly usage as we are using their own provider
+
+	err := suite.controller.checkInferenceTokenQuota(suite.ctx, userID, "my-own-provider")
+	suite.NoError(err)
+}
+
 func (suite *ControllerSuite) Test_checkInferenceTokenQuota_LimitReached_ActiveSubscription_WithinLimit() {
 	suite.controller.Options.Config.SubscriptionQuotas.Enabled = true
 	suite.controller.Options.Config.SubscriptionQuotas.Inference.Enabled = true
