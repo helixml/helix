@@ -24,6 +24,15 @@ var GlobalProviders = []string{
 	string(ProviderVLLM),
 }
 
+func IsGlobalProvider(provider string) bool {
+	for _, p := range GlobalProviders {
+		if p == provider {
+			return true
+		}
+	}
+	return false
+}
+
 type ProviderEndpointType string
 
 const (
