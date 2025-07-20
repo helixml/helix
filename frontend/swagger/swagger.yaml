@@ -563,26 +563,6 @@ definitions:
       statusCode:
         type: integer
     type: object
-  time.Duration:
-    enum:
-    - -9223372036854775808
-    - 9223372036854775807
-    - 1
-    - 1000
-    - 1000000
-    - 1000000000
-    - 60000000000
-    - 3600000000000
-    type: integer
-    x-enum-varnames:
-    - minDuration
-    - maxDuration
-    - Nanosecond
-    - Microsecond
-    - Millisecond
-    - Second
-    - Minute
-    - Hour
   types.AccessGrant:
     properties:
       created_at:
@@ -758,8 +738,18 @@ definitions:
         type: string
       schema:
         type: string
+      skip_unknown_keys:
+        description: |-
+          if true, unknown keys in the response body will be removed before
+          returning to the agent for interpretation
+        type: boolean
       system_prompt:
         type: string
+      transform_output:
+        description: |-
+          Transform JSON into readable text to reduce the
+          size of the response body
+        type: boolean
       url:
         type: string
     type: object
@@ -2826,8 +2816,18 @@ definitions:
         type: array
       schema:
         type: string
+      skipUnknownKeys:
+        description: |-
+          if true, unknown keys in the response body will be removed before
+          returning to the agent for interpretation
+        type: boolean
       systemPrompt:
         type: string
+      transformOutput:
+        description: |-
+          Transform JSON into readable text to reduce the
+          size of the response body
+        type: boolean
     type: object
   types.SkillIcon:
     properties:
@@ -2849,30 +2849,6 @@ definitions:
       type:
         description: '"query", "header", "path"'
         type: string
-    type: object
-  types.SkillTestRequest:
-    properties:
-      operation:
-        type: string
-      parameters:
-        additionalProperties: true
-        type: object
-      skillId:
-        type: string
-    type: object
-  types.SkillTestResponse:
-    properties:
-      duration:
-        $ref: '#/definitions/time.Duration'
-      error:
-        type: string
-      response:
-        additionalProperties: true
-        type: object
-      statusCode:
-        type: integer
-      success:
-        type: boolean
     type: object
   types.SkillsListResponse:
     properties:
@@ -3081,9 +3057,19 @@ definitions:
         type: string
       schema:
         type: string
+      skip_unknown_keys:
+        description: |-
+          if true, unknown keys in the response body will be removed before
+          returning to the agent for interpretation
+        type: boolean
       system_prompt:
         description: System prompt to guide the AI when using this API
         type: string
+      transform_output:
+        description: |-
+          Transform JSON into readable text to reduce the
+          size of the response body
+        type: boolean
       url:
         description: Server override
         type: string
@@ -3183,10 +3169,6 @@ definitions:
         type: string
       enabled:
         type: boolean
-      executions:
-        items:
-          $ref: '#/definitions/types.TriggerExecution'
-        type: array
       id:
         type: string
       name:
@@ -4993,31 +4975,6 @@ paths:
       security:
       - BearerAuth: []
       summary: Get a skill by ID
-      tags:
-      - skills
-  /api/v1/skills/{id}/test:
-    post:
-      description: Test a skill by executing one of its operations
-      parameters:
-      - description: Skill ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Test request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.SkillTestRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.SkillTestResponse'
-      security:
-      - BearerAuth: []
-      summary: Test a skill
       tags:
       - skills
   /api/v1/skills/reload:

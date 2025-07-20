@@ -376,17 +376,6 @@ export interface SystemHTTPError {
   statusCode?: number;
 }
 
-export enum TimeDuration {
-  MinDuration = -9223372036854776000,
-  MaxDuration = 9223372036854776000,
-  Nanosecond = 1,
-  Microsecond = 1000,
-  Millisecond = 1000000,
-  Second = 1000000000,
-  Minute = 60000000000,
-  Hour = 3600000000000,
-}
-
 export interface TypesAccessGrant {
   created_at?: string;
   id?: string;
@@ -481,7 +470,17 @@ export interface TypesAssistantAPI {
   response_error_template?: string;
   response_success_template?: string;
   schema?: string;
+  /**
+   * if true, unknown keys in the response body will be removed before
+   * returning to the agent for interpretation
+   */
+  skip_unknown_keys?: boolean;
   system_prompt?: string;
+  /**
+   * Transform JSON into readable text to reduce the
+   * size of the response body
+   */
+  transform_output?: boolean;
   url?: string;
 }
 
@@ -1708,7 +1707,17 @@ export interface TypesSkillDefinition {
   provider?: string;
   requiredParameters?: TypesSkillRequiredParameter[];
   schema?: string;
+  /**
+   * if true, unknown keys in the response body will be removed before
+   * returning to the agent for interpretation
+   */
+  skipUnknownKeys?: boolean;
   systemPrompt?: string;
+  /**
+   * Transform JSON into readable text to reduce the
+   * size of the response body
+   */
+  transformOutput?: boolean;
 }
 
 export interface TypesSkillIcon {
@@ -1724,20 +1733,6 @@ export interface TypesSkillRequiredParameter {
   required?: boolean;
   /** "query", "header", "path" */
   type?: string;
-}
-
-export interface TypesSkillTestRequest {
-  operation?: string;
-  parameters?: Record<string, any>;
-  skillId?: string;
-}
-
-export interface TypesSkillTestResponse {
-  duration?: TimeDuration;
-  error?: string;
-  response?: Record<string, any>;
-  statusCode?: number;
-  success?: boolean;
 }
 
 export interface TypesSkillsListResponse {
@@ -1856,8 +1851,18 @@ export interface TypesToolAPIConfig {
   /** Template for successful response, leave empty for default */
   response_success_template?: string;
   schema?: string;
+  /**
+   * if true, unknown keys in the response body will be removed before
+   * returning to the agent for interpretation
+   */
+  skip_unknown_keys?: boolean;
   /** System prompt to guide the AI when using this API */
   system_prompt?: string;
+  /**
+   * Transform JSON into readable text to reduce the
+   * size of the response body
+   */
+  transform_output?: boolean;
   /** Server override */
   url?: string;
 }
@@ -1925,7 +1930,6 @@ export interface TypesTriggerConfiguration {
   archived?: boolean;
   created?: string;
   enabled?: boolean;
-  executions?: TypesTriggerExecution[];
   id?: string;
   /** Name of the trigger configuration */
   name?: string;
@@ -3742,25 +3746,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/skills/${id}`,
         method: "GET",
         secure: true,
-        ...params,
-      }),
-
-    /**
-     * @description Test a skill by executing one of its operations
-     *
-     * @tags skills
-     * @name V1SkillsTestCreate
-     * @summary Test a skill
-     * @request POST:/api/v1/skills/{id}/test
-     * @secure
-     */
-    v1SkillsTestCreate: (id: string, request: TypesSkillTestRequest, params: RequestParams = {}) =>
-      this.request<TypesSkillTestResponse, any>({
-        path: `/api/v1/skills/${id}/test`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
         ...params,
       }),
 
