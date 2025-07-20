@@ -845,5 +845,20 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 		return &types.RunAPIActionResponse{Response: "OK"}, nil
 	}
 
+	if req.Tool.Config.API.SkipUnknownKeys {
+		// Remove unknown keys from the response body
+		filteredBody, err := removeUnknownKeys(req.Tool, req.Action, resp.Status, body)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("tool", req.Tool.Name).
+				Str("action", req.Action).
+				Str("status", resp.Status).
+				Msg("Failed to remove unknown keys from response body")
+		} else {
+			body = filteredBody
+		}
+	}
+
 	return &types.RunAPIActionResponse{Response: string(body)}, nil
 }
