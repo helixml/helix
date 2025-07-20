@@ -27,24 +27,13 @@ import ApiIcon from '@mui/icons-material/Api';
 import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
-import { useSkills, convertBackendSkillToFrontend } from '../../hooks/useSkills';
+import { useSkills } from '../../hooks/useSkills';
 
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
 import { airQualityTool } from './examples/skillAirQualityApi';
 import { exchangeRatesSkill } from './examples/skillExchangeRatesApi';
 import WebSearchSkill from './WebSearchSkill';
 import AzureDevOpsSkill from './AzureDevOpsSkill';
-
-// OAuth Provider Skills (now served from backend via API)
-// import { gmailTool } from './examples/skillGmailApi';
-// import { googleDriveTool } from './examples/skillGoogleDriveApi';
-// import { googleCalendarTool } from './examples/skillGoogleCalendarApi';
-// import { outlookTool } from './examples/skillOutlookApi';
-// import { oneDriveTool } from './examples/skillOneDriveApi';
-// import { slackTool } from './examples/skillSlackApi';
-// import { linkedInTool } from './examples/skillLinkedInApi';
-// import { atlassianTool } from './examples/skillAtlassianApi';
-// import { confluenceTool } from './examples/skillConfluenceApi';
 
 // Interface for OAuth provider objects from the API
 interface OAuthProvider {

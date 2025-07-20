@@ -1,32 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import useApi from './useApi';
-
-// Backend skill types
-export interface BackendSkillDefinition {
-  id: string;
-  name: string;
-  displayName?: string;
-  description: string;
-  systemPrompt?: string;
-  schema?: string;
-  baseUrl?: string;
-  oauthProvider?: string;
-  oauthScopes?: string[];
-  configurable?: boolean;
-  category?: string;
-  enabled?: boolean;
-  icon?: any;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface BackendSkillsListResponse {
-  skills: BackendSkillDefinition[];
-  count: number;
-}
+import { TypesSkillDefinition } from '../api/api';
 
 export const useSkills = (category?: string, provider?: string) => {
   const api = useApi();
+  const client = api.getApiClient();
 
   return useQuery({
     queryKey: ['skills', { category, provider }],
@@ -34,33 +12,37 @@ export const useSkills = (category?: string, provider?: string) => {
       const params = new URLSearchParams();
       if (category) params.append('category', category);
       if (provider) params.append('provider', provider);
-      const queryString = params.toString();
-      const url = `/api/v1/skills${queryString ? `?${queryString}` : ''}`;
-      const response = await api.get<BackendSkillsListResponse>(url);
-      return response;
+
+      const response = await client.v1SkillsList({
+        category,
+        provider,
+      });
+
+      return response.data;
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 10 * 60 * 1000, // 10 minutes
+    staleTime: 1 * 60 * 1000, // 1 minute
+    gcTime: 1 * 60 * 1000, // 1 minute
   });
 };
 
 export const useSkill = (id: string) => {
   const api = useApi();
+  const client = api.getApiClient();
 
   return useQuery({
     queryKey: ['skill', id],
     queryFn: async () => {
-      const response = await api.get<BackendSkillDefinition>(`/api/v1/skills/${id}`);
-      return response;
+      const response = await client.v1SkillsDetail(id);
+      return response.data;
     },
     enabled: !!id,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 10 * 60 * 1000, // 10 minutes
+    staleTime: 1 * 60 * 1000, // 1 minute
+    gcTime: 1 * 60 * 1000, // 1 minute
   });
 };
 
 // Convert backend skill to frontend IAgentSkill format for compatibility
-export const convertBackendSkillToFrontend = (backendSkill: BackendSkillDefinition) => {
+export const convertBackendSkillToFrontend = (backendSkill: TypesSkillDefinition) => {
   return {
     name: backendSkill.displayName || backendSkill.name || '',
     description: backendSkill.description || '',
@@ -69,7 +51,10 @@ export const convertBackendSkillToFrontend = (backendSkill: BackendSkillDefiniti
       schema: backendSkill.schema || '',
       url: backendSkill.baseUrl || '',
       requiredParameters: [],
+      headers: backendSkill.headers || {},
     },
-    configurable: backendSkill.configurable || false,
+    configurable: backendSkill.configurable || false, 
+    skip_unknown_keys: backendSkill.skipUnknownKeys || false,
+    transform_output: backendSkill.transformOutput || false,
   };
 }; 
