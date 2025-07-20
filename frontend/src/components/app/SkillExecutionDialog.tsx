@@ -15,6 +15,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import { TypesStepInfo } from '../../api/api';
 import DarkDialog from '../dialog/DarkDialog';
+import CopyButton from '../common/CopyButton';
 import { prettyBytes } from '../../utils/format';
 
 interface SkillExecutionDialogProps {
@@ -78,6 +79,31 @@ const SkillExecutionDialog: React.FC<SkillExecutionDialogProps> = ({
         </Paper>
       </Box>
     ));
+  };
+
+  const JsonContentWithCopy: React.FC<{ content: string; title: string }> = ({ content, title }) => {
+    return (
+      <Box sx={{ position: 'relative' }}>
+        <CopyButton content={content} title={title} />
+        <Paper
+          sx={{
+            p: 2,
+            backgroundColor: 'transparent',
+            borderRadius: 1,
+            border: '1px solid',
+            borderColor: 'divider',
+            fontFamily: 'monospace',
+            fontSize: '0.875rem',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            maxHeight: '600px',
+            overflow: 'auto',
+          }}
+        >
+          {content}
+        </Paper>
+      </Box>
+    );
   };
 
   return (
@@ -194,21 +220,10 @@ const SkillExecutionDialog: React.FC<SkillExecutionDialogProps> = ({
                 sx={{ '& .MuiFormControlLabel-label': { fontSize: '0.875rem' } }}
               />
             </Box>
-            <Paper
-              sx={{
-                p: 2,
-                backgroundColor: 'transparent',
-                borderRadius: 1,
-                border: '1px solid',
-                borderColor: 'divider',
-                fontFamily: 'monospace',
-                fontSize: '0.875rem',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}
-            >
-              {formatResponse(stepInfo.message)}
-            </Paper>
+            <JsonContentWithCopy 
+              content={formatResponse(stepInfo.message)} 
+              title="Response"
+            />
           </Box>
         )}
 
