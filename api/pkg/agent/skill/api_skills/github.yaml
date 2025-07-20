@@ -404,6 +404,57 @@ spec:
                             type: string
                           # html_url:
                           #   type: string
+        /repos/{owner}/{repo}/pulls/{pull_number}:
+          get:
+            summary: Get a pull request
+            operationId: getPullRequest
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: owner
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: repo
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: pull_number
+                in: path
+                required: true
+                schema:
+                  type: integer
+            responses:
+              '200':
+                description: Pull request details
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        number:
+                          type: integer
+                        title:
+                          type: string
+                        body:
+                          type: string
+                        state:
+                          type: string
+                        user:
+                          type: object
+                          properties:
+                            login:
+                              type: string
+                            name:
+                              type: string
+                        created_at:
+                          type: string
+                        updated_at:
+                          type: string
+                        html_url:
+                          type: string
         /search/repositories:
           get:
             summary: Search repositories
