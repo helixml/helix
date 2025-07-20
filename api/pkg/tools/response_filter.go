@@ -3,12 +3,13 @@ package tools
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-func removeUnknownKeys(tool *types.Tool, action string, responseStatus string, responseBody []byte) ([]byte, error) {
+func removeUnknownKeys(tool *types.Tool, action string, statusCode int, responseBody []byte) ([]byte, error) {
 	loader := openapi3.NewLoader()
 
 	schema, err := loader.LoadFromData([]byte(tool.Config.API.Schema))
@@ -17,6 +18,8 @@ func removeUnknownKeys(tool *types.Tool, action string, responseStatus string, r
 	}
 
 	var responseBodySchema *openapi3.SchemaRef
+
+	responseStatus := strconv.Itoa(statusCode)
 
 	for _, pathItem := range schema.Paths.Map() {
 		for _, op := range pathItem.Operations() {
@@ -43,7 +46,7 @@ func removeUnknownKeys(tool *types.Tool, action string, responseStatus string, r
 
 	// If no schema found, return the original response body
 	if responseBodySchema == nil {
-		return responseBody, nil
+		return responseBody, fmt.Errorf("no schema found for action %s", action)
 	}
 
 	// Decode the response body

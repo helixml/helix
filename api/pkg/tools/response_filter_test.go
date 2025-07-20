@@ -32,7 +32,7 @@ func TestFilterGithubPR(t *testing.T) {
 		},
 	}
 
-	filteredBody, err := removeUnknownKeys(&tool, "listPullRequests", "200", bts)
+	filteredBody, err := removeUnknownKeys(&tool, "listPullRequests", 200, bts)
 	require.NoError(t, err)
 
 	// Should not contain head
@@ -60,7 +60,7 @@ func TestFilterGithubIssues(t *testing.T) {
 		},
 	}
 
-	filteredBody, err := removeUnknownKeys(&tool, "listRepoIssues", "200", bts)
+	filteredBody, err := removeUnknownKeys(&tool, "listRepoIssues", 200, bts)
 	require.NoError(t, err)
 
 	golden.Assert(t, string(filteredBody), "github_issues_filtered.json")
