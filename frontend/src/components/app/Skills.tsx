@@ -1212,11 +1212,11 @@ const Skills: React.FC<SkillsProps> = ({
           const isCustomApiTile = skill.id === 'new-custom-api';
           
           // Check OAuth provider status for this skill (admin-only warnings)
-          const oauthProvider = skill.skill.apiSkill?.oauth_provider;
-          const provider = oauthProvider ? oauthProviders.find(p => p.name === oauthProvider) : null;
-          const isOAuthSkill = !!oauthProvider;
-          const isProviderDisabled = isOAuthSkill && (!provider || !provider.enabled);
-          const showProviderWarning = isOAuthSkill && isProviderDisabled && account.admin;
+          // const oauthProvider = skill.skill.apiSkill?.oauth_provider;
+          // const provider = oauthProvider ? oauthProviders.find(p => p.name === oauthProvider) : null;
+          // const isOAuthSkill = !!oauthProvider;
+          // const isProviderDisabled = isOAuthSkill && (!provider || !provider.enabled);
+          // const showProviderWarning = isOAuthSkill && isProviderDisabled && account.admin;
           
           return (
             <Grid item xs={12} sm={6} md={4} lg={3} key={skill.id}>
@@ -1324,7 +1324,7 @@ const Skills: React.FC<SkillsProps> = ({
                       {getFirstLine(skill.description)}
                     </Typography>
                     
-                    {/* OAuth Provider Warning for Admins */}
+                    {/* OAuth Provider Warning for Admins
                     {showProviderWarning && (
                       <Box sx={{ mt: 2 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
@@ -1356,7 +1356,7 @@ const Skills: React.FC<SkillsProps> = ({
                           Configure Provider
                         </Button>
                       </Box>
-                    )}
+                    )} */}
                   </CardContent>
                   <CardActions sx={{ justifyContent: 'center', px: 2, pb: 2 }}>
                     {isEnabled ? (
