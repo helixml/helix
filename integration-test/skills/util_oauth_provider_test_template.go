@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/skills"
+	api_skill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -19,7 +19,7 @@ import (
 
 // loadScopesFromYAML loads OAuth scopes from a skill's YAML file
 func loadScopesFromYAML(skillName string) ([]string, error) {
-	manager := skills.NewManager()
+	manager := api_skill.NewManager()
 	if err := manager.LoadSkills(context.TODO()); err != nil {
 		return nil, fmt.Errorf("failed to load skills: %w", err)
 	}
@@ -80,7 +80,7 @@ type AgentTestQuery struct {
 type OAuthProviderTestTemplate struct {
 	config       OAuthProviderConfig
 	baseSuite    *BaseOAuthTestSuite
-	skillManager *skills.Manager
+	skillManager *api_skill.Manager
 
 	// Test objects created during test
 	oauthProvider *types.OAuthProvider
@@ -97,7 +97,7 @@ func NewOAuthProviderTestTemplate(config OAuthProviderConfig, baseSuite *BaseOAu
 	}
 
 	// Initialize skills manager
-	template.skillManager = skills.NewManager()
+	template.skillManager = api_skill.NewManager()
 	err := template.skillManager.LoadSkills(baseSuite.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load skills: %w", err)

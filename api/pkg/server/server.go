@@ -18,6 +18,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"gocloud.dev/blob"
 
+	api_skill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
@@ -30,7 +31,6 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server/spa"
-	"github.com/helixml/helix/api/pkg/skills"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
@@ -79,7 +79,7 @@ type HelixAPIServer struct {
 	gptScriptExecutor gptscript.Executor
 	inferenceServer   *openai.InternalHelixServer
 	knowledgeManager  knowledge.Manager
-	skillManager      *skills.Manager
+	skillManager      *api_skill.Manager
 	router            *mux.Router
 	scheduler         *scheduler.Scheduler
 	pingService       *version.PingService
@@ -182,7 +182,7 @@ func NewServer(
 	}
 
 	// Initialize skill manager
-	skillManager := skills.NewManager()
+	skillManager := api_skill.NewManager()
 
 	return &HelixAPIServer{
 		Cfg:               cfg,
