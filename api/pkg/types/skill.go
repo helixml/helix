@@ -78,6 +78,13 @@ type SkillDefinition struct {
 	Headers            map[string]string        `json:"headers"`
 	Schema             string                   `json:"schema"`
 	RequiredParameters []SkillRequiredParameter `json:"requiredParameters"`
+	// if true, unknown keys in the response body will be removed before
+	// returning to the agent for interpretation
+	SkipUnknownKeys bool `json:"skipUnknownKeys"`
+
+	// Transform JSON into readable text to reduce the
+	// size of the response body
+	TransformOutput bool `json:"transformOutput"`
 
 	// Metadata
 	Configurable bool      `json:"configurable"`
