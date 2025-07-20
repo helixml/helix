@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"fmt"
 	"html/template"
+	"regexp"
 
 	"github.com/helixml/helix/api/pkg/config"
 
@@ -105,6 +106,9 @@ func (e *Email) getClient(email string) *notify.Notify {
 }
 
 func (e *Email) renderMarkdown(message string) (string, error) {
+	// Preprocess the message to convert divider patterns to HTML dividers
+	message = e.convertDividers(message)
+
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.GFM),
 		goldmark.WithParserOptions(
@@ -113,6 +117,7 @@ func (e *Email) renderMarkdown(message string) (string, error) {
 		goldmark.WithRendererOptions(
 			html.WithHardWraps(),
 			html.WithXHTML(),
+			html.WithUnsafe(),
 		),
 	)
 	var buf bytes.Buffer
@@ -121,6 +126,16 @@ func (e *Email) renderMarkdown(message string) (string, error) {
 	}
 
 	return buf.String(), nil
+}
+
+func (e *Email) convertDividers(message string) string {
+	// Regex to match divider patterns like "------------", "********", "========", etc.
+	// Also matches Unicode box drawing characters like "─────────────────"
+	// Matches 3 or more consecutive dashes, asterisks, equals signs, underscores, or box drawing characters on their own line
+	dividerRegex := regexp.MustCompile(`(?m)^[\s]*([-*=_─━═]{3,})[\s]*$`)
+
+	// Replace divider patterns with HTML hr tags
+	return dividerRegex.ReplaceAllString(message, "<hr>")
 }
 
 func (e *Email) getEmailMessage(n *Notification) (title, message string, err error) {
