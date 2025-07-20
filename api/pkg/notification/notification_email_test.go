@@ -138,3 +138,23 @@ func Test_getEmailMessage_CronTriggerFailed(t *testing.T) {
 	// Check that message contains the test message
 	require.Contains(t, message, "Task failed due to error", "expected message to contain 'Task failed due to error', but it doesn't")
 }
+
+func Test_renderMarkdown_WithDividers(t *testing.T) {
+	message := `─────────────────────────────────────────────  
+	1. NVDA (NVIDIA Corporation)  
+	───────────────────────────────────────────── `
+
+	cfg := &config.Notifications{
+		AppURL: "https://app.helix.ai",
+	}
+
+	notifier := &Email{
+		cfg: cfg,
+	}
+
+	converted, err := notifier.renderMarkdown(message)
+	require.NoError(t, err)
+
+	require.Contains(t, converted, "<hr>")
+	require.Contains(t, converted, "1. NVDA (NVIDIA Corporation)")
+}
