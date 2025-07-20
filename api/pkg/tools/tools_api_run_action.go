@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -847,7 +848,7 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 
 	if req.Tool.Config.API.SkipUnknownKeys {
 		// Remove unknown keys from the response body
-		filteredBody, err := removeUnknownKeys(req.Tool, req.Action, resp.Status, body)
+		filteredBody, err := removeUnknownKeys(req.Tool, req.Action, resp.StatusCode, body)
 		if err != nil {
 			log.Error().
 				Err(err).
@@ -856,6 +857,10 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 				Str("status", resp.Status).
 				Msg("Failed to remove unknown keys from response body")
 		} else {
+			log.Info().Str("tool", req.Tool.Name).
+				Str("size_before", strconv.Itoa(len(body))).
+				Str("size_after", strconv.Itoa(len(filteredBody))).
+				Str("action", req.Action).Msg("Removed unknown keys from response body")
 			body = filteredBody
 		}
 	}
