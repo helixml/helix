@@ -59,7 +59,7 @@ func removeUnknownKeys(tool *types.Tool, action string, responseStatus string, r
 	}
 
 	// Encode the filtered data back to JSON
-	filteredBody, err := json.Marshal(filteredData)
+	filteredBody, err := json.MarshalIndent(filteredData, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal filtered response: %w", err)
 	}

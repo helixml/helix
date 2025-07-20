@@ -40,3 +40,28 @@ func TestFilterGithubPR(t *testing.T) {
 
 	golden.Assert(t, string(filteredBody), "github_pull_request_filtered.json")
 }
+
+func TestFilterGithubIssues(t *testing.T) {
+	bts, err := os.ReadFile("./testdata/github_issues.json")
+	require.NoError(t, err)
+
+	manager := api_skill.NewManager()
+	err = manager.LoadSkills(context.Background())
+	require.NoError(t, err)
+
+	skill, err := manager.GetSkill("github")
+	require.NoError(t, err)
+
+	tool := types.Tool{
+		Config: types.ToolConfig{
+			API: &types.ToolAPIConfig{
+				Schema: skill.Schema,
+			},
+		},
+	}
+
+	filteredBody, err := removeUnknownKeys(&tool, "listRepoIssues", "200", bts)
+	require.NoError(t, err)
+
+	golden.Assert(t, string(filteredBody), "github_issues_filtered.json")
+}
