@@ -274,6 +274,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
       // Find the existing tool in app.tools
       const existingTool = app.tools?.find(tool => tool.name === initialSkill.name);
       if (existingTool) {
+        console.log('xx existingTool', existingTool);
         setExistingTool(existingTool);
       }
     } else {
@@ -444,18 +445,6 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
       },
     }));
   };
-
-  const updateRequiredParameter = (index: number, field: string, value: string | boolean) => {
-    setSkill((prev) => ({
-      ...prev,
-      apiSkill: {
-        ...prev.apiSkill,
-        requiredParameters: prev.apiSkill.requiredParameters.map((param, i) =>
-          i === index ? { ...param, [field]: value } : param
-        ),
-      },
-    }));
-  };  
 
   const handleParameterValueChange = (name: string, value: string) => {
     setParameterValues((prev) => ({ ...prev, [name]: value }));
