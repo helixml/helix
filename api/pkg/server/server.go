@@ -437,7 +437,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Skill routes
 	authRouter.HandleFunc("/skills", system.DefaultWrapper(apiServer.handleListSkills)).Methods("GET")
 	authRouter.HandleFunc("/skills/{id}", system.DefaultWrapper(apiServer.handleGetSkill)).Methods("GET")
-	authRouter.HandleFunc("/skills/{id}/test", system.DefaultWrapper(apiServer.handleTestSkill)).Methods("POST")
 	authRouter.HandleFunc("/skills/reload", system.DefaultWrapper(apiServer.handleReloadSkills)).Methods("POST")
 
 	// UI @ functionality
