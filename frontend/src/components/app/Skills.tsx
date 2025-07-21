@@ -35,6 +35,8 @@ import { exchangeRatesSkill } from './examples/skillExchangeRatesApi';
 import WebSearchSkill from './WebSearchSkill';
 import AzureDevOpsSkill from './AzureDevOpsSkill';
 
+import { useListOAuthProviders, useListOAuthConnections } from '../../services/oauthProvidersService';
+
 // Interface for OAuth provider objects from the API
 interface OAuthProvider {
   id: string;
@@ -283,35 +285,12 @@ const Skills: React.FC<SkillsProps> = ({
   const [skillToDisable, setSkillToDisable] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   
-  // OAuth warning state
-  const [oauthProviders, setOAuthProviders] = useState<OAuthProvider[]>([]);
-  const [oauthConnections, setOAuthConnections] = useState<OAuthConnection[]>([]);
   const [missingProviders, setMissingProviders] = useState<string[]>([]);
   const [showWarning, setShowWarning] = useState(false);
 
-  // Fetch OAuth providers and connections
-  useEffect(() => {
-    const fetchOAuthData = async () => {
-      try {
-        const [providersResponse, connectionsResponse] = await Promise.all([
-          api.get('/api/v1/oauth/providers'),
-          api.get('/api/v1/oauth/connections')
-        ]);
-        
-        const providers = Array.isArray(providersResponse) ? providersResponse : [];
-        const connections = Array.isArray(connectionsResponse) ? connectionsResponse : [];
-        
-        setOAuthProviders(providers);
-        setOAuthConnections(connections);
-      } catch (error) {
-        console.error('Error fetching OAuth data:', error);
-        setOAuthProviders([]);
-        setOAuthConnections([]);
-      }
-    };
+  const { data: oauthProviders, isLoading: isOAuthProvidersLoading } = useListOAuthProviders();
+  const { data: oauthConnections, isLoading: isOAuthConnectionsLoading } = useListOAuthConnections();
 
-    fetchOAuthData();
-  }, []);
 
   // Check for missing OAuth providers whenever app.apiTools changes
   useEffect(() => {
@@ -336,25 +315,18 @@ const Skills: React.FC<SkillsProps> = ({
       return;
     }
 
-    const enabledProviderNames = new Set(
-      oauthProviders.filter(p => p.enabled).map(p => p.name)
-    );
-    
-    const connectedProviderNames = new Set(
-      oauthConnections.map(c => {
-        const provider = oauthProviders.find(p => p.id === c.providerId);
-        return provider?.name || '';
-      }).filter(name => name !== '')
-    );
-
     const missing: string[] = [];
     
-    requiredProviders.forEach(providerName => {
-      const isProviderEnabled = enabledProviderNames.has(providerName);
-      const isUserConnected = connectedProviderNames.has(providerName);
+    requiredProviders.forEach(providerType => {
+      const isProviderEnabled = oauthProviders?.find(p => p.type === providerType)?.enabled || false;
+      const isUserConnected = oauthConnections?.some(c => {
+
+        const connectedProvider = oauthProviders?.find(p => p.id === c.provider_id);
+        return connectedProvider?.type === providerType;
+      });
       
       if (!isProviderEnabled || !isUserConnected) {
-        missing.push(providerName);
+        missing.push(providerType);
       }
     });
 
@@ -700,7 +672,7 @@ const Skills: React.FC<SkillsProps> = ({
     // Check if this is an OAuth skill with disabled provider for regular users
     const oauthProvider = skill.skill.apiSkill?.oauth_provider;
     if (oauthProvider && !account.admin) {
-      const provider = oauthProviders.find(p => p.name === oauthProvider);
+      const provider = oauthProviders?.find(p => p.name === oauthProvider);
       if (!provider || !provider.enabled) {
         // Show OAuth provider dialog for regular users
         setSelectedOAuthProvider(oauthProvider);
@@ -1063,10 +1035,10 @@ const Skills: React.FC<SkillsProps> = ({
           </Typography>
           <Box sx={{ mb: 1 }}>
             {missingProviders.map((providerName, index) => {
-              const provider = oauthProviders.find(p => p.name === providerName);
+              const provider = oauthProviders?.find(p => p.name === providerName);
               const isProviderEnabled = provider?.enabled || false;
-              const isUserConnected = oauthConnections.some(c => {
-                const connectedProvider = oauthProviders.find(p => p.id === c.providerId);
+              const isUserConnected = oauthConnections?.some(c => {
+                const connectedProvider = oauthProviders?.find(p => p.id === c.provider_id);
                 return connectedProvider?.name === providerName;
               });
 
@@ -1098,7 +1070,7 @@ const Skills: React.FC<SkillsProps> = ({
           </Box>
           <Typography variant="body2">
             {missingProviders.some(name => {
-              const provider = oauthProviders.find(p => p.name === name);
+              const provider = oauthProviders?.find(p => p.name === name);
               return !provider?.enabled;
             }) && (
               <>
