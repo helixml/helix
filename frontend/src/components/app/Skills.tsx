@@ -410,8 +410,10 @@ const Skills: React.FC<SkillsProps> = ({
             requiredParameters: [],
             oauth_provider: backendSkill.oauthProvider || '',
             oauth_scopes: backendSkill.oauthScopes || [],
+            skip_unknown_keys: backendSkill.skipUnknownKeys || false,
+            transform_output: backendSkill.transformOutput || false,
           },
-          configurable: backendSkill.configurable || false,
+          configurable: backendSkill.configurable || false,        
         },
       } as ISkill;
     });
