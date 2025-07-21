@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	api_skill "github.com/helixml/helix/api/pkg/agent/skill/api_skills"
@@ -62,6 +63,12 @@ func TestFilterGithubIssues(t *testing.T) {
 
 	filteredBody, err := removeUnknownKeys(&tool, "listRepoIssues", 200, bts)
 	require.NoError(t, err)
+
+	// Should have main fields:
+	assert.Contains(t, string(filteredBody), `"user": {`)
+	assert.Contains(t, string(filteredBody), `"state": "open`)
+	assert.Contains(t, string(filteredBody), `"title": "Bump google.golang.org/api from 0.228.0 to 0.242.0",`)
+	assert.Contains(t, string(filteredBody), `"number": 1160`)
 
 	golden.Assert(t, string(filteredBody), "github_issues_filtered.json")
 }
