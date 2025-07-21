@@ -22,12 +22,14 @@ type SkillMetadata struct {
 
 // SkillSpec contains the skill specification
 type SkillSpec struct {
-	Description  string     `yaml:"description" json:"description"`
-	SystemPrompt string     `yaml:"systemPrompt" json:"systemPrompt"`
-	Icon         SkillIcon  `yaml:"icon" json:"icon"`
-	OAuth        SkillOAuth `yaml:"oauth" json:"oauth"`
-	API          SkillAPI   `yaml:"api" json:"api"`
-	Configurable bool       `yaml:"configurable" json:"configurable"`
+	Description     string     `yaml:"description" json:"description"`
+	SystemPrompt    string     `yaml:"systemPrompt" json:"systemPrompt"`
+	Icon            SkillIcon  `yaml:"icon" json:"icon"`
+	OAuth           SkillOAuth `yaml:"oauth" json:"oauth"`
+	API             SkillAPI   `yaml:"api" json:"api"`
+	Configurable    bool       `yaml:"configurable" json:"configurable"`
+	SkipUnknownKeys bool       `yaml:"skipUnknownKeys" json:"skipUnknownKeys"`
+	TransformOutput bool       `yaml:"transformOutput" json:"transformOutput"`
 }
 
 // SkillIcon defines how the skill icon should be displayed
@@ -78,6 +80,13 @@ type SkillDefinition struct {
 	Headers            map[string]string        `json:"headers"`
 	Schema             string                   `json:"schema"`
 	RequiredParameters []SkillRequiredParameter `json:"requiredParameters"`
+	// if true, unknown keys in the response body will be removed before
+	// returning to the agent for interpretation
+	SkipUnknownKeys bool `json:"skipUnknownKeys"`
+
+	// Transform JSON into readable text to reduce the
+	// size of the response body
+	TransformOutput bool `json:"transformOutput"`
 
 	// Metadata
 	Configurable bool      `json:"configurable"`
