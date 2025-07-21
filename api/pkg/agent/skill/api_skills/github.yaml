@@ -224,6 +224,15 @@ spec:
                             type: integer
                           title:
                             type: string
+                          user:
+                            type: object
+                            properties:
+                              login:
+                                type: string
+                              name:
+                                type: string
+                              type:
+                                type: string
                           # body:
                           #   type: string
                           state:
