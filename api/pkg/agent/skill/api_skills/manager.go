@@ -78,6 +78,8 @@ func (m *Manager) LoadSkills(_ context.Context) error {
 			Schema:             yamlSkill.Spec.API.Schema,
 			RequiredParameters: yamlSkill.Spec.API.RequiredParameters,
 			Configurable:       yamlSkill.Spec.Configurable,
+			SkipUnknownKeys:    yamlSkill.Spec.SkipUnknownKeys,
+			TransformOutput:    yamlSkill.Spec.TransformOutput,
 			LoadedAt:           time.Now(),
 			FilePath:           entry.Name(),
 		}

@@ -22,12 +22,14 @@ type SkillMetadata struct {
 
 // SkillSpec contains the skill specification
 type SkillSpec struct {
-	Description  string     `yaml:"description" json:"description"`
-	SystemPrompt string     `yaml:"systemPrompt" json:"systemPrompt"`
-	Icon         SkillIcon  `yaml:"icon" json:"icon"`
-	OAuth        SkillOAuth `yaml:"oauth" json:"oauth"`
-	API          SkillAPI   `yaml:"api" json:"api"`
-	Configurable bool       `yaml:"configurable" json:"configurable"`
+	Description     string     `yaml:"description" json:"description"`
+	SystemPrompt    string     `yaml:"systemPrompt" json:"systemPrompt"`
+	Icon            SkillIcon  `yaml:"icon" json:"icon"`
+	OAuth           SkillOAuth `yaml:"oauth" json:"oauth"`
+	API             SkillAPI   `yaml:"api" json:"api"`
+	Configurable    bool       `yaml:"configurable" json:"configurable"`
+	SkipUnknownKeys bool       `yaml:"skipUnknownKeys" json:"skipUnknownKeys"`
+	TransformOutput bool       `yaml:"transformOutput" json:"transformOutput"`
 }
 
 // SkillIcon defines how the skill icon should be displayed
