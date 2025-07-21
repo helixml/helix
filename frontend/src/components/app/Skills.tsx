@@ -288,8 +288,8 @@ const Skills: React.FC<SkillsProps> = ({
   const [missingProviders, setMissingProviders] = useState<string[]>([]);
   const [showWarning, setShowWarning] = useState(false);
 
-  const { data: oauthProviders, isLoading: isOAuthProvidersLoading } = useListOAuthProviders();
-  const { data: oauthConnections, isLoading: isOAuthConnectionsLoading } = useListOAuthConnections();
+  const { data: oauthProviders } = useListOAuthProviders();
+  const { data: oauthConnections } = useListOAuthConnections();
 
 
   // Check for missing OAuth providers whenever app.apiTools changes
