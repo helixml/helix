@@ -362,70 +362,6 @@ const Skills: React.FC<SkillsProps> = ({
     setShowWarning(missing.length > 0);
   }, [app.apiTools, oauthProviders, oauthConnections]);
 
-  // Convert custom APIs to skills
-  const customApiSkills = useMemo(() => {
-    if (!app.apiTools) return [];
-
-    // Filter out any API tools that match predefined skills
-    return app.apiTools
-      .filter(api => !BASE_SKILLS.some(skill => skill.name === api.name))
-      .map(api => {
-        // Determine category based on OAuth provider
-        let category = SKILL_CATEGORY_DATA;
-        if (api.oauth_provider) {
-          switch (api.oauth_provider.toLowerCase()) {
-            case 'google':
-              category = SKILL_CATEGORY_GOOGLE;
-              break;
-            case 'microsoft':
-              category = SKILL_CATEGORY_MICROSOFT;
-              break;
-            case 'github':
-              category = SKILL_CATEGORY_GITHUB;
-              break;
-            case 'slack':
-              category = SKILL_CATEGORY_SLACK;
-              break;
-            case 'linkedin':
-              category = SKILL_CATEGORY_LINKEDIN;
-              break;
-            case 'atlassian':
-              category = SKILL_CATEGORY_ATLASSIAN;
-              break;
-            default:
-              category = SKILL_CATEGORY_DATA;
-          }
-        }
-
-        return {
-          id: `custom-api-${api.name}`,
-          icon: <ApiIcon />,
-          name: api.name,
-          description: api.description,
-          type: SKILL_TYPE_HTTP_API,
-          category,
-          skill: {
-            name: api.name,
-            icon: <ApiIcon />,
-            description: api.description,
-            systemPrompt: api.system_prompt || '',
-            apiSkill: {
-              schema: api.schema,
-              url: api.url,
-              requiredParameters: [],
-              headers: api.headers || {},
-              query: api.query || {},
-              oauth_provider: api.oauth_provider || '',
-              oauth_scopes: api.oauth_scopes || [],
-              skip_unknown_keys: api.skip_unknown_keys || false,
-              transform_output: api.transform_output || false,
-            },
-            configurable: true,
-          },
-        };
-      });
-  }, [app.apiTools]);
-
   // Convert backend skills to frontend format
   const backendSkills = useMemo(() => {
     if (!backendSkillsResponse?.skills) return [];
@@ -508,6 +444,78 @@ const Skills: React.FC<SkillsProps> = ({
       } as ISkill;
     });
   }, [backendSkillsResponse]);
+
+  // Convert custom APIs to skills. This needs to filter out
+  // predefined skills and backend skills from the list as we 
+  // block certain things like changing configuration and also want
+  // to keep the branding/description.
+  const customApiSkills = useMemo(() => {
+    if (!app.apiTools) return [];
+
+    let predefinedSkills = BASE_SKILLS
+
+    // Add the backend skills into the list
+    predefinedSkills = [...predefinedSkills, ...backendSkills]
+
+    // Filter out any API tools that match predefined skills
+    return app.apiTools
+      .filter(api => !predefinedSkills.some(skill => skill.name === api.name))
+      .map(api => {
+        // Determine category based on OAuth provider
+        let category = SKILL_CATEGORY_DATA;
+        if (api.oauth_provider) {
+          switch (api.oauth_provider.toLowerCase()) {
+            case 'google':
+              category = SKILL_CATEGORY_GOOGLE;
+              break;
+            case 'microsoft':
+              category = SKILL_CATEGORY_MICROSOFT;
+              break;
+            case 'github':
+              category = SKILL_CATEGORY_GITHUB;
+              break;
+            case 'slack':
+              category = SKILL_CATEGORY_SLACK;
+              break;
+            case 'linkedin':
+              category = SKILL_CATEGORY_LINKEDIN;
+              break;
+            case 'atlassian':
+              category = SKILL_CATEGORY_ATLASSIAN;
+              break;
+            default:
+              category = SKILL_CATEGORY_DATA;
+          }
+        }
+
+        return {
+          id: `custom-api-${api.name}`,
+          icon: <ApiIcon />,
+          name: api.name,
+          description: api.description,
+          type: SKILL_TYPE_HTTP_API,
+          category,
+          skill: {
+            name: api.name,
+            icon: <ApiIcon />,
+            description: api.description,
+            systemPrompt: api.system_prompt || '',
+            apiSkill: {
+              schema: api.schema,
+              url: api.url,
+              requiredParameters: [],
+              headers: api.headers || {},
+              query: api.query || {},
+              oauth_provider: api.oauth_provider || '',
+              oauth_scopes: api.oauth_scopes || [],
+              skip_unknown_keys: api.skip_unknown_keys || false,
+              transform_output: api.transform_output || false,
+            },
+            configurable: true,
+          },
+        };
+      });
+  }, [app.apiTools, backendSkills]);
 
   // All skills are now shown to everyone
   const allSkills = useMemo(() => {
