@@ -408,6 +408,151 @@ spec:
                           type: string
                         state_reason:
                           type: string
+          patch:
+            summary: Update an issue
+            operationId: updateIssue
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: owner
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: repo
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: issue_number
+                in: path
+                required: true
+                schema:
+                  type: integer
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      title:
+                        type: string
+                        description: The title of the issue
+                      body:
+                        type: string
+                        description: The contents of the issue
+                      state:
+                        type: string
+                        enum: [open, closed]
+                        description: State of the issue
+                      assignees:
+                        type: array
+                        items:
+                          type: string
+                        description: Logins for Users to assign to this issue
+                      milestone:
+                        type: integer
+                        description: The number of the milestone to associate this issue with
+                      labels:
+                        type: array
+                        items:
+                          type: string
+                        description: Labels to associate with this issue
+            responses:
+              '200':
+                description: Issue updated
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        number:
+                          type: integer
+                        state:
+                          type: string
+                        title:
+                          type: string
+                        body:
+                          type: string
+                        user:
+                          type: object
+                          properties:
+                            login:
+                              type: string
+                            name:
+                              type: string
+                            type:
+                              type: string
+                        labels:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: integer
+                              name:
+                                type: string
+                              description:
+                                type: string
+                              color:
+                                type: string
+                              default:
+                                type: boolean
+                        assignee:
+                          type: object
+                          properties:
+                            login:
+                              type: string
+                            name:
+                              type: string
+                            type:
+                              type: string
+                        assignees:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              login:
+                                type: string
+                              name:
+                                type: string
+                              type:
+                                type: string
+                        locked:
+                          type: boolean
+                        active_lock_reason:
+                          type: string
+                        comments:
+                          type: integer
+                        pull_request:
+                          type: object
+                          properties:
+                            diff_url:
+                              type: string
+                            patch_url:
+                              type: string
+                        closed_at:
+                          type: string
+                        created_at:
+                          type: string
+                        updated_at:
+                          type: string
+                        closed_by:
+                          type: object
+                          properties:
+                            login:
+                              type: string
+                            name:
+                              type: string
+                            type:
+                              type: string
+                        author_association:
+                          type: string
+                        state_reason:
+                          type: string
         /repos/{owner}/{repo}/issues/{issue_number}/comments:
           get:
             summary: List issue comments
