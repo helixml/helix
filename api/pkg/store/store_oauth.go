@@ -251,7 +251,7 @@ func (s *PostgresStore) ListOAuthConnections(ctx context.Context, query *ListOAu
 		}
 	}
 
-	err := db.Find(&connections).Error
+	err := db.Preload("Provider").Find(&connections).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list OAuth connections: %w", err)
 	}
