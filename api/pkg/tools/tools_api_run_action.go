@@ -759,13 +759,6 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 		log.Warn().Msg("No OAuth tokens provided with request")
 	}
 
-	// Make the request
-	log.Info().
-		Str("tool", req.Tool.Name).
-		Str("action", req.Action).
-		Int("parameter_count", len(req.Parameters)).
-		Msg("API request prepared")
-
 	httpRequest, err := c.prepareRequest(ctx, req.Tool, req.Action, req.Parameters)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare request: %w", err)
