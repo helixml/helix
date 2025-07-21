@@ -1108,6 +1108,14 @@ type ToolAPIConfig struct {
 	ResponseSuccessTemplate string `json:"response_success_template" yaml:"response_success_template"` // Template for successful response, leave empty for default
 	ResponseErrorTemplate   string `json:"response_error_template" yaml:"response_error_template"`     // Template for error response, leave empty for default
 
+	// if true, unknown keys in the response body will be removed before
+	// returning to the agent for interpretation
+	SkipUnknownKeys bool `json:"skip_unknown_keys" yaml:"skip_unknown_keys"`
+
+	// Transform JSON into readable text to reduce the
+	// size of the response body
+	TransformOutput bool `json:"transform_output" yaml:"transform_output"`
+
 	// OAuth configuration
 	OAuthProvider string   `json:"oauth_provider" yaml:"oauth_provider"` // The name of the OAuth provider to use for authentication
 	OAuthScopes   []string `json:"oauth_scopes" yaml:"oauth_scopes"`     // Required OAuth scopes for this API
@@ -1157,6 +1165,13 @@ type AssistantAPI struct {
 	Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	Query       map[string]string `json:"query,omitempty" yaml:"query,omitempty"`
 	PathParams  map[string]string `json:"path_params,omitempty" yaml:"path_params,omitempty"`
+	// if true, unknown keys in the response body will be removed before
+	// returning to the agent for interpretation
+	SkipUnknownKeys bool `json:"skip_unknown_keys" yaml:"skip_unknown_keys"`
+
+	// Transform JSON into readable text to reduce the
+	// size of the response body
+	TransformOutput bool `json:"transform_output" yaml:"transform_output"`
 
 	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 

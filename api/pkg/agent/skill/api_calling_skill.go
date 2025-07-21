@@ -184,20 +184,26 @@ func (t *APICallingTool) OpenAI() []openai.Tool {
 		}
 	}
 
-	return []openai.Tool{
+	tool := []openai.Tool{
 		{
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        agent.SanitizeToolName(t.toolName),
 				Description: t.description,
-				Parameters: jsonschema.Definition{
-					Type:       jsonschema.Object,
-					Properties: properties,
-					Required:   required,
-				},
 			},
 		},
 	}
+
+	// Only set function parameters if we have any
+	if len(properties) > 0 {
+		tool[0].Function.Parameters = jsonschema.Definition{
+			Type:       jsonschema.Object,
+			Properties: properties,
+			Required:   required,
+		}
+	}
+
+	return tool
 }
 
 func (t *APICallingTool) Execute(ctx context.Context, meta agent.Meta, args map[string]interface{}) (string, error) {

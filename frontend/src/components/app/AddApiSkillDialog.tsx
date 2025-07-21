@@ -24,6 +24,8 @@ import {
   Chip,
   Tabs,
   Tab,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -209,6 +211,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
       requiredParameters: [],
       query: {},
       headers: {},
+      skip_unknown_keys: false,
+      transform_output: false,
     },
     configurable: true,
   });
@@ -270,6 +274,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
       // Find the existing tool in app.tools
       const existingTool = app.tools?.find(tool => tool.name === initialSkill.name);
       if (existingTool) {
+        console.log('xx existingTool', existingTool);
         setExistingTool(existingTool);
       }
     } else {
@@ -284,6 +289,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
           requiredParameters: [],
           query: {},
           headers: {},
+          skip_unknown_keys: false,
+          transform_output: false,
         },
         configurable: true,
       });
@@ -390,7 +397,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
     }
   };
 
-  const handleApiSkillChange = (field: string, value: string | Record<string, string>) => {
+  const handleApiSkillChange = (field: string, value: string | Record<string, string> | boolean) => {
     if (field === 'schema') {
       validateSchema(value as string);
     } else if (field === 'url') {
@@ -401,6 +408,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         setUrlError(null);
       }
     }
+    
     setSkill((prev) => ({
       ...prev,
       apiSkill: {
@@ -437,18 +445,6 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
       },
     }));
   };
-
-  const updateRequiredParameter = (index: number, field: string, value: string | boolean) => {
-    setSkill((prev) => ({
-      ...prev,
-      apiSkill: {
-        ...prev.apiSkill,
-        requiredParameters: prev.apiSkill.requiredParameters.map((param, i) =>
-          i === index ? { ...param, [field]: value } : param
-        ),
-      },
-    }));
-  };  
 
   const handleParameterValueChange = (name: string, value: string) => {
     setParameterValues((prev) => ({ ...prev, [name]: value }));
@@ -505,7 +501,9 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         headers: skill.apiSkill.headers || {},
         query: skill.apiSkill.query || {},
         oauth_provider: oauthProvider || undefined,
-        oauth_scopes: oauthScopes.filter(s => s.trim() !== '')
+        oauth_scopes: oauthScopes.filter(s => s.trim() !== ''),
+        skip_unknown_keys: skill.apiSkill.skip_unknown_keys,
+        transform_output: skill.apiSkill.transform_output,
       };
 
       // Go through required parameters based on parameter type add it to either
@@ -579,6 +577,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
         schema: example.schema,
         url: example.url,
         requiredParameters: [],
+        skip_unknown_keys: example.skip_unknown_keys,
+        transform_output: example.transform_output,
       },
       configurable: true,
     });
@@ -1009,6 +1009,62 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
             )}
           </Box>
 
+          {/* API Response Configuration */}
+          <Box sx={{ mt: 3, mb: 3 }}>
+            <Typography variant="h6" sx={{ mb: 2, color: '#F8FAFC' }}>
+              Response Configuration
+            </Typography>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={skill.apiSkill.skip_unknown_keys || false}
+                  onChange={(e) => handleApiSkillChange('skip_unknown_keys', e.target.checked)}
+                  sx={{
+                    color: '#6366F1',
+                    '&.Mui-checked': {
+                      color: '#6366F1',
+                    },
+                  }}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2" sx={{ color: '#F1F1F1', fontWeight: 500 }}>
+                    Skip unknown fields
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: '#A0AEC0' }}>
+                    Remove unknown keys from API response before returning to the agent
+                  </Typography>
+                </Box>
+              }
+              sx={{ mb: 2 }}
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={skill.apiSkill.transform_output || false}
+                  onChange={(e) => handleApiSkillChange('transform_output', e.target.checked)}
+                  sx={{
+                    color: '#6366F1',
+                    '&.Mui-checked': {
+                      color: '#6366F1',
+                    },
+                  }}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2" sx={{ color: '#F1F1F1', fontWeight: 500 }}>
+                    Transform output
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: '#A0AEC0' }}>
+                    Transform JSON response into readable text to reduce response size
+                  </Typography>
+                </Box>
+              }
+            />
+          </Box>
+
           <DarkTextField
             fullWidth
             label="OpenAPI Schema"
@@ -1267,6 +1323,8 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
               requiredParameters: [],
               query: {},
               headers: {},
+              skip_unknown_keys: false,
+              transform_output: false,
             },
             configurable: true,
           });

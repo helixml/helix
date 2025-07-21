@@ -27,7 +27,7 @@ import ApiIcon from '@mui/icons-material/Api';
 import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
-import { useSkills, convertBackendSkillToFrontend } from '../../hooks/useSkills';
+import { useSkills } from '../../hooks/useSkills';
 
 import { alphaVantageTool } from './examples/skillAlphaVantageApi';
 import { airQualityTool } from './examples/skillAirQualityApi';
@@ -35,16 +35,7 @@ import { exchangeRatesSkill } from './examples/skillExchangeRatesApi';
 import WebSearchSkill from './WebSearchSkill';
 import AzureDevOpsSkill from './AzureDevOpsSkill';
 
-// OAuth Provider Skills (now served from backend via API)
-// import { gmailTool } from './examples/skillGmailApi';
-// import { googleDriveTool } from './examples/skillGoogleDriveApi';
-// import { googleCalendarTool } from './examples/skillGoogleCalendarApi';
-// import { outlookTool } from './examples/skillOutlookApi';
-// import { oneDriveTool } from './examples/skillOneDriveApi';
-// import { slackTool } from './examples/skillSlackApi';
-// import { linkedInTool } from './examples/skillLinkedInApi';
-// import { atlassianTool } from './examples/skillAtlassianApi';
-// import { confluenceTool } from './examples/skillConfluenceApi';
+import { useListOAuthProviders, useListOAuthConnections } from '../../services/oauthProvidersService';
 
 // Interface for OAuth provider objects from the API
 interface OAuthProvider {
@@ -241,89 +232,6 @@ const BASE_SKILLS: ISkill[] = [
     category: SKILL_CATEGORY_DATA,
     skill: exchangeRatesSkill,
   },
-  // OAuth Provider Skills (now served from backend via API)
-  // GitHub skill migrated to backend: helix/api/pkg/skills/github.yaml
-  // {
-  //   id: 'gmail-api',
-  //   icon: gmailTool.icon,
-  //   name: gmailTool.name,
-  //   description: gmailTool.description,
-  //   type: SKILL_TYPE_HTTP_API,
-  //   category: SKILL_CATEGORY_GOOGLE,
-  //   skill: gmailTool,
-  // },
-  // {
-  //   id: 'google-drive-api',
-  //   icon: googleDriveTool.icon,
-  //   name: googleDriveTool.name,
-  //   description: googleDriveTool.description,
-  //   type: SKILL_TYPE_HTTP_API,
-  //   category: SKILL_CATEGORY_GOOGLE,
-  //   skill: googleDriveTool,
-  // },
-  // {
-  //   id: 'google-calendar-api',
-  //   icon: googleCalendarTool.icon,
-  //   name: googleCalendarTool.name,
-  //   description: googleCalendarTool.description,
-  //   type: SKILL_TYPE_HTTP_API,
-  //   category: SKILL_CATEGORY_GOOGLE,
-  //   skill: googleCalendarTool,
-  // },
-  // {
-  //   id: 'outlook-api',
-  //   icon: outlookTool.icon,
-  //   name: outlookTool.name,
-  //   description: outlookTool.description,
-  //   type: SKILL_TYPE_HTTP_API,
-  //   category: SKILL_CATEGORY_MICROSOFT,
-  //   skill: outlookTool,
-  // },
-  // {
-  //   id: 'onedrive-api',
-  //   icon: oneDriveTool.icon,
-  //   name: oneDriveTool.name,
-  //   description: oneDriveTool.description,
-  //   type: SKILL_TYPE_HTTP_API,
-  //   category: SKILL_CATEGORY_MICROSOFT,
-  //   skill: oneDriveTool,
-  // },
-  // {
-  //   id: 'slack-api',
-  //   icon: slackTool.icon,
-  //   name: slackTool.name,
-  //   description: slackTool.description,
-  //   type: SKILL_TYPE_HTTP_API,
-  //   category: SKILL_CATEGORY_SLACK,
-  //   skill: slackTool,
-  // },
-  // {
-  //   id: 'linkedin-api',
-  //   icon: linkedInTool.icon,
-  //   name: linkedInTool.name,
-  //   description: linkedInTool.description,
-  //   type: SKILL_TYPE_HTTP_API,
-  //   category: SKILL_CATEGORY_LINKEDIN,
-  //   skill: linkedInTool,
-  // },
-  // {
-  //   id: 'atlassian-api',
-  //   icon: atlassianTool.icon,
-  //   name: atlassianTool.name,
-  //   description: atlassianTool.description,
-  //   type: SKILL_TYPE_HTTP_API,
-  //   category: SKILL_CATEGORY_ATLASSIAN,
-  //   skill: atlassianTool,
-  // },
-  // {
-  //   id: 'confluence-api',
-  //   icon: confluenceTool.icon,
-  //   name: confluenceTool.name,
-  //   description: confluenceTool.description,
-  //   type: SKILL_TYPE_HTTP_API,
-  //   category: SKILL_CATEGORY_ATLASSIAN,
-  //   skill: confluenceTool,
-  // },
 ];
 
 const CUSTOM_API_SKILL: ISkill = {
@@ -377,35 +285,12 @@ const Skills: React.FC<SkillsProps> = ({
   const [skillToDisable, setSkillToDisable] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   
-  // OAuth warning state
-  const [oauthProviders, setOAuthProviders] = useState<OAuthProvider[]>([]);
-  const [oauthConnections, setOAuthConnections] = useState<OAuthConnection[]>([]);
   const [missingProviders, setMissingProviders] = useState<string[]>([]);
   const [showWarning, setShowWarning] = useState(false);
 
-  // Fetch OAuth providers and connections
-  useEffect(() => {
-    const fetchOAuthData = async () => {
-      try {
-        const [providersResponse, connectionsResponse] = await Promise.all([
-          api.get('/api/v1/oauth/providers'),
-          api.get('/api/v1/oauth/connections')
-        ]);
-        
-        const providers = Array.isArray(providersResponse) ? providersResponse : [];
-        const connections = Array.isArray(connectionsResponse) ? connectionsResponse : [];
-        
-        setOAuthProviders(providers);
-        setOAuthConnections(connections);
-      } catch (error) {
-        console.error('Error fetching OAuth data:', error);
-        setOAuthProviders([]);
-        setOAuthConnections([]);
-      }
-    };
+  const { data: oauthProviders } = useListOAuthProviders();
+  const { data: oauthConnections } = useListOAuthConnections();
 
-    fetchOAuthData();
-  }, []);
 
   // Check for missing OAuth providers whenever app.apiTools changes
   useEffect(() => {
@@ -430,93 +315,24 @@ const Skills: React.FC<SkillsProps> = ({
       return;
     }
 
-    const enabledProviderNames = new Set(
-      oauthProviders.filter(p => p.enabled).map(p => p.name)
-    );
-    
-    const connectedProviderNames = new Set(
-      oauthConnections.map(c => {
-        const provider = oauthProviders.find(p => p.id === c.providerId);
-        return provider?.name || '';
-      }).filter(name => name !== '')
-    );
-
     const missing: string[] = [];
     
-    requiredProviders.forEach(providerName => {
-      const isProviderEnabled = enabledProviderNames.has(providerName);
-      const isUserConnected = connectedProviderNames.has(providerName);
+    requiredProviders.forEach(providerType => {
+      const isProviderEnabled = oauthProviders?.find(p => p.type === providerType)?.enabled || false;
+      const isUserConnected = oauthConnections?.some(c => {
+
+        const connectedProvider = oauthProviders?.find(p => p.id === c.provider_id);
+        return connectedProvider?.type === providerType;
+      });
       
       if (!isProviderEnabled || !isUserConnected) {
-        missing.push(providerName);
+        missing.push(providerType);
       }
     });
 
     setMissingProviders(missing);
     setShowWarning(missing.length > 0);
   }, [app.apiTools, oauthProviders, oauthConnections]);
-
-  // Convert custom APIs to skills
-  const customApiSkills = useMemo(() => {
-    if (!app.apiTools) return [];
-
-    // Filter out any API tools that match predefined skills
-    return app.apiTools
-      .filter(api => !BASE_SKILLS.some(skill => skill.name === api.name))
-      .map(api => {
-        // Determine category based on OAuth provider
-        let category = SKILL_CATEGORY_DATA;
-        if (api.oauth_provider) {
-          switch (api.oauth_provider.toLowerCase()) {
-            case 'google':
-              category = SKILL_CATEGORY_GOOGLE;
-              break;
-            case 'microsoft':
-              category = SKILL_CATEGORY_MICROSOFT;
-              break;
-            case 'github':
-              category = SKILL_CATEGORY_GITHUB;
-              break;
-            case 'slack':
-              category = SKILL_CATEGORY_SLACK;
-              break;
-            case 'linkedin':
-              category = SKILL_CATEGORY_LINKEDIN;
-              break;
-            case 'atlassian':
-              category = SKILL_CATEGORY_ATLASSIAN;
-              break;
-            default:
-              category = SKILL_CATEGORY_DATA;
-          }
-        }
-
-        return {
-          id: `custom-api-${api.name}`,
-          icon: <ApiIcon />,
-          name: api.name,
-          description: api.description,
-          type: SKILL_TYPE_HTTP_API,
-          category,
-          skill: {
-            name: api.name,
-            icon: <ApiIcon />,
-            description: api.description,
-            systemPrompt: api.system_prompt || '',
-            apiSkill: {
-              schema: api.schema,
-              url: api.url,
-              requiredParameters: [],
-              headers: api.headers || {},
-              query: api.query || {},
-              oauth_provider: api.oauth_provider || '',
-              oauth_scopes: api.oauth_scopes || [],
-            },
-            configurable: true,
-          },
-        };
-      });
-  }, [app.apiTools]);
 
   // Convert backend skills to frontend format
   const backendSkills = useMemo(() => {
@@ -594,12 +410,86 @@ const Skills: React.FC<SkillsProps> = ({
             requiredParameters: [],
             oauth_provider: backendSkill.oauthProvider || '',
             oauth_scopes: backendSkill.oauthScopes || [],
+            skip_unknown_keys: backendSkill.skipUnknownKeys || false,
+            transform_output: backendSkill.transformOutput || false,
           },
-          configurable: backendSkill.configurable || false,
+          configurable: backendSkill.configurable || false,        
         },
       } as ISkill;
     });
   }, [backendSkillsResponse]);
+
+  // Convert custom APIs to skills. This needs to filter out
+  // predefined skills and backend skills from the list as we 
+  // block certain things like changing configuration and also want
+  // to keep the branding/description.
+  const customApiSkills = useMemo(() => {
+    if (!app.apiTools) return [];
+
+    let predefinedSkills = BASE_SKILLS
+
+    // Add the backend skills into the list
+    predefinedSkills = [...predefinedSkills, ...backendSkills]
+
+    // Filter out any API tools that match predefined skills
+    return app.apiTools
+      .filter(api => !predefinedSkills.some(skill => skill.name === api.name))
+      .map(api => {
+        // Determine category based on OAuth provider
+        let category = SKILL_CATEGORY_DATA;
+        if (api.oauth_provider) {
+          switch (api.oauth_provider.toLowerCase()) {
+            case 'google':
+              category = SKILL_CATEGORY_GOOGLE;
+              break;
+            case 'microsoft':
+              category = SKILL_CATEGORY_MICROSOFT;
+              break;
+            case 'github':
+              category = SKILL_CATEGORY_GITHUB;
+              break;
+            case 'slack':
+              category = SKILL_CATEGORY_SLACK;
+              break;
+            case 'linkedin':
+              category = SKILL_CATEGORY_LINKEDIN;
+              break;
+            case 'atlassian':
+              category = SKILL_CATEGORY_ATLASSIAN;
+              break;
+            default:
+              category = SKILL_CATEGORY_DATA;
+          }
+        }
+
+        return {
+          id: `custom-api-${api.name}`,
+          icon: <ApiIcon />,
+          name: api.name,
+          description: api.description,
+          type: SKILL_TYPE_HTTP_API,
+          category,
+          skill: {
+            name: api.name,
+            icon: <ApiIcon />,
+            description: api.description,
+            systemPrompt: api.system_prompt || '',
+            apiSkill: {
+              schema: api.schema,
+              url: api.url,
+              requiredParameters: [],
+              headers: api.headers || {},
+              query: api.query || {},
+              oauth_provider: api.oauth_provider || '',
+              oauth_scopes: api.oauth_scopes || [],
+              skip_unknown_keys: api.skip_unknown_keys || false,
+              transform_output: api.transform_output || false,
+            },
+            configurable: true,
+          },
+        };
+      });
+  }, [app.apiTools, backendSkills]);
 
   // All skills are now shown to everyone
   const allSkills = useMemo(() => {
@@ -784,7 +674,7 @@ const Skills: React.FC<SkillsProps> = ({
     // Check if this is an OAuth skill with disabled provider for regular users
     const oauthProvider = skill.skill.apiSkill?.oauth_provider;
     if (oauthProvider && !account.admin) {
-      const provider = oauthProviders.find(p => p.name === oauthProvider);
+      const provider = oauthProviders?.find(p => p.name === oauthProvider);
       if (!provider || !provider.enabled) {
         // Show OAuth provider dialog for regular users
         setSelectedOAuthProvider(oauthProvider);
@@ -1147,10 +1037,10 @@ const Skills: React.FC<SkillsProps> = ({
           </Typography>
           <Box sx={{ mb: 1 }}>
             {missingProviders.map((providerName, index) => {
-              const provider = oauthProviders.find(p => p.name === providerName);
+              const provider = oauthProviders?.find(p => p.name === providerName);
               const isProviderEnabled = provider?.enabled || false;
-              const isUserConnected = oauthConnections.some(c => {
-                const connectedProvider = oauthProviders.find(p => p.id === c.providerId);
+              const isUserConnected = oauthConnections?.some(c => {
+                const connectedProvider = oauthProviders?.find(p => p.id === c.provider_id);
                 return connectedProvider?.name === providerName;
               });
 
@@ -1182,7 +1072,7 @@ const Skills: React.FC<SkillsProps> = ({
           </Box>
           <Typography variant="body2">
             {missingProviders.some(name => {
-              const provider = oauthProviders.find(p => p.name === name);
+              const provider = oauthProviders?.find(p => p.name === name);
               return !provider?.enabled;
             }) && (
               <>
@@ -1212,11 +1102,11 @@ const Skills: React.FC<SkillsProps> = ({
           const isCustomApiTile = skill.id === 'new-custom-api';
           
           // Check OAuth provider status for this skill (admin-only warnings)
-          const oauthProvider = skill.skill.apiSkill?.oauth_provider;
-          const provider = oauthProvider ? oauthProviders.find(p => p.name === oauthProvider) : null;
-          const isOAuthSkill = !!oauthProvider;
-          const isProviderDisabled = isOAuthSkill && (!provider || !provider.enabled);
-          const showProviderWarning = isOAuthSkill && isProviderDisabled && account.admin;
+          // const oauthProvider = skill.skill.apiSkill?.oauth_provider;
+          // const provider = oauthProvider ? oauthProviders.find(p => p.name === oauthProvider) : null;
+          // const isOAuthSkill = !!oauthProvider;
+          // const isProviderDisabled = isOAuthSkill && (!provider || !provider.enabled);
+          // const showProviderWarning = isOAuthSkill && isProviderDisabled && account.admin;
           
           return (
             <Grid item xs={12} sm={6} md={4} lg={3} key={skill.id}>
@@ -1324,7 +1214,7 @@ const Skills: React.FC<SkillsProps> = ({
                       {getFirstLine(skill.description)}
                     </Typography>
                     
-                    {/* OAuth Provider Warning for Admins */}
+                    {/* OAuth Provider Warning for Admins
                     {showProviderWarning && (
                       <Box sx={{ mt: 2 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
@@ -1356,7 +1246,7 @@ const Skills: React.FC<SkillsProps> = ({
                           Configure Provider
                         </Button>
                       </Box>
-                    )}
+                    )} */}
                   </CardContent>
                   <CardActions sx={{ justifyContent: 'center', px: 2, pb: 2 }}>
                     {isEnabled ? (
