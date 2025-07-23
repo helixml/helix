@@ -24,6 +24,7 @@ interface AddProviderDialogProps {
   open: boolean;
   onClose: () => void;
   onClosed?: () => void;
+  orgId: string;
   provider: {
     id: string;
     name: string;
@@ -62,6 +63,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
   onClosed,
   provider,
   existingProvider,
+  orgId,
 }) => {
   const lightTheme = useLightTheme();
   const [error, setError] = useState<string | null>(null);
@@ -130,6 +132,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           api_key: apiKeyToUse,
           endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
           description: provider.description,
+          organization_id: orgId || '',
         });
         snackbarSuccess('Provider updated successfully');
       } else {
@@ -140,6 +143,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           api_key: apiKey,
           endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
           description: provider.description,
+          organization_id: orgId || '',
         });
         snackbarSuccess('Provider connected successfully');
       }
