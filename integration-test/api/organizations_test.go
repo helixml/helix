@@ -42,7 +42,6 @@ func (suite *OrganizationsTestSuite) SetupTest() {
 		KeycloakFrontEndURL: keycloakCfg.KeycloakFrontEndURL,
 		ServerURL:           keycloakCfg.ServerURL,
 		APIClientID:         keycloakCfg.APIClientID,
-		FrontEndClientID:    keycloakCfg.FrontEndClientID,
 		AdminRealm:          keycloakCfg.AdminRealm,
 		Realm:               keycloakCfg.Realm,
 		Username:            keycloakCfg.Username,

@@ -298,7 +298,6 @@ func (suite *KeycloakTestSuite) TestErrorHandling() {
 			KeycloakFrontEndURL: suite.auth.cfg.KeycloakFrontEndURL,
 			ServerURL:           suite.auth.cfg.ServerURL,
 			APIClientID:         suite.auth.cfg.APIClientID,
-			FrontEndClientID:    suite.auth.cfg.FrontEndClientID,
 			AdminRealm:          "invalid-realm",
 			Realm:               "invalid-realm",
 			Username:            suite.auth.cfg.Username,
