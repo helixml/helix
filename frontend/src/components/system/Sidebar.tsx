@@ -8,8 +8,6 @@ import Divider from '@mui/material/Divider'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import IconButton from '@mui/material/IconButton'
-import Tabs from '@mui/material/Tabs'
-import Tab from '@mui/material/Tab'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemText from '@mui/material/ListItemText'
@@ -21,19 +19,15 @@ import LogoutIcon from '@mui/icons-material/Logout'
 import PolylineIcon from '@mui/icons-material/Polyline';
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import AppsIcon from '@mui/icons-material/Apps'
-import AlarmIcon from '@mui/icons-material/Alarm'
 import CodeIcon from '@mui/icons-material/Code'
 import AddIcon from '@mui/icons-material/Add'
-import PsychologyIcon from '@mui/icons-material/Psychology'
-import AssignmentIcon from '@mui/icons-material/Assignment'
 
 import TokenUsageDisplay from './TokenUsageDisplay'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
-import useApps from '../../hooks/useApps'
+// import useApps from '../../hooks/useApps'
 import useSessions from '../../hooks/useSessions'
 import useApi from '../../hooks/useApi'
 import SlideMenuContainer from './SlideMenuContainer'
@@ -110,21 +104,20 @@ const SidebarContent: React.FC<{
   const router = useRouter()
   const api = useApi()
   const account = useAccount()
-  const apps = useApps()
   const sessions = useSessions()
-  const activeTab = useMemo(() => {
-    // Always respect resource_type if it's present
-    const activeIndex = RESOURCE_TYPES.findIndex((type) => type == router.params.resource_type)
-    if (activeIndex >= 0) return activeIndex
-    // If no resource_type specified but app_id is present, default to apps tab
-    if (router.params.app_id) {
-      return RESOURCE_TYPES.findIndex(type => type === 'apps')
-    }
-    // Default to first tab (chats)
-    return 0
-  }, [
-    router.params,
-  ])
+  // const activeTab = useMemo(() => {
+  //   // Always respect resource_type if it's present
+  //   const activeIndex = RESOURCE_TYPES.findIndex((type) => type == router.params.resource_type)
+  //   if (activeIndex >= 0) return activeIndex
+  //   // If no resource_type specified but app_id is present, default to apps tab
+  //   if (router.params.app_id) {
+  //     return RESOURCE_TYPES.findIndex(type => type === 'apps')
+  //   }
+  //   // Default to first tab (chats)
+  //   return 0
+  // }, [
+  //   router.params,
+  // ])
 
   const apiClient = api.getApiClient()
 
@@ -135,42 +128,22 @@ const SidebarContent: React.FC<{
         const authResponse = await apiClient.v1AuthAuthenticatedList()
         if (!authResponse.data.authenticated) {
           return
-        }
-        
-        const currentResourceType = RESOURCE_TYPES[activeTab]
-        
-        // Make sure the URL reflects the correct resource type
-        const urlResourceType = router.params.resource_type || 'chat'
-        
-        // If there's a mismatch between activeTab and URL resource_type, update the URL
-        if (currentResourceType !== urlResourceType) {
-          // Create a copy of the params with the correct resource_type
-          const newParams = { ...router.params } as Record<string, string>;
-          newParams.resource_type = currentResourceType;
-          
-          // If switching to chat tab, remove app_id if present
-          if (currentResourceType === 'chat' && router.params.app_id) {
-            delete newParams.app_id;
-          }
-          
-          // Update the URL without triggering a reload
-          router.replaceParams(newParams)
-        }
+        }              
         
         // Load the appropriate content for the tab
-        if (currentResourceType === 'apps') {
-          apps.loadApps()
-        } else if (currentResourceType === 'chat') {
+        // if (currentResourceType === 'apps') {
+          // apps.loadApps()
+        // } else if (currentResourceType === 'chat') {
           // Load sessions/chats when on the chat tab
-          sessions.loadSessions()
-        }
+        sessions.loadSessions()
+        // }
       } catch (error) {
         console.error('[SIDEBAR] Error checking authentication:', error)
       }
     }
 
     checkAuthAndLoad()
-  }, [activeTab, router.params])  
+  }, [router.params])  
   
   const [accountMenuAnchorEl, setAccountMenuAnchorEl] = useState<null | HTMLElement>(null)
 
@@ -194,80 +167,9 @@ const SidebarContent: React.FC<{
     postNavigateTo()
   }
 
-  const orgNavigateTo = (path: string, params: Record<string, any> = {}) => {
-    // Check if this is navigation to an org page
-    if (path.startsWith('org_') || (params && params.org_id)) {
-      // If moving from a non-org page to an org page
-      if (router.meta.menu !== 'orgs') {
-        const currentResourceType = router.params.resource_type || 'chat'
-        
-        // Store pending animation to be picked up by the orgs menu when it mounts
-        localStorage.setItem('pending_animation', JSON.stringify({
-          from: currentResourceType,
-          to: 'orgs',
-          direction: 'right',
-          isOrgSwitch: true
-        }))
-        
-        // Navigate immediately without waiting
-        account.orgNavigate(path, params)
-        postNavigateTo()
-        return
-      }
-    } else {
-      // If moving from an org page to a non-org page
-      if (router.meta.menu === 'orgs') {
-        const currentResourceType = router.params.resource_type || 'chat'
-        
-        // Store pending animation to be picked up when the destination menu mounts
-        localStorage.setItem('pending_animation', JSON.stringify({
-          from: 'orgs',
-          to: currentResourceType,
-          direction: 'left',
-          isOrgSwitch: true
-        }))
-        
-        // Navigate immediately without waiting
-        account.orgNavigate(path, params)
-        postNavigateTo()
-        return
-      }
-    }
-
-    // Otherwise, navigate normally without animation
-    account.orgNavigate(path, params)
-    postNavigateTo()
-  }
-
-  // Handle tab change between CHATS and APPS
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    // For other cases (apps tab), proceed with normal parameter updates
-    // Create a new params object with all existing params except resource_type
-    const newParams: Record<string, any> = {
-      ...router.params
-    };
-    
-    // Update resource_type
-    newParams.resource_type = RESOURCE_TYPES[newValue];
-    
-    // If switching to chat tab, remove app_id if present
-    if (RESOURCE_TYPES[newValue] === 'chat' && newParams.app_id) {
-      delete newParams.app_id;
-    }
-    
-    // Use a more forceful navigation method instead of just merging params
-    // This will trigger a full route change
-    router.navigate(router.name, newParams);
-  }
-
   // Handle creating new chat or app based on active tab
   const handleCreateNew = () => {
-    const resourceType = RESOURCE_TYPES[activeTab]
-    if (resourceType === 'chat') {
-      account.orgNavigate('home')
-    } else if (resourceType === 'apps') {
-      account.orgNavigate('new-agent')
-    }
+    account.orgNavigate('home')
   }
 
   return (
@@ -292,44 +194,7 @@ const SidebarContent: React.FC<{
         >
           {
             showTopLinks && (
-              <List disablePadding>
-                {/* Tabs for CHATS and APPS */}
-                <Box sx={{ width: '100%', borderBottom: 1, borderColor: 'divider' }}>
-                  <Tabs 
-                    value={activeTab} 
-                    onChange={handleTabChange}
-                    aria-label="content tabs"
-                    sx={{ 
-                      '& .MuiTab-root': {
-                        minWidth: 'auto',
-                        flex: 1,
-                        color: lightTheme.textColorFaded,
-                        fontSize: '16px',
-                      },
-                      '& .Mui-selected': {
-                        color: '#00E5FF',
-                        fontWeight: 'bold',
-                      },
-                      '& .MuiTabs-indicator': {
-                        backgroundColor: '#00E5FF',
-                        height: 3,
-                      },
-                    }}
-                  >
-                    <Tab 
-                      key="chat" 
-                      label="Chat" 
-                      id="tab-chat"
-                      aria-controls="tabpanel-chat"
-                    />
-                    <Tab 
-                      key="apps" 
-                      label="Agents" 
-                      id="tab-apps"
-                      aria-controls="tabpanel-apps"
-                    />
-                  </Tabs>
-                </Box>
+              <List disablePadding>    
                 
                 {/* New resource creation button */}
                 <ListItem
@@ -350,13 +215,9 @@ const SidebarContent: React.FC<{
                     <ListItemText
                       sx={{
                         ml: 2,
-                        p: 1,
+                        pl: 1,
                       }}
-                      primary={
-                        RESOURCE_TYPES[activeTab] === 'apps' 
-                          ? 'New Agent' 
-                          : `New ${RESOURCE_TYPES[activeTab].replace(/^\w/, (c) => c.toUpperCase())}`
-                      }
+                      primary={`New Chat`}
                       primaryTypographyProps={{
                         fontWeight: 'bold',
                         color: '#FFFFFF',

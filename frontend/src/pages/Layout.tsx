@@ -10,7 +10,6 @@ import Collapse from '@mui/material/Collapse'
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
 import OrgsSidebarMenu from '../components/orgs/OrgsSidebarMenu'
-import AppsMenu from '../components/apps/AppsMenu'
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
 import Window from '../components/widgets/Window'
@@ -151,14 +150,14 @@ const Layout: FC<{
       setIsAuthenticated(true)
 
       // Store the current resource type for later use
-      if (resourceType) {
-        localStorage.setItem('last_resource_type', resourceType)      
+      // if (resourceType) {
+        // localStorage.setItem('last_resource_type', resourceType)      
         
         // Ensure the appropriate content is loaded
-        if (resourceType === 'apps') {
-          apps.loadApps()
-        }
-      } 
+        // if (resourceType === 'apps') {
+          // apps.loadApps()
+        // }
+      // } 
     }
     checkAuthAndLoad()
   }, [resourceType])
@@ -169,14 +168,6 @@ const Layout: FC<{
     if(router.meta.menu == 'orgs') {
       sidebarMenu = (
         <OrgsSidebarMenu
-        />
-      )
-    } else if(resourceType === 'apps' && isAuthenticated) {
-      sidebarMenu = (
-        <AppsMenu
-          onOpenApp={ () => {
-            account.setMobileMenuOpen(false)
-          }}
         />
       )
     } else {
