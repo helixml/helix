@@ -20,8 +20,43 @@ interface UserOrgSelectorProps {
 
 const AVATAR_SIZE = 40
 const TILE_SIZE = 40
-
 const NAV_BUTTON_SIZE = 22
+
+// Reusable navigation button component
+interface NavButtonProps {
+  icon: React.ReactNode
+  tooltip: string
+  isActive: boolean
+  onClick: () => void
+}
+
+const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick }) => (
+  <Tooltip title={tooltip} placement="right">
+    <Box
+      onClick={onClick}
+      sx={{
+        mt: 1,              
+        width: AVATAR_SIZE,
+        height: AVATAR_SIZE,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        color: isActive ? '#00E5FF' : '#A0AEC0',
+        backgroundColor: isActive ? 'rgba(0, 229, 255, 0.1)' : 'transparent',
+        borderRadius: 1,
+        '&:hover': {
+          color: '#00E5FF',
+          transform: 'scale(1.1)',
+          backgroundColor: isActive ? 'rgba(0, 229, 255, 0.15)' : 'rgba(0, 229, 255, 0.1)',
+        },
+        transition: 'all 0.2s ease-in-out',
+      }}
+    >
+      {icon}
+    </Box>
+  </Tooltip>
+)
 
 const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
   const account = useAccount()
@@ -34,6 +69,11 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
   const currentOrg = account.organizationTools.organization
   const currentOrgId = account.organizationTools.organization?.id || 'default'
   const organizations = account.organizationTools.organizations
+
+  const isActive = (path: string) => {
+    const routeName = router.name
+    return routeName === path || routeName === 'org_' + path    
+  }
 
   const listOrgs = useMemo(() => {
     if (!account.user) return []
@@ -140,6 +180,28 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
     postNavigateTo()
   }
 
+  // Navigation buttons configuration
+  const navigationButtons = useMemo(() => [
+    {
+      icon: <House size={NAV_BUTTON_SIZE} />,
+      tooltip: "Go to home",
+      isActive: isActive('home'),
+      onClick: handleHomeClick,
+    },
+    {
+      icon: <LayoutGrid size={NAV_BUTTON_SIZE} />,
+      tooltip: "View agents",
+      isActive: isActive('apps'),
+      onClick: () => orgNavigateTo('apps'),
+    },
+    {
+      icon: <AlarmClock size={NAV_BUTTON_SIZE} />,
+      tooltip: "View tasks",
+      isActive: isActive('tasks'),
+      onClick: () => orgNavigateTo('tasks'),
+    },
+  ], [isActive])
+
   // Create the collapsed icon with multiple tiles
   const renderCollapsedIcon = () => {
     const tiles = []
@@ -237,78 +299,16 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
           {renderCollapsedIcon()}
         </Tooltip>              
 
-        <Tooltip title="Go to home" placement="right">
-          <Box
-            onClick={handleHomeClick}
-            sx={{
-              mt: 1,              
-              width: AVATAR_SIZE,
-              height: AVATAR_SIZE,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              color: '#A0AEC0',
-              '&:hover': {
-                color: '#00E5FF',
-                transform: 'scale(1.1)',
-              },
-              transition: 'all 0.2s ease-in-out',
-            }}
-          >
-            <House size={NAV_BUTTON_SIZE} />
-          </Box>
-        </Tooltip>
-
-        <Tooltip title="View agents" placement="right">
-          <Box
-            onClick={ () => {
-              orgNavigateTo('apps')
-            }}
-            sx={{
-              mt: 1,              
-              width: AVATAR_SIZE,
-              height: AVATAR_SIZE,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              color: '#A0AEC0',
-              '&:hover': {
-                color: '#00E5FF',
-                transform: 'scale(1.1)',
-              },
-              transition: 'all 0.2s ease-in-out',
-            }}
-          >
-            <LayoutGrid size={NAV_BUTTON_SIZE} />
-          </Box>
-        </Tooltip>
-
-        <Tooltip title="View tasks" placement="right">
-          <Box
-            onClick={ () => {
-              orgNavigateTo('tasks')
-            }}
-            sx={{
-              mt: 1,              
-              width: AVATAR_SIZE,
-              height: AVATAR_SIZE,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              color: '#A0AEC0',
-              '&:hover': {
-                color: '#00E5FF',
-                transform: 'scale(1.1)',
-              },
-              transition: 'all 0.2s ease-in-out',
-            }}
-          >
-            <AlarmClock size={NAV_BUTTON_SIZE} />
-          </Box>
-        </Tooltip>
+        {/* Render navigation buttons */}
+        {navigationButtons.map((button, index) => (
+          <NavButton
+            key={index}
+            icon={button.icon}
+            tooltip={button.tooltip}
+            isActive={button.isActive}
+            onClick={button.onClick}
+          />
+        ))}
       </Box>
 
       <Popover
