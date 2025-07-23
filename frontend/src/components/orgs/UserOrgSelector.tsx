@@ -1,17 +1,14 @@
 import React, { FC, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
-import Avatar from '@mui/material/Avatar'
 import Divider from '@mui/material/Divider'
 import Tooltip from '@mui/material/Tooltip'
 import AddIcon from '@mui/icons-material/Add'
 import Popover from '@mui/material/Popover'
-import DialogTitle from '@mui/material/DialogTitle'
 import DialogContent from '@mui/material/DialogContent'
-import IconButton from '@mui/material/IconButton'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
-import CloseIcon from '@mui/icons-material/Close'
-import DarkDialog from '../dialog/DarkDialog'
+
+import { House } from 'lucide-react';
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
@@ -84,6 +81,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
   const handleIconClick = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget)
     setDialogOpen(true)
+  }
+
+  const handleHomeClick = () => {
+    const isDefault = currentOrgId === 'default'
+    const routeName = isDefault ? 'home' : 'org_home'
+    const useParams = isDefault ? {} : { org_id: currentOrgId }
+    router.navigate(routeName, useParams)
   }
 
   // Create the collapsed icon with multiple tiles
@@ -176,11 +180,34 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
           gap: 1.5,
           py: 2,
           mt: 0.5,
-          minHeight: '100%',
+          // minHeight: '100%',
         }}
       >
         <Tooltip title="Switch organization" placement="right">
           {renderCollapsedIcon()}
+        </Tooltip>
+        
+        <Tooltip title="Go to home" placement="right">
+          <Box
+            onClick={handleHomeClick}
+            sx={{
+              mt: 1,              
+              width: AVATAR_SIZE,
+              height: AVATAR_SIZE,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              color: '#A0AEC0',
+              '&:hover': {
+                color: '#00E5FF',
+                transform: 'scale(1.1)',
+              },
+              transition: 'all 0.2s ease-in-out',
+            }}
+          >
+            <House size={26} />
+          </Box>
         </Tooltip>
       </Box>
 
