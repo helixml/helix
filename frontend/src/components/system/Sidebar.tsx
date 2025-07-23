@@ -507,25 +507,6 @@ const SidebarContent: React.FC<{
                       open={Boolean(accountMenuAnchorEl)}
                       onClose={() => setAccountMenuAnchorEl(null)}
                     >                      
-                      
-                      <MenuItem onClick={ () => {
-                        orgNavigateTo('apps')
-                      }}>
-                        <ListItemIcon>
-                          <AppsIcon fontSize="small" />
-                        </ListItemIcon> 
-                        Agents
-                      </MenuItem>
-
-                      <MenuItem onClick={ () => {
-                        orgNavigateTo('tasks')
-                      }}>
-                        <ListItemIcon>
-                          <AlarmIcon fontSize="small" />
-                        </ListItemIcon> 
-                        Tasks
-                      </MenuItem>
-
 
                       <MenuItem onClick={ () => {
                         navigateTo('account')
@@ -544,19 +525,6 @@ const SidebarContent: React.FC<{
                         </ListItemIcon> 
                         Connected Services
                       </MenuItem>
-
-                      <MenuItem onClick={ () => {
-                        navigateTo('user-providers')
-                      }}>
-                        <ListItemIcon>
-                          <PsychologyIcon fontSize="small" />
-                        </ListItemIcon> 
-                        AI Providers
-                      </MenuItem>
-
-                      {/* Divider */}
-                      <Divider />
-
 
                       <MenuItem onClick={ () => {
                         navigateTo('api-reference')
