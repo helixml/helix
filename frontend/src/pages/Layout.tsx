@@ -242,9 +242,8 @@ const Layout: FC<{
               <Box sx={{ display: 'flex', flexDirection: 'row', height: '100%', width: '100%' }}>
                 {account.user && account.organizationTools.organizations.length > 0 && (
                   <Box
-                    sx={{
-                      background: 'linear-gradient(180deg, #181828 0%, #1a1a2f 100%)',
-                      borderRight: '1px solid #23234a',
+                    sx={{                      
+                      borderRight: lightTheme.border,
                       minWidth: 64,
                       width: 64,
                       maxWidth: 64,
