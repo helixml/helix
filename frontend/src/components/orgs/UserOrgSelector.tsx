@@ -8,7 +8,7 @@ import DialogContent from '@mui/material/DialogContent'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 
-import { AlarmClock, House } from 'lucide-react';
+import { AlarmClock, House, LayoutGrid } from 'lucide-react';
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
@@ -257,6 +257,31 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
             }}
           >
             <House size={NAV_BUTTON_SIZE} />
+          </Box>
+        </Tooltip>
+
+        <Tooltip title="View agents" placement="right">
+          <Box
+            onClick={ () => {
+              orgNavigateTo('apps')
+            }}
+            sx={{
+              mt: 1,              
+              width: AVATAR_SIZE,
+              height: AVATAR_SIZE,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              color: '#A0AEC0',
+              '&:hover': {
+                color: '#00E5FF',
+                transform: 'scale(1.1)',
+              },
+              transition: 'all 0.2s ease-in-out',
+            }}
+          >
+            <LayoutGrid size={NAV_BUTTON_SIZE} />
           </Box>
         </Tooltip>
 
