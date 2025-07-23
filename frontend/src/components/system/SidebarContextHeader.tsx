@@ -147,10 +147,7 @@ const SidebarContextHeader: React.FC = () => {
           <>
             <MenuItem onClick={handleAccountSettings}>
               Settings
-            </MenuItem>
-            <MenuItem onClick={handleCreateOrganization}>
-              Add new organization
-            </MenuItem>
+            </MenuItem>            
           </>
         )}
       </Menu>
