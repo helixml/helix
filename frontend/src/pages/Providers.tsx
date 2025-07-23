@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState,useMemo } from 'react';
 import { Box, Grid, Card, CardHeader, CardContent, CardActions, Avatar, Typography, Button, Tooltip } from '@mui/material';
 import Container from '@mui/material/Container';
 import Page from '../components/system/Page';
@@ -7,21 +7,28 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import AddProviderDialog from '../components/providers/AddProviderDialog';
 
 import { useListProviders } from '../services/providersService';
+import { useGetOrgByName } from '../services/orgService';
 
 import { PROVIDERS, Provider } from '../components/providers/types';
+import useRouter from '../hooks/useRouter';
+
 
 interface ProviderConfig {
   apiKey: string;
 }
 
-type ProviderConfigs = Record<string, ProviderConfig>;
-
 const Providers: React.FC = () => {
-  const [configs, setConfigs] = useState<ProviderConfigs>({});
+  const router = useRouter()
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders(false);
+  const orgName = router.params.org_id
+
+  // Get org if orgName is set  
+  const { data: org, isLoading: isLoadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
+
+  // Get provider endpoints
+  const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders(false, org?.id, !isLoadingOrg);
 
   const handleOpenDialog = (provider: Provider) => {
     setSelectedProvider(provider);
@@ -121,6 +128,7 @@ const Providers: React.FC = () => {
         </Grid>
         {selectedProvider && (
           <AddProviderDialog
+            orgId={org?.id || ''}
             open={dialogOpen}
             onClose={handleCloseDialog}
             provider={selectedProvider}
