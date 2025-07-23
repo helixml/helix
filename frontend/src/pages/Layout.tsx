@@ -9,6 +9,7 @@ import Collapse from '@mui/material/Collapse'
 
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
+
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
 import Window from '../components/widgets/Window'
@@ -146,7 +147,7 @@ const Layout: FC<{
       if (!authResponse.data.authenticated) {
         return
       }
-      setIsAuthenticated(true)
+      setIsAuthenticated(true) 
     }
     checkAuthAndLoad()
   }, [resourceType])
@@ -235,7 +236,6 @@ const Layout: FC<{
                 <Box sx={{ flex: 1, minWidth: 0, height: '100%' }}>
                   <SlideMenuWrapper>
                     <Sidebar
-                      showTopLinks={ !isOrgMenu }
                     >
                       { sidebarMenu }
                     </Sidebar>
