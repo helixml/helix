@@ -28,32 +28,51 @@ interface NavButtonProps {
   tooltip: string
   isActive: boolean
   onClick: () => void
+  label: string
 }
 
-const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick }) => (
+const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick, label }) => (
   <Tooltip title={tooltip} placement="right">
     <Box
       onClick={onClick}
       sx={{
         mt: 1,              
-        width: AVATAR_SIZE,
-        height: AVATAR_SIZE,
+        width: AVATAR_SIZE + 8,
+        height: AVATAR_SIZE + 8,
         display: 'flex',
+        flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
         cursor: 'pointer',
         color: isActive ? '#00E5FF' : '#A0AEC0',
-        backgroundColor: isActive ? 'rgba(0, 229, 255, 0.1)' : 'transparent',
+        backgroundColor: isActive ? 'rgba(0, 229, 255, 0.15)' : 'transparent',
         borderRadius: 1,
+        border: isActive ? '1px solid rgba(0, 229, 255, 0.3)' : '1px solid transparent',
+        transform: isActive ? 'scale(1.05)' : 'scale(1)',
         '&:hover': {
           color: '#00E5FF',
-          transform: 'scale(1.1)',
-          backgroundColor: isActive ? 'rgba(0, 229, 255, 0.15)' : 'rgba(0, 229, 255, 0.1)',
+          transform: isActive ? 'scale(1.08)' : 'scale(1.1)',
+          backgroundColor: isActive ? 'rgba(0, 229, 255, 0.2)' : 'rgba(0, 229, 255, 0.1)',
         },
-        transition: 'all 0.2s ease-in-out',
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
       }}
     >
-      {icon}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {icon}
+      </Box>
+      <Typography
+        variant="caption"
+        sx={{
+          fontSize: '0.65rem',
+          color: isActive ? '#00E5FF' : '#6B7280',
+          textAlign: 'center',
+          lineHeight: 1,
+          mt: 0.8,
+          fontWeight: isActive ? 'bold' : 'normal',
+        }}
+      >
+        {label}
+      </Typography>
     </Box>
   </Tooltip>
 )
@@ -187,24 +206,28 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
       tooltip: "Go to home",
       isActive: isActive('home'),
       onClick: handleHomeClick,
+      label: "Home",
     },
     {
       icon: <LayoutGrid size={NAV_BUTTON_SIZE} />,
       tooltip: "View agents",
       isActive: isActive('apps'),
       onClick: () => orgNavigateTo('apps'),
+      label: "Agents",
     },
     {
       icon: <AlarmClock size={NAV_BUTTON_SIZE} />,
       tooltip: "View tasks",
       isActive: isActive('tasks'),
       onClick: () => orgNavigateTo('tasks'),
+      label: "Tasks",
     },
     {
       icon: <Server size={NAV_BUTTON_SIZE} />,
       tooltip: "View model providers",
       isActive: isActive('user-providers'),
       onClick: () => orgNavigateTo('user-providers'),
+      label: "Providers",
     },
   ], [isActive])
 
@@ -313,6 +336,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
             tooltip={button.tooltip}
             isActive={button.isActive}
             onClick={button.onClick}
+            label={button.label}
           />
         ))}
       </Box>
