@@ -8,7 +8,7 @@ import DialogContent from '@mui/material/DialogContent'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 
-import { House } from 'lucide-react';
+import { AlarmClock, House } from 'lucide-react';
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
@@ -21,10 +21,11 @@ interface UserOrgSelectorProps {
 const AVATAR_SIZE = 40
 const TILE_SIZE = 40
 
+const NAV_BUTTON_SIZE = 22
+
 const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
   const account = useAccount()
   const router = useRouter()
-  const lightTheme = useLightTheme()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
   
@@ -88,6 +89,55 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
     const routeName = isDefault ? 'home' : 'org_home'
     const useParams = isDefault ? {} : { org_id: currentOrgId }
     router.navigate(routeName, useParams)
+  }
+
+  const postNavigateTo = () => {
+    account.setMobileMenuOpen(false)    
+  }
+
+  const orgNavigateTo = (path: string, params: Record<string, any> = {}) => {
+    // Check if this is navigation to an org page
+    if (path.startsWith('org_') || (params && params.org_id)) {
+      // If moving from a non-org page to an org page
+      if (router.meta.menu !== 'orgs') {
+        const currentResourceType = router.params.resource_type || 'chat'
+        
+        // Store pending animation to be picked up by the orgs menu when it mounts
+        localStorage.setItem('pending_animation', JSON.stringify({
+          from: currentResourceType,
+          to: 'orgs',
+          direction: 'right',
+          isOrgSwitch: true
+        }))
+        
+        // Navigate immediately without waiting
+        account.orgNavigate(path, params)
+        postNavigateTo()
+        return
+      }
+    } else {
+      // If moving from an org page to a non-org page
+      if (router.meta.menu === 'orgs') {
+        const currentResourceType = router.params.resource_type || 'chat'
+        
+        // Store pending animation to be picked up when the destination menu mounts
+        localStorage.setItem('pending_animation', JSON.stringify({
+          from: 'orgs',
+          to: currentResourceType,
+          direction: 'left',
+          isOrgSwitch: true
+        }))
+        
+        // Navigate immediately without waiting
+        account.orgNavigate(path, params)
+        postNavigateTo()
+        return
+      }
+    }
+
+    // Otherwise, navigate normally without animation
+    account.orgNavigate(path, params)
+    postNavigateTo()
   }
 
   // Create the collapsed icon with multiple tiles
@@ -185,8 +235,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
       >
         <Tooltip title="Switch organization" placement="right">
           {renderCollapsedIcon()}
-        </Tooltip>
-        
+        </Tooltip>              
+
         <Tooltip title="Go to home" placement="right">
           <Box
             onClick={handleHomeClick}
@@ -206,7 +256,32 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
               transition: 'all 0.2s ease-in-out',
             }}
           >
-            <House size={26} />
+            <House size={NAV_BUTTON_SIZE} />
+          </Box>
+        </Tooltip>
+
+        <Tooltip title="View tasks" placement="right">
+          <Box
+            onClick={ () => {
+              orgNavigateTo('tasks')
+            }}
+            sx={{
+              mt: 1,              
+              width: AVATAR_SIZE,
+              height: AVATAR_SIZE,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              color: '#A0AEC0',
+              '&:hover': {
+                color: '#00E5FF',
+                transform: 'scale(1.1)',
+              },
+              transition: 'all 0.2s ease-in-out',
+            }}
+          >
+            <AlarmClock size={NAV_BUTTON_SIZE} />
           </Box>
         </Tooltip>
       </Box>
