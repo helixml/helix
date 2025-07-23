@@ -164,21 +164,14 @@ const Layout: FC<{
 
 
 
-  if(router.meta.drawer) {
-    if(router.meta.menu == 'orgs') {
-      sidebarMenu = (
-        <OrgsSidebarMenu
-        />
-      )
-    } else {
-      sidebarMenu = (
-        <SessionsMenu
-          onOpenSession={ () => {
-            account.setMobileMenuOpen(false)
-          }}
-        />
-      )
-    }
+  if(router.meta.drawer) {   
+    sidebarMenu = (
+      <SessionsMenu
+        onOpenSession={ () => {
+          account.setMobileMenuOpen(false)
+        }}
+      />
+    )    
   }
 
   return (

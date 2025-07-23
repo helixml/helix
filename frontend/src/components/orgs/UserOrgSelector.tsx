@@ -8,7 +8,7 @@ import DialogContent from '@mui/material/DialogContent'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 
-import { AlarmClock, House, LayoutGrid, Server } from 'lucide-react';
+import { AlarmClock, House, Server, Bot, User, Users } from 'lucide-react';
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
@@ -200,36 +200,60 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
   }
 
   // Navigation buttons configuration
-  const navigationButtons = useMemo(() => [
-    {
-      icon: <House size={NAV_BUTTON_SIZE} />,
-      tooltip: "Go to home",
-      isActive: isActive('home'),
-      onClick: handleHomeClick,
-      label: "Home",
-    },
-    {
-      icon: <LayoutGrid size={NAV_BUTTON_SIZE} />,
-      tooltip: "View agents",
-      isActive: isActive('apps'),
-      onClick: () => orgNavigateTo('apps'),
-      label: "Agents",
-    },
-    {
-      icon: <AlarmClock size={NAV_BUTTON_SIZE} />,
-      tooltip: "View tasks",
-      isActive: isActive('tasks'),
-      onClick: () => orgNavigateTo('tasks'),
-      label: "Tasks",
-    },
-    {
-      icon: <Server size={NAV_BUTTON_SIZE} />,
-      tooltip: "View model providers",
-      isActive: isActive('user-providers'),
-      onClick: () => orgNavigateTo('user-providers'),
-      label: "Providers",
-    },
-  ], [isActive])
+  const navigationButtons = useMemo(() => {
+    const baseButtons = [
+      {
+        icon: <House size={NAV_BUTTON_SIZE} />,
+        tooltip: "Go to home",
+        isActive: isActive('home'),
+        onClick: handleHomeClick,
+        label: "Home",
+      },
+      {
+        icon: <Bot size={NAV_BUTTON_SIZE} />,
+        tooltip: "View agents",
+        isActive: isActive('apps'),
+        onClick: () => orgNavigateTo('apps'),
+        label: "Agents",
+      },
+      {
+        icon: <AlarmClock size={NAV_BUTTON_SIZE} />,
+        tooltip: "View tasks",
+        isActive: isActive('tasks'),
+        onClick: () => orgNavigateTo('tasks'),
+        label: "Tasks",
+      },
+      {
+        icon: <Server size={NAV_BUTTON_SIZE} />,
+        tooltip: "View model providers",
+        isActive: isActive('user-providers'),
+        onClick: () => orgNavigateTo('user-providers'),
+        label: "Providers",
+      },
+    ]
+
+    // Add org-specific buttons if we're in an org context
+    if (currentOrgId !== 'default') {
+      baseButtons.push(
+        {
+          icon: <User size={NAV_BUTTON_SIZE} />,
+          tooltip: "View people",
+          isActive: isActive('org_people'),
+          onClick: () => orgNavigateTo('org_people', { org_id: currentOrgId }),
+          label: "People",
+        },
+        {
+          icon: <Users size={NAV_BUTTON_SIZE} />,
+          tooltip: "View teams",
+          isActive: isActive('org_teams'),
+          onClick: () => orgNavigateTo('org_teams', { org_id: currentOrgId }),
+          label: "Teams",
+        }
+      )
+    }
+
+    return baseButtons
+  }, [isActive, currentOrgId])
 
   // Create the collapsed icon with multiple tiles
   const renderCollapsedIcon = () => {
