@@ -9,7 +9,6 @@ import Collapse from '@mui/material/Collapse'
 
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
-import OrgsSidebarMenu from '../components/orgs/OrgsSidebarMenu'
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
 import Window from '../components/widgets/Window'
@@ -148,16 +147,6 @@ const Layout: FC<{
         return
       }
       setIsAuthenticated(true)
-
-      // Store the current resource type for later use
-      // if (resourceType) {
-        // localStorage.setItem('last_resource_type', resourceType)      
-        
-        // Ensure the appropriate content is loaded
-        // if (resourceType === 'apps') {
-          // apps.loadApps()
-        // }
-      // } 
     }
     checkAuthAndLoad()
   }, [resourceType])
