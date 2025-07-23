@@ -8,7 +8,7 @@ import DialogContent from '@mui/material/DialogContent'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 
-import { AlarmClock, House, LayoutGrid } from 'lucide-react';
+import { AlarmClock, House, LayoutGrid, Server } from 'lucide-react';
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
@@ -199,6 +199,12 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
       tooltip: "View tasks",
       isActive: isActive('tasks'),
       onClick: () => orgNavigateTo('tasks'),
+    },
+    {
+      icon: <Server size={NAV_BUTTON_SIZE} />,
+      tooltip: "View model providers",
+      isActive: isActive('user-providers'),
+      onClick: () => orgNavigateTo('user-providers'),
     },
   ], [isActive])
 
