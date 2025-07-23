@@ -203,7 +203,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
                   onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
                     e.preventDefault()
                     e.stopPropagation()
-                    onEdit(app)
+                    account.orgNavigate('new', { app_id: app.id, resource_type: 'apps' })
                   }}
                 >
                   { getAppName(app) }
