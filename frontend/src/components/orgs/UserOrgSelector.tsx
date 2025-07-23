@@ -12,7 +12,6 @@ import { AlarmClock, House, Server, Bot, User, Users } from 'lucide-react';
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
-import useLightTheme from '../../hooks/useLightTheme'
 
 interface UserOrgSelectorProps {
   // Any additional props can be added here
