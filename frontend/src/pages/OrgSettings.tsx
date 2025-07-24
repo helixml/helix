@@ -6,12 +6,14 @@ import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
 import Paper from '@mui/material/Paper'
 import CircularProgress from '@mui/material/CircularProgress'
+import InputAdornment from '@mui/material/InputAdornment'
 
 import Page from '../components/system/Page'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 import { TypesOrganization } from '../api/api'
 import useSnackbar from '../hooks/useSnackbar'
+import CopyButton from '../components/common/CopyButton'
 
 const OrgSettings: FC = () => {
   // Get account context and router
@@ -164,6 +166,27 @@ const OrgSettings: FC = () => {
                 sx={{ mb: 3 }}
                 InputProps={{
                   readOnly: isReadOnly,
+                }}
+              />
+              
+              {/* Organization ID field (read-only) */}
+              <TextField
+                label="Organization ID"
+                fullWidth
+                value={organization?.id || ''}
+                disabled={true}
+                helperText="Unique identifier for the organization"
+                sx={{ mb: 3 }}
+                InputProps={{
+                  readOnly: true,
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <CopyButton 
+                        content={organization?.id || ''}
+                        title="Organization ID"
+                      />
+                    </InputAdornment>
+                  ),
                 }}
               />
               

@@ -1289,6 +1289,7 @@ export enum TypesOwnerType {
   OwnerTypeRunner = "runner",
   OwnerTypeSystem = "system",
   OwnerTypeSocket = "socket",
+  OwnerTypeOrg = "org",
 }
 
 export interface TypesPaginatedLLMCalls {
@@ -3428,6 +3429,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** Include models */
         with_models?: boolean;
+        /** Organization ID */
+        org_id?: string;
       },
       params: RequestParams = {},
     ) =>
