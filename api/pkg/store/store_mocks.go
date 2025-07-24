@@ -1745,6 +1745,20 @@ func (mr *MockStoreMockRecorder) LookupKnowledge(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LookupKnowledge", reflect.TypeOf((*MockStore)(nil).LookupKnowledge), ctx, q)
 }
 
+// ResetRunningExecutions mocks base method.
+func (m *MockStore) ResetRunningExecutions(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResetRunningExecutions", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ResetRunningExecutions indicates an expected call of ResetRunningExecutions.
+func (mr *MockStoreMockRecorder) ResetRunningExecutions(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetRunningExecutions", reflect.TypeOf((*MockStore)(nil).ResetRunningExecutions), ctx)
+}
+
 // SearchUsers mocks base method.
 func (m *MockStore) SearchUsers(ctx context.Context, query *SearchUsersQuery) ([]*types.User, int64, error) {
 	m.ctrl.T.Helper()
