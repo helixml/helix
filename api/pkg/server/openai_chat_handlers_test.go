@@ -732,6 +732,11 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_CustomProvider() {
 
 	rec := httptest.NewRecorder()
 
+	suite.providerManager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
+		Provider: "custom-endpoint",
+		Owner:    suite.userID,
+	}).Return(suite.openAiClient, nil)
+
 	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
 			suite.Equal("custom-model", req.Model)
@@ -823,6 +828,11 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_HelixModel() {
 	req = req.WithContext(suite.authCtx)
 
 	rec := httptest.NewRecorder()
+
+	suite.providerManager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
+		Provider: "helix",
+		Owner:    suite.userID,
+	}).Return(suite.openAiClient, nil)
 
 	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
@@ -1167,6 +1177,11 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Streaming() {
 		Owner:    app.OrganizationID,
 	}).Return(suite.openAiClient, nil)
 
+	// suite.providerManager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
+	// 	Provider: "togetherai",
+	// 	Owner:    suite.userID,
+	// }).Return(suite.openAiClient, nil)
+
 	suite.openAiClient.EXPECT().CreateChatCompletionStream(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (*oai.ChatCompletionStream, error) {
 			suite.Equal("llama3:instruct", req.Model)
@@ -1367,6 +1382,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_CustomQueryParams() {
 				Assistants: []types.AssistantConfig{
 					{
 						SystemPrompt: "you are very custom assistant",
+						Provider:     "custom-endpoint",
 						Tools: []*types.Tool{
 							tool,
 						},
@@ -1410,6 +1426,11 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_CustomQueryParams() {
 		API:           "custom",
 	}
 	isActionableResponseBts, _ := json.Marshal(isActionableResponse)
+
+	suite.providerManager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
+		Provider: "custom-endpoint",
+		Owner:    suite.userID,
+	}).Return(suite.openAiClient, nil).AnyTimes()
 
 	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).Return(oai.ChatCompletionResponse{
 		Model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
