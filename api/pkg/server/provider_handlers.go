@@ -651,21 +651,28 @@ func (s *HelixAPIServer) providerVisible(ctx context.Context, user *types.User, 
 		}
 	}
 
-	providerEndpoints, err := s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
-		Owner:      user.ID,
-		OwnerType:  user.Type,
-		WithGlobal: true,
+	// Get provider
+	providerEndpoint, err := s.Store.GetProviderEndpoint(ctx, &store.GetProviderEndpointsQuery{
+		ID: id,
 	})
 	if err != nil {
-		log.Err(err).Msg("error listing provider endpoints")
-		return false, fmt.Errorf("error listing provider endpoints: %w", err)
+		return false, fmt.Errorf("error getting provider endpoint: %w", err)
 	}
 
-	for _, endpoint := range providerEndpoints {
-		if endpoint.ID == id || endpoint.Name == id {
-			return true, nil
+	// If it's an org provider, authorize as org member to this org
+	if providerEndpoint.OwnerType == types.OwnerTypeOrg {
+		_, err := s.authorizeOrgMember(ctx, user, providerEndpoint.Owner)
+		if err != nil {
+			return false, fmt.Errorf("error authorizing org member: %w", err)
 		}
+		return true, nil
 	}
 
+	// Otherwise, check if it's the user's provider
+	if providerEndpoint.Owner == user.ID {
+		return true, nil
+	}
+
+	// Otherwise, it's not visible
 	return false, nil
 }
