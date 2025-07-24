@@ -33,6 +33,8 @@ import {
   getAppFlatState,
 } from '../utils/app'
 import { useListProviders } from '../services/providersService';
+import useRouter from './useRouter';
+import { useGetOrgByName } from '../services/orgService';
 
 /**
  * Hook to manage single app state and operations
@@ -44,8 +46,14 @@ export const useApp = (appId: string) => {
   const account = useAccount()
   const session = useSession()
   const apps = useApps()
+  const router = useRouter()
+
+  const orgName = router.params.org_id
+
+  // Get org if orgName is set  
+  const { data: org, isLoading: isLoadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
   
-  const { data: providers, isLoading: isLoadingProviders } = useListProviders(true);
+  const { data: providers, isLoading: isLoadingProviders } = useListProviders(true, org?.id, !isLoadingOrg);
   const { NewInference } = useStreaming()
   const userAccess = useUserAppAccess(appId)
   
