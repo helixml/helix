@@ -43,15 +43,15 @@ const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick, label
         alignItems: 'center',
         justifyContent: 'center',
         cursor: 'pointer',
-        color: isActive ? '#00E5FF' : '#A0AEC0',
-        backgroundColor: isActive ? 'rgba(0, 229, 255, 0.15)' : 'transparent',
+        color: isActive ? '#E2E8F0' : '#A0AEC0',
+        backgroundColor: isActive ? 'rgba(226, 232, 240, 0.15)' : 'transparent',
         borderRadius: 1,
-        border: isActive ? '1px solid rgba(0, 229, 255, 0.3)' : '1px solid transparent',
+        border: isActive ? '1px solid rgba(226, 232, 240, 0.3)' : '1px solid transparent',
         transform: isActive ? 'scale(1.05)' : 'scale(1)',
         '&:hover': {
-          color: '#00E5FF',
+          color: '#E2E8F0',
           transform: isActive ? 'scale(1.08)' : 'scale(1.1)',
-          backgroundColor: isActive ? 'rgba(0, 229, 255, 0.2)' : 'rgba(0, 229, 255, 0.1)',
+          backgroundColor: isActive ? 'rgba(226, 232, 240, 0.2)' : 'rgba(226, 232, 240, 0.1)',
         },
         transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
       }}
@@ -63,7 +63,7 @@ const NavButton: FC<NavButtonProps> = ({ icon, tooltip, isActive, onClick, label
         variant="caption"
         sx={{
           fontSize: '0.65rem',
-          color: isActive ? '#00E5FF' : '#6B7280',
+          color: isActive ? '#E2E8F0' : '#6B7280',
           textAlign: 'center',
           lineHeight: 1,
           mt: 0.8,
