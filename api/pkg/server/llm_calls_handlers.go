@@ -84,8 +84,15 @@ func (s *HelixAPIServer) listAppLLMCalls(_ http.ResponseWriter, r *http.Request)
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if app.Owner != user.ID && !isAdmin(user) {
-		return nil, system.NewHTTPError403("you do not have permission to view this app's LLM calls")
+	if app.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, app.OrganizationID)
+		if err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+	} else {
+		if app.Owner != user.ID && !isAdmin(user) {
+			return nil, system.NewHTTPError403("you do not have permission to view this app's LLM calls")
+		}
 	}
 
 	// Parse query parameters
@@ -148,8 +155,15 @@ func (s *HelixAPIServer) listAppStepInfo(_ http.ResponseWriter, r *http.Request)
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if app.Owner != user.ID && !isAdmin(user) {
-		return nil, system.NewHTTPError403("you do not have permission to view this app's LLM calls")
+	if app.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, app.OrganizationID)
+		if err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+	} else {
+		if app.Owner != user.ID && !isAdmin(user) {
+			return nil, system.NewHTTPError403("you do not have permission to view this app's step info")
+		}
 	}
 
 	stepInfos, err := s.Store.ListStepInfos(r.Context(), &store.ListStepInfosQuery{
