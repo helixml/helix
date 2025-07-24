@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"maps"
 	"path/filepath"
 	"strings"
 	"text/template"
@@ -1753,7 +1752,6 @@ func (c *Controller) evalAndAddOAuthTokens(ctx context.Context, client oai.Clien
 		log.Info().
 			Str("app_id", app.ID).
 			Int("oauth_token_count", len(oauthTokens)).
-			Interface("token_keys", maps.Keys(oauthTokens)).
 			Msg("Retrieved OAuth tokens from getAppOAuthTokens")
 
 		// Add OAuth tokens to the options
@@ -1763,7 +1761,6 @@ func (c *Controller) evalAndAddOAuthTokens(ctx context.Context, client oai.Clien
 		if len(oauthTokens) > 0 {
 			log.Info().
 				Int("token_count", len(oauthTokens)).
-				Interface("token_keys", maps.Keys(oauthTokens)).
 				Msg("Successfully retrieved OAuth tokens for tools")
 		}
 	} else {

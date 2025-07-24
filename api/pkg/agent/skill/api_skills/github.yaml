@@ -224,8 +224,17 @@ spec:
                             type: integer
                           title:
                             type: string
-                          body:
-                            type: string
+                          user:
+                            type: object
+                            properties:
+                              login:
+                                type: string
+                              name:
+                                type: string
+                              type:
+                                type: string
+                          # body:
+                          #   type: string
                           state:
                             type: string
                           labels:
@@ -248,8 +257,8 @@ spec:
                             type: string
                           updated_at:
                             type: string
-                          html_url:
-                            type: string
+                          # html_url:
+                          #   type: string
           post:
             summary: Create an issue
             operationId: createIssue
@@ -309,6 +318,239 @@ spec:
                         body:
                           type: string
                         html_url:
+                          type: string
+        /repos/{owner}/{repo}/issues/{issue_number}:
+          get:
+            summary: Get a specific issue
+            operationId: getIssue
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: owner
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: repo
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: issue_number
+                in: path
+                required: true
+                schema:
+                  type: integer
+            responses:
+              '200':
+                description: Issue details
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        number:
+                          type: integer
+                        state:
+                          type: string
+                        title:
+                          type: string
+                        body:
+                          type: string
+                        user:
+                          type: object
+                          properties:
+                            login:
+                              type: string
+                            name:
+                              type: string
+                            type:
+                              type: string
+                        labels:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: integer
+                              name:
+                                type: string
+                              description:
+                                type: string
+                              color:
+                                type: string
+                              default:
+                                type: boolean
+                        assignee:
+                          type: object
+                          properties:
+                            login:
+                              type: string
+                            name:
+                              type: string
+                            type:
+                              type: string
+                        assignees:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              login:
+                                type: string
+                              name:
+                                type: string
+                              type:
+                                type: string
+                        locked:
+                          type: boolean
+                        active_lock_reason:
+                          type: string
+                        comments:
+                          type: integer
+                        pull_request:
+                          type: object
+                          properties:
+                            diff_url:
+                              type: string
+                            patch_url:
+                              type: string
+                        closed_at:
+                          type: string
+                        created_at:
+                          type: string
+                        updated_at:
+                          type: string
+                        closed_by:
+                          type: object
+                          properties:
+                            login:
+                              type: string
+                            name:
+                              type: string
+                            type:
+                              type: string
+                        author_association:
+                          type: string
+                        state_reason:
+                          type: string
+        /repos/{owner}/{repo}/issues/{issue_number}/comments:
+          get:
+            summary: List issue comments
+            operationId: listIssueComments
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: owner
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: repo
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: issue_number
+                in: path
+                required: true
+                schema:
+                  type: integer
+              - name: per_page
+                in: query
+                schema:
+                  type: integer
+                  default: 30
+                  maximum: 100
+            responses:
+              '200':
+                description: List of issue comments
+                content:
+                  application/json:
+                    schema:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                          body:
+                            type: string
+                          user:
+                            type: object
+                            properties:
+                              login:
+                                type: string
+                              name:
+                                type: string
+                              type:
+                                type: string
+                          created_at:
+                            type: string
+                          updated_at:
+                            type: string
+                          author_association:
+                            type: string
+          post:
+            summary: Create an issue comment
+            operationId: createIssueComment
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: owner
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: repo
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: issue_number
+                in: path
+                required: true
+                schema:
+                  type: integer
+            requestBody:
+              required: true
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    required:
+                      - body
+                    properties:
+                      body:
+                        type: string
+                        description: The contents of the comment
+            responses:
+              '201':
+                description: Comment created
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        body:
+                          type: string
+                        user:
+                          type: object
+                          properties:
+                            login:
+                              type: string
+                            name:
+                              type: string
+                            type:
+                              type: string
+                        created_at:
+                          type: string
+                        updated_at:
+                          type: string
+                        author_association:
                           type: string
         /repos/{owner}/{repo}/pulls:
           get:
@@ -375,24 +617,24 @@ spec:
                             type: integer
                           title:
                             type: string
-                          body:
-                            type: string
                           state:
-                            type: string
-                          head:
-                            type: object
-                            properties:
-                              ref:
-                                type: string
-                              sha:
-                                type: string
-                          base:
-                            type: object
-                            properties:
-                              ref:
-                                type: string
-                              sha:
-                                type: string
+                            type: string 
+                          # body:
+                          #   type: string
+                          # head:
+                          #   type: object
+                          #   properties:
+                          #     ref:
+                          #       type: string
+                          #     sha:
+                          #       type: string
+                          # base:
+                          #   type: object
+                          #   properties:
+                          #     ref:
+                          #       type: string
+                          #     sha:
+                          #       type: string
                           user:
                             type: object
                             properties:
@@ -402,8 +644,59 @@ spec:
                             type: string
                           updated_at:
                             type: string
-                          html_url:
-                            type: string
+                          # html_url:
+                          #   type: string
+        /repos/{owner}/{repo}/pulls/{pull_number}:
+          get:
+            summary: Get a pull request
+            operationId: getPullRequest
+            security:
+              - BearerAuth: []
+            parameters:
+              - name: owner
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: repo
+                in: path
+                required: true
+                schema:
+                  type: string
+              - name: pull_number
+                in: path
+                required: true
+                schema:
+                  type: integer
+            responses:
+              '200':
+                description: Pull request details
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        number:
+                          type: integer
+                        title:
+                          type: string
+                        body:
+                          type: string
+                        state:
+                          type: string
+                        user:
+                          type: object
+                          properties:
+                            login:
+                              type: string
+                            name:
+                              type: string
+                        created_at:
+                          type: string
+                        updated_at:
+                          type: string
+                        html_url:
+                          type: string
         /search/repositories:
           get:
             summary: Search repositories
@@ -473,4 +766,11 @@ spec:
             scheme: bearer
             bearerFormat: token
 
-  configurable: false 
+  # Does not allow users to rewrite the schema
+  configurable: false
+  # Removes unknown keys from the response body, this is mostly
+  # used to filter out keys that we don't want to expose to the agent (lots of links, etc. that blow up the context)
+  skipUnknownKeys: true
+  # Transforms the JSON into a readable text to reduce the size of the response body, lists
+  # become tables without the keys
+  transformOutput: true

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -113,78 +112,6 @@ func (s *HelixAPIServer) handleGetSkill(_ http.ResponseWriter, r *http.Request) 
 		Msg("Retrieved skill")
 
 	return skill, nil
-}
-
-// handleTestSkill tests a skill by making an API call
-// testSkill godoc
-// @Summary Test a skill
-// @Description Test a skill by executing one of its operations
-// @Tags    skills
-// @Param   id path string true "Skill ID"
-// @Param   request body types.SkillTestRequest true "Test request"
-// @Success 200 {object} types.SkillTestResponse
-// @Router /api/v1/skills/{id}/test [post]
-// @Security BearerAuth
-func (s *HelixAPIServer) handleTestSkill(_ http.ResponseWriter, r *http.Request) (*types.SkillTestResponse, error) {
-	user := getRequestUser(r)
-	if user == nil {
-		return nil, fmt.Errorf("unauthorized")
-	}
-
-	// Only admin users can test skills
-	if !user.Admin {
-		return nil, fmt.Errorf("unauthorized: admin access required")
-	}
-
-	// Extract skill ID from URL
-	vars := mux.Vars(r)
-	skillID := vars["id"]
-
-	// Parse test request
-	var testRequest types.SkillTestRequest
-	if err := json.NewDecoder(r.Body).Decode(&testRequest); err != nil {
-		log.Error().Err(err).Msg("Failed to decode test request")
-		return nil, fmt.Errorf("error decoding request: %w", err)
-	}
-
-	testRequest.SkillID = skillID
-
-	log.Info().
-		Str("skill_id", skillID).
-		Str("operation", testRequest.Operation).
-		Str("user_id", user.ID).
-		Msg("Testing skill")
-
-	// Get the skill
-	_, err := s.skillManager.GetSkill(skillID)
-	if err != nil {
-		return nil, fmt.Errorf("skill not found: %w", err)
-	}
-
-	// TODO: Implement skill testing logic here
-	// This would involve:
-	// 1. Parsing the OpenAPI schema
-	// 2. Finding the specified operation
-	// 3. Getting OAuth token for the user
-	// 4. Making the API call
-	// 5. Returning the response
-
-	// For now, return a placeholder response
-	response := &types.SkillTestResponse{
-		Success:    false,
-		StatusCode: 501,
-		Response:   map[string]interface{}{"message": "Skill testing not yet implemented"},
-		Error:      "Testing functionality is not yet implemented",
-		Duration:   0,
-	}
-
-	log.Info().
-		Str("skill_id", skillID).
-		Str("operation", testRequest.Operation).
-		Bool("success", response.Success).
-		Msg("Skill test completed")
-
-	return response, nil
 }
 
 // handleReloadSkills reloads all skills from the filesystem

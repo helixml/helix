@@ -136,11 +136,6 @@ func ensureConfiguration(gck *gocloak.GoCloak, token string, cfg *config.Keycloa
 			return err
 		}
 
-		err = setFrontEndClientConfigurations(gck, token, cfg)
-		if err != nil {
-			return err
-		}
-
 		if cfg.ClientSecret == "" {
 			err = setAPIClientConfigurations(gck, token, cfg)
 			if err != nil {
@@ -281,36 +276,6 @@ func ensureAPIClientRedirectURIs(gck *gocloak.GoCloak, token string, cfg *config
 		}, 5, 500*time.Millisecond)
 		if err != nil {
 			return fmt.Errorf("ensureAPIClientRedirectURIs: error updating client: %s", err.Error())
-		}
-	}
-
-	return nil
-}
-
-func setFrontEndClientConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) error {
-	log.Info().Str("client_id", cfg.FrontEndClientID).Str("realm", cfg.Realm).Msg("Configuring Frontend client")
-
-	idOfClient, err := getIDOfKeycloakClient(gck, token, cfg.Realm, cfg.FrontEndClientID)
-	if err != nil {
-		return fmt.Errorf("setFrontEndClientConfigurations: error getting clients: %s", err.Error())
-	}
-
-	if idOfClient == "" {
-		log.Info().Str("client_id", cfg.FrontEndClientID).Str("realm", cfg.Realm).Msg("No configurations found, creating client")
-		frontendClient := gocloak.Client{
-			ClientID:                  &cfg.FrontEndClientID,
-			BaseURL:                   &cfg.ServerURL,
-			RedirectURIs:              &[]string{"*"},
-			WebOrigins:                &[]string{"*"},
-			DirectAccessGrantsEnabled: addr(true),
-			PublicClient:              addr(true),
-		}
-		_, err = gck.CreateClient(context.Background(), token, cfg.Realm, frontendClient)
-		if err != nil {
-			if !strings.Contains(err.Error(), "409") {
-				return fmt.Errorf("getKeycloakClient: no Keycloak client found, attempt to create client failed with: %s", err.Error())
-			}
-			// Client already exists, OK
 		}
 	}
 

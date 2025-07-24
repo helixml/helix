@@ -1,8 +1,6 @@
 # Production docker-compose.yaml for HelixML :latest
 # See https://docs.helixml.tech/helix/private-deployment/controlplane/
 
-version: '3'
-
 services:
   api:
     image: registry.helixml.tech/helix/controlplane:latest
@@ -195,7 +193,7 @@ services:
       - EMBEDDING_ENDPOINT_TYPE=openai
       - EMBEDDING_ENDPOINT_BASE_URL=https://api.openai.com/v1
       - EMBEDDING_ENDPOINT_API_KEY=${OPENAI_API_KEY:-}
-      - EMBEDDING_ENDPOINT_MODEL=text-embedding-3-large
+      - EMBEDDING_ENDPOINT_MODEL=text-embedding-3-small
 
       # External enrichment provider
       - ENRICHMENT_ENDPOINT_TYPE=openai
@@ -213,6 +211,7 @@ services:
       - SYNC_PERIODIC_RETRY_ATTEMPTS=3
 
       - LOG_LEVEL=INFO # INFO or DEBUG
+      - LOG_FORMAT=json
 
       # API Key Configuration
       - API_KEYS=${KODIT_API_KEYS:-}

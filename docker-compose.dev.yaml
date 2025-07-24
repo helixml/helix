@@ -1,5 +1,3 @@
-version: '3'
-
 # Common runner configuration (YAML anchor, not a service)
 x-runner-config: &runner-config
   restart: always
