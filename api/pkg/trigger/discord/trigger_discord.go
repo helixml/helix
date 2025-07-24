@@ -311,7 +311,8 @@ func (d *Discord) startChat(ctx context.Context, app *types.App, s *discordgo.Se
 			Messages: messages,
 		},
 		&controller.ChatCompletionOptions{
-			AppID: app.ID,
+			OrganizationID: app.OrganizationID,
+			AppID:          app.ID,
 		},
 	)
 	if err != nil {
