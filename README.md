@@ -13,11 +13,11 @@
   <a href="https://discord.gg/VJftd844GE">Discord</a>
 </p>
 
-# HelixML
+# HelixML - AI Agents on a Private GenAI stack
 
 [👥 Discord](https://discord.gg/VJftd844GE)
 
-AI agents on a Private GenAI stack. Deploy agents in your own data center or VPC and retain complete data security & control.
+Deploy agents in your own data center or VPC and retain complete data security & control.
 
 Including support for RAG, API-calling and vision support. Build and deploy [LLM apps, aka agents by writing a helix.yaml](https://docs.helixml.tech/helix/develop/getting-started/).
 
