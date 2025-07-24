@@ -2,9 +2,15 @@ import React, { FC, useMemo, useCallback, useState } from 'react'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import PersonIcon from '@mui/icons-material/Person'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
 import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
 import Chip from '@mui/material/Chip'
+import IconButton from '@mui/material/IconButton'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
 import useTheme from '@mui/material/styles/useTheme'
 
 import SimpleTable from '../widgets/SimpleTable'
@@ -38,6 +44,10 @@ const MembersTable: FC<MembersTableProps> = ({
   const theme = useTheme()
   const [editMember, setEditMember] = useState<TypesOrganizationMembership | undefined>(undefined)
   const [editModalOpen, setEditModalOpen] = useState(false)
+  
+  // State for the action menu
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
+  const [selectedMember, setSelectedMember] = useState<Membership | null>(null)
 
   // Get the role display name and color
   const getRoleDisplay = (role: string | undefined) => {
@@ -103,42 +113,59 @@ const MembersTable: FC<MembersTableProps> = ({
     }
   }
 
-  // Generate action buttons for each member row
+  // Handle opening the action menu
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, member: Membership) => {
+    setAnchorEl(event.currentTarget)
+    setSelectedMember(member)
+  }
+
+  // Handle closing the action menu
+  const handleMenuClose = () => {
+    setAnchorEl(null)
+    setSelectedMember(null)
+  }
+
+  // Handle edit action from menu
+  const handleEditFromMenu = () => {
+    if (selectedMember) {
+      handleEdit(selectedMember)
+    }
+    handleMenuClose()
+  }
+
+  // Handle delete action from menu
+  const handleDeleteFromMenu = () => {
+    if (selectedMember) {
+      onDelete(selectedMember)
+    }
+    handleMenuClose()
+  }
+
+  // Generate action menu for each member row
   const getActions = useCallback((row: any) => {
+    if (!isOrgAdmin) return <></>
+
     return (
       <Box sx={{
         width: '100%',
         display: 'flex',
         flexDirection: 'row',
-        alignItems: 'flex-end',
+        alignItems: 'center',
         justifyContent: 'flex-end',
         pl: 2,
-        pr: 2,
-        gap: 2
+        pr: 2
       }}>
-        {showRoles && isOrgAdmin && (
-          <ClickLink
-            onClick={() => handleEdit(row._data)}
+        <Tooltip title="Actions">
+          <IconButton
+            size="small"
+            onClick={(event) => handleMenuOpen(event, row._data)}
           >
-            <Tooltip title="Edit Role">
-              <EditIcon color="action" />
-            </Tooltip>
-          </ClickLink>
-        )}
-        {
-          isOrgAdmin && (
-            <ClickLink
-              onClick={() => onDelete(row._data)}
-            >
-              <Tooltip title="Delete">
-                <DeleteIcon color="action" />
-              </Tooltip>
-            </ClickLink>
-          )
-        }
+            <MoreVertIcon color="action" />
+          </IconButton>
+        </Tooltip>
       </Box>
     )
-  }, [onDelete, showRoles, isOrgAdmin, handleEdit])
+  }, [isOrgAdmin])
 
   return (
     <>
@@ -158,6 +185,36 @@ const MembersTable: FC<MembersTableProps> = ({
         getActions={ isOrgAdmin ? getActions : undefined }
         loading={loading}
       />
+
+      {/* Action Menu */}
+      <Menu
+        anchorEl={anchorEl}
+        open={Boolean(anchorEl)}
+        onClose={handleMenuClose}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'right',
+        }}
+      >
+        {showRoles && selectedMember && 'role' in selectedMember && (
+          <MenuItem onClick={handleEditFromMenu}>
+            <ListItemIcon>
+              <EditIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Edit Role</ListItemText>
+          </MenuItem>
+        )}
+        <MenuItem onClick={handleDeleteFromMenu}>
+          <ListItemIcon>
+            <DeleteIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Delete</ListItemText>
+        </MenuItem>
+      </Menu>
 
       {editMember && (
         <EditRoleModal
