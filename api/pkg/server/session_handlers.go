@@ -290,7 +290,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				model = modelName
 			}
 
-			name, err := s.generateSessionName(user, session.ID, provider, model, message)
+			name, err := s.generateSessionName(user, startReq.OrganizationID, session.ID, provider, model, message)
 			if err != nil {
 				log.Error().Err(err).Msg("error generating session name")
 				return
@@ -330,10 +330,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			Messages: []openai.ChatCompletionMessage{},
 		}
 		options = &controller.ChatCompletionOptions{
-			AppID:       startReq.AppID,
-			AssistantID: startReq.AssistantID,
-			RAGSourceID: startReq.RAGSourceID,
-			Provider:    string(startReq.Provider),
+			OrganizationID: startReq.OrganizationID,
+			AppID:          startReq.AppID,
+			AssistantID:    startReq.AssistantID,
+			RAGSourceID:    startReq.RAGSourceID,
+			Provider:       string(startReq.Provider),
 			QueryParams: func() map[string]string {
 				params := make(map[string]string)
 				for key, values := range req.URL.Query() {
@@ -525,7 +526,7 @@ func (s *HelixAPIServer) getTemporarySessionName(prompt string) string {
 	return strings.Join(words, " ")
 }
 
-func (s *HelixAPIServer) generateSessionName(user *types.User, sessionID, provider, model, prompt string) (string, error) {
+func (s *HelixAPIServer) generateSessionName(user *types.User, orgID, sessionID, provider, model, prompt string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -559,7 +560,8 @@ func (s *HelixAPIServer) generateSessionName(user *types.User, sessionID, provid
 	}
 
 	options := &controller.ChatCompletionOptions{
-		Provider: provider,
+		OrganizationID: orgID,
+		Provider:       provider,
 	}
 
 	resp, _, err := s.Controller.ChatCompletion(ctx, user, req, options)
