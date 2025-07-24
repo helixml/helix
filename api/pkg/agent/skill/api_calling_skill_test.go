@@ -9,6 +9,39 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestEmptyRequestBody(t *testing.T) {
+	currencyExchangeRatesTool := &types.Tool{
+		Name:         "github get user",
+		Description:  "Get the authenticated user",
+		SystemPrompt: "You are an expert in the GitHub API. You can use it to get the authenticated user",
+		ToolType:     types.ToolTypeAPI,
+		Config: types.ToolConfig{
+			API: &types.ToolAPIConfig{
+				URL:    "https://api.github.com",
+				Schema: githubGetUserSchema,
+				Actions: []*types.ToolAPIAction{
+					{
+						Name:        "getAuthenticatedUser",
+						Description: "Get the authenticated user",
+						Method:      "GET",
+						Path:        "/user",
+					},
+				},
+			},
+		},
+	}
+
+	skill := NewAPICallingSkill(nil, currencyExchangeRatesTool)
+	assert.NotNil(t, skill)
+
+	tool := skill.Tools[0].OpenAI()
+
+	assert.Equal(t, "getAuthenticatedUser", tool[0].Function.Name)
+
+	// Parameters should be nil
+	assert.Nil(t, tool[0].Function.Parameters)
+}
+
 func TestInitializeApiCallingSkill(t *testing.T) {
 	petStoreTool := &types.Tool{
 		Name:         "petstore",
@@ -309,3 +342,40 @@ paths:
                       CAD:
                         type: number
                         example: 1.34521`
+
+const githubGetUserSchema = `openapi: 3.0.3
+info:
+  title: GitHub API
+  description: Access GitHub repositories, issues, pull requests, and user information
+  version: "2022-11-28"
+servers:
+  - url: https://api.github.com
+paths:
+  /user:
+    get:
+      summary: Get the authenticated user
+      operationId: getAuthenticatedUser
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Authenticated user profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  login:
+                    type: string
+                  name:
+                    type: string
+                  email:
+                    type: string
+                  bio:
+                    type: string
+                  public_repos:
+                    type: integer
+                  followers:
+                    type: integer
+                  following:
+                    type: integer`

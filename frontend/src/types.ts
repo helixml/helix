@@ -565,6 +565,8 @@ export interface IAssistantApi {
   system_prompt?: string,
   oauth_provider?: string,
   oauth_scopes?: string[],
+  skip_unknown_keys?: boolean,
+  transform_output?: boolean,
 }
 
 export interface IAssistantGPTScript {
@@ -891,6 +893,7 @@ export interface IFeature {
 
 export type IRequiredApiParameter = 'query' | 'header'
 
+// TODO: use TypesSkillDefinition instead
 export interface IAgentSkill {
   name: string;
   description: string;
@@ -903,6 +906,8 @@ export interface IAgentSkill {
     query?: Record<string, string>;   // Query parameters to set for HTTP requests (will override whatever AI model sets)
     oauth_provider?: string;
     oauth_scopes?: string[];
+    skip_unknown_keys?: boolean;
+    transform_output?: boolean;
     requiredParameters: Array<{
       name: string;                // Name of the parameter
       description: string;         // Description of the parameter
@@ -910,7 +915,7 @@ export interface IAgentSkill {
       required: boolean;           // Whether the parameter is required      
     }>;
   }
-  configurable: boolean; // Whether the skill can be configured by the user  
+  configurable: boolean; // Whether the skill can be configured by the user    
 }
 
 export interface ISessionLearnRequestRAGSettings {

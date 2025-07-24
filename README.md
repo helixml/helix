@@ -13,15 +13,15 @@
   <a href="https://discord.gg/VJftd844GE">Discord</a>
 </p>
 
-# HelixML
+# HelixML - AI Agents on a Private GenAI stack
 
 [👥 Discord](https://discord.gg/VJftd844GE)
 
-Private GenAI stack. Deploy the best of open AI in your own data center or VPC and retain complete data security & control.
+Deploy agents in your own data center or VPC and retain complete data security & control.
 
-Including support for RAG, API-calling and fine-tuning models that's as easy as drag'n'drop. Build and deploy [LLM apps by writing a helix.yaml](https://docs.helixml.tech/helix/develop/getting-started/).
+Including support for RAG, API-calling and vision support. Build and deploy [LLM apps, aka agents by writing a helix.yaml](https://docs.helixml.tech/helix/develop/getting-started/).
 
-Looking for a private GenAI platform? From language models to image models and more, Helix brings the best of open source AI to your business in an ergonomic, scalable way, while optimizing the tradeoff between GPU memory and latency.
+Our GPU scheduler packs models efficiently into available GPU memory and dynamically loads and unloads models depending on demand.
 
 ## Install on Docker
 
@@ -56,7 +56,7 @@ Helix is [licensed](https://github.com/helixml/helix/blob/main/LICENSE.md) under
 * **Educational Use:** schools/universities
 * **Small Business Use:** companies with under $10M annual revenue and less than 250 employees
 
-If you fall outside of these terms, please [contact us](mailto:founders@helixml.tech) to discuss purchasing a license for large commercial use. If you are an individual at a large company interested in experimenting with Helix, that's fine under Personal Use until you deploy to more than one GPU on company-owned or paid-for infrastructure.
+If you fall outside of these terms, please use the [Launchpad](https://deploy.helix.ml) to purchase a license for large commercial use. Trial licenses are available for experimentation.
 
 You are not allowed to use our code to build a product that competes with us.
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   DialogTitle,
   DialogContent,
@@ -6,13 +6,17 @@ import {
   Typography,
   Box,
   Chip,
-  Divider,
   Paper,
   useTheme,
+  Checkbox,
+  FormControlLabel,
 } from '@mui/material';
+
 import CloseIcon from '@mui/icons-material/Close';
 import { TypesStepInfo } from '../../api/api';
 import DarkDialog from '../dialog/DarkDialog';
+import CopyButton from '../common/CopyButton';
+import { prettyBytes } from '../../utils/format';
 
 interface SkillExecutionDialogProps {
   open: boolean;
@@ -26,6 +30,7 @@ const SkillExecutionDialog: React.FC<SkillExecutionDialogProps> = ({
   stepInfo,
 }) => {
   const theme = useTheme();
+  const [prettyPrint, setPrettyPrint] = useState(true);
 
   if (!stepInfo) return null;
 
@@ -36,6 +41,19 @@ const SkillExecutionDialog: React.FC<SkillExecutionDialogProps> = ({
   const formatDuration = (ms: number) => {
     if (ms < 1000) return `${ms} ms`;
     return `${(ms / 1000).toFixed(2)} s`;
+  };
+
+  const formatResponse = (message: string) => {
+    if (!prettyPrint) return message;
+    
+    try {
+      // Try to parse as JSON and pretty print it
+      const parsed = JSON.parse(message);
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      // If it's not valid JSON, return the original message
+      return message;
+    }
   };
 
   const renderArguments = (arguments_: Record<string, any>) => {
@@ -61,6 +79,31 @@ const SkillExecutionDialog: React.FC<SkillExecutionDialogProps> = ({
         </Paper>
       </Box>
     ));
+  };
+
+  const JsonContentWithCopy: React.FC<{ content: string; title: string }> = ({ content, title }) => {
+    return (
+      <Box sx={{ position: 'relative' }}>
+        <CopyButton content={content} title={title} />
+        <Paper
+          sx={{
+            p: 2,
+            backgroundColor: 'transparent',
+            borderRadius: 1,
+            border: '1px solid',
+            borderColor: 'divider',
+            fontFamily: 'monospace',
+            fontSize: '0.875rem',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            maxHeight: '600px',
+            overflow: 'auto',
+          }}
+        >
+          {content}
+        </Paper>
+      </Box>
+    );
   };
 
   return (
@@ -156,24 +199,31 @@ const SkillExecutionDialog: React.FC<SkillExecutionDialogProps> = ({
 
         {stepInfo.message && (
           <Box sx={{ mb: 3 }}>
-            <Typography variant="h6" sx={{ mb: 1 }}>
-              Response
-            </Typography>
-            <Paper
-              sx={{
-                p: 2,
-                backgroundColor: 'transparent',
-                borderRadius: 1,
-                border: '1px solid',
-                borderColor: 'divider',
-                fontFamily: 'monospace',
-                fontSize: '0.875rem',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}
-            >
-              {stepInfo.message}
-            </Paper>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="h6">
+                  Response
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  ({prettyBytes(stepInfo.message.length)})
+                </Typography>
+              </Box>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={prettyPrint}
+                    onChange={(e) => setPrettyPrint(e.target.checked)}
+                    size="small"
+                  />
+                }
+                label="Pretty"
+                sx={{ '& .MuiFormControlLabel-label': { fontSize: '0.875rem' } }}
+              />
+            </Box>
+            <JsonContentWithCopy 
+              content={formatResponse(stepInfo.message)} 
+              title="Response"
+            />
           </Box>
         )}
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -758,13 +759,6 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 		log.Warn().Msg("No OAuth tokens provided with request")
 	}
 
-	// Make the request
-	log.Info().
-		Str("tool", req.Tool.Name).
-		Str("action", req.Action).
-		Int("parameter_count", len(req.Parameters)).
-		Msg("API request prepared")
-
 	httpRequest, err := c.prepareRequest(ctx, req.Tool, req.Action, req.Parameters)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare request: %w", err)
@@ -843,6 +837,25 @@ func (c *ChainStrategy) RunAPIActionWithParameters(ctx context.Context, req *typ
 	// If body is empty but status code is 200, return the status text
 	if len(body) == 0 && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return &types.RunAPIActionResponse{Response: "OK"}, nil
+	}
+
+	if req.Tool.Config.API.SkipUnknownKeys {
+		// Remove unknown keys from the response body
+		filteredBody, err := removeUnknownKeys(req.Tool, req.Action, resp.StatusCode, body)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("tool", req.Tool.Name).
+				Str("action", req.Action).
+				Str("status", resp.Status).
+				Msg("Failed to remove unknown keys from response body")
+		} else {
+			log.Info().Str("tool", req.Tool.Name).
+				Str("size_before", strconv.Itoa(len(body))).
+				Str("size_after", strconv.Itoa(len(filteredBody))).
+				Str("action", req.Action).Msg("Removed unknown keys from response body")
+			body = filteredBody
+		}
 	}
 
 	return &types.RunAPIActionResponse{Response: string(body)}, nil

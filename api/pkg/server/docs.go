@@ -2547,46 +2547,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/skills/{id}/test": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Test a skill by executing one of its operations",
-                "tags": [
-                    "skills"
-                ],
-                "summary": "Test a skill",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Skill ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Test request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/types.SkillTestRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/types.SkillTestResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/triggers": {
             "get": {
                 "security": [
@@ -3744,29 +3704,6 @@ const docTemplate = `{
                 }
             }
         },
-        "time.Duration": {
-            "type": "integer",
-            "enum": [
-                -9223372036854775808,
-                9223372036854775807,
-                1,
-                1000,
-                1000000,
-                1000000000,
-                60000000000,
-                3600000000000
-            ],
-            "x-enum-varnames": [
-                "minDuration",
-                "maxDuration",
-                "Nanosecond",
-                "Microsecond",
-                "Millisecond",
-                "Second",
-                "Minute",
-                "Hour"
-            ]
-        },
         "types.AccessGrant": {
             "type": "object",
             "properties": {
@@ -4029,8 +3966,16 @@ const docTemplate = `{
                 "schema": {
                     "type": "string"
                 },
+                "skip_unknown_keys": {
+                    "description": "if true, unknown keys in the response body will be removed before\nreturning to the agent for interpretation",
+                    "type": "boolean"
+                },
                 "system_prompt": {
                     "type": "string"
+                },
+                "transform_output": {
+                    "description": "Transform JSON into readable text to reduce the\nsize of the response body",
+                    "type": "boolean"
                 },
                 "url": {
                     "type": "string"
@@ -6933,8 +6878,16 @@ const docTemplate = `{
                 "schema": {
                     "type": "string"
                 },
+                "skipUnknownKeys": {
+                    "description": "if true, unknown keys in the response body will be removed before\nreturning to the agent for interpretation",
+                    "type": "boolean"
+                },
                 "systemPrompt": {
                     "type": "string"
+                },
+                "transformOutput": {
+                    "description": "Transform JSON into readable text to reduce the\nsize of the response body",
+                    "type": "boolean"
                 }
             }
         },
@@ -6966,42 +6919,6 @@ const docTemplate = `{
                 "type": {
                     "description": "\"query\", \"header\", \"path\"",
                     "type": "string"
-                }
-            }
-        },
-        "types.SkillTestRequest": {
-            "type": "object",
-            "properties": {
-                "operation": {
-                    "type": "string"
-                },
-                "parameters": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "skillId": {
-                    "type": "string"
-                }
-            }
-        },
-        "types.SkillTestResponse": {
-            "type": "object",
-            "properties": {
-                "duration": {
-                    "$ref": "#/definitions/time.Duration"
-                },
-                "error": {
-                    "type": "string"
-                },
-                "response": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "statusCode": {
-                    "type": "integer"
-                },
-                "success": {
-                    "type": "boolean"
                 }
             }
         },
@@ -7302,9 +7219,17 @@ const docTemplate = `{
                 "schema": {
                     "type": "string"
                 },
+                "skip_unknown_keys": {
+                    "description": "if true, unknown keys in the response body will be removed before\nreturning to the agent for interpretation",
+                    "type": "boolean"
+                },
                 "system_prompt": {
                     "description": "System prompt to guide the AI when using this API",
                     "type": "string"
+                },
+                "transform_output": {
+                    "description": "Transform JSON into readable text to reduce the\nsize of the response body",
+                    "type": "boolean"
                 },
                 "url": {
                     "description": "Server override",
@@ -7456,12 +7381,6 @@ const docTemplate = `{
                 },
                 "enabled": {
                     "type": "boolean"
-                },
-                "executions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.TriggerExecution"
-                    }
                 },
                 "id": {
                     "type": "string"

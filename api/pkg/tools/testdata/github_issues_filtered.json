@@ -1,0 +1,575 @@
+[
+  {
+    "assignees": [],
+    "created_at": "2025-07-18T09:42:19Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "168700",
+        "name": "javascript"
+      }
+    ],
+    "number": 1161,
+    "state": "open",
+    "title": "Bump @sentry/browser from 8.50.0 to 9.40.0 in /frontend",
+    "updated_at": "2025-07-18T09:42:20Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-07-17T10:04:49Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "16e2e2",
+        "name": "go"
+      }
+    ],
+    "number": 1160,
+    "state": "open",
+    "title": "Bump google.golang.org/api from 0.228.0 to 0.242.0",
+    "updated_at": "2025-07-17T10:04:50Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-07-16T09:23:51Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "16e2e2",
+        "name": "go"
+      }
+    ],
+    "number": 1158,
+    "state": "open",
+    "title": "Bump github.com/golang-jwt/jwt/v5 from 5.2.2 to 5.2.3",
+    "updated_at": "2025-07-16T09:23:52Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-07-10T09:41:51Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "21ceff",
+        "name": "docker"
+      }
+    ],
+    "number": 1145,
+    "state": "open",
+    "title": "Bump bitnami/keycloak from 23.0.7 to 26.3.1",
+    "updated_at": "2025-07-10T09:41:52Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-07-03T06:04:29Z",
+    "labels": [],
+    "number": 1128,
+    "state": "open",
+    "title": "dev to system",
+    "updated_at": "2025-07-03T06:04:29Z",
+    "user": {
+      "login": "nessie993",
+      "type": "User"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-07-02T10:12:22Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "168700",
+        "name": "javascript"
+      }
+    ],
+    "number": 1126,
+    "state": "open",
+    "title": "Bump @babel/core from 7.26.0 to 7.28.0 in /frontend",
+    "updated_at": "2025-07-02T10:12:23Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-06-30T12:55:54Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "21ceff",
+        "name": "docker"
+      }
+    ],
+    "number": 1120,
+    "state": "open",
+    "title": "Bump typesense/typesense from 27.1 to 29.0",
+    "updated_at": "2025-06-30T12:55:54Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-06-23T11:03:59Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "168700",
+        "name": "javascript"
+      }
+    ],
+    "number": 1093,
+    "state": "open",
+    "title": "Bump @rudderstack/analytics-js from 3.11.17 to 3.21.0 in /frontend",
+    "updated_at": "2025-06-23T11:04:00Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-06-09T10:33:41Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "16e2e2",
+        "name": "go"
+      }
+    ],
+    "number": 1059,
+    "state": "open",
+    "title": "Bump github.com/go-git/go-git/v5 from 5.13.1 to 5.16.2",
+    "updated_at": "2025-07-18T21:30:12Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-06-03T06:51:34Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "168700",
+        "name": "javascript"
+      }
+    ],
+    "number": 1042,
+    "state": "open",
+    "title": "Bump tar-fs from 3.0.8 to 3.0.9 in /integration-test/frontend in the npm_and_yarn group across 1 directory",
+    "updated_at": "2025-06-03T06:51:35Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-06-02T10:09:48Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "21ceff",
+        "name": "docker"
+      }
+    ],
+    "number": 1039,
+    "state": "open",
+    "title": "Bump alpine from 3.21 to 3.22",
+    "updated_at": "2025-06-16T11:17:56Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-05-15T07:34:47Z",
+    "labels": [],
+    "number": 1016,
+    "state": "open",
+    "title": "Feature/frontend user menu",
+    "updated_at": "2025-05-15T10:25:53Z",
+    "user": {
+      "login": "lukemarsden",
+      "type": "User"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-05-08T10:43:10Z",
+    "labels": [],
+    "number": 1005,
+    "state": "open",
+    "title": "creating multiple knowledge sources via helix apply is confusing",
+    "updated_at": "2025-05-08T10:43:10Z",
+    "user": {
+      "login": "lukemarsden",
+      "type": "User"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-05-08T10:32:11Z",
+    "labels": [],
+    "number": 1004,
+    "state": "open",
+    "title": "modifying the enable_vision flag via helix apply doesn't seem to work",
+    "updated_at": "2025-05-08T10:32:11Z",
+    "user": {
+      "login": "lukemarsden",
+      "type": "User"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-05-07T10:08:48Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "21ceff",
+        "name": "docker"
+      }
+    ],
+    "number": 1000,
+    "state": "open",
+    "title": "Bump node from 23-alpine to 24-alpine",
+    "updated_at": "2025-06-13T06:51:49Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-05-05T10:27:55Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "168700",
+        "name": "javascript"
+      }
+    ],
+    "number": 999,
+    "state": "open",
+    "title": "Bump vite from 4.5.6 to 6.3.5 in /frontend",
+    "updated_at": "2025-06-06T06:33:09Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-04-18T18:29:19Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "2b67c6",
+        "name": "python"
+      }
+    ],
+    "number": 986,
+    "state": "open",
+    "title": "Bump the pip group across 2 directories with 2 updates",
+    "updated_at": "2025-04-18T18:29:19Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-04-16T23:27:34Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "16e2e2",
+        "name": "go"
+      }
+    ],
+    "number": 982,
+    "state": "open",
+    "title": "Bump golang.org/x/net from 0.37.0 to 0.38.0 in /operator in the go_modules group across 1 directory",
+    "updated_at": "2025-06-13T06:51:46Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-04-07T10:07:59Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "168700",
+        "name": "javascript"
+      }
+    ],
+    "number": 968,
+    "state": "open",
+    "title": "Bump typescript from 4.9.5 to 5.8.3 in /frontend",
+    "updated_at": "2025-06-06T06:33:05Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-03-25T16:49:24Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "16e2e2",
+        "name": "go"
+      }
+    ],
+    "number": 942,
+    "state": "open",
+    "title": "Bump github.com/golang-jwt/jwt/v5 from 5.2.1 to 5.2.2 in the go_modules group",
+    "updated_at": "2025-04-25T10:39:52Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-03-19T10:30:09Z",
+    "labels": [],
+    "number": 908,
+    "state": "open",
+    "title": "provider issues",
+    "updated_at": "2025-03-19T10:33:30Z",
+    "user": {
+      "login": "lukemarsden",
+      "type": "User"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-03-15T12:23:17Z",
+    "labels": [],
+    "number": 890,
+    "state": "open",
+    "title": "avoid returning nil for all errors",
+    "updated_at": "2025-03-16T21:34:31Z",
+    "user": {
+      "login": "lukemarsden",
+      "type": "User"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-03-12T23:45:58Z",
+    "labels": [],
+    "number": 874,
+    "state": "open",
+    "title": "Keycloak upgrade to v26",
+    "updated_at": "2025-03-21T13:40:05Z",
+    "user": {
+      "login": "chocobar",
+      "type": "User"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-02-18T09:31:58Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "168700",
+        "name": "javascript"
+      }
+    ],
+    "number": 826,
+    "state": "open",
+    "title": "Bump dompurify from 3.2.3 to 3.2.4 in /frontend in the npm_and_yarn group",
+    "updated_at": "2025-03-22T08:26:06Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-02-13T10:13:54Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "21ceff",
+        "name": "docker"
+      }
+    ],
+    "number": 816,
+    "state": "open",
+    "title": "Bump golang from 1.23 to 1.24",
+    "updated_at": "2025-03-31T19:13:18Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [
+      {
+        "login": "binocarlos"
+      }
+    ],
+    "created_at": "2025-02-03T14:57:16Z",
+    "labels": [],
+    "number": 796,
+    "state": "open",
+    "title": "frontend niggles",
+    "updated_at": "2025-04-10T11:03:38Z",
+    "user": {
+      "login": "binocarlos",
+      "type": "User"
+    }
+  },
+  {
+    "assignees": [
+      {
+        "login": "binocarlos"
+      }
+    ],
+    "created_at": "2025-02-03T10:25:27Z",
+    "labels": [],
+    "number": 795,
+    "state": "open",
+    "title": "App dropdown",
+    "updated_at": "2025-02-03T10:26:40Z",
+    "user": {
+      "login": "binocarlos",
+      "type": "User"
+    }
+  },
+  {
+    "assignees": [
+      {
+        "login": "binocarlos"
+      }
+    ],
+    "created_at": "2025-01-24T13:21:56Z",
+    "labels": [],
+    "number": 763,
+    "state": "open",
+    "title": "Work out why dependabot vite upgrade is breaking",
+    "updated_at": "2025-01-24T13:21:56Z",
+    "user": {
+      "login": "binocarlos",
+      "type": "User"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-01-23T10:15:32Z",
+    "labels": [
+      {
+        "color": "0366d6",
+        "name": "dependencies"
+      },
+      {
+        "color": "16e2e2",
+        "name": "go"
+      }
+    ],
+    "number": 756,
+    "state": "open",
+    "title": "chore(deps): bump github.com/mendableai/firecrawl-go from 0.0.0-20240815202540-ebd79458547a to 1.0.0",
+    "updated_at": "2025-03-13T15:53:39Z",
+    "user": {
+      "login": "dependabot[bot]",
+      "type": "Bot"
+    }
+  },
+  {
+    "assignees": [],
+    "created_at": "2025-01-22T12:01:04Z",
+    "labels": [],
+    "number": 748,
+    "state": "open",
+    "title": "remove llamaindex and pgvector from helm charts",
+    "updated_at": "2025-01-22T12:01:04Z",
+    "user": {
+      "login": "lukemarsden",
+      "type": "User"
+    }
+  }
+]

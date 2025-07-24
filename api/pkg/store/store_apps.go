@@ -139,6 +139,8 @@ func ConvertAPIToTool(api types.AssistantAPI) (*types.Tool, error) {
 				RequestPrepTemplate:     api.RequestPrepTemplate,
 				ResponseSuccessTemplate: api.ResponseSuccessTemplate,
 				ResponseErrorTemplate:   api.ResponseErrorTemplate,
+				SkipUnknownKeys:         api.SkipUnknownKeys,
+				TransformOutput:         api.TransformOutput,
 			},
 		},
 	}
