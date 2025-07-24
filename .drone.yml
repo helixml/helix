@@ -5,6 +5,7 @@ name: default
 trigger:
   event:
     - push
+    - tag
 
 workspace:
   base: /go
