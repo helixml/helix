@@ -145,22 +145,6 @@ const OrgPeople: FC = () => {
     >
       
       <Container maxWidth="xl">
-        <Box sx={{ 
-          mt: 3,
-          mb: 3,
-          p: 2,
-          bgcolor: 'rgba(255,255,255,0.05)',
-          borderRadius: 1,
-          border: '1px solid rgba(255,255,255,0.1)'
-        }}>
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <InfoIcon sx={{ mr: 1, fontSize: '1.2rem', opacity: 0.7 }} />
-            Add people to your organization first and then add those people to teams.
-          </Box>
-        </Box>
-      </Container>
-
-      <Container maxWidth="xl">
         <Box sx={{ mt: 3 }}>
           {account.organizationTools.organization?.memberships && (
             <MembersTable
