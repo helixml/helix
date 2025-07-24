@@ -54,25 +54,46 @@ var blankAPIKey = "********"
 
 // @Success 200 {array} types.ProviderEndpoint
 // @Param with_models query bool false "Include models"
+// @Param org_id query string false "Organization ID"
 // @Router /api/v1/provider-endpoints [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	includeModels := r.URL.Query().Get("with_models") == "true"
+	orgID := r.URL.Query().Get("org_id")
 
 	user := getRequestUser(r)
+
+	if orgID != "" {
+		// Check if user has access to view teams
+		_, err := s.authorizeOrgMember(r.Context(), user, orgID)
+		if err != nil {
+			log.Err(err).Msg("error authorizing org member")
+			http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
+			return
+		}
+	}
 
 	var (
 		providerEndpoints []*types.ProviderEndpoint
 		err               error
 	)
 
+	query := &store.ListProviderEndpointsQuery{
+		WithGlobal: true,
+	}
+
+	if orgID != "" {
+		query.OwnerType = types.OwnerTypeOrg
+		query.Owner = orgID
+	} else {
+		query.OwnerType = types.OwnerTypeUser
+		query.Owner = user.ID
+	}
+
+	// If authenticated, fetch user endpoints
 	if user != nil {
-		providerEndpoints, err = s.Store.ListProviderEndpoints(ctx, &store.ListProviderEndpointsQuery{
-			Owner:      user.ID,
-			OwnerType:  user.Type,
-			WithGlobal: true,
-		})
+		providerEndpoints, err = s.Store.ListProviderEndpoints(ctx, query)
 		if err != nil {
 			log.Err(err).Msg("error listing provider endpoints")
 			http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
@@ -261,8 +282,22 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
+	// If org ID is set, authorize
+	if endpoint.OwnerType == types.OwnerTypeOrg && endpoint.Owner != "" {
+		_, err := s.authorizeOrgOwner(r.Context(), user, endpoint.Owner)
+		if err != nil {
+			log.Err(err).Msg("error authorizing org member")
+			http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
+			return
+		}
+	} else {
+		// Otherwise, default to user
+		endpoint.OwnerType = types.OwnerTypeUser
+		endpoint.Owner = user.ID
+	}
+
 	// Check for duplicate names
-	existingProviders, err := s.providerManager.ListProviders(r.Context(), user.ID)
+	existingProviders, err := s.providerManager.ListProviders(r.Context(), endpoint.Owner)
 	if err != nil {
 		log.Err(err).Msg("error listing providers")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
@@ -275,10 +310,6 @@ func (s *HelixAPIServer) createProviderEndpoint(rw http.ResponseWriter, r *http.
 			return
 		}
 	}
-
-	// Set owner information
-	endpoint.Owner = user.ID
-	endpoint.OwnerType = user.Type
 
 	// Default to user endpoint type if not specified
 	if endpoint.EndpointType == "" {
@@ -343,6 +374,16 @@ func (s *HelixAPIServer) updateProviderEndpoint(rw http.ResponseWriter, r *http.
 		log.Err(err).Msg("error getting provider endpoint")
 		http.Error(rw, "Error getting provider endpoint: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// If endpoint is org endpoint, authorize org owner
+	if existingEndpoint.OwnerType == types.OwnerTypeOrg {
+		_, err := s.authorizeOrgOwner(r.Context(), user, existingEndpoint.Owner)
+		if err != nil {
+			log.Err(err).Msg("error authorizing org member")
+			http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
+			return
+		}
 	}
 
 	// Check ownership - only allow updates to owned endpoints or if user is admin
@@ -443,10 +484,20 @@ func (s *HelixAPIServer) deleteProviderEndpoint(rw http.ResponseWriter, r *http.
 		return
 	}
 
-	// Check ownership - only allow deletion of owned endpoints or if user is admin
-	if existingEndpoint.Owner != user.ID && !user.Admin {
-		http.Error(rw, "Unauthorized", http.StatusUnauthorized)
-		return
+	// If endpoint is org endpoint, authorize org owner
+	if existingEndpoint.OwnerType == types.OwnerTypeOrg {
+		_, err := s.authorizeOrgOwner(r.Context(), user, existingEndpoint.Owner)
+		if err != nil {
+			log.Err(err).Msg("error authorizing org member")
+			http.Error(rw, "Could not authorize org member: "+err.Error(), http.StatusForbidden)
+			return
+		}
+	} else {
+		// Check ownership - only allow deletion of owned endpoints or if user is admin
+		if existingEndpoint.Owner != user.ID && !user.Admin {
+			http.Error(rw, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
 	}
 
 	if err := s.Store.DeleteProviderEndpoint(ctx, endpointID); err != nil {
