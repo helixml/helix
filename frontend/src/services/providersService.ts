@@ -7,7 +7,7 @@ export const providersQueryKey = (loadModels: boolean = false) => [
   loadModels ? "withModels" : "withoutModels"
 ];
 
-export function useListProviders(loadModels: boolean = false) {
+export function useListProviders(loadModels: boolean = false, orgId?: string, enabled?: boolean) {
   const api = useApi()
   const apiClient = api.getApiClient()  
 
@@ -16,10 +16,11 @@ export function useListProviders(loadModels: boolean = false) {
     queryFn: async () => {
       const result = await apiClient.v1ProviderEndpointsList({
         with_models: loadModels,
+        org_id: orgId,
       })
       return result.data
-    },
-    enabled: true,
+    },  
+    enabled: enabled,
     staleTime: 3 * 1000, // 3 seconds (useful when going between pages)
   });
 }
