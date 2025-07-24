@@ -225,8 +225,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
       {
         icon: <Server size={NAV_BUTTON_SIZE} />,
         tooltip: "View model providers",
-        isActive: isActive('user-providers'),
-        onClick: () => orgNavigateTo('user-providers'),
+        isActive: isActive('providers'),
+        onClick: () => orgNavigateTo('providers'),
         label: "Providers",
       },
     ]
