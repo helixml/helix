@@ -19,7 +19,7 @@ interface UserOrgSelectorProps {
 
 const AVATAR_SIZE = 40
 const TILE_SIZE = 40
-const NAV_BUTTON_SIZE = 22
+const NAV_BUTTON_SIZE = 20
 
 // Reusable navigation button component
 interface NavButtonProps {
