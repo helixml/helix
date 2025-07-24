@@ -142,7 +142,13 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 
 	// If app is set
 	if app != nil {
+		// If app has org - set it
+		if app.OrganizationID != "" {
+			options.OrganizationID = app.OrganizationID
+		}
+
 		ctx = oai.SetContextAppID(ctx, app.ID)
+		ctx = oai.SetContextOrganizationID(ctx, options.OrganizationID)
 
 		log.Debug().Str("app_id", options.AppID).Msg("using app_id from request")
 

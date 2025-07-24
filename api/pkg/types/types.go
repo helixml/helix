@@ -1723,6 +1723,7 @@ const (
 type LLMCall struct {
 	ID               string         `json:"id" gorm:"primaryKey"`
 	AppID            string         `json:"app_id" gorm:"index:idx_app_interaction,priority:1"`
+	OrganizationID   string         `json:"organization_id" gorm:"index"`
 	UserID           string         `json:"user_id" gorm:"index"`
 	Created          time.Time      `json:"created"`
 	Updated          time.Time      `json:"updated"`
@@ -1891,6 +1892,7 @@ type UsageMetric struct {
 	Created           time.Time `json:"created" gorm:"index:idx_app_time,priority:2"`
 	Date              time.Time `json:"date" gorm:"index:idx_app_time,priority:1"` // The date of the metric (without time, just the date)
 	AppID             string    `json:"app_id" gorm:"index:idx_app_time,priority:1"`
+	OrganizationID    string    `json:"organization_id"`
 	UserID            string    `json:"user_id"`
 	Provider          string    `json:"provider"`
 	Model             string    `json:"model"`

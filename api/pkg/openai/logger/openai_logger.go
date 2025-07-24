@@ -230,6 +230,11 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 		log.Debug().Msg("failed to get app_id")
 	}
 
+	orgID, ok := oai.GetContextOrganizationID(ctx)
+	if !ok {
+		log.Debug().Msg("failed to get organization_id")
+	}
+
 	// Initialize token counts to 0 in case resp is nil
 	var promptTokens, completionTokens, totalTokens int
 
@@ -250,6 +255,7 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 	log.Debug().
 		Str("owner_id", vals.OwnerID).
 		Str("app_id", appID).
+		Str("organization_id", orgID).
 		Str("model", req.Model).
 		Str("provider", string(m.provider)).
 		Str("step", string(step.Step)).
@@ -263,6 +269,7 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 		AppID:            appID,
 		SessionID:        vals.SessionID,
 		InteractionID:    vals.InteractionID,
+		OrganizationID:   orgID,
 		Model:            req.Model,
 		Step:             step.Step,
 		OriginalRequest:  vals.OriginalRequest,

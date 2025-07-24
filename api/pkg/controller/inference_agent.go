@@ -19,10 +19,11 @@ import (
 )
 
 type runAgentRequest struct {
-	Assistant *types.AssistantConfig
-	User      *types.User
-	Request   openai.ChatCompletionRequest
-	Options   *ChatCompletionOptions
+	OrganizationID string
+	Assistant      *types.AssistantConfig
+	User           *types.User
+	Request        openai.ChatCompletionRequest
+	Options        *ChatCompletionOptions
 }
 
 func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent.Session, error) {
@@ -36,9 +37,15 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		return nil, fmt.Errorf("appID not set in context, use 'openai.SetContextAppID()' before calling this method")
 	}
 
+	ownerID := req.User.ID
+	if req.OrganizationID != "" {
+		ownerID = req.OrganizationID
+	}
+
 	log.Info().
 		Str("session_id", vals.SessionID).
 		Str("user_id", req.User.ID).
+		Str("owner_id", ownerID).
 		Str("interaction_id", vals.InteractionID).
 		Msg("Running agent")
 
@@ -47,7 +54,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	// Assemble clients and providers
 
 	reasoningModel, err := c.getLLMModelConfig(ctx,
-		req.User.ID,
+		ownerID,
 		withFallbackProvider(req.Assistant.ReasoningModelProvider, req.Assistant), // Defaults to top level assistant provider
 		req.Assistant.ReasoningModel)
 	if err != nil {
@@ -62,7 +69,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		Msg("Reasoning model configuration")
 
 	generationModel, err := c.getLLMModelConfig(ctx,
-		req.User.ID,
+		ownerID,
 		withFallbackProvider(req.Assistant.GenerationModelProvider, req.Assistant), // Defaults to top level assistant provider
 		req.Assistant.GenerationModel)
 	if err != nil {
@@ -76,7 +83,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		Msg("Generation model configuration")
 
 	smallReasoningModel, err := c.getLLMModelConfig(ctx,
-		req.User.ID,
+		ownerID,
 		withFallbackProvider(req.Assistant.SmallReasoningModelProvider, req.Assistant), // Defaults to top level assistant provider
 		req.Assistant.SmallReasoningModel)
 	if err != nil {
@@ -85,7 +92,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	smallReasoningModel.ReasoningEffort = req.Assistant.SmallReasoningModelEffort
 
 	smallGenerationModel, err := c.getLLMModelConfig(ctx,
-		req.User.ID,
+		ownerID,
 		withFallbackProvider(req.Assistant.SmallGenerationModelProvider, req.Assistant), // Defaults to top level assistant provider
 		req.Assistant.SmallGenerationModel)
 	if err != nil {
