@@ -203,6 +203,9 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
+
+		startReq.OrganizationID = session.OrganizationID
+
 		// If the session has an AppID, use it as the next interaction
 		if session.ParentApp != "" {
 			startReq.AppID = session.ParentApp
@@ -265,6 +268,9 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		http.Error(rw, "failed to process session messages: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	// Set the organization ID in the context for OAuth token retrieval
+	ctx = oai.SetContextOrganizationID(ctx, session.OrganizationID)
 
 	// Write the initial session that has the user prompt and also the placeholder interaction
 	// for the system response which will be updated later once the response is received
