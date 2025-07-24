@@ -235,13 +235,17 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
           variant="standard"
           disabled={isSubmitting}
           sx={{
+            minWidth: '200px',
+            width: 'auto',
             '& .MuiInputBase-root': {
               fontSize: '1.25rem',
               fontWeight: 500,
               color: '#F1F1F1'
             },
             '& .MuiInputBase-input': {
-              padding: 0
+              padding: 0,
+              width: 'auto',
+              minWidth: '200px'
             },
             '& .MuiInput-underline:before': {
               borderBottom: 'none'
@@ -251,6 +255,11 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
             },
             '& .MuiInput-underline:hover:not(.Mui-disabled):before': {
               borderBottom: 'none'
+            }
+          }}
+          inputProps={{
+            style: {
+              width: `${Math.max(200, taskName.length * 12)}px`
             }
           }}
         />
