@@ -52,7 +52,7 @@ func (suite *CronTestSuite) SetupTest() {
 	filestoreMock := filestore.NewMockFileStore(suite.ctrl)
 	extractorMock := extract.NewMockExtractor(suite.ctrl)
 
-	suite.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(suite.openAiClient, nil).AnyTimes()
+	suite.manager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(suite.openAiClient, nil).Times(1)
 
 	suite.controller, err = controller.NewController(context.Background(), controller.Options{
 		Config:          cfg,
@@ -120,6 +120,141 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 			return &session, nil
 		},
 	)
+
+	suite.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
+		Provider: "togetherai",
+		Owner:    "test-user",
+	}).Return(suite.openAiClient, nil).Times(1)
+
+	// Calling LLM chat completion
+	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
+
+			return oai.ChatCompletionResponse{
+				Choices: []oai.ChatCompletionChoice{
+					{
+						Message: oai.ChatCompletionMessage{
+							Content: "test-response",
+						},
+					},
+				},
+			}, nil
+		},
+	)
+
+	// Get session
+	suite.store.EXPECT().GetSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, id string) (*types.Session, error) {
+			session := &types.Session{
+				ID: id,
+			}
+			return session, nil
+		},
+	).Times(2)
+
+	// Mock UpdateSession for the final session update
+	suite.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, session types.Session) (*types.Session, error) {
+			// Verify the assistant interaction was updated with the response
+			suite.Len(session.Interactions, 2)
+			assistantInteraction := session.Interactions[1]
+			suite.Equal(types.CreatorTypeAssistant, assistantInteraction.Creator)
+			suite.Equal(types.InteractionStateComplete, assistantInteraction.State)
+			suite.True(assistantInteraction.Finished)
+			suite.NotEmpty(assistantInteraction.Message)
+			return &session, nil
+		},
+	)
+
+	// Mock UpdateTriggerExecution for success
+	suite.store.EXPECT().UpdateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal(types.TriggerExecutionStatusSuccess, execution.Status, execution.Error)
+			suite.NotEmpty(execution.Output)
+
+			return execution, nil
+		},
+	)
+
+	// Mock Notify for success notification
+	suite.notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, n *notification.Notification) error {
+			suite.Equal(notification.EventCronTriggerComplete, n.Event)
+			suite.NotEmpty(n.Message)
+			return nil
+		},
+	)
+
+	// Execute the function
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, "trigger-123", trigger, "test-session")
+
+	// Verify the result
+	suite.NoError(err)
+	suite.NotEmpty(result)
+}
+
+func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
+	user := &types.User{
+		ID: "test-user",
+	}
+
+	app := &types.App{
+		ID:             "app-123",
+		Owner:          "test-user",
+		OwnerType:      types.OwnerTypeUser,
+		OrganizationID: "test-org",
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						Name:         "test-assistant",
+						SystemPrompt: "you are very custom assistant",
+					},
+				},
+			},
+		},
+	}
+
+	trigger := &types.CronTrigger{
+		Input: "test input",
+	}
+
+	// Mock GetAppWithTools
+	suite.store.EXPECT().GetAppWithTools(gomock.Any(), "app-123").Return(app, nil).Times(2)
+
+	suite.store.EXPECT().ListSecrets(gomock.Any(), gomock.Any()).Return([]*types.Secret{}, nil)
+
+	// Mock GetUser
+	suite.store.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{
+		ID: "test-user",
+	}).Return(user, nil)
+
+	// Mock CreateTriggerExecution
+	suite.store.EXPECT().CreateTriggerExecution(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error) {
+			suite.Equal("trigger-123", execution.TriggerConfigurationID)
+			suite.Equal(types.TriggerExecutionStatusRunning, execution.Status)
+			return execution, nil
+		},
+	)
+
+	// Mock UpdateSession for the initial session write
+	suite.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, session types.Session) (*types.Session, error) {
+			suite.Equal("app-123", session.ParentApp)
+			suite.Equal("test-user", session.Owner)
+			suite.Equal("test-org", session.OrganizationID)
+			suite.Equal(types.SessionModeInference, session.Mode)
+			suite.Equal(types.SessionTypeText, session.Type)
+			suite.Len(session.Interactions, 2)
+			return &session, nil
+		},
+	)
+
+	suite.manager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
+		Provider: "togetherai",
+		Owner:    "test-org",
+	}).Return(suite.openAiClient, nil).Times(1)
 
 	// Calling LLM chat completion
 	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).DoAndReturn(

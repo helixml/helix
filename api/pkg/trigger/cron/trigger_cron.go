@@ -451,6 +451,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 	})
 
 	ctx = oai.SetContextAppID(ctx, app.ID)
+	ctx = oai.SetContextOrganizationID(ctx, app.OrganizationID)
 
 	// Write session to the database
 	err = ctrl.WriteSession(ctx, session)
@@ -497,6 +498,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 	}
 
 	resp, _, err := ctrl.ChatCompletion(ctx, user, request, &controller.ChatCompletionOptions{
+		OrganizationID: app.OrganizationID,
 		AppID:          app.ID,
 		Conversational: true,
 	})
