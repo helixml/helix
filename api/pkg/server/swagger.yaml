@@ -2084,12 +2084,14 @@ definitions:
     - runner
     - system
     - socket
+    - org
     type: string
     x-enum-varnames:
     - OwnerTypeUser
     - OwnerTypeRunner
     - OwnerTypeSystem
     - OwnerTypeSocket
+    - OwnerTypeOrg
   types.PaginatedLLMCalls:
     properties:
       calls:
@@ -4653,6 +4655,10 @@ paths:
         in: query
         name: with_models
         type: boolean
+      - description: Organization ID
+        in: query
+        name: org_id
+        type: string
       responses:
         "200":
           description: OK

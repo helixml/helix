@@ -1988,6 +1988,12 @@ const docTemplate = `{
                         "description": "Include models",
                         "name": "with_models",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -5856,13 +5862,15 @@ const docTemplate = `{
                 "user",
                 "runner",
                 "system",
-                "socket"
+                "socket",
+                "org"
             ],
             "x-enum-varnames": [
                 "OwnerTypeUser",
                 "OwnerTypeRunner",
                 "OwnerTypeSystem",
-                "OwnerTypeSocket"
+                "OwnerTypeSocket",
+                "OwnerTypeOrg"
             ]
         },
         "types.PaginatedLLMCalls": {
