@@ -89,6 +89,10 @@ func (s *PostgresStore) ListProviderEndpoints(ctx context.Context, q *ListProvid
 	var providerEndpoints []*types.ProviderEndpoint
 	query := s.gdb.Debug().WithContext(ctx)
 
+	if q.Owner != "" {
+		query = query.Where("owner = ?", q.Owner)
+	}
+
 	query = query.Where("owner = ? AND endpoint_type = ?", q.Owner, types.ProviderEndpointTypeUser)
 
 	if q.WithGlobal {
@@ -103,6 +107,10 @@ func (s *PostgresStore) ListProviderEndpoints(ctx context.Context, q *ListProvid
 }
 
 func (s *PostgresStore) DeleteProviderEndpoint(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("id not specified")
+	}
+
 	err := s.gdb.WithContext(ctx).Delete(&types.ProviderEndpoint{
 		ID: id,
 	}).Error

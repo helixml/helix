@@ -38,6 +38,8 @@ type ProviderEndpointType string
 const (
 	ProviderEndpointTypeGlobal ProviderEndpointType = "global"
 	ProviderEndpointTypeUser   ProviderEndpointType = "user"
+	ProviderEndpointTypeOrg    ProviderEndpointType = "org"
+	ProviderEndpointTypeTeam   ProviderEndpointType = "team"
 )
 
 type ProviderEndpointStatus string
@@ -109,10 +111,11 @@ type OpenAIModel struct {
 
 // UpdateProviderEndpoint used for updating a provider endpoint through the API
 type UpdateProviderEndpoint struct {
-	Description    string               `json:"description"`
-	Models         []string             `json:"models"`
-	EndpointType   ProviderEndpointType `json:"endpoint_type"` // global, user (TODO: orgs, teams)
-	BaseURL        string               `json:"base_url"`
-	APIKey         *string              `json:"api_key,omitempty"`
-	APIKeyFromFile *string              `json:"api_key_file,omitempty"` // Must be mounted to the container
+	Description  string               `json:"description"`
+	Models       []string             `json:"models"`
+	EndpointType ProviderEndpointType `json:"endpoint_type"` // global, user (TODO: orgs, teams)
+
+	BaseURL        string  `json:"base_url"`
+	APIKey         *string `json:"api_key,omitempty"`
+	APIKeyFromFile *string `json:"api_key_file,omitempty"` // Must be mounted to the container
 }

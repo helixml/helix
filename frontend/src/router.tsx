@@ -73,7 +73,17 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     render: () => (
       <Apps />
     ),
-  }, {
+  }, 
+  {
+    name: namePrefix + 'providers',
+    path: routePrefix + '/providers',
+    meta: {
+      drawer: true,
+    },
+    render: () => (
+      <Providers />
+    ),
+  },{
     name: namePrefix + 'tasks',
     path: routePrefix + '/tasks',
     meta: {
@@ -216,15 +226,6 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <Dashboard />
-  ),
-}, {
-  name: 'user-providers',
-  path: '/providers',
-  meta: {
-    drawer: true,
-  },
-  render: () => (
-    <Providers />
   ),
 }, {
   name: 'account',

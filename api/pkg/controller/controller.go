@@ -120,7 +120,7 @@ func NewController(
 	}
 
 	// Default provider
-	toolsOpenAIClient, err := controller.getClient(ctx, "", options.Config.Inference.Provider)
+	toolsOpenAIClient, err := controller.getClient(ctx, "", "", options.Config.Inference.Provider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tools client: %v", err)
 	}

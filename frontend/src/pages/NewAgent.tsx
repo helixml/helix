@@ -25,8 +25,10 @@ import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useApps from '../hooks/useApps'
 import { useListProviders } from '../services/providersService'
+import { useGetOrgByName } from '../services/orgService';
 import { ICreateAgentParams } from '../contexts/apps'
-import { PROVIDERS, Provider } from '../components/providers/types'
+import { PROVIDERS } from '../components/providers/types'
+import useRouter from '../hooks/useRouter';
 
 const PERSONAS = {
   IT_SUPPORT: {
@@ -112,11 +114,18 @@ function getModelPreset(provider: string): ProviderModelPreset {
 }
 
 const NewAgent: FC = () => {
+  const router = useRouter()
   const account = useAccount()  
   const snackbar = useSnackbar()
   const themeConfig = useThemeConfig()
   const apps = useApps()
-  const { data: providerEndpoints = [], isLoading: isLoadingProviders } = useListProviders(false)
+
+  const orgName = router.params.org_id
+
+  // Get org if orgName is set  
+  const { data: org, isLoading: isLoadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
+
+  const { data: providerEndpoints = [], isLoading: isLoadingProviders } = useListProviders(false, org?.id, !isLoadingOrg)
 
   const [name, setName] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')

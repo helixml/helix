@@ -113,8 +113,22 @@ const TeamPeople: FC = () => {
 
   return (
     <Page
-      breadcrumbTitle={ currentTeam ? `${organization.display_name} : Teams : ${currentTeam.name} : Members` : 'Team Members' }
-      breadcrumbShowHome={ false }
+      // breadcrumbTitle={ currentTeam ? `${organization.display_name} : Teams : ${currentTeam.name} : Members` : 'Team Members' }
+      // breadcrumbTitle={ currentTeam.name }
+      orgBreadcrumbs={true}
+      breadcrumbs={[
+        {
+          title: 'Teams',
+          routeName: `org_teams`,
+          params: {
+            org_id: organization.id,
+          },
+        },
+        {
+          title: currentTeam.name || '',
+          routeName: `orgs/${organization.id}/teams`,
+        },
+      ]}
       topbarContent={isOrgOwner ? (
         <Button
           variant="contained"

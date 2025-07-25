@@ -33,6 +33,7 @@ import (
 )
 
 type ChatCompletionOptions struct {
+	OrganizationID string
 	AppID          string
 	AssistantID    string
 	RAGSourceID    string
@@ -61,7 +62,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		return nil, nil, err
 	}
 
-	client, err := c.getClient(ctx, user.ID, opts.Provider)
+	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
 	}
@@ -76,10 +77,11 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		log.Info().Msg("running in agent mode")
 
 		resp, err := c.runAgentBlocking(ctx, &runAgentRequest{
-			Assistant: assistant,
-			User:      user,
-			Request:   req,
-			Options:   opts,
+			OrganizationID: opts.OrganizationID,
+			Assistant:      assistant,
+			User:           user,
+			Request:        req,
+			Options:        opts,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to run agent: %w", err)
@@ -192,7 +194,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		return nil, nil, err
 	}
 
-	client, err := c.getClient(ctx, user.ID, opts.Provider)
+	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
 	}
@@ -207,10 +209,11 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		log.Info().Msg("running in agent mode")
 
 		resp, err := c.runAgentStream(ctx, &runAgentRequest{
-			Assistant: assistant,
-			User:      user,
-			Request:   req,
-			Options:   opts,
+			OrganizationID: opts.OrganizationID,
+			Assistant:      assistant,
+			User:           user,
+			Request:        req,
+			Options:        opts,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to run agent: %w", err)
@@ -295,7 +298,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	return stream, &req, nil
 }
 
-func (c *Controller) getClient(ctx context.Context, owner, provider string) (oai.Client, error) {
+func (c *Controller) getClient(ctx context.Context, organizationID, userID, provider string) (oai.Client, error) {
 	if provider == "" {
 		// If not set, use the default provider
 		provider = c.Options.Config.Inference.Provider
@@ -303,8 +306,14 @@ func (c *Controller) getClient(ctx context.Context, owner, provider string) (oai
 
 	log.Trace().
 		Str("provider", provider).
-		Str("owner", owner).
+		Str("user_id", userID).
+		Str("organization_id", organizationID).
 		Msg("getting OpenAI API client")
+
+	owner := userID
+	if organizationID != "" {
+		owner = organizationID
+	}
 
 	client, err := c.providerManager.GetClient(ctx, &manager.GetClientRequest{
 		Provider: provider,
@@ -345,7 +354,7 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 
 	var options []tools.Option
 
-	apieClient, err := c.getClient(ctx, user.ID, opts.Provider)
+	apieClient, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get client: %w", err)
 	}
@@ -419,7 +428,7 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 
 	var options []tools.Option
 
-	apieClient, err := c.getClient(ctx, user.ID, opts.Provider)
+	apieClient, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get client: %w", err)
 	}
@@ -516,7 +525,7 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 		Str("provider", opts.Provider).
 		Msg("Getting API client for tool execution")
 
-	apieClient, err := c.getClient(ctx, user.ID, opts.Provider)
+	apieClient, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
 	if err != nil {
 		log.Warn().
 			Err(err).

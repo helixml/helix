@@ -1988,6 +1988,12 @@ const docTemplate = `{
                         "description": "Include models",
                         "name": "with_models",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -5210,6 +5216,9 @@ const docTemplate = `{
                 "model": {
                     "type": "string"
                 },
+                "organization_id": {
+                    "type": "string"
+                },
                 "original_request": {
                     "type": "array",
                     "items": {
@@ -5856,13 +5865,15 @@ const docTemplate = `{
                 "user",
                 "runner",
                 "system",
-                "socket"
+                "socket",
+                "org"
             ],
             "x-enum-varnames": [
                 "OwnerTypeUser",
                 "OwnerTypeRunner",
                 "OwnerTypeSystem",
-                "OwnerTypeSocket"
+                "OwnerTypeSocket",
+                "OwnerTypeOrg"
             ]
         },
         "types.PaginatedLLMCalls": {
@@ -6001,11 +6012,15 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "global",
-                "user"
+                "user",
+                "org",
+                "team"
             ],
             "x-enum-varnames": [
                 "ProviderEndpointTypeGlobal",
-                "ProviderEndpointTypeUser"
+                "ProviderEndpointTypeUser",
+                "ProviderEndpointTypeOrg",
+                "ProviderEndpointTypeTeam"
             ]
         },
         "types.RAGSettings": {
@@ -7389,6 +7404,9 @@ const docTemplate = `{
                     "description": "Name of the trigger configuration",
                     "type": "string"
                 },
+                "ok": {
+                    "type": "boolean"
+                },
                 "organization_id": {
                     "description": "Organization ID",
                     "type": "string"
@@ -7404,6 +7422,9 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.OwnerType"
                         }
                     ]
+                },
+                "status": {
+                    "type": "string"
                 },
                 "trigger": {
                     "$ref": "#/definitions/types.Trigger"
