@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	_ "time/tzdata" // load all timezones
+
 	"github.com/go-co-op/gocron/v2"
 	cronv3 "github.com/robfig/cron/v3"
 	"github.com/rs/zerolog/log"
