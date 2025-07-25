@@ -197,12 +197,12 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 
 func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 	user := &types.User{
-		ID: "test-user",
+		ID: "test-user-2", // Different from app owner
 	}
 
 	app := &types.App{
 		ID:             "app-123",
-		Owner:          "test-user",
+		Owner:          "test-user-1",
 		OwnerType:      types.OwnerTypeUser,
 		OrganizationID: "test-org",
 		Config: types.AppConfig{
@@ -228,7 +228,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 
 	// Mock GetUser
 	suite.store.EXPECT().GetUser(gomock.Any(), &store.GetUserQuery{
-		ID: "test-user",
+		ID: user.ID,
 	}).Return(user, nil)
 
 	// Mock CreateTriggerExecution
@@ -244,7 +244,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 	suite.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, session types.Session) (*types.Session, error) {
 			suite.Equal("app-123", session.ParentApp)
-			suite.Equal("test-user", session.Owner)
+			suite.Equal(user.ID, session.Owner)
 			suite.Equal("test-org", session.OrganizationID)
 			suite.Equal(types.SessionModeInference, session.Mode)
 			suite.Equal(types.SessionTypeText, session.Type)
@@ -288,7 +288,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 	suite.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, session types.Session) (*types.Session, error) {
 			// Should have user ID set
-			suite.Equal("test-user", session.Owner)
+			suite.Equal(user.ID, session.Owner)
 			// Verify the assistant interaction was updated with the response
 			suite.Len(session.Interactions, 2)
 			assistantInteraction := session.Interactions[1]
@@ -320,7 +320,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 	)
 
 	// Execute the function
-	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, "test-user", "trigger-123", trigger, "test-session")
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, user.ID, "trigger-123", trigger, "test-session")
 
 	// Verify the result
 	suite.NoError(err)
