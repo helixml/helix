@@ -3,6 +3,7 @@ package cron
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -17,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 
 	oai "github.com/sashabaranov/go-openai"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
@@ -344,4 +346,94 @@ func (suite *CronTestSuite) TestExecuteCronTask_Error() {
 	suite.Error(err)
 	suite.Empty(result)
 	suite.Contains(err.Error(), "database error")
+}
+
+func TestNextRunFormatted(t *testing.T) {
+	tests := []struct {
+		name     string
+		schedule string
+		expected string
+	}{
+		{
+			name:     "Asia/Dubai timezone",
+			schedule: "CRON_TZ=Asia/Dubai 0 9 * * 1,2,3",
+			expected: "Next run:",
+		},
+		{
+			name:     "UTC timezone",
+			schedule: "CRON_TZ=UTC 0 9 * * 1,2,3",
+			expected: "Next run:",
+		},
+		{
+			name:     "America/New_York timezone",
+			schedule: "CRON_TZ=America/New_York 0 9 * * 1,2,3",
+			expected: "Next run:",
+		},
+		{
+			name:     "Invalid schedule",
+			schedule: "invalid cron schedule",
+			expected: "Invalid schedule",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cronTrigger := &types.CronTrigger{
+				Schedule: tt.schedule,
+				Enabled:  true,
+			}
+
+			result := NextRunFormatted(cronTrigger)
+
+			if tt.expected == "Invalid schedule" {
+				assert.Equal(t, tt.expected, result)
+			} else {
+				// For valid schedules, check that the result starts with "Next run:" and contains expected components
+				assert.True(t, strings.HasPrefix(result, "Next run:"), "Result should start with 'Next run:'")
+				assert.Contains(t, result, "at", "Result should contain 'at'")
+				assert.Contains(t, result, ":", "Result should contain time separator")
+			}
+		})
+	}
+}
+
+func TestExtractTimezoneFromCron(t *testing.T) {
+	tests := []struct {
+		name     string
+		schedule string
+		expected string
+	}{
+		{
+			name:     "Asia/Dubai timezone",
+			schedule: "CRON_TZ=Asia/Dubai 0 9 * * 1,2,3",
+			expected: "Asia/Dubai",
+		},
+		{
+			name:     "UTC timezone",
+			schedule: "CRON_TZ=UTC 0 9 * * 1,2,3",
+			expected: "UTC",
+		},
+		{
+			name:     "America/New_York timezone",
+			schedule: "CRON_TZ=America/New_York 0 9 * * 1,2,3",
+			expected: "America/New_York",
+		},
+		{
+			name:     "No timezone",
+			schedule: "0 9 * * 1,2,3",
+			expected: "",
+		},
+		{
+			name:     "Empty schedule",
+			schedule: "",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractTimezoneFromCron(tt.schedule)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
