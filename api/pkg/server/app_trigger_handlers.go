@@ -46,6 +46,14 @@ func (s *HelixAPIServer) listTriggers(_ http.ResponseWriter, r *http.Request) ([
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	// For cron triggers populate next run information
+	for idx, trigger := range triggers {
+		if trigger.Trigger.Cron != nil {
+			triggers[idx].OK = true
+			triggers[idx].Status = cron.NextRunFormatted(trigger.Trigger.Cron)
+		}
+	}
+
 	return triggers, nil
 }
 
