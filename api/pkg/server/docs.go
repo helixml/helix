@@ -5216,6 +5216,9 @@ const docTemplate = `{
                 "model": {
                     "type": "string"
                 },
+                "organization_id": {
+                    "type": "string"
+                },
                 "original_request": {
                     "type": "array",
                     "items": {
@@ -6009,11 +6012,15 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "global",
-                "user"
+                "user",
+                "org",
+                "team"
             ],
             "x-enum-varnames": [
                 "ProviderEndpointTypeGlobal",
-                "ProviderEndpointTypeUser"
+                "ProviderEndpointTypeUser",
+                "ProviderEndpointTypeOrg",
+                "ProviderEndpointTypeTeam"
             ]
         },
         "types.RAGSettings": {
@@ -7397,6 +7404,9 @@ const docTemplate = `{
                     "description": "Name of the trigger configuration",
                     "type": "string"
                 },
+                "ok": {
+                    "type": "boolean"
+                },
                 "organization_id": {
                     "description": "Organization ID",
                     "type": "string"
@@ -7412,6 +7422,9 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.OwnerType"
                         }
                     ]
+                },
+                "status": {
+                    "type": "string"
                 },
                 "trigger": {
                     "$ref": "#/definitions/types.Trigger"
