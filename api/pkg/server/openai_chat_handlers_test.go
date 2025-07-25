@@ -1173,14 +1173,9 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Streaming() {
 	suite.Require().NoError(err)
 
 	suite.providerManager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
-		Provider: "togetherai",
-		Owner:    app.OrganizationID,
+		Provider: "helix",
+		Owner:    suite.userID,
 	}).Return(suite.openAiClient, nil)
-
-	// suite.providerManager.EXPECT().GetClient(gomock.Any(), &manager.GetClientRequest{
-	// 	Provider: "togetherai",
-	// 	Owner:    suite.userID,
-	// }).Return(suite.openAiClient, nil)
 
 	suite.openAiClient.EXPECT().CreateChatCompletionStream(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (*oai.ChatCompletionStream, error) {
