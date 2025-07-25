@@ -54,7 +54,25 @@ func (s *HelixAPIServer) listTriggers(_ http.ResponseWriter, r *http.Request) ([
 		}
 	}
 
-	return triggers, nil
+	var filtered []*types.TriggerConfiguration
+
+	for _, trigger := range triggers {
+		if orgID == "" {
+			// If org ID is not specified, only show triggers that are owned by the user and
+			// not attached to the orr
+			if trigger.Owner == user.ID && trigger.OrganizationID == orgID {
+				filtered = append(filtered, trigger)
+			}
+		} else {
+			// If org ID is specified, only show triggers that are attached to the org
+			if trigger.OrganizationID == orgID {
+				filtered = append(filtered, trigger)
+			}
+		}
+
+	}
+
+	return filtered, nil
 }
 
 // listAppTriggers godoc

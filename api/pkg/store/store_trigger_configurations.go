@@ -122,9 +122,6 @@ func (s *PostgresStore) ListTriggerConfigurations(ctx context.Context, q *ListTr
 
 	if q.OrganizationID != "" {
 		query = query.Where("organization_id = ?", q.OrganizationID)
-	} else {
-		// Otherwise org need to be empty
-		query = query.Where("organization_id = ''")
 	}
 
 	if q.AppID != "" {
