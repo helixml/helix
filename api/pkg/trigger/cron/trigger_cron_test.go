@@ -188,7 +188,7 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 	)
 
 	// Execute the function
-	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, "trigger-123", trigger, "test-session")
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, "test-user", "trigger-123", trigger, "test-session")
 
 	// Verify the result
 	suite.NoError(err)
@@ -287,6 +287,8 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 	// Mock UpdateSession for the final session update
 	suite.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, session types.Session) (*types.Session, error) {
+			// Should have user ID set
+			suite.Equal("test-user", session.Owner)
 			// Verify the assistant interaction was updated with the response
 			suite.Len(session.Interactions, 2)
 			assistantInteraction := session.Interactions[1]
@@ -318,7 +320,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 	)
 
 	// Execute the function
-	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, "trigger-123", trigger, "test-session")
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, "test-user", "trigger-123", trigger, "test-session")
 
 	// Verify the result
 	suite.NoError(err)
@@ -340,7 +342,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_Error() {
 	suite.store.EXPECT().GetAppWithTools(suite.ctx, "app-123").Return(nil, errors.New("database error"))
 
 	// Execute the function
-	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, "trigger-123", trigger, "test-session")
+	result, err := ExecuteCronTask(suite.ctx, suite.store, suite.controller, suite.notifier, app, "test-user", "trigger-123", trigger, "test-session")
 
 	// Verify the error
 	suite.Error(err)

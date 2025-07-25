@@ -182,7 +182,8 @@ func (c *Cron) reconcileCronApps(ctx context.Context) error {
 }
 
 type cronApp struct {
-	ID      string
+	ID      string // Trigger ID
+	UserID  string // Either creator of trigger or app owner
 	Name    string
 	App     *types.App
 	Trigger *types.CronTrigger
@@ -202,6 +203,7 @@ func (c *Cron) getCronApps(ctx context.Context) ([]*cronApp, error) {
 			if trigger.Cron != nil && trigger.Cron.Enabled {
 				cronApps = append(cronApps, &cronApp{
 					ID:      app.ID,
+					UserID:  app.Owner,
 					Name:    app.Config.Helix.Name,
 					Trigger: trigger.Cron,
 					App:     app,
@@ -237,6 +239,7 @@ func (c *Cron) getCronAppsFromTriggers(ctx context.Context) ([]*cronApp, error) 
 
 		apps = append(apps, &cronApp{
 			ID:      triggerConfig.ID,
+			UserID:  triggerConfig.Owner,
 			Name:    triggerConfig.Name,
 			App:     app,
 			Trigger: triggerConfig.Trigger.Cron,
@@ -360,7 +363,7 @@ func (c *Cron) getCronAppTask(ctx context.Context, cronApp *cronApp) gocron.Task
 			Str("app_id", cronApp.App.ID).
 			Msg("running app cron job")
 
-		_, err := ExecuteCronTask(ctx, c.store, c.controller, c.notifier, cronApp.App, cronApp.ID, cronApp.Trigger, cronApp.Name)
+		_, err := ExecuteCronTask(ctx, c.store, c.controller, c.notifier, cronApp.App, cronApp.UserID, cronApp.ID, cronApp.Trigger, cronApp.Name)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to execute cron task")
 			return
@@ -412,7 +415,7 @@ func getCronJobSchedule(job gocron.Job) string {
 	return currentSchedule
 }
 
-func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, a *types.App, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
+func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
 	app, err := str.GetAppWithTools(ctx, a.ID)
 	if err != nil {
 		log.Error().
@@ -435,7 +438,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		Type:           types.SessionTypeText,
 		ParentApp:      app.ID,
 		OrganizationID: app.OrganizationID,
-		Owner:          app.Owner,
+		Owner:          userID,
 		OwnerType:      app.OwnerType,
 		Metadata: types.SessionMetadata{
 			Stream:       false,
@@ -500,7 +503,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 	}
 
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
-		OwnerID:         app.Owner,
+		OwnerID:         session.Owner,
 		SessionID:       session.ID,
 		InteractionID:   assistantResponseID,
 		OriginalRequest: bts,
@@ -526,7 +529,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		log.Error().
 			Err(err).
 			Str("app_id", app.ID).
-			Str("user_id", app.Owner).
+			Str("user_id", userID).
 			Msg("failed to get user")
 		return "", err
 	}
@@ -575,7 +578,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 			log.Error().
 				Err(err).
 				Str("app_id", app.ID).
-				Str("user_id", app.Owner).
+				Str("user_id", userID).
 				Str("session_id", session.ID).
 				Msg("failed to update session")
 		}
@@ -627,7 +630,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		log.Error().
 			Err(err).
 			Str("app_id", app.ID).
-			Str("user_id", app.Owner).
+			Str("user_id", userID).
 			Str("session_id", session.ID).
 			Msg("failed to update session")
 	}
