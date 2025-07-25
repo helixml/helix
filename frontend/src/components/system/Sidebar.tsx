@@ -21,6 +21,11 @@ import AccountBoxIcon from '@mui/icons-material/AccountBox'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import CodeIcon from '@mui/icons-material/Code'
 import AddIcon from '@mui/icons-material/Add'
+import ChatIcon from '@mui/icons-material/Chat'
+import AppsIcon from '@mui/icons-material/Apps'
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
+import Tabs from '@mui/material/Tabs'
+import Tab from '@mui/material/Tab'
 
 import TokenUsageDisplay from './TokenUsageDisplay'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -36,6 +41,7 @@ import SidebarContextHeader from './SidebarContextHeader'
 const RESOURCE_TYPES = [
   'chat',
   'apps',
+  'admin',
 ]
 
 const shimmer = keyframes`
@@ -105,6 +111,9 @@ const SidebarContent: React.FC<{
   const api = useApi()
   const account = useAccount()
   const sessions = useSessions()
+  
+  // Determine current resource type
+  const currentResourceType = router.params.resource_type || (router.params.app_id ? 'apps' : 'chat')
   // const activeTab = useMemo(() => {
   //   // Always respect resource_type if it's present
   //   const activeIndex = RESOURCE_TYPES.findIndex((type) => type == router.params.resource_type)
@@ -167,6 +176,23 @@ const SidebarContent: React.FC<{
     postNavigateTo()
   }
 
+   // Handle resource type switching
+  const handleResourceTypeChange = (resourceType: string) => {
+    switch (resourceType) {
+      case 'chat':
+        account.orgNavigate('home')
+        break
+      case 'apps':
+        account.orgNavigate('apps')
+        break
+      case 'admin':
+        if (account.admin) {
+          router.navigate('admin_llm_calls')
+        }
+        break
+    }
+  }
+
   // Handle creating new chat or app based on active tab
   const handleCreateNew = () => {
     account.orgNavigate('home')
@@ -186,6 +212,65 @@ const SidebarContent: React.FC<{
         }}
       >
         <SidebarContextHeader />
+        
+        {/* Top-level resource type navigation */}
+        <Box
+          sx={{
+            flexGrow: 0,
+            width: '100%',
+            borderBottom: lightTheme.border,
+            mb: 1,
+          }}
+        >
+          <Tabs
+            value={currentResourceType}
+            onChange={(_, newValue) => handleResourceTypeChange(newValue)}
+            variant="fullWidth"
+            sx={{
+              minHeight: 48,
+              '& .MuiTabs-flexContainer': {
+                height: 48,
+              },
+              '& .MuiTab-root': {
+                minHeight: 48,
+                fontSize: '0.75rem',
+                color: lightTheme.textColorFaded,
+                '&.Mui-selected': {
+                  color: lightTheme.textColor,
+                },
+              },
+              '& .MuiTabs-indicator': {
+                backgroundColor: '#00E5FF',
+                height: 2,
+              },
+            }}
+          >
+            <Tab
+              icon={<ChatIcon sx={{ fontSize: '1rem' }} />}
+              iconPosition="top"
+              label="Chat"
+              value="chat"
+              sx={{ px: 0.5 }}
+            />
+            <Tab
+              icon={<AppsIcon sx={{ fontSize: '1rem' }} />}
+              iconPosition="top"
+              label="Apps"
+              value="apps"
+              sx={{ px: 0.5 }}
+            />
+            {account.admin && (
+              <Tab
+                icon={<AdminPanelSettingsIcon sx={{ fontSize: '1rem' }} />}
+                iconPosition="top"
+                label="Admin"
+                value="admin"
+                sx={{ px: 0.5 }}
+              />
+            )}
+          </Tabs>
+        </Box>
+        
         <Box
           sx={{
             flexGrow: 0,

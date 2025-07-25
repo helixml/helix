@@ -23,6 +23,11 @@ import Tasks from './pages/Tasks'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
+import AdminLLMCalls from './pages/admin/AdminLLMCalls'
+import AdminProviders from './pages/admin/AdminProviders'
+import AdminOAuthProviders from './pages/admin/AdminOAuthProviders'
+import AdminRunners from './pages/admin/AdminRunners'
+import AdminHelixModels from './pages/admin/AdminHelixModels'
 
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
@@ -226,6 +231,56 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <Dashboard />
+  ),
+}, {
+  name: 'admin_llm_calls',
+  path: '/admin/llm-calls',
+  meta: {
+    drawer: true,
+    resource_type: 'admin',
+  },
+  render: () => (
+    <AdminLLMCalls />
+  ),
+}, {
+  name: 'admin_providers',
+  path: '/admin/providers',
+  meta: {
+    drawer: true,
+    resource_type: 'admin',
+  },
+  render: () => (
+    <AdminProviders />
+  ),
+}, {
+  name: 'admin_oauth_providers',
+  path: '/admin/oauth-providers',
+  meta: {
+    drawer: true,
+    resource_type: 'admin',
+  },
+  render: () => (
+    <AdminOAuthProviders />
+  ),
+}, {
+  name: 'admin_runners',
+  path: '/admin/runners',
+  meta: {
+    drawer: true,
+    resource_type: 'admin',
+  },
+  render: () => (
+    <AdminRunners />
+  ),
+}, {
+  name: 'admin_helix_models',
+  path: '/admin/helix-models',
+  meta: {
+    drawer: true,
+    resource_type: 'admin',
+  },
+  render: () => (
+    <AdminHelixModels />
   ),
 }, {
   name: 'account',

@@ -9,6 +9,7 @@ import Collapse from '@mui/material/Collapse'
 
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
+import { AdminMenu } from '../components/admin/AdminMenu'
 
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
@@ -135,10 +136,11 @@ const Layout: FC<{
   const apiClient = api.getApiClient()
   
   // Determine which resource type to use
-  // 1. Use resource_type from URL params if available
-  // 2. If app_id is present in the URL, default to 'apps'
-  // 3. Otherwise default to 'chat'
-  const resourceType = router.params.resource_type || (router.params.app_id ? 'apps' : 'chat')  
+  // 1. Use resource_type from route metadata if available
+  // 2. Use resource_type from URL params if available
+  // 3. If app_id is present in the URL, default to 'apps'
+  // 4. Otherwise default to 'chat'
+  const resourceType = router.meta.resource_type || router.params.resource_type || (router.params.app_id ? 'apps' : 'chat')  
 
   // This useEffect handles registering/updating the menu
   React.useEffect(() => {
@@ -155,13 +157,25 @@ const Layout: FC<{
 
 
   if(router.meta.drawer) {   
-    sidebarMenu = (
-      <SessionsMenu
-        onOpenSession={ () => {
-          account.setMobileMenuOpen(false)
-        }}
-      />
-    )    
+    // Switch sidebar content based on resource type
+    if (resourceType === 'admin') {
+      sidebarMenu = (
+        <AdminMenu
+          onNavigate={() => {
+            account.setMobileMenuOpen(false)
+          }}
+        />
+      )
+    } else {
+      // Default to sessions menu for 'chat' and other resource types
+      sidebarMenu = (
+        <SessionsMenu
+          onOpenSession={ () => {
+            account.setMobileMenuOpen(false)
+          }}
+        />
+      )
+    }
   }
 
   return (
