@@ -17,6 +17,7 @@ import BlockIcon from '@mui/icons-material/Block'
 import SimpleTable from '../widgets/SimpleTable'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
+import TasksTableExecutionsChart from './TasksTableExecutionsChart'
 
 import useTheme from '@mui/material/styles/useTheme'
 import useAccount from '../../hooks/useAccount'
@@ -183,6 +184,9 @@ const TasksTable: FC<TasksTableProps> = ({
             />
           </Box>
         ),
+        executions: (
+          <TasksTableExecutionsChart taskId={task.id || ''} />
+        ),
       }
     })
   }, [data, apps, theme, onEdit, account])
@@ -215,6 +219,10 @@ const TasksTable: FC<TasksTableProps> = ({
           {
             name: 'agent',
             title: 'Agent',
+          },
+          {
+            name: 'executions',
+            title: 'Executions',
           }
         ]}
         data={tableData}

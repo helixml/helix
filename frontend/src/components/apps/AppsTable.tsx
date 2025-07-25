@@ -1,12 +1,8 @@
 import React, { FC, useMemo, useCallback, useState, useEffect } from 'react'
-import EditIcon from '@mui/icons-material/Edit'
-import DeleteIcon from '@mui/icons-material/Delete'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
 import Chip from '@mui/material/Chip'
-import GitHubIcon from '@mui/icons-material/GitHub'
-import SchoolIcon from '@mui/icons-material/School'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
@@ -14,11 +10,8 @@ import IconButton from '@mui/material/IconButton'
 import { LineChart } from '@mui/x-charts';
 
 import SimpleTable from '../widgets/SimpleTable'
-import ClickLink from '../widgets/ClickLink'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
-import JsonWindowLink from '../widgets/JsonWindowLink'
-import ToolDetail from '../tools/ToolDetail'
 
 import useTheme from '@mui/material/styles/useTheme'
 import useApi from '../../hooks/useApi'
@@ -34,7 +27,6 @@ import {
 
 // Import the Helix icon
 import HelixIcon from '../../../assets/img/logo.png'
-import useLightTheme from '../../hooks/useLightTheme'
 
 interface TypesAggregatedUsageMetric {
   date: string;
