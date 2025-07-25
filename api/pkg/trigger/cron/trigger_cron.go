@@ -31,6 +31,62 @@ type Cron struct {
 	cron       gocron.Scheduler
 }
 
+func NextRun(cron *types.CronTrigger) time.Time {
+	cronSchedule, err := cronv3.ParseStandard(cron.Schedule)
+	if err != nil {
+		return time.Time{}
+	}
+	return cronSchedule.Next(time.Now())
+}
+
+// NextRunFormatted returns the next run time formatted as "Next run: July 31 at 5:30pm GMT+4"
+func NextRunFormatted(cron *types.CronTrigger) string {
+	nextRun := NextRun(cron)
+	if nextRun.IsZero() {
+		return "Invalid schedule"
+	}
+
+	// Extract timezone from cron schedule
+	timezone := extractTimezoneFromCron(cron.Schedule)
+	if timezone == "" {
+		// Fallback to UTC if no timezone found
+		timezone = "UTC"
+	}
+
+	// Parse the timezone
+	loc, err := time.LoadLocation(timezone)
+	if err != nil {
+		// Fallback to UTC if timezone parsing fails
+		loc = time.UTC
+	}
+
+	// Convert next run time to the target timezone
+	nextRunInTZ := nextRun.In(loc)
+
+	// Format the time in the desired format
+	month := nextRunInTZ.Format("January")
+	day := nextRunInTZ.Format("2")
+	time := nextRunInTZ.Format("3:04pm")
+	// zone := nextRunInTZ.Format("MST")
+
+	return fmt.Sprintf("Next run: %s %s at %s", month, day, time)
+}
+
+// extractTimezoneFromCron extracts the timezone from a cron schedule that contains CRON_TZ
+func extractTimezoneFromCron(schedule string) string {
+	// Look for CRON_TZ= pattern
+	if strings.HasPrefix(schedule, "CRON_TZ=") {
+		// Find the space after the timezone
+		spaceIndex := strings.Index(schedule, " ")
+		if spaceIndex > 0 {
+			// Extract the timezone part (remove "CRON_TZ=" prefix)
+			timezone := schedule[8:spaceIndex] // 8 is the length of "CRON_TZ="
+			return timezone
+		}
+	}
+	return ""
+}
+
 func New(cfg *config.ServerConfig, store store.Store, notifier notification.Notifier, controller *controller.Controller) (*Cron, error) {
 	s, err := gocron.NewScheduler()
 	if err != nil {
