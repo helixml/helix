@@ -193,7 +193,7 @@ const Tasks: FC = () => {
             endIcon={<AddIcon />}
             onClick={() => handleCreateTask()}
           >
-            Add new
+            New Task
           </Button>
         </div>
       )}

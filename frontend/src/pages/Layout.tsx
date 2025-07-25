@@ -9,8 +9,7 @@ import Collapse from '@mui/material/Collapse'
 
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
-import OrgsSidebarMenu from '../components/orgs/OrgsSidebarMenu'
-import AppsMenu from '../components/apps/AppsMenu'
+
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
 import Window from '../components/widgets/Window'
@@ -148,46 +147,21 @@ const Layout: FC<{
       if (!authResponse.data.authenticated) {
         return
       }
-      setIsAuthenticated(true)
-
-      // Store the current resource type for later use
-      if (resourceType) {
-        localStorage.setItem('last_resource_type', resourceType)      
-        
-        // Ensure the appropriate content is loaded
-        if (resourceType === 'apps') {
-          apps.loadApps()
-        }
-      } 
+      setIsAuthenticated(true) 
     }
     checkAuthAndLoad()
   }, [resourceType])
 
 
 
-  if(router.meta.drawer) {
-    if(router.meta.menu == 'orgs') {
-      sidebarMenu = (
-        <OrgsSidebarMenu
-        />
-      )
-    } else if(resourceType === 'apps' && isAuthenticated) {
-      sidebarMenu = (
-        <AppsMenu
-          onOpenApp={ () => {
-            account.setMobileMenuOpen(false)
-          }}
-        />
-      )
-    } else {
-      sidebarMenu = (
-        <SessionsMenu
-          onOpenSession={ () => {
-            account.setMobileMenuOpen(false)
-          }}
-        />
-      )
-    }
+  if(router.meta.drawer) {   
+    sidebarMenu = (
+      <SessionsMenu
+        onOpenSession={ () => {
+          account.setMobileMenuOpen(false)
+        }}
+      />
+    )    
   }
 
   return (
@@ -242,9 +216,8 @@ const Layout: FC<{
               <Box sx={{ display: 'flex', flexDirection: 'row', height: '100%', width: '100%' }}>
                 {account.user && account.organizationTools.organizations.length > 0 && (
                   <Box
-                    sx={{
-                      background: 'linear-gradient(180deg, #181828 0%, #1a1a2f 100%)',
-                      borderRight: '1px solid #23234a',
+                    sx={{                      
+                      borderRight: lightTheme.border,
                       minWidth: 64,
                       width: 64,
                       maxWidth: 64,
@@ -263,7 +236,6 @@ const Layout: FC<{
                 <Box sx={{ flex: 1, minWidth: 0, height: '100%' }}>
                   <SlideMenuWrapper>
                     <Sidebar
-                      showTopLinks={ !isOrgMenu }
                     >
                       { sidebarMenu }
                     </Sidebar>

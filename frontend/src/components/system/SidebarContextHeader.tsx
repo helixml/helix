@@ -79,7 +79,6 @@ const SidebarContextHeader: React.FC = () => {
         borderBottom: lightTheme.border,
         minHeight: TOOLBAR_HEIGHT + 15,
         boxShadow: '0 2px 8px 0 rgba(0,229,255,0.08)',
-        mb: 1,
       }}
     >
       <Typography
@@ -147,10 +146,7 @@ const SidebarContextHeader: React.FC = () => {
           <>
             <MenuItem onClick={handleAccountSettings}>
               Settings
-            </MenuItem>
-            <MenuItem onClick={handleCreateOrganization}>
-              Add new organization
-            </MenuItem>
+            </MenuItem>            
           </>
         )}
       </Menu>

@@ -434,6 +434,7 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 	// Set up context for the request
 	ctx = oai.SetContextSessionID(ctx, session.ID)
 	ctx = oai.SetContextAppID(ctx, app.ID)
+	ctx = oai.SetContextOrganizationID(ctx, app.OrganizationID)
 
 	// Get the last assistant interaction
 	lastAssistantInteraction := session.Interactions[len(session.Interactions)-1]
@@ -448,6 +449,7 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 		user,
 		request,
 		&controller.ChatCompletionOptions{
+			OrganizationID: app.OrganizationID,
 			AppID:          app.ID,
 			Conversational: true,
 		},

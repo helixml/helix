@@ -37,6 +37,8 @@ import googleLogo from '../../../assets/img/providers/google.svg'
 import anthropicLogo from '../../../assets/img/providers/anthropic.png'
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
+import { useGetOrgByName } from '../../services/orgService';
+import useRouter from '../../hooks/useRouter';
 
 interface AdvancedModelPickerProps {
   selectedModelId?: string;
@@ -143,13 +145,19 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   hint,
   recommendedModels = [], // Default to empty array
 }) => {
+  const router = useRouter()
   const lightTheme = useLightTheme();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showOnlyEnabled, setShowOnlyEnabled] = useState(true);
+
+  const orgName = router.params.org_id    
+
+  // Get org if orgName is set  
+  const { data: org, isLoading: isLoadingOrg } = useGetOrgByName(orgName, orgName !== undefined)  
   
   // Fetch providers and models
-  const { data: providers, isLoading: isLoadingProviders } = useListProviders(true);  
+  const { data: providers, isLoading: isLoadingProviders } = useListProviders(true, org?.id, !isLoadingOrg);  
 
   const { data: tokenUsage, isLoading: isLoadingTokenUsage } = useGetUserTokenUsage();
 

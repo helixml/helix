@@ -217,6 +217,7 @@ func (a *AzureDevOps) processEvent(ctx context.Context, triggerConfig *types.Tri
 	})
 
 	ctx = oai.SetContextAppID(ctx, app.ID)
+	ctx = oai.SetContextOrganizationID(ctx, app.OrganizationID)
 
 	// Write session to the database
 	err = a.controller.WriteSession(ctx, session)
@@ -243,6 +244,7 @@ func (a *AzureDevOps) processEvent(ctx context.Context, triggerConfig *types.Tri
 	resp, _, err := a.controller.ChatCompletion(ctx, user,
 		request,
 		&controller.ChatCompletionOptions{
+			OrganizationID: app.OrganizationID,
 			AppID:          app.ID,
 			Conversational: true,
 		})

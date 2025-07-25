@@ -305,6 +305,7 @@ type Store interface {
 	ListTriggerExecutions(ctx context.Context, q *ListTriggerExecutionsQuery) ([]*types.TriggerExecution, error)
 	CreateTriggerExecution(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error)
 	UpdateTriggerExecution(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error)
+	ResetRunningExecutions(ctx context.Context) error
 }
 
 type EmbeddingsStore interface {

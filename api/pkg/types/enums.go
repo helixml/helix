@@ -105,6 +105,7 @@ const (
 	OwnerTypeRunner OwnerType = "runner"
 	OwnerTypeSystem OwnerType = "system"
 	OwnerTypeSocket OwnerType = "socket"
+	OwnerTypeOrg    OwnerType = "org"
 )
 
 type PaymentType string

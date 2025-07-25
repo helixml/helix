@@ -1633,6 +1633,8 @@ definitions:
         type: string
       model:
         type: string
+      organization_id:
+        type: string
       original_request:
         items:
           type: integer
@@ -2084,12 +2086,14 @@ definitions:
     - runner
     - system
     - socket
+    - org
     type: string
     x-enum-varnames:
     - OwnerTypeUser
     - OwnerTypeRunner
     - OwnerTypeSystem
     - OwnerTypeSocket
+    - OwnerTypeOrg
   types.PaginatedLLMCalls:
     properties:
       calls:
@@ -2183,10 +2187,14 @@ definitions:
     enum:
     - global
     - user
+    - org
+    - team
     type: string
     x-enum-varnames:
     - ProviderEndpointTypeGlobal
     - ProviderEndpointTypeUser
+    - ProviderEndpointTypeOrg
+    - ProviderEndpointTypeTeam
   types.RAGSettings:
     properties:
       chunk_overflow:
@@ -3174,6 +3182,8 @@ definitions:
       name:
         description: Name of the trigger configuration
         type: string
+      ok:
+        type: boolean
       organization_id:
         description: Organization ID
         type: string
@@ -3184,6 +3194,8 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.OwnerType'
         description: User or Organization
+      status:
+        type: string
       trigger:
         $ref: '#/definitions/types.Trigger'
       trigger_type:
@@ -4653,6 +4665,10 @@ paths:
         in: query
         name: with_models
         type: boolean
+      - description: Organization ID
+        in: query
+        name: org_id
+        type: string
       responses:
         "200":
           description: OK

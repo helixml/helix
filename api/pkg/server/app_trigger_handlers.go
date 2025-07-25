@@ -46,7 +46,33 @@ func (s *HelixAPIServer) listTriggers(_ http.ResponseWriter, r *http.Request) ([
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	return triggers, nil
+	// For cron triggers populate next run information
+	for idx, trigger := range triggers {
+		if trigger.Trigger.Cron != nil {
+			triggers[idx].OK = true
+			triggers[idx].Status = cron.NextRunFormatted(trigger.Trigger.Cron)
+		}
+	}
+
+	var filtered []*types.TriggerConfiguration
+
+	for _, trigger := range triggers {
+		if orgID == "" {
+			// If org ID is not specified, only show triggers that are owned by the user and
+			// not attached to the orr
+			if trigger.Owner == user.ID && trigger.OrganizationID == orgID {
+				filtered = append(filtered, trigger)
+			}
+		} else {
+			// If org ID is specified, only show triggers that are attached to the org
+			if trigger.OrganizationID == orgID {
+				filtered = append(filtered, trigger)
+			}
+		}
+
+	}
+
+	return filtered, nil
 }
 
 // listAppTriggers godoc
@@ -277,7 +303,7 @@ func (s *HelixAPIServer) executeAppTrigger(_ http.ResponseWriter, r *http.Reques
 	}
 
 	// Execute the trigger
-	response, err := cron.ExecuteCronTask(ctx, s.Store, s.Controller, s.Controller.Options.Notifier, app, triggerID, triggerConfig.Trigger.Cron, triggerConfig.Name)
+	response, err := cron.ExecuteCronTask(ctx, s.Store, s.Controller, s.Controller.Options.Notifier, app, user.ID, triggerID, triggerConfig.Trigger.Cron, triggerConfig.Name)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}

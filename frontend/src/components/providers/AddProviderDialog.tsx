@@ -18,12 +18,15 @@ import { TypesProviderEndpointType } from '../../api/api';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 
+import { TypesOwnerType } from '../../api/api';
+
 import { TypesProviderEndpoint } from '../../api/api';
 import useSnackbar from '../../hooks/useSnackbar';
 interface AddProviderDialogProps {
   open: boolean;
   onClose: () => void;
   onClosed?: () => void;
+  orgId: string;
   provider: {
     id: string;
     name: string;
@@ -62,6 +65,7 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
   onClosed,
   provider,
   existingProvider,
+  orgId,
 }) => {
   const lightTheme = useLightTheme();
   const [error, setError] = useState<string | null>(null);
@@ -140,6 +144,9 @@ const AddProviderDialog: React.FC<AddProviderDialogProps> = ({
           api_key: apiKey,
           endpoint_type: TypesProviderEndpointType.ProviderEndpointTypeUser,
           description: provider.description,
+          // If we are in an org context, set the owner to the org
+          owner: orgId || '',
+          owner_type: orgId ? TypesOwnerType.OwnerTypeOrg : TypesOwnerType.OwnerTypeUser,
         });
         snackbarSuccess('Provider connected successfully');
       }

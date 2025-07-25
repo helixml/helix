@@ -1023,6 +1023,7 @@ export interface TypesLLMCall {
   id?: string;
   interaction_id?: string;
   model?: string;
+  organization_id?: string;
   original_request?: number[];
   prompt_tokens?: number;
   provider?: string;
@@ -1289,6 +1290,7 @@ export enum TypesOwnerType {
   OwnerTypeRunner = "runner",
   OwnerTypeSystem = "system",
   OwnerTypeSocket = "socket",
+  OwnerTypeOrg = "org",
 }
 
 export interface TypesPaginatedLLMCalls {
@@ -1342,6 +1344,8 @@ export enum TypesProviderEndpointStatus {
 export enum TypesProviderEndpointType {
   ProviderEndpointTypeGlobal = "global",
   ProviderEndpointTypeUser = "user",
+  ProviderEndpointTypeOrg = "org",
+  ProviderEndpointTypeTeam = "team",
 }
 
 export interface TypesRAGSettings {
@@ -1933,12 +1937,14 @@ export interface TypesTriggerConfiguration {
   id?: string;
   /** Name of the trigger configuration */
   name?: string;
+  ok?: boolean;
   /** Organization ID */
   organization_id?: string;
   /** User ID */
   owner?: string;
   /** User or Organization */
   owner_type?: TypesOwnerType;
+  status?: string;
   trigger?: TypesTrigger;
   trigger_type?: TypesTriggerType;
   updated?: string;
@@ -3428,6 +3434,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       query?: {
         /** Include models */
         with_models?: boolean;
+        /** Organization ID */
+        org_id?: string;
       },
       params: RequestParams = {},
     ) =>

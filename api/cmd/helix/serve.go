@@ -218,6 +218,12 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
+	// Reset any running executions
+	err = postgresStore.ResetRunningExecutions(ctx)
+	if err != nil {
+		return err
+	}
+
 	ps, err := pubsub.New(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create pubsub provider: %w", err)

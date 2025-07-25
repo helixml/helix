@@ -63,8 +63,13 @@ type AppCreateResponse struct {
 func (s *HelixAPIServer) applyModelSubstitutions(ctx context.Context, user *types.User, app *types.App, modelClasses []ModelClass) ([]ModelSubstitution, error) {
 	var substitutions []ModelSubstitution
 
+	owner := user.ID
+	if app.OrganizationID != "" {
+		owner = app.OrganizationID
+	}
+
 	// Get available providers for the user
-	availableProviders, err := s.providerManager.ListProviders(ctx, user.ID)
+	availableProviders, err := s.providerManager.ListProviders(ctx, owner)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -588,8 +593,13 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*App
 // validateProvidersAndModels checks if the provider and model are valid. Provider
 // can be empty, however model is required
 func (s *HelixAPIServer) validateProvidersAndModels(ctx context.Context, user *types.User, app *types.App) error {
-	// Get available providers for the user
-	providers, err := s.providerManager.ListProviders(ctx, user.ID)
+
+	owner := user.ID
+	if app.OrganizationID != "" {
+		owner = app.OrganizationID
+	}
+
+	providers, err := s.providerManager.ListProviders(ctx, owner)
 	if err != nil {
 		log.Error().
 			Err(err).

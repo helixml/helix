@@ -31,6 +31,62 @@ type Cron struct {
 	cron       gocron.Scheduler
 }
 
+func NextRun(cron *types.CronTrigger) time.Time {
+	cronSchedule, err := cronv3.ParseStandard(cron.Schedule)
+	if err != nil {
+		return time.Time{}
+	}
+	return cronSchedule.Next(time.Now())
+}
+
+// NextRunFormatted returns the next run time formatted as "Next run: July 31 at 5:30pm GMT+4"
+func NextRunFormatted(cron *types.CronTrigger) string {
+	nextRun := NextRun(cron)
+	if nextRun.IsZero() {
+		return "Invalid schedule"
+	}
+
+	// Extract timezone from cron schedule
+	timezone := extractTimezoneFromCron(cron.Schedule)
+	if timezone == "" {
+		// Fallback to UTC if no timezone found
+		timezone = "UTC"
+	}
+
+	// Parse the timezone
+	loc, err := time.LoadLocation(timezone)
+	if err != nil {
+		// Fallback to UTC if timezone parsing fails
+		loc = time.UTC
+	}
+
+	// Convert next run time to the target timezone
+	nextRunInTZ := nextRun.In(loc)
+
+	// Format the time in the desired format
+	month := nextRunInTZ.Format("January")
+	day := nextRunInTZ.Format("2")
+	time := nextRunInTZ.Format("3:04pm")
+	// zone := nextRunInTZ.Format("MST")
+
+	return fmt.Sprintf("Next run: %s %s at %s", month, day, time)
+}
+
+// extractTimezoneFromCron extracts the timezone from a cron schedule that contains CRON_TZ
+func extractTimezoneFromCron(schedule string) string {
+	// Look for CRON_TZ= pattern
+	if strings.HasPrefix(schedule, "CRON_TZ=") {
+		// Find the space after the timezone
+		spaceIndex := strings.Index(schedule, " ")
+		if spaceIndex > 0 {
+			// Extract the timezone part (remove "CRON_TZ=" prefix)
+			timezone := schedule[8:spaceIndex] // 8 is the length of "CRON_TZ="
+			return timezone
+		}
+	}
+	return ""
+}
+
 func New(cfg *config.ServerConfig, store store.Store, notifier notification.Notifier, controller *controller.Controller) (*Cron, error) {
 	s, err := gocron.NewScheduler()
 	if err != nil {
@@ -126,7 +182,8 @@ func (c *Cron) reconcileCronApps(ctx context.Context) error {
 }
 
 type cronApp struct {
-	ID      string
+	ID      string // Trigger ID
+	UserID  string // Either creator of trigger or app owner
 	Name    string
 	App     *types.App
 	Trigger *types.CronTrigger
@@ -146,6 +203,7 @@ func (c *Cron) getCronApps(ctx context.Context) ([]*cronApp, error) {
 			if trigger.Cron != nil && trigger.Cron.Enabled {
 				cronApps = append(cronApps, &cronApp{
 					ID:      app.ID,
+					UserID:  app.Owner,
 					Name:    app.Config.Helix.Name,
 					Trigger: trigger.Cron,
 					App:     app,
@@ -181,6 +239,7 @@ func (c *Cron) getCronAppsFromTriggers(ctx context.Context) ([]*cronApp, error) 
 
 		apps = append(apps, &cronApp{
 			ID:      triggerConfig.ID,
+			UserID:  triggerConfig.Owner,
 			Name:    triggerConfig.Name,
 			App:     app,
 			Trigger: triggerConfig.Trigger.Cron,
@@ -304,7 +363,7 @@ func (c *Cron) getCronAppTask(ctx context.Context, cronApp *cronApp) gocron.Task
 			Str("app_id", cronApp.App.ID).
 			Msg("running app cron job")
 
-		_, err := ExecuteCronTask(ctx, c.store, c.controller, c.notifier, cronApp.App, cronApp.ID, cronApp.Trigger, cronApp.Name)
+		_, err := ExecuteCronTask(ctx, c.store, c.controller, c.notifier, cronApp.App, cronApp.UserID, cronApp.ID, cronApp.Trigger, cronApp.Name)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to execute cron task")
 			return
@@ -356,7 +415,7 @@ func getCronJobSchedule(job gocron.Job) string {
 	return currentSchedule
 }
 
-func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, a *types.App, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
+func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Controller, notifier notification.Notifier, a *types.App, userID, triggerID string, trigger *types.CronTrigger, sessionName string) (string, error) {
 	app, err := str.GetAppWithTools(ctx, a.ID)
 	if err != nil {
 		log.Error().
@@ -379,8 +438,8 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		Type:           types.SessionTypeText,
 		ParentApp:      app.ID,
 		OrganizationID: app.OrganizationID,
-		Owner:          app.Owner,
-		OwnerType:      app.OwnerType,
+		Owner:          userID,
+		OwnerType:      types.OwnerTypeUser,
 		Metadata: types.SessionMetadata{
 			Stream:       false,
 			SystemPrompt: "",
@@ -444,13 +503,14 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 	}
 
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
-		OwnerID:         app.Owner,
+		OwnerID:         session.Owner,
 		SessionID:       session.ID,
 		InteractionID:   assistantResponseID,
 		OriginalRequest: bts,
 	})
 
 	ctx = oai.SetContextAppID(ctx, app.ID)
+	ctx = oai.SetContextOrganizationID(ctx, app.OrganizationID)
 
 	// Write session to the database
 	err = ctrl.WriteSession(ctx, session)
@@ -463,13 +523,13 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 	}
 
 	user, err := str.GetUser(ctx, &store.GetUserQuery{
-		ID: app.Owner,
+		ID: userID,
 	})
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("app_id", app.ID).
-			Str("user_id", app.Owner).
+			Str("user_id", userID).
 			Msg("failed to get user")
 		return "", err
 	}
@@ -497,6 +557,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 	}
 
 	resp, _, err := ctrl.ChatCompletion(ctx, user, request, &controller.ChatCompletionOptions{
+		OrganizationID: app.OrganizationID,
 		AppID:          app.ID,
 		Conversational: true,
 	})
@@ -517,7 +578,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 			log.Error().
 				Err(err).
 				Str("app_id", app.ID).
-				Str("user_id", app.Owner).
+				Str("user_id", userID).
 				Str("session_id", session.ID).
 				Msg("failed to update session")
 		}
@@ -569,7 +630,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		log.Error().
 			Err(err).
 			Str("app_id", app.ID).
-			Str("user_id", app.Owner).
+			Str("user_id", userID).
 			Str("session_id", session.ID).
 			Msg("failed to update session")
 	}

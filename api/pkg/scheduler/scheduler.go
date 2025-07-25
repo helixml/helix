@@ -220,7 +220,6 @@ func (s *Scheduler) RunnerSlots(runnerID string) ([]*types.RunnerSlot, error) {
 
 // processQueue runs in a goroutine to processes the queue of requests.
 func (s *Scheduler) processQueue(ctx context.Context) {
-	log.Debug().Msg("starting queue processor")
 	for {
 		select {
 		case <-ctx.Done():
@@ -235,7 +234,6 @@ func (s *Scheduler) processQueue(ctx context.Context) {
 // The reason why we do this async is because we don't want to have to check the runner on the hot
 // path. When a user makes a request we want to forward it to a warm runner as quickly as possible.
 func (s *Scheduler) reconcileSlots(ctx context.Context) {
-	log.Debug().Msg("starting slot reconciler")
 	for {
 		select {
 		case <-ctx.Done():
@@ -248,7 +246,6 @@ func (s *Scheduler) reconcileSlots(ctx context.Context) {
 
 // reconcileActivity runs in a goroutine to reconcile activity.
 func (s *Scheduler) reconcileActivity(ctx context.Context) {
-	log.Debug().Msg("starting activity reconciler")
 	for {
 		select {
 		case <-ctx.Done():
@@ -315,7 +312,6 @@ func (s *Scheduler) reconcileActivityOnce() {
 
 // reconcileRunners runs in a goroutine to reconcile runners.
 func (s *Scheduler) reconcileRunners(ctx context.Context) {
-	log.Debug().Msg("starting runner reconciler")
 	for {
 		select {
 		case <-ctx.Done():

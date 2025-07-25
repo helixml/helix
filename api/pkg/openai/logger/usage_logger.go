@@ -20,6 +20,7 @@ func NewUsageLogger(store store.Store) *UsageLogger {
 
 func (l *UsageLogger) CreateLLMCall(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
 	metric := &types.UsageMetric{
+		OrganizationID:    call.OrganizationID,
 		AppID:             call.AppID,
 		UserID:            call.UserID,
 		Model:             call.Model,
