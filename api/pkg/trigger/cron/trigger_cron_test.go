@@ -16,6 +16,7 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	cronv3 "github.com/robfig/cron/v3"
 
 	oai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/assert"
@@ -65,6 +66,32 @@ func (suite *CronTestSuite) SetupTest() {
 		Extractor:       extractorMock,
 	})
 	suite.NoError(err)
+}
+
+func (suite *CronTestSuite) TestParseCronSchedule() {
+	tests := []struct {
+		name     string
+		schedule string
+		expected string
+	}{
+		{
+			name:     "Asia/Dubai timezone",
+			schedule: "CRON_TZ=Asia/Dubai 10 8 * * 1,2,3,4,5",
+			expected: "Asia/Dubai",
+		},
+		{
+			name:     "UTC timezone",
+			schedule: "CRON_TZ=UTC 0 9 * * 1,2,3",
+			expected: "UTC",
+		},
+	}
+
+	for _, tt := range tests {
+		suite.T().Run(tt.name, func(_ *testing.T) {
+			_, err := cronv3.ParseStandard(tt.schedule)
+			suite.NoError(err)
+		})
+	}
 }
 
 func (suite *CronTestSuite) TestExecuteCronTask() {
