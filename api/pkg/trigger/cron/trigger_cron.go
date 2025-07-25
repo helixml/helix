@@ -439,7 +439,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		ParentApp:      app.ID,
 		OrganizationID: app.OrganizationID,
 		Owner:          userID,
-		OwnerType:      app.OwnerType,
+		OwnerType:      types.OwnerTypeUser,
 		Metadata: types.SessionMetadata{
 			Stream:       false,
 			SystemPrompt: "",
@@ -523,7 +523,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 	}
 
 	user, err := str.GetUser(ctx, &store.GetUserQuery{
-		ID: app.Owner,
+		ID: userID,
 	})
 	if err != nil {
 		log.Error().
