@@ -214,7 +214,7 @@ const Layout: FC<{
               }}
             >
               <Box sx={{ display: 'flex', flexDirection: 'row', height: '100%', width: '100%' }}>
-                {account.user && account.organizationTools.organizations.length > 0 && (
+                {account.user && (
                   <Box
                     sx={{                      
                       borderRight: lightTheme.border,
