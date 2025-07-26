@@ -310,7 +310,7 @@ const App: FC = () => {
                       }}>
                         <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
                           {tabValue === 'appearance' && appTools.flatApp && (
-                            <Box sx={{ height: 'calc(100vh - 200px)', overflow: 'auto' }}>
+                            <Box sx={{ height: '100%', overflow: 'auto' }}>
                               <AppearanceSettings
                                 app={appTools.flatApp}
                                 onUpdate={appTools.saveFlatApp}
@@ -322,7 +322,7 @@ const App: FC = () => {
                           )}
 
                           {tabValue === 'settings' && appTools.flatApp && (
-                            <Box sx={{ height: 'calc(100vh - 200px)', overflow: 'auto' }}>
+                            <Box sx={{ height: '100%', overflow: 'auto' }}>
                               <AppSettings
                                 id={appTools.id}
                                 app={appTools.flatApp}
@@ -335,7 +335,7 @@ const App: FC = () => {
                           )}
 
                           {tabValue === 'knowledge' && (
-                            <Box sx={{ height: 'calc(100vh - 200px)', overflow: 'auto', mr: 2 }}>
+                            <Box sx={{ height: '100%', overflow: 'auto', mr: 2 }}>
                               <Typography variant="h6" sx={{ mb: 2, mt: 2 }}>
                                 Knowledge Sources
                               </Typography>

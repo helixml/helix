@@ -12,6 +12,8 @@ import DnsIcon from '@mui/icons-material/Dns'
 import PersonIcon from '@mui/icons-material/Person'
 import GroupIcon from '@mui/icons-material/Group'
 import SettingsIcon from '@mui/icons-material/Settings'
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
+import UnfoldLessIcon from '@mui/icons-material/UnfoldLess'
 
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
 import PolylineIcon from '@mui/icons-material/Polyline'
@@ -153,37 +155,39 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const [dialogOpen, setDialogOpen] = useState(false)
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
   const [compactExpanded, setCompactExpanded] = useState(false)
+  const [menuItemsExpanded, setMenuItemsExpanded] = useState(false)
 
-  // Preload helix logo to prevent loading delay
-  React.useEffect(() => {
-    const img = new Image()
-    img.src = '/img/logo.png'
-  }, [])
 
-  // Calculate menu width - use proper width for compact mode
-  const menuWidth = sidebarVisible 
-    ? (isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth)
-    : 280 // Fixed width for compact mode menu
 
-  // Handle click outside and escape key to close compact expanded menu
+  // Use consistent width for user menu - always use the sidebar width (wider option)
+  const menuWidth = isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth
+
+  // Handle click outside and escape key to close expanded menus
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (compactExpanded) {
-        // Check if click is outside the expanded menu and avatar
-        const target = event.target as Element
-        if (!target.closest('[data-compact-user-menu]')) {
+      const target = event.target as Element
+      if (!target.closest('[data-compact-user-menu]')) {
+        if (compactExpanded) {
           setCompactExpanded(false)
+        }
+        if (menuItemsExpanded) {
+          setMenuItemsExpanded(false)
         }
       }
     }
 
     const handleEscapeKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && compactExpanded) {
-        setCompactExpanded(false)
+      if (event.key === 'Escape') {
+        if (compactExpanded) {
+          setCompactExpanded(false)
+        }
+        if (menuItemsExpanded) {
+          setMenuItemsExpanded(false)
+        }
       }
     }
 
-    if (compactExpanded) {
+    if (compactExpanded || menuItemsExpanded) {
       document.addEventListener('mousedown', handleClickOutside)
       document.addEventListener('keydown', handleEscapeKey)
       return () => {
@@ -191,14 +195,17 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         document.removeEventListener('keydown', handleEscapeKey)
       }
     }
-  }, [compactExpanded, sidebarVisible])
+  }, [compactExpanded, menuItemsExpanded, sidebarVisible])
 
-  // Close compact menu when sidebar becomes visible
+  // Close compact menu when sidebar becomes visible, and reset menu items state when sidebar becomes hidden
   React.useEffect(() => {
     if (sidebarVisible && compactExpanded) {
       setCompactExpanded(false)
     }
-  }, [sidebarVisible, compactExpanded])
+    if (!sidebarVisible && menuItemsExpanded) {
+      setMenuItemsExpanded(false)
+    }
+  }, [sidebarVisible, compactExpanded, menuItemsExpanded])
 
 
   
@@ -255,8 +262,11 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
 
   const navigateTo = (route: string) => {
     router.navigate(route)
-    // Also close compact menu if open
-    if (compactExpanded) {
+    // Close the appropriate menu state
+    if (sidebarVisible && menuItemsExpanded) {
+      setMenuItemsExpanded(false)
+    }
+    if (!sidebarVisible && compactExpanded) {
       setCompactExpanded(false)
     }
   }
@@ -481,380 +491,178 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     )
   }
 
-  // Render user section - different behavior for sidebar vs compact modes
-  const renderUserSection = () => {
+  // Render the clickable avatar/icon
+  const renderAvatar = () => {
     const isCompact = !sidebarVisible
-    // Show floating menu only when toggled
-    const showFloatingMenu = compactExpanded
+    
+    return (
+      <Box
+        data-compact-user-menu
+        onClick={(e) => {
+          e.stopPropagation()
+          if (isCompact) {
+            // In compact mode: toggle the entire floating menu
+            setCompactExpanded(!compactExpanded)
+          }
+          // In sidebar mode: do nothing (let user info section handle the toggle)
+        }}
+        sx={{
+          width: 48,
+          height: 48,
+          bgcolor: (isCompact ? compactExpanded : menuItemsExpanded) ? 'primary.dark' : (isCompact ? '#1a1a1a' : 'primary.main'),
+          color: '#fff',
+          fontWeight: 'bold',
+          fontSize: isCompact ? '1.5rem' : '1.2rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: 1,
+          cursor: isCompact ? 'pointer' : 'default',
+          transition: 'all 0.2s ease-in-out',
+          border: (isCompact ? compactExpanded : menuItemsExpanded) ? '2px solid #00E5FF' : 'none',
+          '&:hover': {
+            transform: isCompact ? 'scale(1.05)' : 'none',
+          },
+        }}
+      >
+        {isCompact ? (
+          <img 
+            src="/img/logo.png" 
+            alt="Helix" 
+            loading="eager"
+            style={{ 
+              width: '28px', 
+              height: '28px', 
+              objectFit: 'contain',
+              display: 'block'
+            }} 
+          />
+        ) : (
+          account.user?.name?.charAt(0).toUpperCase() || '?'
+        )}
+      </Box>
+    )
+  }
+
+
+
+  // Render menu items (Documentation, Help, Account Settings, etc.)
+  const renderMenuItems = () => {
+    const menuItems = [
+      {
+        icon: <ArticleIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />,
+        label: 'Documentation',
+        onClick: openDocumentation,
+      },
+      {
+        icon: <HelpIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />,
+        label: 'Help & Support',
+        onClick: openHelp,
+      },
+      {
+        icon: <AccountBoxIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />,
+        label: 'Account Settings',
+        onClick: () => navigateTo('account'),
+      },
+      {
+        icon: <PolylineIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />,
+        label: 'Connected Services',
+        onClick: () => navigateTo('oauth-connections'),
+      },
+             {
+         icon: <CodeIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />,
+         label: 'API Reference',
+         onClick: () => {
+           window.open('/api-reference', '_blank')
+           // Close the appropriate menu state
+           if (sidebarVisible) {
+             setMenuItemsExpanded(false)
+           } else {
+             setCompactExpanded(false)
+           }
+         },
+       },
+       {
+         icon: <LogoutIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />,
+         label: 'Logout',
+         onClick: () => {
+           account.onLogout()
+           // Close the appropriate menu state
+           if (sidebarVisible) {
+             setMenuItemsExpanded(false)
+           } else {
+             setCompactExpanded(false)
+           }
+         },
+       },
+    ]
 
     return (
-      <>
-        {/* User section - avatar only in compact, full info in sidebar mode */}
-        <Box
-          data-compact-user-menu
-          onClick={(e) => {
-            e.stopPropagation()
-            setCompactExpanded(!compactExpanded)
-          }}
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: isCompact ? 0 : 1.5,
-            cursor: 'pointer',
-            transition: 'all 0.2s ease-in-out',
-            '&:hover': {
-              transform: 'scale(1.02)',
-            },
-          }}
-        >
-          {/* Avatar */}
+      <Box sx={{ px: 1, py: 1.5 }}>
+        {menuItems.map((item, index) => (
           <Box
-            sx={{
-              width: 48,
-              height: 48,
-              bgcolor: compactExpanded ? 'primary.dark' : (isCompact ? '#1a1a1a' : 'primary.main'),
-              color: '#fff',
-              fontWeight: 'bold',
-              fontSize: isCompact ? '1.5rem' : '1.2rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: 1,
-              border: compactExpanded ? '2px solid #00E5FF' : 'none',
-            }}
-          >
-            {isCompact ? (
-              <img 
-                src="/img/logo.png" 
-                alt="Helix" 
-                loading="eager"
-                style={{ 
-                  width: '28px', 
-                  height: '28px', 
-                  objectFit: 'contain',
-                  display: 'block'
-                }} 
-              />
-            ) : (
-              account.user?.name?.charAt(0).toUpperCase() || '?'
-            )}
-          </Box>
-          
-          {/* User info - only show inline when sidebar is visible */}
-          {!isCompact && account.user && (
-            <>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    color: lightTheme.textColor,
-                    fontWeight: 600,
-                    fontSize: '0.9rem',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {account.user.name || 'User'}
-                </Typography>
-                <Typography
-                  variant="caption"
-                  sx={{
-                    color: lightTheme.textColorFaded,
-                    fontSize: '0.75rem',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    display: 'block',
-                  }}
-                >
-                  {account.user.email}
-                </Typography>
-              </Box>
-              
-              {/* Expand/collapse indicator */}
-              <Box
-                sx={{
-                  color: lightTheme.textColorFaded,
-                  transition: 'transform 0.2s ease-in-out',
-                  transform: compactExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                }}
-              >
-                ▼
-              </Box>
-            </>
-          )}
-        </Box>
-
-        {/* Show expanded menu - always use fixed popup positioning */}
-        {showFloatingMenu && (
-          <Box
-            data-compact-user-menu
-            sx={{
-              position: 'fixed',
-              left: 0,
-              bottom: 0,
-              width: menuWidth,
-              bgcolor: lightTheme.backgroundColor,
-              border: lightTheme.border,
-              borderRadius: 2,
-              boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
-              zIndex: 9999,
-            }}
-          >
-        {/* User Info - only show in compact mode (sidebar closed) */}
-        {isCompact && account.user && (
-          <Box
+            key={index}
+            onClick={item.onClick}
             sx={{
               display: 'flex',
               alignItems: 'center',
-              gap: 1.5,
-              px: 2,
-              py: 1.5,
-
+              px: 2.5, // Increased from 1.5 to 2.5 for more spacing from left margin
+              py: 0.75,
+              cursor: 'pointer',
+              borderRadius: 0.5,
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 0.08)',
+              },
             }}
           >
-            <Box
+            {item.icon}
+            <Typography
+              variant="body2"
               sx={{
-                width: 40,
-                height: 40,
-                bgcolor: 'primary.main',
-                color: '#fff',
-                fontWeight: 'bold',
-                fontSize: '1rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: 1,
+                color: lightTheme.textColor,
+                fontSize: '0.875rem',
+                fontWeight: 400,
+                lineHeight: 1.2,
               }}
             >
-              {account.user.name?.charAt(0).toUpperCase() || '?'}
-            </Box>
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography
-                variant="body2"
-                sx={{
-                  color: lightTheme.textColor,
-                  fontWeight: 600,
-                  fontSize: '0.9rem',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {account.user.name || 'User'}
-              </Typography>
-              <Typography
-                variant="caption"
-                sx={{
-                  color: lightTheme.textColorFaded,
-                  fontSize: '0.75rem',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  display: 'block',
-                }}
-              >
-                {account.user.email}
-              </Typography>
-            </Box>
+              {item.label}
+            </Typography>
           </Box>
-        )}
+        ))}
+      </Box>
+    )
+  }
 
+  // Render the floating menu container
+  const renderFloatingMenu = () => {
+    return (
+      <Box
+        data-compact-user-menu
+        sx={{
+          position: 'fixed',
+          left: 0,
+          bottom: 0,
+          width: menuWidth,
+          bgcolor: lightTheme.backgroundColor,
+          border: lightTheme.border,
+          borderRadius: 2,
+          boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
+          zIndex: 9999,
+        }}
+      >
         {/* Token Usage Display */}
         {account.user && <TokenUsageDisplay />}
 
-                {/* Inline Menu Items */}
-        {compactExpanded && (
-          <Box sx={{ px: 1, py: 0.5 }}>
-            {/* Documentation */}
-            <Box
-              onClick={openDocumentation}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                px: 1.5,
-                py: 0.75,
-                cursor: 'pointer',
-                borderRadius: 0.5,
-                '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                },
-              }}
-            >
-              <ArticleIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />
-              <Typography
-                variant="body2"
-                sx={{
-                  color: lightTheme.textColor,
-                  fontSize: '0.875rem',
-                  fontWeight: 400,
-                  lineHeight: 1.2,
-                }}
-              >
-                Documentation
-              </Typography>
-            </Box>
+        {/* Menu Items - show based on mode */}
+        {(sidebarVisible ? menuItemsExpanded : compactExpanded) && renderMenuItems()}
 
-            {/* Help & Support */}
-            <Box
-              onClick={openHelp}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                px: 1.5,
-                py: 0.75,
-                cursor: 'pointer',
-                borderRadius: 0.5,
-                '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                },
-              }}
-            >
-              <HelpIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />
-              <Typography
-                variant="body2"
-                sx={{
-                  color: lightTheme.textColor,
-                  fontSize: '0.875rem',
-                  fontWeight: 400,
-                  lineHeight: 1.2,
-                }}
-              >
-                Help & Support
-              </Typography>
-            </Box>
-
-            {/* Account Settings */}
-            <Box
-              onClick={() => navigateTo('account')}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                px: 1.5,
-                py: 0.75,
-                cursor: 'pointer',
-                borderRadius: 0.5,
-                '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                },
-              }}
-            >
-              <AccountBoxIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />
-              <Typography
-                variant="body2"
-                sx={{
-                  color: lightTheme.textColor,
-                  fontSize: '0.875rem',
-                  fontWeight: 400,
-                  lineHeight: 1.2,
-                }}
-              >
-                Account Settings
-              </Typography>
-            </Box>
-
-            {/* Connected Services */}
-            <Box
-              onClick={() => navigateTo('oauth-connections')}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                px: 1.5,
-                py: 0.75,
-                cursor: 'pointer',
-                borderRadius: 0.5,
-                '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                },
-              }}
-            >
-              <PolylineIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />
-              <Typography
-                variant="body2"
-                sx={{
-                  color: lightTheme.textColor,
-                  fontSize: '0.875rem',
-                  fontWeight: 400,
-                  lineHeight: 1.2,
-                }}
-              >
-                Connected Services
-              </Typography>
-            </Box>
-
-            {/* API Reference */}
-            <Box
-              onClick={() => {
-                window.open('/api-reference', '_blank')
-                if (!sidebarVisible) {
-                  setCompactExpanded(false)
-                }
-              }}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                px: 1.5,
-                py: 0.75,
-                cursor: 'pointer',
-                borderRadius: 0.5,
-                '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                },
-              }}
-            >
-              <CodeIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />
-              <Typography
-                variant="body2"
-                sx={{
-                  color: lightTheme.textColor,
-                  fontSize: '0.875rem',
-                  fontWeight: 400,
-                  lineHeight: 1.2,
-                }}
-              >
-                API Reference
-              </Typography>
-            </Box>
-
-            {/* Logout */}
-            <Box
-              onClick={() => {
-                account.onLogout()
-                if (!sidebarVisible) {
-                  setCompactExpanded(false)
-                }
-              }}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                px: 1.5,
-                py: 0.75,
-                cursor: 'pointer',
-                borderRadius: 0.5,
-                '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                },
-              }}
-            >
-              <LogoutIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />
-              <Typography
-                variant="body2"
-                sx={{
-                  color: lightTheme.textColor,
-                  fontSize: '0.875rem',
-                  fontWeight: 400,
-                  lineHeight: 1.2,
-                }}
-              >
-                Logout
-              </Typography>
-            </Box>
-          </Box>
-        )}
-
-        {/* User Info */}
+        {/* User Info Section - keep only this one with Helix logo */}
         <Box
+          data-compact-user-menu={sidebarVisible ? true : undefined}
+          onClick={sidebarVisible ? (e) => {
+            e.stopPropagation()
+            setMenuItemsExpanded(!menuItemsExpanded)
+          } : undefined}
           sx={{
             display: 'flex',
             alignItems: 'center',
@@ -862,13 +670,47 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
             py: 1.5,
             borderTop: lightTheme.border,
             gap: 1.5,
-            ...(isCompact && {
+            cursor: sidebarVisible ? 'pointer' : 'default',
+            ...(!sidebarVisible && {
               px: 2,
               py: 2,
             }),
+            ...(sidebarVisible && {
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+              },
+            }),
           }}
         >
-          {themeConfig.logo()}
+          <Box
+            onClick={!sidebarVisible ? (e) => {
+              e.stopPropagation()
+              setCompactExpanded(false)
+            } : undefined}
+            sx={{
+              cursor: !sidebarVisible ? 'pointer' : 'default',
+              '&:hover': !sidebarVisible ? {
+                opacity: 0.8,
+              } : {},
+            }}
+          >
+            <Box sx={{
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+            }}>
+              <Box
+                component="img"
+                src="/img/logo.png"
+                alt="Helix" 
+                loading="eager"
+                sx={{
+                  height: 30,
+                  mx: 1,
+                }}
+              />
+            </Box>
+          </Box>
           {account.user ? (
             <Box sx={{ flex: 1 }}>
               <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
@@ -889,9 +731,47 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
               Login / Register
             </ShimmerButton>
           )}
+          
+          {/* Expand/collapse indicator - only show when sidebar is visible */}
+          {sidebarVisible && account.user && (
+            menuItemsExpanded ? (
+              <UnfoldLessIcon
+                sx={{
+                  color: lightTheme.textColorFaded,
+                  transition: 'opacity 0.2s ease-in-out',
+                  fontSize: '1.1rem',
+                  opacity: 0.7,
+                }}
+              />
+            ) : (
+              <UnfoldMoreIcon
+                sx={{
+                  color: lightTheme.textColorFaded,
+                  transition: 'opacity 0.2s ease-in-out',
+                  fontSize: '1.1rem',
+                  opacity: 0.7,
+                }}
+              />
+            )
+          )}
         </Box>
       </Box>
-        )}
+    )
+  }
+
+  // Main render function - now much simpler
+  const renderUserSection = () => {
+    const isCompact = !sidebarVisible
+    // Show floating menu: always when sidebar open, or when toggled in compact mode
+    const showFloatingMenu = !isCompact || compactExpanded
+
+    return (
+      <>
+        {renderAvatar()}
+        {/* Always render the floating menu but toggle visibility to prevent image reloading */}
+        <Box sx={{ visibility: showFloatingMenu ? 'visible' : 'hidden' }}>
+          {renderFloatingMenu()}
+        </Box>
       </>
     )
   }

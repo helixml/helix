@@ -151,7 +151,9 @@ const Dashboard: FC = () => {
         maxWidth="xl"
         sx={{
           mt: 4,
-          height: 'calc(100% - 100px)',
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
         {(!tab || tab === 'llm_calls') && (
@@ -182,7 +184,7 @@ const Dashboard: FC = () => {
           <Box
             sx={{
               width: '100%',
-              height: 'calc(100vh - 200px)',
+              height: '100%',
               overflow: 'auto',
             }}
           >
@@ -194,7 +196,7 @@ const Dashboard: FC = () => {
           <Box
             sx={{
               width: '100%',
-              height: 'calc(100vh - 200px)',
+              height: '100%',
               overflow: 'auto',
               p: 2,
             }}
@@ -457,7 +459,7 @@ const Dashboard: FC = () => {
           <Box
             sx={{
               width: '100%',
-              height: 'calc(100vh - 200px)',
+              height: '100%',
               overflow: 'auto',
             }}
           >

@@ -195,7 +195,7 @@ const Files: FC = () => {
           </Box>
           <Box
             sx={{
-              height: 'calc(100vh - 100px)',
+              height: '100%',
               width: '100%',
               flexGrow: 1,
             }}
