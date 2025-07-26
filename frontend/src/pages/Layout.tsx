@@ -15,7 +15,7 @@ import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
 import Window from '../components/widgets/Window'
 import { LicenseKeyPrompt } from '../components/LicenseKeyPrompt'
-import { SlideMenuWrapper } from '../components/system/SlideMenuContainer'
+
 import FloatingRunnerState from '../components/admin/FloatingRunnerState'
 import { useFloatingRunnerState } from '../contexts/floatingRunnerState'
 import Tooltip from '@mui/material/Tooltip'
@@ -218,9 +218,7 @@ const Layout: FC<{
         component="div"
       >
         <CssBaseline />
-        {
-          router.meta.drawer && (
-            <Drawer
+        <Drawer
               variant={ isBigScreen ? "permanent" : "temporary" }
               open={ isBigScreen || account.mobileMenuOpen }
               onClose={ () => account.setMobileMenuOpen(false) }
@@ -230,11 +228,7 @@ const Layout: FC<{
                   backgroundColor: lightTheme.backgroundColor,
                   position: 'relative',
                   whiteSpace: 'nowrap',
-                  width: isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth,
-                  transition: theme.transitions.create('width', {
-                    easing: theme.transitions.easing.sharp,
-                    duration: theme.transitions.duration.enteringScreen,
-                  }),
+                  width: router.meta.drawer ? (isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth) : 64,
                   boxSizing: 'border-box',
                   overflowX: 'hidden',
                   height: '100%',
@@ -246,37 +240,40 @@ const Layout: FC<{
               }}
             >
               <Box sx={{ display: 'flex', flexDirection: 'row', height: '100%', width: '100%' }}>
-                {account.user && (
-                  <Box
-                    sx={{                      
+                {/* Always show UserOrgSelector - it will handle compact/expanded modes internally */}
+                <Box
+                  sx={{                      
+                    minWidth: router.meta.drawer ? 64 : 60,
+                    width: router.meta.drawer ? 64 : 60,
+                    maxWidth: router.meta.drawer ? 64 : 60,
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'flex-start',
+                    zIndex: 2,
+                    py: 0,
+                    ...(router.meta.drawer ? {
+                      // Only show border when sidebar is visible
                       borderRight: lightTheme.border,
-                      minWidth: 64,
-                      width: 64,
-                      maxWidth: 64,
-                      height: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'flex-start',
-                      zIndex: 2,
-                      py: 0,
-                    }}
-                  >
-                    <UserOrgSelector />
-                  </Box>
-                )}
-                <Box sx={{ flex: 1, minWidth: 0, height: '100%' }}>
-                  <SlideMenuWrapper>
+                    } : {
+                      // When sidebar is hidden, no border and background
+                      bgcolor: lightTheme.backgroundColor,
+                    }),
+                  }}
+                >
+                  <UserOrgSelector sidebarVisible={!!router.meta.drawer} />
+                </Box>
+                {router.meta.drawer && (
+                  <Box sx={{ flex: 1, minWidth: 0, height: '100%' }}>
                     <Sidebar
                     >
                       { sidebarMenu }
                     </Sidebar>
-                  </SlideMenuWrapper>
-                </Box>
+                  </Box>
+                )}
               </Box>
             </Drawer>
-          )
-        }
         <Box
           component="main"
           sx={{

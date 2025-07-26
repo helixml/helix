@@ -118,8 +118,8 @@ func (apiServer *HelixAPIServer) createOrganization(rw http.ResponseWriter, r *h
 	user := getRequestUser(r)
 
 	// Check if user is admin if creation is turned off for non-admins
-	if !apiServer.Cfg.Organizations.CreateEnabledForNonAdmins {
-		http.Error(rw, "Organization creation is disabled", http.StatusForbidden)
+	if !apiServer.Cfg.Organizations.CreateEnabledForNonAdmins && !user.Admin {
+		http.Error(rw, "Organization creation is disabled for non-admin users", http.StatusForbidden)
 		return
 	}
 

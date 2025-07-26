@@ -67,7 +67,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     name: namePrefix + 'apps',
     path: routePrefix + '/apps',
     meta: {
-      drawer: true,
+      drawer: false,
       orgRouteAware: true,
     },
     render: () => (
@@ -78,7 +78,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     name: namePrefix + 'providers',
     path: routePrefix + '/providers',
     meta: {
-      drawer: true,
+      drawer: false,
     },
     render: () => (
       <Providers />
@@ -87,7 +87,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     name: namePrefix + 'tasks',
     path: routePrefix + '/tasks',
     meta: {
-      drawer: true,
+      drawer: false,
       orgRouteAware: true,
     },
     render: () => (
