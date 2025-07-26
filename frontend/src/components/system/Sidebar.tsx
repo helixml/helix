@@ -136,9 +136,12 @@ const SidebarContent: React.FC<{
   const [accountMenuAnchorEl, setAccountMenuAnchorEl] = useState<null | HTMLElement>(null)
 
   const onOpenHelp = () => {
-  // Ensure the chat icon is shown when the chat is opened
-    (window as any)['$crisp'].push(["do", "chat:show"])
-    (window as any)['$crisp'].push(['do', 'chat:open'])
+    // First ensure the chat is visible, then open it with a small delay
+    (window as any)['$crisp'].push(['do', 'chat:show'])
+    // Small delay to ensure the chat is shown before trying to open it
+    setTimeout(() => {
+      (window as any)['$crisp'].push(['do', 'chat:open'])
+    }, 100)
   }
 
   const openDocumentation = () => {
