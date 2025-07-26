@@ -6,7 +6,7 @@ import useLoading from '../hooks/useLoading'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useOrganizations, { IOrganizationTools, defaultOrganizationTools } from '../hooks/useOrganizations'
-import { triggerMenuChange } from '../components/system/SlideMenuContainer'
+
 
 import {
   IApiKey,
@@ -416,27 +416,7 @@ export const useAccountContext = (): IAccountContext => {
     // This ensures components are mounted before animations run
     router.navigate(targetRouteName, finalParams)
     
-    // If this is an org transition, trigger animation after a small delay
-    if (isOrgTransition) {
-      // For org transitions, determine the menu types for animation
-      const fromMenu = router.meta.menu || currentResourceType
-      const toMenu = targetIsOrgRoute ? 'orgs' : currentResourceType
-      
-      // Determine direction: 
-      // - When going to orgs (personal -> org), we slide right (current slides out right)
-      // - When going from orgs (org -> personal), we slide left (current slides out left)
-      const direction = targetIsOrgRoute ? 'right' : 'left'
-      
-      // Trigger animation after a small delay to ensure components are mounted
-      setTimeout(() => {
-        // Use the active menus tracking to ensure both components exist
-        if (window._activeMenus && (window._activeMenus[fromMenu] || window._activeMenus[toMenu])) {
-          triggerMenuChange(fromMenu, toMenu, direction, true)
-        } else {
-          console.log(`Animation not triggered - menus not ready (${fromMenu} -> ${toMenu})`)
-        }
-      }, 50)
-    }
+
   }
 
   useEffect(() => {

@@ -5,23 +5,12 @@ import Typography from '@mui/material/Typography'
 import List from '@mui/material/List'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import Divider from '@mui/material/Divider'
-import Menu from '@mui/material/Menu'
-import MenuItem from '@mui/material/MenuItem'
-import IconButton from '@mui/material/IconButton'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemText from '@mui/material/ListItemText'
 import { styled, keyframes } from '@mui/material/styles'
 
-import LoginIcon from '@mui/icons-material/Login'
-import LogoutIcon from '@mui/icons-material/Logout'
-import PolylineIcon from '@mui/icons-material/Polyline';
-import AccountBoxIcon from '@mui/icons-material/AccountBox'
-import MoreVertIcon from '@mui/icons-material/MoreVert'
-import CodeIcon from '@mui/icons-material/Code'
 import AddIcon from '@mui/icons-material/Add'
-
-import TokenUsageDisplay from './TokenUsageDisplay'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
@@ -158,12 +147,6 @@ const SidebarContent: React.FC<{
 
   const postNavigateTo = () => {
     account.setMobileMenuOpen(false)
-    setAccountMenuAnchorEl(null)
-  }
-
-  const navigateTo = (path: string, params: Record<string, any> = {}) => {
-    router.navigate(path, params)
-    postNavigateTo()
   }
 
   // Handle creating new chat or app based on active tab
@@ -192,7 +175,7 @@ const SidebarContent: React.FC<{
           }}
         >
           {
-            showTopLinks && (menuType === 'chat' || menuType === 'home') && (
+            showTopLinks && (router.name === 'home' || router.name === 'session' || router.name === 'app' || router.name === 'new') && (
               <List disablePadding>    
                 
                 {/* New resource creation button */}
@@ -260,174 +243,7 @@ const SidebarContent: React.FC<{
         >
           { children }
         </Box>
-        <Box
-          sx={{
-            flexGrow: 0,
-            width: '100%',
-            backgroundColor: lightTheme.backgroundColor,
-            mt: 0,
-            p: 2,
-          }}
-        >
-          <Box
-            sx={{
-              borderTop: lightTheme.border,
-              width: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'left',
-              pt: 1.5,
-            }}
-          >
-            {
-              account.user && (
-                <>
-                  <TokenUsageDisplay />
-                  {/* <Divider /> */}
-                </>
-              )
-            }
-            <Typography
-              variant="body2"
-              sx={{
-                color: lightTheme.textColorFaded,
-                flexGrow: 1,
-                display: 'flex',
-                justifyContent: 'flex-start',
-                textAlign: 'left',
-                cursor: 'pointer',
-                pl: 2,
-                pb: 0.25,
-              }}
-              onClick={ openDocumentation }
-            >
-              Documentation
-            </Typography>
-            <Typography
-              variant="body2"
-              sx={{
-                color: lightTheme.textColorFaded,
-                flexGrow: 1,
-                display: 'flex',
-                justifyContent: 'flex-start',
-                textAlign: 'left',
-                cursor: 'pointer',
-                pl: 2,
-              }}
-              onClick={ onOpenHelp }
-            >
-              Help & Support
-            </Typography>
-            <Box
-              sx={{
-                display: 'flex',
-                flexDirection: 'row',
-                width: '100%',
-                justifyContent: 'flex-start',
-                mt: 2,
-              }}
-            >
-              { themeConfig.logo() }
-              {
-                account.user ? (
-                  <>
-                    <Box>
-                      <Typography variant="body2" sx={{fontWeight: 'bold'}}>
-                        {account.user.name}
-                      </Typography>
-                      <Typography variant="caption" sx={{color: lightTheme.textColorFaded}}>
-                        {account.user.email}
-                      </Typography>
-                    </Box>
-                    <IconButton
-                      size="large"
-                      aria-label="account of current user"
-                      aria-controls="menu-appbar"
-                      aria-haspopup="true"
-                      onClick={(event: React.MouseEvent<HTMLElement>) => {
-                        setAccountMenuAnchorEl(event.currentTarget)
-                      }}
-                      
-                      sx={{marginLeft: "auto", color: lightTheme.textColorFaded}}
-                    >
-                      <MoreVertIcon />
-                    </IconButton>
-                    <Menu
-                      id="menu-appbar"
-                      anchorEl={accountMenuAnchorEl}
-                      anchorOrigin={{
-                        vertical: 'top',
-                        horizontal: 'right',
-                      }}
-                      keepMounted
-                      transformOrigin={{
-                        vertical: 'top',
-                        horizontal: 'right',
-                      }}
-                      open={Boolean(accountMenuAnchorEl)}
-                      onClose={() => setAccountMenuAnchorEl(null)}
-                    >                      
-
-                      <MenuItem onClick={ () => {
-                        navigateTo('account')
-                      }}>
-                        <ListItemIcon>
-                          <AccountBoxIcon fontSize="small" />
-                        </ListItemIcon> 
-                        Account Settings
-                      </MenuItem>                      
-
-                      <MenuItem onClick={ () => {
-                        navigateTo('oauth-connections')
-                      }}>
-                        <ListItemIcon>
-                          <PolylineIcon fontSize="small" />
-                        </ListItemIcon> 
-                        Connected Services
-                      </MenuItem>
-
-                      <MenuItem onClick={ () => {
-                        window.open('/api-reference', '_blank')
-                        setAccountMenuAnchorEl(null)
-                      }}>
-                        <ListItemIcon>
-                          <CodeIcon fontSize="small" />
-                        </ListItemIcon> 
-                        API Reference
-                      </MenuItem>                      
-
-
-
-                      <MenuItem onClick={ () => {
-                        setAccountMenuAnchorEl(null)
-                        account.onLogout()
-                        }}>
-                        <ListItemIcon>
-                          <LogoutIcon fontSize="small" />
-                        </ListItemIcon> 
-                        Logout
-                      </MenuItem>
-                    </Menu>
-                  </>
-                ) : (
-                  <>
-                    <ShimmerButton 
-                      id='login-button'
-                      variant="contained"
-                      color="secondary"
-                      endIcon={<LoginIcon />}
-                      onClick={ () => {
-                        account.onLogin()
-                      }}
-                    >
-                      Login / Register
-                    </ShimmerButton>
-                  </>
-                )
-              }
-            </Box>
-          </Box>
-        </Box>
+        {/* User section moved to UserOrgSelector component */}
       </Box>
     </SlideMenuContainer>
   )
