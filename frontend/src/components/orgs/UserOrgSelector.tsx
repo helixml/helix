@@ -386,18 +386,11 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     if (currentOrgSlug !== 'default') {
       baseButtons.push(
         {
-          icon: <User size={NAV_BUTTON_SIZE} />,
-          tooltip: "View people",
+          icon: <Settings size={NAV_BUTTON_SIZE} />,
+          tooltip: "Organization settings",
           isActive: isActive('org_people'),
           onClick: () => orgNavigateTo('org_people', { org_id: currentOrgSlug }),
-          label: "People",
-        },
-        {
-          icon: <Users size={NAV_BUTTON_SIZE} />,
-          tooltip: "View teams",
-          isActive: isActive('org_teams'),
-          onClick: () => orgNavigateTo('org_teams', { org_id: currentOrgSlug }),
-          label: "Teams",
+          label: "Settings",
         }
       )
     }
@@ -984,36 +977,38 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
 
           {/* Logout icon - only show when user is logged in */}
           {account.user && (
-            <Box
-              onClick={(e) => {
-                e.stopPropagation()
-                account.onLogout()
-              }}
-              sx={{
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 28,
-                height: 28,
-                borderRadius: 1,
-                transition: 'all 0.2s ease-in-out',
-                '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                  '& svg': {
-                    color: '#ff4444 !important',
-                  },
-                },
-              }}
-            >
-              <LogOut
-                size={16}
-                style={{
-                  color: lightTheme.textColorFaded,
-                  transition: 'color 0.2s ease-in-out',
+            <Tooltip title="Log out of your account" placement="top">
+              <Box
+                onClick={(e) => {
+                  e.stopPropagation()
+                  account.onLogout()
                 }}
-              />
-            </Box>
+                sx={{
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 28,
+                  height: 28,
+                  borderRadius: 1,
+                  transition: 'all 0.2s ease-in-out',
+                  '&:hover': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    '& svg': {
+                      color: '#ff4444 !important',
+                    },
+                  },
+                }}
+              >
+                <LogOut
+                  size={16}
+                  style={{
+                    color: lightTheme.textColorFaded,
+                    transition: 'color 0.2s ease-in-out',
+                  }}
+                />
+              </Box>
+            </Tooltip>
           )}
         </Box>
       </Box>
@@ -1029,8 +1024,11 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     return (
       <>
         {renderAvatar()}
-        {/* Always render the floating menu but toggle visibility to prevent image reloading */}
-        <Box sx={{ visibility: showFloatingMenu ? 'visible' : 'hidden' }}>
+        {/* Always render the floating menu but hide with opacity and pointer-events to prevent image reloading */}
+        <Box sx={{ 
+          opacity: showFloatingMenu ? 1 : 0,
+          pointerEvents: showFloatingMenu ? 'auto' : 'none',
+        }}>
           {renderFloatingMenu()}
         </Box>
       </>

@@ -1,10 +1,6 @@
-import React, { useState } from 'react'
+import React from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
-import IconButton from '@mui/material/IconButton'
-import Menu from '@mui/material/Menu'
-import MenuItem from '@mui/material/MenuItem'
-import MoreVertIcon from '@mui/icons-material/MoreVert'
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
@@ -14,50 +10,12 @@ const SidebarContextHeader: React.FC = () => {
   const account = useAccount()
   const router = useRouter()
   const lightTheme = useLightTheme()
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
 
   const org = account.organizationTools.organization
   const isOrgContext = Boolean(org)
   const displayName = isOrgContext
     ? org?.display_name || org?.name
     : account.user?.name || 'Personal'
-
-  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
-    setAnchorEl(event.currentTarget)
-  }
-  const handleMenuClose = () => {
-    setAnchorEl(null)
-  }
-
-  // Navigation handlers for org context menu
-  const handlePeople = () => {
-    if (org) {
-      router.navigate('org_people', { org_id: org.name })
-    }
-    handleMenuClose()
-  }
-  const handleTeams = () => {
-    if (org) {
-      router.navigate('org_teams', { org_id: org.name })
-    }
-    handleMenuClose()
-  }
-  const handleSettings = () => {
-    if (org) {
-      router.navigate('org_settings', { org_id: org.name })
-    }
-    handleMenuClose()
-  }
-
-  // Navigation handlers for personal context menu
-  const handleAccountSettings = () => {
-    router.navigate('account')
-    handleMenuClose()
-  }
-  const handleCreateOrganization = () => {
-    router.navigate('orgs')
-    handleMenuClose()
-  }
 
   const handleNameClick = () => {
     if (isOrgContext && org) {
@@ -102,54 +60,6 @@ const SidebarContextHeader: React.FC = () => {
       >
         {displayName}
       </Typography>
-      <IconButton
-        size="small"
-        aria-label={isOrgContext ? "org menu" : "personal menu"}
-        aria-controls={isOrgContext ? "org-context-menu" : "personal-context-menu"}
-        aria-haspopup="true"
-        onClick={handleMenuOpen}
-        sx={{ color: '#fff', ml: 1 }}
-      >
-        <MoreVertIcon />
-      </IconButton>
-      <Menu
-        id={isOrgContext ? "org-context-menu" : "personal-context-menu"}
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
-        onClose={handleMenuClose}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-        MenuListProps={{
-          'aria-labelledby': isOrgContext ? 'org-context-menu' : 'personal-context-menu',
-        }}
-      >
-        {isOrgContext ? (
-          <>
-            <MenuItem onClick={handlePeople}>
-              People
-            </MenuItem>
-            <MenuItem onClick={handleTeams}>
-              Teams
-            </MenuItem>
-            <MenuItem onClick={handleSettings}>
-              Settings
-            </MenuItem>
-            {/* Disabled for now "AI Providers" */}
-            <MenuItem disabled>
-              AI Providers
-            </MenuItem>
-            <MenuItem disabled>
-              Usage
-            </MenuItem>
-          </>
-        ) : (
-          <>
-            <MenuItem onClick={handleAccountSettings}>
-              Settings
-            </MenuItem>            
-          </>
-        )}
-      </Menu>
     </Box>
   )
 }

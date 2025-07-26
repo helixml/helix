@@ -1,13 +1,8 @@
 import React, { FC, useMemo, useCallback } from 'react'
-import EditIcon from '@mui/icons-material/Edit'
-import VisibilityIcon from '@mui/icons-material/Visibility'
 import DeleteIcon from '@mui/icons-material/Delete'
-import SettingsIcon from '@mui/icons-material/Settings'
 import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
 import useTheme from '@mui/material/styles/useTheme'
-import Person from '@mui/icons-material/Person'
-import GroupsIcon from '@mui/icons-material/Groups'
 
 import SimpleTable from '../widgets/SimpleTable'
 import ClickLink from '../widgets/ClickLink'
@@ -52,7 +47,7 @@ const OrgsTable: FC<{
           onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
             e.preventDefault()
             e.stopPropagation()
-            onEdit(org)
+            router.navigate('org_people', {org_id: org.name})
           }}
         >
           {org.display_name || org.name}
@@ -110,29 +105,7 @@ const OrgsTable: FC<{
           )
         }
 
-        {
-          isOwner ? (
-            <>
-              <ClickLink
-                sx={{ml:2}}
-                onClick={() => router.navigate('org_people', {org_id: org._data.name})}
-              >
-                <Tooltip title="Settings">
-                  <SettingsIcon />
-                </Tooltip>
-              </ClickLink>
-            </>
-          ) : (
-            <ClickLink
-              sx={{ml:2}}
-              onClick={() => router.navigate('org_people', {org_id: org._data.name})}
-            >
-              <Tooltip title="View">
-                <VisibilityIcon />
-              </Tooltip>
-            </ClickLink>
-          )
-        }
+
 
       </Box>
     )
