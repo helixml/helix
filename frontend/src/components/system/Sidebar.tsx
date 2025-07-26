@@ -175,7 +175,8 @@ const SidebarContent: React.FC<{
           }}
         >
           {
-            showTopLinks && (router.name === 'home' || router.name === 'session' || router.name === 'app' || router.name === 'new') && (
+            showTopLinks && (router.name === 'home' || router.name === 'session' || router.name === 'app' || router.name === 'new' || 
+                           router.name === 'org_home' || router.name === 'org_session' || router.name === 'org_app' || router.name === 'org_new') && (
               <List disablePadding>    
                 
                 {/* New resource creation button */}
@@ -196,8 +197,8 @@ const SidebarContent: React.FC<{
                   >
                     <ListItemText
                       sx={{
-                        ml: 2,
-                        pl: 1,
+                        ml: 1,
+                        pl: 0,
                       }}
                       primary={`New Chat`}
                       primaryTypographyProps={{

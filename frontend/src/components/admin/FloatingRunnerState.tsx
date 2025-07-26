@@ -17,19 +17,43 @@ import { prettyBytes } from '../../utils/format'
 import { useGetDashboardData } from '../../services/dashboardService'
 import { TypesDashboardRunner } from '../../api/api'
 import useRouter from '../../hooks/useRouter'
+import { useFloatingRunnerState } from '../../contexts/floatingRunnerState'
 
 interface FloatingRunnerStateProps {
   onClose?: () => void
 }
 
 const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
+  const floatingRunnerState = useFloatingRunnerState()
   const [isMinimized, setIsMinimized] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
-  const [position, setPosition] = useState({ 
-    x: window.innerWidth - 340,
-    y: window.innerHeight - 420
-  })
+  
+  // Use click position from context if available, otherwise use default position
+  const getInitialPosition = () => {
+    if (floatingRunnerState.clickPosition) {
+      return {
+        x: Math.max(0, Math.min(floatingRunnerState.clickPosition.x, window.innerWidth - 340)),
+        y: Math.max(0, Math.min(floatingRunnerState.clickPosition.y, window.innerHeight - 420))
+      }
+    }
+    return { 
+      x: window.innerWidth - 340,
+      y: window.innerHeight - 420
+    }
+  }
+  
+  const [position, setPosition] = useState(getInitialPosition)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  
+  // Update position when click position changes
+  useEffect(() => {
+    if (floatingRunnerState.clickPosition) {
+      setPosition({
+        x: Math.max(0, Math.min(floatingRunnerState.clickPosition.x, window.innerWidth - 340)),
+        y: Math.max(0, Math.min(floatingRunnerState.clickPosition.y, window.innerHeight - 420))
+      })
+    }
+  }, [floatingRunnerState.clickPosition])
   
   const { data: dashboardData, isLoading } = useGetDashboardData()
   const router = useRouter()

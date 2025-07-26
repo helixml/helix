@@ -245,7 +245,14 @@ const Dashboard: FC = () => {
                       variant="outlined"
                       size="small"
                       startIcon={<LaunchIcon />}
-                      onClick={floatingRunnerState.toggleFloatingRunnerState}
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        const clickPosition = {
+                          x: rect.left - 100, // Position floating window to the left of button
+                          y: rect.top - 50    // Position slightly above the button
+                        }
+                        floatingRunnerState.toggleFloatingRunnerState(clickPosition)
+                      }}
                       sx={{
                         borderColor: 'rgba(0, 200, 255, 0.3)',
                         color: floatingRunnerState.isVisible ? '#00c8ff' : 'rgba(255, 255, 255, 0.7)',

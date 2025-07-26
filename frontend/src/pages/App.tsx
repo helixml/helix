@@ -3,21 +3,10 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
-import Tab from '@mui/material/Tab'
-import Tabs from '@mui/material/Tabs'
+
 import Typography from '@mui/material/Typography'
 import { useTheme } from '@mui/material/styles'
-import SettingsIcon from '@mui/icons-material/Settings';
-import MenuBookIcon from '@mui/icons-material/MenuBook';
-import EmojiObjectsIcon from '@mui/icons-material/EmojiObjects';
-import VpnKeyIcon from '@mui/icons-material/VpnKey';
-import CodeIcon from '@mui/icons-material/Code';
-import BarChartIcon from '@mui/icons-material/BarChart';
-import CloudDownloadIcon from '@mui/icons-material/CloudDownload';
-import GroupIcon from '@mui/icons-material/Group';
-import PaletteIcon from '@mui/icons-material/Palette';
-import ApiIcon from '@mui/icons-material/Api'
-import BugReportIcon from '@mui/icons-material/BugReport';
+
 
 import APIKeysSection from '../components/app/APIKeysSection'
 import AppSettings from '../components/app/AppSettings'
@@ -66,29 +55,9 @@ const App: FC = () => {
 
   const [searchParams, setSearchParams] = useState(() => new URLSearchParams(window.location.search));
   const [isSearchMode, setIsSearchMode] = useState(() => searchParams.get('isSearchMode') === 'true');
-  const [tabValue, setTabValue] = useState(() => searchParams.get('tab') || 'appearance');
-
-  /**
-   * Handles tab change in the app interface
-   * @param event - React event
-   * @param newValue - New tab value
-   */
-  const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
-    setTabValue(newValue)
-
-    // Update URL search params
-    setSearchParams(prev => {
-      const newParams = new URLSearchParams(prev.toString())
-      newParams.set('tab', newValue)
-
-      // Update URL without reload
-      if (typeof window !== 'undefined') {
-        window.history.replaceState({}, '', `${window.location.pathname}?${newParams}`)
-      }
-
-      return newParams
-    })
-  }
+  
+  // Get tab from URL params instead of local state
+  const tabValue = params.tab || 'appearance';
 
   /**
    * Launches the app - we assume the app has been saving we it's been edited
@@ -159,62 +128,8 @@ const App: FC = () => {
       >
         <Box sx={{ width: '100%', pl: 2, pr: 2, mt: 2 }}>
           <Grid container>
-            {/* Left: Vertical Tabs */}
-            <Grid item xs={12} sm={3} md={2} sx={{ height: '100%', pt: 3, overflow: 'hidden' }}>
-              <Tabs
-                orientation="vertical"
-                variant="scrollable"
-                value={tabValue}
-                onChange={handleTabChange}
-                sx={{
-                  borderRight: 0,
-                  minWidth: 180,
-                  alignItems: 'flex-start',
-                  '.MuiTabs-flexContainer': { alignItems: 'flex-start' },
-                  '.MuiTab-root': {
-                    justifyContent: 'flex-start',
-                    textAlign: 'left',
-                    color: '#8a8a9e',
-                    fontWeight: 500,
-                    fontSize: '0.85rem',
-                    minHeight: 36,
-                    pl: 2,
-                    pr: 2,
-                    borderRadius: 2,
-                    transition: 'color 0.2s',
-                    '& .MuiTab-iconWrapper': {
-                      fontSize: '1.1rem',
-                      marginRight: 4,
-                    },
-                  },
-                  '.Mui-selected': {
-                    color: '#fff !important',
-                    background: 'none',
-                  },
-                  '.MuiTabs-indicator': {
-                    display: 'none',
-                  },
-                }}
-              >
-                <Tab icon={<PaletteIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Appearance" value="appearance" />
-                <Tab icon={<SettingsIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Settings" value="settings" />
-                <Tab icon={<ApiIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Triggers" value="triggers" />
-                <Tab icon={<MenuBookIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Knowledge" value="knowledge" />
-                <Tab icon={<EmojiObjectsIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Skills" value="skills" />                
-                <Tab icon={<BugReportIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Tests" value="tests" />
-                <Tab icon={<VpnKeyIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Keys" value="apikeys" />
-                <Tab icon={<CodeIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="MCP" value="mcp" />
-                <Tab icon={<BarChartIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Usage" value="usage" />
-                <Tab icon={<CloudDownloadIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Export" value="developers" />                
-                {
-                  appTools.app?.organization_id && userAccess.isAdmin && (
-                    <Tab icon={<GroupIcon sx={{ mr: 0.5 }} />} iconPosition="start" label="Access" value="access" />
-                  )
-                }
-              </Tabs>
-            </Grid>
-            {/* Right: Tab Content */}
-            <Grid item xs={12} sm={9} md={10} sx={{
+            {/* Tab Content - Full Width */}
+            <Grid item xs={12} sx={{
               backgroundColor: themeConfig.darkPanel,
               p: 0,
               mt: 2,
