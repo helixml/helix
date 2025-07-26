@@ -21,7 +21,8 @@ import { TypesTrigger, TypesTriggerConfiguration, TypesTriggerType, TypesOwnerTy
 import { useCreateAppTrigger, useUpdateAppTrigger, useExecuteAppTrigger } from '../../services/appService';
 import useAccount from '../../hooks/useAccount';
 import useSnackbar from '../../hooks/useSnackbar';
-import useApi from '../../hooks/useApi';
+
+import { generateAmusingName } from '../../utils/names';
 
 interface TaskDialogProps {
   open: boolean;
@@ -111,6 +112,11 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
           input: ''
         }
       }]);
+      
+      // Generate an amusing name for new tasks
+      if (!task?.id && !taskName) {
+        setTaskName(generateAmusingName());
+      }
     }
   }, [task, prepopulatedData]);
 
