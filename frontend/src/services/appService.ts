@@ -57,6 +57,38 @@ export const appTriggerExecutionsQueryKey = (triggerId: string) => [
   triggerId
 ];
 
+export const appListQueryKey = (orgId: string) => [
+  "apps",
+  orgId
+];
+
+export const appDetailQueryKey = (appId: string) => [
+  "app",
+  appId
+];  
+
+export function useListApps(orgId: string, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  
+  return useQuery({
+    queryKey: appListQueryKey(orgId),
+    queryFn: () => apiClient.v1AppsList({ organization_id: orgId }),
+    enabled: options?.enabled ?? true
+  })
+}
+
+export function useGetApp(appId: string, options?: { enabled?: boolean }) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+
+  return useQuery({
+    queryKey: appDetailQueryKey(appId),
+    queryFn: () => apiClient.v1AppsDetail(appId),
+    enabled: options?.enabled ?? true
+  })
+}
+
 // useListSessionSteps returns the steps for a session, it includes
 // steps for all interactions in the session
 export function useListAppSteps(appId: string, interactionId: string, options?: { enabled?: boolean }) {

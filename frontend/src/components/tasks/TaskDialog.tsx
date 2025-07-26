@@ -21,7 +21,8 @@ import { TypesTrigger, TypesTriggerConfiguration, TypesTriggerType, TypesOwnerTy
 import { useCreateAppTrigger, useUpdateAppTrigger, useExecuteAppTrigger } from '../../services/appService';
 import useAccount from '../../hooks/useAccount';
 import useSnackbar from '../../hooks/useSnackbar';
-import useApi from '../../hooks/useApi';
+
+import { generateAmusingName } from '../../utils/names';
 
 interface TaskDialogProps {
   open: boolean;
@@ -111,6 +112,11 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
           input: ''
         }
       }]);
+      
+      // Generate an amusing name for new tasks
+      if (!task?.id && !taskName) {
+        setTaskName(generateAmusingName());
+      }
     }
   }, [task, prepopulatedData]);
 
@@ -190,16 +196,50 @@ const TaskDialog: React.FC<TaskDialogProps> = ({ open, onClose, task, apps, prep
       setError('Task not found');
       return;
     }
-    
+
+    if (!taskName.trim()) {
+      setError('Task name is required');
+      return;
+    }
+
+    if (!selectedAgent) {
+      setError('Please select an agent');
+      return;
+    }
+
+    // Find the cron trigger from the triggers array
+    const cronTrigger = triggers.find(t => t.cron);
+    if (!cronTrigger?.cron?.enabled) {
+      setError('Please configure a schedule for the task');
+      return;
+    }
+
     setIsTesting(true);
     setError(null);
 
     try {
+      // Update the task before executing
+      const triggerConfig: TypesTriggerConfiguration = {
+        name: taskName.trim(),
+        app_id: selectedAgent.id,
+        organization_id: account.organizationTools.organization?.id || '',
+        owner: account.user?.id || '',
+        owner_type: account.organizationTools.organization ? TypesOwnerType.OwnerTypeSystem : TypesOwnerType.OwnerTypeUser,
+        enabled: true,
+        trigger_type: TypesTriggerType.TriggerTypeCron,
+        trigger: cronTrigger,
+      };
+
+      // Only update if task exists (should always be the case for execute)
+      if (task?.id) {
+        await updateTriggerMutation.mutateAsync(triggerConfig);
+      }
+
       await executeTriggerMutation.mutateAsync();
       snackbar.success('Task executed successfully');
     } catch (err) {
-      console.error('Error executing task:', err);
-      setError(err instanceof Error ? err.message : 'Failed to execute task');
+      console.error('Error updating or executing task:', err);
+      setError(err instanceof Error ? err.message : 'Failed to update or execute task');
     } finally {
       setIsTesting(false);
     }
