@@ -616,7 +616,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
                     {session ? (
                       <Box
                         sx={{
-                          height: 'calc(100vh - 200px)', // Account for header and input areas
+                          height: '100%',
                           minHeight: '500px',
                           maxHeight: '100%',
                           overflow: 'hidden',

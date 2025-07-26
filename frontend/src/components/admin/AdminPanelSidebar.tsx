@@ -1,7 +1,7 @@
 import React, { FC } from 'react'
 import Typography from '@mui/material/Typography'
 
-import CallIcon from '@mui/icons-material/Call'
+import ApiIcon from '@mui/icons-material/Api'
 import DnsIcon from '@mui/icons-material/Dns'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import DirectionsRunIcon from '@mui/icons-material/DirectionsRun'
@@ -26,7 +26,7 @@ const AdminPanelSidebar: FC = () => {
         {
           id: 'llm_calls',
           label: 'LLM Calls',
-          icon: <CallIcon />,
+          icon: <ApiIcon />,
           isActive: currentTab === 'llm_calls',
           onClick: () => handleNavigationClick('llm_calls')
         }
