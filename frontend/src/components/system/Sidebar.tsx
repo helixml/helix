@@ -192,7 +192,7 @@ const SidebarContent: React.FC<{
           }}
         >
           {
-            showTopLinks && (
+            showTopLinks && (menuType === 'chat' || menuType === 'home') && (
               <List disablePadding>    
                 
                 {/* New resource creation button */}
@@ -387,7 +387,8 @@ const SidebarContent: React.FC<{
                       </MenuItem>
 
                       <MenuItem onClick={ () => {
-                        navigateTo('api-reference')
+                        window.open('/api-reference', '_blank')
+                        setAccountMenuAnchorEl(null)
                       }}>
                         <ListItemIcon>
                           <CodeIcon fontSize="small" />

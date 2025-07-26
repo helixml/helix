@@ -171,7 +171,7 @@ const ProviderEndpointsTable: FC = () => {
   return (
     <Paper sx={{ width: '100%', overflow: 'hidden' }}>
       <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h6">Provider Endpoints</Typography>
+        <Typography variant="h6">Global Provider Endpoints</Typography>
         <Button
           variant="outlined"
           color="secondary"

@@ -102,12 +102,12 @@ export const SessionsMenu: FC<{
     })
   }
 
-  const renderSessionGroup = (sessions: (ISession | ISessionSummary)[], title: string) => {
+  const renderSessionGroup = (sessions: (ISession | ISessionSummary)[], title: string, isFirst: boolean = false) => {
     if (sessions.length === 0) return null
 
     return (
       <Fragment key={title}>
-        <ListItem>
+        <ListItem sx={{ pt: isFirst ? 0 : 2 }}>
           <Typography
             variant="subtitle2"
             sx={{
@@ -128,6 +128,8 @@ export const SessionsMenu: FC<{
               sx={{
                 borderRadius: '20px',
                 cursor: 'pointer',
+                width: '100%',
+                padding: 0,
               }}
               key={sessionId}
               onClick={() => {
@@ -141,6 +143,8 @@ export const SessionsMenu: FC<{
                   borderRadius: '4px',
                   backgroundColor: isActive ? '#1a1a2f' : 'transparent',
                   cursor: 'pointer',
+                  width: '100%',
+                  mr: -2,
                   '&:hover': {
                     '.MuiListItemText-root .MuiTypography-root': { color: '#fff' },
                     '.MuiListItemIcon-root': { color: '#fff' },
@@ -182,7 +186,7 @@ export const SessionsMenu: FC<{
           px: 2,
         }}
       >
-        {renderSessionGroup(groupedSessions.today, "Today")}
+        {renderSessionGroup(groupedSessions.today, "Today", true)}
         {renderSessionGroup(groupedSessions.last7Days, "Last 7 days")}
         {renderSessionGroup(groupedSessions.last30Days, "Last 30 days")}
         {renderSessionGroup(groupedSessions.older, "Older")}
