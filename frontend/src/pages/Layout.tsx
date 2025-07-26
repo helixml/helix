@@ -9,6 +9,7 @@ import Collapse from '@mui/material/Collapse'
 
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
+import AdminPanelSidebar from '../components/admin/AdminPanelSidebar'
 
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
@@ -155,13 +156,44 @@ const Layout: FC<{
 
 
   if(router.meta.drawer) {   
-    sidebarMenu = (
-      <SessionsMenu
-        onOpenSession={ () => {
-          account.setMobileMenuOpen(false)
-        }}
-      />
-    )    
+    // Determine which sidebar to show based on route
+    sidebarMenu = getSidebarForRoute(router.name, () => {
+      account.setMobileMenuOpen(false)
+    })
+  }
+
+  /**
+   * Helper function to determine sidebar component based on route
+   * 
+   * This flexible sidebar system allows different routes to show different sidebar content:
+   * - 'dashboard': Shows AdminPanelSidebar with admin navigation
+   * - 'app': Shows SessionsMenu (could be changed to null to disable sidebar)
+   * - default: Shows SessionsMenu for most routes
+   * 
+   * To add a new context-specific sidebar:
+   * 1. Create your sidebar component (e.g., FilesSidebar)
+   * 2. Import it at the top of this file
+   * 3. Add a new case in the switch statement below
+   * 
+   * To disable sidebar for a route, return null instead of a component
+   */
+  function getSidebarForRoute(routeName: string, onOpenSession: () => void) {
+    switch (routeName) {
+      case 'dashboard':
+        return <AdminPanelSidebar />
+      
+      case 'app':
+        // Individual app pages don't need a sidebar (could return null to disable)
+        return (
+          <SessionsMenu onOpenSession={onOpenSession} />
+        )
+      
+      default:
+        // Default to SessionsMenu for most routes
+        return (
+          <SessionsMenu onOpenSession={onOpenSession} />
+        )
+    }
   }
 
   return (
