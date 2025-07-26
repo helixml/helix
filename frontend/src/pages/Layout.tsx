@@ -10,6 +10,8 @@ import Collapse from '@mui/material/Collapse'
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
 import AdminPanelSidebar from '../components/admin/AdminPanelSidebar'
+import OrgSidebar from '../components/orgs/OrgSidebar'
+import AppSidebar from '../components/app/AppSidebar'
 
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
@@ -155,7 +157,10 @@ const Layout: FC<{
 
 
 
-  if(router.meta.drawer) {   
+  // Hide sidebar when app_id is specified, otherwise use router.meta.drawer
+  const shouldShowSidebar = router.meta.drawer && !router.params.app_id
+  
+  if(shouldShowSidebar) {   
     // Determine which sidebar to show based on route
     sidebarMenu = getSidebarForRoute(router.name, () => {
       account.setMobileMenuOpen(false)
@@ -167,7 +172,8 @@ const Layout: FC<{
    * 
    * This flexible sidebar system allows different routes to show different sidebar content:
    * - 'dashboard': Shows AdminPanelSidebar with admin navigation
-   * - 'app': Shows SessionsMenu (could be changed to null to disable sidebar)
+   * - 'app': Shows AppSidebar for agent navigation
+   * - 'org_*': Shows OrgSidebar for organization management
    * - default: Shows SessionsMenu for most routes
    * 
    * To add a new context-specific sidebar:
@@ -183,10 +189,15 @@ const Layout: FC<{
         return <AdminPanelSidebar />
       
       case 'app':
-        // Individual app pages don't need a sidebar (could return null to disable)
-        return (
-          <SessionsMenu onOpenSession={onOpenSession} />
-        )
+        // Individual app pages use the new context sidebar for agent navigation
+        return <AppSidebar />
+      
+      case 'org_settings':
+      case 'org_people':
+      case 'org_teams':
+      case 'team_people':
+        // Organization management pages use the org context sidebar
+        return <OrgSidebar />
       
       default:
         // Default to SessionsMenu for most routes
@@ -228,7 +239,7 @@ const Layout: FC<{
                   backgroundColor: lightTheme.backgroundColor,
                   position: 'relative',
                   whiteSpace: 'nowrap',
-                  width: router.meta.drawer ? (isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth) : 64,
+                  width: shouldShowSidebar ? (isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth) : 64,
                   boxSizing: 'border-box',
                   overflowX: 'hidden',
                   height: '100%',
@@ -243,9 +254,9 @@ const Layout: FC<{
                 {/* Always show UserOrgSelector - it will handle compact/expanded modes internally */}
                 <Box
                   sx={{                      
-                    minWidth: router.meta.drawer ? 64 : 60,
-                    width: router.meta.drawer ? 64 : 60,
-                    maxWidth: router.meta.drawer ? 64 : 60,
+                    minWidth: 64,
+                    width: 64,
+                    maxWidth: 64,
                     height: '100%',
                     display: 'flex',
                     flexDirection: 'column',
@@ -253,7 +264,7 @@ const Layout: FC<{
                     justifyContent: 'flex-start',
                     zIndex: 2,
                     py: 0,
-                    ...(router.meta.drawer ? {
+                    ...(shouldShowSidebar ? {
                       // Only show border when sidebar is visible
                       borderRight: lightTheme.border,
                     } : {
@@ -262,9 +273,9 @@ const Layout: FC<{
                     }),
                   }}
                 >
-                  <UserOrgSelector sidebarVisible={!!router.meta.drawer} />
+                  <UserOrgSelector sidebarVisible={shouldShowSidebar} />
                 </Box>
-                {router.meta.drawer && (
+                {shouldShowSidebar && (
                   <Box sx={{ flex: 1, minWidth: 0, height: '100%' }}>
                     <Sidebar
                     >
@@ -372,7 +383,14 @@ const Layout: FC<{
             >
               <Tooltip title="Toggle floating runner state (Ctrl/Cmd+Shift+S)" arrow placement="left">
                 <IconButton
-                  onClick={floatingRunnerState.toggleFloatingRunnerState}
+                  onClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const clickPosition = {
+                      x: rect.left - 340, // Position floating window to the left of button
+                      y: rect.top - 50    // Position slightly above the button
+                    }
+                    floatingRunnerState.toggleFloatingRunnerState(clickPosition)
+                  }}
                   sx={{
                     width: 48,
                     height: 48,

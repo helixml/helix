@@ -97,7 +97,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     name: namePrefix + 'app',
     path: routePrefix + '/app/:app_id',
     meta: {
-      drawer: false,
+      drawer: true,
     },
     render: () => (
       <App />
@@ -106,7 +106,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     name: namePrefix + 'new-agent',
     path: routePrefix + '/new-agent',
     meta: {
-      drawer: true,
+      drawer: false,
     },
     render: () => (
       <NewAgent />
@@ -141,7 +141,7 @@ const routes: IApplicationRoute[] = [
   name: 'orgs',
   path: '/orgs',
   meta: {
-    drawer: true,
+    drawer: false,
   },
   render: () => (
     <Orgs />

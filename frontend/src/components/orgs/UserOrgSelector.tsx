@@ -3,28 +3,29 @@ import Box from '@mui/material/Box'
 import Divider from '@mui/material/Divider'
 import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
-import AddIcon from '@mui/icons-material/Add'
-import ManageAccountsIcon from '@mui/icons-material/ManageAccounts'
-import HomeIcon from '@mui/icons-material/Home'
-import SmartToyIcon from '@mui/icons-material/SmartToy'
-import AccessTimeIcon from '@mui/icons-material/AccessTime'
-import DnsIcon from '@mui/icons-material/Dns'
-import PersonIcon from '@mui/icons-material/Person'
-import GroupIcon from '@mui/icons-material/Group'
-import SettingsIcon from '@mui/icons-material/Settings'
-import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
-import UnfoldLessIcon from '@mui/icons-material/UnfoldLess'
-
-import AccountBoxIcon from '@mui/icons-material/AccountBox'
-import PolylineIcon from '@mui/icons-material/Polyline'
-import CodeIcon from '@mui/icons-material/Code'
-import LogoutIcon from '@mui/icons-material/Logout'
-import LoginIcon from '@mui/icons-material/Login'
-import ArticleIcon from '@mui/icons-material/Article'
-import HelpIcon from '@mui/icons-material/Help'
 import Popover from '@mui/material/Popover'
 import DialogContent from '@mui/material/DialogContent'
 import Button from '@mui/material/Button'
+
+import {
+  Home,
+  Bot,
+  Clock,
+  Server,
+  User,
+  Users,
+  Settings,
+  ChevronsUp,
+  ChevronsDown,
+  UserCircle,
+  Link,
+  Code,
+  LogOut,
+  LogIn,
+  FileText,
+  HelpCircle,
+  UserCog,
+} from 'lucide-react'
 
 
 import useAccount from '../../hooks/useAccount'
@@ -212,7 +213,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   // Get the current organization from the URL or context
   const defaultOrgName = `${account.user?.name} (Personal)`
   const currentOrg = account.organizationTools.organization
-  const currentOrgId = account.organizationTools.organization?.id || 'default'
+  const currentOrgSlug = account.organizationTools.organization?.name || 'default'  // Use name (slug) instead of id
   const organizations = account.organizationTools.organizations
 
   const isActive = (path: string) => {
@@ -230,8 +231,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     return loadedOrgs
   }, [organizations, account.user])
 
-  const handleOrgSelect = (orgId: string | undefined) => {
-    const isDefault = orgId === 'default'
+  const handleOrgSelect = (orgSlug: string | undefined) => {
+    const isDefault = orgSlug === 'default'
     // For personal <-> org transitions, navigate first
     if (router.meta.orgRouteAware) {
       if (isDefault) {
@@ -242,13 +243,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       } else {
         const useRouteName = 'org_' + router.name.replace(/^org_/i, '')
         const useParams = Object.assign({}, router.params, {
-          org_id: orgId,
+          org_id: orgSlug,
         })
         router.navigate(useRouteName, useParams)
       }
     } else {
       const routeName = isDefault ? 'home' : 'org_home'
-      const useParams = isDefault ? {} : { org_id: orgId }
+      const useParams = isDefault ? {} : { org_id: orgSlug }
       router.navigate(routeName, useParams)
     }
     setDialogOpen(false)
@@ -272,11 +273,13 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   }
 
   const openDocumentation = () => {
-    window.open('/documentation', '_blank')
+    window.open("https://docs.helixml.tech/docs/overview", "_blank")
   }
 
   const openHelp = () => {
-    window.open('/help', '_blank')
+    // Ensure the chat icon is shown when the chat is opened
+    (window as any)['$crisp'].push(["do", "chat:show"])
+    (window as any)['$crisp'].push(['do', 'chat:open'])
   }
 
   const handleDialogClose = () => {
@@ -289,9 +292,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   }
 
   const handleHomeClick = () => {
-    const isDefault = currentOrgId === 'default'
+    const isDefault = currentOrgSlug === 'default'
     const routeName = isDefault ? 'home' : 'org_home'
-    const useParams = isDefault ? {} : { org_id: currentOrgId }
+    const useParams = isDefault ? {} : { org_id: currentOrgSlug }
     router.navigate(routeName, useParams)
   }
 
@@ -348,28 +351,28 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const navigationButtons = useMemo(() => {
     const baseButtons = [
       {
-        icon: <HomeIcon sx={{ fontSize: NAV_BUTTON_SIZE }} />,
+        icon: <Home size={NAV_BUTTON_SIZE} />,
         tooltip: "Go to home",
         isActive: isActive('home'),
         onClick: handleHomeClick,
         label: "Home",
       },
       {
-        icon: <SmartToyIcon sx={{ fontSize: NAV_BUTTON_SIZE }} />,
+        icon: <Bot size={NAV_BUTTON_SIZE} />,
         tooltip: "View agents",
         isActive: isActive('apps'),
         onClick: () => orgNavigateTo('apps'),
         label: "Agents",
       },
       {
-        icon: <AccessTimeIcon sx={{ fontSize: NAV_BUTTON_SIZE }} />,
+        icon: <Clock size={NAV_BUTTON_SIZE} />,
         tooltip: "View tasks",
         isActive: isActive('tasks'),
         onClick: () => orgNavigateTo('tasks'),
         label: "Tasks",
       },
       {
-        icon: <DnsIcon sx={{ fontSize: NAV_BUTTON_SIZE }} />,
+        icon: <Server size={NAV_BUTTON_SIZE} />,
         tooltip: "View model providers",
         isActive: isActive('providers'),
         onClick: () => orgNavigateTo('providers'),
@@ -377,97 +380,179 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       },
     ]
 
-    // Add Admin Panel button for admin users
-    if (account.admin) {
-      baseButtons.push({
-        icon: <SettingsIcon sx={{ fontSize: NAV_BUTTON_SIZE }} />,
-        tooltip: "Admin Panel (global to this installation)",
-        isActive: isActive('dashboard'),
-        onClick: () => orgNavigateTo('dashboard'),
-        label: "Admin",
-      })
-    }
+
 
     // Add org-specific buttons if we're in an org context
-    if (currentOrgId !== 'default') {
+    if (currentOrgSlug !== 'default') {
       baseButtons.push(
         {
-          icon: <PersonIcon sx={{ fontSize: NAV_BUTTON_SIZE }} />,
+          icon: <User size={NAV_BUTTON_SIZE} />,
           tooltip: "View people",
           isActive: isActive('org_people'),
-          onClick: () => orgNavigateTo('org_people', { org_id: currentOrgId }),
+          onClick: () => orgNavigateTo('org_people', { org_id: currentOrgSlug }),
           label: "People",
         },
         {
-          icon: <GroupIcon sx={{ fontSize: NAV_BUTTON_SIZE }} />,
+          icon: <Users size={NAV_BUTTON_SIZE} />,
           tooltip: "View teams",
           isActive: isActive('org_teams'),
-          onClick: () => orgNavigateTo('org_teams', { org_id: currentOrgId }),
+          onClick: () => orgNavigateTo('org_teams', { org_id: currentOrgSlug }),
           label: "Teams",
         }
       )
     }
 
     return baseButtons
-  }, [isActive, currentOrgId])
+  }, [isActive, currentOrgSlug])
 
   // Create the collapsed icon with multiple tiles
   const renderCollapsedIcon = () => {
     const tiles = []
     
-    // Personal tile (always first)
-    tiles.push(
-      <Box
-        key="personal"
-        sx={{
-          position: 'absolute',
-          width: TILE_SIZE,
-          height: TILE_SIZE,
-          bgcolor: currentOrgId === 'default' ? 'primary.main' : 'grey.800',
-          color: '#fff',
-          fontWeight: 'bold',
-          fontSize: '0.8rem',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderRadius: 1,
-          border: currentOrgId === 'default' ? '2px solid #00E5FF' : '2px solid #4A5568',
-          zIndex: 3,
-        }}
-      >
-        {account.user?.name?.charAt(0).toUpperCase() || '?'}
-      </Box>
-    )
-
-    // Organization tiles
-    for (let i = 0; i < Math.min(listOrgs.length, 3); i++) {
-      const org = listOrgs[i]
-      const isActive = currentOrgId === org.id
+    // Determine which organization/context is currently active
+    const isPersonalActive = currentOrgSlug === 'default'
+    const currentOrgData = listOrgs.find(org => org.name === currentOrgSlug)
+    
+    if (isPersonalActive) {
+      // Personal context is active - show personal tile prominently
       tiles.push(
         <Box
-          key={org.id}
+          key="personal"
           sx={{
             position: 'absolute',
             width: TILE_SIZE,
             height: TILE_SIZE,
-            bgcolor: isActive ? 'primary.main' : 'grey.600',
-            color: isActive ? '#fff' : '#ccc',
+            bgcolor: 'primary.main',
+            color: '#fff',
             fontWeight: 'bold',
             fontSize: '0.8rem',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             borderRadius: 1,
-            border: isActive ? '2px solid #00E5FF' : '2px solid #4A5568',
-            top: i === 0 ? 0 : i * 3,
-            left: i === 0 ? 0 : i * 3,
-            zIndex: 3 - i,
-            opacity: i === 0 ? 1 : 0.4,
+            border: '2px solid #00E5FF',
+            zIndex: 4,
+            top: 0,
+            left: 0,
           }}
         >
-          {(org.display_name || org.name || '?').charAt(0).toUpperCase()}
+          {account.user?.name?.charAt(0).toUpperCase() || '?'}
         </Box>
       )
+      
+      // Show first few org tiles in background
+      for (let i = 0; i < Math.min(listOrgs.length, 2); i++) {
+        const org = listOrgs[i]
+        tiles.push(
+          <Box
+            key={org.id}
+            sx={{
+              position: 'absolute',
+              width: TILE_SIZE,
+              height: TILE_SIZE,
+              bgcolor: 'grey.600',
+              color: '#ccc',
+              fontWeight: 'bold',
+              fontSize: '0.8rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 1,
+              border: '2px solid #4A5568',
+              top: (i + 1) * 3,
+              left: (i + 1) * 3,
+              zIndex: 3 - i,
+              opacity: 0.4,
+            }}
+          >
+            {(org.display_name || org.name || '?').charAt(0).toUpperCase()}
+          </Box>
+        )
+      }
+    } else if (currentOrgData) {
+      // Organization context is active - show current org prominently
+      tiles.push(
+        <Box
+          key={currentOrgData.id}
+          sx={{
+            position: 'absolute',
+            width: TILE_SIZE,
+            height: TILE_SIZE,
+            bgcolor: 'primary.main',
+            color: '#fff',
+            fontWeight: 'bold',
+            fontSize: '0.8rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 1,
+            border: '2px solid #00E5FF',
+            zIndex: 4,
+            top: 0,
+            left: 0,
+          }}
+        >
+          {(currentOrgData.display_name || currentOrgData.name || '?').charAt(0).toUpperCase()}
+        </Box>
+      )
+      
+      // Show personal tile in background
+      tiles.push(
+        <Box
+          key="personal"
+          sx={{
+            position: 'absolute',
+            width: TILE_SIZE,
+            height: TILE_SIZE,
+            bgcolor: 'grey.800',
+            color: '#ccc',
+            fontWeight: 'bold',
+            fontSize: '0.8rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 1,
+            border: '2px solid #4A5568',
+            top: 3,
+            left: 3,
+            zIndex: 3,
+            opacity: 0.4,
+          }}
+        >
+          {account.user?.name?.charAt(0).toUpperCase() || '?'}
+        </Box>
+      )
+      
+      // Show other org tiles in background (exclude current org)
+      const otherOrgs = listOrgs.filter(org => org.name !== currentOrgSlug)
+      for (let i = 0; i < Math.min(otherOrgs.length, 1); i++) {
+        const org = otherOrgs[i]
+        tiles.push(
+          <Box
+            key={org.id}
+            sx={{
+              position: 'absolute',
+              width: TILE_SIZE,
+              height: TILE_SIZE,
+              bgcolor: 'grey.600',
+              color: '#ccc',
+              fontWeight: 'bold',
+              fontSize: '0.8rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 1,
+              border: '2px solid #4A5568',
+              top: 6,
+              left: 6,
+              zIndex: 2,
+              opacity: 0.4,
+            }}
+          >
+            {(org.display_name || org.name || '?').charAt(0).toUpperCase()}
+          </Box>
+        )
+      }
     }
 
     return (
@@ -550,43 +635,21 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
   const renderMenuItems = () => {
     const menuItems = [
       {
-        icon: <ArticleIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />,
+        icon: <FileText size={16} style={{ marginRight: '10px', color: lightTheme.textColorFaded }} />,
         label: 'Documentation',
         onClick: openDocumentation,
       },
       {
-        icon: <HelpIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />,
+        icon: <HelpCircle size={16} style={{ marginRight: '10px', color: lightTheme.textColorFaded }} />,
         label: 'Help & Support',
         onClick: openHelp,
       },
-      {
-        icon: <AccountBoxIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />,
-        label: 'Account Settings',
-        onClick: () => navigateTo('account'),
-      },
-      {
-        icon: <PolylineIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />,
-        label: 'Connected Services',
-        onClick: () => navigateTo('oauth-connections'),
-      },
+
              {
-         icon: <CodeIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />,
+         icon: <Code size={16} style={{ marginRight: '10px', color: lightTheme.textColorFaded }} />,
          label: 'API Reference',
          onClick: () => {
            window.open('/api-reference', '_blank')
-           // Close the appropriate menu state
-           if (sidebarVisible) {
-             setMenuItemsExpanded(false)
-           } else {
-             setCompactExpanded(false)
-           }
-         },
-       },
-       {
-         icon: <LogoutIcon sx={{ fontSize: 16, mr: 1.25, color: lightTheme.textColorFaded }} />,
-         label: 'Logout',
-         onClick: () => {
-           account.onLogout()
            // Close the appropriate menu state
            if (sidebarVisible) {
              setMenuItemsExpanded(false)
@@ -644,17 +707,176 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
           bottom: 0,
           width: menuWidth,
           bgcolor: lightTheme.backgroundColor,
-          border: lightTheme.border,
-          borderRadius: 2,
-          boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
+          borderTop: lightTheme.border,
+          borderRight: lightTheme.border,
           zIndex: 9999,
         }}
       >
         {/* Token Usage Display */}
         {account.user && <TokenUsageDisplay />}
 
+        {/* Always visible menu items - only show if there are items to display */}
+        {(account.admin || account.user) && (
+          <Box sx={{ px: 1, py: 1 }}>
+            {/* Admin Panel - always visible for admin users */}
+            {account.admin && (
+            <Box
+              onClick={(e) => {
+                e.stopPropagation()
+                navigateTo('dashboard')
+                // Close the appropriate menu state
+                if (sidebarVisible && menuItemsExpanded) {
+                  setMenuItemsExpanded(false)
+                }
+                if (!sidebarVisible && compactExpanded) {
+                  setCompactExpanded(false)
+                }
+              }}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                px: 2,
+                py: 1,
+                borderRadius: 1,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease-in-out',
+                backgroundColor: isActive('dashboard') ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                border: isActive('dashboard') ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
+                '&:hover': {
+                  backgroundColor: isActive('dashboard') ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.05)',
+                },
+              }}
+            >
+              <UserCog 
+                size={16} 
+                style={{ 
+                  marginRight: '10px', 
+                  color: isActive('dashboard') ? lightTheme.textColor : lightTheme.textColorFaded 
+                }} 
+              />
+              <Typography
+                variant="body2"
+                sx={{
+                  color: isActive('dashboard') ? lightTheme.textColor : lightTheme.textColor,
+                  fontSize: '0.875rem',
+                  fontWeight: isActive('dashboard') ? 600 : 400,
+                  lineHeight: 1.2,
+                }}
+              >
+                Admin Panel
+              </Typography>
+            </Box>
+          )}
+
+          {/* Account Settings - only visible when logged in */}
+          {account.user && (
+            <Box
+              onClick={(e) => {
+                e.stopPropagation()
+                navigateTo('account')
+                // Close the appropriate menu state
+                if (sidebarVisible && menuItemsExpanded) {
+                  setMenuItemsExpanded(false)
+                }
+                if (!sidebarVisible && compactExpanded) {
+                  setCompactExpanded(false)
+                }
+              }}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                px: 2,
+                py: 1,
+                borderRadius: 1,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease-in-out',
+                backgroundColor: isActive('account') ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                border: isActive('account') ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
+                '&:hover': {
+                  backgroundColor: isActive('account') ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.05)',
+                },
+              }}
+            >
+              <UserCircle 
+                size={16} 
+                style={{ 
+                  marginRight: '10px', 
+                  color: isActive('account') ? lightTheme.textColor : lightTheme.textColorFaded 
+                }} 
+              />
+              <Typography
+                variant="body2"
+                sx={{
+                  color: isActive('account') ? lightTheme.textColor : lightTheme.textColor,
+                  fontSize: '0.875rem',
+                  fontWeight: isActive('account') ? 600 : 400,
+                  lineHeight: 1.2,
+                }}
+              >
+                Account & Billing
+              </Typography>
+            </Box>
+          )}
+
+          {/* Connected Services - only visible when logged in */}
+          {account.user && (
+            <Box
+              onClick={(e) => {
+                e.stopPropagation()
+                navigateTo('oauth-connections')
+                // Close the appropriate menu state
+                if (sidebarVisible && menuItemsExpanded) {
+                  setMenuItemsExpanded(false)
+                }
+                if (!sidebarVisible && compactExpanded) {
+                  setCompactExpanded(false)
+                }
+              }}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                px: 2,
+                py: 1,
+                borderRadius: 1,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease-in-out',
+                backgroundColor: isActive('oauth-connections') ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                border: isActive('oauth-connections') ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
+                '&:hover': {
+                  backgroundColor: isActive('oauth-connections') ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.05)',
+                },
+              }}
+            >
+              <Link 
+                size={16} 
+                style={{ 
+                  marginRight: '10px', 
+                  color: isActive('oauth-connections') ? lightTheme.textColor : lightTheme.textColorFaded 
+                }} 
+              />
+              <Typography
+                variant="body2"
+                sx={{
+                  color: isActive('oauth-connections') ? lightTheme.textColor : lightTheme.textColor,
+                  fontSize: '0.875rem',
+                  fontWeight: isActive('oauth-connections') ? 600 : 400,
+                  lineHeight: 1.2,
+                }}
+              >
+                Connected Services
+              </Typography>
+            </Box>
+          )}
+        </Box>
+        )}
+
         {/* Menu Items - show based on mode */}
-        {(sidebarVisible ? menuItemsExpanded : compactExpanded) && renderMenuItems()}
+        {(sidebarVisible ? menuItemsExpanded : compactExpanded) && (
+          <>
+            {account.user && <Box sx={{ borderTop: lightTheme.border, mx: 2, my: 0.5 }} />}
+            {renderMenuItems()}
+          </>
+        )}
 
         {/* User Info Section - keep only this one with Helix logo */}
         <Box
@@ -668,7 +890,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
             alignItems: 'center',
             px: 2,
             py: 1.5,
-            borderTop: lightTheme.border,
+            ...(account.user ? { borderTop: lightTheme.border } : {}),
             gap: 1.5,
             cursor: sidebarVisible ? 'pointer' : 'default',
             ...(!sidebarVisible && {
@@ -725,34 +947,73 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
               id='login-button'
               variant="contained"
               color="secondary"
-              endIcon={<LoginIcon />}
-              onClick={() => account.onLogin()}
+              endIcon={<LogIn size={20} />}
+              onClick={(e) => {
+                e.stopPropagation()
+                account.onLogin()
+              }}
             >
               Login / Register
             </ShimmerButton>
           )}
           
-          {/* Expand/collapse indicator - only show when sidebar is visible */}
-          {sidebarVisible && account.user && (
-            menuItemsExpanded ? (
-              <UnfoldLessIcon
-                sx={{
+          {/* Expand/collapse indicator - show when sidebar is visible regardless of login status */}
+          {sidebarVisible && (
+            <Box sx={{ ml: !account.user ? 3 : 0 }}>
+              {menuItemsExpanded ? (
+                <ChevronsDown
+                  size={18}
+                  style={{
+                    color: lightTheme.textColorFaded,
+                    transition: 'opacity 0.2s ease-in-out',
+                    opacity: 0.7,
+                  }}
+                />
+              ) : (
+                <ChevronsUp
+                  size={18}
+                  style={{
+                    color: lightTheme.textColorFaded,
+                    transition: 'opacity 0.2s ease-in-out',
+                    opacity: 0.7,
+                  }}
+                />
+              )}
+            </Box>
+          )}
+
+          {/* Logout icon - only show when user is logged in */}
+          {account.user && (
+            <Box
+              onClick={(e) => {
+                e.stopPropagation()
+                account.onLogout()
+              }}
+              sx={{
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 28,
+                height: 28,
+                borderRadius: 1,
+                transition: 'all 0.2s ease-in-out',
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  '& svg': {
+                    color: '#ff4444 !important',
+                  },
+                },
+              }}
+            >
+              <LogOut
+                size={16}
+                style={{
                   color: lightTheme.textColorFaded,
-                  transition: 'opacity 0.2s ease-in-out',
-                  fontSize: '1.1rem',
-                  opacity: 0.7,
+                  transition: 'color 0.2s ease-in-out',
                 }}
               />
-            ) : (
-              <UnfoldMoreIcon
-                sx={{
-                  color: lightTheme.textColorFaded,
-                  transition: 'opacity 0.2s ease-in-out',
-                  fontSize: '1.1rem',
-                  opacity: 0.7,
-                }}
-              />
-            )
+            </Box>
           )}
         </Box>
       </Box>
@@ -868,8 +1129,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
               display: 'flex',
               alignItems: 'center',
               gap: 2,
+              backgroundColor: currentOrgSlug === 'default' ? 'rgba(0, 229, 255, 0.1)' : 'transparent',
               '&:hover': {
-                backgroundColor: '#2D3748',
+                backgroundColor: currentOrgSlug === 'default' ? 'rgba(0, 229, 255, 0.15)' : '#2D3748',
               },
             }}
           >
@@ -877,7 +1139,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
               sx={{
                 width: 40,
                 height: 40,
-                bgcolor: currentOrgId === 'default' ? 'primary.main' : 'grey.800',
+                bgcolor: currentOrgSlug === 'default' ? 'primary.main' : 'grey.800',
                 color: '#fff',
                 fontWeight: 'bold',
                 fontSize: '1.2rem',
@@ -885,7 +1147,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 alignItems: 'center',
                 justifyContent: 'center',
                 borderRadius: 1,
-                border: currentOrgId === 'default' ? '2px solid #00E5FF' : '2px solid transparent',
+                border: currentOrgSlug === 'default' ? '2px solid #00E5FF' : '2px solid transparent',
               }}
             >
               {account.user?.name?.charAt(0).toUpperCase() || '?'}
@@ -913,8 +1175,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 display: 'flex',
                 alignItems: 'center',
                 gap: 2,
+                backgroundColor: currentOrgSlug === org.name ? 'rgba(0, 229, 255, 0.1)' : 'transparent',
                 '&:hover': {
-                  backgroundColor: '#2D3748',
+                  backgroundColor: currentOrgSlug === org.name ? 'rgba(0, 229, 255, 0.15)' : '#2D3748',
                 },
               }}
             >
@@ -922,15 +1185,15 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 sx={{
                   width: 40,
                   height: 40,
-                  bgcolor: currentOrgId === org.id ? 'primary.main' : 'grey.600',
-                  color: currentOrgId === org.id ? '#fff' : '#ccc',
+                  bgcolor: currentOrgSlug === org.name ? 'primary.main' : 'grey.600',
+                  color: currentOrgSlug === org.name ? '#fff' : '#ccc',
                   fontWeight: 'bold',
                   fontSize: '1.2rem',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderRadius: 1,
-                  border: currentOrgId === org.id ? '2px solid #00E5FF' : '2px solid transparent',
+                  border: currentOrgSlug === org.name ? '2px solid #00E5FF' : '2px solid transparent',
                 }}
               >
                 {(org.display_name || org.name || '?').charAt(0).toUpperCase()}
@@ -955,7 +1218,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
               variant="outlined"
               color="primary"
               fullWidth
-              startIcon={<ManageAccountsIcon />}
+              startIcon={<UserCog size={20} />}
               sx={{
                 borderColor: '#00E5FF',
                 color: '#00E5FF',
