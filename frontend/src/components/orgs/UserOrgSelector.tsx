@@ -3,12 +3,17 @@ import Box from '@mui/material/Box'
 import Divider from '@mui/material/Divider'
 import Tooltip from '@mui/material/Tooltip'
 import AddIcon from '@mui/icons-material/Add'
+import HomeIcon from '@mui/icons-material/Home'
+import SmartToyIcon from '@mui/icons-material/SmartToy'
+import AccessTimeIcon from '@mui/icons-material/AccessTime'
+import DnsIcon from '@mui/icons-material/Dns'
+import PersonIcon from '@mui/icons-material/Person'
+import GroupIcon from '@mui/icons-material/Group'
+import SettingsIcon from '@mui/icons-material/Settings'
 import Popover from '@mui/material/Popover'
 import DialogContent from '@mui/material/DialogContent'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
-
-import { AlarmClock, House, Server, Bot, User, Users } from 'lucide-react';
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
@@ -202,28 +207,28 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
   const navigationButtons = useMemo(() => {
     const baseButtons = [
       {
-        icon: <House size={NAV_BUTTON_SIZE} />,
+        icon: <HomeIcon sx={{ fontSize: NAV_BUTTON_SIZE }} />,
         tooltip: "Go to home",
         isActive: isActive('home'),
         onClick: handleHomeClick,
         label: "Home",
       },
       {
-        icon: <Bot size={NAV_BUTTON_SIZE} />,
+        icon: <SmartToyIcon sx={{ fontSize: NAV_BUTTON_SIZE }} />,
         tooltip: "View agents",
         isActive: isActive('apps'),
         onClick: () => orgNavigateTo('apps'),
         label: "Agents",
       },
       {
-        icon: <AlarmClock size={NAV_BUTTON_SIZE} />,
+        icon: <AccessTimeIcon sx={{ fontSize: NAV_BUTTON_SIZE }} />,
         tooltip: "View tasks",
         isActive: isActive('tasks'),
         onClick: () => orgNavigateTo('tasks'),
         label: "Tasks",
       },
       {
-        icon: <Server size={NAV_BUTTON_SIZE} />,
+        icon: <DnsIcon sx={{ fontSize: NAV_BUTTON_SIZE }} />,
         tooltip: "View model providers",
         isActive: isActive('providers'),
         onClick: () => orgNavigateTo('providers'),
@@ -231,18 +236,29 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = () => {
       },
     ]
 
+    // Add Admin Panel button for admin users
+    if (account.admin) {
+      baseButtons.push({
+        icon: <SettingsIcon sx={{ fontSize: NAV_BUTTON_SIZE }} />,
+        tooltip: "Admin Panel (global to this installation)",
+        isActive: isActive('dashboard'),
+        onClick: () => orgNavigateTo('dashboard'),
+        label: "Admin",
+      })
+    }
+
     // Add org-specific buttons if we're in an org context
     if (currentOrgId !== 'default') {
       baseButtons.push(
         {
-          icon: <User size={NAV_BUTTON_SIZE} />,
+          icon: <PersonIcon sx={{ fontSize: NAV_BUTTON_SIZE }} />,
           tooltip: "View people",
           isActive: isActive('org_people'),
           onClick: () => orgNavigateTo('org_people', { org_id: currentOrgId }),
           label: "People",
         },
         {
-          icon: <Users size={NAV_BUTTON_SIZE} />,
+          icon: <GroupIcon sx={{ fontSize: NAV_BUTTON_SIZE }} />,
           tooltip: "View teams",
           isActive: isActive('org_teams'),
           onClick: () => orgNavigateTo('org_teams', { org_id: currentOrgId }),

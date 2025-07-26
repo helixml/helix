@@ -13,7 +13,6 @@ import ListItemButton from '@mui/material/ListItemButton'
 import ListItemText from '@mui/material/ListItemText'
 import { styled, keyframes } from '@mui/material/styles'
 
-import DashboardIcon from '@mui/icons-material/Dashboard'
 import LoginIcon from '@mui/icons-material/Login'
 import LogoutIcon from '@mui/icons-material/Logout'
 import PolylineIcon from '@mui/icons-material/Polyline';
@@ -396,18 +395,7 @@ const SidebarContent: React.FC<{
                         API Reference
                       </MenuItem>                      
 
-                      {
-                        account.admin && (
-                          <MenuItem onClick={ () => {
-                            navigateTo('dashboard')
-                          }}>
-                            <ListItemIcon>
-                              <DashboardIcon fontSize="small" />
-                            </ListItemIcon> 
-                            Admin Dashboard
-                          </MenuItem>
-                        )
-                      }
+
 
                       <MenuItem onClick={ () => {
                         setAccountMenuAnchorEl(null)
