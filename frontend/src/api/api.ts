@@ -2226,7 +2226,7 @@ export class HttpClient<SecurityDataType = unknown> {
  * @title HelixML API reference
  * @version 0.1
  * @baseUrl https://app.helix.ml
- * @contact Helix support <info@helixml.tech> (https://app.helix.ml/)
+ * @contact Helix support <founders@helix.ml> (https://app.helix.ml/)
  *
  * This is the HelixML API.
  */
