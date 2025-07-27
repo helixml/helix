@@ -8,8 +8,7 @@ import Grid from '@mui/material/Grid'
 import IconButton from '@mui/material/IconButton'
 import Paper from '@mui/material/Paper/Paper'
 import Switch from '@mui/material/Switch'
-import Tab from '@mui/material/Tab'
-import Tabs from '@mui/material/Tabs'
+
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import React, { FC, useCallback, useEffect, useRef, useState } from 'react'
@@ -53,7 +52,6 @@ const Dashboard: FC = () => {
 
   const [viewingSession, setViewingSession] = useState<ISession>()
   const [active, setActive] = useState(START_ACTIVE)
-  const [activeTab, setActiveTab] = useState(0)
   const [sessionFilter, setSessionFilter] = useState('')
 
   const {
@@ -92,55 +90,10 @@ const Dashboard: FC = () => {
 
 
   useEffect(() => {
-    switch (tab) {
-      case 'llm_calls':
-        setActiveTab(0)
-        break
-      case 'providers':
-        setActiveTab(1)
-        break
-      case 'oauth_providers':
-        setActiveTab(2)
-        break
-      case 'runners':
-        setActiveTab(3)
-        break
-      case 'helix_models':
-        setActiveTab(4)
-        break
-      default:
-        setActiveTab(0)
-    }
-  }, [tab])
-
-  useEffect(() => {
     if (filter_sessions) {
       setSessionFilter(filter_sessions)
     }
   }, [filter_sessions])
-
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    setActiveTab(newValue)
-    switch (newValue) {
-      case 0:
-        router.setParams({ tab: 'llm_calls' })
-        break
-      case 1:
-        router.setParams({ tab: 'providers' })
-        break
-      case 2:
-        router.setParams({ tab: 'oauth_providers' })
-        break
-      case 3:
-        router.setParams({ tab: 'runners' })
-        break
-      case 4:
-        router.setParams({ tab: 'helix_models' })
-        break
-      default:
-        router.removeParams(['tab'])
-    }
-  }
 
   const handleFilterChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const newFilter = event.target.value
@@ -162,7 +115,7 @@ const Dashboard: FC = () => {
 
   return (
     <Page
-      breadcrumbTitle="Dashboard"
+      breadcrumbTitle="Admin Panel"
       topbarContent={(
         <Box
           sx={{
@@ -189,7 +142,7 @@ const Dashboard: FC = () => {
             </Typography>
           )}
           <Box sx={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
-            <SessionBadgeKey />
+            {tab === 'runners' && <SessionBadgeKey />}
           </Box>
         </Box>
       )}
@@ -197,26 +150,16 @@ const Dashboard: FC = () => {
       <Container
         maxWidth="xl"
         sx={{
-          mt: 12,
-          height: 'calc(100% - 100px)',
+          mt: 4,
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-          <Tabs value={activeTab} onChange={handleTabChange}>
-            <Tab label="LLM Calls" />
-            <Tab label="Inference Providers" />
-            <Tab label="OAuth Providers" />
-            <Tab label="Runners" />
-            <Tab label="Helix Models" />
-          </Tabs>
-        </Box>
-
-        {activeTab === 0 && (
+        {(!tab || tab === 'llm_calls') && (
           <Box
             sx={{
               width: '100%',
-              height: 'calc(200vh - 200px)',
-              overflow: 'auto',
             }}
           >
             <Box sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
@@ -237,11 +180,11 @@ const Dashboard: FC = () => {
           </Box>
         )}
 
-        {activeTab === 1 && (
+        {tab === 'providers' && (
           <Box
             sx={{
               width: '100%',
-              height: 'calc(100vh - 200px)',
+              height: '100%',
               overflow: 'auto',
             }}
           >
@@ -249,11 +192,11 @@ const Dashboard: FC = () => {
           </Box>
         )}
 
-        {activeTab === 2 && (
+        {tab === 'oauth_providers' && (
           <Box
             sx={{
               width: '100%',
-              height: 'calc(100vh - 200px)',
+              height: '100%',
               overflow: 'auto',
               p: 2,
             }}
@@ -262,7 +205,7 @@ const Dashboard: FC = () => {
           </Box>
         )}
 
-        {activeTab === 3 && (
+        {tab === 'runners' && (
           <Box
             sx={{
               width: '100%',
@@ -302,7 +245,14 @@ const Dashboard: FC = () => {
                       variant="outlined"
                       size="small"
                       startIcon={<LaunchIcon />}
-                      onClick={floatingRunnerState.toggleFloatingRunnerState}
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        const clickPosition = {
+                          x: rect.left - 100, // Position floating window to the left of button
+                          y: rect.top - 50    // Position slightly above the button
+                        }
+                        floatingRunnerState.toggleFloatingRunnerState(clickPosition)
+                      }}
                       sx={{
                         borderColor: 'rgba(0, 200, 255, 0.3)',
                         color: floatingRunnerState.isVisible ? '#00c8ff' : 'rgba(255, 255, 255, 0.7)',
@@ -512,11 +462,11 @@ const Dashboard: FC = () => {
           </Box>
         )}
 
-        {activeTab === 4 && (
+        {tab === 'helix_models' && (
           <Box
             sx={{
               width: '100%',
-              height: 'calc(100vh - 200px)',
+              height: '100%',
               overflow: 'auto',
             }}
           >

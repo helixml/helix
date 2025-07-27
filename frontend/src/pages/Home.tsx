@@ -9,6 +9,8 @@ import Tooltip from '@mui/material/Tooltip'
 import Avatar from '@mui/material/Avatar'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 import ImageIcon from '@mui/icons-material/Image'
+import LightbulbOutlinedIcon from '@mui/icons-material/LightbulbOutlined'
+import LightbulbIcon from '@mui/icons-material/Lightbulb'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import ListItemIcon from '@mui/material/ListItemIcon'
@@ -44,6 +46,29 @@ const getTimeAgo = (date: Date) => {
   if (hours > 0) return `${hours} hours ago`
   if (minutes > 0) return `${minutes} minutes ago`
   return 'just now'
+}
+
+const getTimeBasedGreeting = (userName?: string) => {
+  const now = new Date()
+  const hour = now.getHours()
+  
+  // Extract first name from full name if available
+  const firstName = userName ? userName.split(' ')[0] : ''
+  const nameWithComma = firstName ? `, ${firstName}` : ''
+  
+  if (hour >= 5 && hour < 12) {
+    // Morning: 5am - 12pm
+    return `Coffee and Helix${nameWithComma}?`
+  } else if (hour >= 12 && hour < 17) {
+    // Afternoon: 12pm - 5pm
+    return `Good afternoon${nameWithComma}`
+  } else if (hour >= 17 && hour < 22) {
+    // Evening: 5pm - 10pm
+    return `Good evening${nameWithComma}`
+  } else {
+    // Late night: 10pm - 5am
+    return `Burning the candle at both ends${nameWithComma}?`
+  }
 }
 
 // Helper function to get schedule information from trigger
@@ -88,6 +113,7 @@ const Home: FC = () => {
   const [attachmentMenuAnchorEl, setAttachmentMenuAnchorEl] = useState<null | HTMLElement>(null)
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [selectedImageName, setSelectedImageName] = useState<string | null>(null)
+  const [showExamples, setShowExamples] = useState(false)
 
   const { data: triggers, isLoading, refetch } = useListUserCronTriggers(
     account.organizationTools.organization?.id || ''
@@ -268,7 +294,7 @@ const Home: FC = () => {
                       mb: 2,
                     }}
                   >
-                    How can I help?
+                    {getTimeBasedGreeting(account.user?.name)}
                   </Typography>
                 </Row>
                 <Row>
@@ -348,7 +374,7 @@ const Home: FC = () => {
                           currentType={currentType}
                           displayMode="short"
                         />
-                        {/* Plus button - Only show if not in Image mode */}
+                        {/* Action buttons - Only show if not in Image mode */}
                         {currentType !== 'image' && (
                           <>
                             <Tooltip title="Attach Files" placement="top">
@@ -372,6 +398,41 @@ const Home: FC = () => {
                                 onClick={handleAttachmentMenuOpen}
                               >
                                 <AttachFileIcon sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '20px' }} />
+                              </Box>
+                            </Tooltip>
+                            <Tooltip title={showExamples ? "Hide examples" : "Show examples"} placement="top">
+                              <Box
+                                sx={{
+                                  width: 32,
+                                  height: 32,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer',
+                                  border: '2px solid rgba(255, 255, 255, 0.7)',
+                                  borderRadius: '50%',
+                                  backgroundColor: 'transparent',
+                                  '&:hover': {
+                                    borderColor: 'rgba(255, 255, 255, 0.9)',
+                                    backgroundColor: 'transparent',
+                                    '& svg': {
+                                      color: 'rgba(255, 255, 255, 0.9)'
+                                    }
+                                  }
+                                }}
+                                onClick={() => setShowExamples(!showExamples)}
+                              >
+                                {showExamples ? (
+                                  <LightbulbIcon sx={{ 
+                                    color: 'rgba(255, 255, 255, 0.7)', 
+                                    fontSize: '20px' 
+                                  }} />
+                                ) : (
+                                  <LightbulbOutlinedIcon sx={{ 
+                                    color: 'rgba(255, 255, 255, 0.7)', 
+                                    fontSize: '20px' 
+                                  }} />
+                                )}
                               </Box>
                             </Tooltip>
                             {selectedImageName && (
@@ -443,28 +504,47 @@ const Home: FC = () => {
                     </Box>
                   </Box>
                 </Row>
-                <Row>
-                  <Box
-                    sx={{
-                      width: '100%',
-                      // px: 2,
-                      mb: 6,
-                    }}
-                  >
-                    <ExamplePrompts
-                      header={false}
-                      layout="vertical"
-                      type={currentType}
-                      onChange={prompt => {
-                        setCurrentPrompt(prompt)
-                        setTimeout(() => {
-                          if(!textareaRef.current) return
-                          textareaRef.current.focus()
-                        }, 100)
+                {showExamples && (
+                  <Row>
+                    <Box
+                      sx={{
+                        width: '100%',
+                        // px: 2,
+                        mb: 6,
                       }}
-                    />
-                  </Box>
-                </Row>
+                    >
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          justifyContent: 'center',
+                          mb: 2,
+                        }}
+                      >
+                        <Typography
+                          sx={{
+                            color: 'rgba(255, 255, 255, 0.8)',
+                            fontSize: '0.9rem',
+                            fontWeight: 'bold',
+                          }}
+                        >
+                          Try an example
+                        </Typography>
+                      </Box>
+                      <ExamplePrompts
+                        header={false}
+                        layout="vertical"
+                        type={currentType}
+                        onChange={prompt => {
+                          setCurrentPrompt(prompt)
+                          setTimeout(() => {
+                            if(!textareaRef.current) return
+                            textareaRef.current.focus()
+                          }, 100)
+                        }}
+                      />
+                    </Box>
+                  </Row>
+                )}
                 {/* Tasks Section */}
                 <Row
                   sx={{

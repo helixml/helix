@@ -6,7 +6,7 @@ import useLoading from '../hooks/useLoading'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useOrganizations, { IOrganizationTools, defaultOrganizationTools } from '../hooks/useOrganizations'
-import { triggerMenuChange } from '../components/system/SlideMenuContainer'
+
 
 import {
   IApiKey,
@@ -340,7 +340,35 @@ export const useAccountContext = (): IAccountContext => {
     } catch (e) {
       const errorMessage = extractErrorMessage(e)
       console.error(errorMessage)
-      snackbar.error(errorMessage)
+      
+      // Don't show snackbars for auth errors (401/403) to avoid scary red error messages
+      // when tokens expire naturally. The auth error detection logic matches useApi.ts
+      const isAuthError = (error: any): boolean => {
+        // Check status code
+        if (error.response?.status === 401 || error.response?.status === 403) {
+          return true
+        }
+        
+        // Check error message for common auth failure patterns
+        const errorMsg = errorMessage.toLowerCase()
+        const authErrorPatterns = [
+          'unauthorized',
+          'token expired',
+          'token invalid',
+          'authentication failed',
+          'access denied',
+          'forbidden',
+          'not authenticated',
+          'invalid token',
+          'expired token'
+        ]
+        
+        return authErrorPatterns.some(pattern => errorMsg.includes(pattern))
+      }
+      
+      if (!isAuthError(e)) {
+        snackbar.error(errorMessage)
+      }
     } finally {
       loading.setLoading(false)
       setInitialized(true)
@@ -416,27 +444,7 @@ export const useAccountContext = (): IAccountContext => {
     // This ensures components are mounted before animations run
     router.navigate(targetRouteName, finalParams)
     
-    // If this is an org transition, trigger animation after a small delay
-    if (isOrgTransition) {
-      // For org transitions, determine the menu types for animation
-      const fromMenu = router.meta.menu || currentResourceType
-      const toMenu = targetIsOrgRoute ? 'orgs' : currentResourceType
-      
-      // Determine direction: 
-      // - When going to orgs (personal -> org), we slide right (current slides out right)
-      // - When going from orgs (org -> personal), we slide left (current slides out left)
-      const direction = targetIsOrgRoute ? 'right' : 'left'
-      
-      // Trigger animation after a small delay to ensure components are mounted
-      setTimeout(() => {
-        // Use the active menus tracking to ensure both components exist
-        if (window._activeMenus && (window._activeMenus[fromMenu] || window._activeMenus[toMenu])) {
-          triggerMenuChange(fromMenu, toMenu, direction, true)
-        } else {
-          console.log(`Animation not triggered - menus not ready (${fromMenu} -> ${toMenu})`)
-        }
-      }, 50)
-    }
+
   }
 
   useEffect(() => {

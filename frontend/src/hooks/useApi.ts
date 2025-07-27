@@ -51,6 +51,30 @@ const apiClientSingleton = new Api({
   }
 })
 
+// Helper function to check if an error is auth-related
+const isAuthError = (error: any): boolean => {
+  // Check status code
+  if (error.response?.status === 401 || error.response?.status === 403) {
+    return true
+  }
+  
+  // Check error message for common auth failure patterns
+  const errorMessage = extractErrorMessage(error).toLowerCase()
+  const authErrorPatterns = [
+    'unauthorized',
+    'token expired',
+    'token invalid',
+    'authentication failed',
+    'access denied',
+    'forbidden',
+    'not authenticated',
+    'invalid token',
+    'expired token'
+  ]
+  
+  return authErrorPatterns.some(pattern => errorMessage.includes(pattern))
+}
+
 export const useApi = () => {
 
   const snackbar = useContext(SnackbarContext)
@@ -66,7 +90,7 @@ export const useApi = () => {
       const errorMessage = extractErrorMessage(e)
       console.error(errorMessage)
       options?.errorCapture?.(errorMessage)
-      if(options?.snackbar !== false) {
+      if(options?.snackbar !== false && !isAuthError(e)) {
         const safeErrorMsg = typeof errorMessage === 'string' ? errorMessage : 'An error occurred'
         snackbar.setSnackbar(safeErrorMsg, 'error')
         reportError(new Error(safeErrorMsg))
@@ -86,7 +110,7 @@ export const useApi = () => {
       const errorMessage = extractErrorMessage(e)
       console.error(errorMessage)
       options?.errorCapture?.(errorMessage)
-      if(options?.snackbar !== false) {
+      if(options?.snackbar !== false && !isAuthError(e)) {
         const safeErrorMsg = typeof errorMessage === 'string' ? errorMessage : 'An error occurred'
         snackbar.setSnackbar(safeErrorMsg, 'error')
         reportError(new Error(safeErrorMsg))
@@ -115,7 +139,7 @@ export const useApi = () => {
       const errorMessage = extractErrorMessage(e)
       console.error(errorMessage)
       options?.errorCapture?.(errorMessage)
-      if(options?.snackbar !== false) {
+      if(options?.snackbar !== false && !isAuthError(e)) {
         const safeErrorMsg = typeof errorMessage === 'string' ? errorMessage : 'An error occurred'
         snackbar.setSnackbar(safeErrorMsg, 'error')
         reportError(new Error(safeErrorMsg))
@@ -137,7 +161,7 @@ export const useApi = () => {
       const errorMessage = extractErrorMessage(e)
       console.error(errorMessage)
       options?.errorCapture?.(errorMessage)
-      if(options?.snackbar !== false) {
+      if(options?.snackbar !== false && !isAuthError(e)) {
         const safeErrorMsg = typeof errorMessage === 'string' ? errorMessage : 'An error occurred'
         snackbar.setSnackbar(safeErrorMsg, 'error')
         reportError(new Error(safeErrorMsg))

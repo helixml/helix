@@ -67,7 +67,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     name: namePrefix + 'apps',
     path: routePrefix + '/apps',
     meta: {
-      drawer: true,
+      drawer: false,
       orgRouteAware: true,
     },
     render: () => (
@@ -78,7 +78,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     name: namePrefix + 'providers',
     path: routePrefix + '/providers',
     meta: {
-      drawer: true,
+      drawer: false,
     },
     render: () => (
       <Providers />
@@ -87,7 +87,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     name: namePrefix + 'tasks',
     path: routePrefix + '/tasks',
     meta: {
-      drawer: true,
+      drawer: false,
       orgRouteAware: true,
     },
     render: () => (
@@ -97,7 +97,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     name: namePrefix + 'app',
     path: routePrefix + '/app/:app_id',
     meta: {
-      drawer: false,
+      drawer: true,
     },
     render: () => (
       <App />
@@ -106,7 +106,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     name: namePrefix + 'new-agent',
     path: routePrefix + '/new-agent',
     meta: {
-      drawer: true,
+      drawer: false,
     },
     render: () => (
       <NewAgent />
@@ -141,7 +141,7 @@ const routes: IApplicationRoute[] = [
   name: 'orgs',
   path: '/orgs',
   meta: {
-    drawer: true,
+    drawer: false,
   },
   render: () => (
     <Orgs />
@@ -211,7 +211,7 @@ const routes: IApplicationRoute[] = [
   name: 'oauth-connections',
   path: '/oauth-connections',
   meta: {
-    drawer: true,
+    drawer: false,
     title: 'Connected Services',
   },
   render: () => (
@@ -231,7 +231,7 @@ const routes: IApplicationRoute[] = [
   name: 'account',
   path: '/account',
   meta: {
-    drawer: true,
+    drawer: false,
   },
   render: () => <Account />,
 }, {

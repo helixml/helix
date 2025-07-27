@@ -27,7 +27,7 @@ const APIKeysSection: React.FC<APIKeysSectionProps> = ({
   isReadOnly,
 }) => {
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box sx={{ mt: 2, pr: 3 }}>
       <Typography variant="subtitle1" sx={{mb: 1}}>
         Agent-scoped API Keys
       </Typography>
