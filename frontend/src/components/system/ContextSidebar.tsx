@@ -40,7 +40,7 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
     return (
       <Box key={`section-${index}`}>
         {section.title && (
-          <ListItem sx={{ pb: 0.5, pt: index === 0 ? 1 : 2 }}>
+          <ListItem sx={{ pb: 0.5, pt: 1 }}>
             <Typography
               variant="subtitle2"
               sx={{
@@ -61,8 +61,7 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
             key={item.id}
             sx={{
               borderRadius: '12px',
-              cursor: 'pointer',
-              mb: 0.5,
+              cursor: 'pointer',              
               mx: 1,
               transition: 'all 0.2s ease-in-out',
               '&:hover': {
