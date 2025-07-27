@@ -45,10 +45,11 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
               variant="subtitle2"
               sx={{
                 color: lightTheme.textColorFaded,
-                fontSize: '0.8em',
+                fontSize: '0.7em',
                 textTransform: 'uppercase',
                 letterSpacing: '0.5px',
-                fontWeight: 600,
+                fontWeight: 500,
+                
               }}
             >
               {section.title}
@@ -107,7 +108,7 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
                   }
                 }}
                 primaryTypographyProps={{
-                  fontSize: '0.95rem',
+                  fontSize: '0.85rem',
                   fontWeight: item.isActive ? 600 : 500,
                   color: item.isActive ? '#fff' : lightTheme.textColorFaded,
                 }}
