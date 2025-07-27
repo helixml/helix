@@ -2,9 +2,10 @@ import React, { createContext, useContext, useState, ReactNode } from 'react'
 
 interface FloatingRunnerStateContextType {
   isVisible: boolean
-  showFloatingRunnerState: () => void
+  clickPosition: { x: number; y: number } | null
+  showFloatingRunnerState: (clickPosition?: { x: number; y: number }) => void
   hideFloatingRunnerState: () => void
-  toggleFloatingRunnerState: () => void
+  toggleFloatingRunnerState: (clickPosition?: { x: number; y: number }) => void
 }
 
 const FloatingRunnerStateContext = createContext<FloatingRunnerStateContextType | undefined>(undefined)
@@ -23,13 +24,31 @@ interface FloatingRunnerStateProviderProps {
 
 export const FloatingRunnerStateProvider: React.FC<FloatingRunnerStateProviderProps> = ({ children }) => {
   const [isVisible, setIsVisible] = useState(false)
+  const [clickPosition, setClickPosition] = useState<{ x: number; y: number } | null>(null)
 
-  const showFloatingRunnerState = () => setIsVisible(true)
-  const hideFloatingRunnerState = () => setIsVisible(false)
-  const toggleFloatingRunnerState = () => setIsVisible(prev => !prev)
+  const showFloatingRunnerState = (clickPos?: { x: number; y: number }) => {
+    setIsVisible(true)
+    if (clickPos) {
+      setClickPosition(clickPos)
+    }
+  }
+  
+  const hideFloatingRunnerState = () => {
+    setIsVisible(false)
+    setClickPosition(null)
+  }
+  
+  const toggleFloatingRunnerState = (clickPos?: { x: number; y: number }) => {
+    if (isVisible) {
+      hideFloatingRunnerState()
+    } else {
+      showFloatingRunnerState(clickPos)
+    }
+  }
 
   const value: FloatingRunnerStateContextType = {
     isVisible,
+    clickPosition,
     showFloatingRunnerState,
     hideFloatingRunnerState,
     toggleFloatingRunnerState,

@@ -82,8 +82,8 @@ export interface ITheme {
 
 export const THEMES: Record<string, ITheme> = {
   helix: {
-    drawerWidth: 320,
-    smallDrawerWidth: 240,
+    drawerWidth: 360,
+    smallDrawerWidth: 300,
     company: 'Helix',
     url: 'https://helix.ml/',
     // primary: '#5d5d7b',

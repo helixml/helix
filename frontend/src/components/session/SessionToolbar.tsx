@@ -214,7 +214,7 @@ export const SessionToolbar: FC<{
             </Tooltip>
             {app && (
               <>
-                &nbsp;| App: <Link 
+                &nbsp;| Agent: <Link 
                   href="#"
                   onClick={(e) => {
                     e.preventDefault()

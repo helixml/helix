@@ -15,7 +15,7 @@ const OAuthConnectionsPage: React.FC = () => {
         maxWidth="md"
         sx={{
           mt: 10,
-          height: 'calc(100% - 100px)',
+          height: '100%',
         }}
       >
         <Box sx={{ mb: 4 }}>

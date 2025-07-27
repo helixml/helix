@@ -9,12 +9,15 @@ import Collapse from '@mui/material/Collapse'
 
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
+import AdminPanelSidebar from '../components/admin/AdminPanelSidebar'
+import OrgSidebar from '../components/orgs/OrgSidebar'
+import AppSidebar from '../components/app/AppSidebar'
 
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
 import Window from '../components/widgets/Window'
 import { LicenseKeyPrompt } from '../components/LicenseKeyPrompt'
-import { SlideMenuWrapper } from '../components/system/SlideMenuContainer'
+
 import FloatingRunnerState from '../components/admin/FloatingRunnerState'
 import { useFloatingRunnerState } from '../contexts/floatingRunnerState'
 import Tooltip from '@mui/material/Tooltip'
@@ -29,6 +32,7 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import useIsBigScreen from '../hooks/useIsBigScreen'
 import useApps from '../hooks/useApps'
 import useApi from '../hooks/useApi'
+import useUserMenuHeight from '../hooks/useUserMenuHeight'
 
 const Layout: FC<{
   children: ReactNode,
@@ -46,6 +50,7 @@ const Layout: FC<{
   const floatingRunnerState = useFloatingRunnerState()
   const [showVersionBanner, setShowVersionBanner] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const userMenuHeight = useUserMenuHeight()
 
   const hasNewVersion = useMemo(() => {
     if (!account.serverConfig?.version || !account.serverConfig?.latest_version) {
@@ -154,14 +159,55 @@ const Layout: FC<{
 
 
 
-  if(router.meta.drawer) {   
-    sidebarMenu = (
-      <SessionsMenu
-        onOpenSession={ () => {
-          account.setMobileMenuOpen(false)
-        }}
-      />
-    )    
+  // Hide sidebar on /new page when app_id is specified, otherwise use router.meta.drawer  
+  const shouldShowSidebar = router.meta.drawer && !(router.name === 'new' && router.params.app_id) && !(router.name === 'org_new' && router.params.app_id)
+  
+  if(shouldShowSidebar) {   
+    // Determine which sidebar to show based on route
+    sidebarMenu = getSidebarForRoute(router.name, () => {
+      account.setMobileMenuOpen(false)
+    })
+  }
+
+  /**
+   * Helper function to determine sidebar component based on route
+   * 
+   * This flexible sidebar system allows different routes to show different sidebar content:
+   * - 'dashboard': Shows AdminPanelSidebar with admin navigation
+   * - 'app': Shows AppSidebar for agent navigation
+   * - 'org_*': Shows OrgSidebar for organization management
+   * - default: Shows SessionsMenu for most routes
+   * 
+   * To add a new context-specific sidebar:
+   * 1. Create your sidebar component (e.g., FilesSidebar)
+   * 2. Import it at the top of this file
+   * 3. Add a new case in the switch statement below
+   * 
+   * To disable sidebar for a route, return null instead of a component
+   */
+  function getSidebarForRoute(routeName: string, onOpenSession: () => void) {
+    switch (routeName) {
+      case 'dashboard':
+        return <AdminPanelSidebar />
+      
+      case 'app':
+      case 'org_app':
+        // Individual app pages use the new context sidebar for agent navigation
+        return <AppSidebar />
+      
+      case 'org_settings':
+      case 'org_people':
+      case 'org_teams':
+      case 'team_people':
+        // Organization management pages use the org context sidebar
+        return <OrgSidebar />
+      
+      default:
+        // Default to SessionsMenu for most routes
+        return (
+          <SessionsMenu onOpenSession={onOpenSession} />
+        )
+    }
   }
 
   return (
@@ -186,9 +232,7 @@ const Layout: FC<{
         component="div"
       >
         <CssBaseline />
-        {
-          router.meta.drawer && (
-            <Drawer
+        <Drawer
               variant={ isBigScreen ? "permanent" : "temporary" }
               open={ isBigScreen || account.mobileMenuOpen }
               onClose={ () => account.setMobileMenuOpen(false) }
@@ -198,15 +242,11 @@ const Layout: FC<{
                   backgroundColor: lightTheme.backgroundColor,
                   position: 'relative',
                   whiteSpace: 'nowrap',
-                  width: isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth,
-                  transition: theme.transitions.create('width', {
-                    easing: theme.transitions.easing.sharp,
-                    duration: theme.transitions.duration.enteringScreen,
-                  }),
+                  width: shouldShowSidebar ? (isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth) : 64,
                   boxSizing: 'border-box',
-                  overflowX: 'hidden',
-                  height: '100%',
-                  overflowY: 'auto',
+                  overflowX: 'hidden', // Prevent horizontal scrolling
+                  height: userMenuHeight > 0 ? `calc(100vh - ${userMenuHeight}px)` : '100%',
+                  overflowY: 'auto', // Both columns scroll together
                   display: 'flex',
                   flexDirection: 'row',
                   padding: 0,
@@ -214,37 +254,47 @@ const Layout: FC<{
               }}
             >
               <Box sx={{ display: 'flex', flexDirection: 'row', height: '100%', width: '100%' }}>
-                {account.user && account.organizationTools.organizations.length > 0 && (
-                  <Box
-                    sx={{                      
+                {/* Always show UserOrgSelector - it will handle compact/expanded modes internally */}
+                <Box
+                  sx={{                      
+                    minWidth: 64,
+                    width: 64,
+                    maxWidth: 64,
+                    minHeight: 'fit-content', // Natural height based on content
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'flex-start',
+                    zIndex: 2,
+                    py: 0,
+                    ...(shouldShowSidebar ? {
+                      // Only show border when sidebar is visible
                       borderRight: lightTheme.border,
-                      minWidth: 64,
-                      width: 64,
-                      maxWidth: 64,
-                      height: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'flex-start',
-                      zIndex: 2,
-                      py: 0,
-                    }}
-                  >
-                    <UserOrgSelector />
-                  </Box>
-                )}
-                <Box sx={{ flex: 1, minWidth: 0, height: '100%' }}>
-                  <SlideMenuWrapper>
+                    } : {
+                      // When sidebar is hidden, no border and background
+                      bgcolor: lightTheme.backgroundColor,
+                    }),
+                  }}
+                >
+                  <UserOrgSelector sidebarVisible={shouldShowSidebar} />
+                </Box>
+                {shouldShowSidebar && (
+                  <Box sx={{ 
+                    flex: 1, 
+                    minWidth: 0, 
+                    minHeight: 'fit-content', // Natural height based on content
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}>
                     <Sidebar
+                      userMenuHeight={userMenuHeight}
                     >
                       { sidebarMenu }
                     </Sidebar>
-                  </SlideMenuWrapper>
-                </Box>
+                  </Box>
+                )}
               </Box>
             </Drawer>
-          )
-        }
         <Box
           component="main"
           sx={{
@@ -343,7 +393,14 @@ const Layout: FC<{
             >
               <Tooltip title="Toggle floating runner state (Ctrl/Cmd+Shift+S)" arrow placement="left">
                 <IconButton
-                  onClick={floatingRunnerState.toggleFloatingRunnerState}
+                  onClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const clickPosition = {
+                      x: rect.left - 340, // Position floating window to the left of button
+                      y: rect.top - 50    // Position slightly above the button
+                    }
+                    floatingRunnerState.toggleFloatingRunnerState(clickPosition)
+                  }}
                   sx={{
                     width: 48,
                     height: 48,
