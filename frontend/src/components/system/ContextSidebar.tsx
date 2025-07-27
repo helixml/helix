@@ -40,15 +40,16 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
     return (
       <Box key={`section-${index}`}>
         {section.title && (
-          <ListItem sx={{ pb: 0.5, pt: index === 0 ? 1 : 2 }}>
+          <ListItem sx={{ pb: 0.5, pt: 1 }}>
             <Typography
               variant="subtitle2"
               sx={{
                 color: lightTheme.textColorFaded,
-                fontSize: '0.8em',
+                fontSize: '0.7em',
                 textTransform: 'uppercase',
                 letterSpacing: '0.5px',
-                fontWeight: 600,
+                fontWeight: 500,
+                
               }}
             >
               {section.title}
@@ -60,13 +61,11 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
             key={item.id}
             sx={{
               borderRadius: '12px',
-              cursor: 'pointer',
-              mb: 0.5,
+              cursor: 'pointer',              
               mx: 1,
               transition: 'all 0.2s ease-in-out',
               '&:hover': {
                 backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                transform: 'translateX(2px)',
               },
             }}
             disablePadding
@@ -107,7 +106,7 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
                   }
                 }}
                 primaryTypographyProps={{
-                  fontSize: '0.95rem',
+                  fontSize: '0.85rem',
                   fontWeight: item.isActive ? 600 : 500,
                   color: item.isActive ? '#fff' : lightTheme.textColorFaded,
                 }}
@@ -121,7 +120,7 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
 
   return (
     <SlideMenuContainer menuType={menuType}>
-      <Box sx={{ minHeight: 'fit-content', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         {header && (
           <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${lightTheme.border}` }}>
             {header}
@@ -130,8 +129,8 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
         <List sx={{ 
           py: 0, 
           px: 1, 
-          minHeight: 'fit-content', // Allow natural content height
-          overflow: 'visible', // Let content contribute to parent height
+          flexGrow: 1,
+          overflow: 'auto', // Enable scrollbar when content exceeds height
           width: '100%', // Ensure it doesn't exceed container width
         }}>
           {sections.map((section, index) => renderSection(section, index))}

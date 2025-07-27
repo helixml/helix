@@ -1,16 +1,18 @@
-import React, { FC } from 'react'
+import { FC } from 'react'
 
-import PaletteIcon from '@mui/icons-material/Palette'
-import SettingsIcon from '@mui/icons-material/Settings'
-import MenuBookIcon from '@mui/icons-material/MenuBook'
-import EmojiObjectsIcon from '@mui/icons-material/EmojiObjects'
-import VpnKeyIcon from '@mui/icons-material/VpnKey'
-import CodeIcon from '@mui/icons-material/Code'
-import BarChartIcon from '@mui/icons-material/BarChart'
-import CloudDownloadIcon from '@mui/icons-material/CloudDownload'
-import GroupIcon from '@mui/icons-material/Group'
-import ApiIcon from '@mui/icons-material/Api'
-import BugReportIcon from '@mui/icons-material/BugReport'
+import {
+  Settings,
+  Palette,
+  Webhook,
+  LibraryBig,
+  Lightbulb,
+  Bug,
+  Key,
+  Code,
+  ChartArea,
+  CloudDownload,
+  Users,
+} from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
 import useApp from '../../hooks/useApp'
@@ -36,21 +38,21 @@ const AppSidebar: FC = () => {
         {
           id: 'appearance',
           label: 'Appearance',
-          icon: <PaletteIcon />,
+          icon: <Palette size={20} /> ,
           isActive: currentTab === 'appearance',
           onClick: () => handleNavigationClick('appearance')
         },
         {
           id: 'settings',
           label: 'Settings',
-          icon: <SettingsIcon />,
+          icon: <Settings size={20} />,
           isActive: currentTab === 'settings',
           onClick: () => handleNavigationClick('settings')
         },
         {
           id: 'triggers',
           label: 'Triggers',
-          icon: <ApiIcon />,
+          icon: <Webhook size={20} />,
           isActive: currentTab === 'triggers',
           onClick: () => handleNavigationClick('triggers')
         }
@@ -62,21 +64,21 @@ const AppSidebar: FC = () => {
         {
           id: 'knowledge',
           label: 'Knowledge',
-          icon: <MenuBookIcon />,
+          icon: <LibraryBig size={20} />,
           isActive: currentTab === 'knowledge',
           onClick: () => handleNavigationClick('knowledge')
         },
         {
           id: 'skills',
           label: 'Skills',
-          icon: <EmojiObjectsIcon />,
+          icon: <Lightbulb size={20} />,
           isActive: currentTab === 'skills',
           onClick: () => handleNavigationClick('skills')
         },
         {
           id: 'tests',
           label: 'Tests',
-          icon: <BugReportIcon />,
+          icon: <Bug size={20} />,
           isActive: currentTab === 'tests',
           onClick: () => handleNavigationClick('tests')
         }
@@ -88,28 +90,28 @@ const AppSidebar: FC = () => {
         {
           id: 'apikeys',
           label: 'Keys',
-          icon: <VpnKeyIcon />,
+          icon: <Key size={20} />,
           isActive: currentTab === 'apikeys',
           onClick: () => handleNavigationClick('apikeys')
         },
         {
           id: 'mcp',
           label: 'MCP',
-          icon: <CodeIcon />,
+          icon: <Code size={20} />,
           isActive: currentTab === 'mcp',
           onClick: () => handleNavigationClick('mcp')
         },
         {
           id: 'usage',
           label: 'Usage',
-          icon: <BarChartIcon />,
+          icon: <ChartArea size={20} />,
           isActive: currentTab === 'usage',
           onClick: () => handleNavigationClick('usage')
         },
         {
           id: 'developers',
           label: 'Export',
-          icon: <CloudDownloadIcon />,
+          icon: < CloudDownload size={20} />,
           isActive: currentTab === 'developers',
           onClick: () => handleNavigationClick('developers')
         }
@@ -125,7 +127,7 @@ const AppSidebar: FC = () => {
         {
           id: 'access',
           label: 'Access',
-          icon: <GroupIcon />,
+          icon: <Users size={20} />,
           isActive: currentTab === 'access',
           onClick: () => handleNavigationClick('access')
         }

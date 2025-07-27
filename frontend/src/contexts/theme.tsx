@@ -30,6 +30,43 @@ export const ThemeProviderWrapper = ({ children }: { children: ReactNode }) => {
         fontSize: 14,
       },
       components: {
+        // Global scrollbar styles
+        MuiCssBaseline: {
+          styleOverrides: {
+            body: {
+              '&::-webkit-scrollbar': {
+                width: '4px',
+                borderRadius: '8px',
+              },
+              '&::-webkit-scrollbar-track': {
+                background: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbar,
+              },
+              '&::-webkit-scrollbar-thumb': {
+                background: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarThumb,
+                borderRadius: '8px',
+              },
+              '&::-webkit-scrollbar-thumb:hover': {
+                background: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarHover,
+              },
+            },
+            '*': {
+              '&::-webkit-scrollbar': {
+                width: '4px',
+                borderRadius: '8px',
+              },
+              '&::-webkit-scrollbar-track': {
+                background: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbar,
+              },
+              '&::-webkit-scrollbar-thumb': {
+                background: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarThumb,
+                borderRadius: '8px',
+              },
+              '&::-webkit-scrollbar-thumb:hover': {
+                background: mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarHover,
+              },
+            },
+          },
+        },
         // Adding dark style to the menus
         MuiMenu: {
           styleOverrides: {
