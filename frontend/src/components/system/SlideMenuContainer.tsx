@@ -1,4 +1,5 @@
 import React, { FC, ReactNode } from 'react'
+import Box from '@mui/material/Box'
 
 interface SlideMenuContainerProps {
   children: ReactNode;
@@ -6,21 +7,20 @@ interface SlideMenuContainerProps {
 }
 
 const SlideMenuContainer: FC<SlideMenuContainerProps> = ({ 
-  children,
-  menuType
+  children,  
 }) => {
   return (
-    <div 
-      style={{
+    <Box
+      sx={{
         width: '100%',
-        minHeight: 'fit-content', // Allow natural content height
-        overflow: 'visible', // Let content contribute to parent height
+        height: '100%', // Fixed height to fill available space
+        overflow: 'auto', // Prevent container from growing beyond parent
         display: 'flex',
         flexDirection: 'column',
       }}
     >
       {children}
-    </div>
+    </Box>
   )
 }
 

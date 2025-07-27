@@ -38,7 +38,7 @@ import Avatar from '@mui/material/Avatar'
 // Menu identifier constant
 const MENU_TYPE = 'chat'
 
-export const SessionsMenu: FC<{
+export const SessionsSidebar: FC<{
   onOpenSession: () => void,
 }> = ({
   onOpenSession,
@@ -232,4 +232,4 @@ export const SessionsMenu: FC<{
   )
 }
 
-export default SessionsMenu
+export default SessionsSidebar

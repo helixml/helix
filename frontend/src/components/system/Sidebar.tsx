@@ -15,17 +15,14 @@ import useThemeConfig from '../../hooks/useThemeConfig'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
-// import useApps from '../../hooks/useApps'
+import useApp from '../../hooks/useApp'
 import useSessions from '../../hooks/useSessions'
 import useApi from '../../hooks/useApi'
+
 import SlideMenuContainer from './SlideMenuContainer'
 import SidebarContextHeader from './SidebarContextHeader'
 import { SidebarProvider, useSidebarContext } from '../../contexts/sidebarContext'
 
-const RESOURCE_TYPES = [
-  'chat',
-  'apps',
-]
 
 const shimmer = keyframes`
   0% {
@@ -91,25 +88,17 @@ const SidebarContentInner: React.FC<{
   const { userMenuHeight } = useSidebarContext()
   const themeConfig = useThemeConfig()
   const lightTheme = useLightTheme()
+
+  const {
+    params
+  } = useRouter()
   
 
   const router = useRouter()
   const api = useApi()
   const account = useAccount()
   const sessions = useSessions()
-  // const activeTab = useMemo(() => {
-  //   // Always respect resource_type if it's present
-  //   const activeIndex = RESOURCE_TYPES.findIndex((type) => type == router.params.resource_type)
-  //   if (activeIndex >= 0) return activeIndex
-  //   // If no resource_type specified but app_id is present, default to apps tab
-  //   if (router.params.app_id) {
-  //     return RESOURCE_TYPES.findIndex(type => type === 'apps')
-  //   }
-  //   // Default to first tab (chats)
-  //   return 0
-  // }, [
-  //   router.params,
-  // ])
+  const appTools = useApp(params.app_id)
 
   const apiClient = api.getApiClient()
 
@@ -122,43 +111,23 @@ const SidebarContentInner: React.FC<{
           return
         }              
         
-        // Load the appropriate content for the tab
-        // if (currentResourceType === 'apps') {
-          // apps.loadApps()
-        // } else if (currentResourceType === 'chat') {
-          // Load sessions/chats when on the chat tab
         sessions.loadSessions()
-        // }
       } catch (error) {
         console.error('[SIDEBAR] Error checking authentication:', error)
       }
     }
 
     checkAuthAndLoad()
-  }, [router.params])  
-  
-  const [accountMenuAnchorEl, setAccountMenuAnchorEl] = useState<null | HTMLElement>(null)
+  }, [router.params])    
 
-  const onOpenHelp = () => {
-    // First ensure the chat is visible, then open it with a small delay
-    (window as any)['$crisp'].push(['do', 'chat:show'])
-    // Small delay to ensure the chat is shown before trying to open it
-    setTimeout(() => {
-      (window as any)['$crisp'].push(['do', 'chat:open'])
-    }, 100)
-  }
-
-  const openDocumentation = () => {
-    window.open("https://docs.helixml.tech/docs/overview", "_blank")
-  }
-
-  const postNavigateTo = () => {
-    account.setMobileMenuOpen(false)
-  }
-
-  // Handle creating new chat or app based on active tab
+  // Handle create a new chat
   const handleCreateNew = () => {
-    account.orgNavigate('home')
+    if (!appTools.app) {
+      account.orgNavigate('home')
+      return
+    }
+    // If we are in the app details view, we need to create a new chat
+    account.orgNavigate('new', { app_id: appTools.id })
   }
 
   return (
@@ -241,8 +210,8 @@ const SidebarContentInner: React.FC<{
           sx={{
             flexGrow: 1,
             width: '100%',
-            minHeight: 'fit-content', // Allow natural content height
-            overflow: 'visible', // Let content contribute to parent height
+            height: '100%', // Fixed height to fill available space
+            overflow: 'auto', // Enable scrollbar when content exceeds height
             boxShadow: 'none', // Remove shadow for a more flat/minimalist design
             borderRight: 'none', // Remove the border if present
             mr: 3,

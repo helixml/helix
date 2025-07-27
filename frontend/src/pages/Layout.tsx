@@ -8,7 +8,7 @@ import Alert from '@mui/material/Alert'
 import Collapse from '@mui/material/Collapse'
 
 import Sidebar from '../components/system/Sidebar'
-import SessionsMenu from '../components/session/SessionsMenu'
+import SessionsSidebar from '../components/session/SessionsSidebar'
 import AdminPanelSidebar from '../components/admin/AdminPanelSidebar'
 import OrgSidebar from '../components/orgs/OrgSidebar'
 import AppSidebar from '../components/app/AppSidebar'
@@ -176,7 +176,7 @@ const Layout: FC<{
    * - 'dashboard': Shows AdminPanelSidebar with admin navigation
    * - 'app': Shows AppSidebar for agent navigation
    * - 'org_*': Shows OrgSidebar for organization management
-   * - default: Shows SessionsMenu for most routes
+   * - default: Shows SessionsSidebar for most routes
    * 
    * To add a new context-specific sidebar:
    * 1. Create your sidebar component (e.g., FilesSidebar)
@@ -205,7 +205,7 @@ const Layout: FC<{
       default:
         // Default to SessionsMenu for most routes
         return (
-          <SessionsMenu onOpenSession={onOpenSession} />
+          <SessionsSidebar onOpenSession={onOpenSession} />
         )
     }
   }
