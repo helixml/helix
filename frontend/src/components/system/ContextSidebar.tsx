@@ -121,7 +121,7 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
 
   return (
     <SlideMenuContainer menuType={menuType}>
-      <Box sx={{ minHeight: 'fit-content', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         {header && (
           <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${lightTheme.border}` }}>
             {header}
@@ -130,8 +130,8 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
         <List sx={{ 
           py: 0, 
           px: 1, 
-          minHeight: 'fit-content', // Allow natural content height
-          overflow: 'visible', // Let content contribute to parent height
+          flexGrow: 1,
+          overflow: 'auto', // Enable scrollbar when content exceeds height
           width: '100%', // Ensure it doesn't exceed container width
         }}>
           {sections.map((section, index) => renderSection(section, index))}
