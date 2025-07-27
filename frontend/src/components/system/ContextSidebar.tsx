@@ -32,7 +32,7 @@ interface ContextSidebarProps {
 const ContextSidebar: FC<ContextSidebarProps> = ({ 
   menuType, 
   sections, 
-  header 
+  header
 }) => {
   const lightTheme = useLightTheme()
 
@@ -121,13 +121,19 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
 
   return (
     <SlideMenuContainer menuType={menuType}>
-      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ minHeight: 'fit-content', display: 'flex', flexDirection: 'column' }}>
         {header && (
           <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${lightTheme.border}` }}>
             {header}
           </Box>
         )}
-        <List sx={{ py: 0, px: 1, flexGrow: 1, overflow: 'auto' }}>
+        <List sx={{ 
+          py: 0, 
+          px: 1, 
+          minHeight: 'fit-content', // Allow natural content height
+          overflow: 'visible', // Let content contribute to parent height
+          width: '100%', // Ensure it doesn't exceed container width
+        }}>
           {sections.map((section, index) => renderSection(section, index))}
         </List>
       </Box>

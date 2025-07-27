@@ -20,6 +20,7 @@ import useSessions from '../../hooks/useSessions'
 import useApi from '../../hooks/useApi'
 import SlideMenuContainer from './SlideMenuContainer'
 import SidebarContextHeader from './SidebarContextHeader'
+import { SidebarProvider, useSidebarContext } from '../../contexts/sidebarContext'
 
 const RESOURCE_TYPES = [
   'chat',
@@ -77,8 +78,8 @@ const ShimmerButton = styled(Button)(({ theme }) => ({
   },
 }))
 
-// Wrap the inner content in the SlideMenuContainer to enable animations
-const SidebarContent: React.FC<{
+// Inner component that uses the sidebar context
+const SidebarContentInner: React.FC<{
   showTopLinks?: boolean,
   menuType: string,
   children: ReactNode,
@@ -87,8 +88,11 @@ const SidebarContent: React.FC<{
   showTopLinks = true,
   menuType,
 }) => {
+  const { userMenuHeight } = useSidebarContext()
   const themeConfig = useThemeConfig()
   const lightTheme = useLightTheme()
+  
+
   const router = useRouter()
   const api = useApi()
   const account = useAccount()
@@ -237,7 +241,8 @@ const SidebarContent: React.FC<{
           sx={{
             flexGrow: 1,
             width: '100%',
-            overflowY: 'auto',
+            minHeight: 'fit-content', // Allow natural content height
+            overflow: 'visible', // Let content contribute to parent height
             boxShadow: 'none', // Remove shadow for a more flat/minimalist design
             borderRight: 'none', // Remove the border if present
             mr: 3,
@@ -253,13 +258,39 @@ const SidebarContent: React.FC<{
   )
 }
 
+// Wrapper component that provides the sidebar context
+const SidebarContent: React.FC<{
+  showTopLinks?: boolean,
+  menuType: string,
+  children: ReactNode,
+  userMenuHeight?: number,
+}> = ({
+  children,
+  showTopLinks = true,
+  menuType,
+  userMenuHeight = 0,
+}) => {
+  return (
+    <SidebarProvider userMenuHeight={userMenuHeight}>
+      <SidebarContentInner
+        showTopLinks={showTopLinks}
+        menuType={menuType}
+      >
+        {children}
+      </SidebarContentInner>
+    </SidebarProvider>
+  )
+}
+
 // Main Sidebar component that determines which menuType to use
 const Sidebar: React.FC<{
   showTopLinks?: boolean,
   children: ReactNode,
+  userMenuHeight?: number,
 }> = ({
   children,
   showTopLinks = true,
+  userMenuHeight = 0,
 }) => {
   const router = useRouter()
   
@@ -270,6 +301,7 @@ const Sidebar: React.FC<{
     <SidebarContent 
       showTopLinks={showTopLinks}
       menuType={menuType}
+      userMenuHeight={userMenuHeight}
     >
       {children}
     </SidebarContent>

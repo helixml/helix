@@ -24,8 +24,8 @@ import {
   LogIn,
   FileText,
   HelpCircle,
-  UserCog,
 } from 'lucide-react'
+import SettingsIcon from '@mui/icons-material/Settings'
 
 
 import useAccount from '../../hooks/useAccount'
@@ -572,60 +572,54 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
     )
   }
 
-  // Render the clickable avatar/icon
+  // Render the clickable avatar/icon - only in compact mode
   const renderAvatar = () => {
     const isCompact = !sidebarVisible
+    
+    // Only render avatar when in compact mode
+    if (!isCompact) return null
     
     return (
       <Box
         data-compact-user-menu
         onClick={(e) => {
           e.stopPropagation()
-          if (isCompact) {
-            // In compact mode: toggle the entire floating menu
-            setCompactExpanded(!compactExpanded)
-          }
-          // In sidebar mode: do nothing (let user info section handle the toggle)
+          // In compact mode: toggle the entire floating menu
+          setCompactExpanded(!compactExpanded)
         }}
         sx={{
           width: 48,
           height: 48,
-          bgcolor: (isCompact ? compactExpanded : menuItemsExpanded) ? 'primary.dark' : (isCompact ? '#1a1a1a' : 'primary.main'),
+          bgcolor: compactExpanded ? 'primary.dark' : '#1a1a1a',
           color: '#fff',
           fontWeight: 'bold',
-          fontSize: isCompact ? '1.5rem' : '1.2rem',
+          fontSize: '1.5rem',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           borderRadius: 1,
-          cursor: isCompact ? 'pointer' : 'default',
+          cursor: 'pointer',
           transition: 'all 0.2s ease-in-out',
-          border: (isCompact ? compactExpanded : menuItemsExpanded) ? '2px solid #00E5FF' : 'none',
+          border: compactExpanded ? '2px solid #00E5FF' : 'none',
           '&:hover': {
-            transform: isCompact ? 'scale(1.05)' : 'none',
+            transform: 'scale(1.05)',
           },
         }}
       >
-        {isCompact ? (
-          <img 
-            src="/img/logo.png" 
-            alt="Helix" 
-            loading="eager"
-            style={{ 
-              width: '28px', 
-              height: '28px', 
-              objectFit: 'contain',
-              display: 'block'
-            }} 
-          />
-        ) : (
-          account.user?.name?.charAt(0).toUpperCase() || '?'
-        )}
+        <img 
+          src="/img/logo.png" 
+          alt="Helix" 
+          loading="eager"
+          style={{ 
+            width: '28px', 
+            height: '28px', 
+            objectFit: 'contain',
+            display: 'block'
+          }} 
+        />
       </Box>
     )
   }
-
-
 
   // Render menu items (Documentation, Help, Account Settings, etc.)
   const renderMenuItems = () => {
@@ -743,9 +737,9 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 },
               }}
             >
-              <UserCog 
-                size={16} 
-                style={{ 
+              <SettingsIcon 
+                sx={{ 
+                  fontSize: '16px',
                   marginRight: '10px', 
                   color: isActive('dashboard') ? lightTheme.textColor : lightTheme.textColorFaded 
                 }} 
@@ -1151,7 +1145,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 border: currentOrgSlug === 'default' ? '2px solid #00E5FF' : '2px solid transparent',
               }}
             >
-              {account.user?.name?.charAt(0).toUpperCase() || '?'}
+              {/* Avatar removed - using invisible placeholder */}
             </Box>
             <Box sx={{ flex: 1 }}>
               <Typography variant="body1" sx={{ color: '#F8FAFC', fontWeight: 500 }}>
@@ -1219,7 +1213,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
               variant="outlined"
               color="primary"
               fullWidth
-              startIcon={<UserCog size={20} />}
+              startIcon={<SettingsIcon sx={{ fontSize: '20px' }} />}
               sx={{
                 borderColor: '#00E5FF',
                 color: '#00E5FF',

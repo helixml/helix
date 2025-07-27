@@ -13,7 +13,10 @@ const SlideMenuContainer: FC<SlideMenuContainerProps> = ({
     <div 
       style={{
         width: '100%',
-        height: '100%',
+        minHeight: 'fit-content', // Allow natural content height
+        overflow: 'visible', // Let content contribute to parent height
+        display: 'flex',
+        flexDirection: 'column',
       }}
     >
       {children}

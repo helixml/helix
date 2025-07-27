@@ -51,7 +51,6 @@ export const SessionsMenu: FC<{
     params,
   } = useRouter()
   const {apps} = useApps()
-
   const getSessionIcon = (session: ISession | ISessionSummary) => {
     if ('app_id' in session && session.app_id && apps) {
       const app = apps.find((app: IApp) => app.id === session.app_id)
@@ -184,6 +183,9 @@ export const SessionsMenu: FC<{
         sx={{
           py: 1,
           px: 2,
+          minHeight: 'fit-content', // Allow natural content height
+          overflow: 'visible', // Let content contribute to parent height
+          width: '100%', // Ensure it doesn't exceed container width
         }}
       >
         {renderSessionGroup(groupedSessions.today, "Today", true)}
