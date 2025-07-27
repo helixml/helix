@@ -32,6 +32,7 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import useIsBigScreen from '../hooks/useIsBigScreen'
 import useApps from '../hooks/useApps'
 import useApi from '../hooks/useApi'
+import useUserMenuHeight from '../hooks/useUserMenuHeight'
 
 const Layout: FC<{
   children: ReactNode,
@@ -49,6 +50,7 @@ const Layout: FC<{
   const floatingRunnerState = useFloatingRunnerState()
   const [showVersionBanner, setShowVersionBanner] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const userMenuHeight = useUserMenuHeight()
 
   const hasNewVersion = useMemo(() => {
     if (!account.serverConfig?.version || !account.serverConfig?.latest_version) {
@@ -157,8 +159,8 @@ const Layout: FC<{
 
 
 
-  // Hide sidebar when app_id is specified, otherwise use router.meta.drawer
-  const shouldShowSidebar = router.meta.drawer && !router.params.app_id
+  // Hide sidebar on /new page when app_id is specified, otherwise use router.meta.drawer  
+  const shouldShowSidebar = router.meta.drawer && !(router.name === 'new' && router.params.app_id) && !(router.name === 'org_new' && router.params.app_id)
   
   if(shouldShowSidebar) {   
     // Determine which sidebar to show based on route
@@ -189,6 +191,7 @@ const Layout: FC<{
         return <AdminPanelSidebar />
       
       case 'app':
+      case 'org_app':
         // Individual app pages use the new context sidebar for agent navigation
         return <AppSidebar />
       
@@ -241,9 +244,9 @@ const Layout: FC<{
                   whiteSpace: 'nowrap',
                   width: shouldShowSidebar ? (isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth) : 64,
                   boxSizing: 'border-box',
-                  overflowX: 'hidden',
-                  height: '100%',
-                  overflowY: 'auto',
+                  overflowX: 'hidden', // Prevent horizontal scrolling
+                  height: userMenuHeight > 0 ? `calc(100vh - ${userMenuHeight}px)` : '100%',
+                  overflowY: 'auto', // Both columns scroll together
                   display: 'flex',
                   flexDirection: 'row',
                   padding: 0,
@@ -257,7 +260,7 @@ const Layout: FC<{
                     minWidth: 64,
                     width: 64,
                     maxWidth: 64,
-                    height: '100%',
+                    minHeight: 'fit-content', // Natural height based on content
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
@@ -276,8 +279,15 @@ const Layout: FC<{
                   <UserOrgSelector sidebarVisible={shouldShowSidebar} />
                 </Box>
                 {shouldShowSidebar && (
-                  <Box sx={{ flex: 1, minWidth: 0, height: '100%' }}>
+                  <Box sx={{ 
+                    flex: 1, 
+                    minWidth: 0, 
+                    minHeight: 'fit-content', // Natural height based on content
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}>
                     <Sidebar
+                      userMenuHeight={userMenuHeight}
                     >
                       { sidebarMenu }
                     </Sidebar>

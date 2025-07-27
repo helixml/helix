@@ -211,7 +211,7 @@ const routes: IApplicationRoute[] = [
   name: 'oauth-connections',
   path: '/oauth-connections',
   meta: {
-    drawer: true,
+    drawer: false,
     title: 'Connected Services',
   },
   render: () => (
@@ -231,7 +231,7 @@ const routes: IApplicationRoute[] = [
   name: 'account',
   path: '/account',
   meta: {
-    drawer: true,
+    drawer: false,
   },
   render: () => <Account />,
 }, {
