@@ -221,6 +221,7 @@ const App: FC = () => {
                         borderRight: '1px solid #303047',
                         overflow: 'auto',
                         pb: 8,
+                        minHeight: 'calc(100vh - 200px)', // Ensure minimum height minus header
                         ...lightTheme.scrollbar
                       }}>
                         <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 0 }}>
