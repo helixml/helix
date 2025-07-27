@@ -307,7 +307,14 @@ func (s *HelixAPIServer) user(w http.ResponseWriter, r *http.Request) {
 	userInfo, err := s.oidcClient.GetUserInfo(ctx, accessToken)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get userinfo")
-		http.Error(w, "Failed to get userinfo: "+err.Error(), http.StatusInternalServerError)
+		// If the error contains "401" or "unauthorized", it's likely an expired/invalid token
+		// Return 401 instead of 500 so the frontend can handle it properly
+		errStr := strings.ToLower(err.Error())
+		if strings.Contains(errStr, "401") || strings.Contains(errStr, "unauthorized") {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		} else {
+			http.Error(w, "Failed to get userinfo: "+err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 	log.Trace().Interface("userinfo", userInfo).Msg("Userinfo")
