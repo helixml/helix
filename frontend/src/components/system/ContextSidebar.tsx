@@ -66,7 +66,6 @@ const ContextSidebar: FC<ContextSidebarProps> = ({
               transition: 'all 0.2s ease-in-out',
               '&:hover': {
                 backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                transform: 'translateX(2px)',
               },
             }}
             disablePadding
