@@ -210,8 +210,8 @@ const SidebarContentInner: React.FC<{
           sx={{
             flexGrow: 1,
             width: '100%',
-            minHeight: 'fit-content', // Allow natural content height
-            overflow: 'visible', // Let content contribute to parent height
+            height: '100%', // Fixed height to fill available space
+            overflow: 'auto', // Enable scrollbar when content exceeds height
             boxShadow: 'none', // Remove shadow for a more flat/minimalist design
             borderRight: 'none', // Remove the border if present
             mr: 3,
