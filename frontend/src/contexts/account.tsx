@@ -340,7 +340,35 @@ export const useAccountContext = (): IAccountContext => {
     } catch (e) {
       const errorMessage = extractErrorMessage(e)
       console.error(errorMessage)
-      snackbar.error(errorMessage)
+      
+      // Don't show snackbars for auth errors (401/403) to avoid scary red error messages
+      // when tokens expire naturally. The auth error detection logic matches useApi.ts
+      const isAuthError = (error: any): boolean => {
+        // Check status code
+        if (error.response?.status === 401 || error.response?.status === 403) {
+          return true
+        }
+        
+        // Check error message for common auth failure patterns
+        const errorMsg = errorMessage.toLowerCase()
+        const authErrorPatterns = [
+          'unauthorized',
+          'token expired',
+          'token invalid',
+          'authentication failed',
+          'access denied',
+          'forbidden',
+          'not authenticated',
+          'invalid token',
+          'expired token'
+        ]
+        
+        return authErrorPatterns.some(pattern => errorMsg.includes(pattern))
+      }
+      
+      if (!isAuthError(e)) {
+        snackbar.error(errorMessage)
+      }
     } finally {
       loading.setLoading(false)
       setInitialized(true)
