@@ -1,6 +1,7 @@
 import React, { useEffect, createContext, useState, useCallback, useRef, ReactNode } from 'react'
 import useApi from '../hooks/useApi'
 import useAccount from '../hooks/useAccount'
+import useRouter from '../hooks/useRouter'
 
 import {
   IApp,
@@ -66,11 +67,23 @@ export const useAppsContext = (): IAppsContext => {
   const api = useApi()
   const account = useAccount()
   const mountedRef = useRef(true)
-  
+  const router = useRouter()
   const [ apps, setApps ] = useState<IApp[]>([])
-  const [ app, setApp ] = useState<IApp>()  
+  const [ app, setApp ] = useState<IApp>()
+
+   // Check if org slug is set in the URL
+   const orgSlug = router.params.org_id || ''
+
+   let orgLoaded = false
+ 
+   if (orgSlug === '') {
+    orgLoaded = true
+   } else if (account.organizationTools.organization?.id) {
+    orgLoaded = true
+   }
 
   const loadApps = useCallback(async () => {
+    if (!orgLoaded) return
     
     // Determine the organization_id parameter value
     let organizationIdParam = account.organizationTools.organization?.id || ''
@@ -84,17 +97,17 @@ export const useAppsContext = (): IAppsContext => {
     })
 
     setApps(result || [])
-  }, [account.organizationTools.organization])
+  }, [account.organizationTools.organization, orgLoaded])
 
   const loadApp = useCallback(async (id: string, showErrors: boolean = true) => {
-    if(!id) return
+    if(!id || !orgLoaded) return
     const result = await api.get<IApp>(`/api/v1/apps/${id}`, undefined, {
       snackbar: showErrors,
     })
     if(!result || !mountedRef.current) return
     setApp(result)
     setApps(prevData => prevData.map(a => a.id === id ? result : a))
-  }, [api])
+  }, [api, orgLoaded])
 
   const createAgent = useCallback(async (params: ICreateAgentParams): Promise<IApp | undefined> => {
     try {

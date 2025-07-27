@@ -778,6 +778,7 @@ export interface IApp {
   updated: Date;
   owner: string;
   owner_type: IOwnerType;
+  user?: IUser;
 }
 
 export interface IAppUpdate {
@@ -1036,6 +1037,7 @@ export interface IUser {
   email?: string;
   username?: string;
   full_name?: string;
+  avatar?: string;
 }
 
 // Role type used in access grants
