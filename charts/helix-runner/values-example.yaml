@@ -1,0 +1,42 @@
+# Example values for helix-runner chart
+# Both approaches use environment variables consistently for all sensitive tokens
+
+# Example 1: Using direct tokens (simple approach)
+# All token values are passed directly to environment variables
+runner:
+  host: https://app.helix.ml
+  token: "your-runner-token-here"
+  huggingfaceToken: "hf_your_huggingface_token_here"
+  models: "llama3.1:8b-instruct-q8_0,llama3.2:1b-instruct-q8_0"
+
+---
+# Example 2: Using Kubernetes secrets (recommended for production)
+# All sensitive tokens are read from secrets into environment variables
+# Create secrets:
+# kubectl create secret generic runner-tokens \
+#   --from-literal=api-token=your-actual-api-token \
+#   --from-literal=hf-token=your-actual-hf-token
+runner:
+  host: https://app.helix.ml
+  token: ""  # Leave empty when using secret
+  tokenExistingSecret: "runner-tokens"
+  tokenExistingSecretKey: "api-token"
+  huggingfaceToken: ""  # Leave empty when using secret
+  huggingfaceTokenExistingSecret: "runner-tokens"
+  huggingfaceTokenExistingSecretKey: "hf-token"
+  models: "llama3.1:8b-instruct-q8_0,llama3.2:1b-instruct-q8_0"
+
+---
+# Example 3: Mixed approach - some secrets, some direct values
+# You can mix and match based on your security requirements
+runner:
+  host: https://app.helix.ml
+  # API token from controlplane secret
+  token: ""
+  tokenExistingSecret: "helix-controlplane-secrets"
+  tokenExistingSecretKey: "runner-token"
+  # HF token from dedicated secret
+  huggingfaceToken: ""
+  huggingfaceTokenExistingSecret: "hf-token-secret"
+  huggingfaceTokenExistingSecretKey: "token"  # defaults to "token"
+  models: "llama3.1:8b-instruct-q8_0,llama3.2:1b-instruct-q8_0" 
