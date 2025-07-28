@@ -44,9 +44,9 @@ func (m Name) InferenceRuntime() types.InferenceRuntime {
 		return types.InferenceRuntimeOllama
 	}
 
-	if m.String() == ModelCogSdxl {
-		return types.InferenceRuntimeCog
-	}
+	// if m.String() == ModelCogSdxl {
+	// 	return types.InferenceRuntimeCog
+	// }
 
 	diffusersModels, err := GetDefaultDiffusersModels()
 	if err != nil {
@@ -66,18 +66,13 @@ func (m Name) InferenceRuntime() types.InferenceRuntime {
 func ProcessModelName(
 	provider string,
 	modelName string,
-	sessionMode types.SessionMode,
+	// sessionMode types.SessionMode,
 	sessionType types.SessionType,
 	hasFinetune bool,
 	ragEnabled bool,
 ) (string, error) {
 	switch sessionType {
 	case types.SessionTypeText:
-		if sessionType == types.SessionTypeText && !ragEnabled && (sessionMode == types.SessionModeFinetune || hasFinetune) {
-			// fine tuning doesn't work with ollama yet
-			return ModelAxolotlMistral7b, nil
-		}
-
 		switch provider {
 		case "helix":
 			// Check and validate
@@ -120,7 +115,7 @@ func ProcessModelName(
 	}
 
 	// shouldn't get here
-	return "", fmt.Errorf("don't know what model to provide for args %v %v %v", sessionMode, sessionType, hasFinetune)
+	return "", fmt.Errorf("don't know what model to provide for args %v %v", sessionType, hasFinetune)
 }
 
 // rather then keep processing model names from sessions into instances of the model struct
@@ -128,8 +123,8 @@ func ProcessModelName(
 // this gives us an in memory cache of model instances we can quickly lookup from
 func GetModels() (map[string]Model, error) {
 	models := map[string]Model{}
-	models[ModelAxolotlMistral7b] = &Mistral7bInstruct01{}
-	models[ModelCogSdxl] = &CogSDXL{}
+	// models[ModelAxolotlMistral7b] = &Mistral7bInstruct01{}
+	// models[ModelCogSdxl] = &CogSDXL{}
 	ollamaModels, err := GetDefaultOllamaModels()
 	if err != nil {
 		return nil, err
@@ -155,9 +150,9 @@ func GetModels() (map[string]Model, error) {
 }
 
 const (
-	ModelAxolotlMistral7b string = "mistralai/Mistral-7B-Instruct-v0.1"
-	ModelCogSdxl          string = "stabilityai/stable-diffusion-xl-base-1.0"
-	ModelDiffusersSd35    string = "stabilityai/stable-diffusion-3.5-medium"
+	// ModelAxolotlMistral7b string = "mistralai/Mistral-7B-Instruct-v0.1"
+	// ModelCogSdxl          string = "stabilityai/stable-diffusion-xl-base-1.0"
+	// ModelDiffusersSd35    string = "stabilityai/stable-diffusion-3.5-medium"
 	ModelDiffusersSdturbo string = "stabilityai/sd-turbo"
 	ModelDiffusersFluxdev string = "black-forest-labs/FLUX.1-dev"
 

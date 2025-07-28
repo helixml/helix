@@ -2385,6 +2385,28 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List sessions",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "List sessions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SessionsList"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/chat": {
             "post": {
                 "security": [
@@ -2413,22 +2435,57 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/sessions/learn": {
-            "post": {
+        "/api/v1/sessions/{id}": {
+            "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
+                "description": "Get a session by ID",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get a session by ID",
                 "parameters": [
                     {
-                        "description": "Request body with settings for the learn session.",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/types.SessionLearnRequest"
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Session"
+                            }
                         }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a session by ID",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Delete a session by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
                     }
                 ],
                 "responses": {
@@ -4426,6 +4483,14 @@ const docTemplate = `{
                 }
             }
         },
+        "types.Counter": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.CrawledSources": {
             "type": "object",
             "properties": {
@@ -4487,21 +4552,6 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
-        },
-        "types.CreatorType": {
-            "type": "string",
-            "enum": [
-                "system",
-                "assistant",
-                "user",
-                "tool"
-            ],
-            "x-enum-varnames": [
-                "CreatorTypeSystem",
-                "CreatorTypeAssistant",
-                "CreatorTypeUser",
-                "CreatorTypeTool"
-            ]
         },
         "types.CronTrigger": {
             "type": "object",
@@ -4584,23 +4634,6 @@ const docTemplate = `{
                 },
                 "version": {
                     "type": "string"
-                }
-            }
-        },
-        "types.DataPrepChunk": {
-            "type": "object",
-            "properties": {
-                "error": {
-                    "type": "string"
-                },
-                "index": {
-                    "type": "integer"
-                },
-                "prompt_name": {
-                    "type": "string"
-                },
-                "question_count": {
-                    "type": "integer"
                 }
             }
         },
@@ -4719,95 +4752,41 @@ const docTemplate = `{
                 "completed": {
                     "type": "string"
                 },
-                "content": {
-                    "description": "Original content received from the API. This will include the Message and any images.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.MessageContent"
-                        }
-                    ]
-                },
                 "created": {
                     "type": "string"
-                },
-                "creator": {
-                    "description": "e.g. User",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.CreatorType"
-                        }
-                    ]
-                },
-                "data_prep_chunks": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/definitions/types.DataPrepChunk"
-                        }
-                    }
-                },
-                "data_prep_limit": {
-                    "description": "If true, the data prep is limited to a certain number of chunks due to quotas",
-                    "type": "integer"
-                },
-                "data_prep_limited": {
-                    "description": "If true, the data prep is limited to a certain number of chunks due to quotas",
-                    "type": "boolean"
-                },
-                "data_prep_stage": {
-                    "$ref": "#/definitions/types.TextDataPrepStage"
-                },
-                "data_prep_total_chunks": {
-                    "type": "integer"
                 },
                 "display_message": {
                     "description": "if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context)",
                     "type": "string"
                 },
+                "duration_ms": {
+                    "description": "How long the interaction took to complete in milliseconds",
+                    "type": "integer"
+                },
                 "error": {
                     "type": "string"
                 },
-                "files": {
-                    "description": "list of filepath paths",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "finished": {
-                    "description": "if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)",
-                    "type": "boolean"
+                "generation_id": {
+                    "description": "GenerationID, starts at 0, increments for each regeneration (when user retries a message, anywhere from the past)\nit is used to keep a timeline when querying the database for messages or viewing previous generations",
+                    "type": "integer"
                 },
                 "id": {
                     "type": "string"
                 },
-                "lora_dir": {
-                    "description": "we hoist this from files so a single interaction knows that it \"Created a finetune file\"",
-                    "type": "string"
-                },
-                "message": {
-                    "description": "TODO: remove and keep only content",
-                    "type": "string"
-                },
-                "metadata": {
-                    "description": "different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
                 "mode": {
-                    "description": "this let's us know if this interaction is part of the fine tuning process\nor if it's a chat interaction that the user is using to interact with the model\nonce it's been fine-tuned\nfor fine-tune models, we can filter out inference interactions\nto get down to what actually matters",
+                    "$ref": "#/definitions/types.SessionMode"
+                },
+                "prompt_message": {
+                    "description": "User prompt (text)",
+                    "type": "string"
+                },
+                "prompt_message_content": {
+                    "description": "User prompt (multi-part)",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/types.SessionMode"
+                            "$ref": "#/definitions/types.MessageContent"
                         }
                     ]
-                },
-                "progress": {
-                    "description": "e.g. 0-100",
-                    "type": "integer"
                 },
                 "rag_results": {
                     "type": "array",
@@ -4823,6 +4802,14 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "response_format_response": {
+                    "description": "e.g. json",
+                    "type": "string"
+                },
+                "response_message": {
+                    "description": "TODO: add the full multi-part response content\nResponseMessageContent MessageContent ` + "`" + `json:\"response_message_content\"` + "`" + ` // LLM response",
+                    "type": "string"
+                },
                 "runner": {
                     "description": "the ID of the runner that processed this interaction",
                     "type": "string"
@@ -4830,10 +4817,17 @@ const docTemplate = `{
                 "scheduled": {
                     "type": "string"
                 },
+                "session_id": {
+                    "type": "string"
+                },
                 "state": {
                     "$ref": "#/definitions/types.InteractionState"
                 },
                 "status": {
+                    "type": "string"
+                },
+                "system_prompt": {
+                    "description": "System prompt for the interaction (copy of the session's system prompt that was used to create this interaction)",
                     "type": "string"
                 },
                 "tool_call_id": {
@@ -4862,6 +4856,9 @@ const docTemplate = `{
                 },
                 "usage": {
                     "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Usage"
+                },
+                "user_id": {
+                    "type": "string"
                 }
             }
         },
@@ -5302,7 +5299,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "role": {
-                    "$ref": "#/definitions/types.CreatorType"
+                    "type": "string"
                 },
                 "state": {
                     "$ref": "#/definitions/types.InteractionState"
@@ -6432,6 +6429,10 @@ const docTemplate = `{
                 "created": {
                     "type": "string"
                 },
+                "generation_id": {
+                    "description": "Current generation ID",
+                    "type": "integer"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -6478,7 +6479,7 @@ const docTemplate = `{
                     ]
                 },
                 "parent_app": {
-                    "description": "the app this session was spawned from",
+                    "description": "the app this session was spawned from\nTODO: rename to AppID",
                     "type": "string"
                 },
                 "parent_session": {
@@ -6542,9 +6543,6 @@ const docTemplate = `{
                         }
                     ]
                 },
-                "rag_source_id": {
-                    "type": "string"
-                },
                 "regenerate": {
                     "description": "If true, we will regenerate the response for the last message",
                     "type": "boolean"
@@ -6567,47 +6565,6 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
-                },
-                "type": {
-                    "description": "e.g. text, image",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.SessionType"
-                        }
-                    ]
-                }
-            }
-        },
-        "types.SessionLearnRequest": {
-            "type": "object",
-            "properties": {
-                "data_entity_id": {
-                    "description": "FINE-TUNE MODE ONLY",
-                    "type": "string"
-                },
-                "default_rag_model": {
-                    "description": "When doing RAG, allow the resulting inference session model to be specified",
-                    "type": "string"
-                },
-                "organization_id": {
-                    "description": "The organization this session belongs to, if any",
-                    "type": "string"
-                },
-                "rag_enabled": {
-                    "description": "Do we want to create a RAG data entity from this session?\nYou must provide a data entity ID for the uploaded documents if yes",
-                    "type": "boolean"
-                },
-                "rag_settings": {
-                    "description": "The settings we use for the RAG source",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.RAGSettings"
-                        }
-                    ]
-                },
-                "text_finetune_enabled": {
-                    "description": "Do we want to create a lora output from this session?\nYou must provide a data entity ID for the uploaded documents if yes",
-                    "type": "boolean"
                 },
                 "type": {
                     "description": "e.g. text, image",
@@ -6679,21 +6636,11 @@ const docTemplate = `{
                 "eval_user_score": {
                     "type": "string"
                 },
-                "finetune_data_entity_id": {
-                    "description": "the fine tuned data entity we produced from this session",
-                    "type": "string"
-                },
                 "helix_version": {
                     "type": "string"
                 },
                 "manually_review_questions": {
                     "type": "boolean"
-                },
-                "origin": {
-                    "$ref": "#/definitions/types.SessionOrigin"
-                },
-                "original_mode": {
-                    "$ref": "#/definitions/types.SessionMode"
                 },
                 "priority": {
                     "type": "boolean"
@@ -6704,10 +6651,6 @@ const docTemplate = `{
                 },
                 "rag_settings": {
                     "$ref": "#/definitions/types.RAGSettings"
-                },
-                "rag_source_data_entity_id": {
-                    "description": "the RAG source data entity we produced from this session",
-                    "type": "string"
                 },
                 "session_rag_results": {
                     "type": "array",
@@ -6747,33 +6690,6 @@ const docTemplate = `{
                 "SessionModeInference",
                 "SessionModeFinetune",
                 "SessionModeAction"
-            ]
-        },
-        "types.SessionOrigin": {
-            "type": "object",
-            "properties": {
-                "cloned_interaction_id": {
-                    "type": "string"
-                },
-                "cloned_session_id": {
-                    "type": "string"
-                },
-                "type": {
-                    "$ref": "#/definitions/types.SessionOriginType"
-                }
-            }
-        },
-        "types.SessionOriginType": {
-            "type": "string",
-            "enum": [
-                "",
-                "user_created",
-                "cloned"
-            ],
-            "x-enum-varnames": [
-                "SessionOriginTypeNone",
-                "SessionOriginTypeUserCreated",
-                "SessionOriginTypeCloned"
             ]
         },
         "types.SessionRAGResult": {
@@ -6817,6 +6733,47 @@ const docTemplate = `{
                 }
             }
         },
+        "types.SessionSummary": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "type": "string"
+                },
+                "created": {
+                    "description": "these are all values of the last interaction",
+                    "type": "string"
+                },
+                "model_name": {
+                    "description": "InteractionID string      ` + "`" + `json:\"interaction_id\"` + "`" + `",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": "boolean"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "summary": {
+                    "description": "this is either the prompt or the summary of the training data",
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.SessionType"
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
         "types.SessionType": {
             "type": "string",
             "enum": [
@@ -6829,6 +6786,26 @@ const docTemplate = `{
                 "SessionTypeText",
                 "SessionTypeImage"
             ]
+        },
+        "types.SessionsList": {
+            "type": "object",
+            "properties": {
+                "counter": {
+                    "description": "the total number of sessions that match the query",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.Counter"
+                        }
+                    ]
+                },
+                "sessions": {
+                    "description": "the list of sessions",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionSummary"
+                    }
+                }
+            }
         },
         "types.SkillDefinition": {
             "type": "object",
@@ -7103,29 +7080,6 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
-        },
-        "types.TextDataPrepStage": {
-            "type": "string",
-            "enum": [
-                "",
-                "edit_files",
-                "extract_text",
-                "index_rag",
-                "generate_questions",
-                "edit_questions",
-                "finetune",
-                "complete"
-            ],
-            "x-enum-varnames": [
-                "TextDataPrepStageNone",
-                "TextDataPrepStageEditFiles",
-                "TextDataPrepStageExtractText",
-                "TextDataPrepStageIndexRag",
-                "TextDataPrepStageGenerateQuestions",
-                "TextDataPrepStageEditQuestions",
-                "TextDataPrepStageFineTune",
-                "TextDataPrepStageComplete"
-            ]
         },
         "types.TextSplitterType": {
             "type": "string",

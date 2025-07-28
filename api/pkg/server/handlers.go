@@ -59,19 +59,53 @@ func (apiServer *HelixAPIServer) sessionLoader(req *http.Request, writeMode bool
 	return apiServer.sessionLoaderWithID(req, mux.Vars(req)["id"], writeMode)
 }
 
+// getSession godoc
+// @Summary Get a session by ID
+// @Description Get a session by ID
+// @Tags    sessions
+// @Success 200 {array} types.Session
+// @Param id path string true "Session ID"
+// @Router /api/v1/sessions/{id} [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) getSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	return apiServer.sessionLoader(req, false)
-}
-
-func (apiServer *HelixAPIServer) getSessionSummary(_ http.ResponseWriter, req *http.Request) (*types.SessionSummary, *system.HTTPError) {
-	session, err := apiServer.sessionLoader(req, false)
-	if err != nil {
-		return nil, err
+	id := mux.Vars(req)["id"]
+	if id == "" {
+		return nil, system.NewHTTPError400("cannot load session without id")
 	}
-	return system.DefaultController(data.GetSessionSummary(session))
+	ctx := req.Context()
+	user := getRequestUser(req)
+
+	session, err := apiServer.Store.GetSession(ctx, id)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	canSee := canSeeSession(user, session)
+	if !canSee {
+		return nil, system.NewHTTPError403(fmt.Sprintf("access denied for session id %s", id))
+	}
+
+	// Load interactions
+	interactions, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		SessionID:    id,
+		GenerationID: session.GenerationID,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	session.Interactions = interactions
+
+	return session, nil
 }
 
-func (apiServer *HelixAPIServer) getSessions(_ http.ResponseWriter, req *http.Request) (*types.SessionsList, error) {
+// listSessions godoc
+// @Summary List sessions
+// @Description List sessions
+// @Tags    sessions
+// @Success 200 {object} types.SessionsList
+// @Router /api/v1/sessions [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.Request) (*types.SessionsList, error) {
 	ctx := req.Context()
 	user := getRequestUser(req)
 
@@ -127,7 +161,8 @@ func (apiServer *HelixAPIServer) getSessions(_ http.ResponseWriter, req *http.Re
 	for _, session := range sessions {
 		summary, err := data.GetSessionSummary(session)
 		if err != nil {
-			return nil, err
+			log.Error().Err(err).Str("session_id", session.ID).Msg("failed to get session summary")
+			continue
 		}
 		sessionSummaries = append(sessionSummaries, summary)
 	}
@@ -136,72 +171,6 @@ func (apiServer *HelixAPIServer) getSessions(_ http.ResponseWriter, req *http.Re
 		Sessions: sessionSummaries,
 		Counter:  counter,
 	}, nil
-}
-
-func (apiServer *HelixAPIServer) createDataEntity(_ http.ResponseWriter, req *http.Request) (*types.DataEntity, error) {
-	entity, err := apiServer.getDataEntityFromForm(req)
-	if err != nil {
-		return nil, err
-	}
-
-	return apiServer.Store.CreateDataEntity(req.Context(), entity)
-}
-
-func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	session, httpError := apiServer.sessionLoader(req, true)
-	if httpError != nil {
-		return nil, httpError
-	}
-
-	user := getRequestUser(req)
-	ctx := req.Context()
-
-	// now upload any files that were included
-	err := req.ParseMultipartForm(10 << 20)
-	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
-	}
-
-	userInteraction, err := apiServer.getUserInteractionFromForm(req, session.ID, session.Mode, "")
-	if err != nil {
-		return nil, system.NewHTTPError(err)
-	}
-	if userInteraction == nil {
-		return nil, system.NewHTTPError404("no interaction found")
-	}
-
-	sessionData, err := apiServer.Controller.UpdateSession(ctx, user, types.UpdateSessionRequest{
-		SessionID:       session.ID,
-		UserInteraction: userInteraction,
-		SessionMode:     session.Mode,
-	})
-	if err != nil {
-		return nil, system.NewHTTPError500(fmt.Sprintf("failed to update session: %s", err))
-	}
-
-	return sessionData, nil
-}
-
-func (apiServer *HelixAPIServer) updateSessionConfig(_ http.ResponseWriter, req *http.Request) (*types.SessionMetadata, *system.HTTPError) {
-	session, httpError := apiServer.sessionLoader(req, true)
-	if httpError != nil {
-		return nil, httpError
-	}
-
-	var data *types.SessionMetadata
-
-	// Decode the JSON from the request body
-	err := json.NewDecoder(req.Body).Decode(&data)
-	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
-	}
-
-	result, err := apiServer.Controller.UpdateSessionMetadata(req.Context(), session, data)
-	if err != nil {
-		return nil, system.NewHTTPError(err)
-	}
-
-	return result, nil
 }
 
 func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerConfigForFrontend, error) {
@@ -750,171 +719,6 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFolder(_ http.ResponseWriter
 	return &finalFolder, nil
 }
 
-func (apiServer *HelixAPIServer) retryTextFinetune(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	session, err := apiServer.sessionLoader(req, true)
-	if err != nil {
-		return nil, err
-	}
-	go func() {
-		if _, err := apiServer.Controller.PrepareSession(req.Context(), session); err != nil {
-			log.Error().Err(err).Msg("failed to prepare session")
-		}
-	}()
-	return session, nil
-}
-
-func (apiServer *HelixAPIServer) cloneFinetuneInteraction(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	// clone the session into the eval user account
-	// only admins can do this
-	cloneIntoEvalUser := req.URL.Query().Get("clone_into_eval_user")
-	if cloneIntoEvalUser != "" && !apiServer.isAdmin(req) {
-		return nil, system.NewHTTPError403("access denied")
-	}
-
-	// we only need to check for read only access here because
-	// we are only reading the original session and then writing a new one
-	// into our account
-	session, httpError := apiServer.sessionLoader(req, false)
-	if httpError != nil {
-		return nil, httpError
-	}
-
-	vars := mux.Vars(req)
-	user := getRequestUser(req)
-	ctx := req.Context()
-
-	// if we own the session then we don't need to copy all files
-	copyAllFiles := true
-	if doesOwnSession(user, session) {
-		copyAllFiles = false
-	}
-
-	interaction, err := data.GetInteraction(session, vars["interaction"])
-	if err != nil {
-		return nil, system.NewHTTPError404(err.Error())
-	}
-	mode, err := types.ValidateCloneTextType(vars["mode"], false)
-	if err != nil {
-		return nil, system.NewHTTPError404(err.Error())
-	}
-	// switch the target user to be the eval user
-	if cloneIntoEvalUser != "" {
-		user.ID = apiServer.Cfg.WebServer.EvalUserID
-	}
-	return system.DefaultController(apiServer.Controller.CloneUntilInteraction(ctx, user, session, controller.CloneUntilInteractionRequest{
-		InteractionID: interaction.ID,
-		Mode:          mode,
-		CopyAllFiles:  copyAllFiles,
-	}))
-}
-
-func (apiServer *HelixAPIServer) finetuneAddDocuments(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	session, httpError := apiServer.sessionLoader(req, true)
-	if httpError != nil {
-		return nil, httpError
-	}
-
-	// if this is set then it means we are adding files to the existing interaction
-	interactionID := req.URL.Query().Get("interactionID")
-
-	err := req.ParseMultipartForm(10 << 20)
-	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
-	}
-
-	// the user interaction is the request from the user
-	newUserInteraction, err := apiServer.getUserInteractionFromForm(req, session.ID, types.SessionModeFinetune, interactionID)
-	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
-	}
-	if newUserInteraction == nil {
-		return nil, system.NewHTTPError404("no user interaction found")
-	}
-
-	// this means we are adding the files to an existing interaction
-	// rather than appending new interactions
-	if interactionID != "" {
-		return system.DefaultController(apiServer.Controller.AddDocumentsToInteraction(req.Context(), session, newUserInteraction.Files))
-	}
-	return system.DefaultController(apiServer.Controller.AddDocumentsToSession(req.Context(), session, newUserInteraction))
-}
-
-func (apiServer *HelixAPIServer) getSessionFinetuneConversation(_ http.ResponseWriter, req *http.Request) ([]types.DataPrepTextQuestion, *system.HTTPError) {
-	vars := mux.Vars(req)
-	session, httpError := apiServer.sessionLoader(req, false)
-	if httpError != nil {
-		return nil, httpError
-	}
-
-	interactionID := vars["interaction"]
-
-	foundFile, err := data.GetInteractionFinetuneFile(session, interactionID)
-	if err != nil {
-		return nil, system.NewHTTPError(err)
-	}
-	return system.DefaultController(apiServer.Controller.ReadTextFineTuneQuestions(foundFile))
-}
-
-func (apiServer *HelixAPIServer) setSessionFinetuneConversation(_ http.ResponseWriter, req *http.Request) ([]types.DataPrepTextQuestion, *system.HTTPError) {
-	vars := mux.Vars(req)
-	session, httpError := apiServer.sessionLoader(req, true)
-	if httpError != nil {
-		return nil, httpError
-	}
-	interactionID := vars["interaction"]
-	foundFile, err := data.GetInteractionFinetuneFile(session, interactionID)
-	if err != nil {
-		return nil, system.NewHTTPError(err)
-	}
-
-	var data []types.DataPrepTextQuestion
-
-	// Decode the JSON from the request body
-	err = json.NewDecoder(req.Body).Decode(&data)
-	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
-	}
-
-	err = apiServer.Controller.WriteTextFineTuneQuestions(foundFile, data)
-	if err != nil {
-		return nil, system.NewHTTPError(err)
-	}
-
-	return data, nil
-}
-
-func (apiServer *HelixAPIServer) startSessionFinetune(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	session, httpError := apiServer.sessionLoader(req, true)
-	if httpError != nil {
-		return nil, httpError
-	}
-
-	err := apiServer.Controller.BeginFineTune(req.Context(), session)
-
-	if err != nil {
-		return nil, system.NewHTTPError(err)
-	}
-
-	return session, nil
-}
-
-func (apiServer *HelixAPIServer) updateSessionMeta(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	_, httpError := apiServer.sessionLoader(req, true)
-	if httpError != nil {
-		return nil, httpError
-	}
-
-	ctx := req.Context()
-
-	update := &types.SessionMetaUpdate{}
-	err := json.NewDecoder(req.Body).Decode(update)
-	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
-	}
-
-	return system.DefaultController(apiServer.Store.UpdateSessionMeta(ctx, *update))
-}
-
 func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
 	auth := apiServer.authMiddleware
 
@@ -948,6 +752,14 @@ func (apiServer *HelixAPIServer) dashboard(_ http.ResponseWriter, req *http.Requ
 	return apiServer.Controller.GetDashboardData(req.Context())
 }
 
+// deleteSession godoc
+// @Summary Delete a session by ID
+// @Description Delete a session by ID
+// @Tags    sessions
+// @Success 200 {object} types.Session
+// @Param id path string true "Session ID"
+// @Router /api/v1/sessions/{id} [delete]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
 	session, httpError := apiServer.sessionLoader(req, true)
 	if httpError != nil {

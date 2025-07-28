@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -209,22 +208,36 @@ func (w *Workload) ToLLMInferenceRequest() *types.RunnerLLMInferenceRequest {
 	}
 
 	// Build an llmInferenceRequest from a session
-	lastInteraction, err := data.GetLastInteraction(w.Session())
-	if err != nil {
-		log.Error().Err(err).Msg("error getting last interaction")
-	}
+	interaction := w.Session().Interactions[len(w.Session().Interactions)-1]
+	session := w.Session()
 
 	// Construct the chat completion messages based upon the session
 	chatCompletionMessages := []openai.ChatCompletionMessage{}
-	for _, interaction := range w.Session().Interactions {
+
+	// If session has system prompt, add it
+	if session.Metadata.SystemPrompt != "" {
 		chatCompletionMessages = append(chatCompletionMessages, openai.ChatCompletionMessage{
-			Role:    string(interaction.Creator),
-			Content: interaction.Message,
+			Role:    openai.ChatMessageRoleSystem,
+			Content: session.Metadata.SystemPrompt,
 		})
 	}
 
+	for _, interaction := range w.Session().Interactions {
+		// Each interaction contains both user and assistant messages, add them to the list
+		chatCompletionMessages = append(chatCompletionMessages, openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleUser,
+			Content: interaction.PromptMessage,
+		})
+		if interaction.ResponseMessage != "" {
+			chatCompletionMessages = append(chatCompletionMessages, openai.ChatCompletionMessage{
+				Role:    openai.ChatMessageRoleAssistant,
+				Content: interaction.ResponseMessage,
+			})
+		}
+	}
+
 	convertedRequest := types.RunnerLLMInferenceRequest{
-		RequestID: lastInteraction.ID,
+		RequestID: interaction.ID,
 		CreatedAt: time.Now(),
 		Priority:  w.Session().Metadata.Priority,
 		OwnerID:   w.Session().Owner,
