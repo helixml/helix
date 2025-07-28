@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -475,25 +474,22 @@ func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerL
 }
 
 func (c *RunnerController) SubmitImageGenerationRequest(slot *Slot, session *types.Session) error {
-	lastInteraction, err := data.GetLastInteraction(session)
-	if err != nil {
-		return fmt.Errorf("no last interaction found: %w", err)
-	}
+	lastInteraction := session.Interactions[len(session.Interactions)-1]
 
-	userInteractions := data.FilterUserInteractions(session.Interactions)
-	if len(userInteractions) == 0 {
-		return fmt.Errorf("no user interaction found")
-	}
+	// userInteractions := data.FilterUserInteractions(session.Interactions)
+	// if len(userInteractions) == 0 {
+	// 	return fmt.Errorf("no user interaction found")
+	// }
 
 	// Note that there's no system prompt in the openai api. So I'm just going to merge the previous
 	// user interactions into a single prompt. Fingers crossed there's no limits.
 	// Merge the user interactions into a single prompt
 	prompt := strings.Builder{}
-	for _, interaction := range userInteractions[:len(userInteractions)-1] {
-		prompt.WriteString(interaction.Message)
+	for _, interaction := range session.Interactions[:len(session.Interactions)-1] {
+		prompt.WriteString(interaction.PromptMessage)
 		prompt.WriteString("\n")
 	}
-	prompt.WriteString(userInteractions[len(userInteractions)-1].Message)
+	prompt.WriteString(lastInteraction.PromptMessage)
 
 	// Convert the session to a valid image generation request
 	imageRequest := openai.ImageRequest{
@@ -829,85 +825,6 @@ func (c *RunnerController) SetModels(runnerID string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("runner %s is not healthy", runnerID)
 	}
-	return nil
-}
-
-func (c *RunnerController) SubmitFinetuningRequest(slot *Slot, session *types.Session) error {
-	log.Info().Str("session_id", session.ID).Msg("processing fine-tuning interaction")
-
-	lastInteraction, err := data.GetLastInteraction(session)
-	if err != nil {
-		return fmt.Errorf("error getting last interaction: %w", err)
-	}
-	headers := map[string]string{}
-	headers[pubsub.HelixNatsReplyHeader] = pubsub.GetRunnerResponsesQueue(session.Owner, lastInteraction.ID)
-
-	// TODO(Phil): the old code had some complicated logic around merging multiple jsonl files.
-	// I'll just use the jsonl files from the last interaction for now.
-
-	// and append them to one large JSONL file
-	userInteractions := data.FilterUserInteractions(session.Interactions)
-	finetuneInteractions := data.FilterFinetuneInteractions(userInteractions)
-	if len(finetuneInteractions) == 0 {
-		return fmt.Errorf("no finetune interactions found")
-	}
-	lastFinetuneInteraction := finetuneInteractions[len(finetuneInteractions)-1]
-	if len(lastFinetuneInteraction.Files) != 1 {
-		return fmt.Errorf("last interaction should have exactly one file")
-	}
-	combinedFile := lastFinetuneInteraction.Files[0]
-
-	// Check that combined file size is not zero
-	fi, err := c.fs.Get(c.ctx, combinedFile)
-	if err != nil {
-		return fmt.Errorf("error checking jsonl file: %w", err)
-	}
-	if fi.Size <= 1 {
-		// Check for 1 byte to account for just a newline character
-		return fmt.Errorf("training data file is empty")
-	}
-	log.Debug().Str("session_id", session.ID).Int64("file_size", fi.Size).Msgf("combined file size")
-
-	req := openai.FineTuningJobRequest{
-		Model:          session.ModelName,
-		TrainingFile:   combinedFile,
-		ValidationFile: "",
-		Hyperparameters: &openai.Hyperparameters{
-			Epochs:                 1,
-			LearningRateMultiplier: 0.0002,
-			BatchSize:              6,
-		},
-		Suffix: session.ID, // Use the suffix to identify the session and the final directory for the LORA
-	}
-
-	requestBytes, err := json.Marshal(req)
-	if err != nil {
-		return err
-	}
-	natsReq := &types.RunnerNatsReplyRequest{
-		RequestID:     lastInteraction.ID, // Use the last interaction ID as the request ID for sessions, it's important that this kept in sync with the receiver code
-		CreatedAt:     time.Now(),
-		OwnerID:       session.Owner,
-		SessionID:     session.ID,
-		InteractionID: lastInteraction.ID,
-		Request:       requestBytes,
-	}
-	body, err := json.Marshal(natsReq)
-	if err != nil {
-		return err
-	}
-	resp, err := c.Send(c.ctx, slot.RunnerID, headers, &types.Request{
-		Method: "POST",
-		URL:    fmt.Sprintf("/api/v1/slots/%s/v1/helix/fine_tuning/jobs", slot.ID),
-		Body:   body,
-	}, 10*time.Minute)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("error submitting finetuning request: %s", resp.Body)
-	}
-
 	return nil
 }
 

@@ -2,10 +2,8 @@ package model
 
 import (
 	"fmt"
-	"path"
 	"unicode/utf8"
 
-	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -20,10 +18,9 @@ func getGenericTask(session *types.Session) (*types.RunnerTask, error) {
 	if len(session.Interactions) == 0 {
 		return nil, fmt.Errorf("session has no messages")
 	}
-	lastInteraction, err := data.GetUserInteraction(session.Interactions)
-	if err != nil {
-		return nil, err
-	}
+
+	lastInteraction := session.Interactions[len(session.Interactions)-1]
+
 	if lastInteraction == nil {
 		return nil, fmt.Errorf("session has no user messages")
 	}
@@ -31,19 +28,8 @@ func getGenericTask(session *types.Session) (*types.RunnerTask, error) {
 	switch session.Mode {
 	case types.SessionModeInference:
 		return &types.RunnerTask{
-			Prompt:  lastInteraction.Message,
+			Prompt:  lastInteraction.PromptMessage,
 			LoraDir: session.LoraDir,
-		}, nil
-	case types.SessionModeFinetune:
-		if len(lastInteraction.Files) == 0 {
-			return nil, fmt.Errorf("session has no files")
-		}
-		// we expect all of the files to have been downloaded
-		// by the controller and put into a shared folder
-		// so - we extract the folder path from the first file
-		// and pass it into the python job as the input dir
-		return &types.RunnerTask{
-			DatasetDir: path.Dir(lastInteraction.Files[0]),
 		}, nil
 	default:
 		return nil, fmt.Errorf("invalid session mode")

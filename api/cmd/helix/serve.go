@@ -306,7 +306,12 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 						log.Error().Err(err).Msg("error publishing runner response")
 					}
 				case scheduler.WorkloadTypeSession:
-					appController.ErrorSession(ctx, work.Session(), err)
+
+					// Get the last interaction
+					// TODO: update scheduler func to keep the interaction
+					interaction := work.Session().Interactions[len(work.Session().Interactions)-1]
+
+					appController.ErrorSession(ctx, work.Session(), interaction, err)
 				}
 			}
 		},
@@ -371,14 +376,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 			DeleteURL: cfg.RAG.Llamaindex.RAGDeleteURL,
 		})
 		log.Info().Msgf("Using Llamaindex for RAG")
-	case config.RAGProviderPGVector:
-		pgVectorStore, err := store.NewPGVectorStore(cfg)
-		if err != nil {
-			return fmt.Errorf("failed to create PGVector store: %v", err)
-		}
-
-		ragClient = rag.NewPGVector(cfg, providerManager, pgVectorStore)
-		log.Info().Msgf("Using PGVector for RAG")
 	case config.RAGProviderHaystack:
 		ragClient = rag.NewHaystackRAG(cfg.RAG.Haystack.URL)
 		log.Info().Msgf("Using Haystack for RAG")

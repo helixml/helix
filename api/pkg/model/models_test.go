@@ -46,18 +46,6 @@ func TestProcessModelName(t *testing.T) {
 			want: NewModel(ModelOllamaLlama38b),
 		},
 		{
-			name: "empty model, finetune, no rag",
-			args: args{
-				provider:    "helix",
-				modelName:   "",
-				sessionMode: types.SessionModeFinetune,
-				sessionType: types.SessionTypeText,
-				hasFinetune: true,
-				ragEnabled:  false,
-			},
-			want: NewModel(ModelAxolotlMistral7b),
-		},
-		{
 			name: "normal inference",
 			args: args{
 				provider:    "helix",
@@ -96,7 +84,7 @@ func TestProcessModelName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ProcessModelName(tt.args.provider, tt.args.modelName, tt.args.sessionMode, tt.args.sessionType, tt.args.hasFinetune, tt.args.ragEnabled)
+			got, err := ProcessModelName(tt.args.provider, tt.args.modelName, tt.args.sessionType, tt.args.hasFinetune, tt.args.ragEnabled)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ProcessModelName() error = %v, wantErr %v", err, tt.wantErr)
 				return
