@@ -90,7 +90,7 @@ func Test_SessionChatRequest_ImageURL_AndText(t *testing.T) {
 
 func Test_GetMessageMultiContentPart_TextOnly(t *testing.T) {
 	interaction := &Interaction{
-		Content: MessageContent{
+		PromptMessageContent: MessageContent{
 			Parts: []any{TextPart{
 				Type: "text",
 				Text: "Hello, world!",
@@ -106,7 +106,7 @@ func Test_GetMessageMultiContentPart_TextOnly(t *testing.T) {
 
 func Test_GetMessageMultiContentPart_WithImageURL(t *testing.T) {
 	interaction := &Interaction{
-		Content: MessageContent{
+		PromptMessageContent: MessageContent{
 			Parts: []any{TextPart{
 				Type: "text",
 				Text: "Hello, world!",

@@ -16,69 +16,144 @@ import (
 )
 
 type Interaction struct {
-	ID        string      `json:"id"`
-	Created   time.Time   `json:"created"`
-	Updated   time.Time   `json:"updated"`
-	Scheduled time.Time   `json:"scheduled"`
-	Completed time.Time   `json:"completed"`
-	Creator   CreatorType `json:"creator"` // e.g. User
-	// this let's us know if this interaction is part of the fine tuning process
-	// or if it's a chat interaction that the user is using to interact with the model
-	// once it's been fine-tuned
-	// for fine-tune models, we can filter out inference interactions
-	// to get down to what actually matters
-	Mode SessionMode `json:"mode"`
+	ID        string    `json:"id"`
+	Created   time.Time `json:"created"`
+	Updated   time.Time `json:"updated"`
+	Scheduled time.Time `json:"scheduled"`
+	Completed time.Time `json:"completed"`
 	// the ID of the runner that processed this interaction
 	Runner string `json:"runner"` // e.g. 0
-	// TODO: remove and keep only content
-	Message        string         `json:"message"`         // e.g. Prove pythagoras (last text message from the user)
-	Content        MessageContent `json:"content"`         // Original content received from the API. This will include the Message and any images.
-	ResponseFormat ResponseFormat `json:"response_format"` // e.g. json
 
-	DisplayMessage string            `json:"display_message"` // if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context)
-	Progress       int               `json:"progress"`        // e.g. 0-100
-	Files          []string          `json:"files"`           // list of filepath paths
-	Finished       bool              `json:"finished"`        // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
-	Metadata       map[string]string `json:"metadata"`        // different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend
-	State          InteractionState  `json:"state"`
-	Status         string            `json:"status"`
-	Error          string            `json:"error"`
-	// we hoist this from files so a single interaction knows that it "Created a finetune file"
-	LoraDir             string                     `json:"lora_dir"`
-	DataPrepChunks      map[string][]DataPrepChunk `json:"data_prep_chunks"`
-	DataPrepStage       TextDataPrepStage          `json:"data_prep_stage"`
-	DataPrepLimited     bool                       `json:"data_prep_limited"` // If true, the data prep is limited to a certain number of chunks due to quotas
-	DataPrepLimit       int                        `json:"data_prep_limit"`   // If true, the data prep is limited to a certain number of chunks due to quotas
-	DataPrepTotalChunks int                        `json:"data_prep_total_chunks"`
+	Mode SessionMode `json:"mode"`
 
-	RagResults []*SessionRAGResult `json:"rag_results"`
+	SessionID string `json:"session_id" gorm:"index"`
+	// GenerationID, starts at 0, increments for each regeneration (when user retries a message, anywhere from the past)
+	// it is used to keep a timeline when querying the database for messages or viewing previous generations
+	GenerationID int    `json:"generation_id" gorm:"index"`
+	UserID       string `json:"user_id" gorm:"index"`
+
+	SystemPrompt string `json:"system_prompt"` // System prompt for the interaction (copy of the session's system prompt that was used to create this interaction)
+
+	PromptMessage        string         `json:"prompt_message"`                                           // User prompt (text)
+	PromptMessageContent MessageContent `json:"prompt_message_content" gorm:"type:jsonb;serializer:json"` // User prompt (multi-part)
+
+	// TODO: add the full multi-part response content
+	// ResponseMessageContent MessageContent `json:"response_message_content"` // LLM response
+	ResponseMessage        string         `json:"response_message"`                                  // LLM response
+	ResponseFormat         ResponseFormat `json:"response_format" gorm:"type:jsonb;serializer:json"` // e.g. json
+	ResponseFormatResponse string         `json:"response_format_response"`                          // e.g. json
+
+	DisplayMessage string           `json:"display_message"` // if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context)
+	DurationMs     int              `json:"duration_ms"`     // How long the interaction took to complete in milliseconds
+	State          InteractionState `json:"state"`
+	Status         string           `json:"status"`
+	Error          string           `json:"error"`
+
+	RagResults []*SessionRAGResult `json:"rag_results" gorm:"type:jsonb;serializer:json"`
 
 	// Model function calling, not to be mistaken with Helix tools
-	Tools []openai.Tool `json:"tools"`
+	Tools []openai.Tool `json:"tools" gorm:"type:jsonb;serializer:json"`
 
 	// This can be either a string or an ToolChoice object.
-	ToolChoice any `json:"tool_choice,omitempty"`
+	ToolChoice any `json:"tool_choice,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// For Role=assistant prompts this may be set to the tool calls generated by the model, such as function calls.
-	ToolCalls []openai.ToolCall `json:"tool_calls,omitempty"`
+	ToolCalls []openai.ToolCall `json:"tool_calls,omitempty" gorm:"type:jsonb;serializer:json"`
 
 	// For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool.
 	ToolCallID string `json:"tool_call_id,omitempty"`
 
-	Usage Usage `json:"usage"`
+	Usage Usage `json:"usage" gorm:"type:jsonb;serializer:json"`
 }
 
+func InteractionsToOpenAIMessages(systemPrompt string, interactions []*Interaction) []openai.ChatCompletionMessage {
+	messages := []openai.ChatCompletionMessage{}
+
+	if systemPrompt != "" {
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: systemPrompt,
+		})
+	}
+
+	// Each interaction will have user and assistant messages
+	for _, interaction := range interactions {
+		switch interaction.State {
+		case InteractionStateComplete:
+			// Interaction contains both user and assistant messages
+			messages = append(messages, interaction.ToOpenAIUserMessage())
+
+			assistantMessage, ok := interaction.ToOpenAIAsistantMessage()
+			if ok {
+				messages = append(messages, assistantMessage)
+			}
+		case InteractionStateWaiting:
+			// Interaction contains only user message
+			messages = append(messages, interaction.ToOpenAIUserMessage())
+		}
+	}
+
+	return messages
+}
+
+func (i *Interaction) ToOpenAISystemMessage() openai.ChatCompletionMessage {
+	return openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleSystem,
+		Content: i.SystemPrompt,
+	}
+}
+
+func (i *Interaction) ToOpenAIUserMessage() openai.ChatCompletionMessage {
+	return openai.ChatCompletionMessage{
+		Role:         openai.ChatMessageRoleUser,
+		Content:      i.PromptMessage,
+		MultiContent: i.GetMessageMultiContentPart(),
+	}
+}
+
+func (i *Interaction) ToOpenAIAsistantMessage() (openai.ChatCompletionMessage, bool) {
+	if i.ResponseMessage == "" {
+		return openai.ChatCompletionMessage{}, false
+	}
+
+	return openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleAssistant,
+		Content: i.ResponseMessage,
+	}, true
+}
+
+type ListInteractionsQuery struct {
+	SessionID    string
+	UserID       string
+	GenerationID int // Use -1 to get all generations for a session
+	Limit        int
+	Offset       int
+}
+
+// func (i *Interaction) GetPrompt() string {
+// 	if len(i.PromptMessageContent.Parts) == 0 {
+// 		return ""
+// 	}
+
+// 	return i.PromptMessageContent.Parts[0].(string)
+// }
+
+// func (i *Interaction) SetResponse(resp *RunnerTaskResponse) {
+
+// }
+
+// GetMessageMultiContentPart - probably specifically for PromptContent
 func (i *Interaction) GetMessageMultiContentPart() []openai.ChatMessagePart {
 	parts := []openai.ChatMessagePart{}
 
 	// If content is empty, return one slice with text message
-	if len(i.Content.Parts) == 0 {
+	if len(i.PromptMessageContent.Parts) == 0 {
 		return []openai.ChatMessagePart{
-			{Type: "text", Text: i.Message},
+			{Type: "text", Text: i.PromptMessage},
 		}
 	}
 
-	for _, part := range i.Content.Parts {
+	for _, part := range i.PromptMessageContent.Parts {
 		switch p := part.(type) {
 		case string:
 			parts = append(parts, openai.ChatMessagePart{Type: "text", Text: p})
@@ -134,12 +209,6 @@ type ResponseFormat struct {
 type InteractionMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
-}
-
-type SessionOrigin struct {
-	Type                SessionOriginType `json:"type"`
-	ClonedSessionID     string            `json:"cloned_session_id"`
-	ClonedInteractionID string            `json:"cloned_interaction_id"`
 }
 
 type TextSplitterType string
@@ -251,8 +320,6 @@ type SessionRAGResult struct {
 
 // gives us a quick way to add settings
 type SessionMetadata struct {
-	OriginalMode            SessionMode         `json:"original_mode"`
-	Origin                  SessionOrigin       `json:"origin"`
 	Avatar                  string              `json:"avatar"`
 	Priority                bool                `json:"priority"`
 	DocumentIDs             map[string]string   `json:"document_ids"`
@@ -283,10 +350,7 @@ type SessionMetadata struct {
 	ActiveTools         []string    `json:"active_tools"`
 	// when we do fine tuning or RAG, we need to know which data entity we used
 	UploadedDataID string `json:"uploaded_data_entity_id"`
-	// the RAG source data entity we produced from this session
-	RAGSourceID string `json:"rag_source_data_entity_id"`
-	// the fine tuned data entity we produced from this session
-	LoraID string `json:"finetune_data_entity_id"`
+
 	// which assistant are we talking to?
 	AssistantID    string            `json:"assistant_id"`
 	AppQueryParams map[string]string `json:"app_query_params"` // Passing through user defined app params
@@ -316,7 +380,6 @@ type SessionChatRequest struct {
 	Tools          []string    `json:"tools"`    // Available tools to use in the session
 	Provider       Provider    `json:"provider"` // The provider to use
 	Model          string      `json:"model"`    // The model to use
-	RAGSourceID    string      `json:"rag_source_id"`
 	// the fine tuned data entity we produced from this session
 	LoraID     string `json:"lora_id"`
 	Regenerate bool   `json:"regenerate"` // If true, we will regenerate the response for the last message
@@ -394,7 +457,7 @@ type SessionLearnRequest struct {
 
 type Message struct {
 	ID        string           `json:"id"` // Interaction ID
-	Role      CreatorType      `json:"role"`
+	Role      string           `json:"role"`
 	Content   MessageContent   `json:"content"`
 	CreatedAt time.Time        `json:"created_at,omitempty"`
 	UpdatedAt time.Time        `json:"updated_at,omitempty"`
@@ -430,10 +493,8 @@ type MessageContent struct {
 type InternalSessionRequest struct {
 	ID                      string
 	Stream                  bool
-	Mode                    SessionMode
 	Type                    SessionType
 	SystemPrompt            string
-	LoraDir                 string
 	ParentSession           string
 	ParentApp               string // tools will get pulled in from here in the controller
 	OrganizationID          string // the organization this session belongs to, if any
@@ -475,6 +536,7 @@ type Session struct {
 	Updated       time.Time `json:"updated"`
 	ParentSession string    `json:"parent_session"`
 	// the app this session was spawned from
+	// TODO: rename to AppID
 	ParentApp string `json:"parent_app"`
 	// the organization this session belongs to, if any
 	OrganizationID string          `json:"organization_id" gorm:"index"`
@@ -493,36 +555,37 @@ type Session struct {
 	LoraDir string `json:"lora_dir"`
 	// for now we just whack the entire history of the interaction in here, json
 	// style
-	Interactions Interactions `json:"interactions" gorm:"type:jsonb"`
+	Interactions []*Interaction `json:"interactions"`
+	GenerationID int            `json:"generation_id"` // Current generation ID
 	// uuid of owner entity
 	Owner string `json:"owner"`
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
 }
 
-type Interactions []*Interaction
+// type Interactions []*Interaction
 
-func (m Interactions) Value() (driver.Value, error) {
-	j, err := json.Marshal(m)
-	return j, err
-}
+// func (m Interactions) Value() (driver.Value, error) {
+// 	j, err := json.Marshal(m)
+// 	return j, err
+// }
 
-func (m *Interactions) Scan(src interface{}) error {
-	source, ok := src.([]byte)
-	if !ok {
-		return errors.New("type assertion .([]byte) failed")
-	}
-	var result Interactions
-	if err := json.Unmarshal(source, &result); err != nil {
-		return err
-	}
-	*m = result
-	return nil
-}
+// func (m *Interactions) Scan(src interface{}) error {
+// 	source, ok := src.([]byte)
+// 	if !ok {
+// 		return errors.New("type assertion .([]byte) failed")
+// 	}
+// 	var result Interactions
+// 	if err := json.Unmarshal(source, &result); err != nil {
+// 		return err
+// 	}
+// 	*m = result
+// 	return nil
+// }
 
-func (Interactions) GormDataType() string {
-	return "json"
-}
+// func (Interactions) GormDataType() string {
+// 	return "json"
+// }
 
 func (m SessionMetadata) Value() (driver.Value, error) {
 	j, err := json.Marshal(m)
@@ -808,18 +871,15 @@ type ServerConfigForFrontend struct {
 // a short version of a session that we keep for the dashboard
 type SessionSummary struct {
 	// these are all values of the last interaction
-	Created       time.Time   `json:"created"`
-	Updated       time.Time   `json:"updated"`
-	Scheduled     time.Time   `json:"scheduled"`
-	Completed     time.Time   `json:"completed"`
-	SessionID     string      `json:"session_id"`
-	Name          string      `json:"name"`
-	InteractionID string      `json:"interaction_id"`
-	ModelName     string      `json:"model_name"`
-	Mode          SessionMode `json:"mode"`
-	Type          SessionType `json:"type"`
-	Owner         string      `json:"owner"`
-	LoraDir       string      `json:"lora_dir,omitempty"`
+	Created   time.Time `json:"created"`
+	Updated   time.Time `json:"updated"`
+	SessionID string    `json:"session_id"`
+	Name      string    `json:"name"`
+	// InteractionID string      `json:"interaction_id"`
+	ModelName string      `json:"model_name"`
+	Type      SessionType `json:"type"`
+	Owner     string      `json:"owner"`
+
 	// this is either the prompt or the summary of the training data
 	Summary        string `json:"summary"`
 	Priority       bool   `json:"priority"`
@@ -970,36 +1030,36 @@ func GetMessageText(message *openai.ChatCompletionMessage) (string, error) {
 	return "", fmt.Errorf("unsupported message type %+v", message)
 }
 
-func HistoryFromInteractions(interactions []*Interaction) []*ToolHistoryMessage {
-	var history []*ToolHistoryMessage
+// func HistoryFromInteractions(interactions []*Interaction) []*ToolHistoryMessage {
+// 	var history []*ToolHistoryMessage
 
-	for _, interaction := range interactions {
-		switch interaction.Creator {
-		case CreatorTypeUser:
-			history = append(history, &ToolHistoryMessage{
-				Role:    openai.ChatMessageRoleUser,
-				Content: interaction.Message,
-			})
-		case CreatorTypeAssistant:
-			history = append(history, &ToolHistoryMessage{
-				Role:    openai.ChatMessageRoleAssistant,
-				Content: interaction.Message,
-			})
-		case CreatorTypeSystem:
-			history = append(history, &ToolHistoryMessage{
-				Role:    openai.ChatMessageRoleSystem,
-				Content: interaction.Message,
-			})
-		case CreatorTypeTool:
-			history = append(history, &ToolHistoryMessage{
-				Role:    openai.ChatMessageRoleTool,
-				Content: interaction.Message,
-			})
-		}
-	}
+// 	for _, interaction := range interactions {
+// 		switch interaction.Creator {
+// 		case CreatorTypeUser:
+// 			history = append(history, &ToolHistoryMessage{
+// 				Role:    openai.ChatMessageRoleUser,
+// 				Content: interaction.Message,
+// 			})
+// 		case CreatorTypeAssistant:
+// 			history = append(history, &ToolHistoryMessage{
+// 				Role:    openai.ChatMessageRoleAssistant,
+// 				Content: interaction.Message,
+// 			})
+// 		case CreatorTypeSystem:
+// 			history = append(history, &ToolHistoryMessage{
+// 				Role:    openai.ChatMessageRoleSystem,
+// 				Content: interaction.Message,
+// 			})
+// 		case CreatorTypeTool:
+// 			history = append(history, &ToolHistoryMessage{
+// 				Role:    openai.ChatMessageRoleTool,
+// 				Content: interaction.Message,
+// 			})
+// 		}
+// 	}
 
-	return history
-}
+// 	return history
+// }
 
 // Add this struct to the existing types.go file
 
