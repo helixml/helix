@@ -43,7 +43,6 @@ import {
   INTERACTION_STATE_COMPLETE,
   INTERACTION_STATE_ERROR,  
 } from '../../types';
-import { TypesCreatorType } from '../../api/api';
 import ContextMenuModal from '../widgets/ContextMenuModal';
 import useApi from '../../hooks/useApi';
 import useIsBigScreen from '../../hooks/useIsBigScreen';
@@ -214,7 +213,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           message: '',
           messages: [
             {
-              role: TypesCreatorType.CreatorTypeUser,
+              role: 'user',
               content: messagePayloadContent as any,
             }
           ],
