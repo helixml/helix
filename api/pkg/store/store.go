@@ -168,6 +168,14 @@ type Store interface {
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
 
+	// interactions
+	ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, error)
+	CreateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
+	CreateInteractions(ctx context.Context, interactions ...*types.Interaction) error
+	GetInteraction(ctx context.Context, id string) (*types.Interaction, error)
+	UpdateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
+	DeleteInteraction(ctx context.Context, id string) error
+
 	// step infos
 	CreateStepInfo(ctx context.Context, stepInfo *types.StepInfo) (*types.StepInfo, error)
 	ListStepInfos(ctx context.Context, query *ListStepInfosQuery) ([]*types.StepInfo, error)
