@@ -16,7 +16,7 @@ import {
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
   ISession,
 } from '../types'
-import { TypesCreatorType } from '../api/api';
+
 import {
   removeEmptyValues,
 } from '../utils/data'
@@ -634,7 +634,7 @@ export const useApp = (appId: string) => {
         message: '',
         messages: [
           {
-            role: TypesCreatorType.CreatorTypeUser,
+            role: 'user',
             content: messagePayloadContent as any,
           }
         ],
