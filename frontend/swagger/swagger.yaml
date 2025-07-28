@@ -1081,6 +1081,11 @@ definitions:
           $ref: '#/definitions/types.ContextMenuAction'
         type: array
     type: object
+  types.Counter:
+    properties:
+      count:
+        type: integer
+    type: object
   types.CrawledSources:
     properties:
       urls:
@@ -1122,18 +1127,6 @@ definitions:
       organization_id:
         type: string
     type: object
-  types.CreatorType:
-    enum:
-    - system
-    - assistant
-    - user
-    - tool
-    type: string
-    x-enum-varnames:
-    - CreatorTypeSystem
-    - CreatorTypeAssistant
-    - CreatorTypeUser
-    - CreatorTypeTool
   types.CronTrigger:
     properties:
       enabled:
@@ -1188,17 +1181,6 @@ definitions:
         type: integer
       version:
         type: string
-    type: object
-  types.DataPrepChunk:
-    properties:
-      error:
-        type: string
-      index:
-        type: integer
-      prompt_name:
-        type: string
-      question_count:
-        type: integer
     type: object
   types.DiscordTrigger:
     properties:
@@ -1277,77 +1259,33 @@ definitions:
     properties:
       completed:
         type: string
-      content:
-        allOf:
-        - $ref: '#/definitions/types.MessageContent'
-        description: Original content received from the API. This will include the
-          Message and any images.
       created:
         type: string
-      creator:
-        allOf:
-        - $ref: '#/definitions/types.CreatorType'
-        description: e.g. User
-      data_prep_chunks:
-        additionalProperties:
-          items:
-            $ref: '#/definitions/types.DataPrepChunk'
-          type: array
-        type: object
-      data_prep_limit:
-        description: If true, the data prep is limited to a certain number of chunks
-          due to quotas
-        type: integer
-      data_prep_limited:
-        description: If true, the data prep is limited to a certain number of chunks
-          due to quotas
-        type: boolean
-      data_prep_stage:
-        $ref: '#/definitions/types.TextDataPrepStage'
-      data_prep_total_chunks:
-        type: integer
       display_message:
         description: if this is defined, the UI will always display it instead of
           the message (so we can augment the internal prompt with RAG context)
         type: string
+      duration_ms:
+        description: How long the interaction took to complete in milliseconds
+        type: integer
       error:
         type: string
-      files:
-        description: list of filepath paths
-        items:
-          type: string
-        type: array
-      finished:
-        description: if true, the message has finished being written to, and is ready
-          for a response (e.g. from the other participant)
-        type: boolean
+      generation_id:
+        description: |-
+          GenerationID, starts at 0, increments for each regeneration (when user retries a message, anywhere from the past)
+          it is used to keep a timeline when querying the database for messages or viewing previous generations
+        type: integer
       id:
         type: string
-      lora_dir:
-        description: we hoist this from files so a single interaction knows that it
-          "Created a finetune file"
-        type: string
-      message:
-        description: 'TODO: remove and keep only content'
-        type: string
-      metadata:
-        additionalProperties:
-          type: string
-        description: different modes and models can put values here - for example,
-          the image fine tuning will keep labels here to display in the frontend
-        type: object
       mode:
+        $ref: '#/definitions/types.SessionMode'
+      prompt_message:
+        description: User prompt (text)
+        type: string
+      prompt_message_content:
         allOf:
-        - $ref: '#/definitions/types.SessionMode'
-        description: |-
-          this let's us know if this interaction is part of the fine tuning process
-          or if it's a chat interaction that the user is using to interact with the model
-          once it's been fine-tuned
-          for fine-tune models, we can filter out inference interactions
-          to get down to what actually matters
-      progress:
-        description: e.g. 0-100
-        type: integer
+        - $ref: '#/definitions/types.MessageContent'
+        description: User prompt (multi-part)
       rag_results:
         items:
           $ref: '#/definitions/types.SessionRAGResult'
@@ -1356,14 +1294,28 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.ResponseFormat'
         description: e.g. json
+      response_format_response:
+        description: e.g. json
+        type: string
+      response_message:
+        description: |-
+          TODO: add the full multi-part response content
+          ResponseMessageContent MessageContent `json:"response_message_content"` // LLM response
+        type: string
       runner:
         description: the ID of the runner that processed this interaction
         type: string
       scheduled:
         type: string
+      session_id:
+        type: string
       state:
         $ref: '#/definitions/types.InteractionState'
       status:
+        type: string
+      system_prompt:
+        description: System prompt for the interaction (copy of the session's system
+          prompt that was used to create this interaction)
         type: string
       tool_call_id:
         description: For Role=tool prompts this should be set to the ID given in the
@@ -1386,6 +1338,8 @@ definitions:
         type: string
       usage:
         $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Usage'
+      user_id:
+        type: string
     type: object
   types.InteractionState:
     enum:
@@ -1693,7 +1647,7 @@ definitions:
         description: Interaction ID
         type: string
       role:
-        $ref: '#/definitions/types.CreatorType'
+        type: string
       state:
         $ref: '#/definitions/types.InteractionState'
       updated_at:
@@ -2490,6 +2444,9 @@ definitions:
         description: named config for backward compat
       created:
         type: string
+      generation_id:
+        description: Current generation ID
+        type: integer
       id:
         type: string
       interactions:
@@ -2527,7 +2484,9 @@ definitions:
         - $ref: '#/definitions/types.OwnerType'
         description: e.g. user, system, org
       parent_app:
-        description: the app this session was spawned from
+        description: |-
+          the app this session was spawned from
+          TODO: rename to AppID
         type: string
       parent_session:
         type: string
@@ -2571,8 +2530,6 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.Provider'
         description: The provider to use
-      rag_source_id:
-        type: string
       regenerate:
         description: If true, we will regenerate the response for the last message
         type: boolean
@@ -2590,37 +2547,6 @@ definitions:
         items:
           type: string
         type: array
-      type:
-        allOf:
-        - $ref: '#/definitions/types.SessionType'
-        description: e.g. text, image
-    type: object
-  types.SessionLearnRequest:
-    properties:
-      data_entity_id:
-        description: FINE-TUNE MODE ONLY
-        type: string
-      default_rag_model:
-        description: When doing RAG, allow the resulting inference session model to
-          be specified
-        type: string
-      organization_id:
-        description: The organization this session belongs to, if any
-        type: string
-      rag_enabled:
-        description: |-
-          Do we want to create a RAG data entity from this session?
-          You must provide a data entity ID for the uploaded documents if yes
-        type: boolean
-      rag_settings:
-        allOf:
-        - $ref: '#/definitions/types.RAGSettings'
-        description: The settings we use for the RAG source
-      text_finetune_enabled:
-        description: |-
-          Do we want to create a lora output from this session?
-          You must provide a data entity ID for the uploaded documents if yes
-        type: boolean
       type:
         allOf:
         - $ref: '#/definitions/types.SessionType'
@@ -2669,17 +2595,10 @@ definitions:
         type: string
       eval_user_score:
         type: string
-      finetune_data_entity_id:
-        description: the fine tuned data entity we produced from this session
-        type: string
       helix_version:
         type: string
       manually_review_questions:
         type: boolean
-      origin:
-        $ref: '#/definitions/types.SessionOrigin'
-      original_mode:
-        $ref: '#/definitions/types.SessionMode'
       priority:
         type: boolean
       rag_enabled:
@@ -2692,9 +2611,6 @@ definitions:
         type: boolean
       rag_settings:
         $ref: '#/definitions/types.RAGSettings'
-      rag_source_data_entity_id:
-        description: the RAG source data entity we produced from this session
-        type: string
       session_rag_results:
         items:
           $ref: '#/definitions/types.SessionRAGResult'
@@ -2725,25 +2641,6 @@ definitions:
     - SessionModeInference
     - SessionModeFinetune
     - SessionModeAction
-  types.SessionOrigin:
-    properties:
-      cloned_interaction_id:
-        type: string
-      cloned_session_id:
-        type: string
-      type:
-        $ref: '#/definitions/types.SessionOriginType'
-    type: object
-  types.SessionOriginType:
-    enum:
-    - ""
-    - user_created
-    - cloned
-    type: string
-    x-enum-varnames:
-    - SessionOriginTypeNone
-    - SessionOriginTypeUserCreated
-    - SessionOriginTypeCloned
   types.SessionRAGResult:
     properties:
       content:
@@ -2771,6 +2668,34 @@ definitions:
       source:
         type: string
     type: object
+  types.SessionSummary:
+    properties:
+      app_id:
+        type: string
+      created:
+        description: these are all values of the last interaction
+        type: string
+      model_name:
+        description: InteractionID string      `json:"interaction_id"`
+        type: string
+      name:
+        type: string
+      organization_id:
+        type: string
+      owner:
+        type: string
+      priority:
+        type: boolean
+      session_id:
+        type: string
+      summary:
+        description: this is either the prompt or the summary of the training data
+        type: string
+      type:
+        $ref: '#/definitions/types.SessionType'
+      updated:
+        type: string
+    type: object
   types.SessionType:
     enum:
     - ""
@@ -2781,6 +2706,18 @@ definitions:
     - SessionTypeNone
     - SessionTypeText
     - SessionTypeImage
+  types.SessionsList:
+    properties:
+      counter:
+        allOf:
+        - $ref: '#/definitions/types.Counter'
+        description: the total number of sessions that match the query
+      sessions:
+        description: the list of sessions
+        items:
+          $ref: '#/definitions/types.SessionSummary'
+        type: array
+    type: object
   types.SkillDefinition:
     properties:
       baseUrl:
@@ -2967,26 +2904,6 @@ definitions:
       prompt:
         type: string
     type: object
-  types.TextDataPrepStage:
-    enum:
-    - ""
-    - edit_files
-    - extract_text
-    - index_rag
-    - generate_questions
-    - edit_questions
-    - finetune
-    - complete
-    type: string
-    x-enum-varnames:
-    - TextDataPrepStageNone
-    - TextDataPrepStageEditFiles
-    - TextDataPrepStageExtractText
-    - TextDataPrepStageIndexRag
-    - TextDataPrepStageGenerateQuestions
-    - TextDataPrepStageEditQuestions
-    - TextDataPrepStageFineTune
-    - TextDataPrepStageComplete
   types.TextSplitterType:
     enum:
     - markdown
@@ -4909,6 +4826,58 @@ paths:
       summary: Update an existing secret
       tags:
       - secrets
+  /api/v1/sessions:
+    get:
+      description: List sessions
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SessionsList'
+      security:
+      - BearerAuth: []
+      summary: List sessions
+      tags:
+      - sessions
+  /api/v1/sessions/{id}:
+    delete:
+      description: Delete a session by ID
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Session'
+      security:
+      - BearerAuth: []
+      summary: Delete a session by ID
+      tags:
+      - sessions
+    get:
+      description: Get a session by ID
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.Session'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Get a session by ID
+      tags:
+      - sessions
   /api/v1/sessions/{id}/step-info:
     get:
       responses:
@@ -4934,22 +4903,6 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/types.OpenAIResponse'
-      security:
-      - BearerAuth: []
-  /api/v1/sessions/learn:
-    post:
-      parameters:
-      - description: Request body with settings for the learn session.
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/types.SessionLearnRequest'
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/types.Session'
       security:
       - BearerAuth: []
   /api/v1/skills:
