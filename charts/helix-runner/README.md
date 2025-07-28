@@ -18,13 +18,13 @@ helm repo update
 Then, install the runner:
 
 ```bash
-helm upgrade --install helix-3090-runner helix/helix-runner \
+helm upgrade --install helix-runner helix/helix-runner \
   --set runner.host="<host>" \
   --set runner.token="<token>" \
-  --set runner.memory=24GB \
-  --set replicaCount=4 \
-  --set nodeSelector."nvidia\.com/gpu\.product"="NVIDIA-GeForce-RTX-3090-Ti"
+  --set replicaCount=4
 ```
+
+Set `replicaCount` to the number of GPUs you want to deploy the runner on. You can also target specific GPUs, e.g. `--set nodeSelector."nvidia\.com/gpu\.product"="NVIDIA-GeForce-RTX-3090-Ti"`
 
 ## Troubleshooting
 
