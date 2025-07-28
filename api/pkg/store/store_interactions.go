@@ -134,7 +134,7 @@ func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListI
 
 	var interactions []*types.Interaction
 	// Oldest to newest
-	err := q.Order("created_at ASC").Find(&interactions).Error
+	err := q.Order("created ASC").Find(&interactions).Error
 	if err != nil {
 		return nil, err
 	}

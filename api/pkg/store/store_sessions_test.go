@@ -15,13 +15,6 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_CreateSession() {
 		Owner:   "user_id",
 		Created: time.Now(),
 		Updated: time.Now(),
-		Interactions: []*types.Interaction{
-			{
-				ID:      "id-1",
-				State:   types.InteractionStateComplete,
-				Creator: types.CreatorTypeSystem,
-			},
-		},
 	}
 
 	// Call the CreateSession method
@@ -45,13 +38,6 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSession() {
 		Owner:   "user_id",
 		Created: time.Now(),
 		Updated: time.Now(),
-		Interactions: []*types.Interaction{
-			{
-				ID:      "id-1",
-				State:   types.InteractionStateComplete,
-				Creator: types.CreatorTypeSystem,
-			},
-		},
 	}
 
 	// Call the CreateSession method to create the session
@@ -77,12 +63,11 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSession() {
 
 	// Create a sample session
 	session := types.Session{
-		ID:           system.GenerateSessionID(),
-		Owner:        "user_id",
-		Name:         "name",
-		Created:      time.Now(),
-		Updated:      time.Now(),
-		Interactions: []*types.Interaction{},
+		ID:      system.GenerateSessionID(),
+		Owner:   "user_id",
+		Name:    "name",
+		Created: time.Now(),
+		Updated: time.Now(),
 	}
 
 	// Call the CreateSession method to create the session
@@ -95,18 +80,6 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSession() {
 
 	// Update the session
 	session.Name = "new_name"
-	session.Interactions = []*types.Interaction{
-		{
-			ID:      "id-1",
-			State:   types.InteractionStateComplete,
-			Creator: types.CreatorTypeSystem,
-		},
-		{
-			ID:      "id-2",
-			State:   types.InteractionStateComplete,
-			Creator: types.CreatorTypeSystem,
-		},
-	}
 
 	// Call the UpdateSession method to update the session
 	updatedSession, err := suite.db.UpdateSession(context.Background(), session)
@@ -116,15 +89,6 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSession() {
 
 	// Assert that the updated session matches the modified session
 	suite.Equal("new_name", updatedSession.Name)
-	suite.Equal(2, len(updatedSession.Interactions))
-
-	// Assert that the interactions are in the correct order
-	suite.Equal("id-1", updatedSession.Interactions[0].ID)
-	suite.Equal("id-2", updatedSession.Interactions[1].ID)
-
-	// Assert that the interactions have the correct state
-	suite.Equal(types.InteractionStateComplete, updatedSession.Interactions[0].State)
-	suite.Equal(types.InteractionStateComplete, updatedSession.Interactions[1].State)
 }
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_DeleteSession() {
@@ -134,13 +98,6 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_DeleteSession() {
 		Owner:   "user_id",
 		Created: time.Now(),
 		Updated: time.Now(),
-		Interactions: []*types.Interaction{
-			{
-				ID:      "id-1",
-				State:   types.InteractionStateComplete,
-				Creator: types.CreatorTypeSystem,
-			},
-		},
 	}
 
 	// Call the CreateSession method to create the session
