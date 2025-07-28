@@ -1,0 +1,22 @@
+# Example values for helix-runner chart
+
+# Simple approach using direct tokens
+runner:
+  host: https://app.helix.ml
+  token: "your-runner-token-here"
+  huggingfaceToken: "hf_your_huggingface_token_here"
+
+# Alternative: Using Kubernetes secrets (recommended for production)
+# Create secrets first:
+# kubectl create secret generic runner-tokens \
+#   --from-literal=api-token=your-actual-api-token \
+#   --from-literal=hf-token=your-actual-hf-token
+#
+# Then configure like this:
+# runner:
+#   host: https://app.helix.ml
+#   tokenExistingSecret: "runner-tokens"
+#   tokenExistingSecretKey: "api-token"
+#   huggingfaceTokenExistingSecret: "runner-tokens"
+#   huggingfaceTokenExistingSecretKey: "hf-token"
+#   models: "llama3.1:8b-instruct-q8_0,llama3.2:1b-instruct-q8_0"
