@@ -229,7 +229,7 @@ controlplane:
     defaultProvider: "helix"
 
   # Provider configurations (examples of the three fixed global provider names)
-  # You can also add dynamic providers at runtime through the Dashboard
+  # You can also add dynamic providers at runtime through the Admin Panel
   providers:
     {}
     # Examples - uncomment and configure for your specific setup:
@@ -264,31 +264,6 @@ controlplane:
   # Sidecar configuration (optional)
   sidecar:
     enabled: false
-    # Example log shipping sidecar:
-    # name: "log-shipper"
-    # image: "fluent/fluent-bit:2.2.0"
-    # imagePullPolicy: "IfNotPresent"
-    # command:
-    #   - "/fluent-bit/bin/fluent-bit"
-    # args:
-    #   - "--config=/fluent-bit/etc/fluent-bit.conf"
-    # Environment variables for sidecar
-    # envVariables:
-    #   LOG_LEVEL: "info"
-    #   OUTPUT_HOST: "elasticsearch.logging.svc.cluster.local"
-    # Resources for sidecar
-    # resources:
-    #   requests:
-    #     cpu: "100m"
-    #     memory: "128Mi"
-    #   limits:
-    #     cpu: "200m"
-    #     memory: "256Mi"
-    # Volume mounts for sidecar
-    # volumeMounts:
-    #   logs:
-    #     mountPath: "/var/log/helix"
-    #     readOnly: true
 
   # Additional environment variables for unsupported/custom settings
   extraEnv:
