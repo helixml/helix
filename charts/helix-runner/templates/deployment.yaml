@@ -77,10 +77,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: RUNTIME_AXOLOTL_ENABLED
-              value: "{{ .Values.runner.axolotl }}"
-            - name: RUNTIME_AXOLOTL_WARMUP_MODELS
-              value: "mistralai/Mistral-7B-Instruct-v0.1"
             {{- if .Values.runner.huggingfaceTokenExistingSecret }}
             - name: HF_TOKEN
               valueFrom:
@@ -93,8 +89,6 @@ spec:
             {{- end }}
             - name: RUNTIME_OLLAMA_ENABLED
               value: "true"
-            - name: RUNTIME_OLLAMA_WARMUP_MODELS
-              value: {{ .Values.runner.models }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- with .Values.volumeMounts }}
