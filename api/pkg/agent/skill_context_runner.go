@@ -33,7 +33,7 @@ func MessageWhenToolErrorWithRetry(errorString string, toolCallID string) *opena
 	}
 }
 
-func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistory *MessageList, llm *LLM, outChan chan Response, memoryBlock *MemoryBlock, skill *Skill, skillToolCallID string, isConversational bool) (*openai.ChatCompletionMessage, error) {
+func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistory *MessageList, llm *LLM, outChan chan Response, memoryBlock *MemoryBlock, skill *Skill, skillToolCallID string) (*openai.ChatCompletionMessage, error) {
 	log.Info().Str("skill", skill.Name).Msg("Running skill")
 
 	promptData := prompts.SkillContextRunnerPromptData{
@@ -92,10 +92,6 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 			params.Tools = skill.GetTools()
 		}
 
-		// we need this because we need to send thoughts to the user. The thoughts sending go routine
-		// doesn't get the tool calls from here tool calls but instead as an assistant message
-		messageHistoryBeforeLLMCall := messageHistory.Clone()
-
 		ctx = oai.SetStep(ctx, &oai.Step{
 			Step: types.LLMCallStep(fmt.Sprintf("skill_context_runner (%s | iteration %d)", skill.Name, iterationNumber)),
 		})
@@ -132,11 +128,6 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 			}, nil
 		}
 		toolsToCall := completion.Choices[0].Message.ToolCalls
-
-		if isConversational {
-			// sending fake thoughts to the user to keep the user engaged
-			go a.sendThoughtsAboutTools(ctx, llm, messageHistoryBeforeLLMCall, toolsToCall, outChan)
-		}
 
 		// Create a wait group to wait for all tool executions to complete
 		var wg sync.WaitGroup
