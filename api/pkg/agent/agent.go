@@ -244,160 +244,6 @@ func (a *Agent) handleLLMError(err error, outUserChannel chan Response) {
 	}
 }
 
-// sendThoughtsAboutSkills generates "thinking" messages to keep the user engaged while skills are processing
-func (a *Agent) sendThoughtsAboutSkills(ctx context.Context, llm *LLM, messageHistory *MessageList, toolsToCall []openai.ToolCall, outUserChannel chan Response) {
-	if len(toolsToCall) == 0 {
-		return
-	}
-
-	allSpecSystemPrompt := `You have these tools available for you to use. But first you need to send a response to the user about what you are planning to do. Make sure to strategize in details.
-
-	Notes:
-	- Do not mention about the tools or details about the tools like API integrations, Python API etc. 
-	- You can mention about what you are trying to achieve by mentioning what these tools enable you to do. For example, if an SQL table enable you to get latest whether, you can say "I am getting whether data" instead of "I'll look at the SQL database for whether data".
-	- Make it very detailed.
-	- Strictly do not answer the question. You are just planning.
-
-	Here are the details about the tools:
-	`
-	for _, tool := range toolsToCall {
-		skill, err := a.GetSkill(tool.Function.Name)
-		if err != nil {
-			log.Error().Err(err).Msg("Error getting skill")
-			continue
-		}
-		allSpecSystemPrompt += fmt.Sprintf("\n%s\n", skill.Spec())
-	}
-
-	outUserChannel <- Response{
-		Type: ResponseTypeThinkingStart,
-	}
-	// making sure we send the end response when the agent is done
-	defer func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Error().Interface("error", r).Msg("Panic when sending end response")
-			}
-		}()
-		outUserChannel <- Response{
-			Type: ResponseTypeThinkingEnd,
-		}
-	}()
-
-	messageHistory.AddFirst(allSpecSystemPrompt)
-
-	ctx = oai.SetStep(ctx, &oai.Step{
-		Step: types.LLMCallStep("send_thoughts_about_skills"),
-	})
-
-	model := llm.SmallGenerationModel
-
-	stream, err := llm.NewStreaming(ctx, model, openai.ChatCompletionRequest{
-		Messages: messageHistory.All(),
-		Model:    model.Model,
-	})
-	if err != nil {
-		log.Error().Err(err).Msg("Error creating streaming")
-		return
-	}
-
-	defer stream.Close()
-
-	for {
-		chunk, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			log.Error().Err(err).Msg("Error streaming")
-			return
-		}
-		if len(chunk.Choices) == 0 {
-			log.Error().Interface("chunk", chunk).Msg("No choices in chunk")
-			continue
-		}
-		if chunk.Choices[0].Delta.Content != "" {
-			outUserChannel <- Response{
-				Content: chunk.Choices[0].Delta.Content,
-				Type:    ResponseTypeThinking,
-			}
-		}
-	}
-}
-
-// sendThoughtsAboutTools generates "thinking" messages to keep the user engaged while skills are processing
-func (a *Agent) sendThoughtsAboutTools(ctx context.Context, llm *LLM, messageHistory *MessageList, toolsToCall []openai.ToolCall, outUserChannel chan Response) {
-	if len(toolsToCall) == 0 {
-		return
-	}
-
-	systemPrompt := `Assistant has recommended to run a few functions. Now you need send status update to the user before you executing the request from assistant.
-	
-	Notes:
-	- Do not mention tools/functions in details (like what it is going to do technically like using SQL, Python API etc)
-	- You should not mention about what you as an assistant is trying to achieve by executing the functions.
-	- You should not mention about the "assistant" at all. Only focus on what assistant has asked to do.`
-
-	outUserChannel <- Response{
-		Type: ResponseTypeThinkingStart,
-	}
-	// making sure we send the end response when the agent is done
-	defer func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Error().Any("error", r).Msg("Panic when sending end response")
-			}
-		}()
-		outUserChannel <- Response{
-			Type: ResponseTypeThinkingEnd,
-		}
-	}()
-
-	messageHistory.AddFirst(systemPrompt)
-	assistantMessage := "Execute below functions and get me the results so I can answer you better.\n\n"
-	for _, tool := range toolsToCall {
-		assistantMessage += fmt.Sprintf("Function Name: %s\nFunction Args: %s\n\n", tool.Function.Name, tool.Function.Arguments)
-	}
-	messageHistory.Add(AssistantMessage(assistantMessage))
-
-	ctx = oai.SetStep(ctx, &oai.Step{
-		Step: types.LLMCallStep("send_thoughts_about_tools"),
-	})
-
-	model := llm.SmallGenerationModel
-
-	stream, err := llm.NewStreaming(ctx, model, openai.ChatCompletionRequest{
-		Messages: messageHistory.All(),
-		Model:    model.Model,
-	})
-	if err != nil {
-		log.Error().Err(err).Msg("Error creating streaming")
-		return
-	}
-	defer stream.Close()
-
-	for {
-		chunk, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			log.Error().Err(err).Msg("Error streaming")
-			return
-		}
-		if len(chunk.Choices) == 0 {
-			log.Error().Any("chunk", chunk).Msg("No choices in chunk")
-			continue
-		}
-		if chunk.Choices[0].Delta.Content != "" {
-			outUserChannel <- Response{
-				Content: chunk.Choices[0].Delta.Content,
-				Type:    ResponseTypeThinking,
-			}
-		}
-	}
-}
-
 // runWithoutSkills handles the case when no skills are available by directly calling the LLM
 func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *MessageList, memoryBlock *MemoryBlock, outUserChannel chan Response) {
 	// Create a system prompt using the NoSkillsPrompt function
@@ -447,7 +293,7 @@ func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *
 
 // Run processes a user message through the LLM, executes any requested skills. It returns only after the agent is done.
 // The intermediary messages are sent to the outUserChannel.
-func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *MessageList, memoryBlock *MemoryBlock, outUserChannel chan Response, isConversational bool) {
+func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *MessageList, memoryBlock *MemoryBlock, outUserChannel chan Response) {
 	// Create a cancel function from the context
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -530,11 +376,6 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		var wg sync.WaitGroup
 		var mu sync.Mutex
 
-		if isConversational {
-			// sending fake thoughts to the user to keep the user engaged
-			go a.sendThoughtsAboutSkills(ctx, llm, messageHistory.Clone(), skillToolCalls, outUserChannel)
-		}
-
 		for _, tool := range skillToolCalls {
 			skill, err := a.GetSkill(tool.Function.Name)
 			if err != nil {
@@ -556,7 +397,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 					}
 				} else {
 					// Clone the messages again so all goroutines get different message history
-					result, err = a.SkillContextRunner(ctx, meta, messageHistory.Clone(), llm, outUserChannel, memoryBlock, skill, tool.ID, isConversational)
+					result, err = a.SkillContextRunner(ctx, meta, messageHistory.Clone(), llm, outUserChannel, memoryBlock, skill, tool.ID)
 					if err != nil {
 						log.Error().Err(err).Msg("Error running skill")
 						return
@@ -604,11 +445,6 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		if hasStopTool {
 			break
 		}
-	}
-
-	// if not conversational, rest of the code is not needed as that is for sending the final message to the user
-	if !isConversational {
-		return
 	}
 
 	// Handle final results based on the callSummarizer parameter from the stop tool or if multiple skills were called

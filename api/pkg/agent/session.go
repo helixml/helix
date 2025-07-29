@@ -33,8 +33,6 @@ type Session struct {
 	messageHistory  *MessageList
 	stepInfoEmitter StepInfoEmitter
 	meta            Meta
-
-	isConversational bool
 }
 
 // NewSession constructs a session with references to shared LLM & memory, but isolated state.
@@ -59,16 +57,8 @@ func NewSession(ctx context.Context, stepInfoEmitter StepInfoEmitter, llm *LLM, 
 		messageHistory:  messageHistory,
 		stepInfoEmitter: stepInfoEmitter,
 		meta:            meta,
-		// TODO: make this configurable, when off, this should just
-		// not send thoughts but response - yes
-		isConversational: true,
 	}
 	go s.run()
-	return s
-}
-
-func (s *Session) WithConversationDisabled() *Session {
-	s.isConversational = false
 	return s
 }
 
@@ -137,7 +127,7 @@ func (s *Session) run() {
 		// Ensure channel is closed when we're done with it
 		defer close(internalChannel)
 
-		go s.agent.Run(s.ctx, s.meta, s.llm, s.messageHistory, memoryBlock, internalChannel, s.isConversational)
+		go s.agent.Run(s.ctx, s.meta, s.llm, s.messageHistory, memoryBlock, internalChannel)
 
 		for response := range internalChannel {
 			s.outUserChannel <- response
