@@ -355,7 +355,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	chatCompletionRequest.Messages = types.InteractionsToOpenAIMessages(startReq.SystemPrompt, messagesToInclude)
 
 	fmt.Println("XXX")
-	spew.Dump(chatCompletionRequest.Messages)
+	spew.Dump(lastInteraction)
 
 	if !startReq.Stream {
 		err := s.handleBlockingSession(ctx, user, session, lastInteraction, chatCompletionRequest, options, rw)
@@ -367,7 +367,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 
 	err = s.handleStreamingSession(ctx, user, session, lastInteraction, chatCompletionRequest, options, rw)
 	if err != nil {
-		log.Err(err).Msg("error handling blocking session")
+		log.Err(err).Msg("error handling streaming session")
 	}
 }
 
@@ -783,7 +783,12 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	return s.Controller.UpdateInteraction(ctx, session, interaction)
+	err = s.Controller.UpdateInteraction(ctx, session, interaction)
+	if err != nil {
+		return fmt.Errorf("error updating interaction: %w", err)
+	}
+
+	return nil
 }
 
 // getSessionStepInfo godoc

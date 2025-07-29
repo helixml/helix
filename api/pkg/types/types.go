@@ -16,7 +16,11 @@ import (
 )
 
 type Interaction struct {
-	ID        string    `json:"id"`
+	ID string `json:"id" gorm:"primaryKey"`
+	// GenerationID, starts at 0, increments for each regeneration (when user retries a message, anywhere from the past)
+	// it is used to keep a timeline when querying the database for messages or viewing previous generations
+	GenerationID int `json:"generation_id" gorm:"primaryKey"`
+
 	Created   time.Time `json:"created"`
 	Updated   time.Time `json:"updated"`
 	Scheduled time.Time `json:"scheduled"`
@@ -27,10 +31,7 @@ type Interaction struct {
 	Mode SessionMode `json:"mode"`
 
 	SessionID string `json:"session_id" gorm:"index"`
-	// GenerationID, starts at 0, increments for each regeneration (when user retries a message, anywhere from the past)
-	// it is used to keep a timeline when querying the database for messages or viewing previous generations
-	GenerationID int    `json:"generation_id" gorm:"index"`
-	UserID       string `json:"user_id" gorm:"index"`
+	UserID    string `json:"user_id" gorm:"index"`
 
 	SystemPrompt string `json:"system_prompt"` // System prompt for the interaction (copy of the session's system prompt that was used to create this interaction)
 
@@ -134,6 +135,7 @@ type ListInteractionsQuery struct {
 	GenerationID int // Use -1 to get all generations for a session
 	Limit        int
 	Offset       int
+	Order        string // Defaults to ID ASC
 }
 
 // func (i *Interaction) GetPrompt() string {
@@ -560,37 +562,13 @@ type Session struct {
 	LoraDir string `json:"lora_dir"`
 	// for now we just whack the entire history of the interaction in here, json
 	// style
-	Interactions []*Interaction `json:"interactions" gorm:"CAS"`
+	Interactions []*Interaction `json:"interactions" gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
 	GenerationID int            `json:"generation_id"` // Current generation ID
 	// uuid of owner entity
 	Owner string `json:"owner"`
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
 }
-
-// type Interactions []*Interaction
-
-// func (m Interactions) Value() (driver.Value, error) {
-// 	j, err := json.Marshal(m)
-// 	return j, err
-// }
-
-// func (m *Interactions) Scan(src interface{}) error {
-// 	source, ok := src.([]byte)
-// 	if !ok {
-// 		return errors.New("type assertion .([]byte) failed")
-// 	}
-// 	var result Interactions
-// 	if err := json.Unmarshal(source, &result); err != nil {
-// 		return err
-// 	}
-// 	*m = result
-// 	return nil
-// }
-
-// func (Interactions) GormDataType() string {
-// 	return "json"
-// }
 
 func (m SessionMetadata) Value() (driver.Value, error) {
 	j, err := json.Marshal(m)

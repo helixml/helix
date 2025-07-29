@@ -5,10 +5,32 @@ import (
 	"errors"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"gorm.io/gorm/clause"
 )
+
+var interactionUpdateColumns = []string{
+	"updated",
+	"completed",
+	"runner",
+	"system_prompt",
+	"prompt_message",
+	"prompt_message_content",
+	"response_message",
+	"response_format",
+	"response_format_response",
+	"display_message",
+	"duration_ms",
+	"state",
+	"status",
+	"error",
+	"rag_results",
+	"tools",
+	"tool_calls",
+	"tool_call_id",
+	"usage",
+}
 
 func (s *PostgresStore) CreateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error) {
 	if interaction.SessionID == "" {
@@ -25,7 +47,10 @@ func (s *PostgresStore) CreateInteraction(ctx context.Context, interaction *type
 
 	db := s.gdb.WithContext(ctx)
 
-	err := db.Create(&interaction).Error
+	// Allows overwriting the interaction with the same primary key (ID and generation ID)
+	err := db.Clauses(clause.OnConflict{
+		UpdateAll: true,
+	}).Create(&interaction).Error
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +83,10 @@ func (s *PostgresStore) CreateInteractions(ctx context.Context, interactions ...
 
 	db := s.gdb.WithContext(ctx)
 
-	err := db.Create(&interactions).Error
+	// Allows overwriting the interaction with the same primary key (ID and generation ID)
+	err := db.Clauses(clause.OnConflict{
+		UpdateAll: true,
+	}).Create(&interactions).Error
 	if err != nil {
 		return err
 	}
@@ -87,11 +115,11 @@ func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *type
 		return nil, errors.New("id is required")
 	}
 
-	spew.Dump(interaction)
-
 	db := s.gdb.WithContext(ctx)
 
-	err := db.Save(&interaction).Error
+	err := db.Clauses(clause.OnConflict{
+		UpdateAll: true,
+	}).Save(&interaction).Error
 	if err != nil {
 		return nil, err
 	}
@@ -135,9 +163,13 @@ func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListI
 		q = q.Where("generation_id = ?", query.GenerationID)
 	}
 
+	if query.Order == "" {
+		query.Order = "id ASC"
+	}
+
 	var interactions []*types.Interaction
 	// Oldest to newest
-	err := q.Order("created ASC").Find(&interactions).Error
+	err := q.Order(query.Order).Find(&interactions).Error
 	if err != nil {
 		return nil, err
 	}
