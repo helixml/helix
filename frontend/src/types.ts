@@ -21,8 +21,6 @@ export type ISessionCreator = 'system' | 'user' | 'assistant'
 // did). At time of writing, it's unused in the frontend because the frontend
 // doesn't have system prompt support.
 export const SESSION_CREATOR_SYSTEM: ISessionCreator = 'system'
-export const SESSION_CREATOR_USER: ISessionCreator = 'user'
-export const SESSION_CREATOR_ASSISTANT: ISessionCreator = 'assistant'
 
 export type ISessionMode = 'inference' | 'finetune'
 export const SESSION_MODE_INFERENCE: ISessionMode = 'inference'
@@ -397,8 +395,8 @@ export interface ISessionSummary {
   name: string,
   interaction_id: string,
   model_name: string,
-  mode: ISessionMode,
-  type: ISessionType,
+  mode: string,
+  type: string,
   owner: string,
   lora_dir?: string,
   summary: string,

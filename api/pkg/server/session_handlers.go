@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
@@ -194,6 +195,19 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			return
 		}
 
+		// Load interactions for the session
+		interactions, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    session.ID,
+			GenerationID: session.GenerationID,
+		})
+		if err != nil {
+			http.Error(rw, fmt.Sprintf("failed to get interactions for session %s, error: %s", startReq.SessionID, err), http.StatusInternalServerError)
+			return
+		}
+
+		// Updating session interactions
+		session.Interactions = interactions
+
 		startReq.OrganizationID = session.OrganizationID
 
 		// If the session has an AppID, use it as the next interaction
@@ -340,6 +354,9 @@ If the user asks for information about Helix or installing Helix, refer them to 
 
 	chatCompletionRequest.Messages = types.InteractionsToOpenAIMessages(startReq.SystemPrompt, messagesToInclude)
 
+	fmt.Println("XXX")
+	spew.Dump(chatCompletionRequest.Messages)
+
 	if !startReq.Stream {
 		err := s.handleBlockingSession(ctx, user, session, lastInteraction, chatCompletionRequest, options, rw)
 		if err != nil {
@@ -426,7 +443,7 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 	// Append the new message
 	session.Interactions = append(session.Interactions,
 		&types.Interaction{
-			ID:                   system.GenerateUUID(),
+			ID:                   system.GenerateInteractionID(),
 			Created:              time.Now(),
 			Updated:              time.Now(),
 			Scheduled:            time.Now(),
@@ -590,7 +607,7 @@ func (s *HelixAPIServer) handleBlockingSession(
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		writeErr := s.Controller.UpdateInteraction(ctx, interaction)
+		writeErr := s.Controller.UpdateInteraction(ctx, session, interaction)
 		if writeErr != nil {
 			return fmt.Errorf("error writing session: %w", writeErr)
 		}
@@ -613,7 +630,7 @@ func (s *HelixAPIServer) handleBlockingSession(
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err = s.Controller.UpdateInteraction(ctx, interaction)
+	err = s.Controller.UpdateInteraction(ctx, session, interaction)
 	if err != nil {
 		return err
 	}
@@ -689,7 +706,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		writeErr := s.Controller.UpdateInteraction(ctx, interaction)
+		writeErr := s.Controller.UpdateInteraction(ctx, session, interaction)
 		if writeErr != nil {
 			return fmt.Errorf("error writing session: %w", writeErr)
 		}
@@ -734,7 +751,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			return s.Controller.UpdateInteraction(ctx, interaction)
+			return s.Controller.UpdateInteraction(ctx, session, interaction)
 		}
 
 		// Accumulate the response
@@ -766,7 +783,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	return s.Controller.UpdateInteraction(ctx, interaction)
+	return s.Controller.UpdateInteraction(ctx, session, interaction)
 }
 
 // getSessionStepInfo godoc

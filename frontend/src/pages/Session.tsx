@@ -49,15 +49,9 @@ import {
   INTERACTION_STATE_COMPLETE,
   INTERACTION_STATE_ERROR,
   IShareSessionInstructions,
-  SESSION_CREATOR_ASSISTANT,
-  SESSION_CREATOR_USER,
 } from '../types'
 
 import { TypesMessageContentType, TypesMessage, TypesStepInfo, TypesSession, TypesInteractionState } from '../api/api'
-
-import {
-  getAssistantInteraction,
-} from '../utils/session'
 
 import { useStreaming } from '../contexts/streaming'
 
@@ -665,7 +659,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         assistantId: assistantID || undefined,
         provider: session.data.provider,
         modelName: session.data.model_name,
-        loraDir: session.data.lora_dir,
         sessionId: session.data.id,
         type: session.data.type,
       })
@@ -1308,9 +1301,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   // then keep reloading it until it has finished
   useEffect(() => {
     if (!session.data) return
-    const systemInteraction = getAssistantInteraction(session.data)
-    if (!systemInteraction) return
-    if (systemInteraction.state == INTERACTION_STATE_COMPLETE || systemInteraction.state == INTERACTION_STATE_ERROR) return
+    // Take the last interaction
+    const lastInteraction = session.data.interactions?.[session.data.interactions.length - 1]
+    if (!lastInteraction) return
+    if (lastInteraction.state == TypesInteractionState.InteractionStateComplete || lastInteraction.state == TypesInteractionState.InteractionStateError) return
     
     // ok the most recent interaction is not finished so let's trigger a reload in 5 seconds
     const timer = setTimeout(() => {
