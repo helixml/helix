@@ -180,99 +180,53 @@ func GetDefaultDiffusersModels() ([]*DiffusersGenericImage, error) {
 		// 	Description: "High quality image model, from Stability AI",
 		// 	Hide:        false,
 		// },
-		{
-			ID:          ModelDiffusersFluxdev,
-			Name:        "FLUX.1-dev",
-			Memory:      GB * 39,
-			Description: "High quality image model, from Black Forest Labs",
-			Hide:        false,
-		},
+
+		// Stopped downloading for some reason
+		// {
+		// 	ID:          ModelDiffusersFluxdev,
+		// 	Name:        "FLUX.1-dev",
+		// 	Memory:      GB * 39,
+		// 	Description: "High quality image model, from Black Forest Labs",
+		// 	Hide:        false,
+		// },
 	}, nil
 }
 
 // See also types/models.go for model name constants
 func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 	models := []*OllamaGenericText{
-		// Latest models, Dec 2024 updates
+		// Latest models, July 2025 updates
 		{
-			ID:            "llama3.1:8b-instruct-q8_0", // https://ollama.com/library/llama3.1:8b-instruct-q8_0
-			Name:          "Llama 3.1 8B",
-			Memory:        MB * 10546,
-			ContextLength: 32768, // goes up to 128k, but then uses 35GB
-			Description:   "Fast and good for everyday tasks, from Meta - 8bit quantized, 32K context",
+			ID:            "qwen3:8b", // https://ollama.com/library/qwen3:8b
+			Name:          "Qwen3 8B",
+			Memory:        GB * 6, // Based on Q4_K_M quantization, ~5.2GB model size
+			ContextLength: 40960,  // 40K context window
+			Description:   "Latest generation Qwen model with enhanced reasoning, from Alibaba - 4bit quantized, 40K context",
 			Hide:          false,
 			Prewarm:       true,
 		},
 		{
-			ID:            "llama3.3:70b-instruct-q4_K_M", // https://ollama.com/library/llama3.1:70b-instruct-q4_K_M
-			Name:          "Llama 3.3 70B",
-			Memory:        GB * 44,
-			ContextLength: 8192,
-			Description:   "Smarter but slower, from Meta - 4bit quantized, 8K context",
+			ID:            "qwen2.5vl:32b", // https://ollama.com/library/qwen2.5vl:32b
+			Name:          "Qwen2.5-VL 32B",
+			Memory:        GB * 22, // Based on Q4_K_M quantization, ~21GB model size
+			ContextLength: 131072,  // 125K context window
+			Description:   "Flagship vision-language model with document parsing and visual agent capabilities, from Alibaba - 4bit quantized, 125K context",
 			Hide:          false,
 		},
 		{
-			ID:            "llama3.2:1b-instruct-q8_0", // https://ollama.com/library/llama3.2:1b-instruct-q8_0
-			Name:          "Llama 3.2 1B",
-			Memory:        GB * 15,
-			ContextLength: 131072,
-			Description:   "Tiny model, from Meta - 8bit quantized, 128K context",
+			ID:            "qwen3:32b", // https://ollama.com/library/qwen3:32b
+			Name:          "Qwen3 32B",
+			Memory:        GB * 21, // Based on Q4_K_M quantization, ~20GB model size
+			ContextLength: 40960,   // 40K context window
+			Description:   "Large Qwen3 model with superior reasoning and agent capabilities, from Alibaba - 4bit quantized, 40K context",
 			Hide:          false,
 		},
 		{
-			ID:            "llama3.2:3b-instruct-q8_0", // https://ollama.com/library/llama3.2:3b-instruct-q8_0
-			Name:          "Llama 3.2 3B",
-			Memory:        GB * 26,
-			ContextLength: 131072,
-			Description:   "Small model, from Meta - 8bit quantized, 128K context",
-			Hide:          false,
-		},
-		{
-			ID:            "deepseek-r1:8b-llama-distill-q8_0",
-			Name:          "Deepseek-R1 8B",
-			Memory:        GB * 26,
-			ContextLength: 131072,
-			Description:   "Small reasoning model (Llama based) - 8bit quantized, 128K context",
-			Hide:          false,
-		},
-		{
-			ID:            "deepseek-r1:32b-qwen-distill-q8_0",
-			Name:          "Deepseek-R1 32B",
-			Memory:        GB * 66,
-			ContextLength: 131072,
-			Description:   "Medium reasoning model (Qwen based) - 8bit quantized, 128K context",
-			Hide:          false,
-		},
-		{
-			ID:            "phi3.5:3.8b-mini-instruct-q8_0", // https://ollama.com/library/phi3.5:3.8b-mini-instruct-q8_0
-			Name:          "Phi 3.5 3.8B",
-			Memory:        GB * 35,
-			ContextLength: 65536,
-			Description:   "Fast and good for everyday tasks, from Microsoft - 8bit quantized, 64K context",
-			Hide:          false,
-		},
-		{
-			ID:            "qwen2.5:7b-instruct-q8_0", // https://ollama.com/library/qwen2.5:7b-instruct-q8_0
-			Name:          "Qwen 2.5 7B",
-			Memory:        GB * 12,
-			ContextLength: 32768,
-			Description:   "Fast and good for everyday tasks, from Alibaba - 8bit quantized, 32K context",
-			Hide:          false,
-		},
-		{
-			ID:            "aya:8b-23-q8_0", // https://ollama.com/library/aya:8b-23-q8_0
-			Name:          "Aya 8B",
-			Memory:        GB * 11,
-			ContextLength: 8192,
-			Description:   "Small multi-lingual model from Cohere - 8bit quantized, 8K context",
-			Hide:          false,
-		},
-		{
-			ID:            "aya:35b-23-q4_0", // https://ollama.com/library/aya:35b-23-q4_0
-			Name:          "Aya 35B",
-			Memory:        GB * 32,
-			ContextLength: 8192,
-			Description:   "Large multi-lingual model from Cohere - 4bit quantized, 8K context",
+			ID:            "qwen3:30b", // https://ollama.com/library/qwen3:30b
+			Name:          "Qwen3 30B MoE",
+			Memory:        GB * 20, // Based on Q4_K_M quantization, ~19GB model size
+			ContextLength: 262144,  // 256K context window
+			Description:   "Mixture-of-experts model with enhanced reasoning capabilities, from Alibaba - 4bit quantized, 256K context",
 			Hide:          false,
 		},
 		// Old llama3:instruct and ph3:instruct, leaving in here because the id
