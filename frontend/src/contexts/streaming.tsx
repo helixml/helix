@@ -3,7 +3,7 @@ import ReconnectingWebSocket from 'reconnecting-websocket';
 import { ISession, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WEBSOCKET_EVENT_TYPE_STEP_INFO, WORKER_TASK_RESPONSE_TYPE_PROGRESS, IInteraction, ISessionChatRequest, SESSION_TYPE_TEXT, ISessionType } from '../types';
 import useAccount from '../hooks/useAccount';
 import useSessions from '../hooks/useSessions';
-import { TypesCreatorType, TypesMessage } from '../api/api';
+import { TypesMessage } from '../api/api';
 import { sessionStepsQueryKey } from '../services/sessionService';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -16,10 +16,9 @@ interface NewInferenceParams {
   image_filename?: string;
   appId?: string;
   assistantId?: string;
-  ragSourceId?: string;
+  interactionId?: string;
   provider?: string;
   modelName?: string;
-  loraDir?: string;
   sessionId?: string;
   orgId?: string;
   attachedImages?: File[];
@@ -221,12 +220,11 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     message,
     messages,
     appId = '',
-    assistantId = '',
-    ragSourceId = '',
+    assistantId = '',    
     provider = '',
-    modelName = '',
-    loraDir = '',
+    modelName = '',    
     sessionId = '',
+    interactionId = '',
     orgId = '',
     image = undefined,
     image_filename = undefined,
@@ -300,14 +298,13 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       app_id: appId,
       organization_id: orgId,
       assistant_id: assistantId,
-      rag_source_id: ragSourceId,
+      interaction_id: interactionId,
       provider: provider,
-      model: modelName,
-      lora_dir: loraDir,
+      model: modelName,      
       session_id: sessionId,
       messages: [
         {
-          role: TypesCreatorType.CreatorTypeUser,
+          role: 'user',
           content: messagePayloadContent as any, // Use the correctly structured object, cast to any to bypass TS type mismatch
         },
       ],

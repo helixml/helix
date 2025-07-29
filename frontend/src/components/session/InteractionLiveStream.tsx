@@ -6,15 +6,16 @@ import LoadingSpinner from '../widgets/LoadingSpinner'
 import useLiveInteraction from '../../hooks/useLiveInteraction'
 import Markdown from './Markdown'
 import useAccount from '../../hooks/useAccount'
-import { IInteraction, ISession, IServerConfig } from '../../types'
+import { IServerConfig } from '../../types'
+import { TypesInteraction, TypesSession } from '../../api/api'
 import ToolStepsWidget from './ToolStepsWidget'
 
 export const InteractionLiveStream: FC<{
   session_id: string,
-  interaction: IInteraction,
+  interaction: TypesInteraction,
   hasSubscription?: boolean,
   serverConfig?: IServerConfig,
-  session: ISession,
+  session: TypesSession,
   onMessageChange?: {
     (message: string): void,
   },
@@ -110,11 +111,10 @@ export const InteractionLiveStream: FC<{
         messageLength: message?.length,
         interactionId: interaction?.id,
         state: interaction?.state,
-        finished: interaction?.finished,
-        isSecondOrLaterInteraction: session?.interactions?.indexOf(interaction) > 0
+        isSecondOrLaterInteraction: session?.interactions ? session.interactions.indexOf(interaction || {}) > 0 : false
       };
     }, [isActivelyStreaming, isComplete, message?.length, interaction?.id, 
-        interaction?.state, interaction?.finished, session?.interactions]);
+        interaction?.state, session?.interactions]);
     
     if (!serverConfig || !serverConfig.filestore_prefix) return null
 
