@@ -229,9 +229,9 @@ export const InteractionInference: FC<{
                             position: 'relative'
                           }}
                         >
-                          <Tooltip title="Regenerate">
+                          <Tooltip title="Regenerate this response">
                             <IconButton
-                              onClick={() => onRegenerate(interaction.id || '', message || '')}
+                              onClick={() => onRegenerate(interaction.id || '', interaction.prompt_message || '')}
                               size="small"
                               className="regenerate-btn"
                               sx={theme => ({
