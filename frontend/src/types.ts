@@ -959,6 +959,7 @@ export interface ISessionChatRequest {
   organization_id?: string,
   assistant_id?: string,
   session_id?: string,
+  interaction_id?: string,
   stream?: boolean,
   legacy?: boolean,
   type?: ISessionType,

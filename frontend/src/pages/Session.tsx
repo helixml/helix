@@ -42,8 +42,6 @@ import LoadingSpinner from '../components/widgets/LoadingSpinner'
 
 import {
   ICloneInteractionMode,
-  ISession,
-  ISessionConfig,
   INTERACTION_STATE_EDITING,
   SESSION_TYPE_TEXT,
   SESSION_MODE_FINETUNE,
@@ -55,7 +53,7 @@ import {
   SESSION_CREATOR_USER,
 } from '../types'
 
-import { TypesMessageContentType, TypesMessage, TypesStepInfo } from '../api/api'
+import { TypesMessageContentType, TypesMessage, TypesStepInfo, TypesSession, TypesInteractionState } from '../api/api'
 
 import {
   getAssistantInteraction,
@@ -91,9 +89,7 @@ interface MemoizedInteractionProps {
   session: any;
   serverConfig: any;
   highlightAllFiles: boolean;
-  retryFinetuneErrors: () => void;
   onReloadSession: () => Promise<any>;
-  onClone: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>;
   onAddDocuments?: () => void;
   onFilterDocument?: (docId: string) => void;
   headerButtons?: React.ReactNode;
@@ -125,9 +121,7 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
       interaction={props.interaction}
       session={props.session}
       highlightAllFiles={props.highlightAllFiles}
-      retryFinetuneErrors={props.retryFinetuneErrors}
       onReloadSession={props.onReloadSession}
-      onClone={props.onClone}
       onAddDocuments={props.onAddDocuments}
       onFilterDocument={props.onFilterDocument}
       headerButtons={props.headerButtons}
@@ -160,7 +154,6 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
     // Basic identity/state checks
     prevProps.interaction.id !== nextProps.interaction.id ||
     prevProps.interaction.state !== nextProps.interaction.state ||
-    prevProps.interaction.finished !== nextProps.interaction.finished ||
     
     // Check output length in case content was added without state change
     (prevProps.interaction.output?.length !== nextProps.interaction.output?.length) ||
@@ -196,10 +189,10 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
   const isLastInteraction = prevProps.interaction === 
     prevProps.session.interactions[prevProps.session.interactions.length - 1];
   
-  // Always re-render the last interaction when it's not finished yet
+  // Always re-render the last interaction when it's not complete yet
   // This ensures streaming updates are properly displayed
-  const lastInteractionNotFinished = 
-    isLastInteraction && !nextProps.interaction.finished;
+  const lastInteractionNotComplete = 
+    isLastInteraction && nextProps.interaction.state !== 'complete' && nextProps.interaction.state !== 'error';
   
   // Log when state changes to help debug re-render issues
   if (prevProps.interaction.state !== nextProps.interaction.state) {
@@ -209,7 +202,7 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
       `shouldSkipRender=${!interactionChanged && 
         !documentIdsChanged && 
         !ragResultsChanged && 
-        !lastInteractionNotFinished &&
+        !lastInteractionNotComplete &&
         prevProps.highlightAllFiles === nextProps.highlightAllFiles}`
     );
   }
@@ -218,7 +211,7 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
   return !interactionChanged && 
          !documentIdsChanged && 
          !ragResultsChanged && 
-         !lastInteractionNotFinished &&
+         !lastInteractionNotComplete &&
          prevProps.highlightAllFiles === nextProps.highlightAllFiles;
 });
 
@@ -405,8 +398,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     if (!session.data?.interactions || session.data.interactions.length === 0) return
 
     const lastInteraction = session.data.interactions[session.data.interactions.length - 1]
-    const shouldBeStreaming = !lastInteraction.finished && 
-                             lastInteraction.state !== INTERACTION_STATE_EDITING &&
+    const shouldBeStreaming = lastInteraction.state !== INTERACTION_STATE_EDITING &&
                              lastInteraction.state !== INTERACTION_STATE_COMPLETE &&
                              lastInteraction.state !== INTERACTION_STATE_ERROR
 
@@ -542,14 +534,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     });
   }
 
-  const handleFeedbackChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setFeedbackValue(event.target.value)
-  }
-
   const loading = useMemo(() => {
     if (!session.data || !session.data?.interactions || session.data?.interactions.length === 0) return false
     const interaction = session.data?.interactions[session.data?.interactions.length - 1]
-    if (!interaction.finished) return true
+    if (interaction.state === 'waiting') return true
     return interaction.state == INTERACTION_STATE_EDITING
   }, [
     session.data,
@@ -558,15 +546,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   useEffect(() => {
     setCurrentSessionId(sessionID);
   }, [sessionID]);
-
-  const lastFinetuneInteraction = useMemo(() => {
-    if (!session.data) return undefined
-    const finetunes = session.data.interactions.filter(i => i.mode == SESSION_MODE_FINETUNE)
-    if (finetunes.length === 0) return undefined
-    return finetunes[finetunes.length - 1]
-  }, [
-    session.data,
-  ])
 
   // Create a wrapper for session.reload to preserve scroll position
   const safeReloadSession = useCallback(async (shouldScrollToBottom = false) => {
@@ -636,7 +615,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     if (!isStreaming && session.data?.interactions) {
       // When streaming ends, ensure we have continuous blocks
       setVisibleBlocks(prev => {
-        const totalInteractions = session.data!.interactions.length
+        const totalInteractions = session.data?.interactions?.length || 0
         const lastBlock = prev[prev.length - 1]
 
         if (!lastBlock) {
@@ -667,12 +646,11 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       inferencePrompt: prompt,
     })) return
 
-    let newSession: ISession | null = null
+    let newSession: TypesSession | null = null
 
     if (session.data.mode === 'inference' && session.data.type === 'text') {
       // Get the appID from session.data.parent_app instead of URL params
-      const appID = session.data.parent_app || ''
-      const ragSourceID = session.data.config.rag_source_data_entity_id || ''
+      const appID = session.data.parent_app || ''      
 
       setInputValue("")
       // Scroll to bottom immediately after submitting to show progress
@@ -685,7 +663,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         image_filename: selectedImageName || undefined, // Optional field
         appId: appID,
         assistantId: assistantID || undefined,
-        ragSourceId: ragSourceID,
         provider: session.data.provider,
         modelName: session.data.model_name,
         loraDir: session.data.lora_dir,
@@ -695,7 +672,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     } else {
       const formData = new FormData()
       formData.set('input', prompt)
-      formData.set('model_name', session.data.model_name)
+      formData.set('model_name', session.data?.model_name || '')
 
       setInputValue("")
       // Scroll to bottom immediately after submitting to show progress
@@ -730,47 +707,70 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
     console.log("onRegenerate", { interactionID, message })
 
-    let newSession: ISession | null = null
+    let newSession: TypesSession | null = null
 
     if (session.data.mode === 'inference' && session.data.type === 'text') {
       // Get the appID from session.data.parent_app instead of URL params
       const appID = session.data.parent_app || ''
-      const ragSourceID = session.data.config.rag_source_data_entity_id || ''
 
       // Find the interaction index
-      const interactionIndex = session.data.interactions.findIndex(i => i.id === interactionID)
+      const interactionIndex = session.data?.interactions?.findIndex(i => i.id === interactionID)
       if (interactionIndex === -1) {
         console.error('Interaction not found:', interactionID)
         return
       }
 
-      // Get the interaction to determine if it's from user or assistant
-      const targetInteraction = session.data.interactions[interactionIndex]
-      const isAssistantMessage = targetInteraction.creator === SESSION_CREATOR_ASSISTANT
+      // If interaction is not found, return
+      if (interactionIndex === undefined) {
+        console.error('Interaction not found:', interactionID)
+        return
+      }
+
+      // Get the interaction
+      const targetInteraction = session.data?.interactions?.[interactionIndex]     
 
       // Convert interactions to messages based on the type of message being regenerated
-      const messages: TypesMessage[] = session.data.interactions
-        .slice(0, isAssistantMessage ? interactionIndex : interactionIndex + 1) // Remove everything after the target interaction
-        .map(interaction => {
-          // If this is the user message being edited, use the new message
-          if (!isAssistantMessage && interaction.id === interactionID) {
-            return {
-              role: interaction.creator as any,
+      const messages: TypesMessage[] = []
+      
+      // Add all interactions up to (but not including) the target interaction
+      const interactionsBeforeTarget = session.data?.interactions?.slice(0, interactionIndex) || []
+      
+      for (const interaction of interactionsBeforeTarget) {
+        // If interaction.state is completed, it has both prompt_message and response_message
+        if (interaction.state === 'complete' || interaction.state === 'error') {
+          // Add user message (prompt_message)
+          if (interaction.prompt_message) {
+            messages.push({
+              role: 'user',
               content: {
                 content_type: 'text' as TypesMessageContentType,
-                parts: [message] // Use the new message
+                parts: [interaction.prompt_message]
               }
-            }
+            })
           }
-          // Otherwise use the original message
-          return {
-            role: interaction.creator as any,
-            content: {
-              content_type: 'text' as TypesMessageContentType,
-              parts: [interaction.message]
-            }
+          
+          // Add assistant message (response_message)
+          if (interaction.response_message) {
+            messages.push({
+              role: 'assistant',
+              content: {
+                content_type: 'text' as TypesMessageContentType,
+                parts: [interaction.response_message]
+              }
+            })
           }
-        })
+        }
+      }
+      
+      // Add the target interaction as a new user message with the provided message
+      messages.push({
+        role: 'user',
+        content: {
+          content_type: 'text' as TypesMessageContentType,
+          parts: [message]
+        }
+      })
+      
 
       // Scroll to bottom immediately after submitting to show progress
       scrollToBottom()
@@ -781,17 +781,16 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         messages: messages,
         appId: appID,
         assistantId: assistantID || undefined,
-        ragSourceId: ragSourceID,
-        provider: session.data.provider,
-        modelName: session.data.model_name,
-        loraDir: session.data.lora_dir,
+        provider: session.data?.provider || '',
+        modelName: session.data?.model_name || '',
+        interactionId: interactionID,
         sessionId: session.data.id,
         type: session.data.type,
       })
     } else {
       const formData = new FormData()
       formData.set('input', '') // Empty input since we're using history
-      formData.set('model_name', session.data.model_name)
+      formData.set('model_name', session.data?.model_name || '')
 
       // Scroll to bottom immediately after submitting to show progress
       scrollToBottom()
@@ -841,28 +840,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     account.onLogin()
   }, [
     shareInstructions,
-  ])  
-
-  const onUpdateSessionConfig = useCallback(async (data: Partial<ISessionConfig>, snackbarMessage?: string) => {
-    if (!session.data) return
-    
-    const latestSessionData = await safeReloadSession()
-    if (!latestSessionData) return false
-    const sessionConfigUpdate = Object.assign({}, latestSessionData.config, data)
-    const result = await api.put<ISessionConfig, ISessionConfig>(`/api/v1/sessions/${session.data.id}/config`, sessionConfigUpdate, undefined, {
-      loading: true,
-    })
-    if (!result) return
-    
-    await safeReloadSession()
-    if (snackbarMessage) {
-      snackbar.success(snackbarMessage)
-    }
-  }, [
-    account.user,
-    session.data,
-    safeReloadSession,
-  ])
+  ])    
 
   const onClone = useCallback(async (mode: ICloneInteractionMode, interactionID: string): Promise<boolean> => {
     if (!checkOwnership({
@@ -870,7 +848,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       cloneInteractionID: interactionID,
     })) return true
     if (!session.data) return false
-    const newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${interactionID}/${mode}`, undefined, undefined, {
+    const newSession = await api.post<undefined, TypesSession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${interactionID}/${mode}`, undefined, undefined, {
       loading: true,
     })
     if (!newSession) return false
@@ -881,95 +859,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   }, [
     checkOwnership,
     isOwner,
-    account.user,
-    session.data,
-  ])
-
-  const onCloneIntoAccount = useCallback(async () => {
-    const handler = async (): Promise<boolean> => {
-      if (!session.data) return false
-      if (!shareInstructions) return false
-      let cloneInteractionID = ''
-      let cloneInteractionMode: ICloneInteractionMode = 'all'
-      if (shareInstructions.addDocumentsMode || shareInstructions.inferencePrompt) {
-        const interaction = getAssistantInteraction(session.data)
-        if (!interaction) return false
-        cloneInteractionID = interaction.id
-      } else if (shareInstructions.cloneMode && shareInstructions.cloneInteractionID) {
-        cloneInteractionID = shareInstructions.cloneInteractionID
-        cloneInteractionMode = shareInstructions.cloneMode
-      }
-      let newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${cloneInteractionID}/${cloneInteractionMode}`, undefined)
-      if (!newSession) return false
-
-      // send the next prompt
-      if (shareInstructions.inferencePrompt) {
-        const formData = new FormData()
-        formData.set('input', inputValue)
-        newSession = await api.put(`/api/v1/sessions/${newSession.id}`, formData)
-        if (!newSession) return false
-        setInputValue("")
-      }
-      await sessions.loadSessions()
-      snackbar.success('Session cloned...')
-      const params: Record<string, string> = {
-        session_id: newSession.id
-      }
-      if (shareInstructions.addDocumentsMode) {
-        params.addDocuments = 'yes'
-      }
-      setShareInstructions(undefined)
-      router.navigate('session', params)
-      return true
-    }
-
-    loadingHelpers.setLoading(true)
-    try {
-      await handler()
-      setShowCloneWindow(false)
-    } catch (e: any) {
-      console.error(e)
-      snackbar.error(e.toString())
-    }
-    loadingHelpers.setLoading(false)
-
-  }, [
-    account.user,
-    session.data,
-    shareInstructions,
-  ])
-
-  const onCloneAllIntoAccount = useCallback(async (withEvalUser = false) => {
-    const handler = async () => {
-      if (!session.data) return
-      if (session.data.interactions.length <= 0) throw new Error('Session cloned...')
-      const lastInteraction = session.data.interactions[session.data.interactions.length - 1]
-      let newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${lastInteraction.id}/all`, undefined, {
-        params: {
-          clone_into_eval_user: withEvalUser ? 'yes' : '',
-        }
-      })
-      if (!newSession) return false
-      await sessions.loadSessions()
-      snackbar.success('Session cloned...')
-      const params: Record<string, string> = {
-        session_id: newSession.id
-      }
-      router.navigate('session', params)
-      return true
-    }
-
-    loadingHelpers.setLoading(true)
-    try {
-      await handler()
-      setShowCloneAllWindow(false)
-    } catch (e: any) {
-      console.error(e)
-      snackbar.error(e.toString())
-    }
-    loadingHelpers.setLoading(false)
-
-  }, [
     account.user,
     session.data,
   ])
@@ -985,21 +874,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   }, [
     isOwner,
     account.user,
-    session.data,
-  ])
-
-  // const onShare = useCallback(() => {
-  //   router.setParams({
-  //     sharing: 'yes',
-  //   })
-  // }, [
-  //   session.data,
-  // ])
-
-  const retryFinetuneErrors = useCallback(async () => {
-    if (!session.data) return
-    await session.retryTextFinetune(session.data.id)
-  }, [
     session.data,
   ])
 
@@ -1053,7 +927,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     if (!session.data) return null;
     
     // Create a stable reference for interactions
-    const interactionStateIds = session.data.interactions.map(i => `${i.id}:${i.state}:${i.finished}`).join(',');
+    const interactionStateIds = session.data?.interactions?.map(i => `${i.id}:${i.state}`).join(',') || '';
     return {
       ...session.data,
       interactionIds: interactionStateIds, // add this to use for memoization
@@ -1067,7 +941,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     session.data?.id, 
     session.data?.interactions?.length, 
     // Add additional dependency to force update when any interaction state changes
-    session.data?.interactions?.map(i => `${i.id}:${i.state}:${i.finished}`).join(',')
+    session.data?.interactions?.map(i => `${i.id}:${i.state}`).join(',')
   ]);
 
   // Function to add blocks above when scrolling up
@@ -1238,10 +1112,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       serverConfig={account.serverConfig}
                       interaction={interaction}
                       session={sessionData}
-                      highlightAllFiles={highlightAllFiles}
-                      retryFinetuneErrors={retryFinetuneErrors}
+                      highlightAllFiles={highlightAllFiles}                      
                       onReloadSession={safeReloadSession}
-                      onClone={onClone}
                       onAddDocuments={isLastInteraction ? onAddDocuments : undefined}
                       onFilterDocument={appID ? onHandleFilterDocument : undefined}                    
                       isLastInteraction={isLastInteraction}
@@ -1250,7 +1122,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       scrollToBottom={scrollToBottom}
                       appID={appID}
                       onHandleFilterDocument={onHandleFilterDocument}
-                      session_id={sessionData.id}
+                      session_id={sessionData.id || ''}
                       hasSubscription={account.userConfig.stripe_subscription_active || false}
                       onRegenerate={onRegenerate}
                       sessionSteps={sessionSteps?.data || []}
@@ -1271,8 +1143,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     account.user?.id,
     account.admin,
     account.userConfig.stripe_subscription_active,
-    highlightAllFiles,
-    retryFinetuneErrors,
+    highlightAllFiles,    
     safeReloadSession,
     onClone,
     onAddDocuments,
@@ -1404,7 +1275,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
   useWebsocket(sessionID, (parsedData) => {
     if (parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
-      const newSession: ISession = parsedData.session
+      const newSession: TypesSession = parsedData.session
       // Save scroll position before updating session data
       saveScrollPosition()
       
@@ -1432,35 +1303,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       }, 2000)
     }
   }, [])
-
-  // This effect handles login and returning to a shared session
-  useEffect(() => {
-    if (!session.data) return
-    if (!account.user) return
-    const instructionsString = localStorage.getItem('shareSessionInstructions')
-    if (!instructionsString) return
-    localStorage.removeItem('shareSessionInstructions')
-    const instructions = JSON.parse(instructionsString || '{}') as IShareSessionInstructions
-    if (instructions.cloneMode && instructions.cloneInteractionID) {
-      onClone(instructions.cloneMode, instructions.cloneInteractionID)
-    } else if (instructions.inferencePrompt) {
-      setInputValue(instructions.inferencePrompt)
-      onSend(instructions.inferencePrompt)
-    }
-  }, [
-    account.user,
-    session.data,
-    onClone,
-    onSend,
-  ])
-
-  // When the session has loaded re-populate the feedback area
-  useEffect(() => {
-    if (!session.data) return
-    setFeedbackValue(session.data.config.eval_user_reason)
-  }, [
-    session.data,
-  ])
 
   // In case the web socket updates do not arrive, if the session is not finished
   // then keep reloading it until it has finished
@@ -1718,70 +1560,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       </Button>
                     </Cell>
                   )} */}
-                </Row>
-
-                {!isBigScreen && (
-                  <Box
-                    sx={{
-                      width: '100%',
-                      display: 'flex',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      mt: 2,
-                    }}
-                  >
-                    <Button
-                      onClick={() => {
-                        onUpdateSessionConfig({
-                          eval_user_score: session.data?.config.eval_user_score == "" ? '1.0' : "",
-                        }, `Thank you for your feedback!`)
-                      }}
-                    >
-                      {session.data?.config.eval_user_score == "1.0" ? <ThumbUpOnIcon /> : <ThumbUpOffIcon />}
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        onUpdateSessionConfig({
-                          eval_user_score: session.data?.config.eval_user_score == "" ? '0.0' : "",
-                        }, `Sorry! We will use your feedback to improve`)
-                      }}
-                    >
-                      {session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon />}
-                    </Button>
-                  </Box>
-                )}
-
-                {session.data?.config.eval_user_score != "" && (
-                  <Box
-                    sx={{
-                      width: '100%',
-                      display: 'flex',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      mt: 2,
-                    }}
-                  >
-                    <TextField
-                      id="feedback"
-                      label="Please explain why"
-                      value={feedbackValue}
-                      onChange={handleFeedbackChange}
-                      name="ai_feedback"
-                    />
-                    <Button
-                      variant="contained"
-                      disabled={loading}
-                      onClick={() => onUpdateSessionConfig({
-                        eval_user_reason: feedbackValue,
-                      }, `Thanks, you are awesome`)}
-                      sx={{ ml: 2 }}
-                    >
-                      Save
-                    </Button>
-                  </Box>
-                )}
+                </Row>             
                 {/* Only show disclaimer if not in preview mode */}
                 {!previewMode && (
                   <Box sx={{ mt: 2 }}>
@@ -1869,7 +1648,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
           onCancel={() => {
             setShowCloneWindow(false)
           }}
-          onSubmit={onCloneIntoAccount}
+          onSubmit={() => {
+            // TODO: Implement clone into account functionality
+            setShowCloneWindow(false)
+          }}
           withCancel
           cancelTitle="Close"
           submitTitle="Clone Session"
@@ -1903,7 +1685,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                   size="small"
                   variant="contained"
                   disabled={loading}
-                  onClick={() => onCloneAllIntoAccount(false)}
+                  onClick={() => {
+                    // TODO: Implement clone all into account functionality
+                    setShowCloneAllWindow(false)
+                  }}
                   sx={{ ml: 2, width: '200px' }}
                   endIcon={<SendIcon />}
                 >
@@ -1923,7 +1708,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                     size="small"
                     variant="contained"
                     disabled={loading}
-                    onClick={() => onCloneAllIntoAccount(true)}
+                    onClick={() => {
+                    // TODO: Implement clone all into evals account functionality
+                    setShowCloneAllWindow(false)
+                  }}
                     sx={{ ml: 2, width: '200px' }}
                     endIcon={<SendIcon />}
                   >
