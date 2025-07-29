@@ -64,6 +64,16 @@ spec:
             - name: RUNNER_TOKEN
               value: {{ .Values.controlplane.runnerToken | quote }}
             {{- end }}
+            {{- if .Values.controlplane.licenseKeyExistingSecret }}
+            - name: LICENSE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlplane.licenseKeyExistingSecret }}
+                  key: {{ .Values.controlplane.licenseKeyExistingSecretKey | default "license-key" }}
+            {{- else if .Values.controlplane.licenseKey }}
+            - name: LICENSE_KEY
+              value: {{ .Values.controlplane.licenseKey | quote }}
+            {{- end }}
             - name: KEYCLOAK_URL
               value: {{ .Values.controlplane.keycloak.url | quote }}
             - name: KEYCLOAK_FRONTEND_URL
