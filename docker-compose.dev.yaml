@@ -254,10 +254,10 @@ services:
       context: .
       dockerfile: Dockerfile.runner
       args:
-        TAG: 2025-07-29b-small
+        TAG: 2025-07-29b-large
     environment:
       # Prevent toolchain downloads
-      - GOTOOLCHAIN=local 
+      - GOTOOLCHAIN=local
     deploy:
       resources:
         reservations:
