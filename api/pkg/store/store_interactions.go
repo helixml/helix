@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -85,6 +86,8 @@ func (s *PostgresStore) UpdateInteraction(ctx context.Context, interaction *type
 	if interaction.ID == "" {
 		return nil, errors.New("id is required")
 	}
+
+	spew.Dump(interaction)
 
 	db := s.gdb.WithContext(ctx)
 
