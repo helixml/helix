@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/rs/zerolog/log"
 	"github.com/sashabaranov/go-openai"
 
@@ -117,7 +118,7 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 		interaction.State = types.InteractionStateError
 		interaction.Completed = time.Now()
 
-		updateErr := c.UpdateInteraction(ctx, interaction)
+		updateErr := c.UpdateInteraction(ctx, req.Session, interaction)
 		if updateErr != nil {
 			log.Error().
 				Err(updateErr).
@@ -139,7 +140,7 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 		TotalTokens:      resp.Usage.TotalTokens,
 	}
 
-	err = c.UpdateInteraction(ctx, interaction)
+	err = c.UpdateInteraction(ctx, req.Session, interaction)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -270,16 +271,33 @@ func (c *Controller) WriteInteractions(ctx context.Context, interactions ...*typ
 	return c.Options.Store.CreateInteractions(ctx, interactions...)
 }
 
-func (c *Controller) UpdateInteraction(ctx context.Context, interaction *types.Interaction) error {
-	_, err := c.Options.Store.UpdateInteraction(ctx, interaction)
+func (c *Controller) UpdateInteraction(ctx context.Context, session *types.Session, interaction *types.Interaction) error {
+	updated, err := c.Options.Store.UpdateInteraction(ctx, interaction)
 	if err != nil {
 		return err
 	}
+
+	// Update or append
+	found := false
+	for idx, existingInteraction := range session.Interactions {
+		if existingInteraction.ID == interaction.ID {
+			session.Interactions[idx] = updated
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		session.Interactions = append(session.Interactions, updated)
+	}
+
+	spew.Dump(session)
 
 	event := &types.WebsocketEvent{
 		Type:      types.WebsocketEventSessionUpdate,
 		SessionID: interaction.SessionID,
 		Owner:     interaction.UserID,
+		Session:   session,
 	}
 
 	_ = c.publishEvent(context.Background(), event)
