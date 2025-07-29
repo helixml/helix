@@ -1004,7 +1004,7 @@ steps:
       # Runner with no baked models = empty
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2025-06-23a-empty
+      - TAG=2025-07-29b-empty
       - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
@@ -1052,7 +1052,7 @@ steps:
       # Runner with small models = small
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2025-06-23a-small
+      - TAG=2025-07-29b-small
       - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
@@ -1081,7 +1081,7 @@ steps:
       # Runner with small models = small
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2025-06-23a-small
+      - TAG=2025-07-29b-small
       - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
@@ -1128,7 +1128,7 @@ steps:
       # Runner with large models = large
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2025-06-23a-large
+      - TAG=2025-07-29b-large
       - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
@@ -1157,7 +1157,7 @@ steps:
       # Runner with large models = large
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2025-06-23a-large
+      - TAG=2025-07-29b-large
       - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
     username: admin
     password:
