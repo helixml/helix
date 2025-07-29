@@ -6510,11 +6510,11 @@ const docTemplate = `{
                     "description": "Which assistant are we speaking to?",
                     "type": "string"
                 },
-                "lora_dir": {
+                "interaction_id": {
+                    "description": "If empty, we will start a new interaction",
                     "type": "string"
                 },
-                "lora_id": {
-                    "description": "the fine tuned data entity we produced from this session",
+                "lora_dir": {
                     "type": "string"
                 },
                 "messages": {

@@ -335,36 +335,10 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		}
 	)
 
-	// Adding system prompt to the chat completion request if it's set
-	if startReq.SystemPrompt != "" {
-		chatCompletionRequest.Messages = append(chatCompletionRequest.Messages, openai.ChatCompletionMessage{
-			Role:    openai.ChatMessageRoleSystem,
-			Content: startReq.SystemPrompt,
-		})
-	}
-
-	// Convert interactions (except the last one) to messages
 	// TODO: replace with summary
 	messagesToInclude := limitInteractions(session.Interactions, messageContextLimit)
 
-	// If system prompt is set, add it to the messages
-	if session.Metadata.SystemPrompt != "" {
-		chatCompletionRequest.Messages = append(chatCompletionRequest.Messages, openai.ChatCompletionMessage{
-			Role:    openai.ChatMessageRoleSystem,
-			Content: session.Metadata.SystemPrompt,
-		})
-	}
-
-	for _, interaction := range messagesToInclude {
-		// Add user message
-		chatCompletionRequest.Messages = append(chatCompletionRequest.Messages, interaction.ToOpenAIUserMessage())
-
-		// Add assistant message if it's set
-		assistantMessage, ok := interaction.ToOpenAIAsistantMessage()
-		if ok {
-			chatCompletionRequest.Messages = append(chatCompletionRequest.Messages, assistantMessage)
-		}
-	}
+	chatCompletionRequest.Messages = types.InteractionsToOpenAIMessages(startReq.SystemPrompt, messagesToInclude)
 
 	if !startReq.Stream {
 		err := s.handleBlockingSession(ctx, user, session, lastInteraction, chatCompletionRequest, options, rw)
@@ -396,6 +370,7 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 		// If regenerate is true, remove all existing interactions
 		if req.Regenerate {
 			session.Interactions = []*types.Interaction{}
+			session.GenerationID++ // Increment generation ID to start a new generation
 		}
 
 		// Append the message
@@ -427,19 +402,19 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 	}
 
 	// Multiple messages, we are in "regenerate" mode
+	if req.InteractionID == "" {
+		return session, fmt.Errorf("interaction_id is required for multiple messages when regenerating")
+	}
 
 	// Last message must be from the user
 	if req.Messages[len(req.Messages)-1].Role != openai.ChatMessageRoleUser {
 		return session, fmt.Errorf("last message must be from the user")
 	}
 
-	// More than one message is provided, find the index of the message to overwrite
-	// messagesProvided := len(req.Messages)
+	session.GenerationID++ // Increment generation ID to start a new generation
 
 	// Cut existing interactions to this index
-	// session.Interactions = session.Interactions[:messagesProvided-1]
-	// TODO: validate regeneration
-	session.Interactions = session.Interactions[:getInteractionIndex(session.Interactions, req.Messages)]
+	session.Interactions = session.Interactions[:getInteractionIndex(session.Interactions, req)]
 
 	message, ok := req.Message()
 	if !ok {
@@ -470,17 +445,15 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 	return session, nil
 }
 
-func getInteractionIndex(interactions []*types.Interaction, messages []*types.Message) int {
+func getInteractionIndex(interactions []*types.Interaction, req *types.SessionChatRequest) int {
 	// Get last message interaction ID
-	if len(messages) == 0 {
+	if len(req.Messages) == 0 {
 		return 0
 	}
 
-	lastMessage := messages[len(messages)-1]
-
 	// Cut interactions until the last message interaction
 	for i, interaction := range interactions {
-		if interaction.ID == lastMessage.ID {
+		if interaction.ID == req.InteractionID {
 			return i
 		}
 	}
@@ -492,13 +465,13 @@ func getInteractionIndex(interactions []*types.Interaction, messages []*types.Me
 // If limit is 3 but there are 10 interactions, last one will be excluded and only the next 3 before it
 // will be returned.
 func limitInteractions(interactions []*types.Interaction, limit int) []*types.Interaction {
-	if limit > 0 && len(interactions) > limit+1 {
+	if limit > 0 && len(interactions) > limit {
 		// Add all interactions except the last one, limited by messageContextLimit
 		// +1 because we're not counting the last interaction which is the pending response
-		startIdx := len(interactions) - limit - 1
+		startIdx := len(interactions) - limit
 		return interactions[startIdx : len(interactions)-1]
 	}
-	return interactions[:len(interactions)-1]
+	return interactions
 }
 
 const titleGenPrompt = `Generate a concise 3-5 word title for the given user input. Follow these rules strictly:
@@ -598,8 +571,9 @@ func (s *HelixAPIServer) handleBlockingSession(
 	if session.ParentApp != "" {
 		options.AppID = session.ParentApp
 	}
-	log.Debug().
+	log.Info().
 		Str("session_id", session.ID).
+		Str("interaction_id", interaction.ID).
 		Str("app_id", session.ParentApp).
 		Msg("handleBlockingSession: set session ID in context for document tracking")
 
@@ -668,8 +642,9 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	if session.ParentApp != "" {
 		options.AppID = session.ParentApp
 	}
-	log.Debug().
+	log.Info().
 		Str("session_id", session.ID).
+		Str("interaction_id", interaction.ID).
 		Str("app_id", session.ParentApp).
 		Msg("handleStreamingSession: set session ID in context for document tracking")
 
