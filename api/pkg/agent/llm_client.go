@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 
 	helix_openai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/system"
@@ -66,5 +67,28 @@ func (c *LLM) NewStreaming(ctx context.Context, model *LLMModelConfig, params op
 	params.StreamOptions = &openai.StreamOptions{
 		IncludeUsage: true,
 	}
+	
+	// TODO: Enable reasoning token streaming when OpenAI SDK supports it
+	// For reasoning models, include reasoning tokens if supported
+	// if isReasoningModel(model.Model) {
+	//     params.StreamOptions.IncludeReasoning = true
+	// }
+	
 	return model.Client.CreateChatCompletionStream(ctx, params)
+}
+
+// isReasoningModel checks if the model supports reasoning token streaming
+func isReasoningModel(modelName string) bool {
+	reasoningModels := []string{
+		"o1", "o1-preview", "o1-mini", "o3", "o3-mini", "o4-mini",
+		"claude-3-5-sonnet", "claude-3-7-sonnet", "claude-4-sonnet",
+		"qwen3", "qwen-3",
+	}
+	
+	for _, reasoning := range reasoningModels {
+		if strings.Contains(strings.ToLower(modelName), reasoning) {
+			return true
+		}
+	}
+	return false
 }

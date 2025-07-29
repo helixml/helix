@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -94,7 +95,7 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 
 		// we need this because we need to send thoughts to the user. The thoughts sending go routine
 		// doesn't get the tool calls from here tool calls but instead as an assistant message
-		messageHistoryBeforeLLMCall := messageHistory.Clone()
+		// messageHistoryBeforeLLMCall := messageHistory.Clone() // No longer needed for fake thinking
 
 		ctx = oai.SetStep(ctx, &oai.Step{
 			Step: types.LLMCallStep(fmt.Sprintf("skill_context_runner (%s | iteration %d)", skill.Name, iterationNumber)),
@@ -134,8 +135,18 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 		toolsToCall := completion.Choices[0].Message.ToolCalls
 
 		if isConversational {
-			// sending fake thoughts to the user to keep the user engaged
-			go a.sendThoughtsAboutTools(ctx, llm, messageHistoryBeforeLLMCall, toolsToCall, outChan)
+			// Send status update about tools being executed
+			if len(toolsToCall) > 0 {
+				toolNames := []string{}
+				for _, tool := range toolsToCall {
+					toolNames = append(toolNames, tool.Function.Name)
+				}
+				statusMessage := fmt.Sprintf("Executing tools: %s", strings.Join(toolNames, ", "))
+				outChan <- Response{
+					Content: statusMessage,
+					Type:    ResponseTypeStatus,
+				}
+			}
 		}
 
 		// Create a wait group to wait for all tool executions to complete
