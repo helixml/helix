@@ -4841,9 +4841,6 @@ const docTemplate = `{
                         "$ref": "#/definitions/github_com_sashabaranov_go-openai.ToolCall"
                     }
                 },
-                "tool_choice": {
-                    "description": "This can be either a string or an ToolChoice object."
-                },
                 "tools": {
                     "description": "Model function calling, not to be mistaken with Helix tools",
                     "type": "array",
