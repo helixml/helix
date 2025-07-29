@@ -33,16 +33,6 @@ func GetHelixVersion() string {
 	return helixVersion
 }
 
-func FilterFinetuneInteractions(interactions []*types.Interaction) []*types.Interaction {
-	filtered := []*types.Interaction{}
-	for _, interaction := range interactions {
-		if interaction.Mode == types.SessionModeFinetune {
-			filtered = append(filtered, interaction)
-		}
-	}
-	return filtered
-}
-
 func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 
 	prompt := ""
@@ -51,9 +41,8 @@ func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 	}
 
 	return &types.SessionSummary{
-		SessionID: session.ID,
-		Name:      session.Name,
-		// InteractionID:  interaction.ID,
+		SessionID:      session.ID,
+		Name:           session.Name,
 		Type:           session.Type,
 		ModelName:      session.ModelName,
 		Owner:          session.Owner,
