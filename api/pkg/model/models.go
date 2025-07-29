@@ -150,9 +150,6 @@ func GetModels() (map[string]Model, error) {
 }
 
 const (
-	// ModelAxolotlMistral7b string = "mistralai/Mistral-7B-Instruct-v0.1"
-	// ModelCogSdxl          string = "stabilityai/stable-diffusion-xl-base-1.0"
-	// ModelDiffusersSd35    string = "stabilityai/stable-diffusion-3.5-medium"
 	ModelDiffusersSdturbo string = "stabilityai/sd-turbo"
 	ModelDiffusersFluxdev string = "black-forest-labs/FLUX.1-dev"
 
