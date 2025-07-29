@@ -147,53 +147,42 @@ func (suite *AppendOrOverwriteSuite) TestAppendToNonEmptySession() {
 	suite.Equal("", session.Interactions[1].ResponseMessage)
 }
 
-// func (suite *AppendOrOverwriteSuite) TestOverwriteSession_LastMessage() {
-// 	session := &types.Session{
-// 		Interactions: []*types.Interaction{
-// 			{
-// 				Message:  "Hello",
-// 				Creator:  types.CreatorTypeUser,
-// 				State:    types.InteractionStateComplete,
-// 				Finished: true,
-// 			},
-// 			{
-// 				Message:  "Hi there!",
-// 				Creator:  types.CreatorTypeAssistant,
-// 				State:    types.InteractionStateComplete,
-// 				Finished: true,
-// 			},
-// 		},
-// 	}
+func (suite *AppendOrOverwriteSuite) TestOverwriteSession_LastMessage() {
+	session := &types.Session{
+		Interactions: []*types.Interaction{
+			{
+				ID:              "1",
+				PromptMessage:   "user message",
+				State:           types.InteractionStateComplete,
+				ResponseMessage: "assistant message",
+			},
+		},
+	}
 
-// 	req := &types.SessionChatRequest{
-// 		Regenerate: true,
-// 		Messages: []*types.Message{
-// 			{
-// 				Role: "user",
-// 				Content: types.MessageContent{
-// 					Parts: []interface{}{
-// 						"Hello! I am user",
-// 					},
-// 				},
-// 			},
-// 		},
-// 	}
+	req := &types.SessionChatRequest{
+		Regenerate: true, // Regenerate
+		Messages: []*types.Message{
+			{
+				Role: "user",
+				Content: types.MessageContent{
+					Parts: []interface{}{
+						"new user message",
+					},
+				},
+			},
+		},
+	}
 
-// 	session, err := appendOrOverwrite(session, req)
-// 	suite.NoError(err)
+	session, err := appendOrOverwrite(session, req)
+	suite.NoError(err)
 
-// 	suite.Require().Len(session.Interactions, 2)
+	suite.Require().Len(session.Interactions, 1, "still expecting one interaction")
 
-// 	suite.Equal("Hello! I am user", session.Interactions[0].Message)
-// 	suite.Equal(types.CreatorTypeUser, session.Interactions[0].Creator)
-// 	suite.Equal(types.InteractionStateComplete, session.Interactions[0].State)
-// 	suite.True(session.Interactions[0].Finished)
+	suite.Equal("new user message", session.Interactions[0].PromptMessage)
+	suite.Equal(types.InteractionStateWaiting, session.Interactions[0].State)
+	suite.Equal("", session.Interactions[0].ResponseMessage)
 
-// 	suite.Equal("", session.Interactions[1].Message)
-// 	suite.Equal(types.CreatorTypeAssistant, session.Interactions[1].Creator)
-// 	suite.Equal(types.InteractionStateWaiting, session.Interactions[1].State)
-// 	suite.False(session.Interactions[1].Finished)
-// }
+}
 
 // func (suite *AppendOrOverwriteSuite) TestOverwriteSession_FirstMessage() {
 // 	session := &types.Session{
