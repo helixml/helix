@@ -3431,7 +3431,7 @@ definitions:
 host: app.helix.ml
 info:
   contact:
-    email: info@helixml.tech
+    email: info@helix.ml
     name: Helix support
     url: https://app.helix.ml/
   description: This is the HelixML API.

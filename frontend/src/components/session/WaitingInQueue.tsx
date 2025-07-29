@@ -135,7 +135,7 @@ export const WaitingInQueue: FC<{
                 emitEvent({
                   name: 'queue_get_in_touch_clicked'
                 })
-                window.open('mailto:founders@helixml.tech')
+                window.open('mailto:info@helix.ml')
               }}>Get in touch</Button>
           </CardActions>
         </Card>
