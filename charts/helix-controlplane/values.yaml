@@ -94,6 +94,9 @@ controlplane:
   runnerToken: ""
   runnerTokenExistingSecret: ""
   runnerTokenExistingSecretKey: ""
+  licenseKey: ""
+  licenseKeyExistingSecret: ""
+  licenseKeyExistingSecretKey: ""
   keycloak:
     url: ""
     frontendUrl: ""
