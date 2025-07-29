@@ -378,17 +378,16 @@ type SessionChatRequest struct {
 	OrganizationID string      `json:"organization_id"` // The organization this session belongs to, if any
 	AssistantID    string      `json:"assistant_id"`    // Which assistant are we speaking to?
 	SessionID      string      `json:"session_id"`      // If empty, we will start a new session
+	InteractionID  string      `json:"interaction_id"`  // If empty, we will start a new interaction
 	Stream         bool        `json:"stream"`          // If true, we will stream the response
 	Type           SessionType `json:"type"`            // e.g. text, image
 	LoraDir        string      `json:"lora_dir"`
-	SystemPrompt   string      `json:"system"`   // System message, only applicable when starting a new session
-	Messages       []*Message  `json:"messages"` // Initial messages
-	Tools          []string    `json:"tools"`    // Available tools to use in the session
-	Provider       Provider    `json:"provider"` // The provider to use
-	Model          string      `json:"model"`    // The model to use
-	// the fine tuned data entity we produced from this session
-	LoraID     string `json:"lora_id"`
-	Regenerate bool   `json:"regenerate"` // If true, we will regenerate the response for the last message
+	SystemPrompt   string      `json:"system"`     // System message, only applicable when starting a new session
+	Messages       []*Message  `json:"messages"`   // Initial messages
+	Tools          []string    `json:"tools"`      // Available tools to use in the session
+	Provider       Provider    `json:"provider"`   // The provider to use
+	Model          string      `json:"model"`      // The model to use
+	Regenerate     bool        `json:"regenerate"` // If true, we will regenerate the response for the last message
 }
 
 func (s *SessionChatRequest) Message() (string, bool) {
@@ -561,7 +560,7 @@ type Session struct {
 	LoraDir string `json:"lora_dir"`
 	// for now we just whack the entire history of the interaction in here, json
 	// style
-	Interactions []*Interaction `json:"interactions"`
+	Interactions []*Interaction `json:"interactions" gorm:"CAS"`
 	GenerationID int            `json:"generation_id"` // Current generation ID
 	// uuid of owner entity
 	Owner string `json:"owner"`
