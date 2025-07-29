@@ -1,6 +1,6 @@
 import React, { FC, useMemo } from 'react'
 import InteractionContainer from './InteractionContainer'
-import InteractionFinetune from './InteractionFinetune'
+// import InteractionFinetune from './InteractionFinetune'
 import InteractionInference from './InteractionInference'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
@@ -16,11 +16,13 @@ import {
   SESSION_MODE_INFERENCE,
   SESSION_CREATOR_ASSISTANT,
   SESSION_CREATOR_USER,
-  ISession,
-  IInteraction,
+  // ISession,
+  // IInteraction,
   IServerConfig,
   ICloneInteractionMode,
 } from '../../types'
+
+import { TypesSession, TypesInteraction, TypesInteractionState } from '../../api/api'
 
 import {
   isImage,
@@ -34,9 +36,8 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
   }
 
   // Compare interaction
-  if (prevProps.interaction?.id !== nextProps.interaction?.id ||
-    prevProps.interaction?.finished !== nextProps.interaction?.finished ||
-    prevProps.interaction?.message !== nextProps.interaction?.message ||
+  if (prevProps.interaction?.id !== nextProps.interaction?.id ||    
+    prevProps.interaction?.prompt_message !== nextProps.interaction?.prompt_message ||
     prevProps.interaction?.display_message !== nextProps.interaction?.display_message ||
     prevProps.interaction?.error !== nextProps.interaction?.error ||
     prevProps.interaction?.state !== nextProps.interaction?.state) {
@@ -51,8 +52,7 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
   }
 
   // Compare other props
-  if (prevProps.highlightAllFiles !== nextProps.highlightAllFiles ||
-    prevProps.showFinetuning !== nextProps.showFinetuning) {
+  if (prevProps.highlightAllFiles !== nextProps.highlightAllFiles) {    
     return false
   }
 
@@ -71,8 +71,8 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
 
 interface InteractionProps {
   serverConfig: IServerConfig;
-  interaction: IInteraction;
-  session: ISession;
+  interaction: TypesInteraction;
+  session: TypesSession;
   highlightAllFiles: boolean;
   retryFinetuneErrors: () => void;
   onReloadSession: () => Promise<any>;
@@ -90,8 +90,7 @@ interface InteractionProps {
   session_id: string;
   hasSubscription: boolean;
   onRegenerate?: (interactionID: string, message: string) => void;
-  sessionSteps?: any[];
-  showFinetuning?: boolean;
+  sessionSteps?: any[];  
 }
 
 export const Interaction: FC<InteractionProps> = ({
@@ -116,7 +115,6 @@ export const Interaction: FC<InteractionProps> = ({
   hasSubscription,
   onRegenerate,
   sessionSteps = [],
-  showFinetuning = true,
 }) => {
   const account = useAccount()
 
@@ -124,21 +122,21 @@ export const Interaction: FC<InteractionProps> = ({
   const displayData = useMemo(() => {
     let displayMessage: string = ''
     let imageURLs: string[] = []
-    let isLoading = interaction?.creator == SESSION_CREATOR_ASSISTANT && !interaction.finished
-    let useMessageText = interaction ? (interaction.display_message || interaction.message || '') : ''
+    let isLoading = interaction.state == TypesInteractionState.InteractionStateWaiting
+    let useMessageText = interaction ? (interaction.display_message || interaction.prompt_message || '') : ''
 
     if (!isLoading) {
       if (session.type == SESSION_TYPE_TEXT) {
-        if (!interaction?.lora_dir) {
-          if (interaction?.message) {
+        // if (!interaction?.lora_dir) {
+          if (interaction?.prompt_message) {
             displayMessage = useMessageText
           } else {
             displayMessage = interaction.status || ''
           }
-        }
+        // }
         // Check for images in content
-        if (interaction?.content?.parts) {
-          interaction.content.parts.forEach(part => {
+        if (interaction?.prompt_message_content?.parts) {
+          interaction.prompt_message_content.parts.forEach(part => {
             if (typeof part === 'object' && part !== null && 'type' in part && part.type === 'image_url' && 'image_url' in part && part.image_url?.url) {
               imageURLs.push(part.image_url.url)
             }
@@ -146,14 +144,7 @@ export const Interaction: FC<InteractionProps> = ({
         }
 
       } else if (session.type == SESSION_TYPE_IMAGE) {
-        if (interaction?.creator == SESSION_CREATOR_USER) {
-          displayMessage = useMessageText || ''
-        }
-        else {
-          if (session.mode == SESSION_MODE_INFERENCE && interaction?.files && interaction?.files.length > 0) {
-            imageURLs = interaction.files.filter(isImage)
-          }
-        }
+        // TODO: handle images
       }
     }
 
@@ -170,8 +161,8 @@ export const Interaction: FC<InteractionProps> = ({
   const [editedMessage, setEditedMessage] = React.useState(displayMessage || '')
   const [isHovering, setIsHovering] = React.useState(false)
 
-  const isUser = interaction?.creator == SESSION_CREATOR_USER
-  const isLive = interaction?.creator == SESSION_CREATOR_ASSISTANT && !interaction.finished;
+  const isUser = interaction.role == 'user'
+  const isLive = interaction.state == TypesInteractionState.InteractionStateWaiting
 
   if (!serverConfig || !serverConfig.filestore_prefix) return null
 
@@ -210,21 +201,6 @@ export const Interaction: FC<InteractionProps> = ({
         border={containerBorder}
         isAssistant={interaction?.creator == SESSION_CREATOR_ASSISTANT}
       >
-        {
-          showFinetuning && (
-            <InteractionFinetune
-              serverConfig={serverConfig}
-              interaction={interaction}
-              session={session}
-              highlightAllFiles={highlightAllFiles}
-              retryFinetuneErrors={retryFinetuneErrors}
-              onReloadSession={onReloadSession}
-              onClone={onClone}
-              onAddDocuments={onAddDocuments}
-            />
-          )
-        }
-
         {/* Only show one of the components - no transition or overlay */}
         {isLive ? (
           children
