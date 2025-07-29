@@ -206,7 +206,8 @@ func (suite *AppendOrOverwriteSuite) TestOverwriteSession_FirstMessage() {
 	}
 
 	req := &types.SessionChatRequest{
-		Regenerate: true,
+		Regenerate:    true,
+		InteractionID: "1",
 		Messages: []*types.Message{
 			{
 				ID:   "1",
@@ -261,7 +262,8 @@ func (suite *AppendOrOverwriteSuite) TestOverwriteSession_MiddleMessage() {
 	}
 
 	req := &types.SessionChatRequest{
-		Regenerate: true,
+		Regenerate:    true,
+		InteractionID: "2",
 		Messages: []*types.Message{
 			{
 				ID:   "1",
@@ -304,7 +306,7 @@ func (suite *AppendOrOverwriteSuite) TestOverwriteSession_MiddleMessage() {
 
 	// First interaction should be the new user message
 	suite.Equal("user message 1", session.Interactions[0].PromptMessage)
-	suite.Equal(types.InteractionStateWaiting, session.Interactions[0].State)
+	suite.Equal(types.InteractionStateComplete, session.Interactions[0].State)
 	suite.Equal("assistant response 1", session.Interactions[0].ResponseMessage)
 
 	suite.Equal("regenerating from here", session.Interactions[1].PromptMessage)
