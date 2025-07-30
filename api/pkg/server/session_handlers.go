@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
@@ -354,9 +353,6 @@ If the user asks for information about Helix or installing Helix, refer them to 
 
 	chatCompletionRequest.Messages = types.InteractionsToOpenAIMessages(startReq.SystemPrompt, messagesToInclude)
 
-	fmt.Println("XXX")
-	spew.Dump(lastInteraction)
-
 	if !startReq.Stream {
 		err := s.handleBlockingSession(ctx, user, session, lastInteraction, chatCompletionRequest, options, rw)
 		if err != nil {
@@ -432,6 +428,11 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 
 	// Cut existing interactions to this index
 	session.Interactions = session.Interactions[:getInteractionIndex(session.Interactions, req)]
+
+	// Update all existing interactions to have the new generation ID
+	for idx := range session.Interactions {
+		session.Interactions[idx].GenerationID = session.GenerationID
+	}
 
 	message, ok := req.Message()
 	if !ok {
