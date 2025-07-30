@@ -95,11 +95,13 @@ RUN cd /workspace/axolotl && \
     . venv/bin/activate && \
     if [ -n "$DEVELOPMENT_CPU_ONLY" ]; then \
         echo "Installing vLLM with CPU support from GitHub release (version ${VLLM_VERSION})" && \
+        pip3 install "torchao==0.5.0" "transformers>=4.44.0,<4.46.0" && \
         VLLM_TARGET_DEVICE=cpu \
         PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu \
         pip3 install "vllm @ git+https://github.com/vllm-project/vllm.git@v${VLLM_VERSION}"; \
     else \
         echo "Installing vLLM with GPU support (version ${VLLM_VERSION})" && \
+        pip3 install "torchao==0.5.0" "transformers>=4.44.0,<4.46.0" && \
         pip3 install vllm==${VLLM_VERSION}; \
     fi
 
