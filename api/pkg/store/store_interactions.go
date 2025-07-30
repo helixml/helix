@@ -10,28 +10,6 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-var interactionUpdateColumns = []string{
-	"updated",
-	"completed",
-	"runner",
-	"system_prompt",
-	"prompt_message",
-	"prompt_message_content",
-	"response_message",
-	"response_format",
-	"response_format_response",
-	"display_message",
-	"duration_ms",
-	"state",
-	"status",
-	"error",
-	"rag_results",
-	"tools",
-	"tool_calls",
-	"tool_call_id",
-	"usage",
-}
-
 func (s *PostgresStore) CreateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error) {
 	if interaction.SessionID == "" {
 		return nil, errors.New("session_id is required")

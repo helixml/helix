@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -236,23 +235,4 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 			log.Error().Msgf("failed to write completion chunk: %v", err)
 		}
 	}
-}
-
-func (s *HelixAPIServer) getAppLoraAssistant(ctx context.Context, appID string) (*types.AssistantConfig, error) {
-	app, err := s.Store.GetAppWithTools(ctx, appID)
-	if err != nil {
-		return nil, err
-	}
-
-	// The old code had this in:
-	// TODO: support > 1 assistant
-	// because the sessions API can only handle one assistant at a time...
-	var assistant *types.AssistantConfig
-	if len(app.Config.Helix.Assistants) > 0 {
-		if app.Config.Helix.Assistants[0].LoraID != "" {
-			assistant = &app.Config.Helix.Assistants[0]
-		}
-	}
-
-	return assistant, nil
 }
