@@ -424,9 +424,6 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		return "", err
 	}
 
-	// triggerInteractionID := system.GenerateUUID()
-	// assistantResponseID := system.GenerateUUID()
-
 	// Prepare new session
 	session := &types.Session{
 		ID:             system.GenerateSessionID(),
@@ -445,67 +442,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 			AssistantID:  "",
 			HelixVersion: data.GetHelixVersion(),
 		},
-		// Interactions: []*types.Interaction{
-		// 	{
-		// 		ID:        triggerInteractionID,
-		// 		Created:   time.Now(),
-		// 		Updated:   time.Now(),
-		// 		Scheduled: time.Now(),
-		// 		Completed: time.Now(),
-		// 		Mode:      types.SessionModeInference,
-		// 		State:     types.InteractionStateComplete,
-		// 		Finished:  true,
-		// 		Message:   trigger.Input,
-		// 		Content: types.MessageContent{
-		// 			ContentType: types.MessageContentTypeText,
-		// 			Parts:       []any{trigger.Input},
-		// 		},
-		// 	},
-		// 	{
-		// 		ID:       assistantResponseID,
-		// 		Created:  time.Now(),
-		// 		Updated:  time.Now(),
-		// 		Creator:  types.CreatorTypeAssistant,
-		// 		Mode:     types.SessionModeInference,
-		// 		Message:  "",
-		// 		State:    types.InteractionStateWaiting,
-		// 		Finished: false,
-		// 		Metadata: map[string]string{},
-		// 	},
-		// },
 	}
-
-	// ctx = oai.SetContextSessionID(ctx, session.ID)
-
-	// messages := []openai.ChatCompletionMessage{
-	// 	{
-	// 		Role:    openai.ChatMessageRoleUser,
-	// 		Content: trigger.Input,
-	// 	},
-	// }
-
-	// request := openai.ChatCompletionRequest{
-	// 	Stream:   false,
-	// 	Messages: messages,
-	// }
-
-	// bts, err := json.MarshalIndent(request, "", "  ")
-	// if err != nil {
-	// 	log.Error().
-	// 		Err(err).
-	// 		Str("app_id", app.ID).
-	// 		Msg("failed to marshal request")
-	// }
-
-	// ctx = oai.SetContextValues(ctx, &oai.ContextValues{
-	// 	OwnerID:         session.Owner,
-	// 	SessionID:       session.ID,
-	// 	InteractionID:   assistantResponseID,
-	// 	OriginalRequest: bts,
-	// })
-
-	// ctx = oai.SetContextAppID(ctx, app.ID)
-	// ctx = oai.SetContextOrganizationID(ctx, app.OrganizationID)
 
 	// Write session to the database
 	err = ctrl.WriteSession(ctx, session)
@@ -562,7 +499,7 @@ func ExecuteCronTask(ctx context.Context, str store.Store, ctrl *controller.Cont
 		log.Error().
 			Err(err).
 			Str("app_id", app.ID).
-			Msg("failed to run app cron job")
+			Msg("failed to run task blocking session job")
 
 		// Send failure notification
 		notifyErr := notifier.Notify(ctx, &notification.Notification{
