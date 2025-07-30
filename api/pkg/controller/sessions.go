@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -505,157 +504,21 @@ func (c *Controller) publishEvent(ctx context.Context, event *types.WebsocketEve
 }
 
 func (c *Controller) ErrorSession(ctx context.Context, session *types.Session, interaction *types.Interaction, sessionErr error) {
-	// session, err := data.UpdateUserInteraction(session, func(userInteraction *types.Interaction) (*types.Interaction, error) {
-	// 	// userInteraction.Finished = true
-	// 	userInteraction.State = types.InteractionStateComplete
-	// 	return userInteraction, nil
-	// })
-	// if err != nil {
-	// 	return
-	// }
-
 	interaction.State = types.InteractionStateError
 	interaction.Completed = time.Now()
 	interaction.Error = sessionErr.Error()
-	// interaction.Finished = true
 
 	_, err := c.Options.Store.UpdateInteraction(ctx, interaction)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to update interaction")
 	}
 
-	// session, err = data.UpdateAssistantInteraction(session,
-	// 	func(assistantInteraction *types.Interaction) (*types.Interaction, error) {
-	// 		assistantInteraction.State = types.InteractionStateError
-	// 		assistantInteraction.Completed = time.Now()
-	// 		assistantInteraction.Error = sessionErr.Error()
-	// 		assistantInteraction.Finished = true
-	// 		return assistantInteraction, nil
-	// 	})
-	// if err != nil {
-	// 	return
-	// }
 	if err := c.WriteSession(ctx, session); err != nil {
 		log.Error().Err(err).Msg("failed to write error session")
 	}
 	if err := c.Options.Janitor.WriteSessionError(session, sessionErr); err != nil {
 		log.Error().Err(err).Msg("failed to write janitor session error")
 	}
-}
-
-func (c *Controller) pubsubHandler(session *types.Session, payload []byte) error {
-	lastInteraction := session.Interactions[len(session.Interactions)-1]
-
-	log.Debug().Str("owner", session.Owner).Str("request_id", lastInteraction.ID).Msg("received runner response")
-
-	var runnerResp types.RunnerNatsReplyResponse
-	err := json.Unmarshal(payload, &runnerResp)
-	if err != nil {
-		return fmt.Errorf("error unmarshalling runner response: %w", err)
-	}
-
-	log.Trace().Interface("runnerResp", runnerResp).Msg("runner response")
-
-	if runnerResp.Error != "" {
-		return fmt.Errorf("runner error: %s", runnerResp.Error)
-	}
-
-	if session.Mode == types.SessionModeInference && session.Type == types.SessionTypeImage {
-		// Remove the SSE "data: " prefix from the response
-		response := strings.TrimPrefix(string(runnerResp.Response), "data: ")
-
-		// Parse the openai response
-		var imageGenerationResponse types.HelixImageGenerationUpdate
-		err = json.Unmarshal([]byte(response), &imageGenerationResponse)
-		if err != nil {
-			return fmt.Errorf("error unmarshalling openai response: %w", err)
-		}
-
-		log.Trace().Interface("imageGenerationResponse", imageGenerationResponse).Msg("image generation response")
-
-		files := []string{}
-		for _, image := range imageGenerationResponse.Data {
-			files = append(files, image.URL)
-		}
-
-		if imageGenerationResponse.Completed {
-			c.BroadcastProgress(c.Ctx, session, 100, "done")
-			_, err = c.HandleRunnerResponse(c.Ctx, &types.RunnerTaskResponse{
-				Type:          types.WorkerTaskResponseTypeResult,
-				SessionID:     session.ID,
-				InteractionID: lastInteraction.ID,
-				Owner:         session.Owner,
-				Progress:      imageGenerationResponse.Step,
-				Status:        "done",
-				Done:          true,
-				Files:         files,
-			})
-			if err != nil {
-				return fmt.Errorf("error handling runner response: %w", err)
-			}
-		} else {
-			c.BroadcastProgress(c.Ctx, session, imageGenerationResponse.Step, "generating...")
-		}
-	} else if session.Mode == types.SessionModeFinetune && session.Type == types.SessionTypeText {
-		// Remove the SSE "data: " prefix from the response if it exists
-		response := strings.TrimPrefix(string(runnerResp.Response), "data: ")
-
-		// Parse the openai response
-		var fineTuningResponse types.HelixFineTuningUpdate
-		err = json.Unmarshal([]byte(response), &fineTuningResponse)
-		if err != nil {
-			return fmt.Errorf("error unmarshalling openai response: %w", err)
-		}
-
-		log.Trace().Interface("fineTuningResponse", fineTuningResponse).Msg("fine tuning response")
-
-		if fineTuningResponse.Completed {
-			c.BroadcastProgress(c.Ctx, session, 100, "done")
-			_, err = c.HandleRunnerResponse(c.Ctx, &types.RunnerTaskResponse{
-				Type:          types.WorkerTaskResponseTypeResult,
-				SessionID:     session.ID,
-				InteractionID: lastInteraction.ID,
-				Owner:         session.Owner,
-				Progress:      100,
-				Status:        "done",
-				Done:          true,
-				LoraDir:       fineTuningResponse.LoraDir,
-			})
-			if err != nil {
-				return fmt.Errorf("error handling runner response: %w", err)
-			}
-		} else {
-			c.BroadcastProgress(c.Ctx, session, fineTuningResponse.Progress, "fine-tuning...")
-		}
-	} else if session.Type == types.SessionTypeText && lastInteraction.Mode == types.SessionModeInference {
-		// This is an inference session on a fine-tuned model.
-		// Republish the result to the old websocket handlers
-		// Remove the SSE "data: " prefix from the response if there is any
-		response := strings.TrimPrefix(string(runnerResp.Response), "data: ")
-
-		// Parse the openai response
-		var completion openai.ChatCompletionResponse
-		err = json.Unmarshal([]byte(response), &completion)
-		if err != nil {
-			return fmt.Errorf("error unmarshalling openai response: %w", err)
-		}
-		log.Trace().Interface("message", completion.Choices[0].Message.Content).Msg("completion")
-		_, err = c.HandleRunnerResponse(c.Ctx, &types.RunnerTaskResponse{
-			Type:          types.WorkerTaskResponseTypeResult,
-			SessionID:     session.ID,
-			InteractionID: lastInteraction.ID,
-			Owner:         session.Owner,
-			Message:       completion.Choices[0].Message.Content,
-			Done:          completion.Choices[0].FinishReason == openai.FinishReasonStop,
-		})
-		if err != nil {
-			return fmt.Errorf("error handling runner response: %w", err)
-		}
-	} else {
-		return fmt.Errorf("unsupported session mode or type: %s %s", session.Mode, session.Type)
-	}
-
-	return nil
 }
 
 func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *types.RunnerTaskResponse) (*types.RunnerTaskResponse, error) {
