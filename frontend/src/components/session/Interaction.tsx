@@ -1,6 +1,5 @@
 import React, { FC, useMemo } from 'react'
 import InteractionContainer from './InteractionContainer'
-// import InteractionFinetune from './InteractionFinetune'
 import InteractionInference from './InteractionInference'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
@@ -10,23 +9,11 @@ import CopyButtonWithCheck from './CopyButtonWithCheck'
 
 import useAccount from '../../hooks/useAccount'
 
-import {
-  SESSION_TYPE_TEXT,
-  SESSION_TYPE_IMAGE,
-  SESSION_MODE_INFERENCE,
-  SESSION_CREATOR_ASSISTANT,
-  SESSION_CREATOR_USER,
-  // ISession,
-  // IInteraction,
+import {  
   IServerConfig,
-  ICloneInteractionMode,
 } from '../../types'
 
 import { TypesSession, TypesInteraction, TypesInteractionState } from '../../api/api'
-
-import {
-  isImage,
-} from '../../utils/filestore'
 
 // Prop comparison function for React.memo
 const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {

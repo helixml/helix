@@ -101,20 +101,6 @@ export const InteractionLiveStream: FC<{
       if (!message || !onMessageUpdate) return
       onMessageUpdate()
     }, [message, onMessageUpdate])
-
-    // Only log when component actually needs to re-render due to important prop changes
-    const shouldLogRender = useMemo(() => {
-      // Create a stable identifier for this render to reduce unnecessary logging
-      return {
-        isActivelyStreaming,
-        isComplete,
-        messageLength: message?.length,
-        interactionId: interaction?.id,
-        state: interaction?.state,
-        isSecondOrLaterInteraction: session?.interactions ? session.interactions.indexOf(interaction || {}) > 0 : false
-      };
-    }, [isActivelyStreaming, isComplete, message?.length, interaction?.id, 
-        interaction?.state, session?.interactions]);
     
     if (!serverConfig || !serverConfig.filestore_prefix) return null
 
