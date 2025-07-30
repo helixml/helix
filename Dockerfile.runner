@@ -4,7 +4,7 @@ ARG TAG=latest-small
 ARG UV_VERSION="0.5.4"
 # Add arg for CPU/GPU mode
 ARG DEVELOPMENT_CPU_ONLY=""
-# Set vLLM version consistently
+# Set vLLM version consistently - latest version (0.10.0) with proper compatibility
 ARG VLLM_VERSION="0.10.0"
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
@@ -90,20 +90,15 @@ RUN if [ -n "$DEVELOPMENT_CPU_ONLY" ]; then \
         && rm -rf /var/lib/apt/lists/*; \
     fi
 
-# Install vLLM - unified installation for both CPU and GPU
+# Copy vLLM requirements file with ALL dependencies precisely pinned
+COPY requirements-vllm.txt /tmp/requirements-vllm.txt
+
+# Install vLLM with complete dependency pinning from requirements.txt (138 packages pinned)
+# PyPI wheels work for both CPU and GPU - no special environment variables needed
 RUN cd /workspace/axolotl && \
     . venv/bin/activate && \
-    if [ -n "$DEVELOPMENT_CPU_ONLY" ]; then \
-        echo "Installing vLLM with CPU support (version ${VLLM_VERSION})" && \
-        pip3 install "torch==2.7.1" "transformers==4.54.1" && \
-        VLLM_TARGET_DEVICE=cpu \
-        PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu \
-        pip3 install vllm==${VLLM_VERSION}; \
-    else \
-        echo "Installing vLLM with GPU support (version ${VLLM_VERSION})" && \
-        pip3 install "torch==2.7.1" "transformers==4.54.1" && \
-        pip3 install vllm==${VLLM_VERSION}; \
-    fi
+    echo "Installing vLLM using pinned requirements (CPU/GPU auto-detected)" && \
+    pip3 install -r /tmp/requirements-vllm.txt
 
 # Create the examples directory in the vLLM package where it will look for templates
 RUN mkdir -p /root/miniconda3/envs/py3.11/lib/python3.11/site-packages/vllm/examples
