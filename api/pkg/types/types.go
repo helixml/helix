@@ -1974,12 +1974,13 @@ type FlexibleEmbeddingResponse struct {
 type SchedulingDecisionType string
 
 const (
-	SchedulingDecisionTypeQueued        SchedulingDecisionType = "queued"          // Added to queue
-	SchedulingDecisionTypeReuseWarmSlot SchedulingDecisionType = "reuse_warm_slot" // Reused existing warm model instance
-	SchedulingDecisionTypeCreateNewSlot SchedulingDecisionType = "create_new_slot" // Started new model instance
-	SchedulingDecisionTypeRejected      SchedulingDecisionType = "rejected"        // Rejected (insufficient resources, etc.)
-	SchedulingDecisionTypeError         SchedulingDecisionType = "error"           // Error during scheduling
-	SchedulingDecisionTypeUnschedulable SchedulingDecisionType = "unschedulable"   // Cannot be scheduled (no warm slots available)
+	SchedulingDecisionTypeQueued         SchedulingDecisionType = "queued"           // Added to queue
+	SchedulingDecisionTypeReuseWarmSlot  SchedulingDecisionType = "reuse_warm_slot"  // Reused existing warm model instance
+	SchedulingDecisionTypeCreateNewSlot  SchedulingDecisionType = "create_new_slot"  // Started new model instance
+	SchedulingDecisionTypeEvictStaleSlot SchedulingDecisionType = "evict_stale_slot" // Evicted stale slot to free memory
+	SchedulingDecisionTypeRejected       SchedulingDecisionType = "rejected"         // Rejected (insufficient resources, etc.)
+	SchedulingDecisionTypeError          SchedulingDecisionType = "error"            // Error during scheduling
+	SchedulingDecisionTypeUnschedulable  SchedulingDecisionType = "unschedulable"    // Cannot be scheduled (no warm slots available)
 )
 
 // SchedulingDecision represents a decision made by the central scheduler
