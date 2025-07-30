@@ -208,7 +208,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "qwen2.5vl:32b", // https://ollama.com/library/qwen2.5vl:32b
 			Name:          "Qwen2.5-VL 32B",
-			Memory:        GB * 22, // Based on Q4_K_M quantization, ~21GB model size
+			Memory:        GB * 32, // Based on Q4_K_M quantization, ~32GB model size
 			ContextLength: 131072,  // 125K context window
 			Description:   "Flagship vision-language model with document parsing and visual agent capabilities, from Alibaba - 4bit quantized, 125K context",
 			Hide:          false,
@@ -216,7 +216,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "qwen3:32b", // https://ollama.com/library/qwen3:32b
 			Name:          "Qwen3 32B",
-			Memory:        GB * 21, // Based on Q4_K_M quantization, ~20GB model size
+			Memory:        GB * 25, // Based on Q4_K_M quantization, ~31GB model size
 			ContextLength: 40960,   // 40K context window
 			Description:   "Large Qwen3 model with superior reasoning and agent capabilities, from Alibaba - 4bit quantized, 40K context",
 			Hide:          false,
@@ -224,7 +224,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "qwen3:30b", // https://ollama.com/library/qwen3:30b
 			Name:          "Qwen3 30B MoE",
-			Memory:        GB * 20, // Based on Q4_K_M quantization, ~19GB model size
+			Memory:        GB * 39, // Based on Q4_K_M quantization, ~30GB model size
 			ContextLength: 262144,  // 256K context window
 			Description:   "Mixture-of-experts model with enhanced reasoning capabilities, from Alibaba - 4bit quantized, 256K context",
 			Hide:          false,
