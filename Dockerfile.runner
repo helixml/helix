@@ -90,7 +90,7 @@ COPY --from=uv /uv /bin/uv
 # Install vLLM into system miniconda (139 packages pinned) - much cleaner than separate venvs
 # PyPI wheels work for both CPU and GPU - no special environment variables needed
 RUN echo "Installing vLLM into system miniconda using UV (much faster than pip)" && \
-    uv pip install -r /tmp/requirements-vllm.txt
+    uv pip install --system -r /tmp/requirements-vllm.txt
 
 # Create the examples directory in the vLLM package where it will look for templates
 RUN mkdir -p /root/miniconda3/envs/py3.11/lib/python3.11/site-packages/vllm/examples
