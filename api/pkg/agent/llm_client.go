@@ -100,9 +100,9 @@ func (c *LLM) NewStreaming(ctx context.Context, model *LLMModelConfig, params op
 	}
 
 	// UNIVERSAL TOOL CALL CONVERSION:
-	// Convert tool_calls in assistant messages to readable text descriptions.
-	// This improves compatibility across all providers and makes the conversation history more readable.
-	// The actual tool responses are preserved as separate role="tool" messages.
+	// Convert tool_calls in assistant messages to readable text descriptions for LLM context.
+	// This improves compatibility across all providers (especially Together.ai's streaming API)
+	// while preserving conversation context. The LLM will be instructed not to copy this pattern.
 	fixedMessages := make([]openai.ChatCompletionMessage, len(params.Messages))
 	copy(fixedMessages, params.Messages)
 
@@ -121,14 +121,14 @@ func (c *LLM) NewStreaming(ctx context.Context, model *LLMModelConfig, params op
 			}
 
 			if len(toolDescriptions) > 0 {
-				toolText := "\n\nTool calls made:\n- " + strings.Join(toolDescriptions, "\n- ")
+				toolText := "\n\n[Previous tool calls: " + strings.Join(toolDescriptions, "; ") + "]"
 				fixedMessages[i].Content = msg.Content + toolText
 
 				log.Debug().
 					Int("msg_index", i).
 					Int("tool_calls_count", len(msg.ToolCalls)).
 					Str("tool_descriptions", strings.Join(toolDescriptions, "; ")).
-					Msg("🔧 Converted tool_calls to text descriptions")
+					Msg("🔧 Converted tool_calls to context descriptions")
 			}
 
 			// Remove the original tool_calls

@@ -679,9 +679,21 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		// The summarizeMultipleToolResults function now streams chunks to outUserChannel
 		// We don't need to send a final Response here.
 		return
+	} else if finalCompletion != nil && len(finalCompletion.Choices) > 0 && finalCompletion.Choices[0].Message.Content != "" {
+		// PRIORITY: If LLM provided a meaningful final completion, use that instead of raw tool results
+		// This prevents duplication where both LLM response and raw tool results are sent
+		log.Debug().
+			Str("final_completion_content", finalCompletion.Choices[0].Message.Content).
+			Int("skill_results_count", len(finalSkillCallResults)).
+			Msg("🔧 Using LLM final completion instead of raw tool results")
+
+		outUserChannel <- Response{
+			Content: finalCompletion.Choices[0].Message.Content,
+			Type:    ResponseTypePartialText,
+		}
+		return
 	} else if len(finalSkillCallResults) == 1 {
-		// If callSummarizer is false and we have exactly one skill result, return it directly
-		// This should take priority over the final completion message (which might just be about using the stop tool)
+		// If LLM didn't provide a final completion, fall back to returning the single tool result directly
 		var lastResult *openai.ChatCompletionMessage
 		for _, result := range finalSkillCallResults {
 			lastResult = result
@@ -698,17 +710,12 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 			return
 		}
 
-		outUserChannel <- Response{
-			Content: contentString,
-			Type:    ResponseTypePartialText,
-		}
-		return
-	} else if finalCompletion != nil && len(finalCompletion.Choices) > 0 && finalCompletion.Choices[0].Message.Content != "" {
-		// If final completion is not nil, return it as the "decideNextAction" function
-		// most likely summarized tool results
+		log.Debug().
+			Str("tool_result_content", contentString).
+			Msg("🔧 Using raw tool result as fallback (no LLM final completion)")
 
 		outUserChannel <- Response{
-			Content: finalCompletion.Choices[0].Message.Content,
+			Content: contentString,
 			Type:    ResponseTypePartialText,
 		}
 		return

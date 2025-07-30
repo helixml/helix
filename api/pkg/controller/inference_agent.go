@@ -119,7 +119,10 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 	// Get API skills
 	for _, assistantTool := range req.Assistant.Tools {
 		if assistantTool.ToolType == types.ToolTypeAPI {
-			skills = append(skills, skill.NewAPICallingSkill(c.ToolsPlanner, assistantTool))
+			// Use direct API skills instead of the skill context runner approach
+			// This allows the main agent to orchestrate API calls with other tools (Calculator, Currency_Exchange_Rates)
+			apiSkills := skill.NewDirectAPICallingSkills(c.ToolsPlanner, assistantTool)
+			skills = append(skills, apiSkills...)
 		}
 
 		if assistantTool.ToolType == types.ToolTypeBrowser {
