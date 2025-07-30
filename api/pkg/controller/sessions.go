@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/rs/zerolog/log"
 	"github.com/sashabaranov/go-openai"
 
@@ -294,8 +293,6 @@ func (c *Controller) UpdateInteraction(ctx context.Context, session *types.Sessi
 	if !found {
 		session.Interactions = append(session.Interactions, updated)
 	}
-
-	spew.Dump(session)
 
 	event := &types.WebsocketEvent{
 		Type:      types.WebsocketEventSessionUpdate,
