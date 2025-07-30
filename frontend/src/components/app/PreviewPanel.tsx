@@ -41,7 +41,7 @@ import {
   ICloneInteractionMode,
   INTERACTION_STATE_EDITING,
   INTERACTION_STATE_COMPLETE,
-  INTERACTION_STATE_ERROR,  
+  INTERACTION_STATE_ERROR,    
 } from '../../types';
 import ContextMenuModal from '../widgets/ContextMenuModal';
 import useApi from '../../hooks/useApi';
@@ -51,6 +51,8 @@ import {
   getAssistant,
   getAssistantAvatar,  
 } from '../../utils/apps';
+
+import { TypesInteractionState } from '../../api/api';
 
 interface PreviewPanelProps {
   appId: string;
@@ -141,10 +143,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
     if (!session?.interactions || session.interactions.length === 0) return;
 
     const lastInteraction = session.interactions[session.interactions.length - 1];
-    const shouldBeStreaming = !lastInteraction.finished && 
-                             lastInteraction.state !== INTERACTION_STATE_EDITING &&
-                             lastInteraction.state !== INTERACTION_STATE_COMPLETE &&
-                             lastInteraction.state !== INTERACTION_STATE_ERROR;
+    const shouldBeStreaming = lastInteraction.state === TypesInteractionState.InteractionStateWaiting;
 
     setIsStreaming(shouldBeStreaming);
   }, [session?.interactions]);
