@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"strings"
+
 	openai "github.com/sashabaranov/go-openai"
 )
 
