@@ -5,7 +5,6 @@ import ListItemButton from '@mui/material/ListItemButton'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import CircularProgress from '@mui/material/CircularProgress'
-import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 
 import ImageIcon from '@mui/icons-material/Image'
@@ -28,10 +27,11 @@ import {
   SESSION_MODE_INFERENCE,
   SESSION_TYPE_IMAGE,
   SESSION_TYPE_TEXT,
-  ISession,
   IApp,
   ISessionSummary,
 } from '../../types'
+
+import { TypesSession } from '../../api/api'
 
 import Avatar from '@mui/material/Avatar'
 
@@ -47,11 +47,10 @@ export const SessionsSidebar: FC<{
   const lightTheme = useLightTheme()
   const account = useAccount()
   const {
-    navigate,
     params,
   } = useRouter()
   const {apps} = useApps()
-  const getSessionIcon = (session: ISession | ISessionSummary) => {
+  const getSessionIcon = (session: TypesSession | ISessionSummary) => {
     if ('app_id' in session && session.app_id && apps) {
       const app = apps.find((app: IApp) => app.id === session.app_id)
       if (app && app.config.helix.avatar) {
@@ -73,7 +72,7 @@ export const SessionsSidebar: FC<{
     if (session.mode === SESSION_MODE_FINETUNE && session.type === SESSION_TYPE_TEXT) return <ModelTrainingIcon color="primary" />
   }
 
-  const groupSessionsByTime = (sessions: (ISession | ISessionSummary)[]) => {
+  const groupSessionsByTime = (sessions: (TypesSession | ISessionSummary)[]) => {
     const now = new Date()
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     const sevenDaysAgo = new Date(today)
@@ -82,7 +81,7 @@ export const SessionsSidebar: FC<{
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
 
     return sessions.reduce((acc, session) => {
-      const sessionDate = new Date(session.created)
+      const sessionDate = new Date(session.created || '')
       if (sessionDate >= today) {
         acc.today.push(session)
       } else if (sessionDate >= sevenDaysAgo) {
@@ -94,14 +93,14 @@ export const SessionsSidebar: FC<{
       }
       return acc
     }, {
-      today: [] as (ISession | ISessionSummary)[],
-      last7Days: [] as (ISession | ISessionSummary)[],
-      last30Days: [] as (ISession | ISessionSummary)[],
-      older: [] as (ISession | ISessionSummary)[],
+      today: [] as (TypesSession | ISessionSummary)[],
+      last7Days: [] as (TypesSession | ISessionSummary)[],
+      last30Days: [] as (TypesSession | ISessionSummary)[],
+      older: [] as (TypesSession | ISessionSummary)[],
     })
   }
 
-  const renderSessionGroup = (sessions: (ISession | ISessionSummary)[], title: string, isFirst: boolean = false) => {
+  const renderSessionGroup = (sessions: (TypesSession | ISessionSummary)[], title: string, isFirst: boolean = false) => {
     if (sessions.length === 0) return null
 
     return (

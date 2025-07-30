@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback } from 'react'
+import { FC, useState, useCallback } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Link from '@mui/material/Link'
@@ -8,12 +8,10 @@ import FolderOpenIcon from '@mui/icons-material/Folder'
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
 import InfoIcon from '@mui/icons-material/Info'
 import DeleteIcon from '@mui/icons-material/Delete'
-import EditIcon from '@mui/icons-material/Edit'
-import PublishIcon from '@mui/icons-material/Publish'
 
 import {
-  ISession,
-} from '../../types'
+  TypesSession,
+} from '../../api/api'
 
 import useRouter from '../../hooks/useRouter'
 import useSessions from '../../hooks/useSessions'
@@ -21,7 +19,7 @@ import useSnackbar from '../../hooks/useSnackbar'
 import useLoading from '../../hooks/useLoading'
 
 export const SessionButtons: FC<{
-  session: ISession,
+  session: TypesSession,
 }> = ({
   session,
 }) => {
@@ -33,7 +31,7 @@ export const SessionButtons: FC<{
   const snackbar = useSnackbar()
   const loading = useLoading()
 
-  const [deletingSession, setDeletingSession] = useState<ISession>()
+  const [deletingSession, setDeletingSession] = useState<TypesSession>()
 
   const onDeleteSessionConfirm = useCallback(async (session_id: string) => {
     loading.setLoading(true)
@@ -120,7 +118,7 @@ export const SessionButtons: FC<{
               setDeletingSession(undefined) 
             }}
             onSubmit={ () => {
-              onDeleteSessionConfirm(deletingSession.id)
+              onDeleteSessionConfirm(deletingSession.id || '')
             }}
           />
         )

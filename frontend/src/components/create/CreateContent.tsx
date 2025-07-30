@@ -144,9 +144,7 @@ const CreateContent: FC<CreateContentProps> = ({
         message: prompt,
         appId: appID,
         assistantId: assistantID,
-        ragSourceId: ragSourceID,
         modelName: useModel,
-        loraDir: '',
         orgId,
         attachedImages: attachedImages,
       });
