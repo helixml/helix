@@ -241,7 +241,16 @@ func startAxolotlCmd(ctx context.Context, commander Commander, port int) (*exec.
 	cmd.Dir = "runner"
 
 	cmd.Env = append(cmd.Env,
-		"PYTHONPATH=/workspace/axolotl/src:/root/miniconda3/envs/py3.11/lib/python3.11/site-packages",
+		// AXOLOTL RESTORATION NOTE:
+		// When axolotl is re-enabled, you'll need to:
+		// 1. Install miniconda in base-images/Dockerfile.runner (see git history)
+		// 2. Uncomment axolotl installation in base-images/Dockerfile.runner
+		// 3. Change base image FROM to winglian/axolotl image
+		// 4. Enable this PYTHONPATH:
+		// "PYTHONPATH=/workspace/axolotl/src:/root/miniconda3/envs/py3.11/lib/python3.11/site-packages"
+		//
+		// Currently using clean Ubuntu 24.04 + Python 3.12 base, no miniconda:
+		"PYTHONPATH=/workspace/axolotl/src:/usr/lib/python3.12/site-packages",
 		// Add the APP_FOLDER environment variable which is required by the old code
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join("..", "..", "axolotl"))),
 		// Set python to be unbuffered so we get logs in real time

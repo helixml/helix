@@ -1145,7 +1145,7 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
                 border: currentOrgSlug === 'default' ? '2px solid #00E5FF' : '2px solid transparent',
               }}
             >
-              {/* Avatar removed - using invisible placeholder */}
+              {account.user?.name?.charAt(0).toUpperCase() || '?'}
             </Box>
             <Box sx={{ flex: 1 }}>
               <Typography variant="body1" sx={{ color: '#F8FAFC', fontWeight: 500 }}>

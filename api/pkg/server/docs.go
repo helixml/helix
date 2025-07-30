@@ -12,7 +12,7 @@ const docTemplate = `{
         "contact": {
             "name": "Helix support",
             "url": "https://app.helix.ml/",
-            "email": "info@helixml.tech"
+            "email": "info@helix.ml"
         },
         "version": "{{.Version}}",
         "x-logo": {

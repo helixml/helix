@@ -444,12 +444,12 @@ func (v *VLLMRuntime) waitUntilVLLMIsReady(ctx context.Context, startTimeout tim
 }
 
 func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, model string, customArgs []string) (*exec.Cmd, error) {
-	// Find vLLM on the path
-	vllmPath, err := commander.LookPath("python")
-	if err != nil {
-		return nil, fmt.Errorf("python not found in PATH")
+	// Use clean vLLM virtualenv Python - fail if not found (no fallback to avoid confusion)
+	vllmPath := "/workspace/vllm/venv/bin/python"
+	if _, err := os.Stat(vllmPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("vLLM virtualenv not found at %s - Docker build may have failed or vLLM installation incomplete", vllmPath)
 	}
-	log.Debug().Str("python_path", vllmPath).Msg("Found python")
+	log.Debug().Str("python_path", vllmPath).Msg("Using clean vLLM virtualenv Python 3.12 - completely isolated from system packages")
 
 	// Prepare vLLM serve command
 	log.Debug().
@@ -535,8 +535,15 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 	// Set only the specific environment variables needed
 	// This is more secure than inheriting all parent environment variables
 	env := []string{
-		// dockerfile installs vllm in the axolotl virtualenv
-		"PYTHONPATH=/workspace/axolotl/src:/root/miniconda3/envs/py3.11/lib/python3.11/site-packages",
+		// vLLM is installed in clean virtualenv - no PYTHONPATH needed since venv handles it
+		// Using clean Python 3.12 venv completely isolated from system packages
+		//
+		// AXOLOTL RESTORATION NOTE:
+		// When axolotl is re-enabled, you'll need to:
+		// 1. Install miniconda in base-images/Dockerfile.runner (see git history)
+		// 2. Add back: "PYTHONPATH=/root/miniconda3/envs/py3.11/lib/python3.11/site-packages"
+		// 3. Change vllmPath above to use miniconda python as needed
+		// 4. Update base image FROM to winglian/axolotl image
 		// System paths - often needed by Python to find libraries
 		fmt.Sprintf("PATH=%s", os.Getenv("PATH")),
 		fmt.Sprintf("HOME=%s", os.Getenv("HOME")),
