@@ -644,7 +644,7 @@ export const useApp = (appId: string) => {
         modelName: app.config.helix.assistants?.[0]?.model || account.models[0]?.id || '',
       })
       
-      await session.loadSession(newSessionData.id)
+      await session.loadSession(newSessionData?.id || '')
 
       return newSessionData
     } catch (error) {

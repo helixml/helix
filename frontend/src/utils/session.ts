@@ -46,7 +46,6 @@ const COLORS: Record<string, string> = {
   mistral_inference: '#FF6B6B',    // Map to axolotl
   mistral_finetune: '#CC5151',     // Map to axolotl
   text_inference: '#FF6B6B',       // Map to axolotl
-  text_finetune: '#CC5151',        // Map to axolotl
   image_inference: '#D183C9',      // Map to diffusers
   image_finetune: '#E3879E',       // Map to diffusers
 }
@@ -56,12 +55,12 @@ export const hasDate = (dt?: string): boolean => {
   return dt != NO_DATE
 }
 
-export const getColor = (modelName: string, mode: ISessionMode): string => {
+export const getColor = (modelName: string): string => {
   // Get the model type first
   const modelType = getModelName(modelName)
   
   // Build the key to look up in COLORS record
-  const key = `${modelType}_${mode}`
+  const key = `${modelType}`
   
   // Return the corresponding color
   return COLORS[key]
