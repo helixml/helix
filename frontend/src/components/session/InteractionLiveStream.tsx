@@ -1,11 +1,9 @@
 import React, { FC, useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import Typography from '@mui/material/Typography'
-import Progress from '../widgets/Progress'
 import WaitingInQueue from './WaitingInQueue'
 import LoadingSpinner from '../widgets/LoadingSpinner'
 import useLiveInteraction from '../../hooks/useLiveInteraction'
 import Markdown from './Markdown'
-import useAccount from '../../hooks/useAccount'
 import { IServerConfig } from '../../types'
 import { TypesInteraction, TypesSession } from '../../api/api'
 import ToolStepsWidget from './ToolStepsWidget'
@@ -21,7 +19,6 @@ export const InteractionLiveStream: FC<{
   },
   onMessageUpdate?: () => void,
   onFilterDocument?: (docId: string) => void,
-  useInstantScroll?: boolean,
 }> = ({
   session_id,
   serverConfig,
@@ -31,12 +28,9 @@ export const InteractionLiveStream: FC<{
   onMessageChange,
   onMessageUpdate,
   onFilterDocument,
-  useInstantScroll = false,
 }) => {
-    const account = useAccount()
     const {
       message,
-      progress,
       status,
       isStale,
       stepInfos,
@@ -48,8 +42,8 @@ export const InteractionLiveStream: FC<{
 
     // Memoize values that don't change frequently to prevent unnecessary re-renders
     const showLoading = useMemo(() => 
-      !message && progress === 0 && !status && stepInfos.length === 0,
-      [message, progress, status, stepInfos.length]
+      !message && !status && stepInfos.length === 0,
+      [message, status, stepInfos.length]
     );
 
     // Memoize the useClientURL function
@@ -126,13 +120,7 @@ export const InteractionLiveStream: FC<{
               onFilterDocument={onFilterDocument}
             />
           </div>
-        )}
-
-        {progress > 0 && (
-          <Progress
-            progress={progress}
-          />
-        )}
+        )}        
 
         {status && (
           <Typography variant="caption">{status}</Typography>

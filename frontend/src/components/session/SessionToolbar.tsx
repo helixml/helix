@@ -28,8 +28,8 @@ import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../../hooks/useThemeConfig'
 
 import {
-  ISession,
-} from '../../types'
+  TypesSession,
+} from '../../api/api'
 
 import useRouter from '../../hooks/useRouter'
 import useSessions from '../../hooks/useSessions'
@@ -45,7 +45,7 @@ import {
 } from '../../config'
 
 export const SessionToolbar: FC<{
-  session: ISession,
+  session: TypesSession,
   onReload?: () => void,
   onOpenMobileMenu?: () => void,
 }> = ({
@@ -77,7 +77,7 @@ export const SessionToolbar: FC<{
     })
   }, [setParams])
 
-  const [deletingSession, setDeletingSession] = useState<ISession>()
+  const [deletingSession, setDeletingSession] = useState<TypesSession>()
 
   const onDeleteSessionConfirm = useCallback(async (session_id: string) => {
     loading.setLoading(true)
@@ -108,7 +108,7 @@ export const SessionToolbar: FC<{
     if (sessionName !== session.name) {
       loading.setLoading(true)
       try {
-        await sessions.renameSession(session.id, sessionName)
+        await sessions.renameSession(session.id || '', sessionName || '')
         if (onReload) {
           onReload()
         }
@@ -209,8 +209,8 @@ export const SessionToolbar: FC<{
             )}
           </Box>
           <Typography variant="caption" sx={{ color: 'gray' }}>
-            Created on <Tooltip title={new Date(session.created).toLocaleString()}>
-              <Box component="span" sx={{  }}>{new Date(session.created).toLocaleDateString()}</Box>
+            Created on <Tooltip title={new Date(session.created || '').toLocaleString()}>
+              <Box component="span" sx={{  }}>{new Date(session.created || '').toLocaleDateString()}</Box>
             </Tooltip>
             {app && (
               <>
@@ -333,7 +333,7 @@ export const SessionToolbar: FC<{
                       setDeletingSession(undefined) 
                     }}
                     onSubmit={ () => {
-                      onDeleteSessionConfirm(deletingSession.id)
+                      onDeleteSessionConfirm(deletingSession.id || '')
                     }}
                   />
                 )
@@ -412,7 +412,7 @@ export const SessionToolbar: FC<{
               setDeletingSession(undefined) 
             }}
             onSubmit={() => {
-              onDeleteSessionConfirm(deletingSession.id)
+              onDeleteSessionConfirm(deletingSession.id || '')
             }}
           />
         )
