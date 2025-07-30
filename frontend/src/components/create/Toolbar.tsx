@@ -6,10 +6,7 @@ import { FC, useEffect } from 'react'
 
 import Cell from '../widgets/Cell'
 import Row from '../widgets/Row'
-import ModelPicker from './ModelPicker'
 import AppPicker from './AppPicker'
-import SessionModeDropdown from './SessionModeDropdown'
-import SessionModeSwitch from './SessionModeSwitch'
 
 import useAccount from '../../hooks/useAccount'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
@@ -87,18 +84,6 @@ const CreateToolbar: FC<{
           </Cell>
         )
       }
-      <Cell>
-        {
-          !(app || appRequested) && mode === SESSION_MODE_INFERENCE && (
-            <ModelPicker
-              type={type}
-              model={model || ''}
-              provider={provider}
-              onSetModel={onSetModel}
-            />
-          )
-        }
-      </Cell>
       {/* {
         !app && (
           <Cell>
