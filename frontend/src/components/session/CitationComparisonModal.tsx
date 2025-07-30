@@ -12,7 +12,7 @@ import {
   Chip
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { ISessionRAGResult } from '../../types';
+import { TypesSessionRAGResult } from '../../api/api';
 
 interface CitationComparisonModalProps {
   open: boolean;
@@ -23,13 +23,13 @@ interface CitationComparisonModalProps {
     validationStatus: 'exact' | 'fuzzy' | 'failed';
     fileUrl?: string;
   };
-  ragResults: ISessionRAGResult[];
+  ragResults: TypesSessionRAGResult[];
 }
 
 // Helper function to create a content-based key for RAG results
-const createContentKey = (result: ISessionRAGResult): string => {
+const createContentKey = (result: TypesSessionRAGResult): string => {
   // Start with document_id and hash of content
-  let key = `${result.document_id}-${hashString(result.content)}`;
+  let key = `${result.document_id}-${hashString(result.content || '')}`;
 
   // Add chunk identification if available in metadata
   if (result.metadata) {
@@ -124,7 +124,7 @@ const CitationComparisonModal: React.FC<CitationComparisonModalProps> = ({
     // Find content matches and calculate similarity scores
     const resultScores = docMatches.map(result => {
       const contentKey = createContentKey(result);
-      const similarity = calculateSimilarity(result.content, citation.snippet);
+      const similarity = calculateSimilarity(result.content || '', citation.snippet);
       return { result, contentKey, similarity };
     });
 
@@ -672,7 +672,7 @@ const CitationComparisonModal: React.FC<CitationComparisonModalProps> = ({
                       </Box>
                     )}
                     <Divider sx={{ mb: 1 }} />
-                    {highlightMatchedText(ragResult.content, citation.snippet, isBestMatch)}
+                    {highlightMatchedText(ragResult.content || '', citation.snippet, isBestMatch)}
                   </Paper>
                 );
               })}
