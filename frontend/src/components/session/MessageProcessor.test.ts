@@ -1,24 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { MessageProcessor } from './Markdown';
-import { ISession, ISessionConfig } from '../../types';
+import { TypesSession, TypesSessionMetadata, TypesSessionMode, TypesSessionType } from '../../api/api';
 
 // Mock data for tests
-const mockSession: Partial<ISession> = {
+const mockSession: Partial<TypesSession> = {
   id: 'test-session',
   name: 'Test Session',
   created: new Date().toISOString(),
   updated: new Date().toISOString(),
   parent_session: '',
   parent_app: '',
-  mode: 'inference',
-  type: 'text',
+  mode: TypesSessionMode.SessionModeInference,
+  type: TypesSessionType.SessionTypeText,
   model_name: 'test-model',
   lora_dir: '',
   owner: 'test-owner',
-  owner_type: 'user',
   config: {
     document_ids: {},
-  } as ISessionConfig,
+  } as TypesSessionMetadata,
   interactions: []
 };
 
@@ -36,7 +35,7 @@ This is my thought process
 
     // Create processor with streaming=true
     const processor = new MessageProcessor(message, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: true,
     });

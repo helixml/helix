@@ -29,27 +29,27 @@
 // This is a placeholder test file showing how the MessageProcessor tests should be structured
 // Since the testing framework is not yet set up, this file will have linter errors
 
-import { ISession, ISessionConfig, ISessionOrigin } from '../../types';
+import { TypesSession, TypesInteraction, TypesSessionMetadata, TypesSessionMode, TypesSessionType, TypesOwnerType } from '../../api/api';
 import { MessageProcessor } from './Markdown';
 import { describe, expect, test, beforeEach } from 'vitest';
 
 // Mock data for tests
-const mockSession: Partial<ISession> = {
+const mockSession: Partial<TypesSession> = {
   id: 'test-session',
   name: 'Test Session',
   created: new Date().toISOString(),
   updated: new Date().toISOString(),
   parent_session: '',
   parent_app: '',
-  mode: 'inference',
-  type: 'text',
+  mode: TypesSessionMode.SessionModeInference,
+  type: TypesSessionType.SessionTypeText,
   model_name: 'test-model',
   lora_dir: '',
   owner: 'test-owner',
-  owner_type: 'user',
+  owner_type: TypesOwnerType.OwnerTypeUser,
   config: {
     document_ids: {},
-  } as ISessionConfig,
+  } as TypesSessionMetadata,
 };
 
 // Mock file URL resolver function
@@ -80,7 +80,7 @@ This is my thought process
 
     // Create processor with streaming=true
     const processor = new MessageProcessor(message, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: true,
     });
@@ -108,7 +108,7 @@ This is still thinking
 
     // Create processor with streaming=true
     const processor = new MessageProcessor(message, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: true,
     });
@@ -147,7 +147,7 @@ This is my thought process
 
     // Create processor with streaming=true
     const processor = new MessageProcessor(message, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: true,
     });
@@ -169,7 +169,7 @@ This is my thought process
 
     // Create processor with streaming=false (streaming finished)
     const processor = new MessageProcessor(message, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
@@ -191,7 +191,7 @@ This is my thought process
 
     // Create processor with streaming=false (streaming finished)
     const processor = new MessageProcessor(message, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
@@ -219,7 +219,7 @@ This is an unclosed thought
 
     // Create processor with streaming=true
     const processor = new MessageProcessor(message, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: true,
     });
@@ -250,7 +250,7 @@ More content...`;
 
     // Create processor with streaming=true
     const processor = new MessageProcessor(message, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: true,
     });
@@ -264,7 +264,7 @@ More content...`;
   });
 
   // Test case 7: Empty thinking tags should be removed
-  test('Empty thinking tags should be removed', () => {
+  test('Empty thinking tag should be removed', () => {
     // Create message with empty thinking tag
     const message = `Hello world!
 <think>
@@ -274,7 +274,7 @@ More content...`;
 
     // Create processor with streaming=true
     const processor = new MessageProcessor(message, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: true,
     });
@@ -298,7 +298,7 @@ This is <strong>bold</strong> and <em>italicized</em> text.
 
     // Create processor with streaming=false
     const processor = new MessageProcessor(message, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
@@ -323,7 +323,7 @@ This is my thought process
 
     // Create processor with streaming=true
     const initialProcessor = new MessageProcessor(initialMessage, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: true,
     });
@@ -343,7 +343,7 @@ This is my thought process
 
     // Create a new processor (simulating another message processor call during streaming)
     const updatedProcessor = new MessageProcessor(updatedMessage, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: true, // Still streaming
     });
@@ -375,7 +375,7 @@ This is my thought process
 
     // Create processor with streaming=true
     const initialProcessor = new MessageProcessor(initialMessage, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: true,
     });
@@ -394,7 +394,7 @@ This is my thought process
 
     // Create a new processor (simulating another message processor call during streaming)
     const updatedProcessor = new MessageProcessor(updatedMessage, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: true, // Still streaming
     });
@@ -417,7 +417,7 @@ This is my thought process
     const message = `Hello world!`;
     
     const processor = new MessageProcessor(message, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: true, // DURING streaming
       showBlinker: true
@@ -433,7 +433,7 @@ This is my thought process
     const message = `Hello world!`;
     
     const processor = new MessageProcessor(message, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false, // AFTER streaming
       showBlinker: true
@@ -452,7 +452,7 @@ This is my thought process
     
     // STEP 1: Process during streaming - blinker should be present
     const streamingProcessor = new MessageProcessor(message, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: true,
       showBlinker: true
@@ -465,7 +465,7 @@ This is my thought process
     
     // STEP 2: Process the same message with streaming finished - blinker should be gone
     const finishedProcessor = new MessageProcessor(message, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false, // Streaming has finished
       showBlinker: true // Still requesting a blinker, but it shouldn't appear
@@ -492,7 +492,7 @@ This is my thought process
     // Phase 1: Initial streaming phase (message is streaming in)
     // At this point, the parent component would set isStreaming=true
     const streamingProcessor = new MessageProcessor(message, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: true,
       showBlinker: true
@@ -511,7 +511,7 @@ This is my thought process
     // 3. This causes a re-render with isStreaming=false
     
     const completedProcessor = new MessageProcessor(message, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
       showBlinker: true // Keep this true to match real behavior
@@ -564,7 +564,7 @@ This is my thought process
     
     // Step 1: First interaction starts streaming
     const firstStreamingProcessor = new MessageProcessor(firstMessage, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: true,
       showBlinker: true
@@ -576,7 +576,7 @@ This is my thought process
     
     // Step 2: First interaction completes
     const firstCompletedProcessor = new MessageProcessor(firstMessage, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false, // No longer streaming
       showBlinker: true
@@ -593,7 +593,7 @@ This is my thought process
     // This simulates what would happen if isActivelyStreaming wasn't reset to true
     // for the second interaction (the bug we're looking for)
     const secondStreamingProcessor = new MessageProcessor(secondMessage, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: true, // Should be streaming again for new interaction
       showBlinker: true
@@ -607,7 +607,7 @@ This is my thought process
     
     // Step 4: Second interaction completes
     const secondCompletedProcessor = new MessageProcessor(secondMessage, {
-      session: mockSession as ISession,
+      session: mockSession as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
       showBlinker: true
@@ -638,7 +638,7 @@ and finally the third doc [DOC_ID:doc-id-3].`;
 
     // Create processor
     const processor = new MessageProcessor(message, {
-      session: mockSessionWithOrderedDocs as unknown as ISession,
+      session: mockSessionWithOrderedDocs as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
@@ -695,7 +695,7 @@ then the first doc [DOC_ID:doc-id-1].
 
     // Create processor
     const processor = new MessageProcessor(message, {
-      session: mockSessionWithOrderedDocs as unknown as ISession,
+      session: mockSessionWithOrderedDocs as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
@@ -752,7 +752,7 @@ again reference the second doc [DOC_ID:doc-id-2].`;
 
     // Create processor
     const processor = new MessageProcessor(message, {
-      session: mockSessionWithDocs as unknown as ISession,
+      session: mockSessionWithDocs as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
@@ -812,7 +812,7 @@ and document two [DOC_ID:doc-id-2].
 
     // Create processor
     const processor = new MessageProcessor(message, {
-      session: mockSessionWithDocs as unknown as ISession,
+      session: mockSessionWithDocs as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
@@ -880,7 +880,7 @@ then the first doc [DOC_ID:doc-id-1].
 
     // Create processor
     const processor = new MessageProcessor(message, {
-      session: mockSessionWithDocs as unknown as ISession,
+      session: mockSessionWithDocs as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
@@ -936,7 +936,7 @@ then the first doc [DOC_ID:doc-id-1].
 
     // Create processor
     const processor = new MessageProcessor(message, {
-      session: mockSessionWithDocs as unknown as ISession,
+      session: mockSessionWithDocs as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
@@ -978,13 +978,9 @@ then the first doc [DOC_ID:doc-id-1].
     // Create a session with multiple documents with different IDs
     const mockDocId1 = 'doc-id-multi-1';
     const mockDocId2 = 'doc-id-multi-2';
-    const mockSessionWithMultiDocs: Partial<ISession> = {
+    const mockSessionWithMultiDocs: Partial<TypesSession> = {
       ...mockSession,
       config: {
-        original_mode: 'inference',
-        origin: { type: 'user_created' } as ISessionOrigin,
-        avatar: '',
-        priority: false,
         document_ids: {
           'document1.pdf': mockDocId1,
           'document2.pdf': mockDocId2,
@@ -1015,8 +1011,7 @@ then the first doc [DOC_ID:doc-id-1].
         eval_automatic_score: '',
         eval_automatic_reason: '',
         eval_original_user_prompts: [],
-        rag_source_data_entity_id: '',
-      } as ISessionConfig,
+      } as TypesSessionMetadata,
     };
 
     // Create message with excerpt that combines text from both documents
@@ -1030,7 +1025,7 @@ then the first doc [DOC_ID:doc-id-1].
 
     // Create processor
     const processor = new MessageProcessor(message, {
-      session: mockSessionWithMultiDocs as ISession,
+      session: mockSessionWithMultiDocs as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
@@ -1061,25 +1056,20 @@ then the first doc [DOC_ID:doc-id-1].
 describe('Citation Validation', () => {
   // Create session with RAG results for testing citation validation
   const mockDocumentId = 'doc-id-123';
-  const mockSessionWithRAG: Partial<ISession> = {
+  const mockSessionWithRAG: Partial<TypesSession> = {
     id: 'test-session',
     name: 'Test Session',
     created: new Date().toISOString(),
     updated: new Date().toISOString(),
     parent_session: '',
     parent_app: '',
-    mode: 'inference',
-    type: 'text',
+    mode: TypesSessionMode.SessionModeInference,
+    type: TypesSessionType.SessionTypeText,
     model_name: 'test-model',
     lora_dir: '',
     owner: 'test-owner',
-    owner_type: 'user',
-    interactions: [],
+    owner_type: TypesOwnerType.OwnerTypeUser,
     config: {
-      original_mode: 'inference',
-      origin: { type: 'user_created' } as ISessionOrigin,
-      avatar: '',
-      priority: false,
       document_ids: {
         'test-document.pdf': mockDocumentId,
       },
@@ -1109,7 +1099,6 @@ describe('Citation Validation', () => {
       eval_automatic_score: '',
       eval_automatic_reason: '',
       eval_original_user_prompts: [],
-      rag_source_data_entity_id: '',
     },
   };
   
@@ -1127,7 +1116,7 @@ describe('Citation Validation', () => {
 
     // Create processor
     const processor = new MessageProcessor(message, {
-      session: mockSessionWithRAG as ISession,
+      session: mockSessionWithRAG as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
@@ -1159,7 +1148,7 @@ describe('Citation Validation', () => {
 
     // Create processor
     const processor = new MessageProcessor(message, {
-      session: mockSessionWithRAG as ISession,
+      session: mockSessionWithRAG as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
@@ -1191,7 +1180,7 @@ describe('Citation Validation', () => {
 
     // Create processor
     const processor = new MessageProcessor(message, {
-      session: mockSessionWithRAG as ISession,
+      session: mockSessionWithRAG as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
@@ -1223,7 +1212,7 @@ describe('Citation Validation', () => {
 
     // Create processor
     const processor = new MessageProcessor(message, {
-      session: mockSessionWithRAG as ISession,
+      session: mockSessionWithRAG as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
@@ -1256,7 +1245,7 @@ describe('Citation Validation', () => {
 
     // Create processor
     const processor = new MessageProcessor(message, {
-      session: mockSessionWithRAG as ISession,
+      session: mockSessionWithRAG as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
@@ -1281,13 +1270,9 @@ describe('Citation Validation', () => {
   test('Citation should match the correct chunk when document has multiple chunks with same ID', () => {
     // Create a session with multiple chunks for the same document_id
     const mockDocumentIdWithChunks = 'doc-id-with-chunks';
-    const mockSessionWithChunks: Partial<ISession> = {
+    const mockSessionWithChunks: Partial<TypesSession> = {
       ...mockSessionWithRAG,
       config: {
-        original_mode: 'inference',
-        origin: { type: 'user_created' } as ISessionOrigin,
-        avatar: '',
-        priority: false,
         document_ids: {
           'chunked-document.pdf': mockDocumentIdWithChunks,
         },
@@ -1326,8 +1311,7 @@ describe('Citation Validation', () => {
         eval_automatic_score: '',
         eval_automatic_reason: '',
         eval_original_user_prompts: [],
-        rag_source_data_entity_id: '',
-      } as ISessionConfig,
+      } as TypesSessionMetadata,
     };
 
     // Create message with excerpt that quotes from chunk 2
@@ -1340,7 +1324,7 @@ describe('Citation Validation', () => {
 
     // Create processor
     const processor = new MessageProcessor(message, {
-      session: mockSessionWithChunks as ISession,
+      session: mockSessionWithChunks as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
@@ -1364,13 +1348,9 @@ describe('Citation Validation', () => {
   test('Citation that spans across chunks should still be validated correctly', () => {
     // Create a session with multiple adjacent chunks for the same document_id
     const mockDocumentIdWithChunks = 'doc-id-spanning-chunks';
-    const mockSessionWithSpanningChunks: Partial<ISession> = {
+    const mockSessionWithSpanningChunks: Partial<TypesSession> = {
       ...mockSessionWithRAG,
       config: {
-        original_mode: 'inference',
-        origin: { type: 'user_created' } as ISessionOrigin,
-        avatar: '',
-        priority: false,
         document_ids: {
           'spanning-document.pdf': mockDocumentIdWithChunks,
         },
@@ -1402,8 +1382,7 @@ describe('Citation Validation', () => {
         eval_automatic_score: '',
         eval_automatic_reason: '',
         eval_original_user_prompts: [],
-        rag_source_data_entity_id: '',
-      } as ISessionConfig,
+      } as TypesSessionMetadata,
     };
 
     // Create message with excerpt that spans across chunks
@@ -1417,7 +1396,7 @@ describe('Citation Validation', () => {
 
     // Create processor
     const processor = new MessageProcessor(message, {
-      session: mockSessionWithSpanningChunks as ISession,
+      session: mockSessionWithSpanningChunks as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
@@ -1443,13 +1422,9 @@ describe('Citation Validation', () => {
     // Create a session with multiple documents with different IDs
     const mockDocId1 = 'doc-id-multi-1';
     const mockDocId2 = 'doc-id-multi-2';
-    const mockSessionWithMultiDocs: Partial<ISession> = {
+    const mockSessionWithMultiDocs: Partial<TypesSession> = {
       ...mockSessionWithRAG,
       config: {
-        original_mode: 'inference',
-        origin: { type: 'user_created' } as ISessionOrigin,
-        avatar: '',
-        priority: false,
         document_ids: {
           'document1.pdf': mockDocId1,
           'document2.pdf': mockDocId2,
@@ -1480,8 +1455,7 @@ describe('Citation Validation', () => {
         eval_automatic_score: '',
         eval_automatic_reason: '',
         eval_original_user_prompts: [],
-        rag_source_data_entity_id: '',
-      } as ISessionConfig,
+      } as TypesSessionMetadata,
     };
 
     // Create message with excerpt that combines text from both documents
@@ -1495,7 +1469,7 @@ describe('Citation Validation', () => {
 
     // Create processor
     const processor = new MessageProcessor(message, {
-      session: mockSessionWithMultiDocs as ISession,
+      session: mockSessionWithMultiDocs as TypesSession,
       getFileURL: mockGetFileURL,
       isStreaming: false,
     });
