@@ -104,31 +104,15 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 		var toolsToCall []openai.ToolCall
 
 		// Always use streaming to show the reasoning process, but handle tool calls appropriately
-		// DEBUG: Log exactly what we're sending to LLM to catch empty content
-		log.Debug().
-			Int("message_count", len(params.Messages)).
-			Str("model", modelToUse.Model).
-			Str("skill_name", skill.Name).
-			Int("iteration", iterationNumber).
-			Msg("🔍 DEBUG: About to call LLM streaming in SkillContextRunner")
 
-		for i, msg := range params.Messages {
-			log.Debug().
-				Int("msg_index", i).
-				Str("role", msg.Role).
-				Str("content", msg.Content).
-				Bool("content_empty", msg.Content == "").
-				Int("multi_content_parts", len(msg.MultiContent)).
-				Int("tool_calls", len(msg.ToolCalls)).
-				Str("skill_name", skill.Name).
-				Msg("🔍 DEBUG: Message being sent to LLM in SkillContextRunner")
-
-			if msg.Content == "" && len(msg.MultiContent) == 0 && len(msg.ToolCalls) == 0 {
-				log.Error().
-					Int("msg_index", i).
-					Str("role", msg.Role).
-					Str("skill_name", skill.Name).
-					Msg("🚨 FOUND EMPTY MESSAGE in SkillContextRunner - This will cause 'inputs cannot be empty' error!")
+		// Add /no_think prefix for Qwen models since skill execution is after initial planning
+		if isQwenModel(modelToUse.Model) {
+			messages := messageHistory.All()
+			if len(messages) > 0 {
+				lastMessage := messages[len(messages)-1]
+				if lastMessage.Role == "user" && !strings.HasPrefix(lastMessage.Content, "/no_think") {
+					lastMessage.Content = "/no_think " + lastMessage.Content
+				}
 			}
 		}
 

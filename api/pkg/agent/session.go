@@ -134,41 +134,16 @@ func (s *Session) run() {
 			if response.Type == ResponseTypePartialText {
 				aggregatedResponse += response.Content
 
-				// DEBUG: Log what partial content we're aggregating
-				log.Debug().
-					Str("session_id", s.meta.SessionID).
-					Str("partial_content", response.Content).
-					Int("partial_length", len(response.Content)).
-					Int("total_aggregated_length", len(aggregatedResponse)).
-					Bool("partial_empty", response.Content == "").
-					Msg("🔍 DEBUG: Aggregating partial text response")
 			}
 			if response.Type == ResponseTypeEnd {
 				break
 			}
 		}
 
-		// DEBUG: Log final aggregation before adding to history
-		log.Debug().
-			Str("session_id", s.meta.SessionID).
-			Int("final_aggregated_length", len(aggregatedResponse)).
-			Bool("final_aggregated_empty", aggregatedResponse == "").
-			Bool("will_add_to_history", aggregatedResponse != "").
-			Msg("🔍 DEBUG: Final aggregated response before adding to history")
-
 		// Only add the assistant message to history if we actually have content
 		// This prevents empty messages that can cause downstream API validation errors
 		if aggregatedResponse != "" {
 			s.messageHistory.Add(AssistantMessage(aggregatedResponse))
-
-			log.Debug().
-				Str("session_id", s.meta.SessionID).
-				Int("added_content_length", len(aggregatedResponse)).
-				Msg("🔍 DEBUG: Added aggregated assistant message to history")
-		} else {
-			log.Warn().
-				Str("session_id", s.meta.SessionID).
-				Msg("🚠 WARNING: Skipping empty aggregated response - no content to add to history")
 		}
 
 		// Run method is done, send the final message
