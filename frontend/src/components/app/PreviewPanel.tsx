@@ -32,16 +32,11 @@ import Cell from '../widgets/Cell';
 import Row from '../widgets/Row';
 import { useRouterContext } from '../../contexts/router';
 
-import { 
-  ISession, 
+import {   
   ISessionRAGResult, 
   IKnowledgeSearchResult,   
   SESSION_TYPE_TEXT, 
   IApp,
-  ICloneInteractionMode,
-  INTERACTION_STATE_EDITING,
-  INTERACTION_STATE_COMPLETE,
-  INTERACTION_STATE_ERROR,    
 } from '../../types';
 import ContextMenuModal from '../widgets/ContextMenuModal';
 import useApi from '../../hooks/useApi';
@@ -52,7 +47,7 @@ import {
   getAssistantAvatar,  
 } from '../../utils/apps';
 
-import { TypesInteractionState } from '../../api/api';
+import { TypesInteractionState, TypesSession } from '../../api/api';
 
 interface PreviewPanelProps {
   appId: string;
@@ -68,14 +63,14 @@ interface PreviewPanelProps {
   onSearch: (query: string) => void;
   hasKnowledgeSources: boolean;
   searchResults: IKnowledgeSearchResult[];
-  session: ISession | undefined;
+  session: TypesSession | undefined;
   serverConfig: any;
   themeConfig: any;
   snackbar: any;
   conversationStarters?: string[];
   app?: IApp;
   activeAssistantID?: string;
-  onSessionUpdate?: (session: ISession) => void;
+  onSessionUpdate?: (session: TypesSession) => void;
 }
 
 const PreviewPanel: React.FC<PreviewPanelProps> = ({
@@ -120,7 +115,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
     const sessionId = urlParams.get('sessionId') || router.params.session_id;
     
     if (sessionId && (!session || session.id !== sessionId)) {
-      api.get<ISession>(`/api/v1/sessions/${sessionId}`).then((loadedSession) => {
+      api.get<TypesSession>(`/api/v1/sessions/${sessionId}`).then((loadedSession) => {
         if (loadedSession && onSessionUpdate) {
           onSessionUpdate(loadedSession);
         }
@@ -218,10 +213,8 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           ],
           appId: appId,
           assistantId: activeAssistantID || undefined,
-          ragSourceId: session.config?.rag_source_data_entity_id || '',
           provider: session.provider,
           modelName: session.model_name,
-          loraDir: session.lora_dir,
           sessionId: session.id,
           type: SESSION_TYPE_TEXT,
         });
@@ -263,28 +256,6 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
     }
   };
 
-  const onHandleFilterDocument = useCallback(async (docId: string) => {
-    if (!appId) {
-      snackbar.error('Unable to filter document, no app ID found')
-      return
-    }
-
-    // Make a call to the API to get the correct format and ensure the user has access to the document
-    const result = await api.getApiClient().v1ContextMenuList({
-      app_id: appId || '',
-    })
-    if (result.status !== 200) {
-      snackbar.error(`Unable to filter document, error from API: ${result.statusText}`)
-      return
-    }
-    const filterAction = result.data?.data?.find(item => item.value?.includes(docId) && item.action_label?.toLowerCase().includes('filter'))
-    if (!filterAction) {
-      snackbar.error('Unable to filter document, no action found')
-      return
-    }
-    setInputValue(filterAction.value || '');
-  }, [setInputValue]);
-
   const handleSearchModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const newSearchMode = event.target.checked;
     setIsSearchMode(newSearchMode);
@@ -307,29 +278,6 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
       snackbar.success('Content copied to clipboard');
     }
   };
-
-  // Dummy handlers for interaction components
-  const handleRegenerate = useCallback(async (interactionID: string, message: string) => {
-    // TODO: Implement regeneration in preview mode if needed
-    console.log('Regenerate not implemented in preview mode', { interactionID, message });
-  }, []);
-
-  const handleReloadSession = useCallback(async () => {
-    // TODO: Implement session reload if needed
-    console.log('Session reload not implemented in preview mode');
-    return session;
-  }, [session]);
-
-  const handleClone = useCallback(async (mode: ICloneInteractionMode, interactionID: string): Promise<boolean> => {
-    // TODO: Implement cloning if needed in preview mode
-    console.log('Clone not implemented in preview mode', { mode, interactionID });
-    return false;
-  }, []);
-
-  const retryFinetuneErrors = useCallback(() => {
-    // TODO: Implement if needed
-    console.log('Retry finetune errors not implemented in preview mode');
-  }, []);
 
   const handleResetSession = useCallback(() => {
     // Remove session_id from URL
