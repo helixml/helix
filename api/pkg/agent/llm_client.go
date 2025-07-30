@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	helix_openai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/system"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -44,6 +45,15 @@ func (c *LLM) New(ctx context.Context, model *LLMModelConfig, params openai.Chat
 	resp, err := model.Client.CreateChatCompletion(ctx, params)
 	if err != nil {
 		return openai.ChatCompletionResponse{}, err
+	}
+
+	// If we have got a response with a tool call, ensure we have an ID set, otherwise generate one
+	if len(resp.Choices) > 0 && len(resp.Choices[0].Message.ToolCalls) > 0 {
+		for idx, toolCall := range resp.Choices[0].Message.ToolCalls {
+			if toolCall.ID == "" {
+				resp.Choices[0].Message.ToolCalls[idx].ID = system.GenerateCallID()
+			}
+		}
 	}
 
 	return resp, nil
