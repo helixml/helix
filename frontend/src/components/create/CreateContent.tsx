@@ -116,6 +116,8 @@ const CreateContent: FC<CreateContentProps> = ({
     if (!checkLoginStatus()) return
     setLoading(true)
 
+    console.log("XXX set loading")
+
     const urlParams = new URLSearchParams(window.location.search)
     const appID = urlParams.get('app_id') || ''
     let assistantID = urlParams.get('assistant_id') || ''
