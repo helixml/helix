@@ -7,18 +7,20 @@ ARG DEVELOPMENT_CPU_ONLY=""
 # Set vLLM version consistently - latest version (0.10.0) with proper compatibility
 ARG VLLM_VERSION="0.10.0"
 
+# Temporarily disable diffusers build to save space - uncomment to re-enable
+# FROM ghcr.io/astral-sh/uv:${UV_VERSION}-bookworm-slim AS diffusers-build-env
+# ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_INSTALL_DIR=/workspace/helix/runner/helix-diffusers/.python
+# WORKDIR /workspace/helix/runner/helix-diffusers
+# RUN --mount=type=cache,target=/root/.cache/uv \
+#     --mount=type=bind,source=runner/helix-diffusers/.python-version,target=.python-version \
+#     --mount=type=bind,source=runner/helix-diffusers/uv.lock,target=uv.lock \
+#     --mount=type=bind,source=runner/helix-diffusers/pyproject.toml,target=pyproject.toml \
+#     uv sync --frozen --no-install-project --no-dev
+# ADD runner/helix-diffusers /workspace/helix/runner/helix-diffusers
+# RUN --mount=type=cache,target=/root/.cache/uv \
+#     uv sync --frozen --no-dev
+
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
-FROM ghcr.io/astral-sh/uv:${UV_VERSION}-bookworm-slim AS diffusers-build-env
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_INSTALL_DIR=/workspace/helix/runner/helix-diffusers/.python
-WORKDIR /workspace/helix/runner/helix-diffusers
-RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=runner/helix-diffusers/.python-version,target=.python-version \
-    --mount=type=bind,source=runner/helix-diffusers/uv.lock,target=uv.lock \
-    --mount=type=bind,source=runner/helix-diffusers/pyproject.toml,target=pyproject.toml \
-    uv sync --frozen --no-install-project --no-dev
-ADD runner/helix-diffusers /workspace/helix/runner/helix-diffusers
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
 
 ### BUILD
 
@@ -70,7 +72,7 @@ ARG DEVELOPMENT_CPU_ONLY=""
 # Pass the vLLM version
 ARG VLLM_VERSION
 
-# Install ollama
+# Install ollama (keeping independent version for upgrade flexibility)
 RUN TEMP_DIR=$(mktemp -d /tmp/ollama_install_XXXXXX) && \
     curl --retry 5 -L https://github.com/ollama/ollama/releases/download/v0.9.6/ollama-linux-amd64.tgz -o $TEMP_DIR/ollama.tgz && \
     tar -xzf $TEMP_DIR/ollama.tgz -C $TEMP_DIR && \
@@ -79,26 +81,13 @@ RUN TEMP_DIR=$(mktemp -d /tmp/ollama_install_XXXXXX) && \
     cp -r $TEMP_DIR/lib/ollama /usr/lib/ && \
     rm -rf $TEMP_DIR
 
-# Install system dependencies for CPU builds if needed
-RUN if [ -n "$DEVELOPMENT_CPU_ONLY" ]; then \
-        echo "Installing development libraries for CPU build" && \
-        apt-get update && apt-get install -y --no-install-recommends \
-        libnuma-dev \
-        build-essential \
-        cmake \
-        ninja-build \
-        && rm -rf /var/lib/apt/lists/*; \
-    fi
-
 # Copy vLLM requirements file with ALL dependencies precisely pinned
 COPY requirements-vllm.txt /tmp/requirements-vllm.txt
 
-# Install vLLM with complete dependency pinning from requirements.txt (138 packages pinned)
+# Install vLLM into system miniconda (139 packages pinned) - much cleaner than separate venvs
 # PyPI wheels work for both CPU and GPU - no special environment variables needed
-RUN cd /workspace/axolotl && \
-    . venv/bin/activate && \
-    echo "Installing vLLM using pinned requirements (CPU/GPU auto-detected)" && \
-    pip3 install -r /tmp/requirements-vllm.txt
+RUN echo "Installing vLLM into system miniconda using UV (much faster than pip)" && \
+    uv pip install -r /tmp/requirements-vllm.txt
 
 # Create the examples directory in the vLLM package where it will look for templates
 RUN mkdir -p /root/miniconda3/envs/py3.11/lib/python3.11/site-packages/vllm/examples
@@ -119,10 +108,12 @@ WORKDIR /workspace/helix
 # Copy runner directory from the repo
 COPY runner ./runner
 
-# Copy the diffusers build environment including Python
-COPY --from=ghcr.io/astral-sh/uv:0.5.4 /uv /bin/uv
-COPY --from=diffusers-build-env /workspace/helix/runner/helix-diffusers /workspace/helix/runner/helix-diffusers
-ENV PATH="/workspace/helix/runner/helix-diffusers/.venv/bin:$PATH"
+# Copy uv for any future Python package management needs  
+COPY --from=uv /uv /bin/uv
+
+# Diffusers disabled to save space - uncomment to re-enable:
+# COPY --from=diffusers-build-env /workspace/helix/runner/helix-diffusers /workspace/helix/runner/helix-diffusers
+# ENV PATH="/workspace/helix/runner/helix-diffusers/.venv/bin:$PATH"
 
 # So that the runner can function when run as non-root, symlink some stuff into
 # locations in /tmp (needed for locked down OpenShift support)

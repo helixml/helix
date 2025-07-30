@@ -444,12 +444,12 @@ func (v *VLLMRuntime) waitUntilVLLMIsReady(ctx context.Context, startTimeout tim
 }
 
 func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, model string, customArgs []string) (*exec.Cmd, error) {
-	// Find vLLM on the path
+	// Use system Python with vLLM installed in miniconda
 	vllmPath, err := commander.LookPath("python")
 	if err != nil {
 		return nil, fmt.Errorf("python not found in PATH")
 	}
-	log.Debug().Str("python_path", vllmPath).Msg("Found python")
+	log.Debug().Str("python_path", vllmPath).Msg("Using system Python with vLLM installed in miniconda")
 
 	// Prepare vLLM serve command
 	log.Debug().
@@ -535,8 +535,8 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 	// Set only the specific environment variables needed
 	// This is more secure than inheriting all parent environment variables
 	env := []string{
-		// dockerfile installs vllm in the axolotl virtualenv
-		"PYTHONPATH=/workspace/axolotl/src:/root/miniconda3/envs/py3.11/lib/python3.11/site-packages",
+		// vLLM is installed in system miniconda - set PYTHONPATH to miniconda site-packages
+		"PYTHONPATH=/root/miniconda3/envs/py3.11/lib/python3.11/site-packages",
 		// System paths - often needed by Python to find libraries
 		fmt.Sprintf("PATH=%s", os.Getenv("PATH")),
 		fmt.Sprintf("HOME=%s", os.Getenv("HOME")),
