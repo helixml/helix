@@ -537,17 +537,12 @@ func (c *RunnerController) SubmitImageGenerationRequest(slot *Slot, session *typ
 	return nil
 }
 
-// calculateVLLMMemoryUtilizationRatio calculates the optimal GPU memory utilization ratio
+// calculateVLLMMemoryUtilizationRatio calculates the GPU memory utilization ratio
 // for VLLM based on the model's memory requirements and the runner's total GPU memory.
 // This ensures VLLM uses an appropriate amount of GPU memory without causing OOM errors.
 //
-// HACK: VLLM's --gpu-memory-utilization flag doesn't work as documented. According to a GitHub issue,
-// when multiple VLLM instances are running on the same GPU, each subsequent instance needs to add
-// the previous instances' memory utilization to its own utilization ratio. This is a workaround
-// until VLLM fixes the calculation to work as described in the documentation.
-//
-// We extend this hack to all existing model instances, not just VLLM, since any GPU memory usage
-// affects how much memory VLLM can actually use.
+// Note: Previously contained complex workarounds for VLLM memory profiling bugs,
+// but these were fixed in VLLM PR #18974, allowing for this simplified calculation.
 func (c *RunnerController) calculateVLLMMemoryUtilizationRatio(runnerID string, modelMemoryRequirement uint64) float64 {
 	// Get the runner's total memory
 	totalMemory := c.TotalMemory(runnerID)
@@ -575,43 +570,9 @@ func (c *RunnerController) calculateVLLMMemoryUtilizationRatio(runnerID string, 
 		Uint64("model_memory_bytes", modelMemoryRequirement).
 		Uint64("total_gpu_memory_bytes", totalMemory).
 		Float64("final_cumulative_ratio", finalRatio).
-		Msg("Calculated cumulative VLLM memory utilization ratio (HACK: workaround for VLLM cumulative behavior)")
+		Msg("Calculated VLLM memory utilization ratio")
 
 	return finalRatio
-}
-
-// getExistingMemoryUtilization calculates the cumulative memory utilization ratio
-// of all existing model instances on the specified runner.
-// This is part of the VLLM memory allocation hack - we need to account for ALL existing
-// GPU memory usage, not just VLLM instances.
-func (c *RunnerController) getExistingMemoryUtilization(runnerID string) float64 {
-	totalMemory := c.TotalMemory(runnerID)
-	if totalMemory == 0 {
-		return 0.0
-	}
-
-	// Get the runner status to find allocated memory
-	status, err := c.GetStatus(runnerID)
-	if err != nil {
-		log.Warn().
-			Str("runner_id", runnerID).
-			Err(err).
-			Msg("Failed to get runner status for memory utilization calculation")
-		return 0.0
-	}
-
-	// Use the allocated memory from the runner status
-	// This represents the total memory currently allocated to all slots/models
-	existingUtilizationRatio := float64(status.AllocatedMemory) / float64(totalMemory)
-
-	log.Debug().
-		Str("runner_id", runnerID).
-		Uint64("allocated_memory_bytes", status.AllocatedMemory).
-		Uint64("total_memory_bytes", totalMemory).
-		Float64("existing_utilization_ratio", existingUtilizationRatio).
-		Msg("Calculated existing memory utilization for cumulative VLLM hack (all models)")
-
-	return existingUtilizationRatio
 }
 
 // substituteVLLMArgsPlaceholders replaces template placeholders in VLLM args with actual values
