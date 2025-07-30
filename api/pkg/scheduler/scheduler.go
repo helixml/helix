@@ -452,13 +452,36 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 					Str("runtime", string(slotDetails.Runtime)).
 					Bool("is_active", slotDetails.Active).
 					Bool("is_ready", slotDetails.Ready).
-					Msg("found slot on runner that doesn't exist in scheduler, deleting...")
+					Str("reason", "orphaned_slot").
+					Msg("deleting orphaned slot - exists on runner but not in scheduler")
+
+				// Log as scheduling decision for visibility
+				if slotDetails.Model != "" {
+					// Create a dummy workload for logging purposes with minimal model info
+					dummyWork := &Workload{
+						WorkloadType: WorkloadTypeLLMInferenceRequest,
+						llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+							RequestID: "orphaned-cleanup",
+							Request:   &openai.ChatCompletionRequest{Model: slotDetails.Model},
+						},
+						model: &types.Model{
+							ID:     slotDetails.Model,
+							Name:   slotDetails.Model,
+							Memory: 0, // Unknown memory for orphaned slots
+						},
+					}
+					s.logSchedulingDecision(dummyWork, types.SchedulingDecisionTypeEvictStaleSlot, true,
+						fmt.Sprintf("Deleted orphaned slot %s (model: %s) - existed on runner but not in scheduler",
+							slotID.String(), slotDetails.Model), runnerID, slotID.String(),
+						time.Now(), 0, 0, 0)
+				}
 			} else {
 				log.Warn().
 					Err(err).
 					Str("runner_id", runnerID).
 					Str("slot_id", slotID.String()).
-					Msg("found slot on runner that doesn't exist in scheduler but couldn't fetch details, deleting...")
+					Str("reason", "orphaned_slot").
+					Msg("deleting orphaned slot - exists on runner but not in scheduler, couldn't fetch details")
 			}
 
 			err = s.controller.DeleteSlot(runnerID, slotID)
@@ -824,8 +847,24 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (to
 			return totalMem, finalAllocatedMem, finalFreeMem, ErrRunnersAreFull
 		}
 		// Then delete the most stale slot, allow the reconciler to mop up
-		withSlotContext(&log.Logger, staleSlots[0]).Info().Msg("deleting stale slot")
-		s.slots.Delete(staleSlots[0].ID)
+		evictedSlot := staleSlots[0]
+		withSlotContext(&log.Logger, evictedSlot).Info().
+			Str("reason", "memory_pressure").
+			Uint64("required_memory_mb", requiredMem/1024/1024).
+			Uint64("total_memory_mb", totalMem/1024/1024).
+			Uint64("allocated_memory_mb", allocatedMem/1024/1024).
+			Int64("free_memory_mb", freeMem/1024/1024).
+			Dur("slot_age", time.Since(evictedSlot.LastActivityTime)).
+			Int("stale_slots_available", len(staleSlots)).
+			Msg("evicting stale slot due to memory pressure")
+
+		// Log as scheduling decision for the dashboard
+		s.logSchedulingDecision(work, types.SchedulingDecisionTypeEvictStaleSlot, true,
+			fmt.Sprintf("Evicted stale slot %s (model: %s, age: %v) to free memory for new workload",
+				evictedSlot.ID.String(), evictedSlot.InitialWork().ModelName(), time.Since(evictedSlot.LastActivityTime)),
+			runnerID, evictedSlot.ID.String(), time.Now(), finalFreeMem/1024/1024, work.model.Memory/1024/1024, totalMem/1024/1024)
+
+		s.slots.Delete(evictedSlot.ID)
 	}
 	return totalMem, finalAllocatedMem, finalFreeMem, nil
 }
@@ -1191,6 +1230,12 @@ func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types
 		freeMemory/(1024*1024), modelMemory/(1024*1024), totalMemory/(1024*1024))
 	enhancedReason := fmt.Sprintf("%s %s", reason, memoryInfo)
 
+	// Get memory required, handling case where workload.model might be nil
+	var memoryRequired uint64
+	if workload.model != nil {
+		memoryRequired = workload.model.Memory
+	}
+
 	decision := &types.SchedulingDecision{
 		WorkloadID:       workload.ID(),
 		SessionID:        sessionID,
@@ -1203,7 +1248,7 @@ func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types
 		Success:          success,
 		ProcessingTimeMs: processingTime,
 		AvailableRunners: availableRunners,
-		MemoryRequired:   workload.model.Memory,
+		MemoryRequired:   memoryRequired,
 		WarmSlotCount:    len(warmSlots),
 		TotalSlotCount:   totalSlots,
 	}

@@ -143,6 +143,16 @@ controlplane:
   # runnerTokenExistingSecret: "runner-token-secret"
   # runnerTokenExistingSecretKey: "token"  # defaults to "token" if not specified
 
+  # License key for deployment identification
+  # Get your license key from https://deploy.helix.ml/licenses
+  licenseKey: ""
+
+  # Option: Use existing secret for license key (recommended for production)
+  # Create the license secret with:
+  #   kubectl create secret generic helix-license --from-literal=license-key="<your-license-key-here>"
+  # licenseKeyExistingSecret: "helix-license"
+  # licenseKeyExistingSecretKey: "license-key"  # defaults to "license-key" if not specified
+
   # Keycloak configuration
   keycloak:
     # Internal Keycloak service URL
@@ -229,7 +239,7 @@ controlplane:
     defaultProvider: "helix"
 
   # Provider configurations (examples of the three fixed global provider names)
-  # You can also add dynamic providers at runtime through the Dashboard
+  # You can also add dynamic providers at runtime through the Admin Panel
   providers:
     {}
     # Examples - uncomment and configure for your specific setup:
@@ -264,31 +274,6 @@ controlplane:
   # Sidecar configuration (optional)
   sidecar:
     enabled: false
-    # Example log shipping sidecar:
-    # name: "log-shipper"
-    # image: "fluent/fluent-bit:2.2.0"
-    # imagePullPolicy: "IfNotPresent"
-    # command:
-    #   - "/fluent-bit/bin/fluent-bit"
-    # args:
-    #   - "--config=/fluent-bit/etc/fluent-bit.conf"
-    # Environment variables for sidecar
-    # envVariables:
-    #   LOG_LEVEL: "info"
-    #   OUTPUT_HOST: "elasticsearch.logging.svc.cluster.local"
-    # Resources for sidecar
-    # resources:
-    #   requests:
-    #     cpu: "100m"
-    #     memory: "128Mi"
-    #   limits:
-    #     cpu: "200m"
-    #     memory: "256Mi"
-    # Volume mounts for sidecar
-    # volumeMounts:
-    #   logs:
-    #     mountPath: "/var/log/helix"
-    #     readOnly: true
 
   # Additional environment variables for unsupported/custom settings
   extraEnv:
@@ -420,16 +405,11 @@ postgresql:
   #   #   kubernetes.io/service-account.name: "postgresql-reader"
 
 ## Environment variables from secrets
-# Uncomment to provide additional configuration via kubernetes secrets
+# NOTE: For common configurations like LICENSE_KEY, RUNNER_TOKEN, KEYCLOAK credentials,
+# and provider API keys, use the structured configuration under 'controlplane' section above.
+# This section is for additional custom environment variables not covered by structured config.
 secretEnvVariables:
-  # Get your License key from https://deploy.helix.ml/licenses
-  # Create the license secret with:
-  #   kubectl create secret generic helix-license --from-literal=license="<base64 encoded secret contents here>"
-  # LICENSE_KEY:
-  #   secretName: helix-license
-  #   secretKey: license
-
-  # Additional secret-based environment variables
+  # Additional secret-based environment variables for custom configurations
   # EXTERNAL_API_KEY:
   #   secretName: external-api-credentials
   #   secretKey: api-key

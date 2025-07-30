@@ -49,7 +49,7 @@ func TestIntelligentPrewarming_WithDefaultPrewarmModels(t *testing.T) {
 
 	require.True(t, modelIDs["Qwen/Qwen2.5-VL-7B-Instruct"], "Should include Qwen2.5-VL-7B")
 	require.True(t, modelIDs["MrLight/dse-qwen2-2b-mrl-v1"], "Should include MrLight model")
-	require.True(t, modelIDs["llama3.1:8b-instruct-q8_0"], "Should include llama3.1")
+	require.True(t, modelIDs["qwen3:8b"], "Should include qwen3:8b")
 }
 
 func TestIntelligentPrewarming_UnevenDistribution(t *testing.T) {
@@ -82,14 +82,14 @@ func TestIntelligentPrewarming_UnevenDistribution(t *testing.T) {
 
 	// Simulate uneven distribution:
 	// runner-1: 2x Qwen2.5-VL-3B, 0x others
-	// runner-2: 1x llama3.1, 0x others
+	// runner-2: 1x qwen3:8b, 0x others
 	// runner-3: empty (new runner)
 	mockSlots1 := []*types.RunnerSlot{
 		{Model: "Qwen/Qwen2.5-VL-3B-Instruct", Active: true},
 		{Model: "Qwen/Qwen2.5-VL-3B-Instruct", Active: true},
 	}
 	mockSlots2 := []*types.RunnerSlot{
-		{Model: "llama3.1:8b-instruct-q8_0", Active: true},
+		{Model: "qwen3:8b", Active: true},
 	}
 	mockSlots3 := []*types.RunnerSlot{} // Empty
 
@@ -157,13 +157,13 @@ func TestIntelligentPrewarming_BalancedDistribution(t *testing.T) {
 		{Model: "Qwen/Qwen2.5-VL-3B-Instruct", Active: true},
 		{Model: "Qwen/Qwen2.5-VL-7B-Instruct", Active: true},
 		{Model: "MrLight/dse-qwen2-2b-mrl-v1", Active: true},
-		{Model: "llama3.1:8b-instruct-q8_0", Active: true},
+		{Model: "qwen3:8b", Active: true},
 	}
 	mockSlots2 := []*types.RunnerSlot{
 		{Model: "Qwen/Qwen2.5-VL-3B-Instruct", Active: true},
 		{Model: "Qwen/Qwen2.5-VL-7B-Instruct", Active: true},
 		{Model: "MrLight/dse-qwen2-2b-mrl-v1", Active: true},
-		{Model: "llama3.1:8b-instruct-q8_0", Active: true},
+		{Model: "qwen3:8b", Active: true},
 	}
 
 	runnerCtrl.slotsCache.Set("runner-1", NewCache(ctx, func() (types.ListRunnerSlotsResponse, error) {

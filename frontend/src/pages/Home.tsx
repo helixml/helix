@@ -357,12 +357,14 @@ const Home: FC = () => {
                           flex: '1 1 auto',
                         }}
                       >
+                        {/* Temporarily disabled - image models from third-party providers may not work properly and we no longer bundle FLUX.1-dev
                         {account.hasImageModels && (
                           <SessionTypeButton 
                             type={currentType}
                             onSetType={setCurrentType}
                           />
                         )}
+                        */}
 
                         <AdvancedModelPicker
                           selectedProvider={currentProvider}

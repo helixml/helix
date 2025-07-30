@@ -1,0 +1,36 @@
+# Example values for helix-runner chart
+
+# Simple approach using direct tokens
+runner:
+  host: https://app.helix.ml
+  token: "your-runner-token-here"
+  huggingfaceToken: "hf_your_huggingface_token_here"
+
+# Multi-GPU configuration examples
+# Each runner pod will manage the specified number of GPUs
+# The runner automatically detects and uses all allocated GPUs
+
+# Example 1: Single runner managing 4 GPUs
+gpuCount: 4
+replicaCount: 1
+
+# Example 2: Multiple runners each managing 2 GPUs
+# gpuCount: 2
+# replicaCount: 2
+
+# Example 3: CPU-only setup (no GPUs)
+# gpuCount: 0
+
+# Alternative: Using Kubernetes secrets (recommended for production)
+# Create secrets first:
+# kubectl create secret generic runner-tokens \
+#   --from-literal=api-token=your-actual-api-token \
+#   --from-literal=hf-token=your-actual-hf-token
+#
+# Then configure like this:
+# runner:
+#   host: https://app.helix.ml
+#   tokenExistingSecret: "runner-tokens"
+#   tokenExistingSecretKey: "api-token"
+#   huggingfaceTokenExistingSecret: "runner-tokens"
+#   huggingfaceTokenExistingSecretKey: "hf-token"

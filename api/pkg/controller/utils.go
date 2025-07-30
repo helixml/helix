@@ -5,20 +5,27 @@ import (
 )
 
 func getLastMessage(req openai.ChatCompletionRequest) string {
-	if len(req.Messages) > 0 {
-		lastMessage := req.Messages[len(req.Messages)-1]
-		// Prioritize multi-content messages
-		if len(lastMessage.MultiContent) > 0 {
-			// Find the first text message
-			for _, content := range lastMessage.MultiContent {
-				if content.Type == openai.ChatMessagePartTypeText {
-					return content.Text
-				}
-			}
-		}
-
-		return req.Messages[len(req.Messages)-1].Content
+	if len(req.Messages) == 0 {
+		return ""
 	}
 
-	return ""
+	lastMessage := req.Messages[len(req.Messages)-1]
+
+	// Check if the message has MultiContent
+	if len(lastMessage.MultiContent) > 0 {
+		var textContent strings.Builder
+		for _, part := range lastMessage.MultiContent {
+			if part.Type == openai.ChatMessagePartTypeText {
+				textContent.WriteString(part.Text)
+			}
+		}
+		// If we found text in MultiContent, use it
+		if textContent.Len() > 0 {
+			return textContent.String()
+		}
+		// If MultiContent exists but has no text, fall back to Content field
+	}
+
+	// Use the regular Content field
+	return lastMessage.Content
 }

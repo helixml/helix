@@ -18,7 +18,7 @@ spec:
       maxUnavailable: 1
       maxSurge: 1
   {{- else if eq .Values.deploymentStrategy "auto" }}
-    {{- if and .Values.resources.limits (eq (index .Values.resources.limits "nvidia.com/gpu" | toString) "1") }}
+    {{- if and (hasKey .Values "gpuCount") (gt (.Values.gpuCount | int) 0) }}
   strategy:
     type: Recreate
     {{- else }}
@@ -60,27 +60,69 @@ spec:
           args:
             - --api-host
             - {{ .Values.runner.host }}
-            - --api-token
-            - {{ .Values.runner.token }}
             - --runner-id
             - "$(POD_NAME)"
           env:
+            {{- if .Values.runner.tokenExistingSecret }}
+            - name: API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.runner.tokenExistingSecret }}
+                  key: {{ .Values.runner.tokenExistingSecretKey | default "token" }}
+            {{- else }}
+            - name: API_TOKEN
+              value: {{ .Values.runner.token | quote }}
+            {{- end }}
             - name: POD_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: RUNTIME_AXOLOTL_ENABLED
-              value: "{{ .Values.runner.axolotl }}"
-            - name: RUNTIME_AXOLOTL_WARMUP_MODELS
-              value: "mistralai/Mistral-7B-Instruct-v0.1"
+            {{- if .Values.runner.huggingfaceTokenExistingSecret }}
             - name: HF_TOKEN
-              value: {{ .Values.runner.huggingfaceToken }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.runner.huggingfaceTokenExistingSecret }}
+                  key: {{ .Values.runner.huggingfaceTokenExistingSecretKey | default "token" }}
+            {{- else }}
+            - name: HF_TOKEN
+              value: {{ .Values.runner.huggingfaceToken | quote }}
+            {{- end }}
             - name: RUNTIME_OLLAMA_ENABLED
               value: "true"
-            - name: RUNTIME_OLLAMA_WARMUP_MODELS
-              value: {{ .Values.runner.models }}
           resources:
+            {{- if hasKey .Values "gpuCount" }}
+              {{- if gt (.Values.gpuCount | int) 0 }}
+            limits:
+              nvidia.com/gpu: {{ .Values.gpuCount | quote }}
+              {{- range $key, $value := .Values.resources.limits }}
+              {{- if ne $key "nvidia.com/gpu" }}
+              {{ $key }}: {{ $value }}
+              {{- end }}
+              {{- end }}
+            requests:
+              nvidia.com/gpu: {{ .Values.gpuCount | quote }}
+              {{- range $key, $value := .Values.resources.requests }}
+              {{- if ne $key "nvidia.com/gpu" }}
+              {{ $key }}: {{ $value }}
+              {{- end }}
+              {{- end }}
+              {{- else }}
+            limits:
+              {{- range $key, $value := .Values.resources.limits }}
+              {{- if ne $key "nvidia.com/gpu" }}
+              {{ $key }}: {{ $value }}
+              {{- end }}
+              {{- end }}
+            requests:
+              {{- range $key, $value := .Values.resources.requests }}
+              {{- if ne $key "nvidia.com/gpu" }}
+              {{ $key }}: {{ $value }}
+              {{- end }}
+              {{- end }}
+              {{- end }}
+            {{- else }}
             {{- toYaml .Values.resources | nindent 12 }}
+            {{- end }}
           {{- with .Values.volumeMounts }}
           volumeMounts:
             {{- toYaml . | nindent 12 }}

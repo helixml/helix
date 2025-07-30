@@ -154,3 +154,77 @@ func TestPlatformSpecific(t *testing.T) {
 		})
 	}
 }
+
+func TestParseAndSumGPUMemory(t *testing.T) {
+	tests := []struct {
+		name             string
+		output           string
+		memoryType       string
+		expectedMemory   uint64
+		expectedGPUCount int
+	}{
+		{
+			name:             "single GPU",
+			output:           "24564",
+			memoryType:       "total",
+			expectedMemory:   24564 * 1024 * 1024, // Convert MiB to bytes
+			expectedGPUCount: 1,
+		},
+		{
+			name:             "dual GPU same memory",
+			output:           "24564\n24564",
+			memoryType:       "total",
+			expectedMemory:   2 * 24564 * 1024 * 1024, // Sum both GPUs
+			expectedGPUCount: 2,
+		},
+		{
+			name:             "dual GPU different memory",
+			output:           "24564\n16384",
+			memoryType:       "total",
+			expectedMemory:   (24564 + 16384) * 1024 * 1024, // Sum both GPUs
+			expectedGPUCount: 2,
+		},
+		{
+			name:             "quad GPU",
+			output:           "24564\n24564\n16384\n32768",
+			memoryType:       "total",
+			expectedMemory:   (24564 + 24564 + 16384 + 32768) * 1024 * 1024,
+			expectedGPUCount: 4,
+		},
+		{
+			name:             "empty output",
+			output:           "",
+			memoryType:       "total",
+			expectedMemory:   0,
+			expectedGPUCount: 0,
+		},
+		{
+			name:             "output with extra whitespace",
+			output:           " 24564 \n 16384 \n",
+			memoryType:       "total",
+			expectedMemory:   (24564 + 16384) * 1024 * 1024,
+			expectedGPUCount: 2,
+		},
+		{
+			name:             "used memory parsing",
+			output:           "1024\n2048\n512",
+			memoryType:       "used",
+			expectedMemory:   (1024 + 2048 + 512) * 1024 * 1024,
+			expectedGPUCount: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := &GPUManager{
+				runnerOptions: &Options{},
+			}
+
+			result := g.parseAndSumGPUMemory(tt.output, tt.memoryType)
+
+			if result != tt.expectedMemory {
+				t.Errorf("parseAndSumGPUMemory() = %d bytes, expected %d bytes", result, tt.expectedMemory)
+			}
+		})
+	}
+}
