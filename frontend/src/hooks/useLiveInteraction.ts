@@ -64,7 +64,7 @@ const useLiveInteraction = (sessionId: string, initialInteraction: TypesInteract
   }, [recentTimestamp, staleThreshold, isStale, isAppTryHelixDomain]);
 
   return {
-    message: interaction?.prompt_message || '',
+    message: interaction?.response_message || '',
     status: interaction?.state || '',    
     isComplete: interaction?.state === TypesInteractionState.InteractionStateComplete,
     isStale,
