@@ -216,7 +216,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "qwen3:32b", // https://ollama.com/library/qwen3:32b
 			Name:          "Qwen3 32B",
-			Memory:        GB * 25, // Based on Q4_K_M quantization, ~31GB model size
+			Memory:        GB * 31, // Based on Q4_K_M quantization, ~31GB model size
 			ContextLength: 40960,   // 40K context window
 			Description:   "Large Qwen3 model with superior reasoning and agent capabilities, from Alibaba - 4bit quantized, 40K context",
 			Hide:          false,
