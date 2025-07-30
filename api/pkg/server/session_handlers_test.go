@@ -233,30 +233,35 @@ func (suite *AppendOrOverwriteSuite) TestOverwriteSession_FirstMessage() {
 
 func (suite *AppendOrOverwriteSuite) TestOverwriteSession_MiddleMessage() {
 	session := &types.Session{
+		GenerationID: 1,
 		Interactions: []*types.Interaction{
 			{
 				ID:              "1",
 				PromptMessage:   "user message 1",
 				State:           types.InteractionStateComplete,
 				ResponseMessage: "assistant response 1",
+				GenerationID:    1,
 			},
 			{
 				ID:              "2",
 				PromptMessage:   "user message 2",
 				State:           types.InteractionStateComplete,
 				ResponseMessage: "assistant response 2",
+				GenerationID:    1,
 			},
 			{
 				ID:              "3",
 				PromptMessage:   "user message 3",
 				State:           types.InteractionStateComplete,
 				ResponseMessage: "assistant response 3",
+				GenerationID:    1,
 			},
 			{
 				ID:              "4",
 				PromptMessage:   "user message 4",
 				State:           types.InteractionStateComplete,
 				ResponseMessage: "assistant response 4",
+				GenerationID:    1,
 			},
 		},
 	}
@@ -312,4 +317,8 @@ func (suite *AppendOrOverwriteSuite) TestOverwriteSession_MiddleMessage() {
 	suite.Equal("regenerating from here", session.Interactions[1].PromptMessage)
 	suite.Equal(types.InteractionStateWaiting, session.Interactions[1].State)
 	suite.Equal("", session.Interactions[1].ResponseMessage)
+
+	// Check generation IDs
+	suite.Equal(2, session.Interactions[0].GenerationID)
+	suite.Equal(2, session.Interactions[1].GenerationID)
 }
