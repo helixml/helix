@@ -11,40 +11,29 @@ import (
 // TODO Remove all three and use openai functions directly
 func UserMessage(content string) *openai.ChatCompletionMessage {
 	return &openai.ChatCompletionMessage{
-		Role: openai.ChatMessageRoleUser,
-		// Content: content,
-		MultiContent: []openai.ChatMessagePart{
-			{
-				Type: openai.ChatMessagePartTypeText,
-				Text: content,
-			},
-		},
+		Role:    openai.ChatMessageRoleUser,
+		Content: content,
 	}
 }
 
 func AssistantMessage(content string) *openai.ChatCompletionMessage {
 	return &openai.ChatCompletionMessage{
-		Role: openai.ChatMessageRoleAssistant,
-		// Content: content,
-		MultiContent: []openai.ChatMessagePart{
-			{
-				Type: openai.ChatMessagePartTypeText,
-				Text: content,
-			},
-		},
+		Role:    openai.ChatMessageRoleAssistant,
+		Content: content,
+	}
+}
+
+func SystemMessage(content string) *openai.ChatCompletionMessage {
+	return &openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleSystem,
+		Content: content,
 	}
 }
 
 func DeveloperMessage(content string) *openai.ChatCompletionMessage {
 	return &openai.ChatCompletionMessage{
-		Role: openai.ChatMessageRoleDeveloper,
-		// Content: content,
-		MultiContent: []openai.ChatMessagePart{
-			{
-				Type: openai.ChatMessagePartTypeText,
-				Text: content,
-			},
-		},
+		Role:    openai.ChatMessageRoleDeveloper,
+		Content: content,
 	}
 }
 
@@ -69,6 +58,7 @@ func (ml *MessageList) Add(msgs ...*openai.ChatCompletionMessage) {
 }
 
 func (ml *MessageList) AddFirst(prompt string) {
+
 	ml.Messages = append([]*openai.ChatCompletionMessage{DeveloperMessage(prompt)}, ml.Messages...)
 }
 

@@ -836,6 +836,16 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 
 	prompt := getLastMessage(req)
 
+	// Check for empty prompt which could cause "inputs cannot be empty" error
+	if strings.TrimSpace(prompt) == "" {
+		log.Warn().
+			Str("user_id", user.ID).
+			Str("rag_source_id", opts.RAGSourceID).
+			Interface("request_messages", req.Messages).
+			Msg("evaluateRAG: Empty prompt detected - this may cause 'inputs cannot be empty' error")
+		return []*prompts.RagContent{}, nil
+	}
+
 	// Parse document IDs from the completion request
 	filterActions := rag.ParseFilterActions(prompt)
 	filterDocumentIDs := make([]string, 0)
@@ -849,6 +859,14 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 	if entity.Config.RAGSettings.EnableVision {
 		pipeline = types.VisionPipeline
 	}
+
+	log.Debug().
+		Str("user_id", user.ID).
+		Str("data_entity_id", entity.ID).
+		Str("prompt", prompt).
+		Str("pipeline", string(pipeline)).
+		Msg("evaluateRAG: About to make RAG query")
+
 	ragResults, err := c.Options.RAG.Query(ctx, &types.SessionRAGQuery{
 		Prompt:            prompt,
 		DataEntityID:      entity.ID,
@@ -859,6 +877,11 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 		Pipeline:          pipeline,
 	})
 	if err != nil {
+		log.Error().Err(err).
+			Str("user_id", user.ID).
+			Str("data_entity_id", entity.ID).
+			Str("prompt", prompt).
+			Msg("evaluateRAG: Error querying RAG")
 		return nil, fmt.Errorf("error querying RAG: %w", err)
 	}
 

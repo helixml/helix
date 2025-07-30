@@ -34,6 +34,12 @@ runner:
   huggingfaceTokenExistingSecret: ""
   huggingfaceTokenExistingSecretKey: ""  # defaults to "token" if not specified 
 
+# GPU configuration
+# Number of GPUs this runner should manage
+# Each runner pod will be allocated this many GPUs from Kubernetes
+# The runner will automatically detect and use all allocated GPUs
+gpuCount: 1
+
 # Both node selectors and resources need to target
 resources:
   limits:

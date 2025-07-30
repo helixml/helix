@@ -169,16 +169,14 @@ func (g *GPUManager) fetchFreeMemory() uint64 {
 			g.usedMemory = 0
 		} else {
 			log.Trace().Str("nvidia_smi_output", string(output)).Msg("nvidia-smi output for used memory")
-			if used, err := strconv.ParseUint(strings.TrimSpace(string(output)), 10, 64); err != nil {
-				log.Error().Err(err).Str("output", string(output)).Msg("Error parsing nvidia-smi used memory output")
+			actualUsedMemory := g.parseAndSumGPUMemory(string(output), "used")
+			if actualUsedMemory == 0 {
 				g.usedMemory = 0
 			} else {
-				actualUsedMemory := used * 1024 * 1024 // Convert MiB to bytes
 				g.usedMemory = actualUsedMemory
 				log.Trace().
-					Uint64("used_mib", used).
 					Uint64("used_bytes", actualUsedMemory).
-					Msg("Successfully parsed GPU used memory")
+					Msg("Successfully parsed GPU used memory across all GPUs")
 				virtualFreeMemory := g.gpuMemory - actualUsedMemory
 				if virtualFreeMemory < freeMemory {
 					freeMemory = virtualFreeMemory
@@ -313,9 +311,7 @@ func (g *GPUManager) getActualTotalMemory() uint64 {
 		connectCmdStdErrToLogger(cmd)
 		output, err := cmd.Output()
 		if err == nil {
-			if total, err := strconv.ParseUint(strings.TrimSpace(string(output)), 10, 64); err == nil {
-				return total * 1024 * 1024 // Convert MiB to bytes
-			}
+			return g.parseAndSumGPUMemory(string(output), "total")
 		}
 	case "darwin":
 		arch, err := getMacArchitecture()
@@ -453,4 +449,47 @@ func connectCmdStdErrToLogger(cmd *exec.Cmd) {
 			log.Error().Msg(scanner.Text())
 		}
 	}()
+}
+
+// parseAndSumGPUMemory parses nvidia-smi output that may contain multiple lines (one per GPU)
+// and sums the memory values across all GPUs
+func (g *GPUManager) parseAndSumGPUMemory(output, memoryType string) uint64 {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	var totalMemory uint64
+	var gpuCount int
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		memory, err := strconv.ParseUint(line, 10, 64)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("line", line).
+				Str("memory_type", memoryType).
+				Msg("Error parsing nvidia-smi memory output line")
+			continue
+		}
+
+		memoryBytes := memory * 1024 * 1024 // Convert MiB to bytes
+		totalMemory += memoryBytes
+		gpuCount++
+		log.Trace().
+			Int("gpu_index", gpuCount-1).
+			Uint64("memory_mib", memory).
+			Uint64("memory_bytes", memoryBytes).
+			Str("memory_type", memoryType).
+			Msg("Parsed GPU memory for individual GPU")
+	}
+
+	log.Info().
+		Int("gpu_count", gpuCount).
+		Uint64("total_memory_bytes", totalMemory).
+		Str("memory_type", memoryType).
+		Msg("Successfully summed GPU memory across all GPUs")
+
+	return totalMemory
 }

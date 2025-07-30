@@ -4,21 +4,23 @@ ARG TAG=latest-small
 ARG UV_VERSION="0.5.4"
 # Add arg for CPU/GPU mode
 ARG DEVELOPMENT_CPU_ONLY=""
-# Set vLLM version consistently
-ARG VLLM_VERSION="0.8.4"
+# Set vLLM version consistently - latest version (0.10.0) with proper compatibility
+ARG VLLM_VERSION="0.10.0"
+
+# Temporarily disable diffusers build to save space - uncomment to re-enable
+# FROM ghcr.io/astral-sh/uv:${UV_VERSION}-bookworm-slim AS diffusers-build-env
+# ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_INSTALL_DIR=/workspace/helix/runner/helix-diffusers/.python
+# WORKDIR /workspace/helix/runner/helix-diffusers
+# RUN --mount=type=cache,target=/root/.cache/uv \
+#     --mount=type=bind,source=runner/helix-diffusers/.python-version,target=.python-version \
+#     --mount=type=bind,source=runner/helix-diffusers/uv.lock,target=uv.lock \
+#     --mount=type=bind,source=runner/helix-diffusers/pyproject.toml,target=pyproject.toml \
+#     uv sync --frozen --no-install-project --no-dev
+# ADD runner/helix-diffusers /workspace/helix/runner/helix-diffusers
+# RUN --mount=type=cache,target=/root/.cache/uv \
+#     uv sync --frozen --no-dev
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
-FROM ghcr.io/astral-sh/uv:${UV_VERSION}-bookworm-slim AS diffusers-build-env
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_INSTALL_DIR=/workspace/helix/runner/helix-diffusers/.python
-WORKDIR /workspace/helix/runner/helix-diffusers
-RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=runner/helix-diffusers/.python-version,target=.python-version \
-    --mount=type=bind,source=runner/helix-diffusers/uv.lock,target=uv.lock \
-    --mount=type=bind,source=runner/helix-diffusers/pyproject.toml,target=pyproject.toml \
-    uv sync --frozen --no-install-project --no-dev
-ADD runner/helix-diffusers /workspace/helix/runner/helix-diffusers
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
 
 ### BUILD
 
@@ -63,6 +65,28 @@ RUN if [ -d "/tmp/vllm/examples" ]; then \
 
 ### RUNNER CONTAINER
 
+# ============================================================================
+# CLEAN vLLM-ONLY SETUP (MINIMAL CUDA BASE)  
+# ============================================================================
+# The runner-base image has been updated to use CUDA runtime base:
+# nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 with system Python 3.10
+# This provides a minimal, modern foundation for vLLM while preserving model caching.
+# Python 3.12 is installed here for best vLLM compatibility and future-proofing.
+#
+# WHAT WAS CHANGED IN BASE IMAGE:
+# 1. Base: nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 (CUDA 12.4 + Ubuntu 22.04)
+# 2. Python: System Python 3.10 (no miniconda complexity)
+# 3. Axolotl: Installation commented out (easy to restore)  
+# 4. Packages: Minimal system packages only
+# 5. Build tools + Python 3.12: Added here for best vLLM compatibility and future-proofing
+#
+# HOW TO RESTORE AXOLOTL:
+# 1. In base-images/Dockerfile.runner: Change FROM back to winglian/axolotl image  
+# 2. In base-images/Dockerfile.runner: Re-add miniconda installation
+# 3. In base-images/Dockerfile.runner: Uncomment axolotl installation section
+# 4. Update Go runtime files to use miniconda paths (see comments in files)
+# ============================================================================
+
 FROM registry.helixml.tech/helix/runner-base:${TAG}
 
 # Pass the CPU flag through to this stage
@@ -70,44 +94,47 @@ ARG DEVELOPMENT_CPU_ONLY=""
 # Pass the vLLM version
 ARG VLLM_VERSION
 
-# Install ollama
+# Install ollama (keeping independent version for upgrade flexibility)
 RUN TEMP_DIR=$(mktemp -d /tmp/ollama_install_XXXXXX) && \
-    curl --retry 5 -L https://github.com/ollama/ollama/releases/download/v0.6.5/ollama-linux-amd64.tgz -o $TEMP_DIR/ollama.tgz && \
+    curl --retry 5 -L https://github.com/ollama/ollama/releases/download/v0.9.6/ollama-linux-amd64.tgz -o $TEMP_DIR/ollama.tgz && \
     tar -xzf $TEMP_DIR/ollama.tgz -C $TEMP_DIR && \
     mv $TEMP_DIR/bin/ollama /usr/bin/ollama && \
     chmod +x /usr/bin/ollama && \
     cp -r $TEMP_DIR/lib/ollama /usr/lib/ && \
     rm -rf $TEMP_DIR
 
-# Install system dependencies for CPU builds if needed
-RUN if [ -n "$DEVELOPMENT_CPU_ONLY" ]; then \
-        echo "Installing development libraries for CPU build" && \
-        apt-get update && apt-get install -y --no-install-recommends \
-        libnuma-dev \
-        build-essential \
-        cmake \
-        ninja-build \
-        && rm -rf /var/lib/apt/lists/*; \
-    fi
+# Copy vLLM requirements file with ALL dependencies precisely pinned
+COPY requirements-vllm.txt /tmp/requirements-vllm.txt
 
-# Install vLLM - with separate methods for CPU and GPU
-RUN cd /workspace/axolotl && \
-    . venv/bin/activate && \
-    if [ -n "$DEVELOPMENT_CPU_ONLY" ]; then \
-        echo "Installing vLLM with CPU support from GitHub release (version ${VLLM_VERSION})" && \
-        VLLM_TARGET_DEVICE=cpu \
-        PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu \
-        pip3 install "vllm @ git+https://github.com/vllm-project/vllm.git@v${VLLM_VERSION}"; \
-    else \
-        echo "Installing vLLM with GPU support (version ${VLLM_VERSION})" && \
-        pip3 install vllm==${VLLM_VERSION}; \
-    fi
+# Install build tools and Python 3.12 for best future compatibility
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    python3.12 \
+    python3.12-venv \
+    python3.12-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# Create the examples directory in the vLLM package where it will look for templates
-RUN mkdir -p /root/miniconda3/envs/py3.11/lib/python3.11/site-packages/vllm/examples
+# Copy UV binary before we use it
+COPY --from=uv /uv /bin/uv
 
-# Copy the example templates to the vLLM package examples directory  
-COPY --from=vllm-templates /vllm-templates/* /root/miniconda3/envs/py3.11/lib/python3.11/site-packages/vllm/examples/
+# Create clean vLLM virtualenv using Python 3.12 (latest, best future compatibility)
+# This isolates vLLM from any system packages - completely clean environment  
+RUN python3.12 -m venv /workspace/vllm/venv && \
+    echo "Installing vLLM into clean virtualenv using UV (much faster than pip)" && \
+    /workspace/vllm/venv/bin/python -m pip install uv && \
+    cd /workspace/vllm && \
+    VIRTUAL_ENV=/workspace/vllm/venv PATH="/workspace/vllm/venv/bin:$PATH" \
+    /workspace/vllm/venv/bin/uv pip install -r /tmp/requirements-vllm.txt
+
+# Create the examples directory in the vLLM venv package where it will look for templates (Python 3.12)
+RUN mkdir -p /workspace/vllm/venv/lib/python3.12/site-packages/vllm/examples
+
+# Copy the example templates to the vLLM venv package examples directory  
+COPY --from=vllm-templates /vllm-templates/* /workspace/vllm/venv/lib/python3.12/site-packages/vllm/examples/
 
 # Create a clean /vllm directory with examples subdirectory
 RUN mkdir -p /vllm/examples
@@ -115,17 +142,12 @@ RUN mkdir -p /vllm/examples
 # Copy templates directly to /vllm/examples where the Go code will look for them
 COPY --from=vllm-templates /vllm-templates/* /vllm/examples/
 
-RUN mkdir -p /workspace/helix
-
-WORKDIR /workspace/helix
-
 # Copy runner directory from the repo
 COPY runner ./runner
 
-# Copy the diffusers build environment including Python
-COPY --from=ghcr.io/astral-sh/uv:0.5.4 /uv /bin/uv
-COPY --from=diffusers-build-env /workspace/helix/runner/helix-diffusers /workspace/helix/runner/helix-diffusers
-ENV PATH="/workspace/helix/runner/helix-diffusers/.venv/bin:$PATH"
+# Diffusers disabled to save space - uncomment to re-enable:
+# COPY --from=diffusers-build-env /workspace/helix/runner/helix-diffusers /workspace/helix/runner/helix-diffusers
+# ENV PATH="/workspace/helix/runner/helix-diffusers/.venv/bin:$PATH"
 
 # So that the runner can function when run as non-root, symlink some stuff into
 # locations in /tmp (needed for locked down OpenShift support)
@@ -135,7 +157,16 @@ RUN mkdir -p /tmp/helix/ollama /tmp/helix/src /tmp/helix/cache /tmp/helix/root-c
     rm -rf /.config && ln -s /tmp/helix/config /.config && \
     rm -rf /src && ln -s /tmp/helix/src /src && \
     rm -rf /.ollama && ln -s /tmp/helix/ollama /.ollama && \
-    chmod -R 0777 /tmp/helix && chmod 0777 /root /workspace/axolotl /workspace/axolotl/dataset_cache
+    chmod -R 0777 /tmp/helix && chmod 0777 /root
+
+# ============================================================================
+# AXOLOTL FAKE VENV (for future axolotl restoration)
+# The helix runner expects /workspace/axolotl/venv/ to exist even when not using axolotl
+# When axolotl is re-enabled, this fake venv becomes a pointer to miniconda
+# ============================================================================
+#RUN mkdir -p /workspace/axolotl/dataset_cache /workspace/axolotl/venv/bin && \
+#    echo "echo \"Pretending to activate virtualenv (actually doing nothing)\"" > /workspace/axolotl/venv/bin/activate && \
+#    chmod 0777 /workspace/axolotl /workspace/axolotl/dataset_cache
 
 COPY --from=go-build-env /helix /workspace/helix/helix
 
