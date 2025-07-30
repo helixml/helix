@@ -556,7 +556,6 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 				messageToAdd.ToolCalls = filteredToolCalls
 				messageHistory.Add(&messageToAdd)
 
-			} else {
 			}
 		} else {
 			// No tool calls, add the message as-is
