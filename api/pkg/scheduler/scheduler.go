@@ -461,12 +461,17 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 
 				// Log as scheduling decision for visibility
 				if slotDetails.Model != "" {
-					// Create a dummy workload for logging purposes
+					// Create a dummy workload for logging purposes with minimal model info
 					dummyWork := &Workload{
 						WorkloadType: WorkloadTypeLLMInferenceRequest,
 						llmInferenceRequest: &types.RunnerLLMInferenceRequest{
 							RequestID: "orphaned-cleanup",
 							Request:   &openai.ChatCompletionRequest{Model: slotDetails.Model},
+						},
+						model: &types.Model{
+							ID:     slotDetails.Model,
+							Name:   slotDetails.Model,
+							Memory: 0, // Unknown memory for orphaned slots
 						},
 					}
 					s.logSchedulingDecision(dummyWork, types.SchedulingDecisionTypeEvictStaleSlot, true,
@@ -1242,6 +1247,12 @@ func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types
 		freeMemory/(1024*1024), modelMemory/(1024*1024), totalMemory/(1024*1024))
 	enhancedReason := fmt.Sprintf("%s %s", reason, memoryInfo)
 
+	// Get memory required, handling case where workload.model might be nil
+	var memoryRequired uint64
+	if workload.model != nil {
+		memoryRequired = workload.model.Memory
+	}
+
 	decision := &types.SchedulingDecision{
 		WorkloadID:       workload.ID(),
 		SessionID:        sessionID,
@@ -1254,7 +1265,7 @@ func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types
 		Success:          success,
 		ProcessingTimeMs: processingTime,
 		AvailableRunners: availableRunners,
-		MemoryRequired:   workload.model.Memory,
+		MemoryRequired:   memoryRequired,
 		WarmSlotCount:    len(warmSlots),
 		TotalSlotCount:   totalSlots,
 	}
