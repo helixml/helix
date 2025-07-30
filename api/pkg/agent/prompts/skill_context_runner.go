@@ -20,11 +20,6 @@ IMPORTANT INSTRUCTIONS:
 4. If you have the answer from a tool, you can provide it directly in your response.
 5. You can only use the tools that are provided to you, DO NOT MAKE UP NON EXISTING TOOLS
 
-TOOL CALLING FORMAT:
-- When you see text like "[Previous tool calls: I used the X tool...]" in conversation history, this is ONLY for your context
-- DO NOT copy this pattern in your responses - always use proper JSON tool_call format
-- Use the tool calling mechanism provided by the API, never output descriptive text about tool calls
-
 PERFORMANCE:
 - Keep thinking concise and focused - get straight to tool usage
 - Skip lengthy explanations, make decisions quickly
