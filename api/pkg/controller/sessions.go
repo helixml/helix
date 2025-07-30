@@ -65,9 +65,11 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 	// Add the new message to the existing session
 	interaction := &types.Interaction{
 		ID:                   system.GenerateInteractionID(),
+		GenerationID:         req.Session.GenerationID,
 		Created:              time.Now(),
 		Updated:              time.Now(),
 		SessionID:            req.Session.ID,
+		UserID:               req.User.ID,
 		SystemPrompt:         systemPrompt,
 		Mode:                 types.SessionModeInference,
 		State:                types.InteractionStateWaiting,
@@ -75,9 +77,11 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 		PromptMessageContent: req.PromptMessage,
 	}
 
+	interactions = append(interactions, interaction)
+
 	err = c.WriteInteractions(ctx, interaction)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to create interaction")
+		log.Error().Any("interaction", interaction).Err(err).Msg("failed to create interaction")
 		return nil, fmt.Errorf("failed to create interaction: %w", err)
 	}
 
