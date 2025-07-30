@@ -123,10 +123,15 @@ func TestNewAPICallingSkill_Deprecated(t *testing.T) {
 func TestBuildParametersSchema(t *testing.T) {
 	// This is a unit test for the helper function
 	// Note: This function uses tools.Parameter which would require mocking
-	// For now, testing that empty parameters return empty schema
+	// For now, testing that empty parameters return valid object schema
 	emptyParams := []*tools.Parameter{}
 	schema := buildParametersSchema(emptyParams)
 
-	// Should return empty schema for no parameters
-	assert.Equal(t, jsonschema.Definition{}, schema, "Empty parameters should return empty schema")
+	// Should return valid object schema even for no parameters (required for Anthropic API)
+	expected := jsonschema.Definition{
+		Type:       jsonschema.Object,
+		Properties: map[string]jsonschema.Definition{},
+		Required:   []string{},
+	}
+	assert.Equal(t, expected, schema, "Empty parameters should return valid object schema with type field")
 }

@@ -108,11 +108,13 @@ COPY requirements-vllm.txt /tmp/requirements-vllm.txt
 COPY --from=uv /uv /bin/uv
 
 # Create clean vLLM virtualenv using system Python 3.12 (Ubuntu 24.04)
-# This isolates vLLM from any system packages - completely clean environment
+# This isolates vLLM from any system packages - completely clean environment  
 RUN python3 -m venv /workspace/vllm/venv && \
     echo "Installing vLLM into clean virtualenv using UV (much faster than pip)" && \
     /workspace/vllm/venv/bin/python -m pip install uv && \
-    /workspace/vllm/venv/bin/uv pip install --system -r /tmp/requirements-vllm.txt
+    cd /workspace/vllm && \
+    VIRTUAL_ENV=/workspace/vllm/venv PATH="/workspace/vllm/venv/bin:$PATH" \
+    /workspace/vllm/venv/bin/uv pip install -r /tmp/requirements-vllm.txt
 
 # Create the examples directory in the vLLM venv package where it will look for templates (Python 3.12)
 RUN mkdir -p /workspace/vllm/venv/lib/python3.12/site-packages/vllm/examples

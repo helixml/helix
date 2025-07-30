@@ -201,11 +201,7 @@ func buildParametersSchema(parameters []*tools.Parameter) jsonschema.Definition 
 		}
 	}
 
-	// Return empty schema if no properties
-	if len(properties) == 0 {
-		return jsonschema.Definition{}
-	}
-
+	// Always return a valid object schema, even if empty
 	return jsonschema.Definition{
 		Type:       jsonschema.Object,
 		Properties: properties,
