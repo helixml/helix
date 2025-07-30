@@ -674,12 +674,30 @@ func (s *Scheduler) processQueueOnce() {
 		return len(warmSlots) > 0
 	})
 
+	if work != nil {
+		// We have a warm slot, so schedule the work to it
+		s.scheduleToWarmSlot(work)
+		return
+	}
+
+	// No warm slots available - try to schedule to any available work by creating new slots
+	work = s.queue.TakeNext(func(w *Workload) bool {
+		// Accept any work item - we'll try to create a slot for it
+		return true
+	})
+
 	if work == nil {
 		// Check if there's any work in the queue that can't be scheduled and log why
 		s.logUnschedulableWork()
 		return // Nothing can be scheduled right now
 	}
 
+	// Try to create a new slot and schedule immediately
+	s.scheduleToNewSlot(work)
+}
+
+// scheduleToWarmSlot schedules work to an existing warm slot
+func (s *Scheduler) scheduleToWarmSlot(work *Workload) {
 	startTime := time.Now()
 
 	// We know we have a warm slot, so schedule the work
@@ -705,6 +723,103 @@ func (s *Scheduler) processQueueOnce() {
 		// Log successful warm slot reuse
 		s.logSchedulingDecision(work, types.SchedulingDecisionTypeReuseWarmSlot, true,
 			fmt.Sprintf("Reused warm slot on runner %s", slot.RunnerID), slot.RunnerID, slot.ID.String(), startTime, freeMemory, work.model.Memory, totalMemory)
+	}
+}
+
+// scheduleToNewSlot tries to create a new slot for the work and schedule immediately
+func (s *Scheduler) scheduleToNewSlot(work *Workload) {
+	startTime := time.Now()
+
+	// Get all runners sorted by preference
+	sortedRunners, err := s.getSortedRunners(work)
+	if err != nil {
+		// Log scheduling rejection - no specific runner info available
+		s.logSchedulingDecision(work, types.SchedulingDecisionTypeRejected, false,
+			fmt.Sprintf("Failed to get runners: %v", err), "", "", startTime, 0, work.model.Memory, 0)
+
+		retry, err := ErrorHandlingStrategy(err, work)
+		if retry {
+			// Put work back in queue for retry
+			if addErr := s.queue.Add(work); addErr != nil {
+				log.Warn().Err(addErr).Msg("failed to add work back to queue")
+				s.onSchedulingErr(work, addErr)
+			}
+			return
+		}
+		log.Warn().Err(err).Interface("work", work).Msg("failed to get runners for work, dropping...")
+		s.onSchedulingErr(work, err)
+		return
+	}
+
+	// Try each runner in order of preference until one succeeds
+	var lastErr error
+	slotCreated := false
+
+	for j, runnerID := range sortedRunners {
+		withWorkContext(&log.Logger, work).Debug().
+			Str("runner_id", runnerID).
+			Int("attempt", j+1).
+			Int("total_runners", len(sortedRunners)).
+			Msg("trying runner for new slot creation")
+
+		// Try to delete stale slots on this runner if required
+		totalMemory, _, freeMemory, err := s.deleteMostStaleStrategy(runnerID, work)
+		if err != nil {
+			lastErr = err
+			withWorkContext(&log.Logger, work).Debug().
+				Err(err).
+				Str("runner_id", runnerID).
+				Msg("failed to free memory on runner, trying next")
+			continue // Try next runner
+		}
+
+		// Success! Create slot on this runner
+		slot := NewSlot(runnerID, work, s.modelStaleFunc, s.slotTimeoutFunc)
+		s.slots.Store(slot.ID, slot)
+
+		// Log successful new slot creation with memory info
+		s.logSchedulingDecision(work, types.SchedulingDecisionTypeCreateNewSlot, true,
+			fmt.Sprintf("Created new slot on runner %s (attempt %d/%d)", runnerID, j+1, len(sortedRunners)),
+			runnerID, slot.ID.String(), startTime, freeMemory, work.model.Memory, totalMemory)
+
+		// Now schedule the work to this new slot
+		err = s.allocateSlot(slot.ID, work)
+		if err != nil {
+			// Log failed allocation to new slot
+			s.logSchedulingDecision(work, types.SchedulingDecisionTypeError, false,
+				fmt.Sprintf("Failed to allocate to new slot: %v", err), slot.RunnerID, slot.ID.String(), startTime, freeMemory, work.model.Memory, totalMemory)
+
+			// Remove the slot we just created since allocation failed
+			s.slots.Delete(slot.ID)
+			lastErr = err
+			continue // Try next runner
+		}
+
+		slotCreated = true
+		break // Success, no need to try more runners
+	}
+
+	// If we failed on all runners, handle the error
+	if !slotCreated {
+		// Log scheduling rejection due to all runners failing - no specific runner info available
+		s.logSchedulingDecision(work, types.SchedulingDecisionTypeRejected, false,
+			fmt.Sprintf("Failed to create slot on any of %d runners, last error: %v", len(sortedRunners), lastErr),
+			"", "", startTime, 0, work.model.Memory, 0)
+
+		retry, retryErr := ErrorHandlingStrategy(lastErr, work)
+		if retry {
+			// Put work back in queue for retry
+			if addErr := s.queue.Add(work); addErr != nil {
+				log.Warn().Err(addErr).Msg("failed to add work back to queue")
+				s.onSchedulingErr(work, addErr)
+			}
+			return
+		}
+		log.Warn().Err(lastErr).Interface("work", work).Msg("failed to create slot on any runner, dropping...")
+		if retryErr != nil {
+			log.Warn().Err(retryErr).Msg("error handling strategy failed")
+		}
+		s.onSchedulingErr(work, lastErr)
 	}
 }
 
