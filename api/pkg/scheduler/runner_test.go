@@ -81,7 +81,7 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 
 	runnerID := "test-runner"
 
-	// Test case 1: Small model on large GPU (should hit minimum ratio of 35%)
+	// Test case 1: Small model on large GPU (should calculate actual ratio)
 	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
 		return types.RunnerStatus{
 			TotalMemory:     80 * 1024 * 1024 * 1024, // 80GB GPU
@@ -89,9 +89,9 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 		}, nil
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio := ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 8*1024*1024*1024) // 8GB model
-	require.Equal(t, 0.35, ratio)                                                 // Should hit minimum ratio of 35%
+	require.InDelta(t, 0.10, ratio, 0.01)                                         // Should be 8/80 = 10%
 
-	// Test case 2: Very tiny model (should hit minimum ratio)
+	// Test case 2: Very tiny model (should hit minimum ratio of 5%)
 	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
 		return types.RunnerStatus{
 			TotalMemory:     80 * 1024 * 1024 * 1024, // 80GB GPU
@@ -99,7 +99,7 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 		}, nil
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 1*1024*1024*1024) // 1GB model
-	require.Equal(t, 0.35, ratio)                                                // Should hit minimum ratio
+	require.Equal(t, 0.05, ratio)                                                // Should hit minimum ratio (1/80 = 1.25%, clamped to 5%)
 
 	// Test case 3: Medium model on GPU (reasonable ratio)
 	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
@@ -109,7 +109,7 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 		}, nil
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 16*1024*1024*1024) // 16GB model
-	require.Greater(t, ratio, 0.35)
+	require.Greater(t, ratio, 0.05)
 	require.Less(t, ratio, 0.95)
 	require.InDelta(t, 0.67, ratio, 0.01) // Should be ~67% (16 / 24 = ~0.67)
 
@@ -121,7 +121,7 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 		}, nil
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 20*1024*1024*1024) // 20GB model
-	require.Greater(t, ratio, 0.35)
+	require.Greater(t, ratio, 0.05)
 	require.InDelta(t, 0.833, ratio, 0.01) // Should be 20/24 = 0.833
 
 	// Test case 5: No GPU memory info (fallback)
@@ -153,8 +153,8 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 8*1024*1024*1024) // 8GB new model
 
-	// Calculate expected: 8GB / 24GB = ~0.33, but clamped to minimum 0.35
-	require.Equal(t, 0.35, ratio) // Should hit minimum ratio since 8/24 = 0.33 < 0.35
+	// Calculate expected: 8GB / 24GB = ~0.33 (above minimum, so not clamped)
+	require.InDelta(t, 0.33, ratio, 0.01) // Should be ~33% (8/24 = 0.333)
 
 	// Test case 8: Model larger than 95% of GPU
 	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
@@ -242,14 +242,14 @@ func TestVLLMMemoryUtilizationRealWorldScenarios(t *testing.T) {
 		expectedRatioMax float64
 		description      string
 	}{
-		// Simplified scenarios: ratio = model_memory / total_memory, clamped between 0.35 and 0.95
-		{"1GB model on 80GB GPU (A100)", 80, 1, 0, 0.35, 0.35, "1/80 = 1.25%, clamped to 35%"},
-		{"2GB model on 80GB GPU (A100)", 80, 2, 0, 0.35, 0.35, "2/80 = 2.5%, clamped to 35%"},
-		{"4GB model on 80GB GPU (A100)", 80, 4, 0, 0.35, 0.35, "4/80 = 5%, clamped to 35%"},
-		{"8GB model on 80GB GPU (A100)", 80, 8, 0, 0.35, 0.35, "8/80 = 10%, clamped to 35%"},
-		{"16GB model on 80GB GPU (A100)", 80, 16, 0, 0.35, 0.35, "16/80 = 20%, clamped to 35%"},
+		// Simplified scenarios: ratio = model_memory / total_memory, clamped between 0.05 and 0.95
+		{"1GB model on 80GB GPU (A100)", 80, 1, 0, 0.05, 0.05, "1/80 = 1.25%, clamped to 5%"},
+		{"2GB model on 80GB GPU (A100)", 80, 2, 0, 0.05, 0.05, "2/80 = 2.5%, clamped to 5%"},
+		{"4GB model on 80GB GPU (A100)", 80, 4, 0, 0.05, 0.05, "4/80 = 5%, exactly at minimum"},
+		{"8GB model on 80GB GPU (A100)", 80, 8, 0, 0.10, 0.10, "8/80 = 10%"},
+		{"16GB model on 80GB GPU (A100)", 80, 16, 0, 0.20, 0.20, "16/80 = 20%"},
 		{"30GB model on 80GB GPU (A100)", 80, 30, 0, 0.37, 0.38, "30/80 = 37.5%"},
-		{"8GB model on 24GB GPU (RTX 4090)", 24, 8, 0, 0.35, 0.35, "8/24 = 33%, clamped to 35%"},
+		{"8GB model on 24GB GPU (RTX 4090)", 24, 8, 0, 0.33, 0.34, "8/24 = 33%"},
 		{"16GB model on 24GB GPU (RTX 4090)", 24, 16, 0, 0.66, 0.67, "16/24 = 67%"},
 		{"20GB model on 24GB GPU (RTX 4090)", 24, 20, 0, 0.83, 0.84, "20/24 = 83%"},
 		{"32GB model on 40GB GPU (A100 40GB)", 40, 32, 0, 0.80, 0.80, "32/40 = 80%"},
