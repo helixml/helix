@@ -12,8 +12,6 @@ func TestProcessModelName(t *testing.T) {
 		modelName   string
 		sessionMode types.SessionMode
 		sessionType types.SessionType
-		hasFinetune bool
-		ragEnabled  bool
 	}
 	tests := []struct {
 		name    string
@@ -28,8 +26,6 @@ func TestProcessModelName(t *testing.T) {
 				modelName:   "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
 				sessionMode: types.SessionModeFinetune,
 				sessionType: types.SessionTypeText,
-				hasFinetune: false,
-				ragEnabled:  true,
 			},
 			want: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
 		},
@@ -40,8 +36,6 @@ func TestProcessModelName(t *testing.T) {
 				modelName:   "",
 				sessionMode: types.SessionModeFinetune,
 				sessionType: types.SessionTypeText,
-				hasFinetune: false,
-				ragEnabled:  true,
 			},
 			want: NewModel(ModelOllamaLlama38b),
 		},
@@ -52,8 +46,6 @@ func TestProcessModelName(t *testing.T) {
 				modelName:   "",
 				sessionMode: types.SessionModeInference,
 				sessionType: types.SessionTypeText,
-				hasFinetune: false,
-				ragEnabled:  false,
 			},
 			want: NewModel(ModelOllamaLlama38b),
 		},
@@ -64,8 +56,6 @@ func TestProcessModelName(t *testing.T) {
 				modelName:   "helix-4",
 				sessionMode: types.SessionModeInference,
 				sessionType: types.SessionTypeText,
-				hasFinetune: false,
-				ragEnabled:  false,
 			},
 			want: NewModel(ModelOllamaLlama370b),
 		},
@@ -76,15 +66,13 @@ func TestProcessModelName(t *testing.T) {
 				modelName:   "helix-mixtral",
 				sessionMode: types.SessionModeInference,
 				sessionType: types.SessionTypeText,
-				hasFinetune: false,
-				ragEnabled:  false,
 			},
 			want: NewModel(ModelOllamaMixtral),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ProcessModelName(tt.args.provider, tt.args.modelName, tt.args.sessionType, tt.args.hasFinetune, tt.args.ragEnabled)
+			got, err := ProcessModelName(tt.args.provider, tt.args.modelName, tt.args.sessionType)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ProcessModelName() error = %v, wantErr %v", err, tt.wantErr)
 				return

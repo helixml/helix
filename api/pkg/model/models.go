@@ -66,10 +66,7 @@ func (m Name) InferenceRuntime() types.InferenceRuntime {
 func ProcessModelName(
 	provider string,
 	modelName string,
-	// sessionMode types.SessionMode,
 	sessionType types.SessionType,
-	hasFinetune bool,
-	ragEnabled bool,
 ) (string, error) {
 	switch sessionType {
 	case types.SessionTypeText:
@@ -115,7 +112,7 @@ func ProcessModelName(
 	}
 
 	// shouldn't get here
-	return "", fmt.Errorf("don't know what model to provide for args %v %v", sessionType, hasFinetune)
+	return "", fmt.Errorf("don't know what model to provide for args %v %v", modelName, sessionType)
 }
 
 // rather then keep processing model names from sessions into instances of the model struct
