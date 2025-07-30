@@ -455,8 +455,8 @@ func connectCmdStdErrToLogger(cmd *exec.Cmd) {
 // and sums the memory values across all GPUs
 func (g *GPUManager) parseAndSumGPUMemory(output, memoryType string) uint64 {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
-	var totalMemory uint64 = 0
-	var gpuCount int = 0
+	var totalMemory uint64
+	var gpuCount int
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -464,24 +464,25 @@ func (g *GPUManager) parseAndSumGPUMemory(output, memoryType string) uint64 {
 			continue
 		}
 
-		if memory, err := strconv.ParseUint(line, 10, 64); err != nil {
+		memory, err := strconv.ParseUint(line, 10, 64)
+		if err != nil {
 			log.Error().
 				Err(err).
 				Str("line", line).
 				Str("memory_type", memoryType).
 				Msg("Error parsing nvidia-smi memory output line")
 			continue
-		} else {
-			memoryBytes := memory * 1024 * 1024 // Convert MiB to bytes
-			totalMemory += memoryBytes
-			gpuCount++
-			log.Trace().
-				Int("gpu_index", gpuCount-1).
-				Uint64("memory_mib", memory).
-				Uint64("memory_bytes", memoryBytes).
-				Str("memory_type", memoryType).
-				Msg("Parsed GPU memory for individual GPU")
 		}
+
+		memoryBytes := memory * 1024 * 1024 // Convert MiB to bytes
+		totalMemory += memoryBytes
+		gpuCount++
+		log.Trace().
+			Int("gpu_index", gpuCount-1).
+			Uint64("memory_mib", memory).
+			Uint64("memory_bytes", memoryBytes).
+			Str("memory_type", memoryType).
+			Msg("Parsed GPU memory for individual GPU")
 	}
 
 	log.Info().
