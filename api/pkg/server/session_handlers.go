@@ -138,8 +138,27 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 			// If agent mode is enabled, used small generation model for session name generation
 			if assistant.AgentMode {
+				// DEBUG: Log what we actually have in the assistant object
+				log.Debug().
+					Str("assistant_id", assistantID).
+					Str("assistant_name", assistant.Name).
+					Bool("agent_mode", assistant.AgentMode).
+					Str("small_generation_model_provider", assistant.SmallGenerationModelProvider).
+					Str("small_generation_model", assistant.SmallGenerationModel).
+					Str("reasoning_model_provider", assistant.ReasoningModelProvider).
+					Str("reasoning_model", assistant.ReasoningModel).
+					Str("generation_model_provider", assistant.GenerationModelProvider).
+					Str("generation_model", assistant.GenerationModel).
+					Msg("Assistant agent mode fields when setting up title generation")
+
 				generateSessionNameProvider = assistant.SmallGenerationModelProvider
 				generateSessionNameModel = assistant.SmallGenerationModel
+
+				// DEBUG: Log what we're actually using for title generation
+				log.Debug().
+					Str("generate_session_name_provider", generateSessionNameProvider).
+					Str("generate_session_name_model", generateSessionNameModel).
+					Msg("Final title generation model configuration")
 			}
 		}
 	}
@@ -291,9 +310,25 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			if generateSessionNameProvider != "" && generateSessionNameModel != "" {
 				provider = generateSessionNameProvider
 				model = generateSessionNameModel
+
+				// DEBUG: Log when we're using the agent's small generation model
+				log.Debug().
+					Str("provider", provider).
+					Str("model", model).
+					Msg("Using agent's small generation model for title generation")
 			} else {
 				provider = string(startReq.Provider)
 				model = modelName
+
+				// DEBUG: Log when we're falling back to regular model
+				log.Debug().
+					Str("provider", provider).
+					Str("model", model).
+					Str("generate_session_name_provider", generateSessionNameProvider).
+					Str("generate_session_name_model", generateSessionNameModel).
+					Bool("provider_empty", generateSessionNameProvider == "").
+					Bool("model_empty", generateSessionNameModel == "").
+					Msg("Falling back to regular model for title generation - agent model not configured")
 			}
 
 			name, err := s.generateSessionName(user, startReq.OrganizationID, session.ID, provider, model, message)
