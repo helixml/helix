@@ -82,7 +82,6 @@ const CreateContent: FC<CreateContentProps> = ({
   const isBigScreen = useIsBigScreen()
   const apps = useApps()
   const { NewInference } = useStreaming()
-  const { models } = useContext(AccountContext)
 
   const [showConfigWindow, setShowConfigWindow] = useState(false)
   const [showFileDrawer, setShowFileDrawer] = useState(false)  
@@ -104,10 +103,6 @@ const CreateContent: FC<CreateContentProps> = ({
 
   const PADDING_X = isBigScreen ? PADDING_X_LARGE : PADDING_X_SMALL
 
-  const filteredModels = useMemo(() => {
-    return models.filter(m => m.type && m.type === type || (type === "text" && m.type === "chat"))
-  }, [models, type])
-
   const userOwnsApp = useMemo(() => {
     return userAppAccess.canRead
   }, [userAppAccess.canRead])
@@ -116,22 +111,15 @@ const CreateContent: FC<CreateContentProps> = ({
     if (!checkLoginStatus()) return
     setLoading(true)
 
-    console.log("XXX set loading")
-
     const urlParams = new URLSearchParams(window.location.search)
     const appID = urlParams.get('app_id') || ''
     let assistantID = urlParams.get('assistant_id') || ''
-    const ragSourceID = urlParams.get('rag_source_id') || ''
     let useModel = urlParams.get('model') || ''
     let orgId = ''
 
     // if we have an app but no assistant ID let's default to the first one
     if (appID && !assistantID) {
       assistantID = '0'
-    }
-
-    if (!useModel) {
-      useModel = filteredModels[0].id
     }
 
     if (account.organizationTools.organization?.id) {
