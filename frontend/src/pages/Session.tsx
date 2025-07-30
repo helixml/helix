@@ -2,17 +2,10 @@ import React, { FC, useState, useEffect, useRef, useMemo, useCallback } from 're
 import throttle from 'lodash/throttle'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
-import TextField from '@mui/material/TextField'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
-import Drawer from '@mui/material/Drawer'
-import Badge from '@mui/material/Badge'
 
 import SendIcon from '@mui/icons-material/Send'
-import ThumbUpOnIcon from '@mui/icons-material/ThumbUp'
-import ThumbUpOffIcon from '@mui/icons-material/ThumbUpOffAlt'
-import ThumbDownOnIcon from '@mui/icons-material/ThumbDownAlt'
-import ThumbDownOffIcon from '@mui/icons-material/ThumbDownOffAlt'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
 
@@ -20,8 +13,6 @@ import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
 import SessionToolbar from '../components/session/SessionToolbar'
-import ShareSessionWindow from '../components/session/ShareSessionWindow'
-import AddFilesWindow from '../components/session/AddFilesWindow'
 
 import Window from '../components/widgets/Window'
 import Row from '../components/widgets/Row'
@@ -55,8 +46,7 @@ import { TypesMessageContentType, TypesMessage, TypesStepInfo, TypesSession, Typ
 
 import { useStreaming } from '../contexts/streaming'
 
-import Avatar from '@mui/material/Avatar'
-import { getAssistant, getAssistantAvatar, getAssistantName, getAssistantDescription } from '../utils/apps'
+import { getAssistant } from '../utils/apps'
 import useApps from '../hooks/useApps'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import useLightTheme from '../hooks/useLightTheme'
@@ -102,11 +92,12 @@ interface MemoizedInteractionProps {
 
 // Create a memoized version of the Interaction component
 const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
-  const isLive = props.isLastInteraction && 
-                !props.interaction.finished && 
-                props.interaction.state !== INTERACTION_STATE_EDITING &&
-                props.interaction.state !== INTERACTION_STATE_COMPLETE &&
-                props.interaction.state !== INTERACTION_STATE_ERROR
+  const isLive = props.isLastInteraction && props.interaction.state === TypesInteractionState.InteractionStateWaiting
+                // props.interaction.state !== INTERACTION_STATE_EDITING &&
+                // props.interaction.state !== INTERACTION_STATE_COMPLETE &&
+                // props.interaction.state !== INTERACTION_STATE_ERROR
+
+  console.log("xxx is live: ", isLive)
 
   return (
     <Interaction

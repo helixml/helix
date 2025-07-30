@@ -1,9 +1,9 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect, useRef } from 'react';
 import ReconnectingWebSocket from 'reconnecting-websocket';
-import { ISession, IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WEBSOCKET_EVENT_TYPE_STEP_INFO, WORKER_TASK_RESPONSE_TYPE_PROGRESS, IInteraction, ISessionChatRequest, SESSION_TYPE_TEXT, ISessionType } from '../types';
+import { IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, ISessionChatRequest, ISessionType } from '../types';
 import useAccount from '../hooks/useAccount';
 import useSessions from '../hooks/useSessions';
-import { TypesMessage } from '../api/api';
+import { TypesInteraction, TypesMessage, TypesSession } from '../api/api';
 import { sessionStepsQueryKey } from '../services/sessionService';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -25,11 +25,11 @@ interface NewInferenceParams {
 }
 
 interface StreamingContextType {
-  NewInference: (params: NewInferenceParams) => Promise<ISession>;
+  NewInference: (params: NewInferenceParams) => Promise<TypesSession>;
   setCurrentSessionId: (sessionId: string) => void;
-  currentResponses: Map<string, Partial<IInteraction>>;
+  currentResponses: Map<string, Partial<TypesInteraction>>;
   stepInfos: Map<string, any[]>;
-  updateCurrentResponse: (sessionId: string, interaction: Partial<IInteraction>) => void;
+  updateCurrentResponse: (sessionId: string, interaction: Partial<TypesInteraction>) => void;
 }
 
 const StreamingContext = createContext<StreamingContextType | undefined>(undefined);
@@ -46,7 +46,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   const account = useAccount();
   const sessions = useSessions()
   const queryClient = useQueryClient();
-  const [currentResponses, setCurrentResponses] = useState<Map<string, Partial<IInteraction>>>(new Map());
+  const [currentResponses, setCurrentResponses] = useState<Map<string, Partial<TypesInteraction>>>(new Map());
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [stepInfos, setStepInfos] = useState<Map<string, any[]>>(new Map());
 
@@ -91,7 +91,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       
       return new Map(prev).set(sessionId, {
         ...current,
-        message: newMessage
+        prompt_message: newMessage
       });
     });
   }, []);
@@ -135,12 +135,9 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       requestAnimationFrame(() => {
         setCurrentResponses(prev => {
           const current = prev.get(currentSessionId) || {};
-          let updatedInteraction: Partial<IInteraction> = { ...current };
+          let updatedInteraction: Partial<TypesInteraction> = { ...current };
 
           if (workerResponse.type === WORKER_TASK_RESPONSE_TYPE_PROGRESS) {
-            if (workerResponse.progress !== undefined) {
-              updatedInteraction.progress = workerResponse.progress;
-            }
             if (workerResponse.status) {
               updatedInteraction.status = workerResponse.status;
             }
@@ -155,7 +152,9 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     
     // If there's a session update with state changes
     if (parsedData.type === "session_update" && parsedData.session) {
-      const lastInteraction = parsedData.session.interactions[parsedData.session.interactions.length - 1];
+      const lastInteraction = parsedData.session.interactions?.[parsedData.session.interactions.length - 1];
+
+      if (!lastInteraction) return;
       
       // Update currentResponses with the latest interaction state
       // This ensures useLiveInteraction will receive the updated state
@@ -163,13 +162,12 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
         requestAnimationFrame(() => {
           setCurrentResponses(prev => {
             const current = prev.get(currentSessionId) || {};
-            const updatedInteraction: Partial<IInteraction> = {
+            const updatedInteraction: Partial<TypesInteraction> = {
               ...current,
               id: lastInteraction.id,
               state: lastInteraction.state,
-              finished: lastInteraction.finished,
               // Copy any other important fields from the interaction
-              message: lastInteraction.message || current.message
+              prompt_message: lastInteraction.prompt_message || current.prompt_message
             };
             
             const newMap = new Map(prev).set(currentSessionId, updatedInteraction);
@@ -229,7 +227,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     image = undefined,
     image_filename = undefined,
     attachedImages = [],
-  }: NewInferenceParams): Promise<ISession> => {
+  }: NewInferenceParams): Promise<TypesSession> => {
     // Clear both buffer and history for new sessions
     messageBufferRef.current.delete(sessionId);
     messageHistoryRef.current.delete(sessionId);
@@ -334,7 +332,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       }
 
       const reader = response.body.getReader();
-      let sessionData: ISession | null = null;
+      let sessionData: TypesSession | null = null;
       let promiseResolved = false;
       let decoder = new TextDecoder();
       let buffer = '';
@@ -364,7 +362,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
                   flushMessageBuffer(sessionData.id);
                   setCurrentResponses(prev => {
                     const newMap = new Map(prev);
-                    newMap.delete(sessionData!.id);
+                    newMap.delete(sessionData?.id || '');
                     return newMap;
                   });
                 }
@@ -386,7 +384,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
                     // Initialize with empty response until we get content
                     setCurrentResponses(prev => {
-                      return new Map(prev).set(sessionData!.id, { message: '' });
+                      return new Map(prev).set(sessionData?.id || '', { prompt_message: '' });
                     });
                     
                     if (parsedData.choices?.[0]?.delta?.content) {
@@ -401,7 +399,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
                     rejectStream(new Error('Invalid session data'));
                   }
                 } else if (parsedData.choices?.[0]?.delta?.content) {
-                  addMessageChunk(sessionData.id, parsedData.choices[0].delta.content);
+                  addMessageChunk(sessionData?.id || '', parsedData.choices[0].delta.content);
                 }
               } catch (error) {
                 console.error('Error parsing SSE data:', error);
@@ -473,7 +471,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     }
   };
 
-  const updateCurrentResponse = (sessionId: string, interaction: Partial<IInteraction>) => {
+  const updateCurrentResponse = (sessionId: string, interaction: Partial<TypesInteraction>) => {
     setCurrentResponses(prev => {
       const current = prev.get(sessionId) || {};
       return new Map(prev).set(sessionId, { ...current, ...interaction });
