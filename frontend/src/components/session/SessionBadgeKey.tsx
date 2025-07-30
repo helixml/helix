@@ -1,13 +1,7 @@
-import React, { FC } from 'react'
+import { FC } from 'react'
 import Typography from '@mui/material/Typography'
-import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
 import SessionBadge from './SessionBadge'
-
-import {
-  SESSION_MODE_INFERENCE,
-  SESSION_MODE_FINETUNE,
-} from '../../types'
 
 export const SessionBadgeKey: FC = () => {
   return (
@@ -22,28 +16,28 @@ export const SessionBadgeKey: FC = () => {
       }}
     >
       <Grid item sx={{ display: 'flex', alignItems: 'center' }}>
-        <SessionBadge modelName="ollama" mode={SESSION_MODE_INFERENCE} />
+        <SessionBadge modelName="ollama" />
         <Typography variant="caption" sx={{ ml: 1, color: 'rgba(255, 255, 255, 0.9)' }}>
           Ollama
         </Typography>
       </Grid>
 
       <Grid item sx={{ display: 'flex', alignItems: 'center' }}>
-        <SessionBadge modelName="vllm" mode={SESSION_MODE_INFERENCE} />
+        <SessionBadge modelName="vllm" />
         <Typography variant="caption" sx={{ ml: 1, color: 'rgba(255, 255, 255, 0.9)' }}>
           VLLM
         </Typography>
       </Grid>
 
       <Grid item sx={{ display: 'flex', alignItems: 'center' }}>
-        <SessionBadge modelName="axolotl" mode={SESSION_MODE_INFERENCE} />
+        <SessionBadge modelName="axolotl" />
         <Typography variant="caption" sx={{ ml: 1, color: 'rgba(255, 255, 255, 0.9)' }}>
           Axolotl
         </Typography>
       </Grid>
 
       <Grid item sx={{ display: 'flex', alignItems: 'center' }}>
-        <SessionBadge modelName="diffusers" mode={SESSION_MODE_INFERENCE} />
+        <SessionBadge modelName="diffusers" />
         <Typography variant="caption" sx={{ ml: 1, color: 'rgba(255, 255, 255, 0.9)' }}>
           Diffusers
         </Typography>
