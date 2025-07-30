@@ -6358,6 +6358,7 @@ const docTemplate = `{
                 "queued",
                 "reuse_warm_slot",
                 "create_new_slot",
+                "evict_stale_slot",
                 "rejected",
                 "error",
                 "unschedulable"
@@ -6365,6 +6366,7 @@ const docTemplate = `{
             "x-enum-comments": {
                 "SchedulingDecisionTypeCreateNewSlot": "Started new model instance",
                 "SchedulingDecisionTypeError": "Error during scheduling",
+                "SchedulingDecisionTypeEvictStaleSlot": "Evicted stale slot to free memory",
                 "SchedulingDecisionTypeQueued": "Added to queue",
                 "SchedulingDecisionTypeRejected": "Rejected (insufficient resources, etc.)",
                 "SchedulingDecisionTypeReuseWarmSlot": "Reused existing warm model instance",
@@ -6374,6 +6376,7 @@ const docTemplate = `{
                 "SchedulingDecisionTypeQueued",
                 "SchedulingDecisionTypeReuseWarmSlot",
                 "SchedulingDecisionTypeCreateNewSlot",
+                "SchedulingDecisionTypeEvictStaleSlot",
                 "SchedulingDecisionTypeRejected",
                 "SchedulingDecisionTypeError",
                 "SchedulingDecisionTypeUnschedulable"

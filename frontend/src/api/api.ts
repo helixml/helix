@@ -1470,6 +1470,7 @@ export enum TypesSchedulingDecisionType {
   SchedulingDecisionTypeQueued = "queued",
   SchedulingDecisionTypeReuseWarmSlot = "reuse_warm_slot",
   SchedulingDecisionTypeCreateNewSlot = "create_new_slot",
+  SchedulingDecisionTypeEvictStaleSlot = "evict_stale_slot",
   SchedulingDecisionTypeRejected = "rejected",
   SchedulingDecisionTypeError = "error",
   SchedulingDecisionTypeUnschedulable = "unschedulable",
@@ -2180,9 +2181,9 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title HelixML API reference
- * @version 2.0
+ * @version 0.1
  * @baseUrl https://app.helix.ml
- * @contact Helix support <info@helix.ml> (https://helix.ml/)
+ * @contact Helix support <info@helix.ml> (https://app.helix.ml/)
  *
  * This is the HelixML API.
  */
