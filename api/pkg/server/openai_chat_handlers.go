@@ -68,8 +68,6 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		s.Cfg.Inference.Provider,
 		chatCompletionRequest.Model,
 		types.SessionTypeText,
-		false,
-		false,
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("error processing model name")

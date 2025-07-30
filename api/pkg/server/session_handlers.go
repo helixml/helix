@@ -150,7 +150,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		log.Info().Msg("session regeneration requested")
 	}
 
-	modelName, err := model.ProcessModelName(s.Cfg.Inference.Provider, startReq.Model, types.SessionTypeText, false, false)
+	modelName, err := model.ProcessModelName(s.Cfg.Inference.Provider, startReq.Model, types.SessionTypeText)
 	if err != nil {
 		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
 		return
