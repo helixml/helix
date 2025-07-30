@@ -136,4 +136,3 @@ websockets==15.0.1
 xformers==0.0.31
 xgrammar==0.1.21
 yarl==1.20.1
-torchao==0.10.0
