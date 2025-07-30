@@ -18,7 +18,7 @@ spec:
       maxUnavailable: 1
       maxSurge: 1
   {{- else if eq .Values.deploymentStrategy "auto" }}
-    {{- if and .Values.resources.limits (eq (index .Values.resources.limits "nvidia.com/gpu" | toString) "1") }}
+    {{- if and (hasKey .Values "gpuCount") (gt (.Values.gpuCount | int) 0) }}
   strategy:
     type: Recreate
     {{- else }}
@@ -90,7 +90,39 @@ spec:
             - name: RUNTIME_OLLAMA_ENABLED
               value: "true"
           resources:
+            {{- if hasKey .Values "gpuCount" }}
+              {{- if gt (.Values.gpuCount | int) 0 }}
+            limits:
+              nvidia.com/gpu: {{ .Values.gpuCount | quote }}
+              {{- range $key, $value := .Values.resources.limits }}
+              {{- if ne $key "nvidia.com/gpu" }}
+              {{ $key }}: {{ $value }}
+              {{- end }}
+              {{- end }}
+            requests:
+              nvidia.com/gpu: {{ .Values.gpuCount | quote }}
+              {{- range $key, $value := .Values.resources.requests }}
+              {{- if ne $key "nvidia.com/gpu" }}
+              {{ $key }}: {{ $value }}
+              {{- end }}
+              {{- end }}
+              {{- else }}
+            limits:
+              {{- range $key, $value := .Values.resources.limits }}
+              {{- if ne $key "nvidia.com/gpu" }}
+              {{ $key }}: {{ $value }}
+              {{- end }}
+              {{- end }}
+            requests:
+              {{- range $key, $value := .Values.resources.requests }}
+              {{- if ne $key "nvidia.com/gpu" }}
+              {{ $key }}: {{ $value }}
+              {{- end }}
+              {{- end }}
+              {{- end }}
+            {{- else }}
             {{- toYaml .Values.resources | nindent 12 }}
+            {{- end }}
           {{- with .Values.volumeMounts }}
           volumeMounts:
             {{- toYaml . | nindent 12 }}
