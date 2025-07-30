@@ -449,7 +449,7 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 	if _, err := os.Stat(vllmPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("vLLM virtualenv not found at %s - Docker build may have failed or vLLM installation incomplete", vllmPath)
 	}
-	log.Debug().Str("python_path", vllmPath).Msg("Using clean vLLM virtualenv Python 3.12 - completely isolated from system packages")
+	log.Debug().Str("python_path", vllmPath).Msg("Using clean vLLM virtualenv Python 3.10 - completely isolated from system packages")
 
 	// Prepare vLLM serve command
 	log.Debug().
@@ -536,7 +536,7 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 	// This is more secure than inheriting all parent environment variables
 	env := []string{
 		// vLLM is installed in clean virtualenv - no PYTHONPATH needed since venv handles it
-		// Using clean Python 3.12 venv completely isolated from system packages
+		// Using clean Python 3.10 venv completely isolated from system packages
 		//
 		// AXOLOTL RESTORATION NOTE:
 		// When axolotl is re-enabled, you'll need to:

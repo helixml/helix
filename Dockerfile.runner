@@ -69,7 +69,7 @@ RUN if [ -d "/tmp/vllm/examples" ]; then \
 # CLEAN vLLM-ONLY SETUP (MINIMAL CUDA BASE)  
 # ============================================================================
 # The runner-base image has been updated to use the newest CUDA runtime base:
-# nvidia/cuda:12.9.1-cudnn-runtime-ubuntu24.04 with system Python 3.12
+# nvidia/cuda:12.4.1-cudnn-runtime-ubuntu24.04 with system Python 3.12
 # This provides a minimal, modern foundation for vLLM while preserving model caching.
 #
 # WHAT WAS CHANGED IN BASE IMAGE:
@@ -77,6 +77,7 @@ RUN if [ -d "/tmp/vllm/examples" ]; then \
 # 2. Python: System Python 3.12 (no miniconda complexity)
 # 3. Axolotl: Installation commented out (easy to restore)  
 # 4. Packages: Minimal system packages only
+# 5. Build tools: Added build-essential here for triton JIT compilation (not in base)
 #
 # HOW TO RESTORE AXOLOTL:
 # 1. In base-images/Dockerfile.runner: Change FROM back to winglian/axolotl image  
@@ -104,10 +105,15 @@ RUN TEMP_DIR=$(mktemp -d /tmp/ollama_install_XXXXXX) && \
 # Copy vLLM requirements file with ALL dependencies precisely pinned
 COPY requirements-vllm.txt /tmp/requirements-vllm.txt
 
+# Install build tools needed for triton JIT compilation at runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy UV binary before we use it
 COPY --from=uv /uv /bin/uv
 
-# Create clean vLLM virtualenv using system Python 3.12 (Ubuntu 24.04)
+# Create clean vLLM virtualenv using system Python 3.10 (Ubuntu 22.04)
 # This isolates vLLM from any system packages - completely clean environment  
 RUN python3 -m venv /workspace/vllm/venv && \
     echo "Installing vLLM into clean virtualenv using UV (much faster than pip)" && \
@@ -116,11 +122,11 @@ RUN python3 -m venv /workspace/vllm/venv && \
     VIRTUAL_ENV=/workspace/vllm/venv PATH="/workspace/vllm/venv/bin:$PATH" \
     /workspace/vllm/venv/bin/uv pip install -r /tmp/requirements-vllm.txt
 
-# Create the examples directory in the vLLM venv package where it will look for templates (Python 3.12)
-RUN mkdir -p /workspace/vllm/venv/lib/python3.12/site-packages/vllm/examples
+# Create the examples directory in the vLLM venv package where it will look for templates (Python 3.10)
+RUN mkdir -p /workspace/vllm/venv/lib/python3.10/site-packages/vllm/examples
 
 # Copy the example templates to the vLLM venv package examples directory  
-COPY --from=vllm-templates /vllm-templates/* /workspace/vllm/venv/lib/python3.12/site-packages/vllm/examples/
+COPY --from=vllm-templates /vllm-templates/* /workspace/vllm/venv/lib/python3.10/site-packages/vllm/examples/
 
 # Create a clean /vllm directory with examples subdirectory
 RUN mkdir -p /vllm/examples
