@@ -18,7 +18,6 @@ import (
 // @Param type query string false "Filter by model type (e.g., chat, embedding)"
 // @Param name query string false "Filter by model name"
 // @Param runtime query string false "Filter by model runtime (e.g., ollama, vllm)"
-// @Param available_only query boolean false "Only show models that are available on connected runners"
 // @Success 200 {array} types.Model
 // @Router /api/v1/helix-models [get]
 // @Security BearerAuth
@@ -42,12 +41,6 @@ func (apiServer *HelixAPIServer) listHelixModels(rw http.ResponseWriter, r *http
 		log.Error().Err(err).Msg("error listing helix models")
 		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	// Filter models by availability on runners if requested
-	availableOnly := r.URL.Query().Get("available_only") == "true"
-	if availableOnly {
-		models = apiServer.filterModelsByAvailability(models)
 	}
 
 	writeResponse(rw, models, http.StatusOK)
@@ -197,47 +190,4 @@ func (apiServer *HelixAPIServer) deleteHelixModel(rw http.ResponseWriter, r *htt
 	}
 
 	writeResponse(rw, "OK", http.StatusOK) // Return 200 OK on successful deletion or if not found
-}
-
-// filterModelsByAvailability filters models to only include those that are actually available on connected runners
-func (apiServer *HelixAPIServer) filterModelsByAvailability(models []*types.Model) []*types.Model {
-	if len(models) == 0 {
-		return models
-	}
-
-	// Get all available models from runners
-	availableModels := make(map[string]bool)
-
-	// Get all runner statuses from the scheduler
-	runnerStatuses, err := apiServer.scheduler.RunnerStatus()
-	if err != nil {
-		log.Error().Err(err).Msg("failed to get runner statuses for model filtering")
-		return models // Return all models if we can't filter
-	}
-
-	// Process each runner's model status
-	for _, status := range runnerStatuses {
-		// Add models that are available (not downloading and no error)
-		for _, modelStatus := range status.Models {
-			if !modelStatus.DownloadInProgress && modelStatus.Error == "" {
-				availableModels[modelStatus.ModelID] = true
-			}
-		}
-	}
-
-	// Filter database models to only include available ones
-	var filteredModels []*types.Model
-	for _, model := range models {
-		if availableModels[model.ID] {
-			filteredModels = append(filteredModels, model)
-		}
-	}
-
-	log.Debug().
-		Int("total_models", len(models)).
-		Int("available_models", len(filteredModels)).
-		Int("runners", len(runnerStatuses)).
-		Msg("filtered models by availability")
-
-	return filteredModels
 }
