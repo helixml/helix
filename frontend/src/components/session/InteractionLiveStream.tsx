@@ -120,10 +120,6 @@ export const InteractionLiveStream: FC<{
               onFilterDocument={onFilterDocument}
             />
           </div>
-        )}        
-
-        {status && (
-          <Typography variant="caption">{status}</Typography>
         )}
 
         {showLoading && isStale && (
