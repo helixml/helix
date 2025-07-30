@@ -199,8 +199,8 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "qwen3:8b", // https://ollama.com/library/qwen3:8b
 			Name:          "Qwen3 8B",
-			Memory:        GB * 6, // Based on Q4_K_M quantization, ~5.2GB model size
-			ContextLength: 40960,  // 40K context window
+			Memory:        GB * 10, // Based on Q4_K_M quantization, ~10GB model size
+			ContextLength: 40960,   // 40K context window
 			Description:   "Latest generation Qwen model with enhanced reasoning, from Alibaba - 4bit quantized, 40K context",
 			Hide:          false,
 			Prewarm:       true,
