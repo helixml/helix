@@ -127,7 +127,6 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
           hasSubscription={props.hasSubscription}
           onMessageUpdate={props.isLastInteraction ? props.scrollToBottom : undefined}
           onFilterDocument={props.appID ? props.onHandleFilterDocument : undefined}
-          useInstantScroll={true}
         />
       )}
       {props.children}
@@ -1558,51 +1557,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         </Box>
       </Box>
 
-      {/* Windows/Modals */}
-      {/* {router.params.cloneInteraction && (
-        <Window
-          open
-          size="sm"
-          title={`Clone ${session.data.name}?`}
-          withCancel
-          submitTitle="Clone"
-          onSubmit={() => {
-            session.clone(sessionID, router.params.cloneInteraction)
-          }}
-          onCancel={() => {
-            router.removeParams(['cloneInteraction'])
-          }}
-        >
-          <Typography gutterBottom>
-            Are you sure you want to clone {session.data.name} from this point in time?
-          </Typography>
-          <Typography variant="caption" gutterBottom>
-            This will create a new session.
-          </Typography>
-        </Window>
-      )}
-
-      {router.params.addDocuments && session.data && (
-        <AddFilesWindow
-          session={session.data}
-          onClose={(filesAdded) => {
-            router.removeParams(['addDocuments'])
-            if (filesAdded) {
-              session.reload()
-            }
-          }}
-        />
-      )} */}
-
-      {/* {router.params.sharing && session.data && (
-        <ShareSessionWindow
-          session={session.data}
-          onCancel={() => {
-            router.removeParams(['sharing'])
-          }}
-        />
-      )} */}
-    
       {showLoginWindow && (
         <Window
           open
