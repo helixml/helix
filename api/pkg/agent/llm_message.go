@@ -54,44 +54,10 @@ func (ml *MessageList) Len() int {
 
 // Add appends one or more new messages to the MessageList in a FIFO order.
 func (ml *MessageList) Add(msgs ...*openai.ChatCompletionMessage) {
-	for i, msg := range msgs {
-		// DEBUG: Log what message we're adding
-		log.Debug().
-			Int("batch_index", i).
-			Int("batch_size", len(msgs)).
-			Str("role", msg.Role).
-			Str("content", msg.Content).
-			Int("content_length", len(msg.Content)).
-			Bool("content_empty", msg.Content == "").
-			Int("multi_content_parts", len(msg.MultiContent)).
-			Int("tool_calls", len(msg.ToolCalls)).
-			Str("tool_call_id", msg.ToolCallID).
-			Int("current_messages", len(ml.Messages)).
-			Msg("🔍 DEBUG: Adding message to MessageList")
-
-		if msg.Content == "" && len(msg.MultiContent) == 0 && len(msg.ToolCalls) == 0 && msg.ToolCallID == "" {
-			log.Error().
-				Str("role", msg.Role).
-				Int("batch_index", i).
-				Msg("🚨 FOUND COMPLETELY EMPTY MESSAGE - This will cause 'inputs cannot be empty' error!")
-		}
-	}
-
 	ml.Messages = append(ml.Messages, msgs...)
 }
 
 func (ml *MessageList) AddFirst(prompt string) {
-	// DEBUG: Log what system prompt we're adding first
-	log.Debug().
-		Str("prompt", prompt).
-		Int("prompt_length", len(prompt)).
-		Bool("prompt_empty", prompt == "").
-		Int("current_messages", len(ml.Messages)).
-		Msg("🔍 DEBUG: Adding system prompt as first message")
-
-	if prompt == "" {
-		log.Error().Msg("🚨 FOUND EMPTY SYSTEM PROMPT - This will cause 'inputs cannot be empty' error!")
-	}
 
 	ml.Messages = append([]*openai.ChatCompletionMessage{DeveloperMessage(prompt)}, ml.Messages...)
 }

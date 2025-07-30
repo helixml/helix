@@ -25,6 +25,12 @@ const defaultMaxIterations = 10
 var ignErr *IgnorableError
 var retErr *RetryableError
 
+// isQwenModel checks if the given model name is a Qwen model
+func isQwenModel(modelName string) bool {
+	modelLower := strings.ToLower(modelName)
+	return strings.Contains(modelLower, "qwen")
+}
+
 // Agent orchestrates calls to the LLM, uses Skills/Tools, and determines how to respond.
 type Agent struct {
 	prompt        string
@@ -83,30 +89,6 @@ func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages
 	ctx = oai.SetStep(ctx, &oai.Step{
 		Step: types.LLMCallStep("summarize_multiple_tool_results"),
 	})
-
-	// DEBUG: Log exactly what we're sending to LLM to catch empty content
-	log.Debug().
-		Int("message_count", len(params.Messages)).
-		Str("model", params.Model).
-		Msg("🔍 DEBUG: About to call LLM streaming in summarizeMultipleToolResults")
-
-	for i, msg := range params.Messages {
-		log.Debug().
-			Int("msg_index", i).
-			Str("role", msg.Role).
-			Str("content", msg.Content).
-			Bool("content_empty", msg.Content == "").
-			Int("multi_content_parts", len(msg.MultiContent)).
-			Int("tool_calls", len(msg.ToolCalls)).
-			Msg("🔍 DEBUG: Message being sent to LLM in summarizeMultipleToolResults")
-
-		if msg.Content == "" && len(msg.MultiContent) == 0 && len(msg.ToolCalls) == 0 {
-			log.Error().
-				Int("msg_index", i).
-				Str("role", msg.Role).
-				Msg("🚨 FOUND EMPTY MESSAGE in summarizeMultipleToolResults - This will cause 'inputs cannot be empty' error!")
-		}
-	}
 
 	stream, err := llm.NewStreaming(ctx, model, params)
 	if err != nil {
@@ -181,7 +163,7 @@ func (a *Agent) ConvertSkillsToTools() []openai.Tool {
 }
 
 // decideNextAction gets the initial response from the LLM that decides whether to use skills or stop execution
-func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *MessageList, memoryBlock *MemoryBlock, outUserChannel chan Response) (*openai.ChatCompletionResponse, error) {
+func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *MessageList, memoryBlock *MemoryBlock, outUserChannel chan Response, iterationNumber int) (*openai.ChatCompletionResponse, error) {
 	skillFunctions := make([]string, len(a.skills))
 	for i, skill := range a.skills {
 		skillFunctions[i] = skill.Name
@@ -199,6 +181,17 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 	}
 
 	clonedMessages.AddFirst(systemPrompt)
+
+	// Add /no_think prefix for Qwen models after initial planning stage
+	if iterationNumber > 1 && isQwenModel(llm.GenerationModel.Model) {
+		messages := clonedMessages.All()
+		if len(messages) > 0 {
+			lastMessage := messages[len(messages)-1]
+			if lastMessage.Role == "user" && !strings.HasPrefix(lastMessage.Content, "/no_think") {
+				lastMessage.Content = "/no_think " + lastMessage.Content
+			}
+		}
+	}
 
 	tools := []openai.Tool{}
 	if len(a.ConvertSkillsToTools()) > 0 {
@@ -218,30 +211,6 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 	ctx = oai.SetStep(ctx, &oai.Step{
 		Step: types.LLMCallStep("decide_next_action"),
 	})
-
-	// DEBUG: Log exactly what we're sending to LLM to catch empty content
-	log.Debug().
-		Int("message_count", len(params.Messages)).
-		Str("model", params.Model).
-		Msg("🔍 DEBUG: About to call LLM streaming in decideNextAction (back to streaming)")
-
-	for i, msg := range params.Messages {
-		log.Debug().
-			Int("msg_index", i).
-			Str("role", msg.Role).
-			Str("content", msg.Content).
-			Bool("content_empty", msg.Content == "").
-			Int("multi_content_parts", len(msg.MultiContent)).
-			Int("tool_calls", len(msg.ToolCalls)).
-			Msg("🔍 DEBUG: Message being sent to LLM in decideNextAction")
-
-		if msg.Content == "" && len(msg.MultiContent) == 0 && len(msg.ToolCalls) == 0 {
-			log.Error().
-				Int("msg_index", i).
-				Str("role", msg.Role).
-				Msg("🚨 FOUND EMPTY MESSAGE in decideNextAction - This will cause 'inputs cannot be empty' error!")
-		}
-	}
 
 	stream, err := llm.NewStreaming(ctx, model, params)
 	if err != nil {
@@ -405,30 +374,6 @@ func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *
 		Step: types.LLMCallStep("run_without_skills"),
 	})
 
-	// DEBUG: Log exactly what we're sending to LLM to catch empty content
-	log.Debug().
-		Int("message_count", len(params.Messages)).
-		Str("model", params.Model).
-		Msg("🔍 DEBUG: About to call LLM streaming in runWithoutSkills")
-
-	for i, msg := range params.Messages {
-		log.Debug().
-			Int("msg_index", i).
-			Str("role", msg.Role).
-			Str("content", msg.Content).
-			Bool("content_empty", msg.Content == "").
-			Int("multi_content_parts", len(msg.MultiContent)).
-			Int("tool_calls", len(msg.ToolCalls)).
-			Msg("🔍 DEBUG: Message being sent to LLM in runWithoutSkills")
-
-		if msg.Content == "" && len(msg.MultiContent) == 0 && len(msg.ToolCalls) == 0 {
-			log.Error().
-				Int("msg_index", i).
-				Str("role", msg.Role).
-				Msg("🚨 FOUND EMPTY MESSAGE in runWithoutSkills - This will cause 'inputs cannot be empty' error!")
-		}
-	}
-
 	stream, err := llm.NewStreaming(ctx, model, params)
 	if err != nil {
 		a.handleLLMError(err, outUserChannel)
@@ -522,7 +467,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 
 		iterationNumber++
 
-		completion, err := a.decideNextAction(ctx, llm, messageHistory.Clone(), memoryBlock, outUserChannel)
+		completion, err := a.decideNextAction(ctx, llm, messageHistory.Clone(), memoryBlock, outUserChannel, iterationNumber)
 		if err != nil {
 			a.handleLLMError(err, outUserChannel)
 			return
@@ -598,15 +543,6 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		// Add the completion message to history, but filter out the stop tool call
 		messageToAdd := completion.Choices[0].Message
 
-		// DEBUG: Log what we're about to add to history
-		log.Debug().
-			Str("role", messageToAdd.Role).
-			Str("content", messageToAdd.Content).
-			Bool("content_empty", messageToAdd.Content == "").
-			Int("multi_content_parts", len(messageToAdd.MultiContent)).
-			Int("tool_calls", len(messageToAdd.ToolCalls)).
-			Msg("🔍 DEBUG: About to add completion message to history")
-
 		if messageToAdd.ToolCalls != nil {
 			filteredToolCalls := []openai.ToolCall{}
 			for _, toolCall := range messageToAdd.ToolCalls {
@@ -619,40 +555,16 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 				messageToAdd.ToolCalls = filteredToolCalls
 				messageHistory.Add(&messageToAdd)
 
-				log.Debug().
-					Int("filtered_tool_calls", len(filteredToolCalls)).
-					Msg("🔍 DEBUG: Added completion message with filtered tool calls to history")
 			} else {
-				log.Debug().Msg("🔍 DEBUG: Skipped completion message - all tool calls were stop calls")
 			}
 		} else {
 			// No tool calls, add the message as-is
 			messageHistory.Add(&messageToAdd)
 
-			log.Debug().
-				Str("content", messageToAdd.Content).
-				Bool("content_empty", messageToAdd.Content == "").
-				Msg("🔍 DEBUG: Added completion message with no tool calls to history")
 		}
 
 		// Add tool results to message history
 		for _, result := range skillCallResults {
-			// DEBUG: Log what tool result we're adding
-			log.Debug().
-				Str("role", result.Role).
-				Str("content", result.Content).
-				Bool("content_empty", result.Content == "").
-				Int("multi_content_parts", len(result.MultiContent)).
-				Str("tool_call_id", result.ToolCallID).
-				Msg("🔍 DEBUG: Adding tool result to history")
-
-			if result.Content == "" && len(result.MultiContent) == 0 {
-				log.Error().
-					Str("role", result.Role).
-					Str("tool_call_id", result.ToolCallID).
-					Msg("🚨 FOUND EMPTY TOOL RESULT - This might cause 'inputs cannot be empty' error!")
-			}
-
 			messageHistory.Add(result)
 		}
 
@@ -680,17 +592,9 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		// We don't need to send a final Response here.
 		return
 	} else if finalCompletion != nil && len(finalCompletion.Choices) > 0 && finalCompletion.Choices[0].Message.Content != "" {
-		// PRIORITY: If LLM provided a meaningful final completion, use that instead of raw tool results
-		// This prevents duplication where both LLM response and raw tool results are sent
-		log.Debug().
-			Str("final_completion_content", finalCompletion.Choices[0].Message.Content).
-			Int("skill_results_count", len(finalSkillCallResults)).
-			Msg("🔧 Using LLM final completion instead of raw tool results")
+		// If LLM provided a meaningful final completion, don't send anything else
+		// The response was already streamed during decideNextAction
 
-		outUserChannel <- Response{
-			Content: finalCompletion.Choices[0].Message.Content,
-			Type:    ResponseTypePartialText,
-		}
 		return
 	} else if len(finalSkillCallResults) == 1 {
 		// If LLM didn't provide a final completion, fall back to returning the single tool result directly
@@ -709,10 +613,6 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 			}
 			return
 		}
-
-		log.Debug().
-			Str("tool_result_content", contentString).
-			Msg("🔧 Using raw tool result as fallback (no LLM final completion)")
 
 		outUserChannel <- Response{
 			Content: contentString,
