@@ -14,6 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent/prompts"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/util/jsonschema"
 
 	pkg_errors "github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
@@ -132,15 +133,15 @@ func (a *Agent) StopTool() openai.Tool {
 1. You have answer for user request
 2. You have completed the task
 3. You don't know what to do next with the given tools or information`,
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"callSummarizer": map[string]interface{}{
-						"type":        "boolean",
-						"description": "Sometimes, the final answer to user's question won't be in the last skill call result. This is unlikely but possible. If that's the case, set this to True. If the last skill call result answers the user's question, set this to False.",
+			Parameters: jsonschema.Definition{
+				Type: jsonschema.Object,
+				Properties: map[string]jsonschema.Definition{
+					"callSummarizer": {
+						Type:        jsonschema.Boolean,
+						Description: "Sometimes, the final answer to user's question won't be in the last skill call result. This is unlikely but possible. If that's the case, set this to True. If the last skill call result answers the user's question, set this to False.",
 					},
 				},
-				"required": []string{"callSummarizer"},
+				Required: []string{"callSummarizer"},
 			},
 		},
 	}
