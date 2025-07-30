@@ -14,6 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent/prompts"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/util/jsonschema"
 
 	pkg_errors "github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
@@ -24,6 +25,12 @@ const defaultMaxIterations = 10
 
 var ignErr *IgnorableError
 var retErr *RetryableError
+
+// isQwenModel checks if the given model name is a Qwen model
+func isQwenModel(modelName string) bool {
+	modelLower := strings.ToLower(modelName)
+	return strings.Contains(modelLower, "qwen")
+}
 
 // Agent orchestrates calls to the LLM, uses Skills/Tools, and determines how to respond.
 type Agent struct {
@@ -70,7 +77,7 @@ func (a *Agent) GetSkill(name string) (*Skill, error) {
 }
 
 // summarizeMultipleToolResults summarizes results when multiple tools were called
-func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages *MessageList, llm *LLM) (string, error) {
+func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages *MessageList, llm *LLM, outUserChannel chan Response) error {
 	clonedMessages.AddFirst("Craft a helpful answer to user's question based on the tool call results. Be concise and to the point.")
 
 	model := llm.GenerationModel
@@ -86,11 +93,9 @@ func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages
 
 	stream, err := llm.NewStreaming(ctx, model, params)
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer stream.Close()
-
-	var fullResponse strings.Builder
 
 	for {
 		chunk, err := stream.Recv()
@@ -99,7 +104,7 @@ func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages
 		}
 		if err != nil {
 			log.Error().Err(err).Msg("Error streaming")
-			return "", err
+			return err
 		}
 
 		if len(chunk.Choices) == 0 {
@@ -108,11 +113,15 @@ func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages
 		}
 
 		if chunk.Choices[0].Delta.Content != "" {
-			fullResponse.WriteString(chunk.Choices[0].Delta.Content)
+			// Send partial text to user immediately
+			outUserChannel <- Response{
+				Content: chunk.Choices[0].Delta.Content,
+				Type:    ResponseTypePartialText,
+			}
 		}
 	}
 
-	return fullResponse.String(), nil
+	return nil
 }
 
 func (a *Agent) StopTool() openai.Tool {
@@ -124,15 +133,15 @@ func (a *Agent) StopTool() openai.Tool {
 1. You have answer for user request
 2. You have completed the task
 3. You don't know what to do next with the given tools or information`,
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"callSummarizer": map[string]interface{}{
-						"type":        "boolean",
-						"description": "Sometimes, the final answer to user's question won't be in the last skill call result. This is unlikely but possible. If that's the case, set this to True. If the last skill call result answers the user's question, set this to False.",
+			Parameters: jsonschema.Definition{
+				Type: jsonschema.Object,
+				Properties: map[string]jsonschema.Definition{
+					"callSummarizer": {
+						Type:        jsonschema.Boolean,
+						Description: "Sometimes, the final answer to user's question won't be in the last skill call result. This is unlikely but possible. If that's the case, set this to True. If the last skill call result answers the user's question, set this to False.",
 					},
 				},
-				"required": []string{"callSummarizer"},
+				Required: []string{"callSummarizer"},
 			},
 		},
 	}
@@ -155,7 +164,7 @@ func (a *Agent) ConvertSkillsToTools() []openai.Tool {
 }
 
 // decideNextAction gets the initial response from the LLM that decides whether to use skills or stop execution
-func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *MessageList, memoryBlock *MemoryBlock) (*openai.ChatCompletionResponse, error) {
+func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *MessageList, memoryBlock *MemoryBlock, outUserChannel chan Response, iterationNumber int) (*openai.ChatCompletionResponse, error) {
 	skillFunctions := make([]string, len(a.skills))
 	for i, skill := range a.skills {
 		skillFunctions[i] = skill.Name
@@ -173,6 +182,17 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 	}
 
 	clonedMessages.AddFirst(systemPrompt)
+
+	// Add /no_think prefix for Qwen models after initial planning stage
+	if iterationNumber > 1 && isQwenModel(llm.GenerationModel.Model) {
+		messages := clonedMessages.All()
+		if len(messages) > 0 {
+			lastMessage := messages[len(messages)-1]
+			if lastMessage.Role == "user" && !strings.HasPrefix(lastMessage.Content, "/no_think") {
+				lastMessage.Content = "/no_think " + lastMessage.Content
+			}
+		}
+	}
 
 	tools := []openai.Tool{}
 	if len(a.ConvertSkillsToTools()) > 0 {
@@ -193,15 +213,97 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 		Step: types.LLMCallStep("decide_next_action"),
 	})
 
-	completion, err := llm.New(ctx, model, params)
+	stream, err := llm.NewStreaming(ctx, model, params)
 	if err != nil {
 		log.Error().Err(err).Interface("params", params).Msg("Error getting initial response")
 		return nil, err
 	}
+	defer stream.Close()
+
+	var completion openai.ChatCompletionResponse
+	var fullContent strings.Builder
+	var toolCalls []openai.ToolCall
+
+	for {
+		chunk, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			log.Error().Err(err).Msg("Error streaming")
+			return nil, err
+		}
+
+		if len(chunk.Choices) == 0 {
+			log.Debug().Any("chunk", chunk).Msg("No choices in chunk")
+			continue
+		}
+
+		choice := chunk.Choices[0]
+
+		// Stream content to user if available
+		if choice.Delta.Content != "" {
+			fullContent.WriteString(choice.Delta.Content)
+			outUserChannel <- Response{
+				Content: choice.Delta.Content,
+				Type:    ResponseTypePartialText,
+			}
+		}
+
+		// Collect tool calls as they come in
+		if choice.Delta.ToolCalls != nil {
+			for _, toolCall := range choice.Delta.ToolCalls {
+				// Handle nil index case
+				if toolCall.Index == nil {
+					continue
+				}
+				index := *toolCall.Index
+
+				// Extend toolCalls array if needed
+				for len(toolCalls) <= index {
+					toolCalls = append(toolCalls, openai.ToolCall{})
+				}
+
+				// Append to existing tool call at this index
+				if toolCall.ID != "" {
+					toolCalls[index].ID = toolCall.ID
+				}
+				if toolCall.Type != "" {
+					toolCalls[index].Type = toolCall.Type
+				}
+				if toolCall.Function.Name != "" {
+					toolCalls[index].Function.Name = toolCall.Function.Name
+				}
+				if toolCall.Function.Arguments != "" {
+					toolCalls[index].Function.Arguments += toolCall.Function.Arguments
+				}
+			}
+		}
+
+		// Build the completion object from the final chunk
+		if choice.FinishReason != "" {
+			completion = openai.ChatCompletionResponse{
+				ID:      chunk.ID,
+				Object:  chunk.Object,
+				Created: chunk.Created,
+				Model:   chunk.Model,
+				Choices: []openai.ChatCompletionChoice{
+					{
+						Index: choice.Index,
+						Message: openai.ChatCompletionMessage{
+							Role:      openai.ChatMessageRoleAssistant,
+							Content:   fullContent.String(),
+							ToolCalls: toolCalls,
+						},
+						FinishReason: choice.FinishReason,
+					},
+				},
+			}
+		}
+	}
 
 	if len(completion.Choices) == 0 {
-		log.Error().Msg("No completion choices")
-		return &completion, fmt.Errorf("no completion choices")
+		return nil, fmt.Errorf("no choices returned from LLM")
 	}
 
 	// Check for duplicate skills in tool calls
@@ -244,160 +346,6 @@ func (a *Agent) handleLLMError(err error, outUserChannel chan Response) {
 	}
 }
 
-// sendThoughtsAboutSkills generates "thinking" messages to keep the user engaged while skills are processing
-func (a *Agent) sendThoughtsAboutSkills(ctx context.Context, llm *LLM, messageHistory *MessageList, toolsToCall []openai.ToolCall, outUserChannel chan Response) {
-	if len(toolsToCall) == 0 {
-		return
-	}
-
-	allSpecSystemPrompt := `You have these tools available for you to use. But first you need to send a response to the user about what you are planning to do. Make sure to strategize in details.
-
-	Notes:
-	- Do not mention about the tools or details about the tools like API integrations, Python API etc. 
-	- You can mention about what you are trying to achieve by mentioning what these tools enable you to do. For example, if an SQL table enable you to get latest whether, you can say "I am getting whether data" instead of "I'll look at the SQL database for whether data".
-	- Make it very detailed.
-	- Strictly do not answer the question. You are just planning.
-
-	Here are the details about the tools:
-	`
-	for _, tool := range toolsToCall {
-		skill, err := a.GetSkill(tool.Function.Name)
-		if err != nil {
-			log.Error().Err(err).Msg("Error getting skill")
-			continue
-		}
-		allSpecSystemPrompt += fmt.Sprintf("\n%s\n", skill.Spec())
-	}
-
-	outUserChannel <- Response{
-		Type: ResponseTypeThinkingStart,
-	}
-	// making sure we send the end response when the agent is done
-	defer func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Error().Interface("error", r).Msg("Panic when sending end response")
-			}
-		}()
-		outUserChannel <- Response{
-			Type: ResponseTypeThinkingEnd,
-		}
-	}()
-
-	messageHistory.AddFirst(allSpecSystemPrompt)
-
-	ctx = oai.SetStep(ctx, &oai.Step{
-		Step: types.LLMCallStep("send_thoughts_about_skills"),
-	})
-
-	model := llm.SmallGenerationModel
-
-	stream, err := llm.NewStreaming(ctx, model, openai.ChatCompletionRequest{
-		Messages: messageHistory.All(),
-		Model:    model.Model,
-	})
-	if err != nil {
-		log.Error().Err(err).Msg("Error creating streaming")
-		return
-	}
-
-	defer stream.Close()
-
-	for {
-		chunk, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			log.Error().Err(err).Msg("Error streaming")
-			return
-		}
-		if len(chunk.Choices) == 0 {
-			log.Error().Interface("chunk", chunk).Msg("No choices in chunk")
-			continue
-		}
-		if chunk.Choices[0].Delta.Content != "" {
-			outUserChannel <- Response{
-				Content: chunk.Choices[0].Delta.Content,
-				Type:    ResponseTypeThinking,
-			}
-		}
-	}
-}
-
-// sendThoughtsAboutTools generates "thinking" messages to keep the user engaged while skills are processing
-func (a *Agent) sendThoughtsAboutTools(ctx context.Context, llm *LLM, messageHistory *MessageList, toolsToCall []openai.ToolCall, outUserChannel chan Response) {
-	if len(toolsToCall) == 0 {
-		return
-	}
-
-	systemPrompt := `Assistant has recommended to run a few functions. Now you need send status update to the user before you executing the request from assistant.
-	
-	Notes:
-	- Do not mention tools/functions in details (like what it is going to do technically like using SQL, Python API etc)
-	- You should not mention about what you as an assistant is trying to achieve by executing the functions.
-	- You should not mention about the "assistant" at all. Only focus on what assistant has asked to do.`
-
-	outUserChannel <- Response{
-		Type: ResponseTypeThinkingStart,
-	}
-	// making sure we send the end response when the agent is done
-	defer func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Error().Any("error", r).Msg("Panic when sending end response")
-			}
-		}()
-		outUserChannel <- Response{
-			Type: ResponseTypeThinkingEnd,
-		}
-	}()
-
-	messageHistory.AddFirst(systemPrompt)
-	assistantMessage := "Execute below functions and get me the results so I can answer you better.\n\n"
-	for _, tool := range toolsToCall {
-		assistantMessage += fmt.Sprintf("Function Name: %s\nFunction Args: %s\n\n", tool.Function.Name, tool.Function.Arguments)
-	}
-	messageHistory.Add(AssistantMessage(assistantMessage))
-
-	ctx = oai.SetStep(ctx, &oai.Step{
-		Step: types.LLMCallStep("send_thoughts_about_tools"),
-	})
-
-	model := llm.SmallGenerationModel
-
-	stream, err := llm.NewStreaming(ctx, model, openai.ChatCompletionRequest{
-		Messages: messageHistory.All(),
-		Model:    model.Model,
-	})
-	if err != nil {
-		log.Error().Err(err).Msg("Error creating streaming")
-		return
-	}
-	defer stream.Close()
-
-	for {
-		chunk, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			log.Error().Err(err).Msg("Error streaming")
-			return
-		}
-		if len(chunk.Choices) == 0 {
-			log.Error().Any("chunk", chunk).Msg("No choices in chunk")
-			continue
-		}
-		if chunk.Choices[0].Delta.Content != "" {
-			outUserChannel <- Response{
-				Content: chunk.Choices[0].Delta.Content,
-				Type:    ResponseTypeThinking,
-			}
-		}
-	}
-}
-
 // runWithoutSkills handles the case when no skills are available by directly calling the LLM
 func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *MessageList, memoryBlock *MemoryBlock, outUserChannel chan Response) {
 	// Create a system prompt using the NoSkillsPrompt function
@@ -427,27 +375,54 @@ func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *
 		Step: types.LLMCallStep("run_without_skills"),
 	})
 
-	completion, err := llm.New(ctx, model, params)
+	stream, err := llm.NewStreaming(ctx, model, params)
 	if err != nil {
 		a.handleLLMError(err, outUserChannel)
 		return
 	}
+	defer stream.Close()
 
-	if len(completion.Choices) == 0 {
-		log.Error().Msg("No completion choices")
-		a.handleLLMError(fmt.Errorf("no completion choices"), outUserChannel)
-		return
+	var fullResponse strings.Builder
+
+	for {
+		chunk, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			log.Error().Err(err).Msg("Error streaming")
+			a.handleLLMError(err, outUserChannel)
+			return
+		}
+
+		if len(chunk.Choices) == 0 {
+			log.Debug().Any("chunk", chunk).Msg("No choices in chunk")
+			continue
+		}
+
+		if chunk.Choices[0].Delta.Content != "" {
+			content := chunk.Choices[0].Delta.Content
+			fullResponse.WriteString(content)
+
+			// Send partial text to user immediately
+			outUserChannel <- Response{
+				Content: content,
+				Type:    ResponseTypePartialText,
+			}
+		}
 	}
 
-	outUserChannel <- Response{
-		Content: completion.Choices[0].Message.Content,
-		Type:    ResponseTypePartialText,
+	// Ensure we have some content
+	if fullResponse.Len() == 0 {
+		log.Error().Msg("No completion content")
+		a.handleLLMError(fmt.Errorf("no completion content"), outUserChannel)
+		return
 	}
 }
 
 // Run processes a user message through the LLM, executes any requested skills. It returns only after the agent is done.
 // The intermediary messages are sent to the outUserChannel.
-func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *MessageList, memoryBlock *MemoryBlock, outUserChannel chan Response, isConversational bool) {
+func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *MessageList, memoryBlock *MemoryBlock, outUserChannel chan Response) {
 	// Create a cancel function from the context
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -493,7 +468,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 
 		iterationNumber++
 
-		completion, err := a.decideNextAction(ctx, llm, messageHistory.Clone(), memoryBlock)
+		completion, err := a.decideNextAction(ctx, llm, messageHistory.Clone(), memoryBlock, outUserChannel, iterationNumber)
 		if err != nil {
 			a.handleLLMError(err, outUserChannel)
 			return
@@ -530,11 +505,6 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		var wg sync.WaitGroup
 		var mu sync.Mutex
 
-		if isConversational {
-			// sending fake thoughts to the user to keep the user engaged
-			go a.sendThoughtsAboutSkills(ctx, llm, messageHistory.Clone(), skillToolCalls, outUserChannel)
-		}
-
 		for _, tool := range skillToolCalls {
 			skill, err := a.GetSkill(tool.Function.Name)
 			if err != nil {
@@ -556,7 +526,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 					}
 				} else {
 					// Clone the messages again so all goroutines get different message history
-					result, err = a.SkillContextRunner(ctx, meta, messageHistory.Clone(), llm, outUserChannel, memoryBlock, skill, tool.ID, isConversational)
+					result, err = a.SkillContextRunner(ctx, meta, messageHistory.Clone(), llm, outUserChannel, memoryBlock, skill, tool.ID)
 					if err != nil {
 						log.Error().Err(err).Msg("Error running skill")
 						return
@@ -573,6 +543,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 
 		// Add the completion message to history, but filter out the stop tool call
 		messageToAdd := completion.Choices[0].Message
+
 		if messageToAdd.ToolCalls != nil {
 			filteredToolCalls := []openai.ToolCall{}
 			for _, toolCall := range messageToAdd.ToolCalls {
@@ -580,15 +551,18 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 					filteredToolCalls = append(filteredToolCalls, toolCall)
 				}
 			}
-			// Only update and add the message if there are non-stop tool calls. We have this specific condition here because
-			// we tinker with the tool calls to filter out one of the call.
+			// Only update and add the message if there are non-stop tool calls
 			if len(filteredToolCalls) > 0 {
 				messageToAdd.ToolCalls = filteredToolCalls
 				messageHistory.Add(&messageToAdd)
+
 			}
 		} else {
+			// No tool calls, add the message as-is
 			messageHistory.Add(&messageToAdd)
+
 		}
+
 		// Add tool results to message history
 		for _, result := range skillCallResults {
 			messageHistory.Add(result)
@@ -606,27 +580,24 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		}
 	}
 
-	// if not conversational, rest of the code is not needed as that is for sending the final message to the user
-	if !isConversational {
-		return
-	}
-
 	// Handle final results based on the callSummarizer parameter from the stop tool or if multiple skills were called
 	if callSummarizer || len(finalSkillCallResults) > 1 {
 		// If callSummarizer is true, summarize the results
-		summary, err := a.summarizeMultipleToolResults(ctx, messageHistory.Clone(), llm)
+		err := a.summarizeMultipleToolResults(ctx, messageHistory.Clone(), llm, outUserChannel)
 		if err != nil {
 			a.handleLLMError(err, outUserChannel)
 			return
 		}
-		outUserChannel <- Response{
-			Content: summary,
-			Type:    ResponseTypePartialText,
-		}
+		// The summarizeMultipleToolResults function now streams chunks to outUserChannel
+		// We don't need to send a final Response here.
+		return
+	} else if finalCompletion != nil && len(finalCompletion.Choices) > 0 && finalCompletion.Choices[0].Message.Content != "" {
+		// If LLM provided a meaningful final completion, don't send anything else
+		// The response was already streamed during decideNextAction
+
 		return
 	} else if len(finalSkillCallResults) == 1 {
-		// If callSummarizer is false and we have exactly one skill result, return it directly
-		// This should take priority over the final completion message (which might just be about using the stop tool)
+		// If LLM didn't provide a final completion, fall back to returning the single tool result directly
 		var lastResult *openai.ChatCompletionMessage
 		for _, result := range finalSkillCallResults {
 			lastResult = result
@@ -645,15 +616,6 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 
 		outUserChannel <- Response{
 			Content: contentString,
-			Type:    ResponseTypePartialText,
-		}
-		return
-	} else if finalCompletion != nil && len(finalCompletion.Choices) > 0 && finalCompletion.Choices[0].Message.Content != "" {
-		// If final completion is not nil, return it as the "decideNextAction" function
-		// most likely summarized tool results
-
-		outUserChannel <- Response{
-			Content: finalCompletion.Choices[0].Message.Content,
 			Type:    ResponseTypePartialText,
 		}
 		return

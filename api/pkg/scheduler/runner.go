@@ -537,17 +537,12 @@ func (c *RunnerController) SubmitImageGenerationRequest(slot *Slot, session *typ
 	return nil
 }
 
-// calculateVLLMMemoryUtilizationRatio calculates the optimal GPU memory utilization ratio
+// calculateVLLMMemoryUtilizationRatio calculates the GPU memory utilization ratio
 // for VLLM based on the model's memory requirements and the runner's total GPU memory.
 // This ensures VLLM uses an appropriate amount of GPU memory without causing OOM errors.
 //
-// HACK: VLLM's --gpu-memory-utilization flag doesn't work as documented. According to a GitHub issue,
-// when multiple VLLM instances are running on the same GPU, each subsequent instance needs to add
-// the previous instances' memory utilization to its own utilization ratio. This is a workaround
-// until VLLM fixes the calculation to work as described in the documentation.
-//
-// We extend this hack to all existing model instances, not just VLLM, since any GPU memory usage
-// affects how much memory VLLM can actually use.
+// Note: Previously contained complex workarounds for VLLM memory profiling bugs,
+// but these were fixed in VLLM PR #18974, allowing for this simplified calculation.
 func (c *RunnerController) calculateVLLMMemoryUtilizationRatio(runnerID string, modelMemoryRequirement uint64) float64 {
 	// Get the runner's total memory
 	totalMemory := c.TotalMemory(runnerID)
@@ -558,28 +553,14 @@ func (c *RunnerController) calculateVLLMMemoryUtilizationRatio(runnerID string, 
 		return 0.8 // Default fallback ratio
 	}
 
-	// HACK: Calculate cumulative memory utilization for all existing instances
-	// Get existing allocated memory on this runner (all models, not just VLLM)
-	existingMemoryUtilization := c.getExistingMemoryUtilization(runnerID)
-
-	// Calculate the ratio based on model memory requirement vs total GPU memory
-	// Apply empirical overhead factor: VLLM typically uses ~17% more memory than the model size
-	// Based on real-world data: Qwen2.5-VL-3B-Instruct used 26.942 GiB actual vs 23 GiB allocated
-	const vllmOverheadFactor = 1.17
-	estimatedActualUsage := float64(modelMemoryRequirement) * vllmOverheadFactor
-
 	// Calculate this instance's base ratio
-	baseRatio := estimatedActualUsage / float64(totalMemory)
+	finalRatio := float64(modelMemoryRequirement) / float64(totalMemory)
 
-	// HACK: Add existing memory utilization to this instance's ratio
-	// This works around VLLM's cumulative memory allocation behavior
-	finalRatio := baseRatio + existingMemoryUtilization
-
-	// Ensure the ratio is within reasonable bounds (35% to 95%)
-	// Lower bound of 35% allows for small models while avoiding potential VLLM issues
+	// Ensure the ratio is within reasonable bounds (5% to 95%)
+	// Lower bound of 5% allows for small models while avoiding potential VLLM issues
 	// Upper bound of 95% prevents potential OOM from other GPU processes
-	if finalRatio < 0.35 {
-		finalRatio = 0.35
+	if finalRatio < 0.05 {
+		finalRatio = 0.05
 	} else if finalRatio > 0.95 {
 		finalRatio = 0.95
 	}
@@ -588,47 +569,10 @@ func (c *RunnerController) calculateVLLMMemoryUtilizationRatio(runnerID string, 
 		Str("runner_id", runnerID).
 		Uint64("model_memory_bytes", modelMemoryRequirement).
 		Uint64("total_gpu_memory_bytes", totalMemory).
-		Float64("estimated_actual_usage_bytes", estimatedActualUsage).
-		Float64("base_ratio", baseRatio).
-		Float64("existing_memory_utilization", existingMemoryUtilization).
 		Float64("final_cumulative_ratio", finalRatio).
-		Msg("Calculated cumulative VLLM memory utilization ratio (HACK: workaround for VLLM cumulative behavior)")
+		Msg("Calculated VLLM memory utilization ratio")
 
 	return finalRatio
-}
-
-// getExistingMemoryUtilization calculates the cumulative memory utilization ratio
-// of all existing model instances on the specified runner.
-// This is part of the VLLM memory allocation hack - we need to account for ALL existing
-// GPU memory usage, not just VLLM instances.
-func (c *RunnerController) getExistingMemoryUtilization(runnerID string) float64 {
-	totalMemory := c.TotalMemory(runnerID)
-	if totalMemory == 0 {
-		return 0.0
-	}
-
-	// Get the runner status to find allocated memory
-	status, err := c.GetStatus(runnerID)
-	if err != nil {
-		log.Warn().
-			Str("runner_id", runnerID).
-			Err(err).
-			Msg("Failed to get runner status for memory utilization calculation")
-		return 0.0
-	}
-
-	// Use the allocated memory from the runner status
-	// This represents the total memory currently allocated to all slots/models
-	existingUtilizationRatio := float64(status.AllocatedMemory) / float64(totalMemory)
-
-	log.Debug().
-		Str("runner_id", runnerID).
-		Uint64("allocated_memory_bytes", status.AllocatedMemory).
-		Uint64("total_memory_bytes", totalMemory).
-		Float64("existing_utilization_ratio", existingUtilizationRatio).
-		Msg("Calculated existing memory utilization for cumulative VLLM hack (all models)")
-
-	return existingUtilizationRatio
 }
 
 // substituteVLLMArgsPlaceholders replaces template placeholders in VLLM args with actual values

@@ -16,6 +16,7 @@ import (
 // NewAPICallingSkill converts an API tool into a list of API calling tools for the
 // agent to use. It converts into a list of tools because the API tool can have multiple
 // actions (each API path is an action).
+// DEPRECATED: Use NewDirectAPICallingSkills for better agent orchestration
 func NewAPICallingSkill(planner tools.Planner, tool *types.Tool) agent.Skill {
 	var skillTools []agent.Tool
 	for _, action := range tool.Config.API.Actions {
@@ -52,44 +53,60 @@ func NewAPICallingSkill(planner tools.Planner, tool *types.Tool) agent.Skill {
 	}
 }
 
-type APICallingTool struct {
-	toolID           string
-	toolName         string
-	description      string
-	tool             *types.Tool
-	action           *types.ToolAPIAction
-	parameters       []*tools.Parameter
-	planner          tools.Planner
-	parameterNameMap map[string]string
+// NewDirectAPICallingSkills converts an API tool into multiple direct skills, one per API action.
+// This allows the main agent to orchestrate API calls alongside other tools (like Calculator, Currency_Exchange_Rates)
+// instead of having an inner skill context runner try to coordinate everything.
+func NewDirectAPICallingSkills(planner tools.Planner, tool *types.Tool) []agent.Skill {
+	var skills []agent.Skill
+
+	for _, action := range tool.Config.API.Actions {
+		parameters, err := tools.GetParametersFromSchema(tool.Config.API.Schema, action.Name)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to get parameters from schema")
+			continue
+		}
+
+		// Build parameter name mapping
+		parameterNameMap := make(map[string]string)
+		for _, param := range parameters {
+			sanitizedName := agent.SanitizeParameterName(param.Name)
+			parameterNameMap[sanitizedName] = param.Name
+		}
+
+		apiTool := &APICallingTool{
+			toolID:           tool.ID,
+			toolName:         agent.SanitizeToolName(action.Name), // Summary field of the API path
+			description:      action.Description,                  // OpenAPI API path description
+			tool:             tool,
+			action:           action,
+			parameters:       parameters,
+			planner:          planner,
+			parameterNameMap: parameterNameMap,
+		}
+
+		// Build parameters schema for this action
+		parametersSchema := buildParametersSchema(parameters)
+
+		// Create a direct skill for this specific API action
+		skills = append(skills, agent.Skill{
+			Name:        agent.SanitizeToolName(action.Name), // Use action name as skill name
+			Description: action.Description,                  // Use action description as skill description
+			Parameters:  parametersSchema,                    // Expose parameters to outer agent loop
+			Direct:      true,                                // Make it direct so it bypasses skill context runner
+			Tools:       []agent.Tool{apiTool},               // Single tool per skill
+		})
+	}
+
+	return skills
 }
 
-var _ agent.Tool = &APICallingTool{}
-
-func (t *APICallingTool) Name() string {
-	return agent.SanitizeToolName(t.toolName)
-}
-
-func (t *APICallingTool) Description() string {
-	return t.description
-}
-
-func (t *APICallingTool) String() string {
-	return agent.SanitizeToolName(t.toolName)
-}
-
-func (t *APICallingTool) StatusMessage() string {
-	return "Calling the API"
-}
-
-func (t *APICallingTool) Icon() string {
-	return ""
-}
-
-func (t *APICallingTool) OpenAI() []openai.Tool {
+// buildParametersSchema builds a JSON schema for the API tool parameters
+// This is used both for OpenAI tool definitions and skill parameter definitions
+func buildParametersSchema(parameters []*tools.Parameter) jsonschema.Definition {
 	properties := map[string]jsonschema.Definition{}
 	required := []string{}
 
-	for _, param := range t.parameters {
+	for _, param := range parameters {
 		// Create base property definition
 		property := jsonschema.Definition{
 			Description: param.Description,
@@ -176,7 +193,7 @@ func (t *APICallingTool) OpenAI() []openai.Tool {
 			}
 		}
 
-		// Use sanitized parameter name for OpenAI function definition
+		// Use sanitized parameter name for function definition
 		sanitizedName := agent.SanitizeParameterName(param.Name)
 		properties[sanitizedName] = property
 		if param.Required {
@@ -184,6 +201,48 @@ func (t *APICallingTool) OpenAI() []openai.Tool {
 		}
 	}
 
+	// Always return a valid object schema, even if empty
+	return jsonschema.Definition{
+		Type:       jsonschema.Object,
+		Properties: properties,
+		Required:   required,
+	}
+}
+
+type APICallingTool struct {
+	toolID           string
+	toolName         string
+	description      string
+	tool             *types.Tool
+	action           *types.ToolAPIAction
+	parameters       []*tools.Parameter
+	planner          tools.Planner
+	parameterNameMap map[string]string
+}
+
+var _ agent.Tool = &APICallingTool{}
+
+func (t *APICallingTool) Name() string {
+	return agent.SanitizeToolName(t.toolName)
+}
+
+func (t *APICallingTool) Description() string {
+	return t.description
+}
+
+func (t *APICallingTool) String() string {
+	return agent.SanitizeToolName(t.toolName)
+}
+
+func (t *APICallingTool) StatusMessage() string {
+	return "Calling the API"
+}
+
+func (t *APICallingTool) Icon() string {
+	return ""
+}
+
+func (t *APICallingTool) OpenAI() []openai.Tool {
 	tool := []openai.Tool{
 		{
 			Type: openai.ToolTypeFunction,
@@ -194,13 +253,12 @@ func (t *APICallingTool) OpenAI() []openai.Tool {
 		},
 	}
 
+	// Build parameters schema using the helper function
+	parametersSchema := buildParametersSchema(t.parameters)
+
 	// Only set function parameters if we have any
-	if len(properties) > 0 {
-		tool[0].Function.Parameters = jsonschema.Definition{
-			Type:       jsonschema.Object,
-			Properties: properties,
-			Required:   required,
-		}
+	if parametersSchema.Type != "" {
+		tool[0].Function.Parameters = parametersSchema
 	}
 
 	return tool
