@@ -565,7 +565,7 @@ func (c *RunnerController) calculateVLLMMemoryUtilizationRatio(runnerID string, 
 	// Calculate the ratio based on model memory requirement vs total GPU memory
 	// Apply empirical overhead factor: VLLM typically uses ~17% more memory than the model size
 	// Based on real-world data: Qwen2.5-VL-3B-Instruct used 26.942 GiB actual vs 23 GiB allocated
-	const vllmOverheadFactor = 1.17
+	const vllmOverheadFactor = 1.0
 	estimatedActualUsage := float64(modelMemoryRequirement) * vllmOverheadFactor
 
 	// Calculate this instance's base ratio
