@@ -7,24 +7,17 @@ export const helixModelsQueryKey = (runtime: string = "") => [
   runtime
 ];
 
-export function useListHelixModels(runtime: string = "", availableOnly: boolean = true) {
+export function useListHelixModels(runtime: string = "") {
   const api = useApi()
+  const apiClient = api.getApiClient()  
 
   return useQuery({
     queryKey: helixModelsQueryKey(runtime),
     queryFn: async () => {
-      // Build query parameters
-      const params = new URLSearchParams()
-      if (runtime) {
-        params.append('runtime', runtime)
-      }  
-      if (availableOnly) {
-        params.append('available_only', 'true')
-      }
-      
-      const url = `/api/v1/helix-models?${params.toString()}`
-      const result = await api.get(url)
-      return result
+      const result = await apiClient.v1HelixModelsList({
+        runtime: runtime,
+      })
+      return result.data
     },
     enabled: true,
     staleTime: 3 * 1000, // 3 seconds (useful when going between pages)

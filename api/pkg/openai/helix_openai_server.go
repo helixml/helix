@@ -42,10 +42,19 @@ func (c *InternalHelixServer) ListModels(ctx context.Context) ([]types.OpenAIMod
 	if err != nil {
 		return nil, fmt.Errorf("error listing models: %w", err)
 	}
+
+	// Get available models from runners to filter dead models
+	availableModels := c.getAvailableModelsFromRunners()
+
 	var models []types.OpenAIModel
 	for _, model := range helixModels {
 		// Skip embedding models as they should not appear in chat model pickers
 		if model.Type == types.ModelTypeEmbed {
+			continue
+		}
+
+		// Only include models that are actually available on connected runners
+		if !availableModels[model.ID] {
 			continue
 		}
 
@@ -62,6 +71,31 @@ func (c *InternalHelixServer) ListModels(ctx context.Context) ([]types.OpenAIMod
 		})
 	}
 	return models, nil
+}
+
+// getAvailableModelsFromRunners returns a map of model IDs that are actually available on connected runners
+func (c *InternalHelixServer) getAvailableModelsFromRunners() map[string]bool {
+	availableModels := make(map[string]bool)
+
+	// Get all runner statuses from the scheduler
+	runnerStatuses, err := c.scheduler.RunnerStatus()
+	if err != nil {
+		// If we can't get runner status, return empty map (no models available)
+		// This is safer than returning all models when we can't verify availability
+		return availableModels
+	}
+
+	// Process each runner's model status
+	for _, status := range runnerStatuses {
+		// Add models that are available (not downloading and no error)
+		for _, modelStatus := range status.Models {
+			if !modelStatus.DownloadInProgress && modelStatus.Error == "" {
+				availableModels[modelStatus.ModelID] = true
+			}
+		}
+	}
+
+	return availableModels
 }
 
 func (c *InternalHelixServer) APIKey() string {
