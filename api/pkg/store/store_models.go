@@ -102,6 +102,14 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 			continue
 		}
 
+		// Skip creating new models that are hidden
+		if model.Hide {
+			log.Debug().
+				Str("model_id", model.ID).
+				Msg("skipping creation of hidden ollama model")
+			continue
+		}
+
 		// Create new model
 		m := &types.Model{
 			ID:            model.ID,
@@ -184,6 +192,14 @@ func (s *PostgresStore) seedDiffusersModels(ctx context.Context) error {
 						Msg("updated existing diffusers model with latest system defaults")
 				}
 			}
+			continue
+		}
+
+		// Skip creating new models that are hidden
+		if model.Hide {
+			log.Debug().
+				Str("model_id", model.ID).
+				Msg("skipping creation of hidden diffusers model")
 			continue
 		}
 
@@ -293,6 +309,14 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 						Msg("updated existing vllm model with latest system defaults")
 				}
 			}
+			continue
+		}
+
+		// Skip creating new models that are hidden
+		if model.Hide {
+			log.Debug().
+				Str("model_id", model.ID).
+				Msg("skipping creation of hidden vllm model")
 			continue
 		}
 
