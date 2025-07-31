@@ -40,6 +40,9 @@ type OllamaRuntime struct {
 	ollamaClient  *api.Client
 	cmd           *exec.Cmd
 	cancel        context.CancelFunc
+
+	// GPU allocation restart tracking
+	restartAttempts int // Number of restart attempts due to GPU allocation issues
 }
 
 type Model struct {
@@ -331,6 +334,7 @@ func (i *OllamaRuntime) CheckGPUAllocation(ctx context.Context) (bool, error) {
 
 // RestartIfNotFullyAllocated checks GPU allocation and restarts the runtime if needed.
 // Returns true if restart was performed, false otherwise.
+// Stops attempting restarts after 3 tries to prevent infinite loops.
 func (i *OllamaRuntime) RestartIfNotFullyAllocated(ctx context.Context) (bool, error) {
 	fullyAllocated, err := i.CheckGPUAllocation(ctx)
 	if err != nil {
@@ -338,11 +342,31 @@ func (i *OllamaRuntime) RestartIfNotFullyAllocated(ctx context.Context) (bool, e
 	}
 
 	if fullyAllocated {
-		// Everything is fine, no restart needed
+		// Everything is fine, reset restart counter and no restart needed
+		if i.restartAttempts > 0 {
+			log.Info().
+				Int("previous_attempts", i.restartAttempts).
+				Msg("GPU allocation successful, resetting restart counter")
+			i.restartAttempts = 0
+		}
 		return false, nil
 	}
 
-	log.Info().Msg("Model not fully allocated to GPU, restarting Ollama runtime")
+	// Check if we've exceeded the maximum restart attempts
+	const maxRestartAttempts = 3
+	if i.restartAttempts >= maxRestartAttempts {
+		log.Warn().
+			Int("restart_attempts", i.restartAttempts).
+			Int("max_attempts", maxRestartAttempts).
+			Msg("Ollama model not fully allocated to GPU after maximum restart attempts - giving up")
+		return false, nil
+	}
+
+	i.restartAttempts++
+	log.Info().
+		Int("attempt", i.restartAttempts).
+		Int("max_attempts", maxRestartAttempts).
+		Msg("Model not fully allocated to GPU, restarting Ollama runtime")
 
 	// Stop the current runtime
 	if err := i.Stop(); err != nil {
@@ -358,7 +382,9 @@ func (i *OllamaRuntime) RestartIfNotFullyAllocated(ctx context.Context) (bool, e
 		return true, fmt.Errorf("error restarting Ollama runtime: %w", err)
 	}
 
-	log.Info().Msg("Ollama runtime restarted successfully")
+	log.Info().
+		Int("attempt", i.restartAttempts).
+		Msg("Ollama runtime restarted successfully")
 	return true, nil
 }
 
