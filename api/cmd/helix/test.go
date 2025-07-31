@@ -1168,13 +1168,17 @@ func runSingleTest(assistantName, testName string, step types.TestStep, appID, a
 		return result, err
 	}
 
-	evaluationTime := time.Since(evaluationStartTime)
+		evaluationTime := time.Since(evaluationStartTime)
 
 	// Strip think tags from evaluation content before parsing
 	cleanedEvalContent := stripThinkTags(evalContent)
 
-	result.Response = responseContent
+	// Debug logging
+	fmt.Printf("DEBUG: Original eval content: %q\n", evalContent)
+	fmt.Printf("DEBUG: Cleaned eval content: %q\n", cleanedEvalContent)
 
+	result.Response = responseContent
+	
 	// Parse result and reason safely
 	if len(cleanedEvalContent) >= 4 {
 		result.Result = cleanedEvalContent[:4]
@@ -1187,6 +1191,9 @@ func runSingleTest(assistantName, testName string, step types.TestStep, appID, a
 		result.Result = "FAIL"
 		result.Reason = "Invalid evaluation response format"
 	}
+
+	// Debug logging for final result
+	fmt.Printf("DEBUG: Final Result: %q, Final Reason: %q\n", result.Result, result.Reason)
 	result.SessionID = chatResp.ID
 	result.InferenceTime = inferenceTime
 	result.EvaluationTime = evaluationTime
