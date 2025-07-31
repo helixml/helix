@@ -33,6 +33,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -1100,6 +1101,19 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL, evaluatio
 	}
 }
 
+// stripThinkTags removes <think>...</think> tags and any space after them from the evaluation content
+func stripThinkTags(content string) string {
+	// Use regex to remove <think>...</think> tags ((?s) makes . match newlines)
+	re := regexp.MustCompile(`(?s)<think>.*?</think>\s*`)
+	return re.ReplaceAllString(content, "")
+}
+
+// Example usage and test cases for stripThinkTags:
+// "<think>reasoning</think> PASS" -> "PASS"
+// "<think>some reasoning here</think> FAIL because xyz" -> "FAIL because xyz"
+// "PASS without think tags" -> "PASS without think tags"
+// "<think>nested <tags> here</think> PASS" -> "PASS"
+
 func runSingleTest(assistantName, testName string, step types.TestStep, appID, apiKey, helixURL, model, evaluationModel string) (TestResult, error) {
 	inferenceStartTime := time.Now()
 
@@ -1156,9 +1170,24 @@ func runSingleTest(assistantName, testName string, step types.TestStep, appID, a
 
 	evaluationTime := time.Since(evaluationStartTime)
 
+	// Strip think tags from evaluation content before parsing
+	cleanedEvalContent := stripThinkTags(evalContent)
+
 	result.Response = responseContent
-	result.Result = evalContent[:4]
-	result.Reason = evalContent[5:]
+
+	// Parse result and reason safely
+	if len(cleanedEvalContent) >= 4 {
+		result.Result = cleanedEvalContent[:4]
+		if len(cleanedEvalContent) > 5 {
+			result.Reason = cleanedEvalContent[5:]
+		} else {
+			result.Reason = ""
+		}
+	} else {
+		result.Result = "FAIL"
+		result.Reason = "Invalid evaluation response format"
+	}
+
 	result.SessionID = chatResp.ID
 	result.InferenceTime = inferenceTime
 	result.EvaluationTime = evaluationTime
