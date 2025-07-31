@@ -9,7 +9,7 @@ import { keyframes } from '@mui/material/styles'
 // you can change the theme by picking one from here
 // https://react-syntax-highlighter.github.io/react-syntax-highlighter/demo/prism.html
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { ISession } from '../../types'
+import { TypesSession } from '../../api/api'
 
 import DOMPurify from 'dompurify'
 
@@ -29,7 +29,7 @@ const blink = keyframes`
 `
 
 export interface MessageProcessorOptions {
-  session: ISession;
+  session: TypesSession;
   getFileURL: (filename: string) => string;
   isStreaming: boolean;
   showBlinker?: boolean;
@@ -525,7 +525,7 @@ export class MessageProcessor {
 
       // Check all chunks with this document_id
       for (const ragResult of matchingRagResults) {
-        const cleanContent = this.normalizeText(ragResult.content);
+        const cleanContent = this.normalizeText(ragResult?.content || '');
 
         // Try exact match first (whole text contains)
         if (cleanContent.includes(cleanSnippet)) {
@@ -616,7 +616,7 @@ export class MessageProcessor {
 
 export interface InteractionMarkdownProps {
   text: string;
-  session: ISession;
+  session: TypesSession;
   getFileURL: (filename: string) => string;
   showBlinker?: boolean;
   isStreaming: boolean;

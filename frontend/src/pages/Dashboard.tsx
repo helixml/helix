@@ -25,10 +25,12 @@ import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import { useGetDashboardData } from '../services/dashboardService'
 import useRouter from '../hooks/useRouter'
-import {
-  ISession,
+import {  
   ISessionSummary
 } from '../types'
+import { TypesInteraction, TypesSession, TypesSessionSummary } from '../api/api'
+
+
 import { TypesWorkloadSummary, TypesDashboardRunner } from '../api/api'
 import ProviderEndpointsTable from '../components/dashboard/ProviderEndpointsTable'
 import OAuthProvidersTable from '../components/dashboard/OAuthProvidersTable'
@@ -50,7 +52,7 @@ const Dashboard: FC = () => {
 
   const activeRef = useRef(START_ACTIVE)
 
-  const [viewingSession, setViewingSession] = useState<ISession>()
+  const [viewingSession, setViewingSession] = useState<TypesSession>()
   const [active, setActive] = useState(START_ACTIVE)
   const [sessionFilter, setSessionFilter] = useState('')
 
@@ -75,7 +77,7 @@ const Dashboard: FC = () => {
     if (!session_id) return
     if (!account.user) return
     const loadSession = async () => {
-      const session = await api.get<ISession>(`/api/v1/sessions/${session_id}`)
+      const session = await api.get<TypesSession>(`/api/v1/sessions/${session_id}`)
       if (!session) return
       setViewingSession(session)
     }
@@ -486,23 +488,20 @@ const Dashboard: FC = () => {
             <SessionToolbar
               session={viewingSession}
             />
-            {viewingSession.interactions.map((interaction: any, i: number) => {
+            {viewingSession.interactions?.map((interaction: TypesInteraction, i: number) => {
               return (
                 <Interaction
                   key={i}
-                  showFinetuning={true}
                   serverConfig={account.serverConfig}
                   interaction={interaction}
                   session={viewingSession}
                   onRegenerate={() => {}}
-                  retryFinetuneErrors={() => {}}
-                  onReloadSession={async () => {}}
-                  onClone={async () => false}
+                  onReloadSession={async () => {}}                  
                   isOwner={true}
                   isAdmin={false}
-                  session_id={viewingSession.id}
+                  session_id={viewingSession.id || ''}
                   highlightAllFiles={false}
-                  isLastInteraction={i === viewingSession.interactions.length - 1}
+                  isLastInteraction={i === (viewingSession.interactions?.length || 0) - 1}
                   hasSubscription={true}
                 />
               )

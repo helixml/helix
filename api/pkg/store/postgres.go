@@ -32,6 +32,8 @@ func NewPostgresStore(
 	cfg config.Store,
 ) (*PostgresStore, error) {
 
+	schema.RegisterSerializer("json", schema.JSONSerializer{})
+
 	// Waiting for connection
 	gormDB, err := connect(context.Background(), connectConfig{
 		host:            cfg.Host,
@@ -113,6 +115,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.AccessGrantRoleBinding{},
 		&types.UserMeta{},
 		&types.Session{},
+		&types.Interaction{},
 		&types.App{},
 		&types.ApiKey{},
 		&types.Tool{},
@@ -185,6 +188,10 @@ func (s *PostgresStore) autoMigrate() error {
 	}
 
 	if err := createFK(s.gdb, types.StepInfo{}, types.Session{}, "session_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.Interaction{}, types.Session{}, "session_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 

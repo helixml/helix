@@ -1,18 +1,18 @@
 import { useState, useEffect, useMemo } from 'react';
-import { IInteraction, INTERACTION_STATE_COMPLETE } from '../types';
+import { INTERACTION_STATE_COMPLETE } from '../types';
 import { useStreaming } from '../contexts/streaming';
+import { TypesInteraction, TypesInteractionState } from '../api/api';
 
 interface LiveInteractionResult {
   message: string;
   status: string;
-  progress: number;
   isComplete: boolean;
   isStale: boolean;
   stepInfos: any[]; // Add this line
 }
 
-const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction | null, staleThreshold = 10000): LiveInteractionResult => {
-  const [interaction, setInteraction] = useState<IInteraction | null>(initialInteraction);
+const useLiveInteraction = (sessionId: string, initialInteraction: TypesInteraction | null, staleThreshold = 10000): LiveInteractionResult => {
+  const [interaction, setInteraction] = useState<TypesInteraction | null>(initialInteraction);
   const { currentResponses, stepInfos } = useStreaming();
   const [recentTimestamp, setRecentTimestamp] = useState(Date.now());
   const [isStale, setIsStale] = useState(false);
@@ -25,9 +25,9 @@ const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction 
     if (sessionId) {
       const currentResponse = currentResponses.get(sessionId);
       if (currentResponse) {
-        setInteraction((prevInteraction: IInteraction | null): IInteraction => {
+        setInteraction((prevInteraction: TypesInteraction | null): TypesInteraction => {
           if (prevInteraction === null) {
-            return currentResponse as IInteraction;
+            return currentResponse as TypesInteraction;
           }
           return {
             ...prevInteraction,
@@ -64,10 +64,9 @@ const useLiveInteraction = (sessionId: string, initialInteraction: IInteraction 
   }, [recentTimestamp, staleThreshold, isStale, isAppTryHelixDomain]);
 
   return {
-    message: interaction?.message || '',
-    status: interaction?.status || '',
-    progress: interaction?.progress || 0,
-    isComplete: interaction?.state === INTERACTION_STATE_COMPLETE && interaction?.finished === true,
+    message: interaction?.response_message || '',
+    status: interaction?.state || '',    
+    isComplete: interaction?.state === TypesInteractionState.InteractionStateComplete,
     isStale,
     stepInfos: stepInfos.get(sessionId) || [],
   };

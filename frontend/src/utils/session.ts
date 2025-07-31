@@ -1,16 +1,14 @@
+import { TypesSession } from '../api/api'
 import {
   IApp,
   IDataPrepChunkWithFilename,
-  IDataPrepStats,
-  IInteraction,
+  IDataPrepStats,  
   IModelInstanceState,
-  IPageBreadcrumb,
-  ISession,
+  IPageBreadcrumb,  
   ISessionMode,
   ISessionSummary,
   ISessionType,
-  ITextDataPrepStage,
-  SESSION_CREATOR_ASSISTANT,
+  ITextDataPrepStage,  
   SESSION_MODE_FINETUNE,
   SESSION_MODE_INFERENCE,
   SESSION_TYPE_IMAGE,
@@ -48,7 +46,6 @@ const COLORS: Record<string, string> = {
   mistral_inference: '#FF6B6B',    // Map to axolotl
   mistral_finetune: '#CC5151',     // Map to axolotl
   text_inference: '#FF6B6B',       // Map to axolotl
-  text_finetune: '#CC5151',        // Map to axolotl
   image_inference: '#D183C9',      // Map to diffusers
   image_finetune: '#E3879E',       // Map to diffusers
 }
@@ -58,39 +55,12 @@ export const hasDate = (dt?: string): boolean => {
   return dt != NO_DATE
 }
 
-export const getUserInteraction = (session: ISession): IInteraction | undefined => {
-  const userInteractions = session.interactions.filter(i => i.creator != SESSION_CREATOR_ASSISTANT)
-  if (userInteractions.length <= 0) return undefined
-  return userInteractions[userInteractions.length - 1]
-}
-
-export const getAssistantInteraction = (session: ISession): IInteraction | undefined => {
-  const userInteractions = session.interactions.filter(i => i.creator == SESSION_CREATOR_ASSISTANT)
-  if (userInteractions.length <= 0) return undefined
-  return userInteractions[userInteractions.length - 1]
-}
-
-export const getFinetuneInteraction = (session: ISession): IInteraction | undefined => {
-  const userInteractions = session.interactions.filter(i => {
-    return i.creator == SESSION_CREATOR_ASSISTANT && i.mode == SESSION_MODE_FINETUNE
-  })
-  if (userInteractions.length <= 0) return undefined
-  return userInteractions[userInteractions.length - 1]
-}
-
-export const hasFinishedFinetune = (session: ISession): boolean => {
-  if (session.config.original_mode != SESSION_MODE_FINETUNE) return false
-  const finetuneInteraction = getFinetuneInteraction(session)
-  if (!finetuneInteraction) return false
-  return finetuneInteraction.finished
-}
-
-export const getColor = (modelName: string, mode: ISessionMode): string => {
+export const getColor = (modelName: string): string => {
   // Get the model type first
   const modelType = getModelName(modelName)
   
   // Build the key to look up in COLORS record
-  const key = `${modelType}_${mode}`
+  const key = `${modelType}`
   
   // Return the corresponding color
   return COLORS[key]
@@ -119,7 +89,7 @@ export const getModelName = (model_name: string): string => {
   return ''
 }
 
-export const getHeadline = (modelName: string, mode: ISessionMode, loraDir = ''): string => {
+export const getHeadline = (modelName: string, mode: string, loraDir = ''): string => {
   let loraString = ''
   if (loraDir) {
     const parts = loraDir.split('/')
@@ -166,68 +136,26 @@ export const getTiming = (session: ISessionSummary): string => {
   }
 }
 
-export const getSessionSummary = (session: ISession): ISessionSummary => {
-  const systemInteraction = getAssistantInteraction(session)
-  const userInteraction = getUserInteraction(session)
+export const getSessionSummary = (session: TypesSession): ISessionSummary => {  
   let summary = ''
   if (session.mode == SESSION_MODE_INFERENCE) {
-    summary = userInteraction?.message || ''
-  } else if (session.mode == SESSION_MODE_FINETUNE) {
-    summary = `fine tuning on ${userInteraction?.files.length || 0}`
-  }
+    summary = session.interactions?.[0]?.prompt_message || ''
+  } 
   return {
-    session_id: session.id,
-    name: session.name,
-    interaction_id: systemInteraction?.id || '',
-    mode: session.mode,
-    type: session.type,
-    model_name: session.model_name,
-    owner: session.owner,
+    session_id: session.id || '',
+    name: session.name || '',
+    interaction_id: session.interactions?.[0]?.id || '',
+    mode: session.mode || '',
+    type: session.type || '',
+    model_name: session.model_name || '',
+    owner: session.owner || '',
     lora_dir: session.lora_dir,
-    created: systemInteraction?.created || '',
-    updated: systemInteraction?.updated || '',
-    scheduled: systemInteraction?.scheduled || '',
-    completed: systemInteraction?.completed || '',
+    created: session.interactions?.[0]?.created || '',
+    updated: session.interactions?.[0]?.updated || '',
+    scheduled: session.interactions?.[0]?.scheduled || '',
+    completed: session.interactions?.[0]?.completed || '',
     summary,
   }
-}
-
-export const getTextDataPrepStageIndex = (stage: ITextDataPrepStage): number => {
-  return TEXT_DATA_PREP_STAGES.indexOf(stage)
-}
-
-export const getTextDataPrepStageIndexDisplay = (stage: ITextDataPrepStage): number => {
-  return TEXT_DATA_PREP_DISPLAY_STAGES.indexOf(stage)
-}
-
-export const getTextDataPrepErrors = (interaction: IInteraction): IDataPrepChunkWithFilename[] => {
-  return Object.keys(interaction.data_prep_chunks || {}).reduce((acc: IDataPrepChunkWithFilename[], filename: string) => {
-    const chunks = interaction.data_prep_chunks[filename]
-    const errors = chunks.filter(chunk => chunk.error != '')
-    if (errors.length <= 0) return acc
-    return acc.concat(errors.map(error => ({ ...error, filename })))
-  }, [])
-}
-
-export const getTextDataPrepStats = (interaction: IInteraction): IDataPrepStats => {
-  return Object.keys(interaction.data_prep_chunks || {}).reduce((acc: IDataPrepStats, filename: string) => {
-    const chunks = interaction.data_prep_chunks[filename] || []
-    const errors = chunks.filter(chunk => chunk.error != '')
-    const questionCount = chunks.reduce((acc: number, chunk) => acc + chunk.question_count, 0)
-    return {
-      total_files: acc.total_files + 1,
-      total_chunks: acc.total_chunks + chunks.length,
-      total_questions: acc.total_questions + questionCount,
-      converted: acc.converted + (chunks.length - errors.length),
-      errors: acc.errors + errors.length,
-    }
-  }, {
-    total_files: 0,
-    total_chunks: 0,
-    total_questions: 0,
-    converted: 0,
-    errors: 0,
-  })
 }
 
 /**

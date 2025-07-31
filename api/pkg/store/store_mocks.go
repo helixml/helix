@@ -133,6 +133,40 @@ func (mr *MockStoreMockRecorder) CreateDataEntity(ctx, dataEntity any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDataEntity", reflect.TypeOf((*MockStore)(nil).CreateDataEntity), ctx, dataEntity)
 }
 
+// CreateInteraction mocks base method.
+func (m *MockStore) CreateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateInteraction", ctx, interaction)
+	ret0, _ := ret[0].(*types.Interaction)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateInteraction indicates an expected call of CreateInteraction.
+func (mr *MockStoreMockRecorder) CreateInteraction(ctx, interaction any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateInteraction", reflect.TypeOf((*MockStore)(nil).CreateInteraction), ctx, interaction)
+}
+
+// CreateInteractions mocks base method.
+func (m *MockStore) CreateInteractions(ctx context.Context, interactions ...*types.Interaction) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx}
+	for _, a := range interactions {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "CreateInteractions", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateInteractions indicates an expected call of CreateInteractions.
+func (mr *MockStoreMockRecorder) CreateInteractions(ctx any, interactions ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx}, interactions...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateInteractions", reflect.TypeOf((*MockStore)(nil).CreateInteractions), varargs...)
+}
+
 // CreateKnowledge mocks base method.
 func (m *MockStore) CreateKnowledge(ctx context.Context, knowledge *types.Knowledge) (*types.Knowledge, error) {
 	m.ctrl.T.Helper()
@@ -546,6 +580,20 @@ func (m *MockStore) DeleteDataEntity(ctx context.Context, id string) error {
 func (mr *MockStoreMockRecorder) DeleteDataEntity(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDataEntity", reflect.TypeOf((*MockStore)(nil).DeleteDataEntity), ctx, id)
+}
+
+// DeleteInteraction mocks base method.
+func (m *MockStore) DeleteInteraction(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteInteraction", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteInteraction indicates an expected call of DeleteInteraction.
+func (mr *MockStoreMockRecorder) DeleteInteraction(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteInteraction", reflect.TypeOf((*MockStore)(nil).DeleteInteraction), ctx, id)
 }
 
 // DeleteKnowledge mocks base method.
@@ -992,6 +1040,21 @@ func (m *MockStore) GetDecodedLicense(ctx context.Context) (*license.License, er
 func (mr *MockStoreMockRecorder) GetDecodedLicense(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDecodedLicense", reflect.TypeOf((*MockStore)(nil).GetDecodedLicense), ctx)
+}
+
+// GetInteraction mocks base method.
+func (m *MockStore) GetInteraction(ctx context.Context, id string) (*types.Interaction, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetInteraction", ctx, id)
+	ret0, _ := ret[0].(*types.Interaction)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetInteraction indicates an expected call of GetInteraction.
+func (mr *MockStoreMockRecorder) GetInteraction(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInteraction", reflect.TypeOf((*MockStore)(nil).GetInteraction), ctx, id)
 }
 
 // GetKnowledge mocks base method.
@@ -1459,6 +1522,21 @@ func (mr *MockStoreMockRecorder) ListDataEntities(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDataEntities", reflect.TypeOf((*MockStore)(nil).ListDataEntities), ctx, q)
 }
 
+// ListInteractions mocks base method.
+func (m *MockStore) ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListInteractions", ctx, query)
+	ret0, _ := ret[0].([]*types.Interaction)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListInteractions indicates an expected call of ListInteractions.
+func (mr *MockStoreMockRecorder) ListInteractions(ctx, query any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListInteractions", reflect.TypeOf((*MockStore)(nil).ListInteractions), ctx, query)
+}
+
 // ListKnowledge mocks base method.
 func (m *MockStore) ListKnowledge(ctx context.Context, q *ListKnowledgeQuery) ([]*types.Knowledge, error) {
 	m.ctrl.T.Helper()
@@ -1817,6 +1895,21 @@ func (m *MockStore) UpdateDataEntity(ctx context.Context, dataEntity *types.Data
 func (mr *MockStoreMockRecorder) UpdateDataEntity(ctx, dataEntity any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDataEntity", reflect.TypeOf((*MockStore)(nil).UpdateDataEntity), ctx, dataEntity)
+}
+
+// UpdateInteraction mocks base method.
+func (m *MockStore) UpdateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateInteraction", ctx, interaction)
+	ret0, _ := ret[0].(*types.Interaction)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateInteraction indicates an expected call of UpdateInteraction.
+func (mr *MockStoreMockRecorder) UpdateInteraction(ctx, interaction any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateInteraction", reflect.TypeOf((*MockStore)(nil).UpdateInteraction), ctx, interaction)
 }
 
 // UpdateKnowledge mocks base method.

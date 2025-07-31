@@ -24,10 +24,10 @@ import {
 } from '../../utils/analytics'
 
 import {
-  ISession,
   IServerConfig,
-  IInteraction,
 } from '../../types'
+
+import { TypesInteraction, TypesSession } from '../../api/api'
 
 const GeneratedImage = styled('img')({
   cursor: 'pointer',
@@ -55,8 +55,8 @@ export const InteractionInference: FC<{
   message?: string,
   error?: string,
   serverConfig?: IServerConfig,
-  interaction: IInteraction,
-  session: ISession,
+  interaction: TypesInteraction,
+  session: TypesSession,
   upgrade?: boolean,
   isFromAssistant?: boolean,
   onFilterDocument?: (docId: string) => void,
@@ -97,7 +97,7 @@ export const InteractionInference: FC<{
     const editedMessage = externalEditedMessage !== undefined ? externalEditedMessage : internalEditedMessage
     const setEditedMessage = externalSetEditedMessage || setInternalEditedMessage
     const handleCancel = externalHandleCancel || (() => { setInternalEditedMessage(message || ''); setInternalIsEditing(false) })
-    const handleSave = externalHandleSave || (() => { if (onRegenerate && internalEditedMessage !== message) { onRegenerate(interaction.id, internalEditedMessage) } setInternalIsEditing(false) })
+    const handleSave = externalHandleSave || (() => { if (onRegenerate && internalEditedMessage !== message) { onRegenerate(interaction.id || '', internalEditedMessage) } setInternalIsEditing(false) })
 
     // Filter tool steps for this interaction
     const toolSteps = sessionSteps
@@ -229,9 +229,9 @@ export const InteractionInference: FC<{
                             position: 'relative'
                           }}
                         >
-                          <Tooltip title="Regenerate">
+                          <Tooltip title="Regenerate this response">
                             <IconButton
-                              onClick={() => onRegenerate(interaction.id, message || '')}
+                              onClick={() => onRegenerate(interaction.id || '', interaction.prompt_message || '')}
                               size="small"
                               className="regenerate-btn"
                               sx={theme => ({
@@ -290,7 +290,7 @@ export const InteractionInference: FC<{
                       color="secondary"
                       size="small"
                       endIcon={<ReplayIcon />}
-                      onClick={() => onRegenerate(interaction.id, '')}
+                      onClick={() => onRegenerate(interaction.id || '', '')}
                     >
                       Retry
                     </Button>

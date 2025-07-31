@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/puzpuzpuz/xsync/v3"
@@ -173,10 +172,7 @@ func (s *Scheduler) Queue() ([]*types.WorkloadSummary, error) {
 			}
 		case WorkloadTypeSession:
 			s := w.Session()
-			interaction, _ := data.GetLastUserInteraction(s.Interactions)
-			if interaction != nil {
-				summary = interaction.Message
-			}
+			summary = s.Interactions[len(s.Interactions)-1].PromptMessage
 		}
 		queue = append(queue, &types.WorkloadSummary{
 			ID:        w.ID(),
@@ -1069,19 +1065,6 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 					} else {
 						s.onSchedulingErr(req, fmt.Errorf("not implemented: %s and no lora dir", req.Session().Type))
 						withSlotAndWorkContext(&log.Logger, slot, req).Warn().Msg("not implemented: no lora dir")
-					}
-				default:
-					s.onSchedulingErr(req, fmt.Errorf("not implemented: %s", req.Session().Type))
-					withSlotAndWorkContext(&log.Logger, slot, req).Warn().Msg("not implemented: session type")
-				}
-			case types.SessionModeFinetune:
-				switch req.Session().Type {
-				case types.SessionTypeText:
-					withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting finetuning request")
-					err := s.controller.SubmitFinetuningRequest(slot, req.Session())
-					if err != nil {
-						s.onSchedulingErr(req, err)
-						withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting finetuning request")
 					}
 				default:
 					s.onSchedulingErr(req, fmt.Errorf("not implemented: %s", req.Session().Type))

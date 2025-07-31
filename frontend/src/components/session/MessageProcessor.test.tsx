@@ -1,5 +1,5 @@
 import { MessageProcessor } from './Markdown';
-import { ISession, IInteraction, ISessionConfig } from '../../types';
+import { TypesSession, TypesInteraction, TypesSessionMetadata, TypesSessionMode, TypesSessionType, TypesOwnerType } from '../../api/api';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 // Mock DOMPurify
@@ -17,13 +17,12 @@ vi.mock('dompurify', () => {
 });
 
 // Mock data for tests
-const mockInteraction: Partial<IInteraction> = {
+const mockInteraction: Partial<TypesInteraction> = {
   id: 'int1',
   created: new Date().toISOString(),
-  files: ['test-file.pdf', 'sample.pdf', 'diagram.png']
 };
 
-const mockSessionConfig: Partial<ISessionConfig> = {
+const mockSessionConfig: Partial<TypesSessionMetadata> = {
   document_ids: {
     'test-file.pdf': 'doc123',
     'sample.pdf': 'doc456',
@@ -32,21 +31,21 @@ const mockSessionConfig: Partial<ISessionConfig> = {
   document_group_id: 'group123'
 };
 
-const mockSession: Partial<ISession> = {
+const mockSession: Partial<TypesSession> = {
   id: 'test-session',
   name: 'Test Session',
   created: new Date().toISOString(),
   updated: new Date().toISOString(),
   parent_session: '',
   parent_app: '',
-  mode: 'inference',
-  type: 'text',
+  mode: TypesSessionMode.SessionModeInference,
+  type: TypesSessionType.SessionTypeText,
   model_name: 'test-model',
   lora_dir: '',
   owner: 'test-owner',
-  owner_type: 'user',
-  config: mockSessionConfig as ISessionConfig,
-  interactions: [mockInteraction as IInteraction]
+  owner_type: TypesOwnerType.OwnerTypeUser,
+  config: mockSessionConfig as TypesSessionMetadata,
+  interactions: [mockInteraction as TypesInteraction]
 };
 
 // Mock file URL resolver function
@@ -73,7 +72,7 @@ describe('MessageProcessor', () => {
 </excerpts>`;
 
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: false
       });
@@ -112,7 +111,7 @@ describe('MessageProcessor', () => {
 <snippet>The start of a snippet`;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: true
       });
@@ -147,7 +146,7 @@ describe('MessageProcessor', () => {
 <snippet>Partial content from the document`;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: true
       });
@@ -175,7 +174,7 @@ describe('MessageProcessor', () => {
 <snippet>Partial content with mapped filename`;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: true
       });
@@ -202,7 +201,7 @@ describe('MessageProcessor', () => {
 <snippet>Partial content with mapped URL`;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: true
       });
@@ -229,7 +228,7 @@ describe('MessageProcessor', () => {
 <snippet>This content should still be shown even though document ID is unknown`;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: true
       });
@@ -257,7 +256,7 @@ describe('MessageProcessor', () => {
       const message = `Reference to document [DOC_ID:doc123] and also [DOC_ID:doc456]`;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: false
       });
@@ -277,7 +276,7 @@ describe('MessageProcessor', () => {
       const message = `Reference to external document [DOC_ID:doc789]`;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: false
       });
@@ -295,7 +294,7 @@ describe('MessageProcessor', () => {
       const message = `Reference to document group group123`;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: false
       });
@@ -323,7 +322,7 @@ describe('MessageProcessor', () => {
       const message = `Reference to web URL [DOC_ID:web-doc-123]`;
       
       const processor = new MessageProcessor(message, {
-        session: sessionWithWebUrl as ISession,
+        session: sessionWithWebUrl as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: false
       });
@@ -344,7 +343,7 @@ describe('MessageProcessor', () => {
       const message = `Hello world!`;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: true,
         showBlinker: true
@@ -360,7 +359,7 @@ describe('MessageProcessor', () => {
       const message = `Hello world!`;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: false,
         showBlinker: true
@@ -383,7 +382,7 @@ describe('MessageProcessor', () => {
 </excerpts>`;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: false,
         showBlinker: true
@@ -409,7 +408,7 @@ function test() {
 And inline code \`const y = 10;\` too.`;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: false
       });
@@ -435,7 +434,7 @@ And inline code \`const y = 10;\` too.`;
       \`\`\``;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: false
       });
@@ -451,7 +450,7 @@ And inline code \`const y = 10;\` too.`;
 <ul><li>List item 1</li><li>List item 2</li></ul>`;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: false
       });
@@ -472,7 +471,7 @@ And inline code \`const y = 10;\` too.`;
 <iframe src="https://malicious.com"></iframe>`;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: false
       });
@@ -497,7 +496,7 @@ And inline code \`const y = 10;\` too.`;
 Below content`;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: false
       });
@@ -515,7 +514,7 @@ Below content`;
 ---`;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: true
       });
@@ -540,7 +539,7 @@ Below content`;
 </excerpts>`;
       
       const processor = new MessageProcessor(message, {
-        session: mockSession as ISession,
+        session: mockSession as TypesSession,
         getFileURL: mockGetFileURL,
         isStreaming: false,
         onFilterDocument: mockFilterDocument

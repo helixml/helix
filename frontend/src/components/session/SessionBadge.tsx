@@ -10,17 +10,15 @@ import {
 } from '../../utils/session'
 
 export const SessionBadge: FC<{
-  modelName: string,
-  mode: ISessionMode,
+  modelName: string,  
   reverse?: boolean,
   size?: number,
 }> = ({
   modelName,
-  mode,
   reverse = false,
   size = 20,
 }) => {
-  const color = getColor(modelName, mode)
+  const color = getColor(modelName)
   return (
     <Box
       sx={{

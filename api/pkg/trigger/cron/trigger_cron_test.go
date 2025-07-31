@@ -138,6 +138,9 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 		},
 	)
 
+	suite.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{}, nil)
+	suite.store.EXPECT().CreateInteractions(gomock.Any(), gomock.Any()).Return(nil)
+
 	// Mock UpdateSession for the initial session write
 	suite.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, session types.Session) (*types.Session, error) {
@@ -145,7 +148,6 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 			suite.Equal("test-user", session.Owner)
 			suite.Equal(types.SessionModeInference, session.Mode)
 			suite.Equal(types.SessionTypeText, session.Type)
-			suite.Len(session.Interactions, 2)
 			return &session, nil
 		},
 	)
@@ -179,19 +181,13 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 			}
 			return session, nil
 		},
-	).Times(2)
+	).Times(1)
 
-	// Mock UpdateSession for the final session update
-	suite.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, session types.Session) (*types.Session, error) {
-			// Verify the assistant interaction was updated with the response
-			suite.Len(session.Interactions, 2)
-			assistantInteraction := session.Interactions[1]
-			suite.Equal(types.CreatorTypeAssistant, assistantInteraction.Creator)
-			suite.Equal(types.InteractionStateComplete, assistantInteraction.State)
-			suite.True(assistantInteraction.Finished)
-			suite.NotEmpty(assistantInteraction.Message)
-			return &session, nil
+	suite.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			suite.Equal(types.InteractionStateComplete, interaction.State)
+			suite.NotEmpty(interaction.ResponseMessage)
+			return interaction, nil
 		},
 	)
 
@@ -267,6 +263,9 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 		},
 	)
 
+	suite.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{}, nil)
+	suite.store.EXPECT().CreateInteractions(gomock.Any(), gomock.Any()).Return(nil)
+
 	// Mock UpdateSession for the initial session write
 	suite.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, session types.Session) (*types.Session, error) {
@@ -275,7 +274,6 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 			suite.Equal("test-org", session.OrganizationID)
 			suite.Equal(types.SessionModeInference, session.Mode)
 			suite.Equal(types.SessionTypeText, session.Type)
-			suite.Len(session.Interactions, 2)
 			return &session, nil
 		},
 	)
@@ -309,21 +307,14 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 			}
 			return session, nil
 		},
-	).Times(2)
+	).Times(1)
 
-	// Mock UpdateSession for the final session update
-	suite.store.EXPECT().UpdateSession(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, session types.Session) (*types.Session, error) {
-			// Should have user ID set
-			suite.Equal(user.ID, session.Owner)
-			// Verify the assistant interaction was updated with the response
-			suite.Len(session.Interactions, 2)
-			assistantInteraction := session.Interactions[1]
-			suite.Equal(types.CreatorTypeAssistant, assistantInteraction.Creator)
-			suite.Equal(types.InteractionStateComplete, assistantInteraction.State)
-			suite.True(assistantInteraction.Finished)
-			suite.NotEmpty(assistantInteraction.Message)
-			return &session, nil
+	suite.store.EXPECT().UpdateInteraction(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, interaction *types.Interaction) (*types.Interaction, error) {
+			suite.Equal(types.InteractionStateComplete, interaction.State)
+			suite.Equal(user.ID, interaction.UserID)
+			suite.NotEmpty(interaction.ResponseMessage)
+			return interaction, nil
 		},
 	)
 

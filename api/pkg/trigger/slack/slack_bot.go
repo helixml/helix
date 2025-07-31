@@ -8,17 +8,13 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
-	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/trigger/shared"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
-	"github.com/sashabaranov/go-openai"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
@@ -309,7 +305,7 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 			Str("message_ts", messageTimestamp).
 			Msg("starting new Slack session")
 
-		newSession := shared.NewTriggerSession(ctx, "Slack", app, messageText)
+		newSession := shared.NewTriggerSession(ctx, "Slack", app)
 		session = newSession.Session
 
 		threadKey := threadTimestamp
@@ -354,47 +350,6 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 			Str("message_ts", messageTimestamp).
 			Str("session_id", session.ID).
 			Msg("continuing existing Slack session")
-
-		// Add the new message to the existing session
-		userInteraction := &types.Interaction{
-			ID:       system.GenerateUUID(),
-			Created:  time.Now(),
-			Updated:  time.Now(),
-			Mode:     types.SessionModeInference,
-			Creator:  types.CreatorTypeUser,
-			State:    types.InteractionStateComplete,
-			Finished: true,
-			Message:  messageText,
-			Content: types.MessageContent{
-				ContentType: types.MessageContentTypeText,
-				Parts:       []any{messageText},
-			},
-		}
-
-		assistantInteraction := &types.Interaction{
-			ID:       system.GenerateUUID(),
-			Created:  time.Now(),
-			Updated:  time.Now(),
-			Creator:  types.CreatorTypeAssistant,
-			Mode:     types.SessionModeInference,
-			Message:  "",
-			State:    types.InteractionStateWaiting,
-			Finished: false,
-			Metadata: map[string]string{},
-		}
-
-		session.Interactions = append(session.Interactions, userInteraction, assistantInteraction)
-		session.Updated = time.Now()
-
-		err = s.controller.WriteSession(ctx, session)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("app_id", app.ID).
-				Str("session_id", session.ID).
-				Msg("failed to update session")
-			return "", fmt.Errorf("failed to update session: %w", err)
-		}
 	}
 
 	// Get user for the request
@@ -410,90 +365,18 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 		return "", fmt.Errorf("failed to get user: %w", err)
 	}
 
-	// Prepare chat completion request
-	messages := []openai.ChatCompletionMessage{}
-	for _, interaction := range session.Interactions {
-		if interaction.Creator == types.CreatorTypeUser {
-			messages = append(messages, openai.ChatCompletionMessage{
-				Role:    openai.ChatMessageRoleUser,
-				Content: interaction.Message,
-			})
-		} else if interaction.Creator == types.CreatorTypeAssistant && interaction.State == types.InteractionStateComplete {
-			messages = append(messages, openai.ChatCompletionMessage{
-				Role:    openai.ChatMessageRoleAssistant,
-				Content: interaction.Message,
-			})
-		}
-	}
-
-	request := openai.ChatCompletionRequest{
-		Stream:   false,
-		Messages: messages,
-	}
-
-	// Set up context for the request
-	ctx = oai.SetContextSessionID(ctx, session.ID)
-	ctx = oai.SetContextAppID(ctx, app.ID)
-	ctx = oai.SetContextOrganizationID(ctx, app.OrganizationID)
-
-	// Get the last assistant interaction
-	lastAssistantInteraction := session.Interactions[len(session.Interactions)-1]
-	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
-		OwnerID:       app.Owner,
-		SessionID:     session.ID,
-		InteractionID: lastAssistantInteraction.ID,
+	resp, err := s.controller.RunBlockingSession(ctx, &controller.RunSessionRequest{
+		OrganizationID: app.OrganizationID,
+		App:            app,
+		Session:        session,
+		User:           user,
+		PromptMessage:  types.MessageContent{Parts: []any{messageText}},
 	})
-
-	resp, _, err := s.controller.ChatCompletion(
-		ctx,
-		user,
-		request,
-		&controller.ChatCompletionOptions{
-			OrganizationID: app.OrganizationID,
-			AppID:          app.ID,
-			Conversational: true,
-		},
-	)
 	if err != nil {
-		lastAssistantInteraction.Error = err.Error()
-		lastAssistantInteraction.State = types.InteractionStateError
-		lastAssistantInteraction.Finished = true
-		lastAssistantInteraction.Completed = time.Now()
-		err = s.controller.WriteSession(ctx, session)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("app_id", app.ID).
-				Str("user_id", app.Owner).
-				Str("session_id", session.ID).
-				Msg("failed to update session")
-		}
-
 		return "", fmt.Errorf("failed to get response from inference API: %w", err)
 	}
 
-	var respContent string
-	if len(resp.Choices) > 0 {
-		respContent = resp.Choices[0].Message.Content
-	}
-
-	// Update session with response
-	lastAssistantInteraction.Message = respContent
-	lastAssistantInteraction.State = types.InteractionStateComplete
-	lastAssistantInteraction.Finished = true
-	lastAssistantInteraction.Completed = time.Now()
-
-	err = s.controller.WriteSession(ctx, session)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("app_id", app.ID).
-			Str("user_id", app.Owner).
-			Str("session_id", session.ID).
-			Msg("failed to update session")
-	}
-
-	return respContent, nil
+	return resp.ResponseMessage, nil
 }
 
 func (s *SlackBot) middlewareConnecting(_ *socketmode.Event, _ *socketmode.Client) {
