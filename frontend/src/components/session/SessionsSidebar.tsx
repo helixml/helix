@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useState, useEffect, Fragment, useContext, useRef } from 'react'
+import { FC, Fragment } from 'react'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
@@ -6,11 +6,11 @@ import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import CircularProgress from '@mui/material/CircularProgress'
 import Typography from '@mui/material/Typography'
+import Tooltip from '@mui/material/Tooltip'
 
 import ImageIcon from '@mui/icons-material/Image'
-import ModelTrainingIcon from '@mui/icons-material/ModelTraining'
-import DeveloperBoardIcon from '@mui/icons-material/DeveloperBoard'
-import PermMediaIcon from '@mui/icons-material/PermMedia'
+
+import { MessageCircle } from 'lucide-react'
 
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
@@ -22,9 +22,7 @@ import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
 import useApps from '../../hooks/useApps'
 import useAccount from '../../hooks/useAccount'
-import {
-  SESSION_MODE_FINETUNE,
-  SESSION_MODE_INFERENCE,
+import {  
   SESSION_TYPE_IMAGE,
   SESSION_TYPE_TEXT,
   IApp,
@@ -66,10 +64,12 @@ export const SessionsSidebar: FC<{
       }
     }
 
-    if (session.mode === SESSION_MODE_INFERENCE && session.type === SESSION_TYPE_IMAGE) return <ImageIcon color="primary" />
-    if (session.mode === SESSION_MODE_INFERENCE && session.type === SESSION_TYPE_TEXT) return <DeveloperBoardIcon color="primary" />
-    if (session.mode === SESSION_MODE_FINETUNE && session.type === SESSION_TYPE_IMAGE) return <PermMediaIcon color="primary" />
-    if (session.mode === SESSION_MODE_FINETUNE && session.type === SESSION_TYPE_TEXT) return <ModelTrainingIcon color="primary" />
+    if (session.type === SESSION_TYPE_IMAGE) return <ImageIcon color="primary" />
+    if (session.type === SESSION_TYPE_TEXT) return (
+      <Tooltip title={session.model_name || 'Unknown model'} arrow>
+        <MessageCircle size={22} color="#8f8f8f" />
+      </Tooltip>
+    )
   }
 
   const groupSessionsByTime = (sessions: (TypesSession | ISessionSummary)[]) => {
