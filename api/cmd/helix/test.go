@@ -1103,8 +1103,8 @@ func runTests(appConfig types.AppHelixConfig, appID, apiKey, helixURL, evaluatio
 
 // stripThinkTags removes <think>...</think> tags and any space after them from the evaluation content
 func stripThinkTags(content string) string {
-	// Use regex to remove <think>...</think> tags
-	re := regexp.MustCompile(`<think>.*?</think>\s*`)
+	// Use regex to remove <think>...</think> tags ((?s) makes . match newlines)
+	re := regexp.MustCompile(`(?s)<think>.*?</think>\s*`)
 	return re.ReplaceAllString(content, "")
 }
 
@@ -1168,7 +1168,7 @@ func runSingleTest(assistantName, testName string, step types.TestStep, appID, a
 		return result, err
 	}
 
-		evaluationTime := time.Since(evaluationStartTime)
+	evaluationTime := time.Since(evaluationStartTime)
 
 	// Strip think tags from evaluation content before parsing
 	cleanedEvalContent := stripThinkTags(evalContent)
@@ -1178,7 +1178,7 @@ func runSingleTest(assistantName, testName string, step types.TestStep, appID, a
 	fmt.Printf("DEBUG: Cleaned eval content: %q\n", cleanedEvalContent)
 
 	result.Response = responseContent
-	
+
 	// Parse result and reason safely
 	if len(cleanedEvalContent) >= 4 {
 		result.Result = cleanedEvalContent[:4]
