@@ -421,6 +421,12 @@ func (i *OllamaRuntime) RestartIfNotFullyAllocated(ctx context.Context) (bool, e
 	time.Sleep(2 * time.Second)
 
 	// Start the runtime again with the original context (maintains caller's cancellation contract)
+	// Check if we were stopped externally during the restart process
+	if i.originalCtx == nil {
+		log.Info().Msg("External stop detected during restart, aborting restart")
+		return false, nil
+	}
+
 	if err := i.Start(i.originalCtx); err != nil {
 		return true, fmt.Errorf("error restarting Ollama runtime: %w", err)
 	}
