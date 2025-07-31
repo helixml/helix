@@ -3,7 +3,8 @@ import Page from '../components/system/Page'
 import CreateContent from '../components/create/CreateContent'
 import useRouter from '../hooks/useRouter'
 import useApps from '../hooks/useApps'
-import useLightTheme from '../hooks/useLightTheme'
+import { useAccount } from '../contexts/account'
+import useLightTheme from '../hooks/useLightTheme'  
 import useIsBigScreen from '../hooks/useIsBigScreen'
 import { getNewSessionBreadcrumbs } from '../utils/session'
 import { ISessionMode, ISessionType } from '../types'
@@ -11,6 +12,7 @@ import { ISessionMode, ISessionType } from '../types'
 const Create: FC = () => {
   const router = useRouter()
   const apps = useApps()
+  const account = useAccount()
   const lightTheme = useLightTheme()
   const isBigScreen = useIsBigScreen()
 
@@ -23,13 +25,13 @@ const Create: FC = () => {
 
   useEffect(() => {
     if (!appID) {
-      apps.setApp(undefined)
+      account.orgNavigate('home')
       return
     }
     setIsLoadingApp(true)
     apps.loadApp(appID).finally(() => setIsLoadingApp(false))
     return () => apps.setApp(undefined)
-  }, [appID])
+  }, [appID, router])
 
   if (appID && (isLoadingApp || !apps.app)) {
     return null
