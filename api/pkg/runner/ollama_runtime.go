@@ -235,6 +235,10 @@ func (i *OllamaRuntime) stopOllamaProcessOnly() error {
 		log.Error().Msgf("error stopping Ollama model process: %s", err.Error())
 		return err
 	}
+
+	// Mark as stopped so internal restarts can call Start() again
+	i.started = false
+
 	log.Info().Msg("Ollama runtime stopped")
 	return nil
 }
