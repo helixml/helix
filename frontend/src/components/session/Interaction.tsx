@@ -1,6 +1,5 @@
 import React, { FC, useMemo } from 'react'
 import InteractionContainer from './InteractionContainer'
-import InteractionFinetune from './InteractionFinetune'
 import InteractionInference from './InteractionInference'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
@@ -10,21 +9,11 @@ import CopyButtonWithCheck from './CopyButtonWithCheck'
 
 import useAccount from '../../hooks/useAccount'
 
-import {
-  SESSION_TYPE_TEXT,
-  SESSION_TYPE_IMAGE,
-  SESSION_MODE_INFERENCE,
-  SESSION_CREATOR_ASSISTANT,
-  SESSION_CREATOR_USER,
-  ISession,
-  IInteraction,
+import {  
   IServerConfig,
-  ICloneInteractionMode,
 } from '../../types'
 
-import {
-  isImage,
-} from '../../utils/filestore'
+import { TypesSession, TypesInteraction, TypesInteractionState } from '../../api/api'
 
 // Prop comparison function for React.memo
 const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
@@ -34,10 +23,10 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
   }
 
   // Compare interaction
-  if (prevProps.interaction?.id !== nextProps.interaction?.id ||
-    prevProps.interaction?.finished !== nextProps.interaction?.finished ||
-    prevProps.interaction?.message !== nextProps.interaction?.message ||
+  if (prevProps.interaction?.id !== nextProps.interaction?.id ||    
+    prevProps.interaction?.prompt_message !== nextProps.interaction?.prompt_message ||
     prevProps.interaction?.display_message !== nextProps.interaction?.display_message ||
+    prevProps.interaction?.response_message !== nextProps.interaction?.response_message ||
     prevProps.interaction?.error !== nextProps.interaction?.error ||
     prevProps.interaction?.state !== nextProps.interaction?.state) {
     return false
@@ -51,15 +40,12 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
   }
 
   // Compare other props
-  if (prevProps.highlightAllFiles !== nextProps.highlightAllFiles ||
-    prevProps.showFinetuning !== nextProps.showFinetuning) {
+  if (prevProps.highlightAllFiles !== nextProps.highlightAllFiles) {    
     return false
   }
 
   // Compare function references
-  if (prevProps.retryFinetuneErrors !== nextProps.retryFinetuneErrors ||
-    prevProps.onReloadSession !== nextProps.onReloadSession ||
-    prevProps.onClone !== nextProps.onClone ||
+  if (prevProps.onReloadSession !== nextProps.onReloadSession ||
     prevProps.onAddDocuments !== nextProps.onAddDocuments ||
     prevProps.onRegenerate !== nextProps.onRegenerate ||
     prevProps.onFilterDocument !== nextProps.onFilterDocument) {
@@ -71,12 +57,10 @@ const areEqual = (prevProps: InteractionProps, nextProps: InteractionProps) => {
 
 interface InteractionProps {
   serverConfig: IServerConfig;
-  interaction: IInteraction;
-  session: ISession;
+  interaction: TypesInteraction;
+  session: TypesSession;
   highlightAllFiles: boolean;
-  retryFinetuneErrors: () => void;
-  onReloadSession: () => Promise<any>;
-  onClone: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>;
+  onReloadSession: () => Promise<any>;  
   onAddDocuments?: () => void;
   onFilterDocument?: (docId: string) => void;
   headerButtons?: React.ReactNode;
@@ -90,195 +74,202 @@ interface InteractionProps {
   session_id: string;
   hasSubscription: boolean;
   onRegenerate?: (interactionID: string, message: string) => void;
-  sessionSteps?: any[];
-  showFinetuning?: boolean;
+  sessionSteps?: any[];  
 }
 
 export const Interaction: FC<InteractionProps> = ({
   serverConfig,
   interaction,
-  session,
-  highlightAllFiles,
-  retryFinetuneErrors,
-  onReloadSession,
-  onClone,
-  onAddDocuments,
+  session,  
   onFilterDocument,
   headerButtons,
   children,
-  isLastInteraction,
-  isOwner,
-  isAdmin,
-  scrollToBottom,
-  appID,
-  onHandleFilterDocument,
+  isLastInteraction,  
   session_id,
   hasSubscription,
   onRegenerate,
   sessionSteps = [],
-  showFinetuning = true,
 }) => {
   const account = useAccount()
 
   // Memoize computed values
   const displayData = useMemo(() => {
-    let displayMessage: string = ''
+    let userMessage: string = ''
+    let assistantMessage: string = ''
     let imageURLs: string[] = []
-    let isLoading = interaction?.creator == SESSION_CREATOR_ASSISTANT && !interaction.finished
-    let useMessageText = interaction ? (interaction.display_message || interaction.message || '') : ''
+    let isLoading = interaction.state == TypesInteractionState.InteractionStateWaiting
 
-    if (!isLoading) {
-      if (session.type == SESSION_TYPE_TEXT) {
-        if (!interaction?.lora_dir) {
-          if (interaction?.message) {
-            displayMessage = useMessageText
-          } else {
-            displayMessage = interaction.status || ''
-          }
-        }
-        // Check for images in content
-        if (interaction?.content?.parts) {
-          interaction.content.parts.forEach(part => {
-            if (typeof part === 'object' && part !== null && 'type' in part && part.type === 'image_url' && 'image_url' in part && part.image_url?.url) {
-              imageURLs.push(part.image_url.url)
-            }
-          })
-        }
+    // Extract user message from prompt_message or display_message
+    if (interaction?.prompt_message) {
+      userMessage = interaction.display_message || interaction.prompt_message
+    }
 
-      } else if (session.type == SESSION_TYPE_IMAGE) {
-        if (interaction?.creator == SESSION_CREATOR_USER) {
-          displayMessage = useMessageText || ''
+    // Extract assistant response from response_message
+    if (interaction?.response_message) {
+      assistantMessage = interaction.response_message
+    }
+
+    // Check for images in content
+    if (interaction?.prompt_message_content?.parts) {
+      interaction.prompt_message_content.parts.forEach(part => {
+        if (typeof part === 'object' && part !== null && 'type' in part && part.type === 'image_url' && 'image_url' in part && part.image_url?.url) {
+          imageURLs.push(part.image_url.url)
         }
-        else {
-          if (session.mode == SESSION_MODE_INFERENCE && interaction?.files && interaction?.files.length > 0) {
-            imageURLs = interaction.files.filter(isImage)
-          }
-        }
-      }
+      })
     }
 
     return {
-      displayMessage,
+      userMessage,
+      assistantMessage,
       imageURLs,
       isLoading
     }
   }, [interaction, session])
 
-  const { displayMessage, imageURLs, isLoading } = displayData
+  const { userMessage, assistantMessage, imageURLs, isLoading } = displayData
   
   const [isEditing, setIsEditing] = React.useState(false)
-  const [editedMessage, setEditedMessage] = React.useState(displayMessage || '')
+  const [editedMessage, setEditedMessage] = React.useState(userMessage || '')
   const [isHovering, setIsHovering] = React.useState(false)
 
-  const isUser = interaction?.creator == SESSION_CREATOR_USER
-  const isLive = interaction?.creator == SESSION_CREATOR_ASSISTANT && !interaction.finished;
+  const isLive = interaction.state == TypesInteractionState.InteractionStateWaiting
 
   if (!serverConfig || !serverConfig.filestore_prefix) return null
 
   const handleEditClick = () => setIsEditing(true)
   const handleCancel = () => {
-    setEditedMessage(displayMessage || '')
+    setEditedMessage(userMessage || '')
     setIsEditing(false)
   }
   const handleSave = () => {
-    if (onRegenerate && editedMessage !== displayMessage) {
-      onRegenerate(interaction.id, editedMessage)
+    if (onRegenerate && editedMessage !== userMessage) {
+      onRegenerate(interaction.id || '', editedMessage)
     }
     setIsEditing(false)
   }
 
-  // ChatGPT-like: user messages right-aligned, bordered, with background; assistant left-aligned, no background/border
-  const containerAlignment = isUser ? 'right' : 'left';
-  const containerBorder = isUser;
-  const containerBackground = isUser; // Only user messages get the background
-
   return (
     <Box
       sx={{
-        mb: 0.5,
+        mb: 2,
         display: 'flex',
         flexDirection: 'column',
-        alignItems: isUser ? 'flex-end' : 'flex-start',
+        gap: 1,
       }}
       onMouseEnter={() => setIsHovering(true)}
       onMouseLeave={() => setIsHovering(false)}
     >
-      <InteractionContainer        
-        buttons={headerButtons}
-        background={containerBackground}
-        align={containerAlignment}
-        border={containerBorder}
-        isAssistant={interaction?.creator == SESSION_CREATOR_ASSISTANT}
-      >
-        {
-          showFinetuning && (
-            <InteractionFinetune
-              serverConfig={serverConfig}
-              interaction={interaction}
-              session={session}
-              highlightAllFiles={highlightAllFiles}
-              retryFinetuneErrors={retryFinetuneErrors}
-              onReloadSession={onReloadSession}
-              onClone={onClone}
-              onAddDocuments={onAddDocuments}
-            />
-          )
-        }
-
-        {/* Only show one of the components - no transition or overlay */}
-        {isLive ? (
-          children
-        ) : (
-          <InteractionInference
-            serverConfig={serverConfig}
-            session={session}
-            interaction={interaction}
-            imageURLs={imageURLs}
-            message={displayMessage}
-            error={interaction?.error}            
-            upgrade={interaction.data_prep_limited}
-            isFromAssistant={interaction?.creator == SESSION_CREATOR_ASSISTANT}
-            onFilterDocument={onFilterDocument}
-            onRegenerate={onRegenerate}
-            isEditing={isEditing}
-            editedMessage={editedMessage}
-            setEditedMessage={setEditedMessage}
-            handleCancel={handleCancel}
-            handleSave={handleSave}
-            isLastInteraction={isLastInteraction}
-            sessionSteps={sessionSteps}
-          />
-        )}
-      </InteractionContainer>
-      {/* Edit button floating below and right-aligned, only for user messages, not editing, and message present */}
-      {isUser && !isEditing && displayMessage && (
-        <Box 
-          sx={{ 
-            width: '100%', 
-            display: 'flex', 
-            justifyContent: 'flex-end', 
-            mt: 0.5, 
-            gap: 0.5,
-            opacity: isHovering ? 1 : 0,
-            transition: 'opacity 0.2s ease-in-out'
+      {/* User Message Container */}
+      {userMessage && (
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
           }}
         >
-          <CopyButtonWithCheck text={displayMessage} alwaysVisible={isHovering} />
-          <Tooltip title="Edit">
-            <IconButton
-              onClick={handleEditClick}
-              size="small"
-              sx={theme => ({
-                color: theme.palette.mode === 'light' ? '#888' : '#bbb',
-                '&:hover': {
-                  color: theme.palette.mode === 'light' ? '#000' : '#fff',
-                },
-              })}
-              aria-label="edit"
+          <InteractionContainer        
+            buttons={headerButtons}
+            background={true}
+            align="right"
+            border={true}
+            isAssistant={false}
+          >
+            <InteractionInference
+              serverConfig={serverConfig}
+              session={session}
+              interaction={interaction}
+              imageURLs={imageURLs}
+              message={userMessage}
+              error={interaction?.error}            
+              upgrade={false}
+              isFromAssistant={false}
+              onFilterDocument={onFilterDocument}
+              onRegenerate={onRegenerate}
+              isEditing={isEditing}
+              editedMessage={editedMessage}
+              setEditedMessage={setEditedMessage}
+              handleCancel={handleCancel}
+              handleSave={handleSave}
+              isLastInteraction={isLastInteraction}
+              sessionSteps={sessionSteps}
+            />
+          </InteractionContainer>
+          {/* Edit button floating below and right-aligned, only for user messages, not editing, and message present */}
+          {!isEditing && userMessage && (
+            <Box 
+              sx={{ 
+                width: '100%', 
+                display: 'flex', 
+                justifyContent: 'flex-end', 
+                mt: 0.5, 
+                gap: 0.5,
+                opacity: isHovering ? 1 : 0,
+                transition: 'opacity 0.2s ease-in-out'
+              }}
             >
-              <EditIcon sx={{ fontSize: 20 }} />
-            </IconButton>
-          </Tooltip>
+              <CopyButtonWithCheck text={userMessage} alwaysVisible={isHovering} />
+              <Tooltip title="Edit">
+                <IconButton
+                  onClick={handleEditClick}
+                  size="small"
+                  sx={theme => ({
+                    color: theme.palette.mode === 'light' ? '#888' : '#bbb',
+                    '&:hover': {
+                      color: theme.palette.mode === 'light' ? '#000' : '#fff',
+                    },
+                  })}
+                  aria-label="edit"
+                >
+                  <EditIcon sx={{ fontSize: 20 }} />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          )}
+        </Box>
+      )}
+
+      {/* Assistant Response Container */}
+      {(assistantMessage || isLive) && (
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+          }}
+        >
+          <InteractionContainer        
+            buttons={headerButtons}
+            background={false}
+            align="left"
+            border={false}
+            isAssistant={true}
+          >
+            {/* Show live stream if interaction is waiting */}
+            {isLive ? (
+              children
+            ) : (
+              <InteractionInference
+                serverConfig={serverConfig}
+                session={session}
+                interaction={interaction}
+                imageURLs={[]}
+                message={assistantMessage}
+                error={interaction?.error}            
+                upgrade={false}
+                isFromAssistant={true}
+                onFilterDocument={onFilterDocument}
+                onRegenerate={onRegenerate}
+                isEditing={false}
+                editedMessage=""
+                setEditedMessage={() => {}}
+                handleCancel={() => {}}
+                handleSave={() => {}}
+                isLastInteraction={isLastInteraction}
+                sessionSteps={sessionSteps}
+              />
+            )}
+          </InteractionContainer>
         </Box>
       )}
     </Box>

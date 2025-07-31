@@ -69,10 +69,6 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 	ctx = oai.SetContextAppID(ctx, startReq.AppID)
 
-	if ragSourceID := req.URL.Query().Get("rag_source_id"); ragSourceID != "" {
-		startReq.RAGSourceID = ragSourceID
-	}
-
 	if assistantID := req.URL.Query().Get("assistant_id"); assistantID != "" {
 		startReq.AssistantID = assistantID
 	}
@@ -154,13 +150,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		log.Info().Msg("session regeneration requested")
 	}
 
-	// For finetunes, legacy route
-	if startReq.LoraDir != "" || startReq.Type == types.SessionTypeImage {
-		s.startChatSessionLegacyHandler(ctx, user, &startReq, req, rw)
-		return
-	}
-
-	modelName, err := model.ProcessModelName(s.Cfg.Inference.Provider, startReq.Model, types.SessionModeInference, types.SessionTypeText, false, false)
+	modelName, err := model.ProcessModelName(s.Cfg.Inference.Provider, startReq.Model, types.SessionTypeText)
 	if err != nil {
 		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
 		return
@@ -204,6 +194,19 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			return
 		}
 
+		// Load interactions for the session
+		interactions, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+			SessionID:    session.ID,
+			GenerationID: session.GenerationID,
+		})
+		if err != nil {
+			http.Error(rw, fmt.Sprintf("failed to get interactions for session %s, error: %s", startReq.SessionID, err), http.StatusInternalServerError)
+			return
+		}
+
+		// Updating session interactions
+		session.Interactions = interactions
+
 		startReq.OrganizationID = session.OrganizationID
 
 		// If the session has an AppID, use it as the next interaction
@@ -242,17 +245,9 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			Metadata: types.SessionMetadata{
 				Stream:       startReq.Stream,
 				SystemPrompt: startReq.SystemPrompt,
-				RAGSourceID:  startReq.RAGSourceID,
 				AssistantID:  startReq.AssistantID,
-				Origin: types.SessionOrigin{
-					Type: types.SessionOriginTypeUserCreated,
-				},
 				HelixVersion: data.GetHelixVersion(),
 			},
-		}
-
-		if startReq.RAGSourceID != "" {
-			session.Metadata.RagEnabled = true
 		}
 
 		// Set the session ID in the context to enable document ID tracking
@@ -272,11 +267,17 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	// Set the organization ID in the context for OAuth token retrieval
 	ctx = oai.SetContextOrganizationID(ctx, session.OrganizationID)
 
-	// Write the initial session that has the user prompt and also the placeholder interaction
-	// for the system response which will be updated later once the response is received
+	// Write the initial session
 	err = s.Controller.WriteSession(req.Context(), session)
 	if err != nil {
 		http.Error(rw, "failed to write session: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Write the initial interactions
+	err = s.Controller.WriteInteractions(req.Context(), session.Interactions...)
+	if err != nil {
+		http.Error(rw, "failed to write interactions: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -316,12 +317,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		ownerID = oai.RunnerID
 	}
 
-	lastInteraction, err := data.GetLastInteraction(session)
-	if err != nil {
-		log.Error().Err(err).Msg("error getting last interaction")
-		http.Error(rw, "error getting last interaction", http.StatusInternalServerError)
-		return
-	}
+	lastInteraction := session.Interactions[len(session.Interactions)-1]
 
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
 		OwnerID:         ownerID,
@@ -339,7 +335,6 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			OrganizationID: startReq.OrganizationID,
 			AppID:          startReq.AppID,
 			AssistantID:    startReq.AssistantID,
-			RAGSourceID:    startReq.RAGSourceID,
 			Provider:       string(startReq.Provider),
 			QueryParams: func() map[string]string {
 				params := make(map[string]string)
@@ -353,40 +348,22 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		}
 	)
 
-	// Adding system prompt to the chat completion request if it's set
-	if startReq.SystemPrompt != "" {
-		chatCompletionRequest.Messages = append(chatCompletionRequest.Messages, openai.ChatCompletionMessage{
-			Role:    openai.ChatMessageRoleSystem,
-			Content: startReq.SystemPrompt,
-		})
-	}
-
-	// Convert interactions (except the last one) to messages
+	// TODO: replace with summary
 	messagesToInclude := limitInteractions(session.Interactions, messageContextLimit)
 
-	for _, interaction := range messagesToInclude {
-
-		multiContent := interaction.GetMessageMultiContentPart()
-
-		message := openai.ChatCompletionMessage{
-			Role:         string(interaction.Creator),
-			MultiContent: multiContent,
-		}
-
-		chatCompletionRequest.Messages = append(chatCompletionRequest.Messages, message)
-	}
+	chatCompletionRequest.Messages = types.InteractionsToOpenAIMessages(startReq.SystemPrompt, messagesToInclude)
 
 	if !startReq.Stream {
-		err := s.handleBlockingSession(ctx, user, session, chatCompletionRequest, options, rw)
+		err := s.handleBlockingSession(ctx, user, session, lastInteraction, chatCompletionRequest, options, rw)
 		if err != nil {
 			log.Err(err).Msg("error handling blocking session")
 		}
 		return
 	}
 
-	err = s.handleStreamingSession(ctx, user, session, chatCompletionRequest, options, rw)
+	err = s.handleStreamingSession(ctx, user, session, lastInteraction, chatCompletionRequest, options, rw)
 	if err != nil {
-		log.Err(err).Msg("error handling blocking session")
+		log.Err(err).Msg("error handling streaming session")
 	}
 }
 
@@ -406,52 +383,56 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 		// If regenerate is true, remove all existing interactions
 		if req.Regenerate {
 			session.Interactions = []*types.Interaction{}
+			session.GenerationID++ // Increment generation ID to start a new generation
 		}
 
 		// Append the message
 		message, _ := req.Message()
 		messageContent := req.MessageContent()
-		session.Interactions = append(session.Interactions,
-			&types.Interaction{
-				ID:        system.GenerateUUID(),
-				Created:   time.Now(),
-				Updated:   time.Now(),
-				Scheduled: time.Now(),
-				Completed: time.Now(),
-				Mode:      types.SessionModeInference,
-				Creator:   types.CreatorTypeUser,
-				State:     types.InteractionStateComplete,
-				Finished:  true,
-				Message:   message,
-				Content:   messageContent,
-			},
-			&types.Interaction{
-				ID:       system.GenerateUUID(),
-				Created:  time.Now(),
-				Updated:  time.Now(),
-				Creator:  types.CreatorTypeAssistant,
-				Mode:     types.SessionModeInference,
-				Message:  "",
-				State:    types.InteractionStateWaiting,
-				Finished: false,
-				Metadata: map[string]string{},
-			},
-		)
+
+		// Each alternating between user and assistant messages
+		// must create a new single interaction
+
+		interaction := &types.Interaction{
+			ID:                   system.GenerateInteractionID(),
+			SessionID:            session.ID,
+			GenerationID:         session.GenerationID,
+			UserID:               session.Owner,
+			Created:              time.Now(),
+			Updated:              time.Now(),
+			Scheduled:            time.Now(),
+			Completed:            time.Now(),
+			Mode:                 types.SessionModeInference,
+			SystemPrompt:         session.Metadata.SystemPrompt,
+			PromptMessage:        message,
+			PromptMessageContent: messageContent,
+			State:                types.InteractionStateWaiting, // Will be updated once inference is complete
+		}
+
+		session.Interactions = append(session.Interactions, interaction)
+
 		return session, nil
 	}
 
 	// Multiple messages, we are in "regenerate" mode
+	if req.InteractionID == "" {
+		return session, fmt.Errorf("interaction_id is required for multiple messages when regenerating")
+	}
 
 	// Last message must be from the user
-	if req.Messages[len(req.Messages)-1].Role != types.CreatorTypeUser {
+	if req.Messages[len(req.Messages)-1].Role != openai.ChatMessageRoleUser {
 		return session, fmt.Errorf("last message must be from the user")
 	}
 
-	// More than one message is provided, find the index of the message to overwrite
-	messagesProvided := len(req.Messages)
+	session.GenerationID++ // Increment generation ID to start a new generation
 
 	// Cut existing interactions to this index
-	session.Interactions = session.Interactions[:messagesProvided-1]
+	session.Interactions = session.Interactions[:getInteractionIndex(session.Interactions, req)]
+
+	// Update all existing interactions to have the new generation ID
+	for idx := range session.Interactions {
+		session.Interactions[idx].GenerationID = session.GenerationID
+	}
 
 	message, ok := req.Message()
 	if !ok {
@@ -463,45 +444,52 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 	// Append the new message
 	session.Interactions = append(session.Interactions,
 		&types.Interaction{
-			ID:        system.GenerateUUID(),
-			Created:   time.Now(),
-			Updated:   time.Now(),
-			Scheduled: time.Now(),
-			Completed: time.Now(),
-			Mode:      types.SessionModeInference,
-			Creator:   types.CreatorTypeUser,
-			State:     types.InteractionStateComplete,
-			Finished:  true,
-			Message:   message,
-			Content:   messageContent,
-		},
-		&types.Interaction{
-			ID:       system.GenerateUUID(),
-			Created:  time.Now(),
-			Updated:  time.Now(),
-			Creator:  types.CreatorTypeAssistant,
-			Mode:     types.SessionModeInference,
-			Message:  "",
-			State:    types.InteractionStateWaiting,
-			Finished: false,
-			Metadata: map[string]string{},
+			ID:                   system.GenerateInteractionID(),
+			Created:              time.Now(),
+			Updated:              time.Now(),
+			Scheduled:            time.Now(),
+			Completed:            time.Now(),
+			SessionID:            session.ID,
+			GenerationID:         session.GenerationID,
+			UserID:               session.Owner,
+			Mode:                 types.SessionModeInference,
+			State:                types.InteractionStateWaiting,
+			SystemPrompt:         session.Metadata.SystemPrompt,
+			PromptMessage:        message,
+			PromptMessageContent: messageContent,
 		},
 	)
 
 	return session, nil
 }
 
+func getInteractionIndex(interactions []*types.Interaction, req *types.SessionChatRequest) int {
+	// Get last message interaction ID
+	if len(req.Messages) == 0 {
+		return 0
+	}
+
+	// Cut interactions until the last message interaction
+	for i, interaction := range interactions {
+		if interaction.ID == req.InteractionID {
+			return i
+		}
+	}
+
+	return 0
+}
+
 // limitInteractions returns the interactions except the last one, limited by the limit.
 // If limit is 3 but there are 10 interactions, last one will be excluded and only the next 3 before it
 // will be returned.
 func limitInteractions(interactions []*types.Interaction, limit int) []*types.Interaction {
-	if limit > 0 && len(interactions) > limit+1 {
+	if limit > 0 && len(interactions) > limit {
 		// Add all interactions except the last one, limited by messageContextLimit
 		// +1 because we're not counting the last interaction which is the pending response
-		startIdx := len(interactions) - limit - 1
+		startIdx := len(interactions) - limit
 		return interactions[startIdx : len(interactions)-1]
 	}
-	return interactions[:len(interactions)-1]
+	return interactions
 }
 
 const titleGenPrompt = `Generate a concise 3-5 word title for the given user input. Follow these rules strictly:
@@ -586,6 +574,7 @@ func (s *HelixAPIServer) handleBlockingSession(
 	ctx context.Context,
 	user *types.User,
 	session *types.Session,
+	interaction *types.Interaction,
 	chatCompletionRequest openai.ChatCompletionRequest,
 	options *controller.ChatCompletionOptions, rw http.ResponseWriter,
 ) error {
@@ -600,8 +589,9 @@ func (s *HelixAPIServer) handleBlockingSession(
 	if session.ParentApp != "" {
 		options.AppID = session.ParentApp
 	}
-	log.Debug().
+	log.Info().
 		Str("session_id", session.ID).
+		Str("interaction_id", interaction.ID).
 		Str("app_id", session.ParentApp).
 		Msg("handleBlockingSession: set session ID in context for document tracking")
 
@@ -609,17 +599,16 @@ func (s *HelixAPIServer) handleBlockingSession(
 	chatCompletionResponse, _, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		// Update the session with the response
-		session.Interactions[len(session.Interactions)-1].Error = err.Error()
-		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
-		session.Interactions[len(session.Interactions)-1].Finished = true
-		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+		interaction.Error = err.Error()
+		interaction.State = types.InteractionStateError
+		interaction.Completed = time.Now()
 
 		// Create new context with a timeout for persisting session to the database.
 		// Do not inherit the context from the caller, as it may be cancelled.
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		writeErr := s.Controller.WriteSession(ctx, session)
+		writeErr := s.Controller.UpdateInteraction(ctx, session, interaction)
 		if writeErr != nil {
 			return fmt.Errorf("error writing session: %w", writeErr)
 		}
@@ -633,17 +622,16 @@ func (s *HelixAPIServer) handleBlockingSession(
 	}
 
 	// Update the session with the response
-	session.Interactions[len(session.Interactions)-1].Message = chatCompletionResponse.Choices[0].Message.Content
-	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
-	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
-	session.Interactions[len(session.Interactions)-1].Finished = true
+	interaction.ResponseMessage = chatCompletionResponse.Choices[0].Message.Content
+	interaction.Completed = time.Now()
+	interaction.State = types.InteractionStateComplete
 
 	// Create new context with a timeout for persisting session to the database.
 	// Do not inherit the context from the caller, as it may be cancelled.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err = s.Controller.WriteSession(ctx, session)
+	err = s.Controller.UpdateInteraction(ctx, session, interaction)
 	if err != nil {
 		return err
 	}
@@ -660,7 +648,7 @@ func (s *HelixAPIServer) handleBlockingSession(
 	return nil
 }
 
-func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
+func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types.User, session *types.Session, interaction *types.Interaction, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
 	// Ensure request is streaming
 	chatCompletionRequest.Stream = true
 
@@ -672,8 +660,9 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	if session.ParentApp != "" {
 		options.AppID = session.ParentApp
 	}
-	log.Debug().
+	log.Info().
 		Str("session_id", session.ID).
+		Str("interaction_id", interaction.ID).
 		Str("app_id", session.ParentApp).
 		Msg("handleStreamingSession: set session ID in context for document tracking")
 
@@ -709,17 +698,16 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 			Msg("error running controller chat completion stream")
 
 		// Update the session with the response
-		session.Interactions[len(session.Interactions)-1].Error = err.Error()
-		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
-		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
-		session.Interactions[len(session.Interactions)-1].Finished = true
+		interaction.Error = err.Error()
+		interaction.Completed = time.Now()
+		interaction.State = types.InteractionStateError
 
 		// Create new context with a timeout for persisting session to the database.
 		// Do not inherit the context from the caller, as it may be cancelled.
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		writeErr := s.Controller.WriteSession(ctx, session)
+		writeErr := s.Controller.UpdateInteraction(ctx, session, interaction)
 		if writeErr != nil {
 			return fmt.Errorf("error writing session: %w", writeErr)
 		}
@@ -754,18 +742,17 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 				Msg("error receiving stream")
 
 			// Update the interaction with what we have got so far
-			session.Interactions[len(session.Interactions)-1].Message = fullResponse
-			session.Interactions[len(session.Interactions)-1].Completed = time.Now()
-			session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
-			session.Interactions[len(session.Interactions)-1].Error = err.Error()
-			session.Interactions[len(session.Interactions)-1].Finished = true
+			interaction.ResponseMessage = fullResponse
+			interaction.Completed = time.Now()
+			interaction.State = types.InteractionStateError
+			interaction.Error = err.Error()
 
 			// Create new context with a timeout for persisting session to the database.
 			// Do not inherit the context from the caller, as it may be cancelled.
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			return s.Controller.WriteSession(ctx, session)
+			return s.Controller.UpdateInteraction(ctx, session, interaction)
 		}
 
 		// Accumulate the response
@@ -788,17 +775,21 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	}
 
 	// Update last interaction
-	session.Interactions[len(session.Interactions)-1].Message = fullResponse
-	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
-	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
-	session.Interactions[len(session.Interactions)-1].Finished = true
+	interaction.ResponseMessage = fullResponse
+	interaction.Completed = time.Now()
+	interaction.State = types.InteractionStateComplete
 
 	// Create new context with a timeout for persisting session to the database.
 	// Do not inherit the context from the caller, as it may be cancelled.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	return s.Controller.WriteSession(ctx, session)
+	err = s.Controller.UpdateInteraction(ctx, session, interaction)
+	if err != nil {
+		return fmt.Errorf("error updating interaction: %w", err)
+	}
+
+	return nil
 }
 
 // getSessionStepInfo godoc

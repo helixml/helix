@@ -43,7 +43,6 @@ export interface IAccountContext {
   loadAppApiKeys: (appId: string) => Promise<void>,
   models: IHelixModel[],
   hasImageModels: boolean,
-  fetchModels: (provider?: string) => Promise<void>,  
   // an org aware navigate function that will prepend `org_` to the route name
   // and include the org_id in the params if we are currently looking at an org
   orgNavigate: (routeName: string, params?: Record<string, string | undefined>, queryParams?: Record<string, string>) => void,
@@ -79,7 +78,6 @@ export const AccountContext = createContext<IAccountContext>({
   addAppAPIKey: async () => { },
   loadAppApiKeys: async () => { },
   models: [],
-  fetchModels: async () => { },
   hasImageModels: false,
   orgNavigate: () => {},
 })
@@ -375,42 +373,6 @@ export const useAccountContext = (): IAccountContext => {
     }
   }, [])
 
-  const fetchModels = useCallback(async (provider?: string) => {
-    let loadingModels = false;
-    try {
-      loadingModels = true;
-      const url = provider ? `/v1/models?provider=${encodeURIComponent(provider)}` : '/v1/models'
-      const response = await api.get(url)
-
-      let modelData: IHelixModel[] = [];
-      if (response && Array.isArray(response.data)) {
-        modelData = response.data.map((m: any) => ({
-          id: m.id,
-          name: m.name || m.id,
-          description: m.description || '',
-          hide: m.hide || false,
-          type: m.type || 'text',
-        }));
-
-        // Filter out hidden models
-        modelData = modelData.filter(m => !m.hide);
-      } else {
-        console.error('Unexpected API response structure:', response)
-      }
-
-      setModels(modelData)
-      
-      // Check if there are any image models in the results
-      const hasImage = modelData.some(model => model.type === 'image')
-      setHasImageModels(hasImage)
-    } catch (error) {
-      console.error('Error fetching models:', error)
-      setModels([])
-    } finally {
-      loadingModels = false;
-    }
-  }, [api])
-
   const orgNavigate = (routeName: string, params: Record<string, string | undefined> = {}, queryParams?: Record<string, string>) => {
     // Current menu type for triggering animations
     const currentResourceType = router.params.resource_type || 'chat'
@@ -453,11 +415,6 @@ export const useAccountContext = (): IAccountContext => {
 
   useEffect(() => {
     try {
-      // Only fetch models if we haven't already done so
-      if (models.length === 0) {
-        fetchModels()
-      }
-      
       if (user) {
         loadAll()
       } else {
@@ -491,7 +448,6 @@ export const useAccountContext = (): IAccountContext => {
     addAppAPIKey,
     loadAppApiKeys,
     models,
-    fetchModels,
     organizationTools,
     isOrgAdmin,
     isOrgMember,

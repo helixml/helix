@@ -3,13 +3,15 @@ import useApi from '../hooks/useApi'
 import useAccount from '../hooks/useAccount'
 
 import {
-  ISession,
+  // ISession,
   ISessionSummary,
   ISessionMetaUpdate,
   ISessionsList,
   IPaginationState,
   SESSION_PAGINATION_PAGE_LIMIT,
 } from '../types'
+
+import { TypesSession, TypesSessionSummary, TypesSessionsList } from '../api/api'
 
 import {
   getSessionSummary,
@@ -19,11 +21,11 @@ export interface ISessionsContext {
   initialized: boolean,
   loading: boolean,
   pagination: IPaginationState,
-  sessions: ISessionSummary[],
+  sessions: TypesSessionSummary[],
   hasMoreSessions: boolean,
   advancePage: () => void,
   loadSessions: (query?: ISessionsQuery) => Promise<void>,
-  addSesssion: (session: ISession) => void,
+  addSesssion: (session: TypesSession) => void,
   deleteSession: (id: string) => Promise<boolean>,
   renameSession: (id: string, name: string) => Promise<boolean>,
 }
@@ -45,7 +47,7 @@ export const SessionsContext = createContext<ISessionsContext>({
   sessions: [],
   advancePage: () => {},
   loadSessions: async () => {},
-  addSesssion: (session: ISession) => {},
+  addSesssion: (session: TypesSession) => {},
   deleteSession: (id: string) => Promise.resolve(false),
   renameSession: (id: string, name: string) => Promise.resolve(false),
 })
@@ -65,7 +67,7 @@ export const useSessionsContext = (): ISessionsContext => {
   })
   
   const [ initialized, setInitialized ] = useState(false)
-  const [ sessions, setSessions ] = useState<ISessionSummary[]>([])
+  const [ sessions, setSessions ] = useState<TypesSessionSummary[]>([])
 
   const loadSessions = useCallback(async (query: ISessionsQuery = {}) => {
     // default query params
@@ -89,14 +91,14 @@ export const useSessionsContext = (): ISessionsContext => {
     }
 
     setLoading(true)
-    const result = await api.get<ISessionsList>('/api/v1/sessions', {
+    const result = await api.get<TypesSessionsList>('/api/v1/sessions', {
       params,
     })
     setLoading(false)
     if(!result) return
     setSessions(result.sessions || [])
     setPagination({
-      total: result.counter.count,
+      total: result.counter?.count || 0,
       limit: SESSION_PAGINATION_PAGE_LIMIT,
       offset: (page - 1) * SESSION_PAGINATION_PAGE_LIMIT,
     })
@@ -122,7 +124,7 @@ export const useSessionsContext = (): ISessionsContext => {
   }, [])
 
   const deleteSession = useCallback(async (id: string): Promise<boolean> => {
-    const result = await api.delete<ISession>(`/api/v1/sessions/${id}`)
+    const result = await api.delete<TypesSession>(`/api/v1/sessions/${id}`)
     if(!result) return false
     await loadSessions()
     return true
@@ -132,7 +134,7 @@ export const useSessionsContext = (): ISessionsContext => {
   ])
 
   const renameSession = useCallback(async (id: string, name: string): Promise<boolean> => {
-    const result = await api.put<ISessionMetaUpdate, ISession>(`/api/v1/sessions/${id}/meta`, {
+    const result = await api.put<ISessionMetaUpdate, TypesSession>(`/api/v1/sessions/${id}/meta`, {
       id,
       name,
     })
@@ -144,9 +146,9 @@ export const useSessionsContext = (): ISessionsContext => {
     loadSessions,
   ])
 
-  const addSesssion = useCallback((session: ISession) => {
+  const addSesssion = useCallback((session: TypesSession) => {
     const summary = getSessionSummary(session)
-    setSessions(sessions => [summary].concat(sessions))
+    setSessions(sessions => [summary as unknown as TypesSessionSummary].concat(sessions))
   }, [])
 
   useEffect(() => {

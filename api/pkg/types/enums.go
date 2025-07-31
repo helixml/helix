@@ -4,13 +4,27 @@ import (
 	"fmt"
 )
 
-type SessionOriginType string
+type SessionType string
 
 const (
-	SessionOriginTypeNone        SessionOriginType = ""
-	SessionOriginTypeUserCreated SessionOriginType = "user_created"
-	SessionOriginTypeCloned      SessionOriginType = "cloned"
+	SessionTypeNone  SessionType = ""
+	SessionTypeText  SessionType = "text"
+	SessionTypeImage SessionType = "image"
 )
+
+func ValidateSessionType(sessionType string, acceptEmpty bool) (SessionType, error) {
+	switch sessionType {
+	case string(SessionTypeText):
+		return SessionTypeText, nil
+	case string(SessionTypeImage):
+		return SessionTypeImage, nil
+	default:
+		if acceptEmpty && sessionType == string(SessionTypeNone) {
+			return SessionTypeNone, nil
+		}
+		return SessionTypeNone, fmt.Errorf("invalid session type: %s", sessionType)
+	}
+}
 
 // this will change from finetune to inference (so the user can chat to their fine tuned model)
 // if they then turn back to "add more documents" / "add more images", then it will change back to finetune
@@ -41,52 +55,14 @@ func ValidateSessionMode(sessionMode string, acceptEmpty bool) (SessionMode, err
 	}
 }
 
-type SessionType string
+type CreatorType string
 
 const (
-	SessionTypeNone  SessionType = ""
-	SessionTypeText  SessionType = "text"
-	SessionTypeImage SessionType = "image"
+	CreatorTypeSystem    CreatorType = "system"
+	CreatorTypeAssistant CreatorType = "assistant"
+	CreatorTypeUser      CreatorType = "user"
+	CreatorTypeTool      CreatorType = "tool"
 )
-
-func ValidateSessionType(sessionType string, acceptEmpty bool) (SessionType, error) {
-	switch sessionType {
-	case string(SessionTypeText):
-		return SessionTypeText, nil
-	case string(SessionTypeImage):
-		return SessionTypeImage, nil
-	default:
-		if acceptEmpty && sessionType == string(SessionTypeNone) {
-			return SessionTypeNone, nil
-		}
-		return SessionTypeNone, fmt.Errorf("invalid session type: %s", sessionType)
-	}
-}
-
-type CloneInteractionMode string
-
-const (
-	CloneInteractionModeNone          CloneInteractionMode = ""
-	CloneInteractionModeJustData      CloneInteractionMode = "just_data"
-	CloneInteractionModeWithQuestions CloneInteractionMode = "with_questions"
-	CloneInteractionModeAll           CloneInteractionMode = "all"
-)
-
-func ValidateCloneTextType(cloneTextType string, acceptEmpty bool) (CloneInteractionMode, error) {
-	switch cloneTextType {
-	case string(CloneInteractionModeJustData):
-		return CloneInteractionModeJustData, nil
-	case string(CloneInteractionModeWithQuestions):
-		return CloneInteractionModeWithQuestions, nil
-	case string(CloneInteractionModeAll):
-		return CloneInteractionModeAll, nil
-	default:
-		if acceptEmpty && cloneTextType == string(CloneInteractionModeNone) {
-			return CloneInteractionModeNone, nil
-		}
-		return CloneInteractionModeNone, fmt.Errorf("invalid clone text type: %s", cloneTextType)
-	}
-}
 
 type InteractionState string
 
@@ -114,15 +90,6 @@ const (
 	PaymentTypeAdmin  PaymentType = "admin"
 	PaymentTypeStripe PaymentType = "stripe"
 	PaymentTypeJob    PaymentType = "job"
-)
-
-type CreatorType string
-
-const (
-	CreatorTypeSystem    CreatorType = "system"
-	CreatorTypeAssistant CreatorType = "assistant"
-	CreatorTypeUser      CreatorType = "user"
-	CreatorTypeTool      CreatorType = "tool"
 )
 
 type WebsocketEventType string

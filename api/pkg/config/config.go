@@ -226,7 +226,6 @@ type RAGProvider string
 
 const (
 	RAGProviderTypesense  RAGProvider = "typesense"
-	RAGProviderPGVector   RAGProvider = "pgvector"
 	RAGProviderLlamaindex RAGProvider = "llamaindex"
 	RAGProviderHaystack   RAGProvider = "haystack"
 )

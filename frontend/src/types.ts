@@ -13,6 +13,7 @@ import {
   TypesToolWebSearchConfig,
   TypesAssistantAzureDevOps,
   TypesTrigger,
+  TypesSession,  
 } from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
@@ -20,8 +21,6 @@ export type ISessionCreator = 'system' | 'user' | 'assistant'
 // did). At time of writing, it's unused in the frontend because the frontend
 // doesn't have system prompt support.
 export const SESSION_CREATOR_SYSTEM: ISessionCreator = 'system'
-export const SESSION_CREATOR_USER: ISessionCreator = 'user'
-export const SESSION_CREATOR_ASSISTANT: ISessionCreator = 'assistant'
 
 export type ISessionMode = 'inference' | 'finetune'
 export const SESSION_MODE_INFERENCE: ISessionMode = 'inference'
@@ -180,100 +179,100 @@ export interface IInteractionMessage {
   content: string,
 }
 
-export interface IInteraction {
-  id: string,
-  created: string,
-  updated: string,
-  scheduled: string,
-  completed: string,
-  creator: ISessionCreator,
-  mode: ISessionMode,
-  runner: string,
-  message: string,
-  content: TypesMessageContent,
-  display_message: string,
-  progress: number,
-  files: string[],
-  finished: boolean,
-  metadata: Record<string, string>,
-  state: IInteractionState,
-  status: string,
-  error: string,
-  lora_dir: string,
-  data_prep_chunks: Record<string, IDataPrepChunk[]>,
-  data_prep_stage: ITextDataPrepStage,
-  data_prep_limited: boolean,
-  data_prep_limit: number,
-}
+// export interface IInteraction {
+//   id: string,
+//   created: string,
+//   updated: string,
+//   scheduled: string,
+//   completed: string,
+//   creator: ISessionCreator,
+//   mode: ISessionMode,
+//   runner: string,
+//   message: string,
+//   content: TypesMessageContent,
+//   display_message: string,
+//   progress: number,
+//   files: string[],
+//   finished: boolean,
+//   metadata: Record<string, string>,
+//   state: IInteractionState,
+//   status: string,
+//   error: string,
+//   lora_dir: string,
+//   data_prep_chunks: Record<string, IDataPrepChunk[]>,
+//   data_prep_stage: ITextDataPrepStage,
+//   data_prep_limited: boolean,
+//   data_prep_limit: number,
+// }
 
-export interface ISessionOrigin {
-  type: ISessionOriginType,
-  cloned_session_id?: string,
-  cloned_interaction_id?: string,
-}
+// export interface ISessionOrigin {
+//   type: ISessionOriginType,
+//   cloned_session_id?: string,
+//   cloned_interaction_id?: string,
+// }
 
-export interface ISessionConfig {
-  original_mode: ISessionMode,
-  origin: ISessionOrigin,
-  avatar: string,
-  priority: boolean,
-  document_ids: Record<string, string>,
-  document_group_id: string,
-  session_rag_results: ISessionRAGResult[],
-  manually_review_questions: boolean,
-  system_prompt: string,
-  helix_version: string,
-  eval_run_id: string,
-  eval_user_score: string,
-  eval_user_reason: string,
-  eval_manual_score: string,
-  eval_manual_reason: string,
-  eval_automatic_score: string,
-  eval_automatic_reason: string,
-  eval_original_user_prompts: string[],
-  rag_source_data_entity_id: string,
-}
+// export interface ISessionConfig {
+//   original_mode: ISessionMode,
+//   origin: ISessionOrigin,
+//   avatar: string,
+//   priority: boolean,
+//   document_ids: Record<string, string>,
+//   document_group_id: string,
+//   session_rag_results: ISessionRAGResult[],
+//   manually_review_questions: boolean,
+//   system_prompt: string,
+//   helix_version: string,
+//   eval_run_id: string,
+//   eval_user_score: string,
+//   eval_user_reason: string,
+//   eval_manual_score: string,
+//   eval_manual_reason: string,
+//   eval_automatic_score: string,
+//   eval_automatic_reason: string,
+//   eval_original_user_prompts: string[],
+//   rag_source_data_entity_id: string,
+// }
 
-export interface ISession {
-  id: string,
-  name: string,
-  created: string,
-  updated: string,
-  parent_session: string,
-  parent_app: string,
-  config: ISessionConfig,
-  mode: ISessionMode,
-  type: ISessionType,
-  model_name: string,
-  provider: string,
-  lora_dir: string,
-  interactions: IInteraction[],
-  owner: string,
-  owner_type: IOwnerType,
-}
+// export interface ISession {
+//   id: string,
+//   name: string,
+//   created: string,
+//   updated: string,
+//   parent_session: string,
+//   parent_app: string,
+//   config: ISessionConfig,
+//   mode: ISessionMode,
+//   type: ISessionType,
+//   model_name: string,
+//   provider: string,
+//   lora_dir: string,
+//   interactions: IInteraction[],
+//   owner: string,
+//   owner_type: IOwnerType,
+// }
 
-export interface IBotForm {
-  name: string,
-}
+// export interface IBotForm {
+//   name: string,
+// }
 
-export interface IBotConfig {
-}
+// export interface IBotConfig {
+// }
 
-export interface IBot {
-  id: string,
-  name: string,
-  created: string,
-  updated: string,
-  owner: string,
-  owner_type: IOwnerType,
-  config: IBotConfig,
-}
+// export interface IBot {
+//   id: string,
+//   name: string,
+//   created: string,
+//   updated: string,
+//   owner: string,
+//   owner_type: IOwnerType,
+//   config: IBotConfig,
+// }
 
 export interface IWebsocketEvent {
   type: IWebSocketEventType,
   session_id: string,
   owner: string,
-  session?: ISession,
+  session?: TypesSession,
   worker_task_response?: IWorkerTaskResponse,
   step_info?: TypesStepInfo,
 }
@@ -383,7 +382,7 @@ export interface LLMInferenceRequest {
 }
 
 export interface ISlotAttributesWorkload {
-  Session: ISession,
+  Session: TypesSession,
   LLMInferenceRequest: LLMInferenceRequest,
 }
 
@@ -396,8 +395,8 @@ export interface ISessionSummary {
   name: string,
   interaction_id: string,
   model_name: string,
-  mode: ISessionMode,
-  type: ISessionType,
+  mode: string,
+  type: string,
   owner: string,
   lora_dir?: string,
   summary: string,
@@ -958,6 +957,7 @@ export interface ISessionChatRequest {
   organization_id?: string,
   assistant_id?: string,
   session_id?: string,
+  interaction_id?: string,
   stream?: boolean,
   legacy?: boolean,
   type?: ISessionType,

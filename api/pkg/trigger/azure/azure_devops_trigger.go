@@ -7,12 +7,10 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
-	"github.com/sashabaranov/go-openai"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
-	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -132,8 +130,8 @@ func (a *AzureDevOps) processEvent(ctx context.Context, triggerConfig *types.Tri
 		return err
 	}
 
-	triggerInteractionID := system.GenerateUUID()
-	assistantResponseID := system.GenerateUUID()
+	// triggerInteractionID := system.GenerateUUID()
+	// assistantResponseID := system.GenerateUUID()
 
 	// Prepare new session
 	session := &types.Session{
@@ -151,73 +149,73 @@ func (a *AzureDevOps) processEvent(ctx context.Context, triggerConfig *types.Tri
 			Stream:       false,
 			SystemPrompt: "",
 			AssistantID:  "",
-			Origin: types.SessionOrigin{
-				Type: types.SessionOriginTypeUserCreated,
-			},
+			// Origin: types.SessionOrigin{
+			// 	Type: types.SessionOriginTypeUserCreated,
+			// },
 			HelixVersion: data.GetHelixVersion(),
 		},
-		Interactions: []*types.Interaction{
-			{
-				ID:        triggerInteractionID,
-				Created:   time.Now(),
-				Updated:   time.Now(),
-				Scheduled: time.Now(),
-				Completed: time.Now(),
-				Mode:      types.SessionModeInference,
-				Creator:   types.CreatorTypeUser,
-				State:     types.InteractionStateComplete,
-				Finished:  true,
-				Message:   input,
-				Content: types.MessageContent{
-					ContentType: types.MessageContentTypeText,
-					Parts:       []any{input},
-				},
-			},
-			{
-				ID:       assistantResponseID,
-				Created:  time.Now(),
-				Updated:  time.Now(),
-				Creator:  types.CreatorTypeAssistant,
-				Mode:     types.SessionModeInference,
-				Message:  "",
-				State:    types.InteractionStateWaiting,
-				Finished: false,
-				Metadata: map[string]string{},
-			},
-		},
+		// Interactions: []*types.Interaction{
+		// 	{
+		// 		ID:        triggerInteractionID,
+		// 		Created:   time.Now(),
+		// 		Updated:   time.Now(),
+		// 		Scheduled: time.Now(),
+		// 		Completed: time.Now(),
+		// 		Mode:      types.SessionModeInference,
+		// 		// Creator:   types.CreatorTypeUser,
+		// 		State:     types.InteractionStateComplete,
+		// 		Finished:  true,
+		// 		Message:   input,
+		// 		Content: types.MessageContent{
+		// 			ContentType: types.MessageContentTypeText,
+		// 			Parts:       []any{input},
+		// 		},
+		// 	},
+		// 	{
+		// 		ID:       assistantResponseID,
+		// 		Created:  time.Now(),
+		// 		Updated:  time.Now(),
+		// 		Creator:  types.CreatorTypeAssistant,
+		// 		Mode:     types.SessionModeInference,
+		// 		Message:  "",
+		// 		State:    types.InteractionStateWaiting,
+		// 		Finished: false,
+		// 		Metadata: map[string]string{},
+		// 	},
+		// },
 	}
 
-	ctx = oai.SetContextSessionID(ctx, session.ID)
+	// ctx = oai.SetContextSessionID(ctx, session.ID)
 
-	messages := []openai.ChatCompletionMessage{
-		{
-			Role:    openai.ChatMessageRoleUser,
-			Content: input,
-		},
-	}
+	// messages := []openai.ChatCompletionMessage{
+	// 	{
+	// 		Role:    openai.ChatMessageRoleUser,
+	// 		Content: input,
+	// 	},
+	// }
 
-	request := openai.ChatCompletionRequest{
-		Stream:   false,
-		Messages: messages,
-	}
+	// request := openai.ChatCompletionRequest{
+	// 	Stream:   false,
+	// 	Messages: messages,
+	// }
 
-	bts, err := json.MarshalIndent(request, "", "  ")
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("app_id", app.ID).
-			Msg("failed to marshal request")
-	}
+	// bts, err := json.MarshalIndent(request, "", "  ")
+	// if err != nil {
+	// 	log.Error().
+	// 		Err(err).
+	// 		Str("app_id", app.ID).
+	// 		Msg("failed to marshal request")
+	// }
 
-	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
-		OwnerID:         app.Owner,
-		SessionID:       session.ID,
-		InteractionID:   assistantResponseID,
-		OriginalRequest: bts,
-	})
+	// ctx = oai.SetContextValues(ctx, &oai.ContextValues{
+	// 	OwnerID:         app.Owner,
+	// 	SessionID:       session.ID,
+	// 	InteractionID:   assistantResponseID,
+	// 	OriginalRequest: bts,
+	// })
 
-	ctx = oai.SetContextAppID(ctx, app.ID)
-	ctx = oai.SetContextOrganizationID(ctx, app.OrganizationID)
+	// ctx = oai.SetContextAppID(ctx, app.ID)
+	// ctx = oai.SetContextOrganizationID(ctx, app.OrganizationID)
 
 	// Write session to the database
 	err = a.controller.WriteSession(ctx, session)
@@ -241,13 +239,13 @@ func (a *AzureDevOps) processEvent(ctx context.Context, triggerConfig *types.Tri
 		return fmt.Errorf("failed to get user: %w", err)
 	}
 
-	resp, _, err := a.controller.ChatCompletion(ctx, user,
-		request,
-		&controller.ChatCompletionOptions{
-			OrganizationID: app.OrganizationID,
-			AppID:          app.ID,
-			Conversational: true,
-		})
+	resp, err := a.controller.RunBlockingSession(ctx, &controller.RunSessionRequest{
+		OrganizationID: app.OrganizationID,
+		App:            app,
+		Session:        session,
+		User:           user,
+		PromptMessage:  types.MessageContent{Parts: []any{input}},
+	})
 	if err != nil {
 		log.Warn().
 			Err(err).
@@ -255,47 +253,25 @@ func (a *AzureDevOps) processEvent(ctx context.Context, triggerConfig *types.Tri
 			Msg("failed to run app cron job")
 
 		// Update session with error
-		session.Interactions[len(session.Interactions)-1].Error = err.Error()
-		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
-		session.Interactions[len(session.Interactions)-1].Finished = true
-		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
-		err = a.controller.WriteSession(ctx, session)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("app_id", app.ID).
-				Str("user_id", app.Owner).
-				Str("session_id", session.ID).
-				Msg("failed to update session")
-		}
+		// session.Interactions[len(session.Interactions)-1].Error = err.Error()
+		// session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
+		// session.Interactions[len(session.Interactions)-1].Finished = true
+		// session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+		// err = a.controller.WriteSession(ctx, session)
+		// if err != nil {
+		// 	log.Error().
+		// 		Err(err).
+		// 		Str("app_id", app.ID).
+		// 		Str("user_id", app.Owner).
+		// 		Str("session_id", session.ID).
+		// 		Msg("failed to update session")
+		// }
 		return fmt.Errorf("failed to run app cron job: %w", err)
-	}
-
-	var respContent string
-	if len(resp.Choices) > 0 {
-		respContent = resp.Choices[0].Message.Content
-	}
-
-	// Update session with response
-	session.Interactions[len(session.Interactions)-1].Message = respContent
-	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
-	session.Interactions[len(session.Interactions)-1].Finished = true
-	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
-
-	err = a.controller.WriteSession(ctx, session)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("app_id", app.ID).
-			Str("user_id", app.Owner).
-			Str("session_id", session.ID).
-			Msg("failed to update session")
-		return fmt.Errorf("failed to update session: %w", err)
 	}
 
 	log.Info().
 		Str("app_id", app.ID).
-		Str("resp_content", respContent).
+		Str("resp_content", resp.ResponseMessage).
 		Msg("Azure DevOps event processed")
 
 	return nil

@@ -12,6 +12,7 @@ import (
 const (
 	ToolPrefix                 = "tool_"
 	SessionPrefix              = "ses_"
+	InteractionPrefix          = "int_"
 	AppPrefix                  = "app_"
 	GptScriptRunnerTaskPrefix  = "gst_"
 	RequestPrefix              = "req_"
@@ -57,6 +58,10 @@ func GenerateToolID() string {
 
 func GenerateSessionID() string {
 	return fmt.Sprintf("%s%s", SessionPrefix, newID())
+}
+
+func GenerateInteractionID() string {
+	return fmt.Sprintf("%s%s", InteractionPrefix, newID())
 }
 
 func GenerateAppID() string {

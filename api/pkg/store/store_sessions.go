@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func (s *PostgresStore) GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error) {
@@ -90,7 +91,7 @@ func (s *PostgresStore) CreateSession(ctx context.Context, session types.Session
 		session.Created = time.Now()
 	}
 
-	err := s.gdb.WithContext(ctx).Create(&session).Error
+	err := s.gdb.WithContext(ctx).Omit(clause.Associations).Create(&session).Error
 	if err != nil {
 		return nil, err
 	}
@@ -137,30 +138,10 @@ func (s *PostgresStore) UpdateSession(ctx context.Context, session types.Session
 	// Create a debug SQL logger to see the actual SQL query
 	debugDB := s.gdb.WithContext(ctx).Debug()
 
-	err := debugDB.Save(&session).Error
+	err := debugDB.Omit(clause.Associations).Save(&session).Error
 	if err != nil {
 		log.Error().Err(err).Str("session_id", session.ID).Msg("❌ Failed to update session")
 		return nil, err
-	}
-
-	// Verify what was saved by retrieving it again
-	updatedSession, getErr := s.GetSession(ctx, session.ID)
-	if getErr != nil {
-		log.Error().Err(getErr).Str("session_id", session.ID).Msg("❌ Failed to retrieve updated session")
-	} else {
-		// Check RAG results in updated session
-		updatedRagResultsCount := 0
-		if updatedSession.Metadata.SessionRAGResults != nil {
-			updatedRagResultsCount = len(updatedSession.Metadata.SessionRAGResults)
-		}
-
-		log.Debug().
-			Str("session_id", session.ID).
-			Interface("document_ids_after", updatedSession.Metadata.DocumentIDs).
-			Str("parent_app", updatedSession.ParentApp).
-			Int("rag_results_count_after", updatedRagResultsCount).
-			Bool("has_rag_results_after", updatedSession.Metadata.SessionRAGResults != nil).
-			Msg("✅ After UpdateSession - session metadata verified")
 	}
 
 	return s.GetSession(ctx, session.ID)

@@ -1,26 +1,24 @@
 import React, { FC, useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import Typography from '@mui/material/Typography'
-import Progress from '../widgets/Progress'
 import WaitingInQueue from './WaitingInQueue'
 import LoadingSpinner from '../widgets/LoadingSpinner'
 import useLiveInteraction from '../../hooks/useLiveInteraction'
 import Markdown from './Markdown'
-import useAccount from '../../hooks/useAccount'
-import { IInteraction, ISession, IServerConfig } from '../../types'
+import { IServerConfig } from '../../types'
+import { TypesInteraction, TypesSession } from '../../api/api'
 import ToolStepsWidget from './ToolStepsWidget'
 
 export const InteractionLiveStream: FC<{
   session_id: string,
-  interaction: IInteraction,
+  interaction: TypesInteraction,
   hasSubscription?: boolean,
   serverConfig?: IServerConfig,
-  session: ISession,
+  session: TypesSession,
   onMessageChange?: {
     (message: string): void,
   },
   onMessageUpdate?: () => void,
   onFilterDocument?: (docId: string) => void,
-  useInstantScroll?: boolean,
 }> = ({
   session_id,
   serverConfig,
@@ -30,12 +28,9 @@ export const InteractionLiveStream: FC<{
   onMessageChange,
   onMessageUpdate,
   onFilterDocument,
-  useInstantScroll = false,
 }) => {
-    const account = useAccount()
     const {
       message,
-      progress,
       status,
       isStale,
       stepInfos,
@@ -47,8 +42,8 @@ export const InteractionLiveStream: FC<{
 
     // Memoize values that don't change frequently to prevent unnecessary re-renders
     const showLoading = useMemo(() => 
-      !message && progress === 0 && !status && stepInfos.length === 0,
-      [message, progress, status, stepInfos.length]
+      !message && !status && stepInfos.length === 0,
+      [message, status, stepInfos.length]
     );
 
     // Memoize the useClientURL function
@@ -100,21 +95,6 @@ export const InteractionLiveStream: FC<{
       if (!message || !onMessageUpdate) return
       onMessageUpdate()
     }, [message, onMessageUpdate])
-
-    // Only log when component actually needs to re-render due to important prop changes
-    const shouldLogRender = useMemo(() => {
-      // Create a stable identifier for this render to reduce unnecessary logging
-      return {
-        isActivelyStreaming,
-        isComplete,
-        messageLength: message?.length,
-        interactionId: interaction?.id,
-        state: interaction?.state,
-        finished: interaction?.finished,
-        isSecondOrLaterInteraction: session?.interactions?.indexOf(interaction) > 0
-      };
-    }, [isActivelyStreaming, isComplete, message?.length, interaction?.id, 
-        interaction?.state, interaction?.finished, session?.interactions]);
     
     if (!serverConfig || !serverConfig.filestore_prefix) return null
 
@@ -140,16 +120,6 @@ export const InteractionLiveStream: FC<{
               onFilterDocument={onFilterDocument}
             />
           </div>
-        )}
-
-        {progress > 0 && (
-          <Progress
-            progress={progress}
-          />
-        )}
-
-        {status && (
-          <Typography variant="caption">{status}</Typography>
         )}
 
         {showLoading && isStale && (

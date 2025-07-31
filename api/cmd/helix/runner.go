@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/janitor"
-	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/runner"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -156,62 +154,6 @@ func newRunnerCmd() *cobra.Command {
 	return runnerCmd
 }
 
-var ItxA = &types.Interaction{
-	ID:       "warmup-user",
-	Created:  time.Now(),
-	Creator:  "user",
-	Message:  "a new runner is born",
-	Finished: true,
-}
-var ItxB = &types.Interaction{
-	ID:       "warmup-system",
-	Created:  time.Now(),
-	Creator:  "system",
-	Finished: false,
-}
-
-var WarmupsessionModelMistral7b = types.Session{
-	ID:           types.WarmupTextSessionID,
-	Name:         "warmup-text",
-	Created:      time.Now(),
-	Updated:      time.Now(),
-	Mode:         "inference",
-	Type:         types.SessionTypeText,
-	ModelName:    model.ModelAxolotlMistral7b,
-	LoraDir:      "",
-	Interactions: []*types.Interaction{ItxA, ItxB},
-	Owner:        "warmup-user",
-	OwnerType:    "user",
-}
-
-var WarmupsessionModelOllamaLlama38b = types.Session{
-	ID:           types.WarmupTextSessionID,
-	Name:         "warmup-text",
-	Created:      time.Now(),
-	Updated:      time.Now(),
-	Mode:         "inference",
-	Type:         types.SessionTypeText,
-	ModelName:    "llama3:instruct",
-	LoraDir:      "",
-	Interactions: []*types.Interaction{ItxA, ItxB},
-	Owner:        "warmup-user",
-	OwnerType:    "user",
-}
-
-var WarmupsessionModelSdxl = types.Session{
-	ID:           types.WarmupImageSessionID,
-	Name:         "warmup-image",
-	Created:      time.Now(),
-	Updated:      time.Now(),
-	Mode:         "inference",
-	Type:         types.SessionTypeImage,
-	ModelName:    model.ModelCogSdxl,
-	LoraDir:      "",
-	Interactions: []*types.Interaction{ItxA, ItxB},
-	Owner:        "warmup-user",
-	OwnerType:    "user",
-}
-
 func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	system.SetupLogging()
 
@@ -243,11 +185,6 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	if err != nil {
 		log.Error().Err(err).Msgf("failed to initialize models cache")
 	}
-
-	// global state - expedient hack (TODO remove this when we switch cog away
-	// from downloading lora weights via http from the filestore)
-	model.APIHost = options.Runner.APIHost
-	model.APIToken = options.Runner.APIToken
 
 	runnerController, err := runner.NewRunner(ctx, options.Runner)
 	if err != nil {

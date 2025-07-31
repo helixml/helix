@@ -80,7 +80,6 @@ export const SessionSummary: FC<{
             <Box sx={{ transform: 'scale(1.1)' }}>
               <SessionBadge
                 modelName={session.model_name}
-                mode={session.mode}
               />
             </Box>
           </Grid>

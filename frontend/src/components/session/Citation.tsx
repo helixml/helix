@@ -4,7 +4,7 @@ import { keyframes } from '@mui/material/styles';
 import { FilterAlt, CheckCircle, Warning, Cancel, FileOpen } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles'
 import CitationComparisonModal from './CitationComparisonModal';
-import { ISessionRAGResult } from '../../types';
+import { TypesSessionRAGResult } from '../../api/api';
 
 // Reuse the same animations from the Markdown component
 const pulseFade = keyframes`
@@ -45,7 +45,7 @@ interface CitationProps {
     isStreaming?: boolean;
     className?: string;
     onFilterDocument?: (docId: string) => void;
-    ragResults?: ISessionRAGResult[];
+    ragResults?: TypesSessionRAGResult[];
 }
 
 const Citation: React.FC<CitationProps> = ({
