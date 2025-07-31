@@ -231,6 +231,12 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 			}
 		}
 
+		log.Debug().
+			Str("model_id", model.ID).
+			Str("determined_type", string(modelType)).
+			Strs("model_args", model.Args).
+			Msg("Determined VLLM model type from args")
+
 		// Determine sort order - embedding models get higher numbers (lower priority)
 		sortOrder := i + 100 // Start VLLM models at 100+ to come after Ollama models
 		if modelType == types.ModelTypeEmbed {
@@ -249,6 +255,11 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 			}
 			// Update model type if incorrect
 			if existingModel.Type != modelType {
+				log.Info().
+					Str("model_id", model.ID).
+					Str("old_type", string(existingModel.Type)).
+					Str("new_type", string(modelType)).
+					Msg("Updating VLLM model type")
 				updateData.Type = modelType
 				shouldUpdate = true
 			}
@@ -311,6 +322,14 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 			Prewarm:       model.Prewarm,
 			UserModified:  false, // New models are system-managed
 		}
+
+		log.Info().
+			Str("model_id", model.ID).
+			Str("model_name", model.Name).
+			Str("model_type", string(modelType)).
+			Str("runtime", string(types.RuntimeVLLM)).
+			Int("sort_order", sortOrder).
+			Msg("Creating new VLLM model in database")
 
 		_, err = s.CreateModel(ctx, m)
 		if err != nil {

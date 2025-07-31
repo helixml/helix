@@ -485,7 +485,7 @@ func (g *GPUManager) parseAndSumGPUMemory(output, memoryType string) uint64 {
 			Msg("Parsed GPU memory for individual GPU")
 	}
 
-	log.Info().
+	log.Trace().
 		Int("gpu_count", gpuCount).
 		Uint64("total_memory_bytes", totalMemory).
 		Str("memory_type", memoryType).

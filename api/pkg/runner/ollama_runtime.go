@@ -40,6 +40,9 @@ type OllamaRuntime struct {
 	ollamaClient  *api.Client
 	cmd           *exec.Cmd
 	cancel        context.CancelFunc
+
+	// GPU allocation restart tracking
+	restartAttempts int // Number of restart attempts due to GPU allocation issues
 }
 
 type Model struct {
@@ -172,6 +175,9 @@ func (i *OllamaRuntime) Start(ctx context.Context) error {
 	}
 	i.version = version
 
+	// Start internal GPU allocation monitoring
+	i.startInternalGPUMonitoring(ctx)
+
 	return nil
 }
 
@@ -296,6 +302,92 @@ func (i *OllamaRuntime) Status(ctx context.Context) string {
 	return buf.String()
 }
 
+// CheckGPUAllocation checks if the model is fully allocated to GPU.
+// Returns true if fully allocated (CPU% == 0), false otherwise.
+func (i *OllamaRuntime) CheckGPUAllocation(ctx context.Context) (bool, error) {
+	if i.ollamaClient == nil {
+		return false, fmt.Errorf("ollama client not initialized")
+	}
+
+	ps, err := i.ollamaClient.ListRunning(ctx)
+	if err != nil {
+		return false, fmt.Errorf("error getting ollama status: %w", err)
+	}
+
+	for _, m := range ps.Models {
+		sizeCPU := m.Size - m.SizeVRAM
+		cpuPercent := math.Round(float64(sizeCPU) / float64(m.Size) * 100)
+
+		// If any model has CPU allocation > 0%, it's not fully allocated to GPU
+		if cpuPercent > 0 {
+			log.Warn().
+				Str("model", m.Name).
+				Int("cpu_percent", int(cpuPercent)).
+				Int("gpu_percent", int(100-cpuPercent)).
+				Msg("Model not fully allocated to GPU")
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+// RestartIfNotFullyAllocated checks GPU allocation and restarts the runtime if needed.
+// Returns true if restart was performed, false otherwise.
+// Stops attempting restarts after 3 tries to prevent infinite loops.
+func (i *OllamaRuntime) RestartIfNotFullyAllocated(ctx context.Context) (bool, error) {
+	fullyAllocated, err := i.CheckGPUAllocation(ctx)
+	if err != nil {
+		return false, fmt.Errorf("error checking GPU allocation: %w", err)
+	}
+
+	if fullyAllocated {
+		// Everything is fine, reset restart counter and no restart needed
+		if i.restartAttempts > 0 {
+			log.Info().
+				Int("previous_attempts", i.restartAttempts).
+				Msg("GPU allocation successful, resetting restart counter")
+			i.restartAttempts = 0
+		}
+		return false, nil
+	}
+
+	// Check if we've exceeded the maximum restart attempts
+	const maxRestartAttempts = 3
+	if i.restartAttempts >= maxRestartAttempts {
+		log.Warn().
+			Int("restart_attempts", i.restartAttempts).
+			Int("max_attempts", maxRestartAttempts).
+			Msg("Ollama model not fully allocated to GPU after maximum restart attempts - giving up")
+		return false, nil
+	}
+
+	i.restartAttempts++
+	log.Info().
+		Int("attempt", i.restartAttempts).
+		Int("max_attempts", maxRestartAttempts).
+		Msg("Model not fully allocated to GPU, restarting Ollama runtime")
+
+	// Stop the current runtime
+	if err := i.Stop(); err != nil {
+		log.Error().Err(err).Msg("Error stopping Ollama runtime during restart")
+		// Continue with restart attempt even if stop failed
+	}
+
+	// Give a brief pause to allow GPU memory to be deallocated
+	time.Sleep(2 * time.Second)
+
+	// Start the runtime again
+	if err := i.Start(ctx); err != nil {
+		return true, fmt.Errorf("error restarting Ollama runtime: %w", err)
+	}
+
+	log.Info().
+		Int("attempt", i.restartAttempts).
+		Msg("Ollama runtime restarted successfully")
+	return true, nil
+}
+
 func (i *OllamaRuntime) waitUntilOllamaIsReady(ctx context.Context, startTimeout time.Duration) error {
 	startCtx, cancel := context.WithTimeout(ctx, startTimeout)
 	defer cancel()
@@ -386,4 +478,40 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 	}()
 
 	return cmd, nil
+}
+
+// startInternalGPUMonitoring starts a goroutine that periodically checks GPU allocation
+// and restarts the runtime if models are not fully allocated to GPU.
+func (i *OllamaRuntime) startInternalGPUMonitoring(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds
+		defer ticker.Stop()
+
+		log.Debug().Msg("Starting internal GPU allocation monitoring for Ollama runtime")
+
+		for {
+			select {
+			case <-ctx.Done():
+				log.Debug().Msg("GPU allocation monitoring stopped")
+				return
+			case <-ticker.C:
+				i.checkAndRestartIfNeeded(ctx)
+			}
+		}
+	}()
+}
+
+// checkAndRestartIfNeeded checks GPU allocation and restarts if needed
+func (i *OllamaRuntime) checkAndRestartIfNeeded(ctx context.Context) {
+	restarted, err := i.RestartIfNotFullyAllocated(ctx)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Msg("Error checking/restarting Ollama runtime for GPU allocation")
+		return
+	}
+
+	if restarted {
+		log.Info().Msg("Ollama runtime was restarted due to improper GPU allocation")
+	}
 }

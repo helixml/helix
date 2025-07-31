@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 type HelixServer interface {
@@ -54,11 +55,25 @@ func (c *InternalHelixServer) ListModels(ctx context.Context) ([]types.OpenAIMod
 		}
 
 		// Only include models that are actually available on connected runners
-		if !availableModels[model.ID] {
+		// For VLLM models, we are more permissive since they're started dynamically
+		isAvailable := availableModels[model.ID]
+		if !isAvailable && model.Runtime != types.RuntimeVLLM {
+			log.Debug().
+				Str("model_id", model.ID).
+				Str("runtime", string(model.Runtime)).
+				Msg("Filtering out model not available on any runner")
 			continue
 		}
 
-		models = append(models, types.OpenAIModel{
+		// For VLLM models, log if they're not available (for debugging) but still include them
+		if !isAvailable && model.Runtime == types.RuntimeVLLM {
+			log.Debug().
+				Str("model_id", model.ID).
+				Str("runtime", string(model.Runtime)).
+				Msg("VLLM model not currently reported as available, but including anyway (will be started dynamically)")
+		}
+
+		openAIModel := types.OpenAIModel{
 			ID:            model.ID,
 			Object:        "model",
 			OwnedBy:       "helix",
@@ -68,7 +83,19 @@ func (c *InternalHelixServer) ListModels(ctx context.Context) ([]types.OpenAIMod
 			Type:          string(model.Type),
 			ContextLength: int(model.ContextLength),
 			Enabled:       model.Enabled,
-		})
+		}
+
+		log.Debug().
+			Str("model_id", model.ID).
+			Str("model_name", model.Name).
+			Str("database_type", string(model.Type)).
+			Str("api_type", openAIModel.Type).
+			Str("runtime", string(model.Runtime)).
+			Bool("enabled", model.Enabled).
+			Bool("hide", model.Hide).
+			Msg("Serving model to API")
+
+		models = append(models, openAIModel)
 	}
 	return models, nil
 }
