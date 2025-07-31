@@ -1370,7 +1370,11 @@ func (s *Scheduler) PrewarmNewRunner(runnerID string) {
 		Int("model_count", len(prewarmModels)).
 		Msg("starting prewarming for new runner")
 
+		// Create round-robin scheduling across individual models
+	// This ensures we get A, B, C, A, B, C pattern instead of A, A, B, B, C, C
 	successCount := 0
+
+	// Simple round-robin: iterate through models one by one
 	for _, model := range prewarmModels {
 		// Create a dummy workload for prewarming
 		prewarmWorkload := &Workload{
@@ -1398,11 +1402,14 @@ func (s *Scheduler) PrewarmNewRunner(runnerID string) {
 			withContext.Warn().
 				Err(err).
 				Str("model", model.ID).
+				Str("runtime", string(model.Runtime)).
 				Msg("failed to enqueue prewarming workload")
 		} else {
 			withContext.Debug().
 				Str("model", model.ID).
-				Msg("enqueued prewarming workload")
+				Str("runtime", string(model.Runtime)).
+				Int("round_robin_order", successCount+1).
+				Msg("enqueued prewarming workload in round-robin order")
 			successCount++
 		}
 	}
@@ -1606,12 +1613,22 @@ func (s *Scheduler) selectModelsForMemoryAndDistribution(prewarmModels []*types.
 		})
 	}
 
-	// Sort by count (ascending), then by memory (ascending) for tie-breaking
+	// Sort by count (ascending), then by runtime priority (Ollama first), then by memory (ascending) for tie-breaking
 	sort.Slice(modelsWithCounts, func(i, j int) bool {
 		if modelsWithCounts[i].count != modelsWithCounts[j].count {
 			return modelsWithCounts[i].count < modelsWithCounts[j].count
 		}
-		// If counts are equal, prefer smaller models (can fit more)
+		// If counts are equal, prioritize Ollama models over VLM models for faster startup
+		if modelsWithCounts[i].model.Runtime != modelsWithCounts[j].model.Runtime {
+			// Prioritize Ollama (faster startup) over VLLM (VLM models)
+			if modelsWithCounts[i].model.Runtime == types.RuntimeOllama {
+				return true
+			}
+			if modelsWithCounts[j].model.Runtime == types.RuntimeOllama {
+				return false
+			}
+		}
+		// If counts and runtime are equal, prefer smaller models (can fit more)
 		return modelsWithCounts[i].model.Memory < modelsWithCounts[j].model.Memory
 	})
 
