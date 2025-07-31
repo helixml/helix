@@ -556,13 +556,13 @@ func (c *RunnerController) calculateVLLMMemoryUtilizationRatio(runnerID string, 
 	// Calculate this instance's base ratio
 	finalRatio := float64(modelMemoryRequirement) / float64(totalMemory)
 
-	// Ensure the ratio is within reasonable bounds (5% to 95%)
-	// Lower bound of 5% allows for small models while avoiding potential VLLM issues
-	// Upper bound of 95% prevents potential OOM from other GPU processes
-	if finalRatio < 0.05 {
-		finalRatio = 0.05
-	} else if finalRatio > 0.95 {
-		finalRatio = 0.95
+	// Ensure the ratio is within reasonable bounds (1% to 99%)
+	// Lower bound of 1% allows for small models while avoiding potential VLLM issues
+	// Upper bound of 99% prevents potential OOM from other GPU processes
+	if finalRatio < 0.01 {
+		finalRatio = 0.01
+	} else if finalRatio > 0.99 {
+		finalRatio = 0.99
 	}
 
 	log.Debug().
