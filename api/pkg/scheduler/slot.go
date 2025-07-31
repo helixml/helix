@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +17,8 @@ type Slot struct {
 	isStaleFunc      TimeoutFunc
 	isErrorFunc      TimeoutFunc
 	isRunning        bool
+	isCreating       bool         // True while the slot is being created on the runner
+	mu               sync.RWMutex // Protects slot state changes
 }
 
 // NewSlot creates a new slot with the given runnerID and work
@@ -31,6 +34,7 @@ func NewSlot(runnerID string, work *Workload, staleTimeout TimeoutFunc, errorTim
 		isStaleFunc:      staleTimeout,
 		isErrorFunc:      errorTimeout,
 		isRunning:        false,
+		isCreating:       false,
 	}
 }
 
@@ -88,27 +92,71 @@ func (s *Slot) IsStale() bool {
 
 // True if this slot is currently active with work
 func (s *Slot) IsActive() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.isActive
 }
 
 // Sets a slot as no longer active
 func (s *Slot) Release() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.isActive = false
 	s.LastActivityTime = time.Now()
 }
 
 // Marks the work as started
 func (s *Slot) Start() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.LastActivityTime = time.Now()
 	s.isActive = true
 }
 
 func (s *Slot) IsRunning() bool {
-	return s.isRunning
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.isRunning && !s.isCreating
 }
 
 func (s *Slot) SetRunning() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.isRunning = true
+	s.isCreating = false
+}
+
+func (s *Slot) IsCreating() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.isCreating
+}
+
+func (s *Slot) SetCreating() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.isCreating = true
+	s.isRunning = false
+}
+
+func (s *Slot) SetCreationFailed() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.isCreating = false
+	s.isRunning = false
+}
+
+// TrySetCreating atomically checks if the slot is already creating
+// and sets it to creating if not. Returns true if successful.
+func (s *Slot) TrySetCreating() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.isCreating {
+		return false
+	}
+	s.isCreating = true
+	s.isRunning = false
+	return true
 }
 
 func (s *Slot) Memory() uint64 {

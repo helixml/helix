@@ -506,27 +506,40 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 				Str("runtime", string(slot.InitialWork().Runtime())).
 				Bool("is_active", slot.IsActive()).
 				Bool("is_running", slot.IsRunning()).
+				Bool("is_creating", slot.IsCreating()).
 				Msg("found slot on the scheduler that doesn't exist on the runner, creating...")
 
-			err := s.createNewSlot(ctx, slot)
-			if err != nil {
-				// Then see if we can retry
-				retry, err := ErrorHandlingStrategy(err, slot.InitialWork())
-				if retry {
-					withWorkContext(&log.Logger, slot.InitialWork()).Debug().Err(err).Msg("failed to create slot, but retrying later...")
-				} else {
-					withWorkContext(&log.Logger, slot.InitialWork()).Warn().Err(err).Msg("failed to create slot, calling error handler")
-
-					// First remove that slot, since it was never created
-					s.slots.Delete(slot.ID)
-
-					// Then remove the work from the queue if it exists
-					s.queue.Remove(slot.InitialWork())
-
-					// Then notify the error handler
-					s.onSchedulingErr(slot.InitialWork(), err)
-				}
+			// Atomically try to set creating state - skip if already creating
+			if !slot.TrySetCreating() {
+				return true
 			}
+			go func(s *Scheduler, ctx context.Context, slot *Slot) {
+				err := s.createNewSlot(ctx, slot)
+				if err != nil {
+					// Then see if we can retry
+					retry, retryErr := ErrorHandlingStrategy(err, slot.InitialWork())
+					if retry {
+						withWorkContext(&log.Logger, slot.InitialWork()).Debug().Err(err).Msg("failed to create slot, but retrying later...")
+						slot.SetCreationFailed() // Will retry on next reconciliation
+					} else {
+						withWorkContext(&log.Logger, slot.InitialWork()).Warn().Err(err).Msg("failed to create slot, calling error handler")
+
+						// First remove that slot, since it was never created
+						s.slots.Delete(slot.ID)
+
+						// Then remove the work from the queue if it exists
+						s.queue.Remove(slot.InitialWork())
+
+						// Then notify the error handler
+						s.onSchedulingErr(slot.InitialWork(), err)
+					}
+					if retryErr != nil {
+						log.Warn().Err(retryErr).Msg("error handling strategy failed")
+					}
+				} else {
+					slot.SetRunning()
+				}
+			}(s, ctx, slot)
 		} else if runnerID != slot.RunnerID {
 			// The slot exists but on a different runner than we thought
 			mismatchedRunnerCount++
