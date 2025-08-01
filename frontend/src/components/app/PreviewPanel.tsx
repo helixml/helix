@@ -22,9 +22,7 @@ import Container from '@mui/material/Container';
 import Stack from '@mui/material/Stack';
 import CreateIcon from '@mui/icons-material/Create';
 
-import Interaction from '../session/Interaction';
 import Session from '../../pages/Session';
-import InteractionLiveStream from '../session/InteractionLiveStream';
 import ConversationStarters from '../create/ConversationStarters';
 import InferenceTextField from '../create/InferenceTextField';
 import AppCreateHeader from '../appstore/CreateHeader';
