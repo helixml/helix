@@ -438,7 +438,7 @@ export class MessageProcessor {
 
     // Use DOMPurify to sanitize HTML while preserving safe tags and attributes
     processedMessage = DOMPurify.sanitize(processedMessage, {
-      ALLOWED_TAGS: ['a', 'p', 'br', 'strong', 'em', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'code', 'pre', 'blockquote', 'details', 'summary'],
+      ALLOWED_TAGS: ['a', 'p', 'br', 'strong', 'em', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'code', 'pre', 'blockquote', 'details', 'summary', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
       ALLOWED_ATTR: ['href', 'target', 'class', 'style', 'title', 'id', 'aria-hidden', 'aria-label', 'role'],
       ADD_ATTR: ['target']
     });
@@ -775,6 +775,29 @@ const InteractionMarkdown: FC<InteractionMarkdownProps> = ({
             '&:hover': {
               backgroundColor: 'rgba(88, 166, 255, 0.3)',
             }
+          },
+          '& table': {
+            borderCollapse: 'collapse',
+            width: '100%',
+            margin: '1em 0',
+            fontSize: '0.9em',
+            borderRadius: '8px',
+            overflow: 'hidden',
+            boxShadow: theme.palette.mode === 'light' ? '0 2px 8px rgba(0, 0, 0, 0.1)' : '0 2px 8px rgba(0, 0, 0, 0.3)',
+          },
+          '& th, & td': {
+            border: `1px solid ${theme.palette.mode === 'light' ? '#e0e0e0' : '#444'}`,
+            padding: '12px 16px',
+            textAlign: 'left',
+          },
+          '& th': {
+            backgroundColor: theme.palette.mode === 'light' ? '#f8f9fa' : '#23272f',
+            fontWeight: '600',
+            color: theme.palette.mode === 'light' ? '#333' : '#fff',
+            borderBottom: `2px solid ${theme.palette.mode === 'light' ? '#dee2e6' : '#444'}`,
+          },
+          '& td': {
+            backgroundColor: theme.palette.mode === 'light' ? '#fff' : 'transparent',
           },
           display: 'flow-root',
         }}
