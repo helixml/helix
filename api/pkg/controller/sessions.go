@@ -43,10 +43,10 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 		req.HistoryLimit = DefaultHistoryLimit
 	}
 
-	interactions, err := c.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+	interactions, _, err := c.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    req.Session.ID,
 		GenerationID: req.Session.GenerationID,
-		Limit:        req.HistoryLimit,
+		PerPage:      req.HistoryLimit,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list interactions for session '%s': %w", req.Session.ID, err)
