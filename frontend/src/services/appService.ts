@@ -91,14 +91,15 @@ export function useGetApp(appId: string, options?: { enabled?: boolean }) {
 
 // useListSessionSteps returns the steps for a session, it includes
 // steps for all interactions in the session
-export function useListAppSteps(appId: string, interactionId: string, options?: { enabled?: boolean }) {
+export function useListAppSteps(appId: string, interactionId: string, options?: { enabled?: boolean, refetchInterval?: number }) {
   const api = useApi()
   const apiClient = api.getApiClient()  
 
   return useQuery({
     queryKey: appStepsQueryKey(appId, interactionId),
     queryFn: () => apiClient.v1AppsStepInfoDetail(appId, {interactionId}),
-    enabled: options?.enabled ?? true
+    enabled: options?.enabled ?? true,
+    refetchInterval: options?.refetchInterval
   })
 }
 
