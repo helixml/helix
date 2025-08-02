@@ -528,6 +528,57 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/apps/{id}/interactions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List interactions with pagination and optional session filtering for a specific app",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "interactions"
+                ],
+                "summary": "List interactions",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by session ID",
+                        "name": "session",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by interaction ID",
+                        "name": "interaction",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.PaginatedInteractions"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps/{id}/llm-calls": {
             "get": {
                 "security": [
@@ -559,7 +610,13 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "description": "Filter by session ID",
-                        "name": "sessionFilter",
+                        "name": "session",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by interaction ID",
+                        "name": "interaction",
                         "in": "query"
                     }
                 ],
@@ -1344,7 +1401,13 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "description": "Filter by session ID",
-                        "name": "sessionFilter",
+                        "name": "session",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by interaction ID",
+                        "name": "interaction",
                         "in": "query"
                     }
                 ],
@@ -2493,6 +2556,84 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.Session"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/interactions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List interactions for a session",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "interactions"
+                ],
+                "summary": "List interactions for a session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.Interaction"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sessions/{id}/interactions/{interaction_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get an interaction by ID",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "interactions"
+                ],
+                "summary": "Get an interaction by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Interaction ID",
+                        "name": "interaction_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Interaction"
                         }
                     }
                 }
@@ -5869,6 +6010,29 @@ const docTemplate = `{
                 "OwnerTypeSocket",
                 "OwnerTypeOrg"
             ]
+        },
+        "types.PaginatedInteractions": {
+            "type": "object",
+            "properties": {
+                "interactions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Interaction"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "pageSize": {
+                    "type": "integer"
+                },
+                "totalCount": {
+                    "type": "integer"
+                },
+                "totalPages": {
+                    "type": "integer"
+                }
+            }
         },
         "types.PaginatedLLMCalls": {
             "type": "object",
