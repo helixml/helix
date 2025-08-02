@@ -198,6 +198,7 @@ func (s *HelixAPIServer) listAppInteractions(_ http.ResponseWriter, r *http.Requ
 		SessionID:     sessionID,
 		InteractionID: interactionID,
 		UserID:        user.ID,
+		Order:         "id DESC",
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
