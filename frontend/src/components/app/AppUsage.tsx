@@ -25,6 +25,7 @@ import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import WarningIcon from '@mui/icons-material/Warning';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import { Cog } from 'lucide-react';
 import useApi from '../../hooks/useApi';
 import { TypesPaginatedLLMCalls, TypesLLMCall, TypesInteraction, TypesPaginatedInteractions } from '../../api/api';
 import { LineChart } from '@mui/x-charts';
@@ -32,10 +33,11 @@ import { TypesUsersAggregatedUsageMetric, TypesAggregatedUsageMetric } from '../
 import useAccount from '../../hooks/useAccount';
 import LLMCallTimelineChart from './LLMCallTimelineChart';
 import LLMCallDialog from './LLMCallDialog';
+import InteractionDialog from './InteractionDialog';
 
 import { useGetAppUsage } from '../../services/appService';
 import { useListAppInteractions } from '../../services/interactionsService';
-import { useListLLMCalls } from '../../services/llmCallsService';
+import { useListAppLLMCalls } from '../../services/llmCallsService';
 
 // Add TokenUsageIcon component
 const TokenUsageIcon = ({ promptTokens }: { promptTokens: number }) => {
@@ -151,6 +153,8 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const [hoveredCallId, setHoveredCallId] = useState<string | null>(null);
   const [selectedLLMCall, setSelectedLLMCall] = useState<TypesLLMCall | null>(null);
   const [llmCallDialogOpen, setLlmCallDialogOpen] = useState(false);
+  const [selectedInteraction, setSelectedInteraction] = useState<TypesInteraction | null>(null);
+  const [interactionDialogOpen, setInteractionDialogOpen] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodType>('7d');
 
   // Load interactions at the top level
@@ -272,6 +276,19 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
     setSelectedLLMCall(null);
   };
 
+  const handleOpenInteractionDialog = (interaction: TypesInteraction) => {
+    setSelectedInteraction(interaction);
+    setInteractionDialogOpen(true);
+  };
+
+  const handleCloseInteractionDialog = () => {
+    setInteractionDialogOpen(false);
+    setSelectedInteraction(null);
+  };
+
+  // State to store LLM calls for the selected interaction
+  const [selectedInteractionLLMCalls, setSelectedInteractionLLMCalls] = useState<TypesLLMCall[]>([]);
+
   // Convert TypesLLMCall to LLMCall interface expected by LLMCallDialog
   const convertToLLMCall = (call: TypesLLMCall) => ({
     id: call.id || '',
@@ -288,10 +305,47 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
     error: call.error,
   });
 
+  // Helper function to truncate text
+  const truncateText = (text: string, maxLength: number = 80): string => {
+    if (!text) return '';
+    return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+  };
+
+  // Helper function to get status display
+  const getStatusDisplay = (state: string) => {
+    if (state === 'waiting') {
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Cog 
+            size={16} 
+            style={{ 
+              animation: 'spin 1s linear infinite',
+              color: '#1976d2'
+            }} 
+          />
+          <span>waiting</span>
+        </Box>
+      );
+    }
+    return state || 'unknown';
+  };
+
   if (!interactionsData) return null;
 
   return (
     <div>
+      <style>
+        {`
+          @keyframes spin {
+            from {
+              transform: rotate(0deg);
+            }
+            to {
+              transform: rotate(360deg);
+            }
+          }
+        `}
+      </style>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, mr: 2 }}>
         <Typography variant="h6">Token usage</Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -392,15 +446,14 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
             <TableRow>
               <TableCell sx={headerCellStyle} width="50px"></TableCell>
               <TableCell sx={headerCellStyle}>Time</TableCell>
-              <TableCell sx={headerCellStyle}>Duration</TableCell>
+              <TableCell sx={headerCellStyle}>User Prompt</TableCell>
               <TableCell sx={headerCellStyle}>Status</TableCell>
-              <TableCell sx={headerCellStyle}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             { win.DISABLE_LLM_CALL_LOGGING ? (
               <TableRow>
-                <TableCell colSpan={5}>LLM call logging is disabled by the administrator.</TableCell>
+                <TableCell colSpan={4}>LLM call logging is disabled by the administrator.</TableCell>
               </TableRow>
             ) : (
               interactionsData.interactions?.map((interaction) => (
@@ -436,25 +489,22 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                       </IconButton>
                     </TableCell>
                     <TableCell>{interaction.created ? new Date(interaction.created).toLocaleString() : ''}</TableCell>
-                    <TableCell>{interaction.duration_ms ? formatDuration(interaction.duration_ms) : 'n/a'}</TableCell>
+                    <TableCell>
+                      <Tooltip title={interaction.prompt_message || 'No prompt message'}>
+                        <span>{truncateText(interaction.prompt_message || '', 80)}</span>
+                      </Tooltip>
+                    </TableCell>
                     <TableCell>
                       <Button 
                         color={interaction.state === 'error' ? 'error' : 'primary'}
                         disabled
                       >
-                        {interaction.state || 'unknown'}
+                        {getStatusDisplay(interaction.state || 'unknown')}
                       </Button>
-                    </TableCell>
-                    <TableCell>
-                      {interaction.user_id === account.user?.id && interaction.session_id && (
-                        <Link href={`/session/${interaction.session_id}`} target="_blank" rel="noopener noreferrer">
-                          <OpenInNewIcon />
-                        </Link>
-                      )}
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={5}>
+                    <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={4}>
                       <Collapse in={interaction.id ? expandedRows.has(interaction.id) : false} timeout="auto" unmountOnExit>
                         <InteractionDetails 
                           appId={appId} 
@@ -462,6 +512,13 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                           onHoverCallId={setHoveredCallId}
                           highlightedCallId={hoveredCallId}
                           onOpenLLMCallDialog={handleOpenLLMCallDialog}
+                          onOpenInteractionDialog={(interaction, llmCalls) => {
+                            console.log('interaction', interaction)
+                            console.log('llmCalls', llmCalls)
+                            setSelectedInteraction(interaction);
+                            setSelectedInteractionLLMCalls(llmCalls);
+                            setInteractionDialogOpen(true);
+                          }}
                         />
                       </Collapse>
                     </TableCell>
@@ -487,6 +544,13 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
         onClose={handleCloseLLMCallDialog}
         llmCall={selectedLLMCall ? convertToLLMCall(selectedLLMCall) : null}
       />
+      
+      <InteractionDialog
+        open={interactionDialogOpen}
+        onClose={handleCloseInteractionDialog}
+        interaction={selectedInteraction}
+        llmCalls={selectedInteractionLLMCalls}
+      />
     </div>
   );
 };
@@ -498,6 +562,7 @@ interface InteractionDetailsProps {
   onHoverCallId: (callId: string | null) => void;
   highlightedCallId: string | null;
   onOpenLLMCallDialog: (call: TypesLLMCall) => void;
+  onOpenInteractionDialog: (interaction: TypesInteraction, llmCalls: TypesLLMCall[]) => void;
 }
 
 const InteractionDetails: FC<InteractionDetailsProps> = ({ 
@@ -505,16 +570,18 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
   interaction, 
   onHoverCallId, 
   highlightedCallId, 
-  onOpenLLMCallDialog 
+  onOpenLLMCallDialog,
+  onOpenInteractionDialog
 }) => {
   const account = useAccount();
   const [hoveredCallId, setHoveredCallId] = useState<string | null>(null);
 
   // Load LLM calls for this specific interaction when expanded
-  const { data: llmCallsData, isLoading: llmCallsLoading } = useListLLMCalls(
+  const { data: llmCallsData, isLoading: llmCallsLoading } = useListAppLLMCalls(
+    appId,
     interaction.session_id || '',
     interaction.id || '',
-    1, // page
+    1, // page    
     100, // pageSize
     interaction.id ? true : false // enabled only when we have an interaction ID
   );
@@ -593,7 +660,33 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
   return (
     <Box sx={{ margin: 1 }}>
       <Box sx={{ mb: 2, p: 2, bgcolor: 'rgba(0, 0, 0, 0.2)', borderRadius: 1 }}>
-        <Typography variant="subtitle2" gutterBottom>Session Details</Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="subtitle2">Session Details</Typography>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              variant="outlined"
+              size="small"
+              color="secondary"
+              onClick={() => onOpenInteractionDialog(interaction, llmCallsData?.calls || [])}
+              startIcon={<VisibilityIcon />}
+            >
+              View Details
+            </Button>     
+            {interaction.user_id === account.user?.id && interaction.session_id && (
+              <Button
+                variant="outlined"
+                size="small"
+                color="secondary"
+                href={`/session/${interaction.session_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                startIcon={<OpenInNewIcon />}
+              >
+                View Session
+              </Button>
+            )}
+          </Box>     
+        </Box>
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
           <Box>
             <Typography variant="caption" color="text.secondary">Session ID</Typography>
