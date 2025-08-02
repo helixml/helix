@@ -5,6 +5,7 @@ package agent
 import (
 	"context"
 
+	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -18,4 +19,25 @@ type Tool interface {
 	Description() string
 	OpenAI() []openai.Tool
 	Execute(ctx context.Context, meta Meta, args map[string]interface{}) (string, error)
+}
+
+func getUniqueToolCalls(toolCalls []openai.ToolCall) []openai.ToolCall {
+	seen := make(map[string]bool)
+
+	uniqueToolCalls := []openai.ToolCall{}
+
+	for _, toolCall := range toolCalls {
+		// Create a unique key based on function name and arguments
+		key := toolCall.Function.Name + ":" + toolCall.Function.Arguments
+		if !seen[key] {
+			seen[key] = true
+			uniqueToolCalls = append(uniqueToolCalls, toolCall)
+		} else {
+			log.Warn().
+				Str("tool_call", toolCall.Function.Name).
+				Str("arguments", toolCall.Function.Arguments).
+				Msg("Removing duplicate tool call")
+		}
+	}
+	return uniqueToolCalls
 }
