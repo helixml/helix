@@ -62,7 +62,7 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 
 	// Add the new message to the existing session
 	interaction := &types.Interaction{
-		ID:                   system.GenerateInteractionID(),
+		ID:                   interactionID,
 		GenerationID:         req.Session.GenerationID,
 		AppID:                req.App.ID,
 		Created:              time.Now(),
