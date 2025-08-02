@@ -33,7 +33,7 @@ export function useListLLMCalls(session: string, interaction: string, page: numb
   })
 }
 
-export function useListAppLLMCalls(appId: string, session: string, interaction: string, page: number, pageSize: number, enabled?: boolean) {
+export function useListAppLLMCalls(appId: string, session: string, interaction: string, page: number, pageSize: number, enabled?: boolean, refetchInterval?: number) {
   const api = useApi()
   const apiClient = api.getApiClient()  
 
@@ -49,5 +49,6 @@ export function useListAppLLMCalls(appId: string, session: string, interaction: 
       return response.data
     },    
     enabled: enabled,
+    refetchInterval: refetchInterval ? refetchInterval : undefined,
   })
 }
