@@ -107,8 +107,8 @@ const InteractionDialog: React.FC<InteractionDialogProps> = ({
   
   const getPromptMessage = (interaction: TypesInteraction): string => {
     // If we have a single content, return the text
-    if (interaction.prompt_message_content?.parts?.length === 1) {
-      return interaction.prompt_message_content.parts[0].text;
+    if (interaction.prompt_message) {
+      return interaction.prompt_message;
     }
     // If we have multi-content, return the first one
     if (interaction.prompt_message_content?.parts?.length) {
