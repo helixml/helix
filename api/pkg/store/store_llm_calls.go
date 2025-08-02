@@ -32,6 +32,7 @@ type ListLLMCallsQuery struct {
 
 	Page    int
 	PerPage int
+	Order   string
 }
 
 func (s *PostgresStore) ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) ([]*types.LLMCall, int64, error) {
@@ -56,6 +57,10 @@ func (s *PostgresStore) ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) 
 
 	if q.UserID != "" {
 		query = query.Where("user_id = ?", q.UserID)
+	}
+
+	if q.Order != "" {
+		query = query.Order(q.Order)
 	}
 
 	err := query.Count(&totalCount).Error
