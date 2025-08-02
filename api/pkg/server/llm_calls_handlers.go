@@ -188,12 +188,16 @@ func (s *HelixAPIServer) listAppInteractions(_ http.ResponseWriter, r *http.Requ
 	}
 
 	sessionID := r.URL.Query().Get("session")
+	interactionID := r.URL.Query().Get("interaction")
 
 	// Call the ListLLMCalls function from the store with the session filter
 	interactions, totalCount, err := s.Store.ListInteractions(r.Context(), &types.ListInteractionsQuery{
-		Page:      page,
-		PerPage:   pageSize,
-		SessionID: sessionID,
+		AppID:         appID,
+		Page:          page,
+		PerPage:       pageSize,
+		SessionID:     sessionID,
+		InteractionID: interactionID,
+		UserID:        user.ID,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())

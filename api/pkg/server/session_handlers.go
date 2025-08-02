@@ -395,6 +395,7 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 
 		interaction := &types.Interaction{
 			ID:                   system.GenerateInteractionID(),
+			AppID:                session.ParentApp,
 			SessionID:            session.ID,
 			GenerationID:         session.GenerationID,
 			UserID:               session.Owner,
@@ -445,6 +446,7 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 	session.Interactions = append(session.Interactions,
 		&types.Interaction{
 			ID:                   system.GenerateInteractionID(),
+			AppID:                session.ParentApp,
 			Created:              time.Now(),
 			Updated:              time.Now(),
 			Scheduled:            time.Now(),
