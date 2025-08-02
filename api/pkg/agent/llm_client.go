@@ -57,20 +57,20 @@ func (c *LLM) New(ctx context.Context, model *LLMModelConfig, params openai.Chat
 	return resp, nil
 }
 
-func (c *LLM) NewStreaming(ctx context.Context, model *LLMModelConfig, params openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
-	// Reset the reasoning effort to none if it's not set
-	if params.ReasoningEffort == "none" {
-		params.ReasoningEffort = ""
-	}
+// func (c *LLM) NewStreaming(ctx context.Context, model *LLMModelConfig, params openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+// 	// Reset the reasoning effort to none if it's not set
+// 	if params.ReasoningEffort == "none" {
+// 		params.ReasoningEffort = ""
+// 	}
 
-	params.StreamOptions = &openai.StreamOptions{
-		IncludeUsage: true,
-	}
+// 	params.StreamOptions = &openai.StreamOptions{
+// 		IncludeUsage: true,
+// 	}
 
-	stream, err := model.Client.CreateChatCompletionStream(ctx, params)
-	if err != nil {
-		return nil, err
-	}
+// 	stream, err := model.Client.CreateChatCompletionStream(ctx, params)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	return stream, nil
-}
+// 	return stream, nil
+// }
