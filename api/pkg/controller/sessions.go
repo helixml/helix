@@ -64,6 +64,7 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 	interaction := &types.Interaction{
 		ID:                   system.GenerateInteractionID(),
 		GenerationID:         req.Session.GenerationID,
+		AppID:                req.App.ID,
 		Created:              time.Now(),
 		Updated:              time.Now(),
 		SessionID:            req.Session.ID,
@@ -443,22 +444,6 @@ func (c *Controller) UpdateSessionName(ctx context.Context, owner string, sessio
 
 	return nil
 }
-
-// func (c *Controller) WriteInteraction(ctx context.Context, session *types.Session, newInteraction *types.Interaction) *types.Session {
-// 	newInteractions := []*types.Interaction{}
-// 	for _, interaction := range session.Interactions {
-// 		if interaction.ID == newInteraction.ID {
-// 			newInteractions = append(newInteractions, newInteraction)
-// 		} else {
-// 			newInteractions = append(newInteractions, interaction)
-// 		}
-// 	}
-// 	session.Interactions = newInteractions
-// 	if err := c.WriteSession(ctx, session); err != nil {
-// 		log.Printf("failed to write interaction session: %v", err)
-// 	}
-// 	return session
-// }
 
 func (c *Controller) BroadcastProgress(
 	ctx context.Context,
