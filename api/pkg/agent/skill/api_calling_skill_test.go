@@ -81,7 +81,7 @@ func TestNewDirectAPICallingSkills(t *testing.T) {
 	assert.Equal(t, "getJobDetails", skill2.Tools[0].Name())
 }
 
-func TestNewAPICallingSkill_Deprecated(t *testing.T) {
+func TestNewAPICallingSkill_WithPlanning(t *testing.T) {
 	// Test the old function still works for backward compatibility
 	tool := &types.Tool{
 		ID:          "test-api-tool",
@@ -111,7 +111,7 @@ func TestNewAPICallingSkill_Deprecated(t *testing.T) {
 	}
 
 	// Test the old function
-	skill := NewAPICallingSkill(nil, tool)
+	skill := NewAPICallingSkillWithReasoning(nil, tool)
 
 	// Verify it creates a single skill with multiple tools (old behavior)
 	assert.Equal(t, "Test_API", skill.Name)
