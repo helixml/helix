@@ -13,8 +13,6 @@ import (
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
 
-	"io"
-
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -99,12 +97,6 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 			Step: types.LLMCallStep(fmt.Sprintf("skill_context_runner (%s | iteration %d)", skill.Name, iterationNumber)),
 		})
 
-		// Check if we should expect tool calls based on available tools
-		expectsToolCalls := len(skill.GetTools()) > 0
-		var toolsToCall []openai.ToolCall
-
-		// Always use streaming to show the reasoning process, but handle tool calls appropriately
-
 		// Add /no_think prefix for Qwen models since skill execution is after initial planning
 		if isQwenModel(modelToUse.Model) {
 			messages := messageHistory.All()
@@ -116,102 +108,28 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 			}
 		}
 
-		stream, err := llm.NewStreaming(ctx, modelToUse, params)
+		completion, err := llm.New(ctx, modelToUse, params)
 		if err != nil {
 			log.Error().Err(err).Msg("Error calling LLM while running skill")
 			return MessageWhenToolErrorWithRetry("Network error", skillToolCallID), err
 		}
-		defer stream.Close()
-
-		var fullContent strings.Builder
-		var hasContent bool
-		var completion openai.ChatCompletionMessage
-
-		for {
-			chunk, err := stream.Recv()
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			if err != nil {
-				log.Error().Err(err).Msg("Error streaming")
-				return MessageWhenToolErrorWithRetry("Network error", skillToolCallID), err
-			}
-
-			if len(chunk.Choices) == 0 {
-				log.Debug().Any("chunk", chunk).Msg("No choices in chunk")
-				continue
-			}
-
-			choice := chunk.Choices[0]
-
-			// Stream content to user if available
-			if choice.Delta.Content != "" {
-				content := choice.Delta.Content
-				fullContent.WriteString(content)
-				hasContent = true
-
-				// Send partial text to user immediately
-				outChan <- Response{
-					Content: content,
-					Type:    ResponseTypePartialText,
-				}
-			}
-
-			// Collect tool calls as they come in (if tools are expected)
-			if expectsToolCalls && choice.Delta.ToolCalls != nil {
-				for _, toolCall := range choice.Delta.ToolCalls {
-					// Handle nil index case
-					if toolCall.Index == nil {
-						continue
-					}
-					index := *toolCall.Index
-
-					// Extend toolsToCall array if needed
-					for len(toolsToCall) <= index {
-						toolsToCall = append(toolsToCall, openai.ToolCall{})
-					}
-
-					// Append to existing tool call at this index
-					if toolCall.ID != "" {
-						toolsToCall[index].ID = toolCall.ID
-					}
-					if toolCall.Type != "" {
-						toolsToCall[index].Type = toolCall.Type
-					}
-					if toolCall.Function.Name != "" {
-						toolsToCall[index].Function.Name = toolCall.Function.Name
-					}
-					if toolCall.Function.Arguments != "" {
-						toolsToCall[index].Function.Arguments += toolCall.Function.Arguments
-					}
-				}
-			}
-
-			// Build the completion message from the final chunk
-			if choice.FinishReason != "" {
-				completion = openai.ChatCompletionMessage{
-					Role:      openai.ChatMessageRoleAssistant,
-					Content:   fullContent.String(),
-					ToolCalls: toolsToCall,
-				}
-			}
-		}
 
 		// Add the complete message to history for context
-		messageHistory.Add(&completion)
+		messageHistory.Add(&completion.Choices[0].Message)
 
 		// Log the completion for debugging
 		log.Debug().
-			Interface("completion", completion).
+			Interface("completion", completion.Choices[0].Message).
 			Str("model", modelToUse.Model).
 			Msg("Received completion from LLM")
 
-		// Check what to do next based on tool calls and content
-		if expectsToolCalls && len(toolsToCall) == 0 {
-			// If we expected tool calls but got none, check if we have valid content
-			if hasContent && fullContent.String() != "" {
+		// if there is no tool call, check if we have a valid direct response
+		// if completion.Choices[0].Message.ToolCalls == nil || len(completion.Choices[0].Message.ToolCalls) == 0 {
+		if len(completion.Choices[0].Message.ToolCalls) == 0 {
+			// If we have content and it's a valid response, break the loop
+			if completion.Choices[0].Message.Content != "" {
 				log.Debug().
-					Str("content", fullContent.String()).
+					Str("content", completion.Choices[0].Message.Content).
 					Msg("Received direct response from LLM")
 				break
 			}
@@ -222,130 +140,116 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 				Content:    "Error: The skill execution did not produce a valid response",
 				ToolCallID: skillToolCallID,
 			}, nil
-		} else if !expectsToolCalls {
-			// No tools expected, so we're done if we have content
-			if !hasContent {
-				log.Error().Msg("Received empty response with no content")
-				return &openai.ChatCompletionMessage{
-					Role:       openai.ChatMessageRoleTool,
-					Content:    "Error: The skill execution did not produce a valid response",
-					ToolCallID: skillToolCallID,
-				}, nil
-			}
-			// We've completed with streaming, so break the loop
-			break
 		}
+		toolsToCall := completion.Choices[0].Message.ToolCalls
 
-		// If we have tool calls to execute, continue with the tool execution logic
-		if len(toolsToCall) > 0 {
-			// Create a wait group to wait for all tool executions to complete
-			var wg sync.WaitGroup
-			// Create a channel to collect results from goroutines
-			resultChan := make(chan struct {
-				toolCall *openai.ToolCall
-				output   string
-				err      error
-			}, len(toolsToCall))
+		// Create a wait group to wait for all tool executions to complete
+		var wg sync.WaitGroup
+		// Create a channel to collect results from goroutines
+		resultChan := make(chan struct {
+			toolCall *openai.ToolCall
+			output   string
+			err      error
+		}, len(toolsToCall))
 
-			for _, toolCall := range toolsToCall {
-				wg.Add(1)
+		for _, toolCall := range toolsToCall {
+			wg.Add(1)
 
-				go func(toolCall *openai.ToolCall) {
-					defer wg.Done()
+			go func(toolCall *openai.ToolCall) {
+				defer wg.Done()
 
-					tool, err := skill.GetTool(toolCall.Function.Name)
-					if err != nil {
-						log.Error().
-							Str("tool", toolCall.Function.Name).
-							Str("skill", skill.Name).
-							Err(err).
-							Msg("Error getting tool")
-
-						resultChan <- struct {
-							toolCall *openai.ToolCall
-							output   string
-							err      error
-						}{toolCall, "", err}
-						return
-					}
-
-					if tool.StatusMessage() != "" {
-						outChan <- Response{
-							Content: tool.StatusMessage(),
-							Type:    ResponseTypeStatus,
-						}
-					}
-
-					log.Info().Str("tool", tool.Name()).Str("arguments", toolCall.Function.Arguments).Msg("Tool")
-					arguments := map[string]any{}
-					err = json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments)
-					if err != nil {
-						log.Error().Err(err).Msg("Error unmarshaling tool arguments")
-						resultChan <- struct {
-							toolCall *openai.ToolCall
-							output   string
-							err      error
-						}{toolCall, "", err}
-						return
-					}
-
-					startTime := time.Now()
-
-					output, err := tool.Execute(ctx, meta, arguments)
-
-					stepInfo := &types.StepInfo{
-						Created:    startTime,
-						Name:       tool.Name(),
-						Icon:       tool.Icon(),
-						Type:       types.StepInfoTypeToolUse,
-						Message:    output,
-						Details:    types.StepInfoDetails{Arguments: arguments},
-						DurationMs: time.Since(startTime).Milliseconds(),
-					}
-
-					// Add error to the step info if it exists
-					if err != nil {
-						stepInfo.Error = err.Error()
-					}
-
-					// Instrument the output
-					_ = a.emitter.EmitStepInfo(ctx, stepInfo)
+				tool, err := skill.GetTool(toolCall.Function.Name)
+				if err != nil {
+					log.Error().
+						Str("tool", toolCall.Function.Name).
+						Str("skill", skill.Name).
+						Err(err).
+						Msg("Error getting tool")
 
 					resultChan <- struct {
 						toolCall *openai.ToolCall
 						output   string
 						err      error
-					}{toolCall, output, err}
-				}(&toolCall)
-			}
-
-			// Start a goroutine to close the result channel when all tools are done
-			go func() {
-				wg.Wait()
-				close(resultChan)
-			}()
-
-			// Process results as they come in
-			for result := range resultChan {
-				if result.err != nil {
-					log.Error().Err(result.err).Msg("Error executing tool")
-					switch {
-					case errors.As(result.err, &ignErr):
-						messageHistory.Add(MessageWhenToolError(result.err.Error(), result.toolCall.ID))
-					case errors.As(result.err, &retErr):
-						messageHistory.Add(MessageWhenToolErrorWithRetry(result.err.Error(), skillToolCallID))
-					default:
-						messageHistory.Add(MessageWhenToolError(result.err.Error(), result.toolCall.ID))
-					}
-					continue
+					}{toolCall, "", err}
+					return
 				}
 
-				messageHistory.Add(&openai.ChatCompletionMessage{
-					Role:       openai.ChatMessageRoleTool,
-					Content:    result.output,
-					ToolCallID: result.toolCall.ID,
-				})
+				if tool.StatusMessage() != "" {
+					outChan <- Response{
+						Content: tool.StatusMessage(),
+						Type:    ResponseTypeStatus,
+					}
+				}
+
+				log.Info().Str("tool", tool.Name()).Str("arguments", toolCall.Function.Arguments).Msg("Tool")
+				arguments := map[string]any{}
+				err = json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments)
+				if err != nil {
+					log.Error().Err(err).Msg("Error unmarshaling tool arguments")
+					resultChan <- struct {
+						toolCall *openai.ToolCall
+						output   string
+						err      error
+					}{toolCall, "", err}
+					return
+				}
+
+				startTime := time.Now()
+
+				output, err := tool.Execute(ctx, meta, arguments)
+
+				stepInfo := &types.StepInfo{
+					Created:    startTime,
+					Name:       tool.Name(),
+					Icon:       tool.Icon(),
+					Type:       types.StepInfoTypeToolUse,
+					Message:    output,
+					Details:    types.StepInfoDetails{Arguments: arguments},
+					DurationMs: time.Since(startTime).Milliseconds(),
+				}
+
+				// Add error to the step info if it exists
+				if err != nil {
+					stepInfo.Error = err.Error()
+				}
+
+				// Instrument the output
+				_ = a.emitter.EmitStepInfo(ctx, stepInfo)
+
+				resultChan <- struct {
+					toolCall *openai.ToolCall
+					output   string
+					err      error
+				}{toolCall, output, err}
+			}(&toolCall)
+		}
+
+		// Start a goroutine to close the result channel when all tools are done
+		go func() {
+			wg.Wait()
+			close(resultChan)
+		}()
+
+		// Process results as they come in
+		for result := range resultChan {
+			if result.err != nil {
+				log.Error().Err(result.err).Msg("Error executing tool")
+				switch {
+				case errors.As(result.err, &ignErr):
+					messageHistory.Add(MessageWhenToolError(result.err.Error(), result.toolCall.ID))
+				case errors.As(result.err, &retErr):
+					messageHistory.Add(MessageWhenToolErrorWithRetry(result.err.Error(), skillToolCallID))
+				default:
+					messageHistory.Add(MessageWhenToolError(result.err.Error(), result.toolCall.ID))
+				}
+				continue
 			}
+
+			messageHistory.Add(&openai.ChatCompletionMessage{
+				Role:       openai.ChatMessageRoleTool,
+				Content:    result.output,
+				ToolCallID: result.toolCall.ID,
+			})
 		}
 	}
 	allMessages := messageHistory.All()
