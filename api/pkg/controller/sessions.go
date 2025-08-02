@@ -111,6 +111,8 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 
 	ctx = oai.SetContextAppID(ctx, req.App.ID)
 
+	start := time.Now()
+
 	resp, _, err := c.ChatCompletion(ctx, req.User, request, &ChatCompletionOptions{
 		OrganizationID: req.Session.OrganizationID,
 		AppID:          req.App.ID,
@@ -120,6 +122,7 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 		interaction.Error = err.Error()
 		interaction.State = types.InteractionStateError
 		interaction.Completed = time.Now()
+		interaction.DurationMs = int(time.Since(start).Milliseconds())
 
 		updateErr := c.UpdateInteraction(ctx, req.Session, interaction)
 		if updateErr != nil {
@@ -137,6 +140,7 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 	interaction.ResponseMessage = resp.Choices[0].Message.Content
 	interaction.State = types.InteractionStateComplete
 	interaction.Completed = time.Now()
+	interaction.DurationMs = int(time.Since(start).Milliseconds())
 	interaction.Usage = types.Usage{
 		PromptTokens:     resp.Usage.PromptTokens,
 		CompletionTokens: resp.Usage.CompletionTokens,
