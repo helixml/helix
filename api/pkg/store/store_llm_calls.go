@@ -26,7 +26,8 @@ func (s *PostgresStore) CreateLLMCall(ctx context.Context, call *types.LLMCall) 
 
 type ListLLMCallsQuery struct {
 	AppID         string
-	SessionFilter string
+	SessionID     string
+	InteractionID string
 	UserID        string
 
 	Page    int
@@ -41,8 +42,12 @@ func (s *PostgresStore) ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) 
 
 	query := s.gdb.WithContext(ctx).Model(&types.LLMCall{})
 
-	if q.SessionFilter != "" {
-		query = query.Where("session_id LIKE ?", "%"+q.SessionFilter+"%")
+	if q.SessionID != "" {
+		query = query.Where("session_id = ?", q.SessionID)
+	}
+
+	if q.InteractionID != "" {
+		query = query.Where("interaction_id = ?", q.InteractionID)
 	}
 
 	if q.AppID != "" {
