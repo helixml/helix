@@ -436,6 +436,12 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		}
 	}
 
+	log.Info().
+		Bool("call_summarizer", callSummarizer).
+		Bool("has_direct_skill", hasDirectSkill).
+		Int("final_skill_call_results", len(finalSkillCallResults)).
+		Msg("agent run complete")
+
 	// Handle final results based on the callSummarizer parameter from the stop tool or if multiple skills were called
 	if callSummarizer || hasDirectSkill || len(finalSkillCallResults) > 1 {
 		// If callSummarizer is true, summarize the results
