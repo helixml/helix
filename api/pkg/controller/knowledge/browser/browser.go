@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	defaultBrowserPoolSize = 5
+	defaultBrowserPoolSize = 3
 	defaultPagePoolSize    = 50
 )
 
@@ -112,7 +112,7 @@ func (b *Browser) getBrowser() (*rod.Browser, error) {
 		log.Info().Msg("Creating new browser")
 
 		// Setup browser with the client
-		browser := rod.New().Client(client)
+		browser := rod.New().Trace(true).Client(client)
 
 		log.Info().Msg("Connecting to browser")
 		// Connect to the browser
