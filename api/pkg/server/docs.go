@@ -4890,6 +4890,9 @@ const docTemplate = `{
         "types.Interaction": {
             "type": "object",
             "properties": {
+                "app_id": {
+                    "type": "string"
+                },
                 "completed": {
                     "type": "string"
                 },

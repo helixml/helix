@@ -1257,6 +1257,8 @@ definitions:
     - ImageURLDetailAuto
   types.Interaction:
     properties:
+      app_id:
+        type: string
       completed:
         type: string
       created:
