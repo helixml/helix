@@ -18,6 +18,8 @@ import {
   useTheme,
   ToggleButton,
   ToggleButtonGroup,
+  TextField,
+  InputAdornment,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
@@ -25,9 +27,10 @@ import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import WarningIcon from '@mui/icons-material/Warning';
 import VisibilityIcon from '@mui/icons-material/Visibility';
-import { Cog } from 'lucide-react';
+// import SearchIcon from '@mui/icons-material/Search';
+import { CircleCheck, Cog, OctagonX, Search } from 'lucide-react';
 import useApi from '../../hooks/useApi';
-import { TypesPaginatedLLMCalls, TypesLLMCall, TypesInteraction, TypesPaginatedInteractions } from '../../api/api';
+import { TypesLLMCall, TypesInteraction, TypesPaginatedInteractions } from '../../api/api';
 import { LineChart } from '@mui/x-charts';
 import { TypesUsersAggregatedUsageMetric, TypesAggregatedUsageMetric } from '../../api/api';
 import useAccount from '../../hooks/useAccount';
@@ -156,6 +159,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   const [selectedInteraction, setSelectedInteraction] = useState<TypesInteraction | null>(null);
   const [interactionDialogOpen, setInteractionDialogOpen] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodType>('7d');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Load interactions at the top level
   const { data: interactionsData, isLoading: interactionsLoading, refetch: refetchInteractions } = useListAppInteractions(appId, '', '', page + 1, rowsPerPage);
@@ -266,6 +270,36 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
 
   const chartData = useMemo(() => prepareChartData(usageData as TypesUsersAggregatedUsageMetric[]), [usageData, selectedPeriod, usageLoading]);
 
+  // Filter interactions based on search query
+  const filteredInteractions = useMemo(() => {
+    if (!interactionsData?.interactions || !searchQuery.trim()) {
+      return interactionsData?.interactions || [];
+    }
+
+    const query = searchQuery.trim().toLowerCase();
+    
+    if (query.startsWith('ses_')) {
+      // Filter by session ID
+      const sessionId = query.substring(4); // Remove 'ses_' prefix
+      return interactionsData.interactions.filter(interaction => 
+        interaction.session_id?.toLowerCase().includes(sessionId)
+      );
+    } else if (query.startsWith('int_')) {
+      // Filter by interaction ID
+      const interactionId = query.substring(4); // Remove 'int_' prefix
+      return interactionsData.interactions.filter(interaction => 
+        interaction.id?.toLowerCase().includes(interactionId)
+      );
+    } else {
+      // General search across session_id, interaction.id, and prompt_message
+      return interactionsData.interactions.filter(interaction => 
+        interaction.session_id?.toLowerCase().includes(query) ||
+        interaction.id?.toLowerCase().includes(query) ||
+        interaction.prompt_message?.toLowerCase().includes(query)
+      );
+    }
+  }, [interactionsData?.interactions, searchQuery]);
+
   const handleOpenLLMCallDialog = (call: TypesLLMCall) => {
     setSelectedLLMCall(call);
     setLlmCallDialogOpen(true);
@@ -320,13 +354,38 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
             size={16} 
             style={{ 
               animation: 'spin 1s linear infinite',
-              color: '#1976d2'
+              color: theme.palette.secondary.main
             }} 
           />
-          <span>waiting</span>
+          <span>Running</span>
         </Box>
       );
     }
+
+    // If completed, show green checkmark
+    if (state === 'complete') {
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <CircleCheck
+            size={16}
+          />
+          <span>Completed</span>
+        </Box>
+      );
+    }
+
+    if (state === 'error') {
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <OctagonX
+            size={16}
+          />
+          <span>Error</span>
+        </Box>
+      );
+    }
+
+
     return state || 'unknown';
   };
 
@@ -439,7 +498,42 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
 
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2,  mr: 2 }}>
         <Typography variant="h6">Agent Interactions</Typography>        
+        <TextField
+          variant="outlined"
+          size="small"
+          placeholder="Session or interaction ID"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <Search size={16} />
+              </InputAdornment>
+            ),
+          }}
+          sx={{
+            width: 300,
+            '& .MuiOutlinedInput-root': {
+              bgcolor: 'rgba(0, 0, 0, 0.2)',
+              borderRadius: 1,
+              '& fieldset': { border: 'none' },
+              '&:hover fieldset': { border: 'none' },
+              '&.Mui-focused fieldset': { border: 'none' },
+            },
+            '& .MuiInputBase-input': {
+              color: 'white',
+              fontSize: '0.875rem',
+            },
+          }}
+        />
       </Box>
+      {searchQuery.trim() && (
+        <Box sx={{ px: 2, mb: 1 }}>
+          <Typography variant="caption" color="text.secondary">
+            Showing {filteredInteractions.length} of {interactionsData?.interactions?.length || 0} interactions
+          </Typography>
+        </Box>
+      )}
       <TableContainer sx={{ mt: 2, mr: 2 }}>
         <Table stickyHeader aria-label="Interactions table">
           <TableHead>
@@ -456,7 +550,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                 <TableCell colSpan={4}>LLM call logging is disabled by the administrator.</TableCell>
               </TableRow>
             ) : (
-              interactionsData.interactions?.map((interaction) => (
+              filteredInteractions.map((interaction) => (
                 <React.Fragment key={interaction.id}>
                   <TableRow 
                     sx={{
@@ -532,7 +626,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
       <TablePagination
         rowsPerPageOptions={[10, 25, 100]}
         component="div"
-        count={interactionsData.totalCount || 0}
+        count={searchQuery.trim() ? filteredInteractions.length : (interactionsData.totalCount || 0)}
         rowsPerPage={rowsPerPage}
         page={page}
         onPageChange={handleChangePage}
