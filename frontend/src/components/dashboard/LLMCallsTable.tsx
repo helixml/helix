@@ -19,39 +19,21 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import useApi from '../../hooks/useApi';
 import { TypesPaginatedLLMCalls, TypesLLMCall } from '../../api/api';
 import JsonView from '../widgets/JsonView';
+import { useListLLMCalls } from '../../services/llmCallsService';
 
 interface LLMCallsTableProps {
   sessionFilter: string;
 }
 
 const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
-  const api = useApi();
-  const [llmCalls, setLLMCalls] = useState<TypesPaginatedLLMCalls | null>(null);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [modalContent, setModalContent] = useState<any>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
+  const { data: llmCalls, isLoading, error, refetch } = useListLLMCalls(sessionFilter, "", page, rowsPerPage, true);
+
   const win = (window as any)
-
-  const fetchLLMCalls = async () => {
-    try {
-      const queryParams = new URLSearchParams({
-        page: (page + 1).toString(),
-        pageSize: rowsPerPage.toString(),
-        sessionFilter: sessionFilter,
-      }).toString();
-
-      const data = await api.get<TypesPaginatedLLMCalls>(`/api/v1/llm_calls?${queryParams}`);
-      setLLMCalls(data);
-    } catch (error) {
-      console.error('Error fetching LLM calls:', error);
-    }
-  };
-
-  useEffect(() => {
-    fetchLLMCalls();
-  }, [page, rowsPerPage, sessionFilter]);
 
   const handleChangePage = (event: unknown, newPage: number) => {
     setPage(newPage);
@@ -63,7 +45,7 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
   };
 
   const handleRefresh = () => {
-    fetchLLMCalls();
+    refetch();
   };
 
   const handleOpenModal = (content: any) => {
