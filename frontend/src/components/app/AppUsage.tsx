@@ -42,54 +42,6 @@ import { useGetAppUsage } from '../../services/appService';
 import { useListAppInteractions } from '../../services/interactionsService';
 import { useListAppLLMCalls } from '../../services/llmCallsService';
 
-// Add TokenUsageIcon component
-const TokenUsageIcon = ({ promptTokens }: { promptTokens: number }) => {
-  const getBars = () => {
-    if (promptTokens < 100) {
-      // Blue for low usage
-      return (
-        <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
-          <Box sx={{ width: 3, height: 8, bgcolor: 'info.main' }} />
-        </Box>
-      )
-    } else if (promptTokens < 2000) {
-      // Green for moderate usage
-      return (
-        <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
-          <Box sx={{ width: 3, height: 8, bgcolor: 'success.main' }} />
-          <Box sx={{ width: 3, height: 12, bgcolor: 'success.main' }} />
-        </Box>
-      )
-    } else if (promptTokens < 10000) {
-      // Yellow warning for high usage
-      return (
-        <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
-          <Box sx={{ width: 3, height: 8, bgcolor: 'warning.main' }} />
-          <Box sx={{ width: 3, height: 12, bgcolor: 'warning.main' }} />
-          <Box sx={{ width: 3, height: 16, bgcolor: 'warning.main' }} />
-        </Box>
-      )
-    } else {
-      // Red for very high usage
-      return (
-        <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
-          {/* <Box sx={{ width: 3, height: 8, bgcolor: 'error.main' }} /> */}
-          <Box sx={{ width: 3, height: 12, bgcolor: 'error.main' }} />
-          <Box sx={{ width: 3, height: 16, bgcolor: 'error.main' }} />
-          <Box sx={{ width: 3, height: 20, bgcolor: 'error.main' }} />
-        </Box>
-      )
-    }
-  }
-
-  // Add a fixed width and center the bars
-  return (
-    <Box sx={{ width: 32, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-      {getBars()}
-    </Box>
-  )
-}
-
 interface AppLogsTableProps {
   appId: string;
 }
@@ -97,19 +49,6 @@ interface AppLogsTableProps {
 type PeriodType = '1d' | '7d' | '1m' | '6m';
 
 const win = (window as any)
-
-const formatDuration = (ms: number): string => {
-  if (ms < 1000) {
-    return `${ms}ms`;
-  }
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) {
-    return `${seconds}s`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return `${minutes}m ${remainingSeconds}s`;
-};
 
 const getDateRange = (period: PeriodType): { from: string; to: string } => {
   const now = new Date();
@@ -137,18 +76,7 @@ const getDateRange = (period: PeriodType): { from: string; to: string } => {
   };
 };
 
-const getPeriodLabel = (period: PeriodType): string => {
-  switch (period) {
-    case '1d': return '1 day';
-    case '7d': return '7 days';
-    case '1m': return '1 month';
-    case '6m': return '6 months';
-  }
-};
-
 const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
-  const api = useApi();  
-  const account = useAccount();
   const theme = useTheme();
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(100);
@@ -178,22 +106,6 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
     dateRange.from,
     dateRange.to
   );
-
-  const parseRequest = (request: any): any => {
-    try {
-      if (typeof request === 'string') {
-        return JSON.parse(request);
-      }
-      return request;
-    } catch (e) {
-      return request;
-    }
-  };
-
-  const getReasoningEffort = (request: any): string => {
-    const parsed = parseRequest(request);
-    return parsed?.reasoning_effort || 'n/a';
-  };
 
   const handleChangePage = (event: unknown, newPage: number) => {
     setPage(newPage);
