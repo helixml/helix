@@ -802,6 +802,7 @@ export enum TypesImageURLDetail {
 }
 
 export interface TypesInteraction {
+  app_id?: string;
   completed?: string;
   created?: string;
   /** if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context) */
@@ -1271,6 +1272,14 @@ export enum TypesOwnerType {
   OwnerTypeSystem = "system",
   OwnerTypeSocket = "socket",
   OwnerTypeOrg = "org",
+}
+
+export interface TypesPaginatedInteractions {
+  interactions?: TypesInteraction[];
+  page?: number;
+  pageSize?: number;
+  totalCount?: number;
+  totalPages?: number;
 }
 
 export interface TypesPaginatedLLMCalls {
@@ -2433,6 +2442,38 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description List interactions with pagination and optional session filtering for a specific app
+     *
+     * @tags interactions
+     * @name V1AppsInteractionsDetail
+     * @summary List interactions
+     * @request GET:/api/v1/apps/{id}/interactions
+     * @secure
+     */
+    v1AppsInteractionsDetail: (
+      id: string,
+      query?: {
+        /** Page number */
+        page?: number;
+        /** Page size */
+        pageSize?: number;
+        /** Filter by session ID */
+        session?: string;
+        /** Filter by interaction ID */
+        interaction?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPaginatedInteractions, any>({
+        path: `/api/v1/apps/${id}/interactions`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List user's LLM calls with pagination and optional session filtering for a specific app
      *
      * @tags llm_calls
@@ -2449,7 +2490,9 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         /** Page size */
         pageSize?: number;
         /** Filter by session ID */
-        sessionFilter?: string;
+        session?: string;
+        /** Filter by interaction ID */
+        interaction?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -2947,7 +2990,9 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         /** Page size */
         pageSize?: number;
         /** Filter by session ID */
-        sessionFilter?: string;
+        session?: string;
+        /** Filter by interaction ID */
+        interaction?: string;
       },
       params: RequestParams = {},
     ) =>
@@ -3670,6 +3715,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/sessions/${id}`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List interactions for a session
+     *
+     * @tags interactions
+     * @name V1SessionsInteractionsDetail
+     * @summary List interactions for a session
+     * @request GET:/api/v1/sessions/{id}/interactions
+     * @secure
+     */
+    v1SessionsInteractionsDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesInteraction[], any>({
+        path: `/api/v1/sessions/${id}/interactions`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get an interaction by ID
+     *
+     * @tags interactions
+     * @name V1SessionsInteractionsDetail2
+     * @summary Get an interaction by ID
+     * @request GET:/api/v1/sessions/{id}/interactions/{interaction_id}
+     * @originalName v1SessionsInteractionsDetail
+     * @duplicate
+     * @secure
+     */
+    v1SessionsInteractionsDetail2: (id: string, interactionId: string, params: RequestParams = {}) =>
+      this.request<TypesInteraction, any>({
+        path: `/api/v1/sessions/${id}/interactions/${interactionId}`,
+        method: "GET",
+        secure: true,
+        format: "json",
         ...params,
       }),
 
