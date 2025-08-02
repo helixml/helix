@@ -116,25 +116,31 @@ func (s *PostgresStore) DeleteInteraction(ctx context.Context, interactionID str
 	return nil
 }
 
-func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, error) {
+func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
 	db := s.gdb.WithContext(ctx)
 
 	q := db.Model(&types.Interaction{})
+
+	if query.PerPage == 0 {
+		query.PerPage = -1
+	}
+
+	offset := (query.Page - 1) * query.PerPage
 
 	if query.SessionID != "" {
 		q = q.Where("session_id = ?", query.SessionID)
 	}
 
+	if query.AppID != "" {
+		q = q.Where("app_id = ?", query.AppID)
+	}
+
+	if query.InteractionID != "" {
+		q = q.Where("id = ?", query.InteractionID)
+	}
+
 	if query.UserID != "" {
 		q = q.Where("user_id = ?", query.UserID)
-	}
-
-	if query.Limit > 0 {
-		q = q.Limit(query.Limit)
-	}
-
-	if query.Offset > 0 {
-		q = q.Offset(query.Offset)
 	}
 
 	if query.GenerationID > 0 {
@@ -145,12 +151,19 @@ func (s *PostgresStore) ListInteractions(ctx context.Context, query *types.ListI
 		query.Order = "id ASC"
 	}
 
-	var interactions []*types.Interaction
-	// Oldest to newest
-	err := q.Order(query.Order).Find(&interactions).Error
+	totalCount := int64(0)
+
+	err := q.Count(&totalCount).Error
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return interactions, nil
+	var interactions []*types.Interaction
+	// Oldest to newest
+	err = q.Order(query.Order).Offset(offset).Limit(query.PerPage).Find(&interactions).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return interactions, totalCount, nil
 }
