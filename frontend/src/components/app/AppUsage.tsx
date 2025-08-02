@@ -41,6 +41,7 @@ import InteractionDialog from './InteractionDialog';
 import { useGetAppUsage } from '../../services/appService';
 import { useListAppInteractions } from '../../services/interactionsService';
 import { useListAppLLMCalls } from '../../services/llmCallsService';
+import { useListAppSteps } from '../../services/appService';
 
 interface AppLogsTableProps {
   appId: string;
@@ -159,9 +160,6 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
 
   // Prepare data for the line chart
   const prepareChartData = (usageData: TypesUsersAggregatedUsageMetric[]) => {
-    console.log('prepareChartData')
-    console.log(usageData)
-
     if (usageLoading) return { xAxis: [], series: [] };
 
     if (!usageData || !Array.isArray(usageData) || usageData.length === 0) return { xAxis: [], series: [] };
@@ -612,6 +610,11 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
     interaction.id ? true : false, // enabled only when we have an interaction ID
     interaction.state === TypesInteractionState.InteractionStateWaiting ? 3000 : undefined // If interaction is in waiting state, keep refetching every 5 seconds
   );
+
+  // Just refreshing the steps to get the latest step info
+  useListAppSteps(appId, interaction.id || '', {
+    refetchInterval: interaction.state === TypesInteractionState.InteractionStateWaiting ? 3000 : undefined
+  });
 
   const parseRequest = (request: any): any => {
     try {

@@ -198,20 +198,7 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 
 	// Check for duplicate skills in tool calls
 	if len(completion.Choices[0].Message.ToolCalls) > 1 {
-		// Create a map to track seen skill names
-		seenSkills := make(map[string]bool)
-		var uniqueToolCalls []openai.ToolCall
-
-		// Keep only the first occurrence of each skill
-		for _, toolCall := range completion.Choices[0].Message.ToolCalls {
-			skillName := toolCall.Function.Name
-			if !seenSkills[skillName] {
-				seenSkills[skillName] = true
-				uniqueToolCalls = append(uniqueToolCalls, toolCall)
-			} else {
-				log.Warn().Str("skill", skillName).Msg("Removing duplicate skill from completion")
-			}
-		}
+		uniqueToolCalls := getUniqueToolCalls(completion.Choices[0].Message.ToolCalls)
 
 		// If duplicates were found, update the tool calls in the completion object
 		if len(uniqueToolCalls) < len(completion.Choices[0].Message.ToolCalls) {
