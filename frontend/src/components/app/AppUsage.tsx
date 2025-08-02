@@ -92,6 +92,26 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   // Load interactions at the top level
   const { data: interactionsData, isLoading: interactionsLoading, refetch: refetchInteractions } = useListAppInteractions(appId, '', '', page + 1, rowsPerPage);
 
+  // Auto-reload logic for waiting interactions
+  useEffect(() => {
+    if (!interactionsData?.interactions) return;
+
+    // Check if there are any interactions in "waiting" state
+    const hasWaitingInteractions = interactionsData.interactions.some(
+      interaction => interaction.state === 'waiting'
+    );
+
+    if (hasWaitingInteractions) {
+      // Set up interval to reload every 5 seconds
+      const interval = setInterval(() => {
+        refetchInteractions();
+      }, 5000);
+
+      // Cleanup interval on unmount or when no more waiting interactions
+      return () => clearInterval(interval);
+    }
+  }, [interactionsData?.interactions, refetchInteractions]);
+
   const headerCellStyle = {
     bgcolor: 'rgba(0, 0, 0, 0.2)',
     backdropFilter: 'blur(10px)'
