@@ -17,7 +17,8 @@ import (
 // @Produce json
 // @Param   page          query    int     false  "Page number"
 // @Param   pageSize      query    int     false  "Page size"
-// @Param   sessionFilter query    string  false  "Filter by session ID"
+// @Param   session       query    string  false  "Filter by session ID"
+// @Param   interaction   query    string  false  "Filter by interaction ID"
 // @Success 200 {object} types.PaginatedLLMCalls
 // @Router /api/v1/llm_calls [get]
 // @Security BearerAuth
@@ -33,13 +34,15 @@ func (s *HelixAPIServer) listLLMCalls(_ http.ResponseWriter, r *http.Request) (*
 		pageSize = 10 // Default page size
 	}
 
-	sessionFilter := r.URL.Query().Get("sessionFilter")
+	sessionFilter := r.URL.Query().Get("session")
+	interactionFilter := r.URL.Query().Get("interaction")
 
 	// Call the ListLLMCalls function from the store with the session filter
 	calls, totalCount, err := s.Store.ListLLMCalls(r.Context(), &store.ListLLMCallsQuery{
 		Page:          page,
 		PerPage:       pageSize,
-		SessionFilter: sessionFilter,
+		SessionID:     sessionFilter,
+		InteractionID: interactionFilter,
 		AppID:         r.URL.Query().Get("appId"),
 	})
 	if err != nil {
@@ -68,7 +71,8 @@ func (s *HelixAPIServer) listLLMCalls(_ http.ResponseWriter, r *http.Request) (*
 // @Produce json
 // @Param   page          query    int     false  "Page number"
 // @Param   pageSize      query    int     false  "Page size"
-// @Param   sessionFilter query    string  false  "Filter by session ID"
+// @Param   session       query    string  false  "Filter by session ID"
+// @Param   interaction   query    string  false  "Filter by interaction ID"
 // @Success 200 {object} types.PaginatedLLMCalls
 // @Router /api/v1/apps/{id}/llm-calls [get]
 // @Security BearerAuth
@@ -106,13 +110,15 @@ func (s *HelixAPIServer) listAppLLMCalls(_ http.ResponseWriter, r *http.Request)
 		pageSize = 10 // Default page size
 	}
 
-	sessionFilter := r.URL.Query().Get("sessionFilter")
+	sessionFilter := r.URL.Query().Get("session")
+	interactionFilter := r.URL.Query().Get("interaction")
 
 	// Call the ListLLMCalls function from the store with the session filter
 	calls, totalCount, err := s.Store.ListLLMCalls(r.Context(), &store.ListLLMCallsQuery{
 		Page:          page,
 		PerPage:       pageSize,
-		SessionFilter: sessionFilter,
+		SessionID:     sessionFilter,
+		InteractionID: interactionFilter,
 		AppID:         appID,
 		UserID:        user.ID,
 	})
@@ -130,6 +136,79 @@ func (s *HelixAPIServer) listAppLLMCalls(_ http.ResponseWriter, r *http.Request)
 		PageSize:   pageSize,
 		TotalCount: totalCount,
 		TotalPages: totalPages,
+	}
+
+	return response, nil
+}
+
+// listAppInteractions godoc
+// @Summary List interactions
+// @Description List interactions with pagination and optional session filtering for a specific app
+// @Tags    interactions
+// @Produce json
+// @Param   page          query    int     false  "Page number"
+// @Param   pageSize      query    int     false  "Page size"
+// @Param   session       query    string  false  "Filter by session ID"
+// @Param   interaction   query    string  false  "Filter by interaction ID"
+// @Success 200 {object} types.PaginatedInteractions
+// @Router /api/v1/apps/{id}/interactions [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) listAppInteractions(_ http.ResponseWriter, r *http.Request) (*types.PaginatedInteractions, *system.HTTPError) {
+	appID := getID(r)
+	user := getRequestUser(r)
+
+	app, err := s.Store.GetApp(r.Context(), appID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	if app.OrganizationID != "" {
+		_, err := s.authorizeOrgMember(r.Context(), user, app.OrganizationID)
+		if err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+	} else {
+		if app.Owner != user.ID && !isAdmin(user) {
+			return nil, system.NewHTTPError403("you do not have permission to view this app's LLM calls")
+		}
+	}
+
+	// Parse query parameters
+	page, err := strconv.Atoi(r.URL.Query().Get("page"))
+	if err != nil || page < 1 {
+		page = 1
+	}
+
+	pageSize, err := strconv.Atoi(r.URL.Query().Get("pageSize"))
+	if err != nil || pageSize < 1 {
+		pageSize = 10 // Default page size
+	}
+
+	sessionID := r.URL.Query().Get("session")
+
+	// Call the ListLLMCalls function from the store with the session filter
+	interactions, totalCount, err := s.Store.ListInteractions(r.Context(), &types.ListInteractionsQuery{
+		Page:      page,
+		PerPage:   pageSize,
+		SessionID: sessionID,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// Calculate total pages
+	totalPages := (int(totalCount) + pageSize - 1) / pageSize
+
+	// Prepare the response
+	response := &types.PaginatedInteractions{
+		Interactions: interactions,
+		Page:         page,
+		PageSize:     pageSize,
+		TotalCount:   totalCount,
+		TotalPages:   totalPages,
 	}
 
 	return response, nil

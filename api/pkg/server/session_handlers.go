@@ -195,7 +195,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		}
 
 		// Load interactions for the session
-		interactions, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 			SessionID:    session.ID,
 			GenerationID: session.GenerationID,
 		})

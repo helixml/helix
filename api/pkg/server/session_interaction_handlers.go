@@ -32,7 +32,7 @@ func (s *HelixAPIServer) listInteractions(_ http.ResponseWriter, req *http.Reque
 		return nil, system.NewHTTPError403("you are not allowed to access this session")
 	}
 
-	interactions, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+	interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    id,
 		GenerationID: session.GenerationID,
 	})
