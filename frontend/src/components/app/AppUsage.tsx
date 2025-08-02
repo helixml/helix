@@ -30,7 +30,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 // import SearchIcon from '@mui/icons-material/Search';
 import { CircleCheck, Cog, OctagonX, Search, ExternalLink, Eye } from 'lucide-react';
 import useApi from '../../hooks/useApi';
-import { TypesLLMCall, TypesInteraction } from '../../api/api';
+import { TypesLLMCall, TypesInteraction, TypesInteractionState } from '../../api/api';
 import { LineChart } from '@mui/x-charts';
 import { TypesUsersAggregatedUsageMetric, TypesAggregatedUsageMetric } from '../../api/api';
 import useAccount from '../../hooks/useAccount';
@@ -609,7 +609,8 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
     interaction.id || '',
     1, // page    
     100, // pageSize
-    interaction.id ? true : false // enabled only when we have an interaction ID
+    interaction.id ? true : false, // enabled only when we have an interaction ID
+    interaction.state === TypesInteractionState.InteractionStateWaiting ? 3000 : undefined // If interaction is in waiting state, keep refetching every 5 seconds
   );
 
   const parseRequest = (request: any): any => {
