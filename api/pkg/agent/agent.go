@@ -307,6 +307,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		finalCompletion       *openai.ChatCompletionResponse
 		hasStopTool           bool
 		callSummarizer        bool
+		hasDirectSkill        bool
 	)
 
 	if len(a.skills) == 0 {
@@ -372,6 +373,12 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 			if err != nil {
 				log.Error().Err(err).Msg("Error getting skill")
 				continue
+			}
+
+			// If we have a direct skill, we will need to call the summarizer as the responses
+			// are direct from tools such as browser, calculator, etc.
+			if skill.Direct {
+				hasDirectSkill = true
 			}
 
 			wg.Add(1)
@@ -443,7 +450,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 	}
 
 	// Handle final results based on the callSummarizer parameter from the stop tool or if multiple skills were called
-	if callSummarizer || len(finalSkillCallResults) > 1 {
+	if callSummarizer || hasDirectSkill || len(finalSkillCallResults) > 1 {
 		// If callSummarizer is true, summarize the results
 		summary, err := a.summarizeMultipleToolResults(ctx, messageHistory.Clone(), llm)
 		if err != nil {
