@@ -5,7 +5,7 @@ import LoadingSpinner from '../widgets/LoadingSpinner'
 import useLiveInteraction from '../../hooks/useLiveInteraction'
 import Markdown from './Markdown'
 import { IServerConfig } from '../../types'
-import { TypesInteraction, TypesSession } from '../../api/api'
+import { TypesInteraction, TypesInteractionState, TypesSession } from '../../api/api'
 import ToolStepsWidget from './ToolStepsWidget'
 
 export const InteractionLiveStream: FC<{
@@ -42,8 +42,8 @@ export const InteractionLiveStream: FC<{
 
     // Memoize values that don't change frequently to prevent unnecessary re-renders
     const showLoading = useMemo(() => 
-      !message && !status && stepInfos.length === 0,
-      [message, status, stepInfos.length]
+      !message && interaction.state === TypesInteractionState.InteractionStateWaiting,
+      [message, status]
     );
 
     // Memoize the useClientURL function
@@ -99,15 +99,15 @@ export const InteractionLiveStream: FC<{
     if (!serverConfig || !serverConfig.filestore_prefix) return null
 
     return (
-      <>
-        {showLoading && <LoadingSpinner />}
-
+      <>        
         {stepInfos.length > 0 && (
           <ToolStepsWidget 
             steps={toolSteps} 
             isLiveStreaming={isActivelyStreaming}
           />
         )}
+
+        {showLoading && <LoadingSpinner />}
 
         {message && (
           <div>
