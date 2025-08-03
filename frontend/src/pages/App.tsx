@@ -238,7 +238,12 @@ const App: FC = () => {
                           )}
 
                           {tabValue === 'settings' && appTools.flatApp && (
-                            <Box sx={{ height: '100%', overflow: 'auto' }}>
+                            <Box sx={{ 
+                              height: 'calc(100vh - 200px)', 
+                              overflow: 'auto', 
+                              ...lightTheme.scrollbar,
+                              pb: 4
+                            }}>
                               <AppSettings
                                 id={appTools.id}
                                 app={appTools.flatApp}
