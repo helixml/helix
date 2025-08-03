@@ -432,19 +432,6 @@ func (c *Controller) UpdateSessionName(ctx context.Context, owner string, sessio
 		log.Printf("Error adding message: %s", err)
 		return err
 	}
-	session, err := c.Options.Store.GetSession(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-
-	event := &types.WebsocketEvent{
-		Type:      types.WebsocketEventSessionUpdate,
-		SessionID: sessionID,
-		Owner:     owner,
-		Session:   session,
-	}
-
-	_ = c.publishEvent(context.Background(), event)
 
 	return nil
 }
