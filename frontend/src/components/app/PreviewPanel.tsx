@@ -325,7 +325,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
         sx={{
           px: 2,
           position: 'relative',
-          zIndex: 2,
+          zIndex: 10,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'flex-start',
@@ -336,7 +336,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
       <Cell
         sx={{
           position: 'relative',
-          zIndex: 2,
+          zIndex: 10,
           display: 'flex',
           alignItems: 'center',
           gap: 2,
@@ -414,6 +414,8 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
             display: 'flex',            
             justifyContent: 'space-between',
             backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            position: 'relative',
+            zIndex: 10,
           }}
         >         
           <FormControlLabel
@@ -479,59 +481,78 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
           },
         }}
       >
-        <Container maxWidth="lg" sx={{ py: 2, width: '100%' }}>
-          {isSearchMode ? (
-            hasKnowledgeSources ? (
-              searchResults && searchResults.length > 0 ? (
-                searchResults.map((result, index) => (
-                  <Card key={index} sx={{ mb: 2, backgroundColor: 'rgba(0, 0, 0, 0.7)' }}>
-                    <CardContent>
-                      <Typography variant="h6" color="white">
-                        Knowledge: {result.knowledge.name}
-                      </Typography>
-                      <Typography variant="caption" color="rgba(255, 255, 255, 0.7)">
-                        Search completed in: {result.duration_ms}ms
-                      </Typography>
-                      {result.results.length > 0 ? (
-                        result.results.map((chunk, chunkIndex) => (
-                          <Tooltip title={chunk.content} arrow key={chunkIndex}>
-                            <Box
-                              sx={{
-                                mt: 1,
-                                p: 1,
-                                border: '1px solid rgba(255, 255, 255, 0.3)',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                '&:hover': {
-                                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                                },
-                              }}
-                              onClick={() => handleChunkClick(chunk)}
-                            >
-                              <Typography variant="body2" color="white">
-                                Source: {chunk.source}
-                                <br />
-                                Content: {chunk.content.substring(0, 50)}...
-                              </Typography>
-                            </Box>
-                          </Tooltip>
-                        ))
-                      ) : (
-                        <Typography variant="body2" color="white">
-                          No matches found for this query.
+        {!isSearchMode && session ? (
+          <Box
+            sx={{
+              height: '100%',
+              minHeight: '500px',
+              maxHeight: '100%',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              position: 'relative',
+              ml: 4,
+            }}
+          >
+            <Session 
+              previewMode={true}
+            />
+          </Box>
+        ) : (
+          <Container maxWidth="lg" sx={{ py: 2, width: '100%' }}>
+            {isSearchMode ? (
+              hasKnowledgeSources ? (
+                searchResults && searchResults.length > 0 ? (
+                  searchResults.map((result, index) => (
+                    <Card key={index} sx={{ mb: 2, backgroundColor: 'rgba(0, 0, 0, 0.7)' }}>
+                      <CardContent>
+                        <Typography variant="h6" color="white">
+                          Knowledge: {result.knowledge.name}
                         </Typography>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))
+                        <Typography variant="caption" color="rgba(255, 255, 255, 0.7)">
+                          Search completed in: {result.duration_ms}ms
+                        </Typography>
+                        {result.results.length > 0 ? (
+                          result.results.map((chunk, chunkIndex) => (
+                            <Tooltip title={chunk.content} arrow key={chunkIndex}>
+                              <Box
+                                sx={{
+                                  mt: 1,
+                                  p: 1,
+                                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  '&:hover': {
+                                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                  },
+                                }}
+                                onClick={() => handleChunkClick(chunk)}
+                              >
+                                <Typography variant="body2" color="white">
+                                  Source: {chunk.source}
+                                  <br />
+                                  Content: {chunk.content.substring(0, 50)}...
+                                </Typography>
+                              </Box>
+                            </Tooltip>
+                          ))
+                        ) : (
+                          <Typography variant="body2" color="white">
+                            No matches found for this query.
+                          </Typography>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))
+                ) : (
+                  <Typography variant="body1" color="white">No search results found.</Typography>
+                )
               ) : (
-                <Typography variant="body1" color="white">No search results found.</Typography>
+                <Typography variant="body1" color="white">Add one or more knowledge sources to start searching.</Typography>
               )
-            ) : (
-              <Typography variant="body1" color="white">Add one or more knowledge sources to start searching.</Typography>
-            )
-          ) : (< ></>)}
-        </Container>
+            ) : null}
+          </Container>
+        )}
       </Box>
 
       {/* Bottom Input Section - Similar to CreateContent */}
@@ -557,23 +578,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
                       gap: 2,
                     }}
                   >
-                    {session ? (
-                      <Box
-                        sx={{
-                          height: '100%',
-                          minHeight: '500px',
-                          maxHeight: '100%',
-                          overflow: 'hidden',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          position: 'relative',
-                        }}
-                      >
-                        <Session 
-                          previewMode={true}
-                        />
-                      </Box>
-                    ) : (
+                    {!session && (
                     <>
                     {conversationStarters.length > 0 && (
                         <Box sx={{ width: '100%' }}>
