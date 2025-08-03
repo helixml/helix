@@ -147,6 +147,8 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 		MainAgentSystemPrompt: a.prompt,
 		MemoryBlocks:          memoryBlock.Parse(),
 		SkillFunctions:        skillFunctions,
+		MaxIterations:         a.maxIterations,
+		CurrentIteration:      iterationNumber,
 	}
 	systemPrompt, err := prompts.SkillSelectionPrompt(systemPromptData)
 	if err != nil {
