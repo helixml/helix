@@ -218,6 +218,13 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
+	// Initialize dynamic providers from environment variable
+	err = postgresStore.InitializeDynamicProviders(ctx, cfg.Providers.DynamicProviders)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to initialize dynamic providers, continuing with startup")
+		// Don't fail the entire startup if dynamic providers fail to initialize
+	}
+
 	// Reset any running executions
 	err = postgresStore.ResetRunningExecutions(ctx)
 	if err != nil {

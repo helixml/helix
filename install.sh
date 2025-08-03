@@ -39,6 +39,7 @@ PROXY=https://get.helixml.tech
 EXTRA_OLLAMA_MODELS=""
 HELIX_VERSION=""
 CLI_INSTALL_PATH="/usr/local/bin/helix"
+RAG_PGVECTOR_PROVIDER=""
 
 # Determine OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -93,6 +94,7 @@ Options:
   --openai-api-key <key>   Specify the OpenAI API key for any OpenAI compatible API
   --openai-base-url <url>  Specify the base URL for the OpenAI API
   --anthropic-api-key <key> Specify the Anthropic API key for Claude models
+  --rag-pgvector-provider <provider> Specify the provider for PGVector embeddings (openai, togetherai, vllm, helix)
   --older-gpu              Disable axolotl and sdxl models (which don't work on older GPUs) on the runner
   --hf-token <token>       Specify the Hugging Face token for downloading models
   -y                       Auto approve the installation
@@ -125,6 +127,9 @@ Examples:
 
 8. Install CLI and controlplane with OpenAI-compatible API key and base URL:
    ./install.sh --cli --controlplane --openai-api-key YOUR_OPENAI_API_KEY --openai-base-url YOUR_OPENAI_BASE_URL
+
+9. Install CLI and controlplane with custom RAG embeddings provider:
+   ./install.sh --cli --controlplane --rag-pgvector-provider helix
 
 EOF
 }
@@ -209,6 +214,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --anthropic-api-key)
             ANTHROPIC_API_KEY="$2"
+            shift 2
+            ;;
+        --rag-pgvector-provider=*)
+            RAG_PGVECTOR_PROVIDER="${1#*=}"
+            shift
+            ;;
+        --rag-pgvector-provider)
+            RAG_PGVECTOR_PROVIDER="$2"
             shift 2
             ;;
         --older-gpu)
@@ -701,6 +714,13 @@ EOF
     if [ -n "$ANTHROPIC_API_KEY" ]; then
         cat << EOF >> "$ENV_FILE"
 ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
+EOF
+    fi
+
+    # Add RAG PGVector provider configuration if specified
+    if [ -n "$RAG_PGVECTOR_PROVIDER" ]; then
+        cat << EOF >> "$ENV_FILE"
+RAG_PGVECTOR_PROVIDER=$RAG_PGVECTOR_PROVIDER
 EOF
     fi
 
