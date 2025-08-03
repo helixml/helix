@@ -13,11 +13,10 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
-// NewAPICallingSkill converts an API tool into a list of API calling tools for the
+// NewAPICallingSkillWithReasoning converts an API tool into a list of API calling tools for the
 // agent to use. It converts into a list of tools because the API tool can have multiple
 // actions (each API path is an action).
-// DEPRECATED: Use NewDirectAPICallingSkills for better agent orchestration
-func NewAPICallingSkill(planner tools.Planner, tool *types.Tool) agent.Skill {
+func NewAPICallingSkillWithReasoning(planner tools.Planner, tool *types.Tool) agent.Skill {
 	var skillTools []agent.Tool
 	for _, action := range tool.Config.API.Actions {
 		parameters, err := tools.GetParametersFromSchema(tool.Config.API.Schema, action.Name)

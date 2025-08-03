@@ -86,9 +86,10 @@ func (apiServer *HelixAPIServer) getSession(_ http.ResponseWriter, req *http.Req
 	}
 
 	// Load interactions
-	interactions, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+	interactions, _, err := apiServer.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    id,
 		GenerationID: session.GenerationID,
+		PerPage:      1000,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())

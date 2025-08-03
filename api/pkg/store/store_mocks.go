@@ -1523,12 +1523,13 @@ func (mr *MockStoreMockRecorder) ListDataEntities(ctx, q any) *gomock.Call {
 }
 
 // ListInteractions mocks base method.
-func (m *MockStore) ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, error) {
+func (m *MockStore) ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListInteractions", ctx, query)
 	ret0, _ := ret[0].([]*types.Interaction)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // ListInteractions indicates an expected call of ListInteractions.

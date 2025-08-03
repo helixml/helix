@@ -43,10 +43,10 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 		req.HistoryLimit = DefaultHistoryLimit
 	}
 
-	interactions, err := c.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+	interactions, _, err := c.Options.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    req.Session.ID,
 		GenerationID: req.Session.GenerationID,
-		Limit:        req.HistoryLimit,
+		PerPage:      req.HistoryLimit,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list interactions for session '%s': %w", req.Session.ID, err)
@@ -62,8 +62,9 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 
 	// Add the new message to the existing session
 	interaction := &types.Interaction{
-		ID:                   system.GenerateInteractionID(),
+		ID:                   interactionID,
 		GenerationID:         req.Session.GenerationID,
+		AppID:                req.App.ID,
 		Created:              time.Now(),
 		Updated:              time.Now(),
 		SessionID:            req.Session.ID,
@@ -110,6 +111,8 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 
 	ctx = oai.SetContextAppID(ctx, req.App.ID)
 
+	start := time.Now()
+
 	resp, _, err := c.ChatCompletion(ctx, req.User, request, &ChatCompletionOptions{
 		OrganizationID: req.Session.OrganizationID,
 		AppID:          req.App.ID,
@@ -119,6 +122,7 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 		interaction.Error = err.Error()
 		interaction.State = types.InteractionStateError
 		interaction.Completed = time.Now()
+		interaction.DurationMs = int(time.Since(start).Milliseconds())
 
 		updateErr := c.UpdateInteraction(ctx, req.Session, interaction)
 		if updateErr != nil {
@@ -136,6 +140,7 @@ func (c *Controller) RunBlockingSession(ctx context.Context, req *RunSessionRequ
 	interaction.ResponseMessage = resp.Choices[0].Message.Content
 	interaction.State = types.InteractionStateComplete
 	interaction.Completed = time.Now()
+	interaction.DurationMs = int(time.Since(start).Milliseconds())
 	interaction.Usage = types.Usage{
 		PromptTokens:     resp.Usage.PromptTokens,
 		CompletionTokens: resp.Usage.CompletionTokens,
@@ -418,7 +423,7 @@ func (c *Controller) WriteSession(ctx context.Context, session *types.Session) e
 	return nil
 }
 
-func (c *Controller) UpdateSessionName(ctx context.Context, owner string, sessionID, name string) error {
+func (c *Controller) UpdateSessionName(_ context.Context, _ string, sessionID, name string) error {
 	log.Trace().
 		Msgf("🔵 update session name: %s %+v", sessionID, name)
 
@@ -427,38 +432,9 @@ func (c *Controller) UpdateSessionName(ctx context.Context, owner string, sessio
 		log.Printf("Error adding message: %s", err)
 		return err
 	}
-	session, err := c.Options.Store.GetSession(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-
-	event := &types.WebsocketEvent{
-		Type:      types.WebsocketEventSessionUpdate,
-		SessionID: sessionID,
-		Owner:     owner,
-		Session:   session,
-	}
-
-	_ = c.publishEvent(context.Background(), event)
 
 	return nil
 }
-
-// func (c *Controller) WriteInteraction(ctx context.Context, session *types.Session, newInteraction *types.Interaction) *types.Session {
-// 	newInteractions := []*types.Interaction{}
-// 	for _, interaction := range session.Interactions {
-// 		if interaction.ID == newInteraction.ID {
-// 			newInteractions = append(newInteractions, newInteraction)
-// 		} else {
-// 			newInteractions = append(newInteractions, interaction)
-// 		}
-// 	}
-// 	session.Interactions = newInteractions
-// 	if err := c.WriteSession(ctx, session); err != nil {
-// 		log.Printf("failed to write interaction session: %v", err)
-// 	}
-// 	return session
-// }
 
 func (c *Controller) BroadcastProgress(
 	ctx context.Context,

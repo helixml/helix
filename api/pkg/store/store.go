@@ -169,7 +169,7 @@ type Store interface {
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
 
 	// interactions
-	ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, error)
+	ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error)
 	CreateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
 	CreateInteractions(ctx context.Context, interactions ...*types.Interaction) error
 	GetInteraction(ctx context.Context, id string) (*types.Interaction, error)

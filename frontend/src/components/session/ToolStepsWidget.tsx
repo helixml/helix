@@ -9,11 +9,12 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogActions from '@mui/material/DialogActions'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
-import SettingsIcon from '@mui/icons-material/Settings'
+
 import AltRouteIcon from '@mui/icons-material/AltRoute'
 import SchoolIcon from '@mui/icons-material/School'
 import CloseIcon from '@mui/icons-material/Close'
 import * as Icons from '@mui/icons-material'
+import { Cog } from 'lucide-react'
 
 // Add spinning animation
 const spin = keyframes`
@@ -133,13 +134,13 @@ export const ToolStepsWidget: FC<ToolStepsWidgetProps> = ({ steps, isLiveStreami
       case 'SchoolIcon':
         return <SchoolIcon sx={{ fontSize: 20 }} />
       case 'SettingsIcon':
-        return <SettingsIcon sx={{ fontSize: 20 }} />
+        return <Cog size={20} />
       case 'AltRouteIcon':
         return <AltRouteIcon sx={{ fontSize: 20 }} />      
     }
 
     // If it's not a valid MaterialUI icon, use the default
-    return <SettingsIcon sx={{ fontSize: 20 }} />
+    return <Cog size={20} />
   }
 
   const getStepTooltip = (step: ToolStep) => {
