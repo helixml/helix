@@ -646,7 +646,7 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
   };
 
   // TokenUsageIcon component (reused from parent)
-  const TokenUsageIcon = ({ promptTokens }: { promptTokens: number }) => {
+  const TokenUsageIcon = ({ promptTokens, completionTokens }: { promptTokens: number, completionTokens: number }) => {
     const getBars = () => {
       if (promptTokens < 100) {
         return (
@@ -789,9 +789,24 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
                   <TableCell>{call.created ? new Date(call.created).toLocaleString() : ''}</TableCell>
                   <TableCell>{call.step || 'n/a'}</TableCell>
                   <TableCell>
-                    <Tooltip title={`${call.prompt_tokens || 0} prompt tokens`}>
+                    <Tooltip 
+                      title={
+                        <div style={{ minWidth: '200px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Prompt tokens:</span>
+                            <span>{call.prompt_tokens || 0}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Completion tokens:</span>
+                            <span>{call.completion_tokens || 0}</span>
+                          </div>
+                        </div>
+                      }
+                      
+                      slotProps={{ tooltip: { sx: { bgcolor: '#222', opacity: 1 } } }}
+                    >
                       <span>
-                        <TokenUsageIcon promptTokens={call.prompt_tokens || 0} />
+                        <TokenUsageIcon promptTokens={call.prompt_tokens || 0} completionTokens={call.completion_tokens || 0} />
                       </span>
                     </Tooltip>
                   </TableCell>
