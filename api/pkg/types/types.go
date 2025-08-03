@@ -30,6 +30,7 @@ type Interaction struct {
 
 	Mode SessionMode `json:"mode"`
 
+	AppID     string `json:"app_id" gorm:"index"`
 	SessionID string `json:"session_id" gorm:"index"`
 	UserID    string `json:"user_id" gorm:"index"`
 
@@ -130,25 +131,15 @@ func (i *Interaction) ToOpenAIAssistantMessage() (openai.ChatCompletionMessage, 
 }
 
 type ListInteractionsQuery struct {
-	SessionID    string
-	UserID       string
-	GenerationID int // Use -1 to get all generations for a session
-	Limit        int
-	Offset       int
-	Order        string // Defaults to ID ASC
+	AppID         string
+	SessionID     string
+	InteractionID string
+	UserID        string
+	GenerationID  int // Use -1 to get all generations for a session
+	Page          int
+	PerPage       int
+	Order         string // Defaults to ID ASC
 }
-
-// func (i *Interaction) GetPrompt() string {
-// 	if len(i.PromptMessageContent.Parts) == 0 {
-// 		return ""
-// 	}
-
-// 	return i.PromptMessageContent.Parts[0].(string)
-// }
-
-// func (i *Interaction) SetResponse(resp *RunnerTaskResponse) {
-
-// }
 
 // GetMessageMultiContentPart - probably specifically for PromptContent
 func (i *Interaction) GetMessageMultiContentPart() []openai.ChatMessagePart {
@@ -1052,6 +1043,14 @@ type PaginatedLLMCalls struct {
 	PageSize   int        `json:"pageSize"`
 	TotalCount int64      `json:"totalCount"`
 	TotalPages int        `json:"totalPages"`
+}
+
+type PaginatedInteractions struct {
+	Interactions []*Interaction `json:"interactions"`
+	Page         int            `json:"page"`
+	PageSize     int            `json:"pageSize"`
+	TotalCount   int64          `json:"totalCount"`
+	TotalPages   int            `json:"totalPages"`
 }
 
 type ToolType string

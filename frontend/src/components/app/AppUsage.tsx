@@ -18,6 +18,8 @@ import {
   useTheme,
   ToggleButton,
   ToggleButtonGroup,
+  TextField,
+  InputAdornment,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
@@ -25,95 +27,29 @@ import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import WarningIcon from '@mui/icons-material/Warning';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+// import SearchIcon from '@mui/icons-material/Search';
+import { CircleCheck, Cog, OctagonX, Search, ExternalLink, Eye } from 'lucide-react';
 import useApi from '../../hooks/useApi';
-import { TypesPaginatedLLMCalls, TypesLLMCall } from '../../api/api';
+import { TypesLLMCall, TypesInteraction, TypesInteractionState } from '../../api/api';
 import { LineChart } from '@mui/x-charts';
 import { TypesUsersAggregatedUsageMetric, TypesAggregatedUsageMetric } from '../../api/api';
 import useAccount from '../../hooks/useAccount';
 import LLMCallTimelineChart from './LLMCallTimelineChart';
 import LLMCallDialog from './LLMCallDialog';
+import InteractionDialog from './InteractionDialog';
+
 import { useGetAppUsage } from '../../services/appService';
-
-// Add TokenUsageIcon component
-const TokenUsageIcon = ({ promptTokens }: { promptTokens: number }) => {
-  const getBars = () => {
-    if (promptTokens < 100) {
-      // Blue for low usage
-      return (
-        <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
-          <Box sx={{ width: 3, height: 8, bgcolor: 'info.main' }} />
-        </Box>
-      )
-    } else if (promptTokens < 2000) {
-      // Green for moderate usage
-      return (
-        <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
-          <Box sx={{ width: 3, height: 8, bgcolor: 'success.main' }} />
-          <Box sx={{ width: 3, height: 12, bgcolor: 'success.main' }} />
-        </Box>
-      )
-    } else if (promptTokens < 10000) {
-      // Yellow warning for high usage
-      return (
-        <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
-          <Box sx={{ width: 3, height: 8, bgcolor: 'warning.main' }} />
-          <Box sx={{ width: 3, height: 12, bgcolor: 'warning.main' }} />
-          <Box sx={{ width: 3, height: 16, bgcolor: 'warning.main' }} />
-        </Box>
-      )
-    } else {
-      // Red for very high usage
-      return (
-        <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
-          {/* <Box sx={{ width: 3, height: 8, bgcolor: 'error.main' }} /> */}
-          <Box sx={{ width: 3, height: 12, bgcolor: 'error.main' }} />
-          <Box sx={{ width: 3, height: 16, bgcolor: 'error.main' }} />
-          <Box sx={{ width: 3, height: 20, bgcolor: 'error.main' }} />
-        </Box>
-      )
-    }
-  }
-
-  // Add a fixed width and center the bars
-  return (
-    <Box sx={{ width: 32, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-      {getBars()}
-    </Box>
-  )
-}
+import { useListAppInteractions } from '../../services/interactionsService';
+import { useListAppLLMCalls } from '../../services/llmCallsService';
+import { useListAppSteps } from '../../services/appService';
 
 interface AppLogsTableProps {
   appId: string;
 }
 
-interface GroupedLLMCall {
-  interaction_id: string;
-  created: string;
-  total_duration: number;
-  total_tokens: number;
-  original_request: any;
-  status: 'OK' | 'ERROR';
-  calls: TypesLLMCall[];
-  user_id?: string;
-  session_id?: string;
-}
-
 type PeriodType = '1d' | '7d' | '1m' | '6m';
 
 const win = (window as any)
-
-const formatDuration = (ms: number): string => {
-  if (ms < 1000) {
-    return `${ms}ms`;
-  }
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) {
-    return `${seconds}s`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return `${minutes}m ${remainingSeconds}s`;
-};
 
 const getDateRange = (period: PeriodType): { from: string; to: string } => {
   const now = new Date();
@@ -141,28 +77,41 @@ const getDateRange = (period: PeriodType): { from: string; to: string } => {
   };
 };
 
-const getPeriodLabel = (period: PeriodType): string => {
-  switch (period) {
-    case '1d': return '1 day';
-    case '7d': return '7 days';
-    case '1m': return '1 month';
-    case '6m': return '6 months';
-  }
-};
-
 const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
-  const api = useApi();
-  const apiClient = api.getApiClient();
-  const account = useAccount();
   const theme = useTheme();
-  const [llmCalls, setLLMCalls] = useState<TypesPaginatedLLMCalls | null>(null);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(100);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [hoveredCallId, setHoveredCallId] = useState<string | null>(null);
   const [selectedLLMCall, setSelectedLLMCall] = useState<TypesLLMCall | null>(null);
   const [llmCallDialogOpen, setLlmCallDialogOpen] = useState(false);
+  const [selectedInteraction, setSelectedInteraction] = useState<TypesInteraction | null>(null);
+  const [interactionDialogOpen, setInteractionDialogOpen] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodType>('7d');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Load interactions at the top level
+  const { data: interactionsData, isLoading: interactionsLoading, refetch: refetchInteractions } = useListAppInteractions(appId, '', '', page + 1, rowsPerPage);
+
+  // Auto-reload logic for waiting interactions
+  useEffect(() => {
+    if (!interactionsData?.interactions) return;
+
+    // Check if there are any interactions in "waiting" state
+    const hasWaitingInteractions = interactionsData.interactions.some(
+      interaction => interaction.state === 'waiting'
+    );
+
+    if (hasWaitingInteractions) {
+      // Set up interval to reload every 5 seconds
+      const interval = setInterval(() => {
+        refetchInteractions();
+      }, 5000);
+
+      // Cleanup interval on unmount or when no more waiting interactions
+      return () => clearInterval(interval);
+    }
+  }, [interactionsData?.interactions, refetchInteractions]);
 
   const headerCellStyle = {
     bgcolor: 'rgba(0, 0, 0, 0.2)',
@@ -179,45 +128,6 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
     dateRange.to
   );
 
-  // Extract usage data from the response
-  // const usageData = usageResponse?.data || []; // This line is no longer needed
-
-  const parseRequest = (request: any): any => {
-    try {
-      if (typeof request === 'string') {
-        return JSON.parse(request);
-      }
-      return request;
-    } catch (e) {
-      return request;
-    }
-  };
-
-  const getReasoningEffort = (request: any): string => {
-    const parsed = parseRequest(request);
-    return parsed?.reasoning_effort || 'n/a';
-  };
-
-  const fetchLLMCalls = async () => {
-    try {
-      const queryParams = new URLSearchParams({
-        page: (page + 1).toString(),
-        pageSize: rowsPerPage.toString(),
-      }).toString();
-
-      const data = await api.get<TypesPaginatedLLMCalls>(`/api/v1/apps/${appId}/llm-calls?${queryParams}`);
-      setLLMCalls(data);
-    } catch (error) {
-      console.error('Error fetching LLM calls:', error);
-    }
-  };
-
-  useEffect(() => {
-    if (appId !== 'new') {
-      fetchLLMCalls();
-    }
-  }, [page, rowsPerPage, appId]);
-
   const handleChangePage = (event: unknown, newPage: number) => {
     setPage(newPage);
   };
@@ -228,7 +138,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
   };
 
   const handleRefresh = () => {
-    fetchLLMCalls();
+    refetchInteractions();
     refetchUsage();
   };
 
@@ -248,65 +158,8 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
     setExpandedRows(newExpandedRows);
   };
 
-  // Group LLM calls by interaction_id
-  const groupedCalls = React.useMemo(() => {
-    if (!llmCalls?.calls) return [];
-
-    const groups = new Map<string, GroupedLLMCall>();
-    
-    llmCalls.calls.forEach(call => {
-      if (!call.interaction_id) return;
-      
-      if (!groups.has(call.interaction_id)) {
-        groups.set(call.interaction_id, {
-          interaction_id: call.interaction_id,
-          created: call.created || '',
-          total_duration: 0,
-          total_tokens: 0,
-          original_request: call.original_request,
-          status: 'OK',
-          calls: [],
-          user_id: call.user_id,
-          session_id: call.session_id,
-        });
-      }
-      
-      const group = groups.get(call.interaction_id)!;
-      group.calls.push(call);
-      group.total_tokens += call.total_tokens || 0;
-      if (call.error) {
-        group.status = 'ERROR';
-      }
-    });
-
-    // Sort individual calls within each group by creation time (oldest to newest)
-    groups.forEach(group => {
-      group.calls.sort((a, b) => 
-        new Date(a.created || '').getTime() - new Date(b.created || '').getTime()
-      );
-      
-      // Calculate total duration based on first and last call timestamps
-      if (group.calls.length > 0) {
-        const firstCall = group.calls[0];
-        const lastCall = group.calls[group.calls.length - 1];
-        if (firstCall.created && lastCall.created) {
-          const startTime = new Date(firstCall.created).getTime();
-          const endTime = new Date(lastCall.created).getTime();
-          group.total_duration = endTime - startTime;
-        }
-      }
-    });
-
-    return Array.from(groups.values()).sort((a, b) => 
-      new Date(b.created).getTime() - new Date(a.created).getTime()
-    );
-  }, [llmCalls?.calls]);
-
   // Prepare data for the line chart
   const prepareChartData = (usageData: TypesUsersAggregatedUsageMetric[]) => {
-    console.log('prepareChartData')
-    console.log(usageData)
-
     if (usageLoading) return { xAxis: [], series: [] };
 
     if (!usageData || !Array.isArray(usageData) || usageData.length === 0) return { xAxis: [], series: [] };
@@ -347,6 +200,36 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
 
   const chartData = useMemo(() => prepareChartData(usageData as TypesUsersAggregatedUsageMetric[]), [usageData, selectedPeriod, usageLoading]);
 
+  // Filter interactions based on search query
+  const filteredInteractions = useMemo(() => {
+    if (!interactionsData?.interactions || !searchQuery.trim()) {
+      return interactionsData?.interactions || [];
+    }
+
+    const query = searchQuery.trim().toLowerCase();
+    
+    if (query.startsWith('ses_')) {
+      // Filter by session ID
+      const sessionId = query.substring(4); // Remove 'ses_' prefix
+      return interactionsData.interactions.filter(interaction => 
+        interaction.session_id?.toLowerCase().includes(sessionId)
+      );
+    } else if (query.startsWith('int_')) {
+      // Filter by interaction ID
+      const interactionId = query.substring(4); // Remove 'int_' prefix
+      return interactionsData.interactions.filter(interaction => 
+        interaction.id?.toLowerCase().includes(interactionId)
+      );
+    } else {
+      // General search across session_id, interaction.id, and prompt_message
+      return interactionsData.interactions.filter(interaction => 
+        interaction.session_id?.toLowerCase().includes(query) ||
+        interaction.id?.toLowerCase().includes(query) ||
+        interaction.prompt_message?.toLowerCase().includes(query)
+      );
+    }
+  }, [interactionsData?.interactions, searchQuery]);
+
   const handleOpenLLMCallDialog = (call: TypesLLMCall) => {
     setSelectedLLMCall(call);
     setLlmCallDialogOpen(true);
@@ -356,6 +239,19 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
     setLlmCallDialogOpen(false);
     setSelectedLLMCall(null);
   };
+
+  const handleOpenInteractionDialog = (interaction: TypesInteraction) => {
+    setSelectedInteraction(interaction);
+    setInteractionDialogOpen(true);
+  };
+
+  const handleCloseInteractionDialog = () => {
+    setInteractionDialogOpen(false);
+    setSelectedInteraction(null);
+  };
+
+  // State to store LLM calls for the selected interaction
+  const [selectedInteractionLLMCalls, setSelectedInteractionLLMCalls] = useState<TypesLLMCall[]>([]);
 
   // Convert TypesLLMCall to LLMCall interface expected by LLMCallDialog
   const convertToLLMCall = (call: TypesLLMCall) => ({
@@ -373,10 +269,72 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
     error: call.error,
   });
 
-  if (!llmCalls) return null;
+  // Helper function to truncate text
+  const truncateText = (text: string, maxLength: number = 80): string => {
+    if (!text) return '';
+    return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+  };
+
+  // Helper function to get status display
+  const getStatusDisplay = (state: string) => {
+    if (state === 'waiting') {
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Cog 
+            size={16} 
+            style={{ 
+              animation: 'spin 1s linear infinite',
+              color: theme.palette.secondary.main
+            }} 
+          />
+          <span>Running</span>
+        </Box>
+      );
+    }
+
+    // If completed, show green checkmark
+    if (state === 'complete') {
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <CircleCheck
+            size={16}
+          />
+          <span>Completed</span>
+        </Box>
+      );
+    }
+
+    if (state === 'error') {
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <OctagonX
+            size={16}
+          />
+          <span>Error</span>
+        </Box>
+      );
+    }
+
+
+    return state || 'unknown';
+  };
+
+  if (!interactionsData) return null;
 
   return (
     <div>
+      <style>
+        {`
+          @keyframes spin {
+            from {
+              transform: rotate(0deg);
+            }
+            to {
+              transform: rotate(360deg);
+            }
+          }
+        `}
+      </style>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, mr: 2 }}>
         <Typography variant="h6">Token usage</Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -469,32 +427,64 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
       <Divider sx={{ my: 2 }} />
 
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2,  mr: 2 }}>
-        <Typography variant="h6">LLM calls</Typography>        
+        <Typography variant="h6">Agent Interactions</Typography>        
+        <TextField
+          variant="outlined"
+          size="small"
+          placeholder="Session or interaction ID"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <Search size={16} />
+              </InputAdornment>
+            ),
+          }}
+          sx={{
+            width: 300,
+            '& .MuiOutlinedInput-root': {
+              bgcolor: 'rgba(0, 0, 0, 0.2)',
+              borderRadius: 1,
+              '& fieldset': { border: 'none' },
+              '&:hover fieldset': { border: 'none' },
+              '&.Mui-focused fieldset': { border: 'none' },
+            },
+            '& .MuiInputBase-input': {
+              color: 'white',
+              fontSize: '0.875rem',
+            },
+          }}
+        />
       </Box>
+      {searchQuery.trim() && (
+        <Box sx={{ px: 2, mb: 1 }}>
+          <Typography variant="caption" color="text.secondary">
+            Showing {filteredInteractions.length} of {interactionsData?.interactions?.length || 0} interactions
+          </Typography>
+        </Box>
+      )}
       <TableContainer sx={{ mt: 2, mr: 2 }}>
-        <Table stickyHeader aria-label="LLM calls table">
+        <Table stickyHeader aria-label="Interactions table">
           <TableHead>
             <TableRow>
               <TableCell sx={headerCellStyle} width="50px"></TableCell>
               <TableCell sx={headerCellStyle}>Time</TableCell>
-              <TableCell sx={headerCellStyle}>Duration</TableCell>
-              <TableCell sx={headerCellStyle}>Total Tokens</TableCell>
+              <TableCell sx={headerCellStyle}>User Prompt</TableCell>
               <TableCell sx={headerCellStyle}>Status</TableCell>
-              <TableCell sx={headerCellStyle}>Details</TableCell>
-              <TableCell sx={headerCellStyle}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             { win.DISABLE_LLM_CALL_LOGGING ? (
               <TableRow>
-                <TableCell colSpan={7}>LLM call logging is disabled by the administrator.</TableCell>
+                <TableCell colSpan={4}>LLM call logging is disabled by the administrator.</TableCell>
               </TableRow>
             ) : (
-              groupedCalls.map((group) => (
-                <React.Fragment key={group.interaction_id}>
+              filteredInteractions.map((interaction) => (
+                <React.Fragment key={interaction.id}>
                   <TableRow 
                     sx={{
-                      ...(group.status === 'ERROR' && {
+                      ...(interaction.state === 'error' && {
                         border: '2px solid #ff4d4f',
                         bgcolor: 'rgba(255, 77, 79, 0.1)',
                         '& td': {
@@ -506,173 +496,54 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                         bgcolor: 'rgba(255, 255, 255, 0.05)'
                       }
                     }}
-                    onClick={() => toggleRow(group.interaction_id)}
+                    onClick={() => interaction.id && toggleRow(interaction.id)}
                   >
                     <TableCell>
                       <IconButton
                         size="small"
                         onClick={(e) => {
                           e.stopPropagation();
-                          toggleRow(group.interaction_id);
+                          interaction.id && toggleRow(interaction.id);
                         }}
                       >
-                        {expandedRows.has(group.interaction_id) ? 
+                        {interaction.id && expandedRows.has(interaction.id) ? 
                           <KeyboardArrowUpIcon /> : 
                           <KeyboardArrowDownIcon />
                         }
                       </IconButton>
                     </TableCell>
-                    <TableCell>{group.created ? new Date(group.created).toLocaleString() : ''}</TableCell>
-                    <TableCell>{formatDuration(group.total_duration)}</TableCell>
-                    <TableCell>{group.total_tokens}</TableCell>
+                    <TableCell>{interaction.created ? new Date(interaction.created).toLocaleString() : ''}</TableCell>
+                    <TableCell>
+                      <Tooltip title={interaction.prompt_message || 'No prompt message'}>
+                        <span>{truncateText(interaction.prompt_message || '', 80)}</span>
+                      </Tooltip>
+                    </TableCell>
                     <TableCell>
                       <Button 
-                        color={group.status === 'ERROR' ? 'error' : 'primary'}
+                        color={interaction.state === 'error' ? 'error' : 'primary'}
                         disabled
                       >
-                        {group.status}
+                        {getStatusDisplay(interaction.state || 'unknown')}
                       </Button>
-                    </TableCell>
-                    <TableCell>
-                      <Button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          // Get the latest call (last in the array since we sorted by oldest first)
-                          const latestCall = group.calls[group.calls.length - 1];
-                          if (latestCall) {
-                            handleOpenLLMCallDialog(latestCall);
-                          }
-                        }}
-                        variant="outlined"
-                        size="small"
-                      >
-                        View Details
-                      </Button>
-                    </TableCell>
-                    <TableCell>
-                      {group.user_id === account.user?.id && group.session_id && (
-                        <Link href={`/session/${group.session_id}`} target="_blank" rel="noopener noreferrer">
-                          <OpenInNewIcon />
-                        </Link>
-                      )}
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={7}>
-                      <Collapse in={expandedRows.has(group.interaction_id)} timeout="auto" unmountOnExit>
-                        <Box sx={{ margin: 1 }}>
-                          <Box sx={{ mb: 2, p: 2, bgcolor: 'rgba(0, 0, 0, 0.2)', borderRadius: 1 }}>
-                            <Typography variant="subtitle2" gutterBottom>Session Details</Typography>
-                            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">Session ID</Typography>
-                                <Typography variant="body2">
-                                  {group.session_id ? (
-                                    <Link href={`/session/${group.session_id}`} target="_blank" rel="noopener noreferrer">
-                                      {group.session_id}
-                                    </Link>
-                                  ) : 'N/A'}
-                                </Typography>
-                              </Box>
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">Interaction ID</Typography>
-                                <Typography variant="body2">{group.interaction_id}</Typography>
-                              </Box>
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">User ID</Typography>
-                                <Typography variant="body2">{group.user_id || 'N/A'}</Typography>
-                              </Box>
-                              <Box>
-                                <Typography variant="caption" color="text.secondary">Total Tokens</Typography>
-                                <Typography variant="body2">
-                                  {group.calls.reduce((acc, call) => acc + (call.prompt_tokens || 0), 0)} prompt / {' '}
-                                  {group.calls.reduce((acc, call) => acc + (call.completion_tokens || 0), 0)} completion
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </Box>
-                          <LLMCallTimelineChart
-                            appId={appId}
-                            interactionId={group.interaction_id}
-                            calls={group.calls.map(call => ({
-                              id: call.id || '',
-                              created: call.created || '',
-                              duration_ms: call.duration_ms || 0,
-                              step: call.step,
-                              model: call.model,
-                              response: call.response,
-                              request: call.request,
-                              error: call.error,
-                              provider: call.provider,
-                              prompt_tokens: call.prompt_tokens,
-                              completion_tokens: call.completion_tokens,
-                              total_tokens: call.total_tokens,
-                            }))}
-                            onHoverCallId={setHoveredCallId}
-                            highlightedCallId={hoveredCallId}
-                          />
-                          <Table size="small" sx={{ bgcolor: 'rgba(0, 0, 0, 0.2)' }}>
-                            <TableHead>
-                              <TableRow>
-                                <TableCell>Timestamp</TableCell>
-                                <TableCell>Step</TableCell>
-                                <TableCell>Token Usage</TableCell>
-                                <TableCell>Duration (ms)</TableCell>
-                                <TableCell>Model</TableCell>
-                                <TableCell>Details</TableCell>
-                              </TableRow>
-                            </TableHead>
-                            <TableBody>
-                              {group.calls.map((call) => (
-                                <TableRow 
-                                  key={call.id} 
-                                  sx={hoveredCallId === call.id ? { bgcolor: 'rgba(0,200,255,0.12)' } : {}}
-                                  onMouseEnter={() => call.id && setHoveredCallId(call.id)}
-                                  onMouseLeave={() => setHoveredCallId(null)}
-                                >
-                                  <TableCell>{call.created ? new Date(call.created).toLocaleString() : ''}</TableCell>
-                                  <TableCell>{call.step || 'n/a'}</TableCell>
-                                  <TableCell>
-                                    <Tooltip title={`${call.prompt_tokens || 0} prompt tokens`}>
-                                      <span>
-                                        <TokenUsageIcon promptTokens={call.prompt_tokens || 0} />
-                                      </span>
-                                    </Tooltip>
-                                  </TableCell>
-                                  <TableCell>
-                                    {call.duration_ms ? formatDuration(call.duration_ms) : 'n/a'}
-                                    {call.duration_ms && call.duration_ms > 5000 && (
-                                      <Tooltip title="Model taking a long time to think">
-                                        <WarningIcon 
-                                          sx={{ 
-                                            ml: 1, 
-                                            color: '#ff9800',
-                                            verticalAlign: 'middle',
-                                            fontSize: '1rem'
-                                          }} 
-                                        />
-                                      </Tooltip>
-                                    )}
-                                  </TableCell>
-                                  <TableCell>
-                                    <Tooltip title={getReasoningEffort(call.request) !== 'n/a' ? `Reasoning effort: ${getReasoningEffort(call.request)}` : ''}>
-                                      <span>{call.model || 'n/a'}</span>
-                                    </Tooltip>
-                                  </TableCell>
-                                  <TableCell>
-                                    <IconButton
-                                      onClick={() => handleOpenLLMCallDialog(call)}
-                                      size="small"
-                                      color="primary"
-                                    >
-                                      <VisibilityIcon />
-                                    </IconButton>
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </Box>
+                    <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={4}>
+                      <Collapse in={interaction.id ? expandedRows.has(interaction.id) : false} timeout="auto" unmountOnExit>
+                        <InteractionDetails 
+                          appId={appId} 
+                          interaction={interaction}
+                          onHoverCallId={setHoveredCallId}
+                          highlightedCallId={hoveredCallId}
+                          onOpenLLMCallDialog={handleOpenLLMCallDialog}
+                          onOpenInteractionDialog={(interaction, llmCalls) => {
+                            console.log('interaction', interaction)
+                            console.log('llmCalls', llmCalls)
+                            setSelectedInteraction(interaction);
+                            setSelectedInteractionLLMCalls(llmCalls);
+                            setInteractionDialogOpen(true);
+                          }}
+                        />
                       </Collapse>
                     </TableCell>
                   </TableRow>
@@ -685,7 +556,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
       <TablePagination
         rowsPerPageOptions={[10, 25, 100]}
         component="div"
-        count={llmCalls.totalCount || 0}
+        count={searchQuery.trim() ? filteredInteractions.length : (interactionsData.totalCount || 0)}
         rowsPerPage={rowsPerPage}
         page={page}
         onPageChange={handleChangePage}
@@ -697,7 +568,286 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
         onClose={handleCloseLLMCallDialog}
         llmCall={selectedLLMCall ? convertToLLMCall(selectedLLMCall) : null}
       />
+      
+      <InteractionDialog
+        open={interactionDialogOpen}
+        onClose={handleCloseInteractionDialog}
+        interaction={selectedInteraction}
+        llmCalls={selectedInteractionLLMCalls}
+      />
     </div>
+  );
+};
+
+// New component to handle interaction details and LLM calls loading
+interface InteractionDetailsProps {
+  appId: string;
+  interaction: TypesInteraction;
+  onHoverCallId: (callId: string | null) => void;
+  highlightedCallId: string | null;
+  onOpenLLMCallDialog: (call: TypesLLMCall) => void;
+  onOpenInteractionDialog: (interaction: TypesInteraction, llmCalls: TypesLLMCall[]) => void;
+}
+
+const InteractionDetails: FC<InteractionDetailsProps> = ({ 
+  appId, 
+  interaction, 
+  onHoverCallId, 
+  highlightedCallId, 
+  onOpenLLMCallDialog,
+  onOpenInteractionDialog
+}) => {
+  const account = useAccount();
+  const [hoveredCallId, setHoveredCallId] = useState<string | null>(null);
+
+  // Load LLM calls for this specific interaction when expanded
+  const { data: llmCallsData, isLoading: llmCallsLoading } = useListAppLLMCalls(
+    appId,
+    interaction.session_id || '',
+    interaction.id || '',
+    1, // page    
+    100, // pageSize
+    interaction.id ? true : false, // enabled only when we have an interaction ID
+    interaction.state === TypesInteractionState.InteractionStateWaiting ? 3000 : undefined // If interaction is in waiting state, keep refetching every 5 seconds
+  );
+
+  // Just refreshing the steps to get the latest step info
+  useListAppSteps(appId, interaction.id || '', {
+    refetchInterval: interaction.state === TypesInteractionState.InteractionStateWaiting ? 3000 : undefined
+  });
+
+  const parseRequest = (request: any): any => {
+    try {
+      if (typeof request === 'string') {
+        return JSON.parse(request);
+      }
+      return request;
+    } catch (e) {
+      return request;
+    }
+  };
+
+  const getReasoningEffort = (request: any): string => {
+    const parsed = parseRequest(request);
+    return parsed?.reasoning_effort || 'n/a';
+  };
+
+  const formatDuration = (ms: number): string => {
+    if (ms < 1000) {
+      return `${ms}ms`;
+    }
+    const seconds = Math.floor(ms / 1000);
+    if (seconds < 60) {
+      return `${seconds}s`;
+    }
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}m ${remainingSeconds}s`;
+  };
+
+  // TokenUsageIcon component (reused from parent)
+  const TokenUsageIcon = ({ promptTokens, completionTokens }: { promptTokens: number, completionTokens: number }) => {
+    const getBars = () => {
+      if (promptTokens < 100) {
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
+            <Box sx={{ width: 3, height: 8, bgcolor: 'info.main' }} />
+          </Box>
+        )
+      } else if (promptTokens < 2000) {
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
+            <Box sx={{ width: 3, height: 8, bgcolor: 'success.main' }} />
+            <Box sx={{ width: 3, height: 12, bgcolor: 'success.main' }} />
+          </Box>
+        )
+      } else if (promptTokens < 10000) {
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
+            <Box sx={{ width: 3, height: 8, bgcolor: 'warning.main' }} />
+            <Box sx={{ width: 3, height: 12, bgcolor: 'warning.main' }} />
+            <Box sx={{ width: 3, height: 16, bgcolor: 'warning.main' }} />
+          </Box>
+        )
+      } else {
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'flex-end', height: 16, gap: 0.5 }}>
+            <Box sx={{ width: 3, height: 12, bgcolor: 'error.main' }} />
+            <Box sx={{ width: 3, height: 16, bgcolor: 'error.main' }} />
+            <Box sx={{ width: 3, height: 20, bgcolor: 'error.main' }} />
+          </Box>
+        )
+      }
+    }
+
+    return (
+      <Box sx={{ width: 32, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+        {getBars()}
+      </Box>
+    )
+  };
+
+  return (
+    <Box sx={{ margin: 1 }}>
+      <Box sx={{ mb: 2, p: 2, bgcolor: 'rgba(0, 0, 0, 0.2)', borderRadius: 1 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="subtitle2">Session Details</Typography>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              variant="outlined"
+              color="secondary"
+              onClick={() => onOpenInteractionDialog(interaction, llmCallsData?.calls || [])}
+              startIcon={<Eye size={16} />}
+            >
+              View Details
+            </Button>     
+            {interaction.user_id === account.user?.id && interaction.session_id && (
+              <Button
+                variant="outlined"
+                color="secondary"
+                href={`/session/${interaction.session_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                startIcon={<ExternalLink size={16} />}
+              >
+                View Session
+              </Button>
+            )}
+          </Box>     
+        </Box>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
+          <Box>
+            <Typography variant="caption" color="text.secondary">Session ID</Typography>
+            <Typography variant="body2">
+              {interaction.session_id ? (
+                <Link href={`/session/${interaction.session_id}`} target="_blank" rel="noopener noreferrer">
+                  {interaction.session_id}
+                </Link>
+              ) : 'N/A'}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">Interaction ID</Typography>
+            <Typography variant="body2">{interaction.id}</Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">User ID</Typography>
+            <Typography variant="body2">{interaction.user_id || 'N/A'}</Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">Duration</Typography>
+            <Typography variant="body2">
+              {interaction.duration_ms ? formatDuration(interaction.duration_ms) : 'N/A'}
+            </Typography>
+          </Box>
+        </Box>
+      </Box>
+
+      {llmCallsLoading ? (
+        <Typography variant="body2" textAlign="center" sx={{ py: 2 }}>Loading LLM calls...</Typography>
+      ) : llmCallsData?.calls && llmCallsData.calls.length > 0 ? (
+        <>
+          <LLMCallTimelineChart
+            appId={appId}
+            interactionId={interaction.id || ''}
+            calls={llmCallsData.calls.map(call => ({
+              id: call.id || '',
+              created: call.created || '',
+              duration_ms: call.duration_ms || 0,
+              step: call.step,
+              model: call.model,
+              response: call.response,
+              request: call.request,
+              error: call.error,
+              provider: call.provider,
+              prompt_tokens: call.prompt_tokens,
+              completion_tokens: call.completion_tokens,
+              total_tokens: call.total_tokens,
+            }))}
+            onHoverCallId={onHoverCallId}
+            highlightedCallId={highlightedCallId}
+          />
+          <Table size="small" sx={{ bgcolor: 'rgba(0, 0, 0, 0.2)' }}>
+            <TableHead>
+              <TableRow>
+                <TableCell>Timestamp</TableCell>
+                <TableCell>Step</TableCell>
+                <TableCell>Token Usage</TableCell>
+                <TableCell>Duration (ms)</TableCell>
+                <TableCell>Model</TableCell>
+                <TableCell>Details</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {llmCallsData.calls.map((call) => (
+                <TableRow 
+                  key={call.id} 
+                  sx={highlightedCallId === call.id ? { bgcolor: 'rgba(0,200,255,0.12)' } : {}}
+                  onMouseEnter={() => call.id && onHoverCallId(call.id)}
+                  onMouseLeave={() => onHoverCallId(null)}
+                >
+                  <TableCell>{call.created ? new Date(call.created).toLocaleString() : ''}</TableCell>
+                  <TableCell>{call.step || 'n/a'}</TableCell>
+                  <TableCell>
+                    <Tooltip 
+                      title={
+                        <div style={{ minWidth: '200px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Prompt tokens:</span>
+                            <span>{call.prompt_tokens || 0}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Completion tokens:</span>
+                            <span>{call.completion_tokens || 0}</span>
+                          </div>
+                        </div>
+                      }
+                      
+                      slotProps={{ tooltip: { sx: { bgcolor: '#222', opacity: 1 } } }}
+                    >
+                      <span>
+                        <TokenUsageIcon promptTokens={call.prompt_tokens || 0} completionTokens={call.completion_tokens || 0} />
+                      </span>
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell>
+                    {call.duration_ms ? formatDuration(call.duration_ms) : 'n/a'}
+                    {call.duration_ms && call.duration_ms > 5000 && (
+                      <Tooltip title="Model taking a long time to think">
+                        <WarningIcon 
+                          sx={{ 
+                            ml: 1, 
+                            color: '#ff9800',
+                            verticalAlign: 'middle',
+                            fontSize: '1rem'
+                          }} 
+                        />
+                      </Tooltip>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Tooltip title={getReasoningEffort(call.request) !== 'n/a' ? `Reasoning effort: ${getReasoningEffort(call.request)}` : ''}>
+                      <span>{call.model || 'n/a'}</span>
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell>
+                    <IconButton
+                      onClick={() => onOpenLLMCallDialog(call)}
+                      size="small"
+                      color="primary"
+                    >
+                      <VisibilityIcon />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </>
+      ) : (
+        <Typography variant="body2" textAlign="center" sx={{ py: 2 }}>No LLM calls found for this interaction</Typography>
+      )}
+    </Box>
   );
 };
 

@@ -4,9 +4,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"regexp"
 	"strings"
 	"sync"
@@ -77,7 +75,7 @@ func (a *Agent) GetSkill(name string) (*Skill, error) {
 }
 
 // summarizeMultipleToolResults summarizes results when multiple tools were called
-func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages *MessageList, llm *LLM, outUserChannel chan Response) error {
+func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages *MessageList, llm *LLM) (string, error) {
 	clonedMessages.AddFirst("Craft a helpful answer to user's question based on the tool call results. Be concise and to the point.")
 
 	model := llm.GenerationModel
@@ -91,37 +89,12 @@ func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages
 		Step: types.LLMCallStep("summarize_multiple_tool_results"),
 	})
 
-	stream, err := llm.NewStreaming(ctx, model, params)
+	completion, err := llm.New(ctx, model, params)
 	if err != nil {
-		return err
-	}
-	defer stream.Close()
-
-	for {
-		chunk, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			log.Error().Err(err).Msg("Error streaming")
-			return err
-		}
-
-		if len(chunk.Choices) == 0 {
-			log.Debug().Any("chunk", chunk).Msg("No choices in chunk")
-			continue
-		}
-
-		if chunk.Choices[0].Delta.Content != "" {
-			// Send partial text to user immediately
-			outUserChannel <- Response{
-				Content: chunk.Choices[0].Delta.Content,
-				Type:    ResponseTypePartialText,
-			}
-		}
+		return "", err
 	}
 
-	return nil
+	return completion.Choices[0].Message.Content, nil
 }
 
 func (a *Agent) StopTool() openai.Tool {
@@ -164,7 +137,7 @@ func (a *Agent) ConvertSkillsToTools() []openai.Tool {
 }
 
 // decideNextAction gets the initial response from the LLM that decides whether to use skills or stop execution
-func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *MessageList, memoryBlock *MemoryBlock, outUserChannel chan Response, iterationNumber int) (*openai.ChatCompletionResponse, error) {
+func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *MessageList, memoryBlock *MemoryBlock, _ chan Response, iterationNumber int) (*openai.ChatCompletionResponse, error) {
 	skillFunctions := make([]string, len(a.skills))
 	for i, skill := range a.skills {
 		skillFunctions[i] = skill.Name
@@ -213,93 +186,10 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 		Step: types.LLMCallStep("decide_next_action"),
 	})
 
-	stream, err := llm.NewStreaming(ctx, model, params)
+	completion, err := llm.New(ctx, model, params)
 	if err != nil {
 		log.Error().Err(err).Interface("params", params).Msg("Error getting initial response")
 		return nil, err
-	}
-	defer stream.Close()
-
-	var completion openai.ChatCompletionResponse
-	var fullContent strings.Builder
-	var toolCalls []openai.ToolCall
-
-	for {
-		chunk, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			log.Error().Err(err).Msg("Error streaming")
-			return nil, err
-		}
-
-		if len(chunk.Choices) == 0 {
-			log.Debug().Any("chunk", chunk).Msg("No choices in chunk")
-			continue
-		}
-
-		choice := chunk.Choices[0]
-
-		// Stream content to user if available
-		if choice.Delta.Content != "" {
-			fullContent.WriteString(choice.Delta.Content)
-			outUserChannel <- Response{
-				Content: choice.Delta.Content,
-				Type:    ResponseTypePartialText,
-			}
-		}
-
-		// Collect tool calls as they come in
-		if choice.Delta.ToolCalls != nil {
-			for _, toolCall := range choice.Delta.ToolCalls {
-				// Handle nil index case
-				if toolCall.Index == nil {
-					continue
-				}
-				index := *toolCall.Index
-
-				// Extend toolCalls array if needed
-				for len(toolCalls) <= index {
-					toolCalls = append(toolCalls, openai.ToolCall{})
-				}
-
-				// Append to existing tool call at this index
-				if toolCall.ID != "" {
-					toolCalls[index].ID = toolCall.ID
-				}
-				if toolCall.Type != "" {
-					toolCalls[index].Type = toolCall.Type
-				}
-				if toolCall.Function.Name != "" {
-					toolCalls[index].Function.Name = toolCall.Function.Name
-				}
-				if toolCall.Function.Arguments != "" {
-					toolCalls[index].Function.Arguments += toolCall.Function.Arguments
-				}
-			}
-		}
-
-		// Build the completion object from the final chunk
-		if choice.FinishReason != "" {
-			completion = openai.ChatCompletionResponse{
-				ID:      chunk.ID,
-				Object:  chunk.Object,
-				Created: chunk.Created,
-				Model:   chunk.Model,
-				Choices: []openai.ChatCompletionChoice{
-					{
-						Index: choice.Index,
-						Message: openai.ChatCompletionMessage{
-							Role:      openai.ChatMessageRoleAssistant,
-							Content:   fullContent.String(),
-							ToolCalls: toolCalls,
-						},
-						FinishReason: choice.FinishReason,
-					},
-				},
-			}
-		}
 	}
 
 	if len(completion.Choices) == 0 {
@@ -308,20 +198,7 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 
 	// Check for duplicate skills in tool calls
 	if len(completion.Choices[0].Message.ToolCalls) > 1 {
-		// Create a map to track seen skill names
-		seenSkills := make(map[string]bool)
-		var uniqueToolCalls []openai.ToolCall
-
-		// Keep only the first occurrence of each skill
-		for _, toolCall := range completion.Choices[0].Message.ToolCalls {
-			skillName := toolCall.Function.Name
-			if !seenSkills[skillName] {
-				seenSkills[skillName] = true
-				uniqueToolCalls = append(uniqueToolCalls, toolCall)
-			} else {
-				log.Warn().Str("skill", skillName).Msg("Removing duplicate skill from completion")
-			}
-		}
+		uniqueToolCalls := getUniqueToolCalls(completion.Choices[0].Message.ToolCalls)
 
 		// If duplicates were found, update the tool calls in the completion object
 		if len(uniqueToolCalls) < len(completion.Choices[0].Message.ToolCalls) {
@@ -375,48 +252,20 @@ func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *
 		Step: types.LLMCallStep("run_without_skills"),
 	})
 
-	stream, err := llm.NewStreaming(ctx, model, params)
+	completion, err := llm.New(ctx, model, params)
 	if err != nil {
 		a.handleLLMError(err, outUserChannel)
 		return
 	}
-	defer stream.Close()
-
-	var fullResponse strings.Builder
-
-	for {
-		chunk, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			log.Error().Err(err).Msg("Error streaming")
-			a.handleLLMError(err, outUserChannel)
-			return
-		}
-
-		if len(chunk.Choices) == 0 {
-			log.Debug().Any("chunk", chunk).Msg("No choices in chunk")
-			continue
-		}
-
-		if chunk.Choices[0].Delta.Content != "" {
-			content := chunk.Choices[0].Delta.Content
-			fullResponse.WriteString(content)
-
-			// Send partial text to user immediately
-			outUserChannel <- Response{
-				Content: content,
-				Type:    ResponseTypePartialText,
-			}
-		}
+	if len(completion.Choices) == 0 {
+		log.Error().Msg("No completion choices")
+		a.handleLLMError(fmt.Errorf("no completion choices"), outUserChannel)
+		return
 	}
 
-	// Ensure we have some content
-	if fullResponse.Len() == 0 {
-		log.Error().Msg("No completion content")
-		a.handleLLMError(fmt.Errorf("no completion content"), outUserChannel)
-		return
+	outUserChannel <- Response{
+		Content: completion.Choices[0].Message.Content,
+		Type:    ResponseTypePartialText,
 	}
 }
 
@@ -445,6 +294,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		finalCompletion       *openai.ChatCompletionResponse
 		hasStopTool           bool
 		callSummarizer        bool
+		hasDirectSkill        bool
 	)
 
 	if len(a.skills) == 0 {
@@ -510,6 +360,12 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 			if err != nil {
 				log.Error().Err(err).Msg("Error getting skill")
 				continue
+			}
+
+			// If we have a direct skill, we will need to call the summarizer as the responses
+			// are direct from tools such as browser, calculator, etc.
+			if skill.Direct {
+				hasDirectSkill = true
 			}
 
 			wg.Add(1)
@@ -580,24 +436,28 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		}
 	}
 
+	log.Info().
+		Bool("call_summarizer", callSummarizer).
+		Bool("has_direct_skill", hasDirectSkill).
+		Int("final_skill_call_results", len(finalSkillCallResults)).
+		Msg("agent run complete")
+
 	// Handle final results based on the callSummarizer parameter from the stop tool or if multiple skills were called
-	if callSummarizer || len(finalSkillCallResults) > 1 {
+	if callSummarizer || hasDirectSkill || len(finalSkillCallResults) > 1 {
 		// If callSummarizer is true, summarize the results
-		err := a.summarizeMultipleToolResults(ctx, messageHistory.Clone(), llm, outUserChannel)
+		summary, err := a.summarizeMultipleToolResults(ctx, messageHistory.Clone(), llm)
 		if err != nil {
 			a.handleLLMError(err, outUserChannel)
 			return
 		}
-		// The summarizeMultipleToolResults function now streams chunks to outUserChannel
-		// We don't need to send a final Response here.
-		return
-	} else if finalCompletion != nil && len(finalCompletion.Choices) > 0 && finalCompletion.Choices[0].Message.Content != "" {
-		// If LLM provided a meaningful final completion, don't send anything else
-		// The response was already streamed during decideNextAction
-
+		outUserChannel <- Response{
+			Content: summary,
+			Type:    ResponseTypePartialText,
+		}
 		return
 	} else if len(finalSkillCallResults) == 1 {
-		// If LLM didn't provide a final completion, fall back to returning the single tool result directly
+		// If callSummarizer is false and we have exactly one skill result, return it directly
+		// This should take priority over the final completion message (which might just be about using the stop tool)
 		var lastResult *openai.ChatCompletionMessage
 		for _, result := range finalSkillCallResults {
 			lastResult = result
@@ -616,6 +476,15 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 
 		outUserChannel <- Response{
 			Content: contentString,
+			Type:    ResponseTypePartialText,
+		}
+		return
+	} else if finalCompletion != nil && len(finalCompletion.Choices) > 0 && finalCompletion.Choices[0].Message.Content != "" {
+		// If final completion is not nil, return it as the "decideNextAction" function
+		// most likely summarized tool results
+
+		outUserChannel <- Response{
+			Content: finalCompletion.Choices[0].Message.Content,
 			Type:    ResponseTypePartialText,
 		}
 		return

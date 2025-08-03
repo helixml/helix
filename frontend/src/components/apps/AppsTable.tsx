@@ -88,6 +88,11 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
     account.orgNavigate('app', { app_id: app.id }, { tab: 'skills' });
   };
 
+  // Handle usage click
+  const handleUsageClick = (app: IApp) => {
+    account.orgNavigate('app', { app_id: app.id }, { tab: 'usage' });
+  };
+
   // Fetch usage data for all apps
   useEffect(() => {
     const fetchUsageData = async () => {
@@ -227,7 +232,17 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
           </Box>
         ),
         usage: (
-          <Box sx={{ width: 200, height: 50 }}>
+          <Box 
+            sx={{ 
+              width: 200, 
+              height: 50,
+              cursor: 'pointer',
+              '&:hover': {
+                opacity: 0.8,
+              },
+            }}
+            onClick={() => handleUsageClick(app)}
+          >
             <Box>
               <LineChart
                 xAxis={[

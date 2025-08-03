@@ -1257,6 +1257,8 @@ definitions:
     - ImageURLDetailAuto
   types.Interaction:
     properties:
+      app_id:
+        type: string
       completed:
         type: string
       created:
@@ -2046,6 +2048,21 @@ definitions:
     - OwnerTypeSystem
     - OwnerTypeSocket
     - OwnerTypeOrg
+  types.PaginatedInteractions:
+    properties:
+      interactions:
+        items:
+          $ref: '#/definitions/types.Interaction'
+        type: array
+      page:
+        type: integer
+      pageSize:
+        type: integer
+      totalCount:
+        type: integer
+      totalPages:
+        type: integer
+    type: object
   types.PaginatedLLMCalls:
     properties:
       calls:
@@ -3676,6 +3693,39 @@ paths:
       summary: Get app usage
       tags:
       - apps
+  /api/v1/apps/{id}/interactions:
+    get:
+      description: List interactions with pagination and optional session filtering
+        for a specific app
+      parameters:
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: pageSize
+        type: integer
+      - description: Filter by session ID
+        in: query
+        name: session
+        type: string
+      - description: Filter by interaction ID
+        in: query
+        name: interaction
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.PaginatedInteractions'
+      security:
+      - BearerAuth: []
+      summary: List interactions
+      tags:
+      - interactions
   /api/v1/apps/{id}/llm-calls:
     get:
       description: List user's LLM calls with pagination and optional session filtering
@@ -3691,7 +3741,11 @@ paths:
         type: integer
       - description: Filter by session ID
         in: query
-        name: sessionFilter
+        name: session
+        type: string
+      - description: Filter by interaction ID
+        in: query
+        name: interaction
         type: string
       produces:
       - application/json
@@ -4182,7 +4236,11 @@ paths:
         type: integer
       - description: Filter by session ID
         in: query
-        name: sessionFilter
+        name: session
+        type: string
+      - description: Filter by interaction ID
+        in: query
+        name: interaction
         type: string
       produces:
       - application/json
@@ -4879,6 +4937,55 @@ paths:
       summary: Get a session by ID
       tags:
       - sessions
+  /api/v1/sessions/{id}/interactions:
+    get:
+      description: List interactions for a session
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.Interaction'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List interactions for a session
+      tags:
+      - interactions
+  /api/v1/sessions/{id}/interactions/{interaction_id}:
+    get:
+      description: Get an interaction by ID
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Interaction ID
+        in: path
+        name: interaction_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Interaction'
+      security:
+      - BearerAuth: []
+      summary: Get an interaction by ID
+      tags:
+      - interactions
   /api/v1/sessions/{id}/step-info:
     get:
       responses:

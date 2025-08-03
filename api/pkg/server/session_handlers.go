@@ -195,7 +195,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		}
 
 		// Load interactions for the session
-		interactions, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
+		interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 			SessionID:    session.ID,
 			GenerationID: session.GenerationID,
 		})
@@ -395,6 +395,7 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 
 		interaction := &types.Interaction{
 			ID:                   system.GenerateInteractionID(),
+			AppID:                session.ParentApp,
 			SessionID:            session.ID,
 			GenerationID:         session.GenerationID,
 			UserID:               session.Owner,
@@ -445,6 +446,7 @@ func appendOrOverwrite(session *types.Session, req *types.SessionChatRequest) (*
 	session.Interactions = append(session.Interactions,
 		&types.Interaction{
 			ID:                   system.GenerateInteractionID(),
+			AppID:                session.ParentApp,
 			Created:              time.Now(),
 			Updated:              time.Now(),
 			Scheduled:            time.Now(),
@@ -595,6 +597,8 @@ func (s *HelixAPIServer) handleBlockingSession(
 		Str("app_id", session.ParentApp).
 		Msg("handleBlockingSession: set session ID in context for document tracking")
 
+	start := time.Now()
+
 	// Call the LLM
 	chatCompletionResponse, _, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 	if err != nil {
@@ -602,6 +606,7 @@ func (s *HelixAPIServer) handleBlockingSession(
 		interaction.Error = err.Error()
 		interaction.State = types.InteractionStateError
 		interaction.Completed = time.Now()
+		interaction.DurationMs = int(time.Since(start).Milliseconds())
 
 		// Create new context with a timeout for persisting session to the database.
 		// Do not inherit the context from the caller, as it may be cancelled.
@@ -625,6 +630,7 @@ func (s *HelixAPIServer) handleBlockingSession(
 	interaction.ResponseMessage = chatCompletionResponse.Choices[0].Message.Content
 	interaction.Completed = time.Now()
 	interaction.State = types.InteractionStateComplete
+	interaction.DurationMs = int(time.Since(start).Milliseconds())
 
 	// Create new context with a timeout for persisting session to the database.
 	// Do not inherit the context from the caller, as it may be cancelled.
@@ -685,6 +691,8 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		log.Error().Err(err).Msg("failed to write chunk")
 	}
 
+	start := time.Now()
+
 	// Instruct the agent to send thoughts about tools and decisions
 	options.Conversational = true
 
@@ -701,6 +709,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		interaction.Error = err.Error()
 		interaction.Completed = time.Now()
 		interaction.State = types.InteractionStateError
+		interaction.DurationMs = int(time.Since(start).Milliseconds())
 
 		// Create new context with a timeout for persisting session to the database.
 		// Do not inherit the context from the caller, as it may be cancelled.
@@ -746,6 +755,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 			interaction.Completed = time.Now()
 			interaction.State = types.InteractionStateError
 			interaction.Error = err.Error()
+			interaction.DurationMs = int(time.Since(start).Milliseconds())
 
 			// Create new context with a timeout for persisting session to the database.
 			// Do not inherit the context from the caller, as it may be cancelled.
@@ -778,6 +788,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	interaction.ResponseMessage = fullResponse
 	interaction.Completed = time.Now()
 	interaction.State = types.InteractionStateComplete
+	interaction.DurationMs = int(time.Since(start).Milliseconds())
 
 	// Create new context with a timeout for persisting session to the database.
 	// Do not inherit the context from the caller, as it may be cancelled.
