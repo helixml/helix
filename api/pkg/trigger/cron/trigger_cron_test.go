@@ -138,7 +138,7 @@ func (suite *CronTestSuite) TestExecuteCronTask() {
 		},
 	)
 
-	suite.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{}, nil)
+	suite.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{}, int64(0), nil)
 	suite.store.EXPECT().CreateInteractions(gomock.Any(), gomock.Any()).Return(nil)
 
 	// Mock UpdateSession for the initial session write
@@ -263,7 +263,7 @@ func (suite *CronTestSuite) TestExecuteCronTask_Organization() {
 		},
 	)
 
-	suite.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{}, nil)
+	suite.store.EXPECT().ListInteractions(gomock.Any(), gomock.Any()).Return([]*types.Interaction{}, int64(0), nil)
 	suite.store.EXPECT().CreateInteractions(gomock.Any(), gomock.Any()).Return(nil)
 
 	// Mock UpdateSession for the initial session write
