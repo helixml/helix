@@ -1,9 +1,92 @@
 package agent
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
+
+	helix_openai "github.com/helixml/helix/api/pkg/openai"
+	openai "github.com/sashabaranov/go-openai"
+	"github.com/stretchr/testify/suite"
+	"go.uber.org/mock/gomock"
 )
+
+func TestAgent(t *testing.T) {
+	suite.Run(t, new(AgentTestSuite))
+}
+
+type AgentTestSuite struct {
+	suite.Suite
+	ctrl         *gomock.Controller
+	openaiClient *helix_openai.MockClient
+	llm          *LLM
+}
+
+func (s *AgentTestSuite) SetupTest() {
+	s.ctrl = gomock.NewController(s.T())
+	s.openaiClient = helix_openai.NewMockClient(s.ctrl)
+	s.llm = NewLLM(
+		&LLMModelConfig{
+			Client: s.openaiClient,
+			Model:  "gpt-4o-mini",
+		},
+		&LLMModelConfig{
+			Client: s.openaiClient,
+			Model:  "gpt-4o-mini",
+		},
+		&LLMModelConfig{
+			Client: s.openaiClient,
+			Model:  "gpt-4o-mini",
+		},
+		&LLMModelConfig{
+			Client: s.openaiClient,
+			Model:  "gpt-4o-mini",
+		},
+	)
+}
+
+func (s *AgentTestSuite) Test_Agent_NoSkills() {
+	agent := NewAgent(NewLogStepInfoEmitter(), "Test prompt", []Skill{}, 10)
+
+	respCh := make(chan Response)
+
+	// Should be direct call to LLM
+	s.openaiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).Return(openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{
+					Role:    openai.ChatMessageRoleAssistant,
+					Content: "Test response",
+				},
+			},
+		},
+	}, nil)
+
+	go func() {
+		defer close(respCh)
+
+		agent.Run(context.Background(), Meta{}, s.llm, &MessageList{
+			Messages: []*openai.ChatCompletionMessage{
+				{
+					Role:    openai.ChatMessageRoleUser,
+					Content: "Test question",
+				},
+			},
+		}, &MemoryBlock{}, respCh)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		s.Require().Fail("Context done")
+	case resp := <-respCh:
+		s.Require().Equal(resp.Content, "Test response")
+		s.Require().Equal(resp.Type, ResponseTypePartialText)
+	}
+}
 
 func TestSkillValidation(t *testing.T) {
 	// Test case 1: Missing Description
