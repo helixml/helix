@@ -93,11 +93,6 @@ interface MemoizedInteractionProps {
 // Create a memoized version of the Interaction component
 const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
   const isLive = props.isLastInteraction && props.interaction.state === TypesInteractionState.InteractionStateWaiting
-                // props.interaction.state !== INTERACTION_STATE_EDITING &&
-                // props.interaction.state !== INTERACTION_STATE_COMPLETE &&
-                // props.interaction.state !== INTERACTION_STATE_ERROR
-
-  console.log("xxx is live: ", isLive)
 
   return (
     <Interaction
