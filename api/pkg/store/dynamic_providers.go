@@ -148,25 +148,25 @@ func (s *PostgresStore) InitializeDynamicProviders(ctx context.Context, dynamicP
 				Str("provider_name", config.Name).
 				Msg("Provider already exists in database, skipping to avoid overwriting existing configuration")
 			continue
-		} else {
-			// Create new endpoint
-			log.Info().
-				Str("provider_name", config.Name).
-				Msg("Creating new dynamic provider endpoint")
-
-			_, err := s.CreateProviderEndpoint(ctx, endpoint)
-			if err != nil {
-				log.Error().
-					Err(err).
-					Str("provider_name", config.Name).
-					Msg("Failed to create dynamic provider endpoint")
-				continue
-			}
-
-			log.Info().
-				Str("provider_name", config.Name).
-				Msg("Successfully created dynamic provider endpoint")
 		}
+
+		// Create new endpoint
+		log.Info().
+			Str("provider_name", config.Name).
+			Msg("Creating new dynamic provider endpoint")
+
+		_, err := s.CreateProviderEndpoint(ctx, endpoint)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("provider_name", config.Name).
+				Msg("Failed to create dynamic provider endpoint")
+			continue
+		}
+
+		log.Info().
+			Str("provider_name", config.Name).
+			Msg("Successfully created dynamic provider endpoint")
 	}
 
 	log.Info().
