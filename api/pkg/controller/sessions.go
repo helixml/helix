@@ -423,7 +423,7 @@ func (c *Controller) WriteSession(ctx context.Context, session *types.Session) e
 	return nil
 }
 
-func (c *Controller) UpdateSessionName(ctx context.Context, owner string, sessionID, name string) error {
+func (c *Controller) UpdateSessionName(_ context.Context, owner string, sessionID, name string) error {
 	log.Trace().
 		Msgf("🔵 update session name: %s %+v", sessionID, name)
 
