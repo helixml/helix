@@ -137,7 +137,7 @@ func (a *Agent) ConvertSkillsToTools() []openai.Tool {
 }
 
 // decideNextAction gets the initial response from the LLM that decides whether to use skills or stop execution
-func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *MessageList, memoryBlock *MemoryBlock, outUserChannel chan Response, iterationNumber int) (*openai.ChatCompletionResponse, error) {
+func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *MessageList, memoryBlock *MemoryBlock, _ chan Response, iterationNumber int) (*openai.ChatCompletionResponse, error) {
 	skillFunctions := make([]string, len(a.skills))
 	for i, skill := range a.skills {
 		skillFunctions[i] = skill.Name
