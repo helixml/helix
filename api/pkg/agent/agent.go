@@ -4,7 +4,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 	"sync"
@@ -76,7 +78,7 @@ func (a *Agent) GetSkill(name string) (*Skill, error) {
 }
 
 // summarizeMultipleToolResults summarizes results when multiple tools were called
-func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages *MessageList, llm *LLM) (string, error) {
+func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages *MessageList, llm *LLM) (*openai.ChatCompletionStream, error) {
 	clonedMessages.AddFirst("Craft a helpful answer to user's question based on the tool call results. Be concise and to the point.")
 
 	model := llm.GenerationModel
@@ -90,12 +92,12 @@ func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages
 		Step: types.LLMCallStep("summarize_multiple_tool_results"),
 	})
 
-	completion, err := llm.New(ctx, model, params)
+	stream, err := llm.NewStreaming(ctx, model, params)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return completion.Choices[0].Message.Content, nil
+	return stream, nil
 }
 
 func (a *Agent) StopTool() openai.Tool {
@@ -255,21 +257,37 @@ func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *
 		Step: types.LLMCallStep("run_without_skills"),
 	})
 
-	completion, err := llm.New(ctx, model, params)
+	stream, err := llm.NewStreaming(ctx, model, params)
 	if err != nil {
 		a.handleLLMError(err, outUserChannel)
 		return
 	}
-	if len(completion.Choices) == 0 {
-		log.Error().Msg("No completion choices")
-		a.handleLLMError(fmt.Errorf("no completion choices"), outUserChannel)
-		return
+
+	defer stream.Close()
+
+	for {
+		summary, err := stream.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				outUserChannel <- Response{
+					Content: "Stream closed",
+					Type:    ResponseTypeEnd,
+				}
+				return
+			}
+
+			a.handleLLMError(err, outUserChannel)
+			return
+		}
+
+		if len(summary.Choices) > 0 && len(summary.Choices[0].Delta.Content) > 0 {
+			outUserChannel <- Response{
+				Content: summary.Choices[0].Delta.Content,
+				Type:    ResponseTypePartialText,
+			}
+		}
 	}
 
-	outUserChannel <- Response{
-		Content: completion.Choices[0].Message.Content,
-		Type:    ResponseTypePartialText,
-	}
 }
 
 // Run processes a user message through the LLM, executes any requested skills. It returns only after the agent is done.
@@ -463,16 +481,35 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 	// Handle final results based on the callSummarizer parameter from the stop tool or if multiple skills were called
 	if callSummarizer || hasDirectSkill || len(finalSkillCallResults) > 1 {
 		// If callSummarizer is true, summarize the results
-		summary, err := a.summarizeMultipleToolResults(ctx, messageHistory.Clone(), llm)
+		stream, err := a.summarizeMultipleToolResults(ctx, messageHistory.Clone(), llm)
 		if err != nil {
 			a.handleLLMError(err, outUserChannel)
 			return
 		}
-		outUserChannel <- Response{
-			Content: summary,
-			Type:    ResponseTypePartialText,
+		defer stream.Close()
+
+		for {
+			summary, err := stream.Recv()
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					outUserChannel <- Response{
+						Content: "Stream closed",
+						Type:    ResponseTypeEnd,
+					}
+					return
+				}
+
+				a.handleLLMError(err, outUserChannel)
+				return
+			}
+
+			if len(summary.Choices) > 0 && len(summary.Choices[0].Delta.Content) > 0 {
+				outUserChannel <- Response{
+					Content: summary.Choices[0].Delta.Content,
+					Type:    ResponseTypePartialText,
+				}
+			}
 		}
-		return
 	} else if len(finalSkillCallResults) == 1 {
 		// If callSummarizer is false and we have exactly one skill result, return it directly
 		// This should take priority over the final completion message (which might just be about using the stop tool)
