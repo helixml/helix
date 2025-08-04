@@ -91,7 +91,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       
       return new Map(prev).set(sessionId, {
         ...current,
-        prompt_message: newMessage
+        response_message: newMessage
       });
     });
   }, []);
@@ -108,7 +108,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
   }, [flushMessageBuffer]);
 
   // Function to add a message chunk to the buffer
-  const addMessageChunk = useCallback((sessionId: string, chunk: string) => {
+  const addMessageChunk = useCallback((sessionId: string, chunk: string) => {      
     const chunks = messageBufferRef.current.get(sessionId) || [];
     chunks.push(chunk);
     messageBufferRef.current.set(sessionId, chunks);

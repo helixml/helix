@@ -2,13 +2,17 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	helix_openai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/util/jsonschema"
+	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
@@ -79,7 +83,86 @@ func (s *AgentTestSuite) Test_Agent_NoSkills() {
 					Content: "Test question",
 				},
 			},
-		}, &MemoryBlock{}, respCh)
+		}, &MemoryBlock{}, respCh, false)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		s.Require().Fail("Context done")
+	case resp := <-respCh:
+		s.Require().Equal(resp.Content, "Test response")
+		s.Require().Equal(resp.Type, ResponseTypePartialText)
+	}
+}
+
+func (s *AgentTestSuite) Test_Agent_NoSkills_Conversational() {
+	agent := NewAgent(NewLogStepInfoEmitter(), "Test prompt", []Skill{}, 10)
+
+	respCh := make(chan Response)
+
+	stream, writer, err := helix_openai.NewOpenAIStreamingAdapter(openai.ChatCompletionRequest{})
+	s.Require().NoError(err)
+
+	// Should be direct call to LLM
+	s.generationalOpenaiClient.EXPECT().CreateChatCompletionStream(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+			return stream, nil
+		})
+
+	go func() {
+		defer writer.Close()
+
+		for i := 0; i < 3; i++ {
+			// Create a chat completion chunk and encode it to json
+			chunk := openai.ChatCompletionStreamResponse{
+				ID:     "chatcmpl-123",
+				Object: "chat.completion.chunk",
+				Model:  "mistralai/Mistral-7B-Instruct-v0.1",
+				Choices: []openai.ChatCompletionStreamChoice{
+					{
+						Delta: openai.ChatCompletionStreamChoiceDelta{
+							Content: "Test response",
+						},
+					},
+				},
+			}
+
+			if i == 0 {
+				chunk.Choices[0].Delta.Role = "assistant"
+			}
+
+			if i == 2 {
+				chunk.Choices[0].FinishReason = "stop"
+			}
+
+			bts, err := json.Marshal(chunk)
+			s.Require().NoError(err)
+
+			err = writeChunk(writer, bts)
+			s.Require().NoError(err)
+
+			// _, err = writer.Write([]byte(fmt.Sprintf("data: %s\n\n", string(bts))))
+			// suite.NoError(err)
+		}
+
+		_, err = writer.Write([]byte("[DONE]"))
+		s.Require().NoError(err)
+	}()
+
+	go func() {
+		defer close(respCh)
+
+		agent.Run(context.Background(), Meta{}, s.llm, &MessageList{
+			Messages: []*openai.ChatCompletionMessage{
+				{
+					Role:    openai.ChatMessageRoleUser,
+					Content: "Test question",
+				},
+			},
+		}, &MemoryBlock{}, respCh, true)
 	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -237,7 +320,7 @@ func (s *AgentTestSuite) Test_Agent_DirectSkill() {
 					Content: "Convert 100 USD to EUR",
 				},
 			},
-		}, &MemoryBlock{}, respCh)
+		}, &MemoryBlock{}, respCh, false)
 	}()
 
 	var aggregatedResponse string
@@ -452,7 +535,7 @@ func (s *AgentTestSuite) Test_Agent_DirectSkill_MultipleSkillsUsed() {
 					Content: "Whats on the news?",
 				},
 			},
-		}, &MemoryBlock{}, respCh)
+		}, &MemoryBlock{}, respCh, false)
 	}()
 
 	var aggregatedResponse string
@@ -656,4 +739,20 @@ func (b *CurrencyConverter) OpenAI() []openai.Tool {
 func (b *CurrencyConverter) Execute(_ context.Context, _ Meta, _ map[string]interface{}) (string, error) {
 	b.callCount++
 	return "100 USD is 80 EUR", nil
+}
+
+func writeChunk(w io.Writer, chunk []byte) error {
+	_, err := fmt.Fprintf(w, "data: %s\n\n", string(chunk))
+	if err != nil {
+		return fmt.Errorf("error writing chunk '%s': %w", string(chunk), err)
+	}
+
+	// Flush the ResponseWriter buffer to send the chunk immediately
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	} else {
+		log.Warn().Msg("ResponseWriter does not support Flusher interface")
+	}
+
+	return nil
 }
