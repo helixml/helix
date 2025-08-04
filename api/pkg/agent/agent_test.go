@@ -334,7 +334,7 @@ func (s *AgentTestSuite) Test_Agent_DirectSkill_MultipleSkillsUsed() {
 
 	// Then we should call the skills
 	browserTool.EXPECT().Execute(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, meta Meta, args map[string]interface{}) (string, error) {
+		func(_ context.Context, meta Meta, args map[string]interface{}) (string, error) {
 			url, ok := args["url"].(string)
 			s.Require().True(ok)
 
