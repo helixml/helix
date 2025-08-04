@@ -195,6 +195,10 @@ func (s *AgentTestSuite) Test_Agent_DirectSkill() {
 			s.Require().True(ok)
 			s.Require().Equal("summarize_multiple_tool_results", string(step.Step))
 
+			// Should have tool role call with results
+			s.Require().Equal(openai.ChatMessageRoleTool, req.Messages[len(req.Messages)-1].Role)
+			s.Require().Equal("100 USD is 80 EUR", req.Messages[len(req.Messages)-1].Content)
+
 			return openai.ChatCompletionResponse{
 				Choices: []openai.ChatCompletionChoice{
 					{
