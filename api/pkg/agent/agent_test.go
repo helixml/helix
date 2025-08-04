@@ -79,7 +79,7 @@ func (s *AgentTestSuite) Test_Agent_NoSkills() {
 					Content: "Test question",
 				},
 			},
-		}, &MemoryBlock{}, respCh)
+		}, &MemoryBlock{}, respCh, false)
 	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -237,7 +237,7 @@ func (s *AgentTestSuite) Test_Agent_DirectSkill() {
 					Content: "Convert 100 USD to EUR",
 				},
 			},
-		}, &MemoryBlock{}, respCh)
+		}, &MemoryBlock{}, respCh, false)
 	}()
 
 	var aggregatedResponse string
@@ -452,7 +452,7 @@ func (s *AgentTestSuite) Test_Agent_DirectSkill_MultipleSkillsUsed() {
 					Content: "Whats on the news?",
 				},
 			},
-		}, &MemoryBlock{}, respCh)
+		}, &MemoryBlock{}, respCh, false)
 	}()
 
 	var aggregatedResponse string
