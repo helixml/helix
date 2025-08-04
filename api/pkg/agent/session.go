@@ -33,6 +33,7 @@ type Session struct {
 	messageHistory  *MessageList
 	stepInfoEmitter StepInfoEmitter
 	meta            Meta
+	conversational  bool
 }
 
 // NewSession constructs a session with references to shared LLM & memory, but isolated state.
@@ -57,6 +58,7 @@ func NewSession(ctx context.Context, stepInfoEmitter StepInfoEmitter, llm *LLM, 
 		messageHistory:  messageHistory,
 		stepInfoEmitter: stepInfoEmitter,
 		meta:            meta,
+		conversational:  conversational,
 	}
 	go s.run()
 	return s
@@ -127,7 +129,7 @@ func (s *Session) run() {
 		// Ensure channel is closed when we're done with it
 		defer close(internalChannel)
 
-		go s.agent.Run(s.ctx, s.meta, s.llm, s.messageHistory, memoryBlock, internalChannel)
+		go s.agent.Run(s.ctx, s.meta, s.llm, s.messageHistory, memoryBlock, internalChannel, s.conversational)
 
 		for response := range internalChannel {
 			s.outUserChannel <- response

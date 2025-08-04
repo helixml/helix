@@ -206,8 +206,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const router = useRouter()
   const account = useAccount()
   const session = useSession()
-  const sessions = useSessions()
-  const loadingHelpers = useLoading()
   const theme = useTheme()
   const themeConfig = useThemeConfig()
   const { NewInference, setCurrentSessionId } = useStreaming()
@@ -633,7 +631,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
       setInputValue("")
       // Scroll to bottom immediately after submitting to show progress
-      scrollToBottom()
+      scrollToBottom()      
       
       newSession = await NewInference({
         message: prompt,
@@ -819,27 +817,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   }, [
     shareInstructions,
   ])    
-
-  const onClone = useCallback(async (mode: ICloneInteractionMode, interactionID: string): Promise<boolean> => {
-    if (!checkOwnership({
-      cloneMode: mode,
-      cloneInteractionID: interactionID,
-    })) return true
-    if (!session.data) return false
-    const newSession = await api.post<undefined, TypesSession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${interactionID}/${mode}`, undefined, undefined, {
-      loading: true,
-    })
-    if (!newSession) return false
-    await sessions.loadSessions()
-    snackbar.success('Session cloned...')
-    router.navigate('session', { session_id: newSession.id })
-    return true
-  }, [
-    checkOwnership,
-    isOwner,
-    account.user,
-    session.data,
-  ])
 
   const onAddDocuments = useCallback(() => {
     if (!session.data) return
@@ -1123,7 +1100,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     account.userConfig.stripe_subscription_active,
     highlightAllFiles,    
     safeReloadSession,
-    onClone,
     onAddDocuments,
     theme.palette.mode,
     themeConfig.lightIcon,
