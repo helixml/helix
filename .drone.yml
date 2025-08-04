@@ -12,798 +12,795 @@ workspace:
   path: src/github.com/helix-ml/helix
 
 steps:
-- name: build-backend
-  image: golang:1.24-alpine3.21
-  volumes:
-  - name: go-build-cache
-    path: /root/.cache/go-build
-  - name: go-mod-cache
-    path: /go/pkg/mod
-  environment:
-    GITHUB_TOKEN:
-      from_secret: github_token
-  commands:
-    - go build
-  when:
-    event:
-    - tag
-  depends_on: []
+  - name: build-backend
+    image: golang:1.24-alpine3.21
+    volumes:
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    environment:
+      GITHUB_TOKEN:
+        from_secret: github_token
+    commands:
+      - go build
+    when:
+      event:
+        - tag
+    depends_on: []
 
-- name: build-frontend
-  image: node:23-alpine
-  volumes:
-  - name: yarn-cache
-    path: /usr/local/share/.cache/yarn
-  - name: node-modules-cache
-    path: /go/src/github.com/helix-ml/helix/frontend/node_modules
-  - name: frontend-build-cache
-    path: /go/src/github.com/helix-ml/helix/frontend/dist
-  commands:
-    - cd frontend
-    - yarn install
-    - yarn test
-    - yarn build
-  depends_on: []
+  - name: build-frontend
+    image: node:23-alpine
+    volumes:
+      - name: yarn-cache
+        path: /usr/local/share/.cache/yarn
+      - name: node-modules-cache
+        path: /go/src/github.com/helix-ml/helix/frontend/node_modules
+      - name: frontend-build-cache
+        path: /go/src/github.com/helix-ml/helix/frontend/dist
+    commands:
+      - cd frontend
+      - yarn install
+      - yarn test
+      - yarn build
+    depends_on: []
 
-- name: run-linter
-  image: golangci/golangci-lint:v1.64-alpine
-  volumes:
-  - name: go-build-cache
-    path: /root/.cache/go-build
-  - name: go-mod-cache
-    path: /go/pkg/mod
-  commands:
-    - golangci-lint cache clean
-    - golangci-lint run
-  when:
-    event:
-    - push
-  depends_on: []
+  - name: run-linter
+    image: golangci/golangci-lint:v1.64-alpine
+    volumes:
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    commands:
+      - golangci-lint cache clean
+      - golangci-lint run
+    when:
+      event:
+        - push
+    depends_on: []
 
-- name: check-for-secrets
-  description: "Run gitleaks to detect secrets in the codebase"
-  image: ghcr.io/gitleaks/gitleaks:v8.24.0
-  commands:
-    - gitleaks dir -v
-  when:
-    event:
-    - push
-  depends_on: []
+  - name: check-for-secrets
+    description: "Run gitleaks to detect secrets in the codebase"
+    image: ghcr.io/gitleaks/gitleaks:v8.24.0
+    commands:
+      - gitleaks dir -v
+    when:
+      event:
+        - push
+    depends_on: []
 
-- name: unit-test
-  image: golang:1.24-alpine3.21
-  volumes:
-  - name: go-build-cache
-    path: /root/.cache/go-build
-  - name: go-mod-cache
-    path: /go/pkg/mod
-  environment:
-    # Disabled until tested with togetherai
-    DISABLE_AGENT_TESTS: "true"
-    OPENAI_API_KEY:
-      from_secret: openai_tools
-    TOGETHER_API_KEY:
-      from_secret: openai_api_key
-    TOGETHER_BASE_URL:
-      from_secret: openai_base_url
-    # Database config (running in a sidecar)
-    POSTGRES_HOST: postgres
-    POSTGRES_PORT: "5432"
-    POSTGRES_USER: postgres
-    POSTGRES_PASSWORD: postgres
-    POSTGRES_DATABASE: postgres
-    TYPESENSE_URL: http://typesense:8108
-    TYPESENSE_API_KEY: typesense
-    TEXT_EXTRACTION_TIKA_URL: http://tika:9998
-    RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-    KEYCLOAK_URL: http://keycloak:8080/auth
-    KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-    KEYCLOAK_PASSWORD: REPLACE_ME
-    
-  commands:
-    - cd api
-    - go test -v ./...
-  when:
-    event:
-    - push
-  # depends_on: [unit-test]
+  - name: unit-test
+    image: golang:1.24-alpine3.21
+    volumes:
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    environment:
+      # Disabled until tested with togetherai
+      DISABLE_AGENT_TESTS: "true"
+      OPENAI_API_KEY:
+        from_secret: openai_tools
+      TOGETHER_API_KEY:
+        from_secret: openai_api_key
+      TOGETHER_BASE_URL:
+        from_secret: openai_base_url
+      # Database config (running in a sidecar)
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DATABASE: postgres
+      TYPESENSE_URL: http://typesense:8108
+      TYPESENSE_API_KEY: typesense
+      TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+      RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+      KEYCLOAK_URL: http://keycloak:8080/auth
+      KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
+      KEYCLOAK_PASSWORD: REPLACE_ME
 
-- name: api-integration-test
-  image: golang:1.24-alpine3.21
-  volumes:
-  - name: go-build-cache
-    path: /root/.cache/go-build
-  - name: go-mod-cache
-    path: /go/pkg/mod
-  environment:
-    OPENAI_API_KEY:
-      from_secret: openai_tools
-    TOGETHER_API_KEY:
-      from_secret: openai_api_key
-    TOGETHER_BASE_URL:
-      from_secret: openai_base_url
-    # Database config (running in a sidecar)
-    POSTGRES_HOST: postgres
-    POSTGRES_PORT: "5432"
-    POSTGRES_USER: postgres
-    POSTGRES_PASSWORD: postgres
-    POSTGRES_DATABASE: postgres
-    TYPESENSE_URL: http://typesense:8108
-    TYPESENSE_API_KEY: typesense
-    TEXT_EXTRACTION_TIKA_URL: http://tika:9998
-    RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-    KEYCLOAK_URL: http://keycloak:8080/auth
-    KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-    KEYCLOAK_PASSWORD: REPLACE_ME
-    ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
-    START_HELIX_TEST_SERVER: "true"
-    # Agent configuration
-    REASONING_MODEL_PROVIDER: openai
-    REASONING_MODEL: o3-mini    
-    REASONING_MODEL_EFFORT: none
-    GENERATION_MODEL_PROVIDER: openai
-    GENERATION_MODEL: gpt-4o
-    SMALL_REASONING_MODEL_PROVIDER: openai
-    SMALL_REASONING_MODEL: o3-mini
-    SMALL_REASONING_MODEL_EFFORT: none
-    SMALL_GENERATION_MODEL_PROVIDER: openai
-    SMALL_GENERATION_MODEL: gpt-4o-mini
+    commands:
+      - cd api
+      - go test -v ./...
+    when:
+      event:
+        - push
+    # depends_on: [unit-test]
 
-  commands:
-    # Build API server
-    - go install ./api/..
-    # Run tests
-    - cd integration-test/api
-    - go test -v ./...
-  when:
-    event:
-    - push
-  # depends_on: [unit-test]
+  - name: api-integration-test
+    image: golang:1.24-alpine3.21
+    volumes:
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    environment:
+      OPENAI_API_KEY:
+        from_secret: openai_tools
+      TOGETHER_API_KEY:
+        from_secret: openai_api_key
+      TOGETHER_BASE_URL:
+        from_secret: openai_base_url
+      # Database config (running in a sidecar)
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DATABASE: postgres
+      TYPESENSE_URL: http://typesense:8108
+      TYPESENSE_API_KEY: typesense
+      TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+      RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+      KEYCLOAK_URL: http://keycloak:8080/auth
+      KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
+      KEYCLOAK_PASSWORD: REPLACE_ME
+      ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+      START_HELIX_TEST_SERVER: "true"
+      # Agent configuration
+      REASONING_MODEL_PROVIDER: openai
+      REASONING_MODEL: o3-mini
+      REASONING_MODEL_EFFORT: none
+      GENERATION_MODEL_PROVIDER: openai
+      GENERATION_MODEL: gpt-4o
+      SMALL_REASONING_MODEL_PROVIDER: openai
+      SMALL_REASONING_MODEL: o3-mini
+      SMALL_REASONING_MODEL_EFFORT: none
+      SMALL_GENERATION_MODEL_PROVIDER: openai
+      SMALL_GENERATION_MODEL: gpt-4o-mini
 
-- name: oauth-github-integration-test
-  image: golang:1.24
-  volumes:
-  - name: oauth-github-test-results
-    path: /tmp/helix-oauth-test-results
-  - name: go-build-cache
-    path: /root/.cache/go-build
-  - name: go-mod-cache
-    path: /go/pkg/mod
-  environment:
-    # GitHub OAuth test credentials
-    GITHUB_SKILL_TEST_OAUTH_CLIENT_ID:
-      from_secret: github_skill_test_oauth_client_id
-    GITHUB_SKILL_TEST_OAUTH_CLIENT_SECRET:
-      from_secret: github_skill_test_oauth_client_secret
-    GITHUB_SKILL_TEST_OAUTH_USERNAME:
-      from_secret: github_skill_test_oauth_username
-    GITHUB_SKILL_TEST_OAUTH_PASSWORD:
-      from_secret: github_skill_test_oauth_password
-    GITHUB_SKILL_TEST_SETUP_PAT:
-      from_secret: github_skill_test_setup_pat
-    GMAIL_CREDENTIALS_BASE64:
-      from_secret: gmail_credentials_base64
-    # Database config (running in a sidecar)
-    POSTGRES_HOST: postgres
-    POSTGRES_PORT: "5432"
-    POSTGRES_USER: postgres
-    POSTGRES_PASSWORD: postgres
-    POSTGRES_DATABASE: postgres
-    TYPESENSE_URL: http://typesense:8108
-    TYPESENSE_API_KEY: typesense
-    TEXT_EXTRACTION_TIKA_URL: http://tika:9998
-    RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-    KEYCLOAK_URL: http://keycloak:8080/auth
-    KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-    KEYCLOAK_PASSWORD: REPLACE_ME
-    ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
-    # CI-specific configuration for OAuth test
-    WEB_SERVER_HOST: "localhost"
-    # API Keys for LLM providers
-    OPENAI_API_KEY:
-      from_secret: openai_api_key
-    ANTHROPIC_API_KEY:
-      from_secret: anthropic_api_key
-    # Agent configuration
-    REASONING_MODEL_PROVIDER: openai
-    REASONING_MODEL: o3-mini    
-    REASONING_MODEL_EFFORT: none
-    GENERATION_MODEL_PROVIDER: openai
-    GENERATION_MODEL: gpt-4o
-    SMALL_REASONING_MODEL_PROVIDER: openai
-    SMALL_REASONING_MODEL: o3-mini
-    SMALL_REASONING_MODEL_EFFORT: none
-    SMALL_GENERATION_MODEL_PROVIDER: openai
-    SMALL_GENERATION_MODEL: gpt-4o-mini
+    commands:
+      # Build API server
+      - go install ./api/..
+      # Run tests
+      - cd integration-test/api
+      - go test -v ./...
+    when:
+      event:
+        - push
+    # depends_on: [unit-test]
 
-  commands:
-    - chmod +x scripts/run-oauth-integration-test.sh
-    - ./scripts/run-oauth-integration-test.sh github TestGitHubOAuthSkillsE2E
-  when:
-    event:
-    - push
-  # depends_on: [unit-test]
+  - name: oauth-github-integration-test
+    image: golang:1.24
+    volumes:
+      - name: oauth-github-test-results
+        path: /tmp/helix-oauth-test-results
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    environment:
+      # GitHub OAuth test credentials
+      GITHUB_SKILL_TEST_OAUTH_CLIENT_ID:
+        from_secret: github_skill_test_oauth_client_id
+      GITHUB_SKILL_TEST_OAUTH_CLIENT_SECRET:
+        from_secret: github_skill_test_oauth_client_secret
+      GITHUB_SKILL_TEST_OAUTH_USERNAME:
+        from_secret: github_skill_test_oauth_username
+      GITHUB_SKILL_TEST_OAUTH_PASSWORD:
+        from_secret: github_skill_test_oauth_password
+      GITHUB_SKILL_TEST_SETUP_PAT:
+        from_secret: github_skill_test_setup_pat
+      GMAIL_CREDENTIALS_BASE64:
+        from_secret: gmail_credentials_base64
+      # Database config (running in a sidecar)
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DATABASE: postgres
+      TYPESENSE_URL: http://typesense:8108
+      TYPESENSE_API_KEY: typesense
+      TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+      RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+      KEYCLOAK_URL: http://keycloak:8080/auth
+      KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
+      KEYCLOAK_PASSWORD: REPLACE_ME
+      ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+      # CI-specific configuration for OAuth test
+      WEB_SERVER_HOST: "localhost"
+      # API Keys for LLM providers
+      OPENAI_API_KEY:
+        from_secret: openai_api_key
+      ANTHROPIC_API_KEY:
+        from_secret: anthropic_api_key
+      # Agent configuration
+      REASONING_MODEL_PROVIDER: openai
+      REASONING_MODEL: o3-mini
+      REASONING_MODEL_EFFORT: none
+      GENERATION_MODEL_PROVIDER: openai
+      GENERATION_MODEL: gpt-4o
+      SMALL_REASONING_MODEL_PROVIDER: openai
+      SMALL_REASONING_MODEL: o3-mini
+      SMALL_REASONING_MODEL_EFFORT: none
+      SMALL_GENERATION_MODEL_PROVIDER: openai
+      SMALL_GENERATION_MODEL: gpt-4o-mini
 
-- name: upload-oauth-github-test-artifacts
-  image: golang:1.24
-  volumes:
-  - name: oauth-github-test-results
-    path: /tmp/helix-oauth-test-results
-  environment:
-    LAUNCHPAD_URL: "https://deploy.helix.ml"
-    CI_SHARED_SECRET:
-      from_secret: ci_shared_secret
-  commands:
-    - chmod +x scripts/upload-oauth-test-artifacts.sh
-    - ./scripts/upload-oauth-test-artifacts.sh github
-  when:
-    event:
-    - push
-    status:
-    - success
-    - failure
-  depends_on: [oauth-github-integration-test]
+    commands:
+      - chmod +x scripts/run-oauth-integration-test.sh
+      - ./scripts/run-oauth-integration-test.sh github TestGitHubOAuthSkillsE2E
+    when:
+      event:
+        - push
+    # depends_on: [unit-test]
 
-# - name: oauth-gmail-integration-test
-#   image: golang:1.24
-#   volumes:
-#   - name: oauth-gmail-test-results
-#     path: /tmp/helix-oauth-test-results
-#   - name: go-build-cache
-#     path: /root/.cache/go-build
-#   - name: go-mod-cache
-#     path: /go/pkg/mod
-#   environment:
-#     # Google OAuth test credentials
-#     GOOGLE_SKILL_TEST_OAUTH_CLIENT_ID:
-#       from_secret: google_skill_test_oauth_client_id
-#     GOOGLE_SKILL_TEST_OAUTH_CLIENT_SECRET:
-#       from_secret: google_skill_test_oauth_client_secret
-#     GOOGLE_SKILL_TEST_OAUTH_USERNAME:
-#       from_secret: google_skill_test_oauth_username
-#     GOOGLE_SKILL_TEST_OAUTH_PASSWORD:
-#       from_secret: google_skill_test_oauth_password
-#     # Gmail credentials for device verification
-#     GMAIL_CREDENTIALS_BASE64:
-#       from_secret: gmail_credentials_base64
-#     # Database config (running in a sidecar)
-#     POSTGRES_HOST: postgres
-#     POSTGRES_PORT: "5432"
-#     POSTGRES_USER: postgres
-#     POSTGRES_PASSWORD: postgres
-#     POSTGRES_DATABASE: postgres
-#     TYPESENSE_URL: http://typesense:8108
-#     TYPESENSE_API_KEY: typesense
-#     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
-#     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-#     KEYCLOAK_URL: http://keycloak:8080/auth
-#     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-#     KEYCLOAK_PASSWORD: REPLACE_ME
-#     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
-#     # CI-specific configuration for OAuth test
-#     WEB_SERVER_HOST: "localhost"
-#     # API Keys for LLM providers
-#     OPENAI_API_KEY:
-#       from_secret: openai_api_key
-#     ANTHROPIC_API_KEY:
-#       from_secret: anthropic_api_key
-#     # Agent configuration
-#     REASONING_MODEL_PROVIDER: openai
-#     REASONING_MODEL: o3-mini    
-#     REASONING_MODEL_EFFORT: none
-#     GENERATION_MODEL_PROVIDER: openai
-#     GENERATION_MODEL: gpt-4o
-#     SMALL_REASONING_MODEL_PROVIDER: openai
-#     SMALL_REASONING_MODEL: o3-mini
-#     SMALL_REASONING_MODEL_EFFORT: none
-#     SMALL_GENERATION_MODEL_PROVIDER: openai
-#     SMALL_GENERATION_MODEL: gpt-4o-mini
+  - name: upload-oauth-github-test-artifacts
+    image: golang:1.24
+    volumes:
+      - name: oauth-github-test-results
+        path: /tmp/helix-oauth-test-results
+    environment:
+      LAUNCHPAD_URL: "https://deploy.helix.ml"
+      CI_SHARED_SECRET:
+        from_secret: ci_shared_secret
+    commands:
+      - chmod +x scripts/upload-oauth-test-artifacts.sh
+      - ./scripts/upload-oauth-test-artifacts.sh github
+    when:
+      event:
+        - push
+      status:
+        - success
+        - failure
+    depends_on: [oauth-github-integration-test]
 
-#   commands:
-#     - chmod +x scripts/run-oauth-integration-test.sh
-#     - ./scripts/run-oauth-integration-test.sh gmail TestGmailOAuthSkillsE2E
-#   when:
-#     event:
-#     - push
-#   # depends_on: [unit-test]
+  # - name: oauth-gmail-integration-test
+  #   image: golang:1.24
+  #   volumes:
+  #   - name: oauth-gmail-test-results
+  #     path: /tmp/helix-oauth-test-results
+  #   - name: go-build-cache
+  #     path: /root/.cache/go-build
+  #   - name: go-mod-cache
+  #     path: /go/pkg/mod
+  #   environment:
+  #     # Google OAuth test credentials
+  #     GOOGLE_SKILL_TEST_OAUTH_CLIENT_ID:
+  #       from_secret: google_skill_test_oauth_client_id
+  #     GOOGLE_SKILL_TEST_OAUTH_CLIENT_SECRET:
+  #       from_secret: google_skill_test_oauth_client_secret
+  #     GOOGLE_SKILL_TEST_OAUTH_USERNAME:
+  #       from_secret: google_skill_test_oauth_username
+  #     GOOGLE_SKILL_TEST_OAUTH_PASSWORD:
+  #       from_secret: google_skill_test_oauth_password
+  #     # Gmail credentials for device verification
+  #     GMAIL_CREDENTIALS_BASE64:
+  #       from_secret: gmail_credentials_base64
+  #     # Database config (running in a sidecar)
+  #     POSTGRES_HOST: postgres
+  #     POSTGRES_PORT: "5432"
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #     POSTGRES_DATABASE: postgres
+  #     TYPESENSE_URL: http://typesense:8108
+  #     TYPESENSE_API_KEY: typesense
+  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+  #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+  #     KEYCLOAK_URL: http://keycloak:8080/auth
+  #     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
+  #     KEYCLOAK_PASSWORD: REPLACE_ME
+  #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+  #     # CI-specific configuration for OAuth test
+  #     WEB_SERVER_HOST: "localhost"
+  #     # API Keys for LLM providers
+  #     OPENAI_API_KEY:
+  #       from_secret: openai_api_key
+  #     ANTHROPIC_API_KEY:
+  #       from_secret: anthropic_api_key
+  #     # Agent configuration
+  #     REASONING_MODEL_PROVIDER: openai
+  #     REASONING_MODEL: o3-mini
+  #     REASONING_MODEL_EFFORT: none
+  #     GENERATION_MODEL_PROVIDER: openai
+  #     GENERATION_MODEL: gpt-4o
+  #     SMALL_REASONING_MODEL_PROVIDER: openai
+  #     SMALL_REASONING_MODEL: o3-mini
+  #     SMALL_REASONING_MODEL_EFFORT: none
+  #     SMALL_GENERATION_MODEL_PROVIDER: openai
+  #     SMALL_GENERATION_MODEL: gpt-4o-mini
+  #   commands:
+  #     - chmod +x scripts/run-oauth-integration-test.sh
+  #     - ./scripts/run-oauth-integration-test.sh gmail TestGmailOAuthSkillsE2E
+  #   when:
+  #     event:
+  #     - push
+  #   # depends_on: [unit-test]
+  # - name: upload-oauth-gmail-test-artifacts
+  #   image: golang:1.24
+  #   volumes:
+  #   - name: oauth-gmail-test-results
+  #     path: /tmp/helix-oauth-test-results
+  #   environment:
+  #     LAUNCHPAD_URL: "https://deploy.helix.ml"
+  #     CI_SHARED_SECRET:
+  #       from_secret: ci_shared_secret
+  #   commands:
+  #     - chmod +x scripts/upload-oauth-test-artifacts.sh
+  #     - ./scripts/upload-oauth-test-artifacts.sh gmail
+  #   when:
+  #     event:
+  #     - push
+  #     status:
+  #     - success
+  #     - failure
+  #   depends_on: [oauth-gmail-integration-test]
+  - name: oauth-outlook-integration-test
+    image: golang:1.24
+    volumes:
+      - name: oauth-outlook-test-results
+        path: /tmp/helix-oauth-test-results
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    environment:
+      # Microsoft OAuth test credentials
+      MICROSOFT_SKILL_TEST_OAUTH_CLIENT_ID:
+        from_secret: microsoft_skill_test_oauth_client_id
+      MICROSOFT_SKILL_TEST_OAUTH_CLIENT_SECRET:
+        from_secret: microsoft_skill_test_oauth_client_secret
+      MICROSOFT_SKILL_TEST_OAUTH_USERNAME:
+        from_secret: microsoft_skill_test_oauth_username
+      MICROSOFT_SKILL_TEST_OAUTH_PASSWORD:
+        from_secret: microsoft_skill_test_oauth_password
+      # Database config (running in a sidecar)
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DATABASE: postgres
+      TYPESENSE_URL: http://typesense:8108
+      TYPESENSE_API_KEY: typesense
+      TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+      RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+      KEYCLOAK_URL: http://keycloak:8080/auth
+      KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
+      KEYCLOAK_PASSWORD: REPLACE_ME
+      ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+      # CI-specific configuration for OAuth test
+      WEB_SERVER_HOST: "localhost"
+      # API Keys for LLM providers
+      OPENAI_API_KEY:
+        from_secret: openai_api_key
+      ANTHROPIC_API_KEY:
+        from_secret: anthropic_api_key
+      # Agent configuration
+      REASONING_MODEL_PROVIDER: openai
+      REASONING_MODEL: o3-mini
+      REASONING_MODEL_EFFORT: none
+      GENERATION_MODEL_PROVIDER: openai
+      GENERATION_MODEL: gpt-4o
+      SMALL_REASONING_MODEL_PROVIDER: openai
+      SMALL_REASONING_MODEL: o3-mini
+      SMALL_REASONING_MODEL_EFFORT: none
+      SMALL_GENERATION_MODEL_PROVIDER: openai
+      SMALL_GENERATION_MODEL: gpt-4o-mini
 
-# - name: upload-oauth-gmail-test-artifacts
-#   image: golang:1.24
-#   volumes:
-#   - name: oauth-gmail-test-results
-#     path: /tmp/helix-oauth-test-results
-#   environment:
-#     LAUNCHPAD_URL: "https://deploy.helix.ml"
-#     CI_SHARED_SECRET:
-#       from_secret: ci_shared_secret
-#   commands:
-#     - chmod +x scripts/upload-oauth-test-artifacts.sh
-#     - ./scripts/upload-oauth-test-artifacts.sh gmail
-#   when:
-#     event:
-#     - push
-#     status:
-#     - success
-#     - failure
-#   depends_on: [oauth-gmail-integration-test]
+    commands:
+      - chmod +x scripts/run-oauth-integration-test.sh
+      - ./scripts/run-oauth-integration-test.sh outlook TestOutlookOAuthSkillsE2E
+    when:
+      event:
+        - push
+    # depends_on: [unit-test]
 
-- name: oauth-outlook-integration-test
-  image: golang:1.24
-  volumes:
-  - name: oauth-outlook-test-results
-    path: /tmp/helix-oauth-test-results
-  - name: go-build-cache
-    path: /root/.cache/go-build
-  - name: go-mod-cache
-    path: /go/pkg/mod
-  environment:
-    # Microsoft OAuth test credentials
-    MICROSOFT_SKILL_TEST_OAUTH_CLIENT_ID:
-      from_secret: microsoft_skill_test_oauth_client_id
-    MICROSOFT_SKILL_TEST_OAUTH_CLIENT_SECRET:
-      from_secret: microsoft_skill_test_oauth_client_secret
-    MICROSOFT_SKILL_TEST_OAUTH_USERNAME:
-      from_secret: microsoft_skill_test_oauth_username
-    MICROSOFT_SKILL_TEST_OAUTH_PASSWORD:
-      from_secret: microsoft_skill_test_oauth_password
-    # Database config (running in a sidecar)
-    POSTGRES_HOST: postgres
-    POSTGRES_PORT: "5432"
-    POSTGRES_USER: postgres
-    POSTGRES_PASSWORD: postgres
-    POSTGRES_DATABASE: postgres
-    TYPESENSE_URL: http://typesense:8108
-    TYPESENSE_API_KEY: typesense
-    TEXT_EXTRACTION_TIKA_URL: http://tika:9998
-    RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-    KEYCLOAK_URL: http://keycloak:8080/auth
-    KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-    KEYCLOAK_PASSWORD: REPLACE_ME
-    ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
-    # CI-specific configuration for OAuth test
-    WEB_SERVER_HOST: "localhost"
-    # API Keys for LLM providers
-    OPENAI_API_KEY:
-      from_secret: openai_api_key
-    ANTHROPIC_API_KEY:
-      from_secret: anthropic_api_key
-    # Agent configuration
-    REASONING_MODEL_PROVIDER: openai
-    REASONING_MODEL: o3-mini    
-    REASONING_MODEL_EFFORT: none
-    GENERATION_MODEL_PROVIDER: openai
-    GENERATION_MODEL: gpt-4o
-    SMALL_REASONING_MODEL_PROVIDER: openai
-    SMALL_REASONING_MODEL: o3-mini
-    SMALL_REASONING_MODEL_EFFORT: none
-    SMALL_GENERATION_MODEL_PROVIDER: openai
-    SMALL_GENERATION_MODEL: gpt-4o-mini
+  - name: upload-oauth-outlook-test-artifacts
+    image: golang:1.24
+    volumes:
+      - name: oauth-outlook-test-results
+        path: /tmp/helix-oauth-test-results
+    environment:
+      LAUNCHPAD_URL: "https://deploy.helix.ml"
+      CI_SHARED_SECRET:
+        from_secret: ci_shared_secret
+    commands:
+      - chmod +x scripts/upload-oauth-test-artifacts.sh
+      - ./scripts/upload-oauth-test-artifacts.sh outlook
+    when:
+      event:
+        - push
+      status:
+        - success
+        - failure
+    depends_on: [oauth-outlook-integration-test]
 
-  commands:
-    - chmod +x scripts/run-oauth-integration-test.sh
-    - ./scripts/run-oauth-integration-test.sh outlook TestOutlookOAuthSkillsE2E
-  when:
-    event:
-    - push
-  # depends_on: [unit-test]
+  # - name: oauth-google-calendar-integration-test
+  #   image: golang:1.24
+  #   volumes:
+  #   - name: oauth-google-calendar-test-results
+  #     path: /tmp/helix-oauth-test-results
+  #   - name: go-build-cache
+  #     path: /root/.cache/go-build
+  #   - name: go-mod-cache
+  #     path: /go/pkg/mod
+  #   environment:
+  #     # Google OAuth test credentials
+  #     GOOGLE_SKILL_TEST_OAUTH_CLIENT_ID:
+  #       from_secret: google_skill_test_oauth_client_id
+  #     GOOGLE_SKILL_TEST_OAUTH_CLIENT_SECRET:
+  #       from_secret: google_skill_test_oauth_client_secret
+  #     GOOGLE_SKILL_TEST_OAUTH_USERNAME:
+  #       from_secret: google_skill_test_oauth_username
+  #     GOOGLE_SKILL_TEST_OAUTH_PASSWORD:
+  #       from_secret: google_skill_test_oauth_password
+  #     # Gmail credentials for device verification
+  #     GMAIL_CREDENTIALS_BASE64:
+  #       from_secret: gmail_credentials_base64
+  #     # Database config (running in a sidecar)
+  #     POSTGRES_HOST: postgres
+  #     POSTGRES_PORT: "5432"
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #     POSTGRES_DATABASE: postgres
+  #     TYPESENSE_URL: http://typesense:8108
+  #     TYPESENSE_API_KEY: typesense
+  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+  #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+  #     KEYCLOAK_URL: http://keycloak:8080/auth
+  #     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
+  #     KEYCLOAK_PASSWORD: REPLACE_ME
+  #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+  #     # CI-specific configuration for OAuth test
+  #     WEB_SERVER_HOST: "localhost"
+  #     # API Keys for LLM providers
+  #     OPENAI_API_KEY:
+  #       from_secret: openai_api_key
+  #     ANTHROPIC_API_KEY:
+  #       from_secret: anthropic_api_key
+  #     # Agent configuration
+  #     REASONING_MODEL_PROVIDER: openai
+  #     REASONING_MODEL: o3-mini
+  #     REASONING_MODEL_EFFORT: none
+  #     GENERATION_MODEL_PROVIDER: openai
+  #     GENERATION_MODEL: gpt-4o
+  #     SMALL_REASONING_MODEL_PROVIDER: openai
+  #     SMALL_REASONING_MODEL: o3-mini
+  #     SMALL_REASONING_MODEL_EFFORT: none
+  #     SMALL_GENERATION_MODEL_PROVIDER: openai
+  #     SMALL_GENERATION_MODEL: gpt-4o-mini
 
-- name: upload-oauth-outlook-test-artifacts
-  image: golang:1.24
-  volumes:
-  - name: oauth-outlook-test-results
-    path: /tmp/helix-oauth-test-results
-  environment:
-    LAUNCHPAD_URL: "https://deploy.helix.ml"
-    CI_SHARED_SECRET:
-      from_secret: ci_shared_secret
-  commands:
-    - chmod +x scripts/upload-oauth-test-artifacts.sh
-    - ./scripts/upload-oauth-test-artifacts.sh outlook
-  when:
-    event:
-    - push
-    status:
-    - success
-    - failure
-  depends_on: [oauth-outlook-integration-test]
+  #   commands:
+  #     - chmod +x scripts/run-oauth-integration-test.sh
+  #     - ./scripts/run-oauth-integration-test.sh google-calendar TestGoogleCalendarOAuthSkillsE2E
+  #   when:
+  #     event:
+  #     - push
+  #   # depends_on: [unit-test]
 
-# - name: oauth-google-calendar-integration-test
-#   image: golang:1.24
-#   volumes:
-#   - name: oauth-google-calendar-test-results
-#     path: /tmp/helix-oauth-test-results
-#   - name: go-build-cache
-#     path: /root/.cache/go-build
-#   - name: go-mod-cache
-#     path: /go/pkg/mod
-#   environment:
-#     # Google OAuth test credentials
-#     GOOGLE_SKILL_TEST_OAUTH_CLIENT_ID:
-#       from_secret: google_skill_test_oauth_client_id
-#     GOOGLE_SKILL_TEST_OAUTH_CLIENT_SECRET:
-#       from_secret: google_skill_test_oauth_client_secret
-#     GOOGLE_SKILL_TEST_OAUTH_USERNAME:
-#       from_secret: google_skill_test_oauth_username
-#     GOOGLE_SKILL_TEST_OAUTH_PASSWORD:
-#       from_secret: google_skill_test_oauth_password
-#     # Gmail credentials for device verification
-#     GMAIL_CREDENTIALS_BASE64:
-#       from_secret: gmail_credentials_base64
-#     # Database config (running in a sidecar)
-#     POSTGRES_HOST: postgres
-#     POSTGRES_PORT: "5432"
-#     POSTGRES_USER: postgres
-#     POSTGRES_PASSWORD: postgres
-#     POSTGRES_DATABASE: postgres
-#     TYPESENSE_URL: http://typesense:8108
-#     TYPESENSE_API_KEY: typesense
-#     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
-#     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-#     KEYCLOAK_URL: http://keycloak:8080/auth
-#     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-#     KEYCLOAK_PASSWORD: REPLACE_ME
-#     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
-#     # CI-specific configuration for OAuth test
-#     WEB_SERVER_HOST: "localhost"
-#     # API Keys for LLM providers
-#     OPENAI_API_KEY:
-#       from_secret: openai_api_key
-#     ANTHROPIC_API_KEY:
-#       from_secret: anthropic_api_key
-#     # Agent configuration
-#     REASONING_MODEL_PROVIDER: openai
-#     REASONING_MODEL: o3-mini    
-#     REASONING_MODEL_EFFORT: none
-#     GENERATION_MODEL_PROVIDER: openai
-#     GENERATION_MODEL: gpt-4o
-#     SMALL_REASONING_MODEL_PROVIDER: openai
-#     SMALL_REASONING_MODEL: o3-mini
-#     SMALL_REASONING_MODEL_EFFORT: none
-#     SMALL_GENERATION_MODEL_PROVIDER: openai
-#     SMALL_GENERATION_MODEL: gpt-4o-mini
+  # - name: upload-oauth-google-calendar-test-artifacts
+  #   image: golang:1.24
+  #   volumes:
+  #   - name: oauth-google-calendar-test-results
+  #     path: /tmp/helix-oauth-test-results
+  #   environment:
+  #     LAUNCHPAD_URL: "https://deploy.helix.ml"
+  #     CI_SHARED_SECRET:
+  #       from_secret: ci_shared_secret
+  #   commands:
+  #     - chmod +x scripts/upload-oauth-test-artifacts.sh
+  #     - ./scripts/upload-oauth-test-artifacts.sh google-calendar
+  #   when:
+  #     event:
+  #     - push
+  #     status:
+  #     - success
+  #     - failure
+  #   depends_on: [oauth-google-calendar-integration-test]
 
-#   commands:
-#     - chmod +x scripts/run-oauth-integration-test.sh
-#     - ./scripts/run-oauth-integration-test.sh google-calendar TestGoogleCalendarOAuthSkillsE2E
-#   when:
-#     event:
-#     - push
-#   # depends_on: [unit-test]
+  # - name: oauth-jira-integration-test
+  #   image: golang:1.24
+  #   volumes:
+  #   - name: oauth-jira-test-results
+  #     path: /tmp/helix-oauth-test-results
+  #   - name: go-build-cache
+  #     path: /root/.cache/go-build
+  #   - name: go-mod-cache
+  #     path: /go/pkg/mod
+  #   environment:
+  #     # Atlassian OAuth test credentials
+  #     ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID:
+  #       from_secret: atlassian_skill_test_oauth_client_id
+  #     ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_SECRET:
+  #       from_secret: atlassian_skill_test_oauth_client_secret
+  #     ATLASSIAN_SKILL_TEST_OAUTH_USERNAME:
+  #       from_secret: atlassian_skill_test_oauth_username
+  #     ATLASSIAN_SKILL_TEST_OAUTH_PASSWORD:
+  #       from_secret: atlassian_skill_test_oauth_password
+  #     ATLASSIAN_SKILL_TEST_JIRA_CLOUD_ID:
+  #       from_secret: atlassian_skill_test_jira_cloud_id
+  #     # Gmail credentials for MFA handling
+  #     GMAIL_CREDENTIALS_BASE64:
+  #       from_secret: gmail_credentials_base64
+  #     # Database config (running in a sidecar)
+  #     POSTGRES_HOST: postgres
+  #     POSTGRES_PORT: "5432"
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #     POSTGRES_DATABASE: postgres
+  #     TYPESENSE_URL: http://typesense:8108
+  #     TYPESENSE_API_KEY: typesense
+  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+  #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+  #     KEYCLOAK_URL: http://keycloak:8080/auth
+  #     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
+  #     KEYCLOAK_PASSWORD: REPLACE_ME
+  #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+  #     # CI-specific configuration for OAuth test
+  #     WEB_SERVER_HOST: "localhost"
+  #     # API Keys for LLM providers
+  #     OPENAI_API_KEY:
+  #       from_secret: openai_api_key
+  #     ANTHROPIC_API_KEY:
+  #       from_secret: anthropic_api_key
+  #     # Agent configuration
+  #     REASONING_MODEL_PROVIDER: openai
+  #     REASONING_MODEL: o3-mini
+  #     REASONING_MODEL_EFFORT: none
+  #     GENERATION_MODEL_PROVIDER: openai
+  #     GENERATION_MODEL: gpt-4o
+  #     SMALL_REASONING_MODEL_PROVIDER: openai
+  #     SMALL_REASONING_MODEL: o3-mini
+  #     SMALL_REASONING_MODEL_EFFORT: none
+  #     SMALL_GENERATION_MODEL_PROVIDER: openai
+  #     SMALL_GENERATION_MODEL: gpt-4o-mini
 
-# - name: upload-oauth-google-calendar-test-artifacts
-#   image: golang:1.24
-#   volumes:
-#   - name: oauth-google-calendar-test-results
-#     path: /tmp/helix-oauth-test-results
-#   environment:
-#     LAUNCHPAD_URL: "https://deploy.helix.ml"
-#     CI_SHARED_SECRET:
-#       from_secret: ci_shared_secret
-#   commands:
-#     - chmod +x scripts/upload-oauth-test-artifacts.sh
-#     - ./scripts/upload-oauth-test-artifacts.sh google-calendar
-#   when:
-#     event:
-#     - push
-#     status:
-#     - success
-#     - failure
-#   depends_on: [oauth-google-calendar-integration-test]
+  #   commands:
+  #     - chmod +x scripts/run-oauth-integration-test.sh
+  #     - echo "=== Environment Variable Check ==="
+  #     - echo "GMAIL_CREDENTIALS_BASE64 length:" $(echo -n "${GMAIL_CREDENTIALS_BASE64}" | wc -c)
+  #     - echo "ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID}" && echo "YES" || echo "NO")
+  #     - echo "ATLASSIAN_SKILL_TEST_OAUTH_USERNAME is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_USERNAME}" && echo "YES" || echo "NO")
+  #     - echo "ATLASSIAN_SKILL_TEST_JIRA_CLOUD_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_JIRA_CLOUD_ID}" && echo "YES" || echo "NO")
+  #     - echo "=== Starting Jira OAuth Test ==="
+  #     - ./scripts/run-oauth-integration-test.sh jira TestJiraOAuthSkillsE2E
+  #   when:
+  #     event:
+  #     - push
+  #   # depends_on: [unit-test]
 
-# - name: oauth-jira-integration-test
-#   image: golang:1.24
-#   volumes:
-#   - name: oauth-jira-test-results
-#     path: /tmp/helix-oauth-test-results
-#   - name: go-build-cache
-#     path: /root/.cache/go-build
-#   - name: go-mod-cache
-#     path: /go/pkg/mod
-#   environment:
-#     # Atlassian OAuth test credentials
-#     ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID:
-#       from_secret: atlassian_skill_test_oauth_client_id
-#     ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_SECRET:
-#       from_secret: atlassian_skill_test_oauth_client_secret
-#     ATLASSIAN_SKILL_TEST_OAUTH_USERNAME:
-#       from_secret: atlassian_skill_test_oauth_username
-#     ATLASSIAN_SKILL_TEST_OAUTH_PASSWORD:
-#       from_secret: atlassian_skill_test_oauth_password
-#     ATLASSIAN_SKILL_TEST_JIRA_CLOUD_ID:
-#       from_secret: atlassian_skill_test_jira_cloud_id
-#     # Gmail credentials for MFA handling
-#     GMAIL_CREDENTIALS_BASE64:
-#       from_secret: gmail_credentials_base64
-#     # Database config (running in a sidecar)
-#     POSTGRES_HOST: postgres
-#     POSTGRES_PORT: "5432"
-#     POSTGRES_USER: postgres
-#     POSTGRES_PASSWORD: postgres
-#     POSTGRES_DATABASE: postgres
-#     TYPESENSE_URL: http://typesense:8108
-#     TYPESENSE_API_KEY: typesense
-#     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
-#     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-#     KEYCLOAK_URL: http://keycloak:8080/auth
-#     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-#     KEYCLOAK_PASSWORD: REPLACE_ME
-#     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
-#     # CI-specific configuration for OAuth test
-#     WEB_SERVER_HOST: "localhost"
-#     # API Keys for LLM providers
-#     OPENAI_API_KEY:
-#       from_secret: openai_api_key
-#     ANTHROPIC_API_KEY:
-#       from_secret: anthropic_api_key
-#     # Agent configuration
-#     REASONING_MODEL_PROVIDER: openai
-#     REASONING_MODEL: o3-mini    
-#     REASONING_MODEL_EFFORT: none
-#     GENERATION_MODEL_PROVIDER: openai
-#     GENERATION_MODEL: gpt-4o
-#     SMALL_REASONING_MODEL_PROVIDER: openai
-#     SMALL_REASONING_MODEL: o3-mini
-#     SMALL_REASONING_MODEL_EFFORT: none
-#     SMALL_GENERATION_MODEL_PROVIDER: openai
-#     SMALL_GENERATION_MODEL: gpt-4o-mini
+  # - name: upload-oauth-jira-test-artifacts
+  #   image: golang:1.24
+  #   volumes:
+  #   - name: oauth-jira-test-results
+  #     path: /tmp/helix-oauth-test-results
+  #   environment:
+  #     LAUNCHPAD_URL: "https://deploy.helix.ml"
+  #     CI_SHARED_SECRET:
+  #       from_secret: ci_shared_secret
+  #   commands:
+  #     - chmod +x scripts/upload-oauth-test-artifacts.sh
+  #     - ./scripts/upload-oauth-test-artifacts.sh jira
+  #   when:
+  #     event:
+  #     - push
+  #     status:
+  #     - success
+  #     - failure
+  #   depends_on: [oauth-jira-integration-test]
 
-#   commands:
-#     - chmod +x scripts/run-oauth-integration-test.sh
-#     - echo "=== Environment Variable Check ==="
-#     - echo "GMAIL_CREDENTIALS_BASE64 length:" $(echo -n "${GMAIL_CREDENTIALS_BASE64}" | wc -c)
-#     - echo "ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID}" && echo "YES" || echo "NO")
-#     - echo "ATLASSIAN_SKILL_TEST_OAUTH_USERNAME is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_USERNAME}" && echo "YES" || echo "NO")
-#     - echo "ATLASSIAN_SKILL_TEST_JIRA_CLOUD_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_JIRA_CLOUD_ID}" && echo "YES" || echo "NO")
-#     - echo "=== Starting Jira OAuth Test ==="
-#     - ./scripts/run-oauth-integration-test.sh jira TestJiraOAuthSkillsE2E
-#   when:
-#     event:
-#     - push
-#   # depends_on: [unit-test]
+  # - name: oauth-confluence-integration-test
+  #   image: golang:1.24
+  #   volumes:
+  #   - name: oauth-confluence-test-results
+  #     path: /tmp/helix-oauth-test-results
+  #   - name: go-build-cache
+  #     path: /root/.cache/go-build
+  #   - name: go-mod-cache
+  #     path: /go/pkg/mod
+  #   environment:
+  #     # Atlassian OAuth test credentials
+  #     ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID:
+  #       from_secret: atlassian_skill_test_oauth_client_id
+  #     ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_SECRET:
+  #       from_secret: atlassian_skill_test_oauth_client_secret
+  #     ATLASSIAN_SKILL_TEST_OAUTH_USERNAME:
+  #       from_secret: atlassian_skill_test_oauth_username
+  #     ATLASSIAN_SKILL_TEST_OAUTH_PASSWORD:
+  #       from_secret: atlassian_skill_test_oauth_password
+  #     ATLASSIAN_SKILL_TEST_CONFLUENCE_CLOUD_ID:
+  #       from_secret: atlassian_skill_test_confluence_cloud_id
+  #     # Gmail credentials for MFA handling
+  #     GMAIL_CREDENTIALS_BASE64:
+  #       from_secret: gmail_credentials_base64
+  #     # Database config (running in a sidecar)
+  #     POSTGRES_HOST: postgres
+  #     POSTGRES_PORT: "5432"
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #     POSTGRES_DATABASE: postgres
+  #     TYPESENSE_URL: http://typesense:8108
+  #     TYPESENSE_API_KEY: typesense
+  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+  #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+  #     KEYCLOAK_URL: http://keycloak:8080/auth
+  #     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
+  #     KEYCLOAK_PASSWORD: REPLACE_ME
+  #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+  #     # CI-specific configuration for OAuth test
+  #     WEB_SERVER_HOST: "localhost"
+  #     # API Keys for LLM providers
+  #     OPENAI_API_KEY:
+  #       from_secret: openai_api_key
+  #     ANTHROPIC_API_KEY:
+  #       from_secret: anthropic_api_key
+  #     # Agent configuration
+  #     REASONING_MODEL_PROVIDER: openai
+  #     REASONING_MODEL: o3-mini
+  #     REASONING_MODEL_EFFORT: none
+  #     GENERATION_MODEL_PROVIDER: openai
+  #     GENERATION_MODEL: gpt-4o
+  #     SMALL_REASONING_MODEL_PROVIDER: openai
+  #     SMALL_REASONING_MODEL: o3-mini
+  #     SMALL_REASONING_MODEL_EFFORT: none
+  #     SMALL_GENERATION_MODEL_PROVIDER: openai
+  #     SMALL_GENERATION_MODEL: gpt-4o-mini
 
-# - name: upload-oauth-jira-test-artifacts
-#   image: golang:1.24
-#   volumes:
-#   - name: oauth-jira-test-results
-#     path: /tmp/helix-oauth-test-results
-#   environment:
-#     LAUNCHPAD_URL: "https://deploy.helix.ml"
-#     CI_SHARED_SECRET:
-#       from_secret: ci_shared_secret
-#   commands:
-#     - chmod +x scripts/upload-oauth-test-artifacts.sh
-#     - ./scripts/upload-oauth-test-artifacts.sh jira
-#   when:
-#     event:
-#     - push
-#     status:
-#     - success
-#     - failure
-#   depends_on: [oauth-jira-integration-test]
+  #   commands:
+  #     - chmod +x scripts/run-oauth-integration-test.sh
+  #     - echo "=== Environment Variable Check ==="
+  #     - echo "GMAIL_CREDENTIALS_BASE64 length:" $(echo -n "${GMAIL_CREDENTIALS_BASE64}" | wc -c)
+  #     - echo "ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID}" && echo "YES" || echo "NO")
+  #     - echo "ATLASSIAN_SKILL_TEST_OAUTH_USERNAME is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_USERNAME}" && echo "YES" || echo "NO")
+  #     - echo "ATLASSIAN_SKILL_TEST_CONFLUENCE_CLOUD_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_CONFLUENCE_CLOUD_ID}" && echo "YES" || echo "NO")
+  #     - echo "=== Starting Confluence OAuth Test ==="
+  #     - ./scripts/run-oauth-integration-test.sh confluence TestConfluenceOAuthSkillsE2E
+  #   when:
+  #     event:
+  #     - push
+  #   # depends_on: [unit-test]
 
-# - name: oauth-confluence-integration-test
-#   image: golang:1.24
-#   volumes:
-#   - name: oauth-confluence-test-results
-#     path: /tmp/helix-oauth-test-results
-#   - name: go-build-cache
-#     path: /root/.cache/go-build
-#   - name: go-mod-cache
-#     path: /go/pkg/mod
-#   environment:
-#     # Atlassian OAuth test credentials
-#     ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID:
-#       from_secret: atlassian_skill_test_oauth_client_id
-#     ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_SECRET:
-#       from_secret: atlassian_skill_test_oauth_client_secret
-#     ATLASSIAN_SKILL_TEST_OAUTH_USERNAME:
-#       from_secret: atlassian_skill_test_oauth_username
-#     ATLASSIAN_SKILL_TEST_OAUTH_PASSWORD:
-#       from_secret: atlassian_skill_test_oauth_password
-#     ATLASSIAN_SKILL_TEST_CONFLUENCE_CLOUD_ID:
-#       from_secret: atlassian_skill_test_confluence_cloud_id
-#     # Gmail credentials for MFA handling
-#     GMAIL_CREDENTIALS_BASE64:
-#       from_secret: gmail_credentials_base64
-#     # Database config (running in a sidecar)
-#     POSTGRES_HOST: postgres
-#     POSTGRES_PORT: "5432"
-#     POSTGRES_USER: postgres
-#     POSTGRES_PASSWORD: postgres
-#     POSTGRES_DATABASE: postgres
-#     TYPESENSE_URL: http://typesense:8108
-#     TYPESENSE_API_KEY: typesense
-#     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
-#     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-#     KEYCLOAK_URL: http://keycloak:8080/auth
-#     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-#     KEYCLOAK_PASSWORD: REPLACE_ME
-#     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
-#     # CI-specific configuration for OAuth test
-#     WEB_SERVER_HOST: "localhost"
-#     # API Keys for LLM providers
-#     OPENAI_API_KEY:
-#       from_secret: openai_api_key
-#     ANTHROPIC_API_KEY:
-#       from_secret: anthropic_api_key
-#     # Agent configuration
-#     REASONING_MODEL_PROVIDER: openai
-#     REASONING_MODEL: o3-mini    
-#     REASONING_MODEL_EFFORT: none
-#     GENERATION_MODEL_PROVIDER: openai
-#     GENERATION_MODEL: gpt-4o
-#     SMALL_REASONING_MODEL_PROVIDER: openai
-#     SMALL_REASONING_MODEL: o3-mini
-#     SMALL_REASONING_MODEL_EFFORT: none
-#     SMALL_GENERATION_MODEL_PROVIDER: openai
-#     SMALL_GENERATION_MODEL: gpt-4o-mini
+  # - name: upload-oauth-confluence-test-artifacts
+  #   image: golang:1.24
+  #   volumes:
+  #   - name: oauth-confluence-test-results
+  #     path: /tmp/helix-oauth-test-results
+  #   environment:
+  #     LAUNCHPAD_URL: "https://deploy.helix.ml"
+  #     CI_SHARED_SECRET:
+  #       from_secret: ci_shared_secret
+  #   commands:
+  #     - chmod +x scripts/upload-oauth-test-artifacts.sh
+  #     - ./scripts/upload-oauth-test-artifacts.sh confluence
+  #   when:
+  #     event:
+  #     - push
+  #     status:
+  #     - success
+  #     - failure
+  #   depends_on: [oauth-confluence-integration-test]
 
-#   commands:
-#     - chmod +x scripts/run-oauth-integration-test.sh
-#     - echo "=== Environment Variable Check ==="
-#     - echo "GMAIL_CREDENTIALS_BASE64 length:" $(echo -n "${GMAIL_CREDENTIALS_BASE64}" | wc -c)
-#     - echo "ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID}" && echo "YES" || echo "NO")
-#     - echo "ATLASSIAN_SKILL_TEST_OAUTH_USERNAME is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_USERNAME}" && echo "YES" || echo "NO")
-#     - echo "ATLASSIAN_SKILL_TEST_CONFLUENCE_CLOUD_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_CONFLUENCE_CLOUD_ID}" && echo "YES" || echo "NO")
-#     - echo "=== Starting Confluence OAuth Test ==="
-#     - ./scripts/run-oauth-integration-test.sh confluence TestConfluenceOAuthSkillsE2E
-#   when:
-#     event:
-#     - push
-#   # depends_on: [unit-test]
-
-# - name: upload-oauth-confluence-test-artifacts
-#   image: golang:1.24
-#   volumes:
-#   - name: oauth-confluence-test-results
-#     path: /tmp/helix-oauth-test-results
-#   environment:
-#     LAUNCHPAD_URL: "https://deploy.helix.ml"
-#     CI_SHARED_SECRET:
-#       from_secret: ci_shared_secret
-#   commands:
-#     - chmod +x scripts/upload-oauth-test-artifacts.sh
-#     - ./scripts/upload-oauth-test-artifacts.sh confluence
-#   when:
-#     event:
-#     - push
-#     status:
-#     - success
-#     - failure
-#   depends_on: [oauth-confluence-integration-test]
-
-- name: release-backend
-  image: golang:1.24-bullseye
-  volumes:
-  - name: go-build-cache
-    path: /root/.cache/go-build
-  - name: go-mod-cache
-    path: /go/pkg/mod
-  when:
-    event:
-    - tag
-  environment:
-    GITHUB_TOKEN:
-      from_secret: github_token
-  commands:
-    - go install github.com/mitchellh/gox@latest
-    - |
-      if [ -n "$DRONE_TAG" ]; then
-        VERSION_FLAG="-X github.com/helixml/helix/api/pkg/data.Version=$DRONE_TAG"
-      else
-        VERSION_FLAG=""
-      fi
-      CGO_ENABLED=0 gox -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64" -ldflags "-w -s -extldflags '-static' $VERSION_FLAG" -output="helix-{{.OS}}-{{.Arch}}"
-    - ./helix-linux-amd64 version
-    - apt-get update && apt-get install -y curl
-    - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-    - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-    - apt-get update && apt-get install -y gh
-    - sed -i "s/:latest/:$DRONE_TAG/g" docker-compose.yaml
-    - |
-      if [ -n "$DRONE_TAG" ]; then
-        # Look for either exact match or tag followed by space and description
-        RELEASE=$(gh release list | awk -v tag="$DRONE_TAG" '$1 == tag || $1 ~ "^"tag" " {print $1; exit}')
-        if [ -n "$RELEASE" ]; then
-          echo "Uploading helix binaries, installer, and docker-compose.yaml to release $RELEASE"
-          gh release upload "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe docker-compose.yaml
+  - name: release-backend
+    image: golang:1.24-bullseye
+    volumes:
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    when:
+      event:
+        - tag
+    environment:
+      GITHUB_TOKEN:
+        from_secret: github_token
+    commands:
+      - go install github.com/mitchellh/gox@latest
+      - |
+        if [ -n "$DRONE_TAG" ]; then
+          VERSION_FLAG="-X github.com/helixml/helix/api/pkg/data.Version=$DRONE_TAG"
         else
-          echo "No matching release found for tag $DRONE_TAG"
+          VERSION_FLAG=""
         fi
-      else
-        echo "No tag present, skipping release upload"
-      fi
-  depends_on: [build-backend, build-frontend]
+        CGO_ENABLED=0 gox -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64" -ldflags "-w -s -extldflags '-static' $VERSION_FLAG" -output="helix-{{.OS}}-{{.Arch}}"
+      - ./helix-linux-amd64 version
+      - apt-get update && apt-get install -y curl
+      - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+      - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+      - apt-get update && apt-get install -y gh
+      - sed -i "s/:latest/:$DRONE_TAG/g" docker-compose.yaml
+      - |
+        if [ -n "$DRONE_TAG" ]; then
+          # Look for either exact match or tag followed by space and description
+          RELEASE=$(gh release list | awk -v tag="$DRONE_TAG" '$1 == tag || $1 ~ "^"tag" " {print $1; exit}')
+          if [ -n "$RELEASE" ]; then
+            echo "Uploading helix binaries, installer, and docker-compose.yaml to release $RELEASE"
+            gh release upload "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64 helix-windows-amd64.exe docker-compose.yaml
+          else
+            echo "No matching release found for tag $DRONE_TAG"
+          fi
+        else
+          echo "No tag present, skipping release upload"
+        fi
+    depends_on: [build-backend, build-frontend]
 
-- name: build-operator
-  image: golang:1.24-alpine3.21
-  volumes:
-  - name: go-build-cache
-    path: /root/.cache/go-build
-  - name: go-mod-cache
-    path: /go/pkg/mod
-  environment:
-    GITHUB_TOKEN:
-      from_secret: github_token
-  commands:
-    - cd operator && go build ./...
-  depends_on: []
+  - name: build-operator
+    image: golang:1.24-alpine3.21
+    volumes:
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    environment:
+      GITHUB_TOKEN:
+        from_secret: github_token
+    commands:
+      - cd operator && go build ./...
+    depends_on: []
 
-- name: run-linter-operator
-  image: golangci/golangci-lint:v1.64-alpine
-  volumes:
-  - name: go-build-cache
-    path: /root/.cache/go-build
-  - name: go-mod-cache
-    path: /go/pkg/mod
-  commands:
-    - cd operator && golangci-lint run
-  when:
-    event:
-    - push
-  depends_on: []
+  - name: run-linter-operator
+    image: golangci/golangci-lint:v1.64-alpine
+    volumes:
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    commands:
+      - cd operator && golangci-lint run
+    when:
+      event:
+        - push
+    depends_on: []
 
 services:
-- name: postgres
-  image: postgres:12.13-alpine
-  environment:
-    POSTGRES_USER: postgres
-    POSTGRES_PASSWORD: postgres
-    POSTGRES_DB: postgres
-- name: typesense
-  image: typesense/typesense:27.0
-  command: ["--data-dir", "/tmp", "--api-key", "typesense"]
-- name: tika
-  image: apache/tika:2.9.2.1
-- name: chrome
-  image: ghcr.io/go-rod/rod:v0.115.0
-- name: pgvector
-  image: pgvector/pgvector:pg17
-  environment:
-    POSTGRES_USER: postgres
-    POSTGRES_PASSWORD: postgres
-    POSTGRES_DB: postgres
-- name: keycloak
-  image: quay.io/keycloak/keycloak:23.0
-  command: ["start-dev"]
-  environment:
-    KC_DB: postgres
-    KC_DB_URL: jdbc:postgresql://postgres:5432/postgres  # Unable to run scripts to create keycloak database, so using the default instead
-    KC_DB_USERNAME: postgres
-    KC_DB_PASSWORD: postgres
-    KEYCLOAK_ADMIN: admin
-    KEYCLOAK_ADMIN_PASSWORD: REPLACE_ME
-    KC_HOSTNAME_PATH: /auth
-    KC_HTTP_RELATIVE_PATH: /auth/
+  - name: postgres
+    image: postgres:12.13-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+  - name: typesense
+    image: typesense/typesense:27.0
+    command: ["--data-dir", "/tmp", "--api-key", "typesense"]
+  - name: tika
+    image: apache/tika:2.9.2.1
+  - name: chrome
+    image: ghcr.io/go-rod/rod:v0.115.0
+  - name: pgvector
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+  - name: keycloak
+    image: quay.io/keycloak/keycloak:23.0
+    command: ["start-dev"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/postgres # Unable to run scripts to create keycloak database, so using the default instead
+      KC_DB_USERNAME: postgres
+      KC_DB_PASSWORD: postgres
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: REPLACE_ME
+      KC_HOSTNAME_PATH: /auth
+      KC_HTTP_RELATIVE_PATH: /auth/
 
 volumes:
-- name: oauth-github-test-results
-  temp: {}
-- name: oauth-gmail-test-results
-  temp: {}
-- name: oauth-outlook-test-results
-  temp: {}
-- name: oauth-google-calendar-test-results
-  temp: {}
-- name: oauth-jira-test-results
-  temp: {}
-- name: oauth-confluence-test-results
-  temp: {}
-- name: go-build-cache
-  host:
-    path: /var/cache/drone/go-build
-- name: go-mod-cache
-  host:
-    path: /var/cache/drone/go-mod
-- name: yarn-cache
-  host:
-    path: /var/cache/drone/yarn
-- name: node-modules-cache
-  host:
-    path: /var/cache/drone/node_modules
-- name: frontend-build-cache
-  host:
-    path: /var/cache/drone/frontend-build
+  - name: oauth-github-test-results
+    temp: {}
+  - name: oauth-gmail-test-results
+    temp: {}
+  - name: oauth-outlook-test-results
+    temp: {}
+  - name: oauth-google-calendar-test-results
+    temp: {}
+  - name: oauth-jira-test-results
+    temp: {}
+  - name: oauth-confluence-test-results
+    temp: {}
+  - name: go-build-cache
+    host:
+      path: /var/cache/drone/go-build
+  - name: go-mod-cache
+    host:
+      path: /var/cache/drone/go-mod
+  - name: yarn-cache
+    host:
+      path: /var/cache/drone/yarn
+  - name: node-modules-cache
+    host:
+      path: /var/cache/drone/node_modules
+  - name: frontend-build-cache
+    host:
+      path: /var/cache/drone/frontend-build
 ---
 kind: pipeline
 type: docker
@@ -822,29 +819,29 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-- name: publish-image
-  image: plugins/docker
-  pull: always
-  settings:
-    dockerfile: Dockerfile
-    auto_tag: true
-    daemon_off: true
-    registry: registry.helixml.tech
-    repo: registry.helixml.tech/helix/controlplane
-    username: admin
-    password:
-      from_secret: helix_registry_password
-    build_args:
-      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    event:
-    - tag
-    - push
-    branch:
-    - main
+  - name: publish-image
+    image: plugins/docker
+    pull: always
+    settings:
+      dockerfile: Dockerfile
+      auto_tag: true
+      daemon_off: true
+      registry: registry.helixml.tech
+      repo: registry.helixml.tech/helix/controlplane
+      username: admin
+      password:
+        from_secret: helix_registry_password
+      build_args:
+        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    when:
+      event:
+        - tag
+        - push
+      branch:
+        - main
 
 ---
 kind: pipeline
@@ -864,29 +861,29 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-- name: publish-image
-  image: plugins/docker
-  pull: always
-  settings:
-    dockerfile: Dockerfile.keycloak
-    auto_tag: true
-    daemon_off: true
-    registry: registry.helixml.tech
-    repo: registry.helixml.tech/helix/keycloak
-    username: admin
-    password:
-      from_secret: helix_registry_password
-    build_args:
-      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    event:
-    - tag
-    - push
-    branch:
-    - main
+  - name: publish-image
+    image: plugins/docker
+    pull: always
+    settings:
+      dockerfile: Dockerfile.keycloak
+      auto_tag: true
+      daemon_off: true
+      registry: registry.helixml.tech
+      repo: registry.helixml.tech/helix/keycloak
+      username: admin
+      password:
+        from_secret: helix_registry_password
+      build_args:
+        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    when:
+      event:
+        - tag
+        - push
+      branch:
+        - main
 
 ---
 kind: pipeline
@@ -906,29 +903,29 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-- name: publish-image
-  image: plugins/docker
-  pull: always
-  settings:
-    dockerfile: Dockerfile.keycloak-bitnami
-    auto_tag: true
-    daemon_off: true
-    registry: registry.helixml.tech
-    repo: registry.helixml.tech/helix/keycloak-bitnami
-    username: admin
-    password:
-      from_secret: helix_registry_password
-    build_args:
-      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    event:
-    - tag
-    - push
-    branch:
-    - main
+  - name: publish-image
+    image: plugins/docker
+    pull: always
+    settings:
+      dockerfile: Dockerfile.keycloak-bitnami
+      auto_tag: true
+      daemon_off: true
+      registry: registry.helixml.tech
+      repo: registry.helixml.tech/helix/keycloak-bitnami
+      username: admin
+      password:
+        from_secret: helix_registry_password
+      build_args:
+        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    when:
+      event:
+        - tag
+        - push
+      branch:
+        - main
 
 ---
 kind: pipeline
@@ -948,30 +945,30 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-- name: publish-image
-  image: plugins/docker
-  pull: always
-  settings:
-    context: haystack_service
-    dockerfile: haystack_service/Dockerfile
-    auto_tag: true
-    daemon_off: true
-    registry: registry.helixml.tech
-    repo: registry.helixml.tech/helix/haystack
-    username: admin
-    password:
-      from_secret: helix_registry_password
-    build_args:
-      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    event:
-    - tag
-    - push
-    branch:
-    - main
+  - name: publish-image
+    image: plugins/docker
+    pull: always
+    settings:
+      context: haystack_service
+      dockerfile: haystack_service/Dockerfile
+      auto_tag: true
+      daemon_off: true
+      registry: registry.helixml.tech
+      repo: registry.helixml.tech/helix/haystack
+      username: admin
+      password:
+        from_secret: helix_registry_password
+      build_args:
+        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    when:
+      event:
+        - tag
+        - push
+      branch:
+        - main
 
 ---
 kind: pipeline
@@ -991,33 +988,33 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-- name: publish-runner
-  image: plugins/docker
-  pull: always
-  settings:
-    dockerfile: Dockerfile.runner
-    auto_tag: true
-    daemon_off: true
-    registry: registry.helixml.tech
-    repo: registry.helixml.tech/helix/runner
-    build_args:
-      # Runner with no baked models = empty
-      # See https://github.com/helixml/base-images
-      # and https://github.com/helixml/base-images/releases
-      - TAG=2025-07-30d-empty
-      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-    username: admin
-    password:
-      from_secret: helix_registry_password
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    event:
-    - tag
-    - push
-    branch:
-    - main
+  - name: publish-runner
+    image: plugins/docker
+    pull: always
+    settings:
+      dockerfile: Dockerfile.runner
+      auto_tag: true
+      daemon_off: true
+      registry: registry.helixml.tech
+      repo: registry.helixml.tech/helix/runner
+      build_args:
+        # Runner with no baked models = empty
+        # See https://github.com/helixml/base-images
+        # and https://github.com/helixml/base-images/releases
+        - TAG=2025-07-30d-empty
+        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
+      username: admin
+      password:
+        from_secret: helix_registry_password
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    when:
+      event:
+        - tag
+        - push
+      branch:
+        - main
 
 ---
 kind: pipeline
@@ -1037,63 +1034,63 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-- name: publish-runner
-  image: plugins/docker
-  pull: always
-  settings:
-    dockerfile: Dockerfile.runner
-    tags:
-    - "${DRONE_TAG:-main}-small" # Default to branch
-    - "latest-small"
-    daemon_off: true
-    registry: registry.helixml.tech
-    repo: registry.helixml.tech/helix/runner
-    build_args:
-      # Runner with small models = small
-      # See https://github.com/helixml/base-images
-      # and https://github.com/helixml/base-images/releases
-      - TAG=2025-07-30d-small
-      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-    username: admin
-    password:
-      from_secret: helix_registry_password
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    event:
-    - tag
-    - push
-    branch:
-    - main
+  - name: publish-runner
+    image: plugins/docker
+    pull: always
+    settings:
+      dockerfile: Dockerfile.runner
+      tags:
+        - "${DRONE_TAG:-main}-small" # Default to branch
+        - "latest-small"
+      daemon_off: true
+      registry: registry.helixml.tech
+      repo: registry.helixml.tech/helix/runner
+      build_args:
+        # Runner with small models = small
+        # See https://github.com/helixml/base-images
+        # and https://github.com/helixml/base-images/releases
+        - TAG=2025-07-30d-small
+        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
+      username: admin
+      password:
+        from_secret: helix_registry_password
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    when:
+      event:
+        - tag
+        - push
+      branch:
+        - main
 
-- name: publish-runner-branch
-  image: plugins/docker
-  pull: always
-  settings:
-    dockerfile: Dockerfile.runner
-    tags:
-    - "${DRONE_COMMIT_SHA:-main}-small" # Default to branch
-    daemon_off: true
-    registry: registry.helixml.tech
-    repo: registry.helixml.tech/helix/runner
-    build_args:
-      # Runner with small models = small
-      # See https://github.com/helixml/base-images
-      # and https://github.com/helixml/base-images/releases
-      - TAG=2025-07-30d-small
-      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-    username: admin
-    password:
-      from_secret: helix_registry_password
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    branch:
-      exclude:
-      - main
-    event:
+  - name: publish-runner-branch
+    image: plugins/docker
+    pull: always
+    settings:
+      dockerfile: Dockerfile.runner
+      tags:
+        - "${DRONE_COMMIT_SHA:-main}-small" # Default to branch
+      daemon_off: true
+      registry: registry.helixml.tech
+      repo: registry.helixml.tech/helix/runner
+      build_args:
+        # Runner with small models = small
+        # See https://github.com/helixml/base-images
+        # and https://github.com/helixml/base-images/releases
+        - TAG=2025-07-30d-small
+        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
+      username: admin
+      password:
+        from_secret: helix_registry_password
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    when:
+      branch:
+        exclude:
+          - main
+      event:
 
 ---
 kind: pipeline
@@ -1113,63 +1110,63 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-- name: publish-runner
-  image: plugins/docker
-  pull: always
-  settings:
-    dockerfile: Dockerfile.runner
-    tags:
-    - "${DRONE_TAG:-main}-large"
-    - "latest-large"
-    daemon_off: true
-    registry: registry.helixml.tech
-    repo: registry.helixml.tech/helix/runner
-    build_args:
-      # Runner with large models = large
-      # See https://github.com/helixml/base-images
-      # and https://github.com/helixml/base-images/releases
-      - TAG=2025-07-30d-large
-      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-    username: admin
-    password:
-      from_secret: helix_registry_password
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    event:
-    - tag
-    - push
-    branch:
-    - main
+  - name: publish-runner
+    image: plugins/docker
+    pull: always
+    settings:
+      dockerfile: Dockerfile.runner
+      tags:
+        - "${DRONE_TAG:-main}-large"
+        - "latest-large"
+      daemon_off: true
+      registry: registry.helixml.tech
+      repo: registry.helixml.tech/helix/runner
+      build_args:
+        # Runner with large models = large
+        # See https://github.com/helixml/base-images
+        # and https://github.com/helixml/base-images/releases
+        - TAG=2025-07-30d-large
+        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
+      username: admin
+      password:
+        from_secret: helix_registry_password
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    when:
+      event:
+        - tag
+        - push
+      branch:
+        - main
 
-- name: publish-runner-branch
-  image: plugins/docker
-  pull: always
-  settings:
-    dockerfile: Dockerfile.runner
-    tags:
-    - "${DRONE_COMMIT_SHA:-main}-large"
-    daemon_off: true
-    registry: registry.helixml.tech
-    repo: registry.helixml.tech/helix/runner
-    build_args:
-      # Runner with large models = large
-      # See https://github.com/helixml/base-images
-      # and https://github.com/helixml/base-images/releases
-      - TAG=2025-07-30d-large
-      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
-    username: admin
-    password:
-      from_secret: helix_registry_password
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    branch:
-      exclude:
-      - main
-    event:
+  - name: publish-runner-branch
+    image: plugins/docker
+    pull: always
+    settings:
+      dockerfile: Dockerfile.runner
+      tags:
+        - "${DRONE_COMMIT_SHA:-main}-large"
+      daemon_off: true
+      registry: registry.helixml.tech
+      repo: registry.helixml.tech/helix/runner
+      build_args:
+        # Runner with large models = large
+        # See https://github.com/helixml/base-images
+        # and https://github.com/helixml/base-images/releases
+        - TAG=2025-07-30d-large
+        - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
+      username: admin
+      password:
+        from_secret: helix_registry_password
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    when:
+      branch:
+        exclude:
+          - main
+      event:
 
 ---
 kind: pipeline
@@ -1189,27 +1186,27 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-- name: publish-image
-  image: plugins/docker
-  pull: always
-  settings:
-    dockerfile: Dockerfile.gptscript
-    auto_tag: true
-    daemon_off: true
-    registry: registry.helixml.tech
-    repo: registry.helixml.tech/helix/gptscript-runner
-    username: admin
-    password:
-      from_secret: helix_registry_password
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    event:
-    - tag
-    - push
-    branch:
-    - main
+  - name: publish-image
+    image: plugins/docker
+    pull: always
+    settings:
+      dockerfile: Dockerfile.gptscript
+      auto_tag: true
+      daemon_off: true
+      registry: registry.helixml.tech
+      repo: registry.helixml.tech/helix/gptscript-runner
+      username: admin
+      password:
+        from_secret: helix_registry_password
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    when:
+      event:
+        - tag
+        - push
+      branch:
+        - main
 
 ---
 kind: pipeline
@@ -1229,27 +1226,27 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-- name: publish-gptscript_devserver
-  image: plugins/docker
-  pull: always
-  settings:
-    dockerfile: Dockerfile.gptscript_devserver
-    auto_tag: true
-    daemon_off: true
-    registry: registry.helixml.tech
-    repo: registry.helixml.tech/helix/gptscript_devserver
-    username: admin
-    password:
-      from_secret: helix_registry_password
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    event:
-    - tag
-    - push
-    branch:
-    - main
+  - name: publish-gptscript_devserver
+    image: plugins/docker
+    pull: always
+    settings:
+      dockerfile: Dockerfile.gptscript_devserver
+      auto_tag: true
+      daemon_off: true
+      registry: registry.helixml.tech
+      repo: registry.helixml.tech/helix/gptscript_devserver
+      username: admin
+      password:
+        from_secret: helix_registry_password
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    when:
+      event:
+        - tag
+        - push
+      branch:
+        - main
 
 ---
 kind: pipeline
@@ -1269,27 +1266,27 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-- name: publish-typesense_baked_models
-  image: plugins/docker
-  pull: always
-  settings:
-    dockerfile: Dockerfile.typesense
-    auto_tag: true
-    daemon_off: true
-    registry: registry.helixml.tech
-    repo: registry.helixml.tech/helix/typesense
-    username: admin
-    password:
-      from_secret: helix_registry_password
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    event:
-    - tag
-    - push
-    branch:
-    - main
+  - name: publish-typesense_baked_models
+    image: plugins/docker
+    pull: always
+    settings:
+      dockerfile: Dockerfile.typesense
+      auto_tag: true
+      daemon_off: true
+      registry: registry.helixml.tech
+      repo: registry.helixml.tech/helix/typesense
+      username: admin
+      password:
+        from_secret: helix_registry_password
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    when:
+      event:
+        - tag
+        - push
+      branch:
+        - main
 
 ---
 kind: pipeline
@@ -1309,27 +1306,27 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-- name: publish-demos
-  image: plugins/docker
-  pull: always
-  settings:
-    dockerfile: Dockerfile.demos
-    auto_tag: true
-    daemon_off: true
-    registry: registry.helixml.tech
-    repo: registry.helixml.tech/helix/demos
-    username: admin
-    password:
-      from_secret: helix_registry_password
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    event:
-    - tag
-    - push
-    branch:
-    - main
+  - name: publish-demos
+    image: plugins/docker
+    pull: always
+    settings:
+      dockerfile: Dockerfile.demos
+      auto_tag: true
+      daemon_off: true
+      registry: registry.helixml.tech
+      repo: registry.helixml.tech/helix/demos
+      username: admin
+      password:
+        from_secret: helix_registry_password
+    volumes:
+      - name: dockersocket
+        path: /var/run/docker.sock
+    when:
+      event:
+        - tag
+        - push
+      branch:
+        - main
 
 ---
 # See integration-test/smoke/README.md
@@ -1349,49 +1346,49 @@ trigger:
     - developer
 
 steps:
-- name: smoke-test-saas
-  image: golang:1.24-alpine3.21
-  volumes:
-  - name: integration-test
-    path: /integration-test
-  - name: go-build-cache
-    path: /root/.cache/go-build
-  - name: go-mod-cache
-    path: /go/pkg/mod
-  environment:
-    BROWSER_URL: http://chrome:7317
-    SERVER_URL: https://app.helix.ml
-    HELIX_USER: phil+smoketest@helix.ml
-    HELIX_PASSWORD:
-      from_secret: smoke_test_helix_password
-    # Test setup
-  commands:
-  - apk add --no-cache curl bash openssl
-  - cp -r integration-test/* /integration-test
-  - go test -timeout 600s -tags=integration -v ./integration-test/smoke
-  depends_on: []
-- name: slack-notification
-  image: plugins/slack
-  settings:
-    webhook:
-      from_secret: JANITOR_SLACK_WEBHOOK_URL
-    channel: helix-janitor
-    # See the slack formatting docs: https://api.slack.com/reference/surfaces/formatting
-    message: "❌ Smoke test failed (<@U010X78FM18>). (<https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}|Build>)"
-  when:
-    status:
-    - failure
+  - name: smoke-test-saas
+    image: golang:1.24-alpine3.21
+    volumes:
+      - name: integration-test
+        path: /integration-test
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    environment:
+      BROWSER_URL: http://chrome:7317
+      SERVER_URL: https://app.helix.ml
+      HELIX_USER: phil+smoketest@helix.ml
+      HELIX_PASSWORD:
+        from_secret: smoke_test_helix_password
+      # Test setup
+    commands:
+      - apk add --no-cache curl bash openssl
+      - cp -r integration-test/* /integration-test
+      - go test -timeout 600s -tags=integration -v ./integration-test/smoke
+    depends_on: []
+  - name: slack-notification
+    image: plugins/slack
+    settings:
+      webhook:
+        from_secret: JANITOR_SLACK_WEBHOOK_URL
+      channel: helix-janitor
+      # See the slack formatting docs: https://api.slack.com/reference/surfaces/formatting
+      message: "❌ Smoke test failed (<@U010X78FM18>). (<https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}|Build>)"
+    when:
+      status:
+        - failure
 
 volumes:
-- name: integration-test
-  temp: {}
+  - name: integration-test
+    temp: {}
 
 services:
-- name: chrome
-  image: ghcr.io/go-rod/rod:v0.115.0
-  volumes:
-  - name: integration-test
-    path: /integration-test
+  - name: chrome
+    image: ghcr.io/go-rod/rod:v0.115.0
+    volumes:
+      - name: integration-test
+        path: /integration-test
 
 ---
 # See integration-test/smoke/README.md
@@ -1411,43 +1408,43 @@ trigger:
     - developer
 
 steps:
-- name: smoke-test-launchpad
-  image: golang:1.24-alpine3.21
-  volumes:
-  - name: integration-test
-    path: /integration-test
-  - name: go-build-cache
-    path: /root/.cache/go-build
-  - name: go-mod-cache
-    path: /go/pkg/mod
-  environment:
-    BROWSER_URL: http://chrome:7317
-    LAUNCHPAD_API_KEY:
-      from_secret: LAUNCHPAD_API_KEY
-  commands:
-  - apk add --no-cache curl bash openssl
-  - cp -r integration-test/* /integration-test
-  - go test -timeout 600s -tags=launchpad -v ./integration-test/smoke
-  depends_on: []
-- name: slack-notification
-  image: plugins/slack
-  settings:
-    webhook:
-      from_secret: JANITOR_SLACK_WEBHOOK_URL
-    channel: helix-janitor
-    # See the slack formatting docs: https://api.slack.com/reference/surfaces/formatting
-    message: "❌ Launchpad failed (<@U010X78FM18>). (<https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}|Build>)"
-  when:
-    status:
-    - failure
+  - name: smoke-test-launchpad
+    image: golang:1.24-alpine3.21
+    volumes:
+      - name: integration-test
+        path: /integration-test
+      - name: go-build-cache
+        path: /root/.cache/go-build
+      - name: go-mod-cache
+        path: /go/pkg/mod
+    environment:
+      BROWSER_URL: http://chrome:7317
+      LAUNCHPAD_API_KEY:
+        from_secret: LAUNCHPAD_API_KEY
+    commands:
+      - apk add --no-cache curl bash openssl
+      - cp -r integration-test/* /integration-test
+      - go test -timeout 600s -tags=launchpad -v ./integration-test/smoke
+    depends_on: []
+  - name: slack-notification
+    image: plugins/slack
+    settings:
+      webhook:
+        from_secret: JANITOR_SLACK_WEBHOOK_URL
+      channel: helix-janitor
+      # See the slack formatting docs: https://api.slack.com/reference/surfaces/formatting
+      message: "❌ Launchpad failed (<@U010X78FM18>). (<https://drone.lukemarsden.net/helixml/helix/${DRONE_BUILD_NUMBER}|Build>)"
+    when:
+      status:
+        - failure
 
 volumes:
-- name: integration-test
-  temp: {}
+  - name: integration-test
+    temp: {}
 
 services:
-- name: chrome
-  image: ghcr.io/go-rod/rod:v0.115.0
-  volumes:
-  - name: integration-test
-    path: /integration-test
+  - name: chrome
+    image: ghcr.io/go-rod/rod:v0.115.0
+    volumes:
+      - name: integration-test
+        path: /integration-test
