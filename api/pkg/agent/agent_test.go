@@ -20,29 +20,33 @@ func TestAgent(t *testing.T) {
 
 type AgentTestSuite struct {
 	suite.Suite
-	ctrl         *gomock.Controller
-	openaiClient *helix_openai.MockClient
-	llm          *LLM
+	ctrl                     *gomock.Controller
+	generationalOpenaiClient *helix_openai.MockClient
+	reasoningOpenaiClient    *helix_openai.MockClient
+	llm                      *LLM
 }
 
 func (s *AgentTestSuite) SetupTest() {
 	s.ctrl = gomock.NewController(s.T())
-	s.openaiClient = helix_openai.NewMockClient(s.ctrl)
+
+	s.generationalOpenaiClient = helix_openai.NewMockClient(s.ctrl)
+	s.reasoningOpenaiClient = helix_openai.NewMockClient(s.ctrl)
+
 	s.llm = NewLLM(
 		&LLMModelConfig{
-			Client: s.openaiClient,
+			Client: s.reasoningOpenaiClient,
 			Model:  "gpt-4o-mini",
 		},
 		&LLMModelConfig{
-			Client: s.openaiClient,
+			Client: s.generationalOpenaiClient,
 			Model:  "gpt-4o-mini",
 		},
 		&LLMModelConfig{
-			Client: s.openaiClient,
+			Client: s.reasoningOpenaiClient,
 			Model:  "gpt-4o-mini",
 		},
 		&LLMModelConfig{
-			Client: s.openaiClient,
+			Client: s.generationalOpenaiClient,
 			Model:  "gpt-4o-mini",
 		},
 	)
@@ -54,7 +58,7 @@ func (s *AgentTestSuite) Test_Agent_NoSkills() {
 	respCh := make(chan Response)
 
 	// Should be direct call to LLM
-	s.openaiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).Return(openai.ChatCompletionResponse{
+	s.generationalOpenaiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).Return(openai.ChatCompletionResponse{
 		Choices: []openai.ChatCompletionChoice{
 			{
 				Message: openai.ChatCompletionMessage{
@@ -111,7 +115,7 @@ func (s *AgentTestSuite) Test_Agent_DirectSkill() {
 	respCh := make(chan Response)
 
 	// First call should be about deciding next action
-	s.openaiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
+	s.generationalOpenaiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
 			// Check step from the context, should be "decide"
 			step, ok := helix_openai.GetStep(ctx)
@@ -149,7 +153,7 @@ func (s *AgentTestSuite) Test_Agent_DirectSkill() {
 		})
 
 	// Then we should call the skill
-	s.openaiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
+	s.generationalOpenaiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
 			// Check step from the context, should be "decide"
 			step, ok := helix_openai.GetStep(ctx)
@@ -184,7 +188,7 @@ func (s *AgentTestSuite) Test_Agent_DirectSkill() {
 
 	// Should be one more to summarize
 
-	s.openaiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
+	s.generationalOpenaiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
 			// Check step from the context, should be "decide"
 			step, ok := helix_openai.GetStep(ctx)
