@@ -17,6 +17,7 @@ import (
 	pkg_errors "github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
+	"github.com/sourcegraph/conc"
 )
 
 const defaultMaxIterations = 10
@@ -147,6 +148,8 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 		MainAgentSystemPrompt: a.prompt,
 		MemoryBlocks:          memoryBlock.Parse(),
 		SkillFunctions:        skillFunctions,
+		MaxIterations:         a.maxIterations,
+		CurrentIteration:      iterationNumber,
 	}
 	systemPrompt, err := prompts.SkillSelectionPrompt(systemPromptData)
 	if err != nil {
@@ -285,7 +288,8 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 		// Cancel the context to stop any in-flight requests
 		cancel()
 		outUserChannel <- Response{
-			Type: ResponseTypeEnd,
+			Type:    ResponseTypeEnd,
+			Content: "agent panicked",
 		}
 	}()
 
@@ -320,6 +324,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 
 		completion, err := a.decideNextAction(ctx, llm, messageHistory.Clone(), memoryBlock, outUserChannel, iterationNumber)
 		if err != nil {
+			log.Error().Err(err).Msg("Error deciding next action")
 			a.handleLLMError(err, outUserChannel)
 			return
 		}
@@ -352,7 +357,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 
 		// Execute all skill tools in the current response
 		skillCallResults := make(map[string]*openai.ChatCompletionMessage)
-		var wg sync.WaitGroup
+		var wg conc.WaitGroup
 		var mu sync.Mutex
 
 		for _, tool := range skillToolCalls {
@@ -368,9 +373,17 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 				hasDirectSkill = true
 			}
 
-			wg.Add(1)
-			go func(skill *Skill, toolCall openai.ToolCall) {
-				defer wg.Done()
+			tool := tool
+
+			wg.Go(func() {
+				// Recover
+				defer func() {
+					if r := recover(); r != nil {
+						log.Error().Interface("error", r).Msg("Panic when running skill")
+					}
+				}()
+
+				// defer wg.Done()
 				var result *openai.ChatCompletionMessage
 
 				// Basic skill are executed directly, improves performance and reduces the number of tokens used
@@ -390,17 +403,22 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 				}
 
 				mu.Lock()
-				skillCallResults[toolCall.ID] = result
+				skillCallResults[tool.ID] = result
 				mu.Unlock()
-			}(skill, tool)
+			})
 		}
 
-		wg.Wait()
+		rec := wg.WaitAndRecover()
+		if rec != nil {
+			log.Error().Interface("recovered", rec).Msg("Error waiting for wg")
+			return
+		}
 
 		// Add the completion message to history, but filter out the stop tool call
 		messageToAdd := completion.Choices[0].Message
 
 		if messageToAdd.ToolCalls != nil {
+
 			filteredToolCalls := []openai.ToolCall{}
 			for _, toolCall := range messageToAdd.ToolCalls {
 				if toolCall.Function.Name != "stop" {
