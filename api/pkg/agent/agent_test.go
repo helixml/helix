@@ -259,7 +259,220 @@ func (s *AgentTestSuite) Test_Agent_DirectSkill() {
 
 	s.Require().Equal("100 USD is 80 EUR", aggregatedResponse)
 	s.Require().Equal(1, tool.callCount)
+}
 
+func (s *AgentTestSuite) Test_Agent_DirectSkill_MultipleSkillsUsed() {
+
+	browserTool := NewMockTool(s.ctrl)
+	browserTool.EXPECT().Name().Return("Browser").AnyTimes()
+	browserTool.EXPECT().Description().Return("Browse the web").AnyTimes()
+	browserTool.EXPECT().StatusMessage().Return("Browsing the web").AnyTimes()
+	browserTool.EXPECT().Icon().Return("").AnyTimes()
+	browserTool.EXPECT().OpenAI().Return([]openai.Tool{
+		{
+			Type: openai.ToolTypeFunction,
+		}}).AnyTimes()
+
+	browserSkill := Skill{
+		Name:          "Browser",
+		Description:   "Browse the web",
+		Direct:        true,
+		ProcessOutput: true,
+		Tools: []Tool{
+			browserTool,
+		},
+	}
+
+	agent := NewAgent(NewLogStepInfoEmitter(), "Whats on the news?", []Skill{browserSkill}, 10)
+	respCh := make(chan Response)
+
+	// First call should be about deciding next action
+	s.generationalOpenaiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+			// Check step from the context, should be "decide"
+			step, ok := helix_openai.GetStep(ctx)
+			s.Require().True(ok)
+			s.Require().Equal("decide_next_action", string(step.Step))
+
+			// Check request
+			s.Require().Equal(s.llm.GenerationModel.Model, req.Model)
+			s.Require().Equal(openai.ChatMessageRoleDeveloper, req.Messages[0].Role)
+			// Should have our skill selection prompt
+			s.Require().Contains(req.Messages[0].Content, "You can use skill functions to help answer the user's question effectively")
+
+			// Second message should be the user question
+			s.Require().Equal(openai.ChatMessageRoleUser, req.Messages[1].Role)
+			s.Require().Equal("Whats on the news?", req.Messages[1].Content)
+
+			// Should return a tool call
+			return openai.ChatCompletionResponse{
+				Choices: []openai.ChatCompletionChoice{
+					{
+						Message: openai.ChatCompletionMessage{
+							Role: openai.ChatMessageRoleAssistant,
+							ToolCalls: []openai.ToolCall{
+								{
+									ID: "tool_call_id_google",
+									Function: openai.FunctionCall{
+										Name:      "Browser",
+										Arguments: `{"url": "https://www.google.com"}`,
+									},
+								},
+								{
+									ID: "tool_call_id_bing",
+									Function: openai.FunctionCall{
+										Name:      "Browser",
+										Arguments: `{"url": "https://bing.com"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		})
+
+	// Then we should call the skills
+	browserTool.EXPECT().Execute(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, meta Meta, args map[string]interface{}) (string, error) {
+			url, ok := args["url"].(string)
+			s.Require().True(ok)
+
+			if url == "https://www.google.com" {
+				return "Google Search Results", nil
+			}
+
+			if url == "https://bing.com" {
+				return "Bing Search Results", nil
+			}
+
+			s.Require().Fail("Unexpected url: %s", url)
+
+			return "", fmt.Errorf("unexpected url: %s", url)
+		},
+	).Times(2)
+
+	s.generationalOpenaiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+			// Check step from the context, should be "decide"
+			step, ok := helix_openai.GetStep(ctx)
+			s.Require().True(ok)
+			s.Require().Equal("decide_next_action", string(step.Step))
+
+			// Go through tools and find both google and bing results
+			s.Require().Contains(req.Messages, openai.ChatCompletionMessage{
+				Role:       openai.ChatMessageRoleTool,
+				Content:    "Google Search Results",
+				ToolCallID: "tool_call_id_google",
+			})
+
+			s.Require().Contains(req.Messages, openai.ChatCompletionMessage{
+				Role:       openai.ChatMessageRoleTool,
+				Content:    "Bing Search Results",
+				ToolCallID: "tool_call_id_bing",
+			})
+
+			return openai.ChatCompletionResponse{
+				Choices: []openai.ChatCompletionChoice{
+					{
+						Message: openai.ChatCompletionMessage{
+							Role: openai.ChatMessageRoleAssistant,
+							ToolCalls: []openai.ToolCall{
+								{
+									ID: "tool_call_id_2",
+									Function: openai.FunctionCall{
+										Name:      "stop",
+										Arguments: `{"callSummarizer": false}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		})
+
+	// Should be one more to summarize
+
+	s.generationalOpenaiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+			// Check step from the context, should be "decide"
+			step, ok := helix_openai.GetStep(ctx)
+			s.Require().True(ok)
+			s.Require().Equal("summarize_multiple_tool_results", string(step.Step))
+
+			// Go through tools and find both google and bing results
+			s.Require().Contains(req.Messages, openai.ChatCompletionMessage{
+				Role:       openai.ChatMessageRoleTool,
+				Content:    "Google Search Results",
+				ToolCallID: "tool_call_id_google",
+			})
+
+			s.Require().Contains(req.Messages, openai.ChatCompletionMessage{
+				Role:       openai.ChatMessageRoleTool,
+				Content:    "Bing Search Results",
+				ToolCallID: "tool_call_id_bing",
+			})
+
+			return openai.ChatCompletionResponse{
+				Choices: []openai.ChatCompletionChoice{
+					{
+						Message: openai.ChatCompletionMessage{
+							Role:    openai.ChatMessageRoleAssistant,
+							Content: "<summarized news here>",
+							ToolCalls: []openai.ToolCall{
+								{
+									ID: "tool_call_id_2",
+									Function: openai.FunctionCall{
+										Name:      "stop",
+										Arguments: `{"callSummarizer": false}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			}, nil
+		})
+
+	go func() {
+		defer close(respCh)
+
+		// Recover
+		defer func() {
+			if r := recover(); r != nil {
+				s.Require().Fail(fmt.Sprintf("Agent panicked: %v", r))
+			}
+		}()
+
+		agent.Run(context.Background(), Meta{}, s.llm, &MessageList{
+			Messages: []*openai.ChatCompletionMessage{
+				{
+					Role:    openai.ChatMessageRoleUser,
+					Content: "Whats on the news?",
+				},
+			},
+		}, &MemoryBlock{}, respCh)
+	}()
+
+	var aggregatedResponse string
+
+	for response := range respCh {
+		// IF we get an error, fail
+		if response.Type == ResponseTypeError {
+			s.Require().Fail(response.Content)
+		}
+
+		if response.Type == ResponseTypePartialText {
+			aggregatedResponse += response.Content
+
+		}
+		if response.Type == ResponseTypeEnd {
+			break
+		}
+	}
+
+	s.Require().Equal("<summarized news here>", aggregatedResponse)
 }
 
 func TestSkillValidation(t *testing.T) {
