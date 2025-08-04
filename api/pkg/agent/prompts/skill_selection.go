@@ -9,6 +9,8 @@ type SkillSelectionPromptData struct {
 	MainAgentSystemPrompt string
 	SkillFunctions        []string
 	MemoryBlocks          string
+	MaxIterations         int
+	CurrentIteration      int
 }
 
 // SkillSelectionPromptTemplate is the template for skill selection prompts.
@@ -50,6 +52,11 @@ When using tools or processing results, provide brief explanatory messages to he
 </UserPreferences>
 
 All the memory learned from user's previous interactions are provided below. Use it as the context to answer the user's question.
+
+# Iteration Instructions
+
+You have {{ .MaxIterations }} iterations to complete the task. You are on iteration {{ .CurrentIteration }}.
+If you are not able to complete the task in the given number of iterations, you should use the "stop" tool to stop the task.
 
 {{ .MemoryBlocks }}`
 
