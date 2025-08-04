@@ -269,7 +269,7 @@ func (a *Agent) handleLLMError(err error, outUserChannel chan Response) {
 }
 
 // runWithoutSkills handles the case when no skills are available by directly calling the LLM
-func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *MessageList, memoryBlock *MemoryBlock, outUserChannel chan Response) {
+func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *MessageList, memoryBlock *MemoryBlock, outUserChannel chan Response, conversational bool) {
 	// Create a system prompt using the NoSkillsPrompt function
 	systemPromptData := prompts.NoSkillsPromptData{
 		MainAgentSystemPrompt: a.prompt,
@@ -297,20 +297,49 @@ func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *
 		Step: types.LLMCallStep("run_without_skills"),
 	})
 
-	stream, err := llm.NewStreaming(ctx, model, params)
-	if err != nil {
-		a.handleLLMError(err, outUserChannel)
-		return
-	}
+	// stream, err := llm.NewStreaming(ctx, model, params)
+	// if err != nil {
+	// 	a.handleLLMError(err, outUserChannel)
+	// 	return
+	// }
 
-	defer stream.Close()
+	// defer stream.Close()
 
-	for {
+	// for {
+	// 	summary, err := stream.Recv()
+	// 	if err != nil {
+	// 		if errors.Is(err, io.EOF) {
+	// 			outUserChannel <- Response{
+	// 				Content: "Stream closed",
+	// 				Type:    ResponseTypeEnd,
+	// 			}
+	// 			return
+	// 		}
+
+	// 		a.handleLLMError(err, outUserChannel)
+	// 		return
+	// 	}
+
+	// 	if len(summary.Choices) > 0 && len(summary.Choices[0].Delta.Content) > 0 {
+	// 		outUserChannel <- Response{
+	// 			Content: summary.Choices[0].Delta.Content,
+	// 			Type:    ResponseTypePartialText,
+	// 		}
+	// 	}
+	// }
+
+	if conversational {
+		stream, err := llm.NewStreaming(ctx, model, params)
+		if err != nil {
+			a.handleLLMError(err, outUserChannel)
+			return
+		}
+		defer stream.Close()
 		summary, err := stream.Recv()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				outUserChannel <- Response{
-					Content: "Stream closed",
+					Content: "",
 					Type:    ResponseTypeEnd,
 				}
 				return
@@ -326,8 +355,26 @@ func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *
 				Type:    ResponseTypePartialText,
 			}
 		}
+		return
 	}
 
+	completion, err := llm.New(ctx, model, params)
+	if err != nil {
+		a.handleLLMError(err, outUserChannel)
+		return
+	}
+
+	if len(completion.Choices) > 0 && len(completion.Choices[0].Message.Content) > 0 {
+		outUserChannel <- Response{
+			Content: completion.Choices[0].Message.Content,
+			Type:    ResponseTypePartialText,
+		}
+	}
+
+	outUserChannel <- Response{
+		Content: "",
+		Type:    ResponseTypeEnd,
+	}
 }
 
 // Run processes a user message through the LLM, executes any requested skills. It returns only after the agent is done.
@@ -361,7 +408,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 
 	if len(a.skills) == 0 {
 		// If no skills are available, use the runWithoutSkills function
-		a.runWithoutSkills(ctx, llm, messageHistory.Clone(), memoryBlock, outUserChannel)
+		a.runWithoutSkills(ctx, llm, messageHistory.Clone(), memoryBlock, outUserChannel, conversational)
 		return
 	}
 
