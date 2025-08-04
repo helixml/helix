@@ -132,6 +132,10 @@ func (s *PostgresStore) ListTriggerConfigurations(ctx context.Context, q *ListTr
 		query = query.Where("trigger_type = ?", q.TriggerType)
 	}
 
+	if q.Enabled {
+		query = query.Where("enabled = ?", q.Enabled)
+	}
+
 	err := query.Order("enabled DESC, created DESC").Find(&triggerConfigs).Error
 	if err != nil {
 		return nil, err
