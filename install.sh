@@ -562,6 +562,30 @@ fi
 EOF
     chmod +x $INSTALL_DIR/scripts/postgres/postgres-db.sh
 
+    # Create searxng settings.yml and limiter.toml files
+    cat << EOF > "$INSTALL_DIR/searxng/settings.yml"
+use_default_settings: true
+general:
+    instance_name: 'helix-instance'
+search:
+    autocomplete: 'google'
+server:
+    secret_key: 'a2fb23f1b02e6ee83875b09826990de0f6bd908b6638e8c10277d415f6ab852b' # Is overwritten by ${SEARXNG_SECRET}
+engines:
+    - name: wolframalpha
+    disabled: false
+EOF
+
+    cat << EOF > "$INSTALL_DIR/searxng/limiter.toml"
+[botdetection.ip_limit]
+# activate link_token method in the ip_limit method
+link_token = false
+
+[botdetection.ip_lists]
+block_ip = []
+pass_ip = []
+EOF
+
     # Create .env file
     ENV_FILE="$INSTALL_DIR/.env"
     echo -e "\nCreating/updating .env file..."
