@@ -98,24 +98,27 @@ func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages
 			return err
 		}
 		defer stream.Close()
-		summary, err := stream.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				outUserChannel <- Response{
-					Content: "",
-					Type:    ResponseTypeEnd,
+		for {
+			summary, err := stream.Recv()
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					break
 				}
-				return nil
+				a.handleLLMError(err, outUserChannel)
+				return err
 			}
 
-			return err
+			if len(summary.Choices) > 0 && len(summary.Choices[0].Delta.Content) > 0 {
+				outUserChannel <- Response{
+					Content: summary.Choices[0].Delta.Content,
+					Type:    ResponseTypePartialText,
+				}
+			}
 		}
 
-		if len(summary.Choices) > 0 && len(summary.Choices[0].Delta.Content) > 0 {
-			outUserChannel <- Response{
-				Content: summary.Choices[0].Delta.Content,
-				Type:    ResponseTypePartialText,
-			}
+		outUserChannel <- Response{
+			Content: "",
+			Type:    ResponseTypeEnd,
 		}
 		return nil
 	}
@@ -546,6 +549,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 			a.handleLLMError(err, outUserChannel)
 			return
 		}
+		return
 
 	} else if len(finalSkillCallResults) == 1 {
 		// If callSummarizer is false and we have exactly one skill result, return it directly
