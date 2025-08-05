@@ -14,8 +14,10 @@ import (
 	"github.com/tiktoken-go/tokenizer"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/transport"
+	"github.com/helixml/helix/api/pkg/pricing"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -30,32 +32,38 @@ type LogStore interface {
 var _ oai.Client = &LoggingMiddleware{}
 
 type LoggingMiddleware struct {
-	cfg          *config.ServerConfig
-	client       oai.Client
-	logStores    []LogStore
-	wg           sync.WaitGroup
-	provider     types.Provider
-	defaultCodec tokenizer.Codec
+	cfg               *config.ServerConfig
+	client            oai.Client
+	logStores         []LogStore
+	wg                sync.WaitGroup
+	provider          types.Provider
+	modelInfoProvider model.ModelInfoProvider
+	defaultCodec      tokenizer.Codec
 }
 
-func Wrap(cfg *config.ServerConfig, provider types.Provider, client oai.Client, logStores ...LogStore) *LoggingMiddleware {
+func Wrap(cfg *config.ServerConfig, provider types.Provider, client oai.Client, modelInfoProvider model.ModelInfoProvider, logStores ...LogStore) *LoggingMiddleware {
 	enc, err := tokenizer.Get(tokenizer.Cl100kBase)
 	if err != nil {
 		panic("failed to initialize tokenizer")
 	}
 
 	return &LoggingMiddleware{
-		cfg:          cfg,
-		logStores:    logStores,
-		client:       client,
-		wg:           sync.WaitGroup{},
-		provider:     provider,
-		defaultCodec: enc,
+		cfg:               cfg,
+		logStores:         logStores,
+		client:            client,
+		wg:                sync.WaitGroup{},
+		provider:          provider,
+		modelInfoProvider: modelInfoProvider,
+		defaultCodec:      enc,
 	}
 }
 
 func (m *LoggingMiddleware) APIKey() string {
 	return m.client.APIKey()
+}
+
+func (m *LoggingMiddleware) BaseURL() string {
+	return m.client.BaseURL()
 }
 
 func (m *LoggingMiddleware) ListModels(ctx context.Context) ([]types.OpenAIModel, error) {
@@ -252,6 +260,39 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 		}
 	}
 
+	var (
+		promptCost     float64
+		completionCost float64
+		totalCost      float64
+	)
+
+	// Get pricing info for the model
+	modelInfo, err := m.modelInfoProvider.GetModelInfo(ctx, &model.ModelInfoRequest{
+		BaseURL:  m.BaseURL(),
+		Provider: string(m.provider),
+		Model:    req.Model,
+	})
+	if err != nil {
+		log.Warn().
+			Err(err).
+			Str("user_id", vals.OwnerID).
+			Str("model", req.Model).
+			Str("provider", string(m.provider)).
+			Err(err).Msg("failed to get model info")
+	} else {
+		// Calculate the cost for the call and persist it
+		promptCost, completionCost, err = pricing.CalculateTokenPrice(modelInfo, int64(promptTokens), int64(completionTokens))
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("user_id", vals.OwnerID).
+				Str("model", req.Model).
+				Str("provider", string(m.provider)).
+				Err(err).Msg("failed to calculate token price")
+		}
+		totalCost = promptCost + completionCost
+	}
+
 	log.Debug().
 		Str("owner_id", vals.OwnerID).
 		Str("app_id", appID).
@@ -262,6 +303,9 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 		Int("prompt_tokens", promptTokens).
 		Int("completion_tokens", completionTokens).
 		Int("total_tokens", totalTokens).
+		Float64("prompt_cost", promptCost).
+		Float64("completion_cost", completionCost).
+		Float64("total_cost", totalCost).
 		Msg("logging LLM call")
 
 	llmCall := &types.LLMCall{
@@ -280,6 +324,9 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 		PromptTokens:     int64(promptTokens),
 		CompletionTokens: int64(completionTokens),
 		TotalTokens:      int64(totalTokens),
+		PromptCost:       promptCost,
+		CompletionCost:   completionCost,
+		TotalCost:        totalCost,
 		UserID:           vals.OwnerID,
 		Stream:           stream,
 	}

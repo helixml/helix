@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -17,8 +18,9 @@ import (
 
 type MultiClientManagerTestSuite struct {
 	suite.Suite
-	store *store.MockStore
-	cfg   *config.ServerConfig
+	store             *store.MockStore
+	cfg               *config.ServerConfig
+	modelInfoProvider model.ModelInfoProvider
 }
 
 func TestMultiClientManagerTestSuite(t *testing.T) {
@@ -28,6 +30,10 @@ func TestMultiClientManagerTestSuite(t *testing.T) {
 func (suite *MultiClientManagerTestSuite) SetupTest() {
 	ctrl := gomock.NewController(suite.T())
 	suite.store = store.NewMockStore(ctrl)
+
+	modelInfoProvider, err := model.NewBaseModelInfoProvider()
+	suite.NoError(err)
+	suite.modelInfoProvider = modelInfoProvider
 
 	suite.cfg = &config.ServerConfig{
 		Providers: config.Providers{
@@ -43,7 +49,7 @@ func (suite *MultiClientManagerTestSuite) SetupTest() {
 }
 
 func (suite *MultiClientManagerTestSuite) Test_VLLM() {
-	manager := NewProviderManager(suite.cfg, suite.store, nil)
+	manager := NewProviderManager(suite.cfg, suite.store, nil, suite.modelInfoProvider)
 	client, err := manager.GetClient(context.Background(), &GetClientRequest{Provider: string(types.ProviderVLLM)})
 	suite.NoError(err)
 	suite.NotNil(client)
@@ -62,7 +68,7 @@ func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient() {
 		AnyTimes() // Allow multiple calls since we check for client availability multiple times
 
 	// Create manager with initial key
-	manager := NewProviderManager(suite.cfg, suite.store, nil)
+	manager := NewProviderManager(suite.cfg, suite.store, nil, suite.modelInfoProvider)
 
 	// Create context with cancel
 	ctx, cancel := context.WithCancel(context.Background())
@@ -157,7 +163,7 @@ func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient_MissingFile(
 		AnyTimes() // Allow multiple calls since we check for client availability multiple times
 
 	// Create manager
-	manager := NewProviderManager(suite.cfg, suite.store, nil)
+	manager := NewProviderManager(suite.cfg, suite.store, nil, suite.modelInfoProvider)
 
 	// Create context with cancel
 	ctx, cancel := context.WithCancel(context.Background())

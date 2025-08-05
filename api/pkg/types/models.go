@@ -33,3 +33,36 @@ type Model struct {
 	// User modification tracking - system defaults are automatically updated if this is false
 	UserModified bool `json:"user_modified,omitempty" yaml:"user_modified,omitempty"` // Whether user has modified system defaults
 }
+
+type Modality string
+
+const (
+	ModalityText  Modality = "text"
+	ModalityImage Modality = "image"
+	ModalityFile  Modality = "file"
+)
+
+type ModelInfo struct { //nolint:revive
+	ProviderSlug        string     `json:"provider_slug"`
+	ProviderModelID     string     `json:"provider_model_id"`
+	Slug                string     `json:"slug"`
+	Name                string     `json:"name"`
+	Author              string     `json:"author"`
+	Description         string     `json:"description"`
+	InputModalities     []Modality `json:"input_modalities"`
+	OutputModalities    []Modality `json:"output_modalities"`
+	SupportsReasoning   bool       `json:"supports_reasoning"`
+	ContextLength       int        `json:"context_length"`
+	MaxCompletionTokens int        `json:"max_completion_tokens"`
+	Pricing             Pricing    `json:"pricing"`
+}
+
+type Pricing struct {
+	Prompt            string `json:"prompt"`
+	Completion        string `json:"completion"`
+	Image             string `json:"image"`
+	Audio             string `json:"audio"`
+	Request           string `json:"request"`
+	WebSearch         string `json:"web_search"`
+	InternalReasoning string `json:"internal_reasoning"`
+}

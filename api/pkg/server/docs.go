@@ -4017,6 +4017,10 @@ const docTemplate = `{
                 "response_size_bytes": {
                     "type": "integer"
                 },
+                "total_cost": {
+                    "description": "Total cost of the call (prompt and completion tokens)",
+                    "type": "number"
+                },
                 "total_tokens": {
                     "type": "integer"
                 }
@@ -5333,6 +5337,9 @@ const docTemplate = `{
                 "app_id": {
                     "type": "string"
                 },
+                "completion_cost": {
+                    "type": "number"
+                },
                 "completion_tokens": {
                     "type": "integer"
                 },
@@ -5363,6 +5370,9 @@ const docTemplate = `{
                         "type": "integer"
                     }
                 },
+                "prompt_cost": {
+                    "type": "number"
+                },
                 "prompt_tokens": {
                     "type": "integer"
                 },
@@ -5389,6 +5399,10 @@ const docTemplate = `{
                 },
                 "stream": {
                     "type": "boolean"
+                },
+                "total_cost": {
+                    "description": "Total cost of the call (prompt and completion tokens)",
+                    "type": "number"
                 },
                 "total_tokens": {
                     "type": "integer"
