@@ -25,7 +25,8 @@ CLI=false
 CONTROLPLANE=false
 RUNNER=false
 LARGE=false
-HAYSTACK=false
+HAYSTACK=""
+KODIT=""
 API_HOST=""
 RUNNER_TOKEN=""
 TOGETHER_API_KEY=""
@@ -563,6 +564,7 @@ EOF
     chmod +x $INSTALL_DIR/scripts/postgres/postgres-db.sh
 
     # Create searxng settings.yml and limiter.toml files
+    mkdir -p "$INSTALL_DIR/searxng"
     cat << EOF > "$INSTALL_DIR/searxng/settings.yml"
 use_default_settings: true
 general:
@@ -570,7 +572,7 @@ general:
 search:
     autocomplete: 'google'
 server:
-    secret_key: 'a2fb23f1b02e6ee83875b09826990de0f6bd908b6638e8c10277d415f6ab852b' # Is overwritten by ${SEARXNG_SECRET}
+    secret_key: 'replace_me' # Is overwritten by \${SEARXNG_SECRET}
 engines:
     - name: wolframalpha
     disabled: false
@@ -621,6 +623,21 @@ EOF
         PGVECTOR_PASSWORD=$(generate_password)
     fi
 
+    # Build comma-separated list of Docker Compose profiles
+    COMPOSE_PROFILES=""
+    if [[ -n "$HAYSTACK" ]]; then
+        COMPOSE_PROFILES="haystack"
+    fi
+    if [[ -n "$KODIT" ]]; then
+        COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}kodit"
+    fi
+
+    # Set RAG provider
+    RAG_DEFAULT_PROVIDER=""
+    if [[ -n "$HAYSTACK" ]]; then
+        RAG_DEFAULT_PROVIDER="haystack"
+    fi
+
     # Generate .env content
     cat << EOF > "$ENV_FILE"
 # Set passwords
@@ -634,11 +651,11 @@ KEYCLOAK_FRONTEND_URL=${API_HOST}/auth/
 SERVER_URL=${API_HOST}
 
 # Docker Compose profiles
-COMPOSE_PROFILES=${HAYSTACK:+haystack}${KODIT:+kodit}
+COMPOSE_PROFILES=$COMPOSE_PROFILES
 
 # Haystack features
 RAG_HAYSTACK_ENABLED=${HAYSTACK:-false}
-RAG_DEFAULT_PROVIDER=${HAYSTACK:+haystack}
+RAG_DEFAULT_PROVIDER=$RAG_DEFAULT_PROVIDER
 
 # Storage
 # Uncomment the lines below and create the directories if you want to persist
