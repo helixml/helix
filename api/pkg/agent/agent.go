@@ -297,37 +297,6 @@ func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *
 		Step: types.LLMCallStep("run_without_skills"),
 	})
 
-	// stream, err := llm.NewStreaming(ctx, model, params)
-	// if err != nil {
-	// 	a.handleLLMError(err, outUserChannel)
-	// 	return
-	// }
-
-	// defer stream.Close()
-
-	// for {
-	// 	summary, err := stream.Recv()
-	// 	if err != nil {
-	// 		if errors.Is(err, io.EOF) {
-	// 			outUserChannel <- Response{
-	// 				Content: "Stream closed",
-	// 				Type:    ResponseTypeEnd,
-	// 			}
-	// 			return
-	// 		}
-
-	// 		a.handleLLMError(err, outUserChannel)
-	// 		return
-	// 	}
-
-	// 	if len(summary.Choices) > 0 && len(summary.Choices[0].Delta.Content) > 0 {
-	// 		outUserChannel <- Response{
-	// 			Content: summary.Choices[0].Delta.Content,
-	// 			Type:    ResponseTypePartialText,
-	// 		}
-	// 	}
-	// }
-
 	if conversational {
 		stream, err := llm.NewStreaming(ctx, model, params)
 		if err != nil {
@@ -335,26 +304,30 @@ func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *
 			return
 		}
 		defer stream.Close()
-		summary, err := stream.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				outUserChannel <- Response{
-					Content: "",
-					Type:    ResponseTypeEnd,
+		for {
+			summary, err := stream.Recv()
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					break
 				}
+
+				a.handleLLMError(err, outUserChannel)
 				return
 			}
 
-			a.handleLLMError(err, outUserChannel)
-			return
-		}
-
-		if len(summary.Choices) > 0 && len(summary.Choices[0].Delta.Content) > 0 {
-			outUserChannel <- Response{
-				Content: summary.Choices[0].Delta.Content,
-				Type:    ResponseTypePartialText,
+			if len(summary.Choices) > 0 && len(summary.Choices[0].Delta.Content) > 0 {
+				outUserChannel <- Response{
+					Content: summary.Choices[0].Delta.Content,
+					Type:    ResponseTypePartialText,
+				}
 			}
 		}
+
+		outUserChannel <- Response{
+			Content: "",
+			Type:    ResponseTypeEnd,
+		}
+
 		return
 	}
 

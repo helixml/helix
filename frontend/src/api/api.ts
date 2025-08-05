@@ -421,6 +421,8 @@ export interface TypesAggregatedUsageMetric {
   prompt_tokens?: number;
   request_size_bytes?: number;
   response_size_bytes?: number;
+  /** Total cost of the call (prompt and completion tokens) */
+  total_cost?: number;
   total_tokens?: number;
 }
 
@@ -997,6 +999,7 @@ export interface TypesKnowledgeVersion {
 
 export interface TypesLLMCall {
   app_id?: string;
+  completion_cost?: number;
   completion_tokens?: number;
   created?: string;
   duration_ms?: number;
@@ -1006,6 +1009,7 @@ export interface TypesLLMCall {
   model?: string;
   organization_id?: string;
   original_request?: number[];
+  prompt_cost?: number;
   prompt_tokens?: number;
   provider?: string;
   request?: number[];
@@ -1013,6 +1017,8 @@ export interface TypesLLMCall {
   session_id?: string;
   step?: TypesLLMCallStep;
   stream?: boolean;
+  /** Total cost of the call (prompt and completion tokens) */
+  total_cost?: number;
   total_tokens?: number;
   updated?: string;
   user_id?: string;

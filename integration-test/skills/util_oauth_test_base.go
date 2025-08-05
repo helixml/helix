@@ -21,6 +21,7 @@ import (
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
 	oai "github.com/helixml/helix/api/pkg/openai"
@@ -218,8 +219,13 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 		return fmt.Errorf("failed to create pubsub: %w", err)
 	}
 
+	modelInfoProvider, err := model.NewBaseModelInfoProvider()
+	if err != nil {
+		return fmt.Errorf("failed to create model info provider: %w", err)
+	}
+
 	// Create provider manager
-	providerManager := manager.NewProviderManager(&cfg, suite.store, nil)
+	providerManager := manager.NewProviderManager(&cfg, suite.store, nil, modelInfoProvider)
 
 	// Configure tools
 	cfg.Tools.Enabled = true

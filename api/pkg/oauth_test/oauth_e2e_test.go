@@ -19,6 +19,7 @@ import (
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
@@ -257,8 +258,11 @@ paths:
 	// Create a mock OpenAI client that returns a tool execution request
 	mockClient := openai.NewMockClient(mockCtrl)
 
+	modelInfoProvider, err := model.NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
 	// Set up a real provider manager with the mock OpenAI client for Helix
-	providerManager := manager.NewProviderManager(&cfg, db, mockClient)
+	providerManager := manager.NewProviderManager(&cfg, db, mockClient, modelInfoProvider)
 
 	// Create a mock RunnerControllerStatus to avoid nil pointer dereference
 	mockRunnerController := manager.NewMockRunnerControllerStatus(mockCtrl)

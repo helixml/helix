@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/store"
@@ -45,17 +46,18 @@ type providerClient struct {
 }
 
 type MultiClientManager struct {
-	cfg              *config.ServerConfig
-	store            store.Store
-	logStores        []logger.LogStore
-	globalClients    map[types.Provider]*providerClient
-	globalClientsMu  *sync.RWMutex
-	wg               sync.WaitGroup
-	runnerController RunnerControllerStatus
-	mu               sync.RWMutex
+	cfg               *config.ServerConfig
+	store             store.Store
+	modelInfoProvider model.ModelInfoProvider
+	logStores         []logger.LogStore
+	globalClients     map[types.Provider]*providerClient
+	globalClientsMu   *sync.RWMutex
+	wg                sync.WaitGroup
+	runnerController  RunnerControllerStatus
+	mu                sync.RWMutex
 }
 
-func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInference openai.Client, logStores ...logger.LogStore) *MultiClientManager {
+func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInference openai.Client, modelInfoProvider model.ModelInfoProvider, logStores ...logger.LogStore) *MultiClientManager {
 	clients := make(map[types.Provider]*providerClient)
 
 	if cfg.Providers.OpenAI.APIKey != "" {
@@ -68,7 +70,7 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 			cfg.Providers.OpenAI.BaseURL,
 			cfg.Providers.OpenAI.Models...)
 
-		loggedClient := logger.Wrap(cfg, types.ProviderOpenAI, openaiClient, logStores...)
+		loggedClient := logger.Wrap(cfg, types.ProviderOpenAI, openaiClient, modelInfoProvider, logStores...)
 
 		clients[types.ProviderOpenAI] = &providerClient{client: loggedClient}
 	}
@@ -83,7 +85,7 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 			cfg.Providers.TogetherAI.BaseURL,
 			cfg.Providers.TogetherAI.Models...)
 
-		loggedClient := logger.Wrap(cfg, types.ProviderTogetherAI, togetherAiClient, logStores...)
+		loggedClient := logger.Wrap(cfg, types.ProviderTogetherAI, togetherAiClient, modelInfoProvider, logStores...)
 
 		clients[types.ProviderTogetherAI] = &providerClient{client: loggedClient}
 	}
@@ -98,7 +100,7 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 			cfg.Providers.Anthropic.BaseURL,
 			cfg.Providers.Anthropic.Models...)
 
-		loggedClient := logger.Wrap(cfg, types.ProviderAnthropic, anthropicClient, logStores...)
+		loggedClient := logger.Wrap(cfg, types.ProviderAnthropic, anthropicClient, modelInfoProvider, logStores...)
 
 		clients[types.ProviderAnthropic] = &providerClient{client: loggedClient}
 	}
@@ -114,23 +116,24 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 			cfg.Providers.VLLM.BaseURL,
 			cfg.Providers.VLLM.Models...)
 
-		loggedClient := logger.Wrap(cfg, types.ProviderVLLM, vllmClient, logStores...)
+		loggedClient := logger.Wrap(cfg, types.ProviderVLLM, vllmClient, modelInfoProvider, logStores...)
 
 		clients[types.ProviderVLLM] = &providerClient{client: loggedClient}
 	}
 
 	// Always configure Helix provider too
 
-	loggedClient := logger.Wrap(cfg, types.ProviderHelix, helixInference, logStores...)
+	loggedClient := logger.Wrap(cfg, types.ProviderHelix, helixInference, modelInfoProvider, logStores...)
 
 	clients[types.ProviderHelix] = &providerClient{client: loggedClient}
 
 	mcm := &MultiClientManager{
-		cfg:             cfg,
-		store:           store,
-		logStores:       logStores,
-		globalClients:   clients,
-		globalClientsMu: &sync.RWMutex{},
+		cfg:               cfg,
+		store:             store,
+		modelInfoProvider: modelInfoProvider,
+		logStores:         logStores,
+		globalClients:     clients,
+		globalClientsMu:   &sync.RWMutex{},
 	}
 
 	return mcm
@@ -236,7 +239,7 @@ func (m *MultiClientManager) updateClientAPIKeyFromFile(provider types.Provider,
 	// Recreate the client with the new key
 	openaiClient := openai.New(newKey, baseURL)
 
-	loggedClient := logger.Wrap(m.cfg, provider, openaiClient, m.logStores...)
+	loggedClient := logger.Wrap(m.cfg, provider, openaiClient, m.modelInfoProvider, m.logStores...)
 
 	m.globalClientsMu.Lock()
 	m.globalClients[provider] = &providerClient{client: loggedClient}
@@ -347,7 +350,7 @@ func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) 
 
 	openaiClient := openai.New(apiKey, endpoint.BaseURL, endpoint.Models...)
 
-	loggedClient := logger.Wrap(m.cfg, types.Provider(endpoint.ID), openaiClient, m.logStores...)
+	loggedClient := logger.Wrap(m.cfg, types.Provider(endpoint.ID), openaiClient, m.modelInfoProvider, m.logStores...)
 
 	return loggedClient, nil
 }
