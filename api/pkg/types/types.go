@@ -870,23 +870,6 @@ type WorkloadSummary struct {
 	Runtime   string    `json:"runtime"`
 	LoraDir   string    `json:"lora_dir"`
 	Summary   string    `json:"summary"`
-
-	// Created       time.Time   `json:"created"`
-	// Updated       time.Time   `json:"updated"`
-	// Scheduled     time.Time   `json:"scheduled"`
-	// Completed     time.Time   `json:"completed"`
-	// SessionID     string      `json:"session_id"`
-	// Name          string      `json:"name"`
-	// InteractionID string      `json:"interaction_id"`
-	// ModelName     string      `json:"model_name"`
-	// Mode          SessionMode `json:"mode"`
-	// Type          SessionType `json:"type"`
-	// Owner         string      `json:"owner"`
-	// LoraDir       string      `json:"lora_dir,omitempty"`
-	// // this is either the prompt or the summary of the training data
-	// Summary  string `json:"summary"`
-	// Priority bool   `json:"priority"`
-	// AppID    string `json:"app_id,omitempty"`
 }
 
 type DashboardData struct {
@@ -1781,6 +1764,9 @@ type LLMCall struct {
 	PromptTokens     int64          `json:"prompt_tokens"`
 	CompletionTokens int64          `json:"completion_tokens"`
 	TotalTokens      int64          `json:"total_tokens"`
+	PromptCost       float64        `json:"prompt_cost"`
+	CompletionCost   float64        `json:"completion_cost"`
+	TotalCost        float64        `json:"total_cost"` // Total cost of the call (prompt and completion tokens)
 	Stream           bool           `json:"stream"`
 	Error            string         `json:"error"`
 }
@@ -1941,6 +1927,9 @@ type UsageMetric struct {
 	PromptTokens      int       `json:"prompt_tokens"`
 	CompletionTokens  int       `json:"completion_tokens"`
 	TotalTokens       int       `json:"total_tokens"`
+	PromptCost        float64   `json:"prompt_cost"`
+	CompletionCost    float64   `json:"completion_cost"`
+	TotalCost         float64   `json:"total_cost"` // Total cost of the call (prompt and completion tokens)
 	DurationMs        int       `json:"duration_ms"`
 	RequestSizeBytes  int       `json:"request_size_bytes"`
 	ResponseSizeBytes int       `json:"response_size_bytes"`
@@ -1958,6 +1947,7 @@ type AggregatedUsageMetric struct {
 	PromptTokens      int     `json:"prompt_tokens"`
 	CompletionTokens  int     `json:"completion_tokens"`
 	TotalTokens       int     `json:"total_tokens"`
+	TotalCost         float64 `json:"total_cost"` // Total cost of the call (prompt and completion tokens)
 	LatencyMs         float64 `json:"latency_ms"`
 	RequestSizeBytes  int     `json:"request_size_bytes"`
 	ResponseSizeBytes int     `json:"response_size_bytes"`

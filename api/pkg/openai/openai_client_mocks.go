@@ -56,6 +56,20 @@ func (mr *MockClientMockRecorder) APIKey() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "APIKey", reflect.TypeOf((*MockClient)(nil).APIKey))
 }
 
+// BaseURL mocks base method.
+func (m *MockClient) BaseURL() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BaseURL")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// BaseURL indicates an expected call of BaseURL.
+func (mr *MockClientMockRecorder) BaseURL() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BaseURL", reflect.TypeOf((*MockClient)(nil).BaseURL))
+}
+
 // CreateChatCompletion mocks base method.
 func (m *MockClient) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
 	m.ctrl.T.Helper()
