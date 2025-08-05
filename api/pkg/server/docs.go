@@ -5611,6 +5611,12 @@ const docTemplate = `{
                 "slug": {
                     "type": "string"
                 },
+                "supported_parameters": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "supports_reasoning": {
                     "type": "boolean"
                 }

@@ -1117,6 +1117,7 @@ export interface TypesModelInfo {
   provider_model_id?: string;
   provider_slug?: string;
   slug?: string;
+  supported_parameters?: string[];
   supports_reasoning?: boolean;
 }
 
