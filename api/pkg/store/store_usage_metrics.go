@@ -55,7 +55,8 @@ func (s *PostgresStore) GetAppDailyUsageMetrics(ctx context.Context, appID strin
 			SUM(total_cost) as total_cost,
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
-			SUM(response_size_bytes) as response_size_bytes
+			SUM(response_size_bytes) as response_size_bytes,
+			COUNT(DISTINCT interaction_id) as total_requests
 		`).
 		Where("app_id = ? AND date >= ? AND date <= ?", appID, from, to).
 		Group("date, app_id").
@@ -84,7 +85,8 @@ func (s *PostgresStore) GetProviderDailyUsageMetrics(ctx context.Context, provid
 			SUM(total_cost) as total_cost,
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
-			SUM(response_size_bytes) as response_size_bytes
+			SUM(response_size_bytes) as response_size_bytes,
+			COUNT(DISTINCT interaction_id) as total_requests
 		`).
 		Where("provider = ? AND date >= ? AND date <= ?", providerID, from, to).
 		Group("date, provider").
@@ -117,6 +119,7 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 		DurationMs        float64   `gorm:"column:duration_ms"`
 		RequestSizeBytes  int       `gorm:"column:request_size_bytes"`
 		ResponseSizeBytes int       `gorm:"column:response_size_bytes"`
+		TotalRequests     int       `gorm:"column:total_requests"`
 	}
 
 	err := s.gdb.WithContext(ctx).
@@ -132,7 +135,8 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 			SUM(total_cost) as total_cost,
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
-			SUM(response_size_bytes) as response_size_bytes
+			SUM(response_size_bytes) as response_size_bytes,
+			COUNT(DISTINCT interaction_id) as total_requests
 		`).
 		Where("provider = ? AND date >= ? AND date <= ?", provider, from, to).
 		Group("user_id, date").
@@ -158,6 +162,7 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 			LatencyMs:         m.DurationMs,
 			RequestSizeBytes:  m.RequestSizeBytes,
 			ResponseSizeBytes: m.ResponseSizeBytes,
+			TotalRequests:     m.TotalRequests,
 		})
 	}
 
@@ -220,6 +225,7 @@ func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, a
 		DurationMs        float64   `gorm:"column:duration_ms"`
 		RequestSizeBytes  int       `gorm:"column:request_size_bytes"`
 		ResponseSizeBytes int       `gorm:"column:response_size_bytes"`
+		TotalRequests     int       `gorm:"column:total_requests"` // Grouped by interaction_id
 	}
 
 	err := s.gdb.WithContext(ctx).
@@ -235,7 +241,8 @@ func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, a
 			SUM(total_cost) as total_cost,
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
-			SUM(response_size_bytes) as response_size_bytes
+			SUM(response_size_bytes) as response_size_bytes,
+			COUNT(DISTINCT interaction_id) as total_requests
 		`).
 		Where("app_id = ? AND date >= ? AND date <= ?", appID, from, to).
 		Group("user_id, date").
@@ -263,6 +270,7 @@ func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, a
 			LatencyMs:         m.DurationMs,
 			RequestSizeBytes:  m.RequestSizeBytes,
 			ResponseSizeBytes: m.ResponseSizeBytes,
+			TotalRequests:     m.TotalRequests,
 		})
 	}
 
