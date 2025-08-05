@@ -572,7 +572,7 @@ general:
 search:
     autocomplete: 'google'
 server:
-    secret_key: 'a2fb23f1b02e6ee83875b09826990de0f6bd908b6638e8c10277d415f6ab852b' # Is overwritten by \${SEARXNG_SECRET}
+    secret_key: 'replace_me' # Is overwritten by \${SEARXNG_SECRET}
 engines:
     - name: wolframalpha
     disabled: false
