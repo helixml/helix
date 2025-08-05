@@ -3998,6 +3998,9 @@ const docTemplate = `{
         "types.AggregatedUsageMetric": {
             "type": "object",
             "properties": {
+                "completion_cost": {
+                    "type": "number"
+                },
                 "completion_tokens": {
                     "type": "integer"
                 },
@@ -4006,6 +4009,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "latency_ms": {
+                    "type": "number"
+                },
+                "prompt_cost": {
                     "type": "number"
                 },
                 "prompt_tokens": {

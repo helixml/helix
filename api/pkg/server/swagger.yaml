@@ -626,12 +626,16 @@ definitions:
     type: object
   types.AggregatedUsageMetric:
     properties:
+      completion_cost:
+        type: number
       completion_tokens:
         type: integer
       date:
         description: ID    string    `json:"id" gorm:"primaryKey"`
         type: string
       latency_ms:
+        type: number
+      prompt_cost:
         type: number
       prompt_tokens:
         type: integer
