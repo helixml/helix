@@ -26,9 +26,10 @@ import SmartToyIcon from '@mui/icons-material/SmartToy';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import MemoryIcon from '@mui/icons-material/Memory';
 import StarIcon from '@mui/icons-material/Star';
+import ImageIcon from '@mui/icons-material/Image';
 import { useListProviders } from '../../services/providersService';
 import { useGetUserTokenUsage } from '../../services/userService';
-import { TypesOpenAIModel, TypesProviderEndpoint } from '../../api/api';
+import { TypesOpenAIModel, TypesProviderEndpoint, TypesModality } from '../../api/api';
 import openaiLogo from '../../../assets/img/openai-logo.png'
 import togetheraiLogo from '../../../assets/img/together-logo.png'
 import vllmLogo from '../../../assets/img/vllm-logo.png'
@@ -500,6 +501,29 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                       sx={{ mr: 1 }}
                     />
                   </Box>
+                  {model.model_info?.input_modalities?.includes(TypesModality.ModalityImage) && (
+                    <Tooltip title="This model supports vision">
+                      <Chip
+                        icon={<ImageIcon sx={{ color: 'info.main' }} />}                        
+                        size="small"
+                        variant="outlined"
+                        sx={{
+                          color: '#A0AEC0',
+                          borderColor: 'transparent',
+                          backgroundColor: 'transparent',
+                          mr: 1,
+                          '& .MuiChip-icon': {
+                             color: '#3B82F6',
+                             marginLeft: '4px',
+                             marginRight: '-4px',
+                          },
+                          '& .MuiChip-label': {
+                             paddingLeft: '4px',
+                          }
+                        }}
+                       />
+                    </Tooltip>
+                  )}
                   {formattedContextLength && (
                     <Tooltip title="Context Length">
                       <Chip
