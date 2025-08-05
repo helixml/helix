@@ -1484,6 +1484,9 @@ func (s *HelixAPIServer) getAppUsersDailyUsage(_ http.ResponseWriter, r *http.Re
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
+
+	// TODO: get pricing info for days
+
 	return metrics, nil
 }
 

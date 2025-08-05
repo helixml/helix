@@ -17,7 +17,8 @@ func TestCalculateTokenPrice(t *testing.T) {
 		},
 	}
 
-	price, err := CalculateTokenPrice(mf, 1000, 1000)
+	promptCost, completionCost, err := CalculateTokenPrice(mf, 10000000, 10000000)
 	assert.NoError(t, err)
-	assert.Equal(t, 0.000225, price)
+	assert.Equal(t, 0.75, promptCost)
+	assert.Equal(t, 1.5, completionCost)
 }

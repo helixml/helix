@@ -38,6 +38,7 @@ type Client interface {
 	CreateFlexibleEmbeddings(ctx context.Context, request types.FlexibleEmbeddingRequest) (types.FlexibleEmbeddingResponse, error)
 
 	APIKey() string
+	BaseURL() string
 }
 
 // New creates a new OpenAI client with the given API key and base URL.
@@ -83,6 +84,11 @@ type RetryableClient struct {
 // APIKey - returns the API key used by the client, used for testing
 func (c *RetryableClient) APIKey() string {
 	return c.apiKey
+}
+
+// BaseURL - returns the base URL used by the client
+func (c *RetryableClient) BaseURL() string {
+	return c.baseURL
 }
 
 // trimMessageContent trims trailing whitespace from message content to prevent API errors
