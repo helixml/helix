@@ -5500,6 +5500,19 @@ const docTemplate = `{
                 "MessageContentTypeText"
             ]
         },
+        "types.Modality": {
+            "type": "string",
+            "enum": [
+                "text",
+                "image",
+                "file"
+            ],
+            "x-enum-varnames": [
+                "ModalityText",
+                "ModalityImage",
+                "ModalityFile"
+            ]
+        },
         "types.Model": {
             "type": "object",
             "properties": {
@@ -5552,6 +5565,53 @@ const docTemplate = `{
                 },
                 "user_modified": {
                     "description": "User modification tracking - system defaults are automatically updated if this is false",
+                    "type": "boolean"
+                }
+            }
+        },
+        "types.ModelInfo": {
+            "type": "object",
+            "properties": {
+                "author": {
+                    "type": "string"
+                },
+                "context_length": {
+                    "type": "integer"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "input_modalities": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Modality"
+                    }
+                },
+                "max_completion_tokens": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "output_modalities": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Modality"
+                    }
+                },
+                "pricing": {
+                    "$ref": "#/definitions/types.Pricing"
+                },
+                "provider_model_id": {
+                    "type": "string"
+                },
+                "provider_slug": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "supports_reasoning": {
                     "type": "boolean"
                 }
             }
@@ -5805,6 +5865,9 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
+                },
+                "model_info": {
+                    "$ref": "#/definitions/types.ModelInfo"
                 },
                 "name": {
                     "type": "string"
@@ -6080,6 +6143,32 @@ const docTemplate = `{
                 },
                 "totalPages": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.Pricing": {
+            "type": "object",
+            "properties": {
+                "audio": {
+                    "type": "string"
+                },
+                "completion": {
+                    "type": "string"
+                },
+                "image": {
+                    "type": "string"
+                },
+                "internal_reasoning": {
+                    "type": "string"
+                },
+                "prompt": {
+                    "type": "string"
+                },
+                "request": {
+                    "type": "string"
+                },
+                "web_search": {
+                    "type": "string"
                 }
             }
         },

@@ -1691,6 +1691,16 @@ definitions:
     type: string
     x-enum-varnames:
     - MessageContentTypeText
+  types.Modality:
+    enum:
+    - text
+    - image
+    - file
+    type: string
+    x-enum-varnames:
+    - ModalityText
+    - ModalityImage
+    - ModalityFile
   types.Model:
     properties:
       auto_pull:
@@ -1729,6 +1739,37 @@ definitions:
       user_modified:
         description: User modification tracking - system defaults are automatically
           updated if this is false
+        type: boolean
+    type: object
+  types.ModelInfo:
+    properties:
+      author:
+        type: string
+      context_length:
+        type: integer
+      description:
+        type: string
+      input_modalities:
+        items:
+          $ref: '#/definitions/types.Modality'
+        type: array
+      max_completion_tokens:
+        type: integer
+      name:
+        type: string
+      output_modalities:
+        items:
+          $ref: '#/definitions/types.Modality'
+        type: array
+      pricing:
+        $ref: '#/definitions/types.Pricing'
+      provider_model_id:
+        type: string
+      provider_slug:
+        type: string
+      slug:
+        type: string
+      supports_reasoning:
         type: boolean
     type: object
   types.ModelType:
@@ -1907,6 +1948,8 @@ definitions:
         type: boolean
       id:
         type: string
+      model_info:
+        $ref: '#/definitions/types.ModelInfo'
       name:
         type: string
       object:
@@ -2093,6 +2136,23 @@ definitions:
         type: integer
       totalPages:
         type: integer
+    type: object
+  types.Pricing:
+    properties:
+      audio:
+        type: string
+      completion:
+        type: string
+      image:
+        type: string
+      internal_reasoning:
+        type: string
+      prompt:
+        type: string
+      request:
+        type: string
+      web_search:
+        type: string
     type: object
   types.Provider:
     enum:

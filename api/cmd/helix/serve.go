@@ -493,6 +493,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		ps,
 		gse,
 		providerManager,
+		modelInfoProvider,
 		helixInference,
 		keycloakAuthenticator,
 		stripe,

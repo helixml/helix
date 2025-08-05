@@ -1075,6 +1075,12 @@ export enum TypesMessageContentType {
   MessageContentTypeText = "text",
 }
 
+export enum TypesModality {
+  ModalityText = "text",
+  ModalityImage = "image",
+  ModalityFile = "file",
+}
+
 export interface TypesModel {
   /** Whether to automatically pull the model if missing in the runner */
   auto_pull?: boolean;
@@ -1097,6 +1103,21 @@ export interface TypesModel {
   updated?: string;
   /** User modification tracking - system defaults are automatically updated if this is false */
   user_modified?: boolean;
+}
+
+export interface TypesModelInfo {
+  author?: string;
+  context_length?: number;
+  description?: string;
+  input_modalities?: TypesModality[];
+  max_completion_tokens?: number;
+  name?: string;
+  output_modalities?: TypesModality[];
+  pricing?: TypesPricing;
+  provider_model_id?: string;
+  provider_slug?: string;
+  slug?: string;
+  supports_reasoning?: boolean;
 }
 
 export enum TypesModelType {
@@ -1198,6 +1219,7 @@ export interface TypesOpenAIModel {
   enabled?: boolean;
   hide?: boolean;
   id?: string;
+  model_info?: TypesModelInfo;
   name?: string;
   object?: string;
   owned_by?: string;
@@ -1297,6 +1319,16 @@ export interface TypesPaginatedLLMCalls {
   pageSize?: number;
   totalCount?: number;
   totalPages?: number;
+}
+
+export interface TypesPricing {
+  audio?: string;
+  completion?: string;
+  image?: string;
+  internal_reasoning?: string;
+  prompt?: string;
+  request?: string;
+  web_search?: string;
 }
 
 export enum TypesProvider {
