@@ -10,6 +10,20 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+func (s *PostgresStore) ResetRunningInteractions(ctx context.Context) error {
+	err := s.gdb.WithContext(ctx).Model(&types.Interaction{}).
+		Where("state = ?", types.InteractionStateWaiting).
+		Updates(map[string]any{
+			"state": types.InteractionStateError,
+			"error": "Interrupted",
+		}).
+		Error
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *PostgresStore) CreateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error) {
 	if interaction.SessionID == "" {
 		return nil, errors.New("session_id is required")
