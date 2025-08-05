@@ -1769,6 +1769,10 @@ definitions:
         type: string
       slug:
         type: string
+      supported_parameters:
+        items:
+          type: string
+        type: array
       supports_reasoning:
         type: boolean
     type: object

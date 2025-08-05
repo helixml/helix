@@ -48,6 +48,7 @@ type ModelInfo struct { //nolint:revive
 	Slug                string     `json:"slug"`
 	Name                string     `json:"name"`
 	Author              string     `json:"author"`
+	SupportedParameters []string   `json:"supported_parameters"`
 	Description         string     `json:"description"`
 	InputModalities     []Modality `json:"input_modalities"`
 	OutputModalities    []Modality `json:"output_modalities"`
