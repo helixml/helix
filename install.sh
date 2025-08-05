@@ -575,7 +575,7 @@ server:
     secret_key: 'replace_me' # Is overwritten by \${SEARXNG_SECRET}
 engines:
     - name: wolframalpha
-    disabled: false
+      disabled: false
 EOF
 
     cat << EOF > "$INSTALL_DIR/searxng/limiter.toml"
