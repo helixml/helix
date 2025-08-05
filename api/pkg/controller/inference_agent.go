@@ -267,6 +267,7 @@ func (c *Controller) runAgentBlocking(ctx context.Context, req *runAgentRequest)
 }
 
 func (c *Controller) runAgentStream(ctx context.Context, req *runAgentRequest) (*openai.ChatCompletionStream, error) {
+	req.Options.Conversational = true
 	session, err := c.runAgent(ctx, req)
 	if err != nil {
 		return nil, err
