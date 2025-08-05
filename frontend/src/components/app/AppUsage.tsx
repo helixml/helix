@@ -702,10 +702,11 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
             <TableHead>
               <TableRow>
                 <TableCell>Timestamp</TableCell>
-                <TableCell>Step</TableCell>
-                <TableCell>Token Usage</TableCell>
+                <TableCell>Step</TableCell>                                
                 <TableCell>Duration (ms)</TableCell>
                 <TableCell>Model</TableCell>
+                <TableCell>Token Usage</TableCell>
+                <TableCell>Cost</TableCell>
                 <TableCell>Details</TableCell>
               </TableRow>
             </TableHead>
@@ -718,9 +719,32 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
                   onMouseLeave={() => onHoverCallId(null)}
                 >
                   <TableCell>{call.created ? new Date(call.created).toLocaleString() : ''}</TableCell>
-                  <TableCell>{call.step || 'n/a'}</TableCell>
+                  <TableCell>{call.step || 'n/a'}</TableCell>                                    
                   <TableCell>
-                    <Tooltip 
+                    {call.duration_ms ? formatDuration(call.duration_ms) : 'n/a'}
+                    {call.duration_ms && call.duration_ms > 5000 && (
+                      <Tooltip title="Model taking a long time to think">
+                        <WarningIcon 
+                          sx={{ 
+                            ml: 1, 
+                            color: '#ff9800',
+                            verticalAlign: 'middle',
+                            fontSize: '1rem'
+                          }} 
+                        />
+                      </Tooltip>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Tooltip title={getReasoningEffort(call.request) !== 'n/a' ? `Reasoning effort: ${getReasoningEffort(call.request)}` : ''}>
+                      <span>{call.model || 'n/a'}</span>
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell>
+                    <Tooltip
+                      placement='right'
+                      enterDelay={50}
+                      enterNextDelay={50}
                       title={
                         <div style={{ minWidth: '200px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -742,24 +766,29 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
                     </Tooltip>
                   </TableCell>
                   <TableCell>
-                    {call.duration_ms ? formatDuration(call.duration_ms) : 'n/a'}
-                    {call.duration_ms && call.duration_ms > 5000 && (
-                      <Tooltip title="Model taking a long time to think">
-                        <WarningIcon 
-                          sx={{ 
-                            ml: 1, 
-                            color: '#ff9800',
-                            verticalAlign: 'middle',
-                            fontSize: '1rem'
-                          }} 
-                        />
-                      </Tooltip>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Tooltip title={getReasoningEffort(call.request) !== 'n/a' ? `Reasoning effort: ${getReasoningEffort(call.request)}` : ''}>
-                      <span>{call.model || 'n/a'}</span>
-                    </Tooltip>
+                    <Tooltip 
+                      placement='right'
+                      enterDelay={50}
+                      enterNextDelay={50}
+                      title={
+                        <div style={{ minWidth: '200px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Prompt cost:</span>
+                            <span>{call.prompt_cost ? `$${call.prompt_cost.toFixed(6)}` : 'n/a'}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Completion cost:</span>
+                            <span>{call.completion_cost ? `$${call.completion_cost.toFixed(6)}` : 'n/a'}</span>
+                          </div>
+                        </div>
+                      }
+                      
+                      slotProps={{ tooltip: { sx: { bgcolor: '#222', opacity: 1 } } }}
+                    >
+                      <span>
+                      {call.total_cost ? `$${call.total_cost.toFixed(2)}` : 'n/a'}
+                      </span>
+                    </Tooltip>                    
                   </TableCell>
                   <TableCell>
                     <IconButton
