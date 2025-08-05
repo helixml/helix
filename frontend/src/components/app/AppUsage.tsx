@@ -469,14 +469,17 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                   <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
                     TOTAL TOKENS
                   </Typography>
-                  <Box sx={{ 
-                    bgcolor: '#8b5cf6', 
-                    color: 'white', 
+                  <Box                    
+                    sx={{ 
+                    bgcolor: 'transparent', 
+                    color: 'text.primary', 
                     px: 1.5, 
                     py: 0.5, 
-                    borderRadius: 2, 
+                    borderRadius: '50px', 
                     fontSize: '0.75rem',
-                    fontWeight: 500
+                    fontWeight: 500,
+                    border: '1px solid',
+                    borderColor: 'grey.500'
                   }}>
                     {chartData.totalValue?.toLocaleString() || '0'}
                   </Box>
@@ -568,13 +571,15 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                     TOTAL REQUESTS
                   </Typography>
                   <Box sx={{ 
-                    bgcolor: '#8b5cf6', 
-                    color: 'white', 
+                    bgcolor: 'transparent', 
+                    color: 'text.primary', 
                     px: 1.5, 
                     py: 0.5, 
-                    borderRadius: 2, 
+                    borderRadius: '50px', 
                     fontSize: '0.75rem',
-                    fontWeight: 500
+                    fontWeight: 500,
+                    border: '1px solid',
+                    borderColor: 'grey.500'
                   }}>
                     {requestChartData.totalValue?.toLocaleString() || '0'}
                   </Box>
@@ -666,13 +671,15 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
                     TOTAL SPEND
                   </Typography>
                   <Box sx={{ 
-                    bgcolor: '#8b5cf6', 
-                    color: 'white', 
+                    bgcolor: 'transparent', 
+                    color: 'text.primary', 
                     px: 1.5, 
                     py: 0.5, 
-                    borderRadius: 2, 
+                    borderRadius: '50px', 
                     fontSize: '0.75rem',
-                    fontWeight: 500
+                    fontWeight: 500,
+                    border: '1px solid',
+                    borderColor: 'grey.500'
                   }}>
                     ${costsChartData.totalValue?.toFixed(2) || '0.00'}
                   </Box>
