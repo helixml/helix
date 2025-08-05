@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_GetGeminiFlash(t *testing.T) {
@@ -44,7 +45,7 @@ func Test_GetOpenAIo3Mini(t *testing.T) {
 		Provider: "openai",
 		Model:    "o3-mini",
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Equal(t, "OpenAI: o3 Mini", modelInfo.Name)
 	assert.Equal(t, "0.0000044", modelInfo.Pricing.Completion)

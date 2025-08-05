@@ -114,10 +114,14 @@ func (p *BaseModelInfoProvider) GetModelInfo(_ context.Context, request *ModelIn
 		// Check if the provider URL matches
 	}
 
-	return nil, fmt.Errorf("model info not found for model: %s", request.Model)
+	return nil, fmt.Errorf("model info not found for model: %s (%s)", request.Model, slug)
 }
 
 func (p *BaseModelInfoProvider) getProvider(baseURL string) (string, bool) {
+	if baseURL == "" {
+		return "", false
+	}
+
 	provider, ok := p.providers[baseURL]
 	if ok {
 		return provider, true
