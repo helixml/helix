@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"os/exec"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -77,4 +78,147 @@ type SessionFileManager interface {
 	// given remote filestore path and local path
 	// download the folder
 	DownloadFolder(remotePath string, localPath string) error
+}
+
+type ModelInfoResponse struct { //nolint:revive
+	Data []ModelInfoData `json:"data"`
+}
+
+type ModelInfoData struct { //nolint:revive
+	Slug                string           `json:"slug"`
+	HfSlug              string           `json:"hf_slug"`
+	UpdatedAt           time.Time        `json:"updated_at"`
+	CreatedAt           time.Time        `json:"created_at"`
+	HfUpdatedAt         any              `json:"hf_updated_at"`
+	Name                string           `json:"name"`
+	ShortName           string           `json:"short_name"`
+	Author              string           `json:"author"`
+	Description         string           `json:"description"`
+	ModelVersionGroupID any              `json:"model_version_group_id"`
+	ContextLength       int              `json:"context_length"`
+	InputModalities     []types.Modality `json:"input_modalities"`
+	OutputModalities    []types.Modality `json:"output_modalities"`
+	HasTextOutput       bool             `json:"has_text_output"`
+	Group               string           `json:"group"`
+	InstructType        any              `json:"instruct_type"`
+	DefaultSystem       any              `json:"default_system"`
+	DefaultStops        []any            `json:"default_stops"`
+	Hidden              bool             `json:"hidden"`
+	Router              any              `json:"router"`
+	WarningMessage      string           `json:"warning_message"`
+	Permaslug           string           `json:"permaslug"`
+	ReasoningConfig     any              `json:"reasoning_config"`
+	Features            any              `json:"features"`
+	Endpoint            struct {
+		ID            string `json:"id"`
+		Name          string `json:"name"`
+		ContextLength int    `json:"context_length"`
+		Model         struct {
+			Slug                string    `json:"slug"`
+			HfSlug              string    `json:"hf_slug"`
+			UpdatedAt           time.Time `json:"updated_at"`
+			CreatedAt           time.Time `json:"created_at"`
+			HfUpdatedAt         any       `json:"hf_updated_at"`
+			Name                string    `json:"name"`
+			ShortName           string    `json:"short_name"`
+			Author              string    `json:"author"`
+			Description         string    `json:"description"`
+			ModelVersionGroupID any       `json:"model_version_group_id"`
+			ContextLength       int       `json:"context_length"`
+			InputModalities     []string  `json:"input_modalities"`
+			OutputModalities    []string  `json:"output_modalities"`
+			HasTextOutput       bool      `json:"has_text_output"`
+			Group               string    `json:"group"`
+			InstructType        any       `json:"instruct_type"`
+			DefaultSystem       any       `json:"default_system"`
+			DefaultStops        []any     `json:"default_stops"`
+			Hidden              bool      `json:"hidden"`
+			Router              any       `json:"router"`
+			WarningMessage      string    `json:"warning_message"`
+			Permaslug           string    `json:"permaslug"`
+			ReasoningConfig     any       `json:"reasoning_config"`
+			Features            any       `json:"features"`
+		} `json:"model"`
+		ModelVariantSlug      string `json:"model_variant_slug"`
+		ModelVariantPermaslug string `json:"model_variant_permaslug"`
+		AdapterName           string `json:"adapter_name"`
+		ProviderName          string `json:"provider_name"`
+		ProviderInfo          struct {
+			Name        string `json:"name"`
+			DisplayName string `json:"displayName"`
+			Slug        string `json:"slug"`
+			BaseURL     string `json:"baseUrl"`
+			DataPolicy  struct {
+				PaidModels struct {
+					Training       bool `json:"training"`
+					RetainsPrompts bool `json:"retainsPrompts"`
+				} `json:"paidModels"`
+			} `json:"dataPolicy"`
+			HasChatCompletions   bool     `json:"hasChatCompletions"`
+			HasCompletions       bool     `json:"hasCompletions"`
+			IsAbortable          bool     `json:"isAbortable"`
+			ModerationRequired   bool     `json:"moderationRequired"`
+			Editors              []string `json:"editors"`
+			Owners               []string `json:"owners"`
+			AdapterName          string   `json:"adapterName"`
+			IsMultipartSupported bool     `json:"isMultipartSupported"`
+			StatusPageURL        any      `json:"statusPageUrl"`
+			ByokEnabled          bool     `json:"byokEnabled"`
+			Icon                 struct {
+				URL       string `json:"url"`
+				ClassName string `json:"className"`
+			} `json:"icon"`
+			IgnoredProviderModels []any `json:"ignoredProviderModels"`
+		} `json:"provider_info"`
+		ProviderDisplayName string   `json:"provider_display_name"`
+		ProviderSlug        string   `json:"provider_slug"`
+		ProviderModelID     string   `json:"provider_model_id"`
+		Quantization        string   `json:"quantization"`
+		Variant             string   `json:"variant"`
+		IsFree              bool     `json:"is_free"`
+		CanAbort            bool     `json:"can_abort"`
+		MaxPromptTokens     any      `json:"max_prompt_tokens"`
+		MaxCompletionTokens int      `json:"max_completion_tokens"`
+		MaxPromptImages     any      `json:"max_prompt_images"`
+		MaxTokensPerImage   any      `json:"max_tokens_per_image"`
+		SupportedParameters []string `json:"supported_parameters"`
+		IsByok              bool     `json:"is_byok"`
+		ModerationRequired  bool     `json:"moderation_required"`
+		DataPolicy          struct {
+			PaidModels struct {
+				Training       bool `json:"training"`
+				RetainsPrompts bool `json:"retainsPrompts"`
+			} `json:"paidModels"`
+			Training       bool `json:"training"`
+			RetainsPrompts bool `json:"retainsPrompts"`
+		} `json:"data_policy"`
+		Pricing                types.Pricing `json:"pricing"`
+		VariablePricings       []any         `json:"variable_pricings"`
+		IsHidden               bool          `json:"is_hidden"`
+		IsDeranked             bool          `json:"is_deranked"`
+		IsDisabled             bool          `json:"is_disabled"`
+		SupportsToolParameters bool          `json:"supports_tool_parameters"`
+		SupportsReasoning      bool          `json:"supports_reasoning"`
+		SupportsMultipart      bool          `json:"supports_multipart"`
+		LimitRpm               int           `json:"limit_rpm"`
+		LimitRpd               any           `json:"limit_rpd"`
+		LimitRpmCf             any           `json:"limit_rpm_cf"`
+		HasCompletions         bool          `json:"has_completions"`
+		HasChatCompletions     bool          `json:"has_chat_completions"`
+		Features               struct {
+			SupportsFileUrls   bool `json:"supports_file_urls"`
+			SupportsInputAudio bool `json:"supports_input_audio"`
+			SupportsToolChoice struct {
+				LiteralNone     bool `json:"literal_none"`
+				LiteralAuto     bool `json:"literal_auto"`
+				LiteralRequired bool `json:"literal_required"`
+				TypeFunction    bool `json:"type_function"`
+			} `json:"supports_tool_choice"`
+			SupportedParameters struct {
+				ResponseFormat    bool `json:"response_format"`
+				StructuredOutputs bool `json:"structured_outputs"`
+			} `json:"supported_parameters"`
+		} `json:"features"`
+		ProviderRegion any `json:"provider_region"`
+	} `json:"endpoint"`
 }
