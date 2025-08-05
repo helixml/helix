@@ -22,6 +22,7 @@ import (
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/license"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
@@ -342,7 +343,12 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		logStores = append(logStores, logger.NewUsageLogger(postgresStore))
 	}
 
-	providerManager := manager.NewProviderManager(cfg, postgresStore, helixInference, logStores...)
+	modelInfoProvider, err := model.NewBaseModelInfoProvider()
+	if err != nil {
+		return fmt.Errorf("failed to create model info provider: %w", err)
+	}
+
+	providerManager := manager.NewProviderManager(cfg, postgresStore, helixInference, modelInfoProvider, logStores...)
 
 	// Connect the runner controller to the provider manager
 	providerManager.SetRunnerController(runnerController)
@@ -355,7 +361,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	if err != nil {
 		return err
 	}
-	dataprepOpenAIClient = logger.Wrap(cfg, cfg.FineTuning.Provider, dataprepOpenAIClient, logStores...)
+	dataprepOpenAIClient = logger.Wrap(cfg, cfg.FineTuning.Provider, dataprepOpenAIClient, modelInfoProvider, logStores...)
 
 	var ragClient rag.RAG
 
