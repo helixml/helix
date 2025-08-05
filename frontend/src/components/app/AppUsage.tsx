@@ -771,22 +771,28 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
                       enterDelay={50}
                       enterNextDelay={50}
                       title={
-                        <div style={{ minWidth: '200px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span>Prompt cost:</span>
-                            <span>{call.prompt_cost ? `$${call.prompt_cost.toFixed(6)}` : 'n/a'}</span>
+                        call.total_cost === 0 || call.prompt_cost === 0 || call.completion_cost === 0 ? (
+                          <div style={{ minWidth: '200px' }}>
+                            Pricing is not available for this call
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span>Completion cost:</span>
-                            <span>{call.completion_cost ? `$${call.completion_cost.toFixed(6)}` : 'n/a'}</span>
+                        ) : (
+                          <div style={{ minWidth: '200px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span>Prompt cost:</span>
+                              <span>{call.prompt_cost ? `$${call.prompt_cost.toFixed(6)}` : 'n/a'}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span>Completion cost:</span>
+                              <span>{call.completion_cost ? `$${call.completion_cost.toFixed(6)}` : 'n/a'}</span>
+                            </div>
                           </div>
-                        </div>
+                        )
                       }
                       
                       slotProps={{ tooltip: { sx: { bgcolor: '#222', opacity: 1 } } }}
                     >
                       <span>
-                      {call.total_cost ? `$${call.total_cost.toFixed(2)}` : 'n/a'}
+                      {call.total_cost && call.total_cost > 0 ? `$${call.total_cost.toFixed(2)}` : '-'}
                       </span>
                     </Tooltip>                    
                   </TableCell>
