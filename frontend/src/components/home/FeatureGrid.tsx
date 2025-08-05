@@ -44,7 +44,7 @@ const CHAT_FEATURE: IFeature = {
     title: 'Chat',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => navigate('new'),
+    handler: (navigate) => navigate('home'),
     id: 'chat-button',
   }, {
     title: 'Docs',
@@ -63,7 +63,7 @@ const IMAGE_GEN_FEATURE: IFeature = {
     title: 'Create',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('new', {mode:"inference", type:"image"})},
+    handler: (navigate) => {navigate('home', {mode:"inference", type:"image"})},
     id: 'create-button', 
   }, {
     title: 'Docs',
@@ -83,7 +83,7 @@ const RAG_FEATURE: IFeature = {
     title: 'Upload',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => navigate('new', {mode:"finetune", type:"text", rag:"true"}),
+    handler: (navigate) => navigate('home', {mode:"finetune", type:"text", rag:"true"}),
     id: 'upload-button'
   }, {
     title: 'Docs (coming soon)',
@@ -102,7 +102,7 @@ const FINETUNE_TEXT_FEATURE: IFeature = {
     title: 'Finetune',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => navigate('new', {mode:"finetune", type:"text", finetune:"true"}),
+    handler: (navigate) => navigate('home', {mode:"finetune", type:"text", finetune:"true"}),
     id: 'text-finetune-button',
   }, {
     title: 'Docs',
@@ -125,7 +125,7 @@ const FINETUNE_IMAGES_FEATURE: IFeature = {
     title: 'Finetune',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('new', {mode:"finetune", type:"image", finetune:"true"})},
+    handler: (navigate) => {navigate('home', {mode:"finetune", type:"image", finetune:"true"})},
     id: 'image-finetune-button'
   }, {
     title: 'Docs',

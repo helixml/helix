@@ -28,6 +28,9 @@ import useApp from '../hooks/useApp'
 import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
+import useSessions from '../hooks/useSessions'
+import { useStreaming } from '../contexts/streaming'
+import { ISessionType } from '../types'
 import AppUsage from '../components/app/AppUsage'
 import IdeIntegrationSection from '../components/app/IdeIntegrationSection'
 import useLightTheme from '../hooks/useLightTheme'
@@ -38,6 +41,8 @@ const App: FC = () => {
   const api = useApi()
   const snackbar = useSnackbar()
   const themeConfig = useThemeConfig()
+  const sessions = useSessions()
+  const { NewInference } = useStreaming()
   const theme = useTheme()
   const {
     params,
@@ -67,7 +72,29 @@ const App: FC = () => {
       snackbar.error('We have no app to launch')
       return
     }
-    account.orgNavigate('new', { app_id: appTools.id, resource_type: 'apps' })
+    
+    try {
+      let orgId = ''
+      if (account.organizationTools.organization?.id) {
+        orgId = account.organizationTools.organization.id
+      }
+      
+      const session = await NewInference({
+        regenerate: false,
+        type: 'inference' as ISessionType,
+        message: '',
+        appId: appTools.id,
+        assistantId: '0', // Default to first assistant
+        orgId,
+      })
+      
+      if (!session) return
+      await sessions.loadSessions()
+      account.orgNavigate('session', { session_id: session.id })
+    } catch (error) {
+      console.error('Error launching app:', error)
+      snackbar.error('Failed to launch app')
+    }
   }
 
   useEffect(() => {

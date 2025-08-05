@@ -126,8 +126,8 @@ const SidebarContentInner: React.FC<{
       account.orgNavigate('home')
       return
     }
-    // If we are in the app details view, we need to create a new chat
-    account.orgNavigate('new', { app_id: appTools.id })
+    // If we are in the app details view, navigate to the app page
+    account.orgNavigate('app', { app_id: appTools.id })
   }
 
   return (
@@ -151,8 +151,8 @@ const SidebarContentInner: React.FC<{
           }}
         >
           {
-            showTopLinks && (router.name === 'home' || router.name === 'session' || router.name === 'app' || router.name === 'new' || 
-                           router.name === 'org_home' || router.name === 'org_session' || router.name === 'org_app' || router.name === 'org_new') && (
+            showTopLinks && (router.name === 'home' || router.name === 'session' || router.name === 'app' ||
+                           router.name === 'org_home' || router.name === 'org_session' || router.name === 'org_app') && (
               <List disablePadding>    
                 
                 {/* New resource creation button */}

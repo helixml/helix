@@ -159,8 +159,8 @@ const Layout: FC<{
 
 
 
-  // Hide sidebar on /new page when app_id is specified, otherwise use router.meta.drawer  
-  const shouldShowSidebar = router.meta.drawer && !(router.name === 'new' && router.params.app_id) && !(router.name === 'org_new' && router.params.app_id)
+  // Use router.meta.drawer to determine if sidebar should be shown
+  const shouldShowSidebar = router.meta.drawer
   
   if(shouldShowSidebar) {   
     // Determine which sidebar to show based on route

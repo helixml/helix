@@ -13,7 +13,7 @@ import OrgPeople from './pages/OrgPeople'
 import TeamPeople from './pages/TeamPeople'
 import App from './pages/App'
 import Dashboard from './pages/Dashboard'
-import Create from './pages/Create'
+
 import Home from './pages/Home'
 import OpenAPI from './pages/OpenAPI'
 import Secrets from './pages/Secrets'
@@ -52,17 +52,7 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     render: () => (
         <Home />
     ),
-  }, {
-    name: namePrefix + 'new',
-    path: routePrefix + '/new',
-    meta: {
-      title: 'New Session',
-      drawer: true,
-      orgRouteAware: true,
-    },
-    render: () => (
-        <Create />
-    ),
+
   }, {
     name: namePrefix + 'apps',
     path: routePrefix + '/apps',

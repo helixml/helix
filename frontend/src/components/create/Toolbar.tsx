@@ -63,7 +63,7 @@ const CreateToolbar: FC<{
             selectedApp={app}
             onSelectApp={(app) => {
               if(!app) return
-              navigate('new', {
+              navigate('app', {
                 app_id: app.id,
               })
             }}

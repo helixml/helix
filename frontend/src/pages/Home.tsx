@@ -200,7 +200,7 @@ const Home: FC = () => {
   }
 
   const openApp = async (appId: string) => {
-    account.orgNavigate('new', { app_id: appId });
+    account.orgNavigate('app', { app_id: appId });
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
