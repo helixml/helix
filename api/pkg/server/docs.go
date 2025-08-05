@@ -4027,6 +4027,9 @@ const docTemplate = `{
                     "description": "Total cost of the call (prompt and completion tokens)",
                     "type": "number"
                 },
+                "total_requests": {
+                    "type": "integer"
+                },
                 "total_tokens": {
                     "type": "integer"
                 }

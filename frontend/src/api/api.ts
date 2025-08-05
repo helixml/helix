@@ -414,15 +414,18 @@ export interface TypesAddTeamMemberRequest {
 }
 
 export interface TypesAggregatedUsageMetric {
+  completion_cost?: number;
   completion_tokens?: number;
   /** ID    string    `json:"id" gorm:"primaryKey"` */
   date?: string;
   latency_ms?: number;
+  prompt_cost?: number;
   prompt_tokens?: number;
   request_size_bytes?: number;
   response_size_bytes?: number;
   /** Total cost of the call (prompt and completion tokens) */
   total_cost?: number;
+  total_requests?: number;
   total_tokens?: number;
 }
 

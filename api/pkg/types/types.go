@@ -1921,6 +1921,7 @@ type UsageMetric struct {
 	Date              time.Time `json:"date" gorm:"index:idx_app_time,priority:1"` // The date of the metric (without time, just the date)
 	AppID             string    `json:"app_id" gorm:"index:idx_app_time,priority:1"`
 	OrganizationID    string    `json:"organization_id"`
+	InteractionID     string    `json:"interaction_id"`
 	UserID            string    `json:"user_id"`
 	Provider          string    `json:"provider"`
 	Model             string    `json:"model"`
@@ -1953,6 +1954,7 @@ type AggregatedUsageMetric struct {
 	LatencyMs         float64 `json:"latency_ms"`
 	RequestSizeBytes  int     `json:"request_size_bytes"`
 	ResponseSizeBytes int     `json:"response_size_bytes"`
+	TotalRequests     int     `json:"total_requests"`
 }
 
 // Response for the user access endpoint
