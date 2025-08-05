@@ -626,12 +626,16 @@ definitions:
     type: object
   types.AggregatedUsageMetric:
     properties:
+      completion_cost:
+        type: number
       completion_tokens:
         type: integer
       date:
         description: ID    string    `json:"id" gorm:"primaryKey"`
         type: string
       latency_ms:
+        type: number
+      prompt_cost:
         type: number
       prompt_tokens:
         type: integer
@@ -642,6 +646,8 @@ definitions:
       total_cost:
         description: Total cost of the call (prompt and completion tokens)
         type: number
+      total_requests:
+        type: integer
       total_tokens:
         type: integer
     type: object
