@@ -1947,6 +1947,8 @@ type AggregatedUsageMetric struct {
 	PromptTokens      int     `json:"prompt_tokens"`
 	CompletionTokens  int     `json:"completion_tokens"`
 	TotalTokens       int     `json:"total_tokens"`
+	PromptCost        float64 `json:"prompt_cost"`
+	CompletionCost    float64 `json:"completion_cost"`
 	TotalCost         float64 `json:"total_cost"` // Total cost of the call (prompt and completion tokens)
 	LatencyMs         float64 `json:"latency_ms"`
 	RequestSizeBytes  int     `json:"request_size_bytes"`
