@@ -34,6 +34,9 @@ const (
 	CallPrefix                 = "call_"
 	TriggerConfigurationPrefix = "trgc_"
 	TriggerExecutionPrefix     = "trex_"
+	WalletPrefix               = "wal_"
+	TransactionPrefix          = "txn_"
+	TopUpPrefix                = "top_"
 )
 
 func GenerateUUID() string {
@@ -149,4 +152,16 @@ func GenerateTriggerConfigurationID() string {
 
 func GenerateTriggerExecutionID() string {
 	return fmt.Sprintf("%s%s", TriggerExecutionPrefix, newID())
+}
+
+func GenerateWalletID() string {
+	return fmt.Sprintf("%s%s", WalletPrefix, newID())
+}
+
+func GenerateTransactionID() string {
+	return fmt.Sprintf("%s%s", TransactionPrefix, newID())
+}
+
+func GenerateTopUpID() string {
+	return fmt.Sprintf("%s%s", TopUpPrefix, newID())
 }
