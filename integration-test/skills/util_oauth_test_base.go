@@ -294,6 +294,7 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 		ps,
 		gptScriptExecutor,
 		providerManager,
+		modelInfoProvider,
 		nil,
 		keycloakAuthenticator,
 		nil,

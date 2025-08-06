@@ -57,6 +57,7 @@ func NewBaseModelInfoProvider() (*BaseModelInfoProvider, error) {
 			OutputModalities:    model.OutputModalities,
 			SupportsReasoning:   model.Endpoint.SupportsReasoning,
 			ContextLength:       model.ContextLength,
+			SupportedParameters: model.Endpoint.SupportedParameters,
 			MaxCompletionTokens: model.Endpoint.MaxCompletionTokens,
 			Pricing:             model.Endpoint.Pricing,
 		}

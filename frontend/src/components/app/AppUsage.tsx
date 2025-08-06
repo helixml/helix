@@ -20,6 +20,7 @@ import {
   ToggleButtonGroup,
   TextField,
   InputAdornment,
+  Grid,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
@@ -37,6 +38,9 @@ import useAccount from '../../hooks/useAccount';
 import LLMCallTimelineChart from './LLMCallTimelineChart';
 import LLMCallDialog from './LLMCallDialog';
 import InteractionDialog from './InteractionDialog';
+import TokenUsage from '../usage/TokenUsage';
+import TotalRequests from '../usage/TotalRequests';
+import TotalCost from '../usage/TotalCost';
 
 import { useGetAppUsage } from '../../services/appService';
 import { useListAppInteractions } from '../../services/interactionsService';
@@ -158,47 +162,11 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
     setExpandedRows(newExpandedRows);
   };
 
-  // Prepare data for the line chart
-  const prepareChartData = (usageData: TypesUsersAggregatedUsageMetric[]) => {
-    if (usageLoading) return { xAxis: [], series: [] };
 
-    if (!usageData || !Array.isArray(usageData) || usageData.length === 0) return { xAxis: [], series: [] };
 
-    // Get all unique dates across all users
-    const allDates = new Set<string>();
-    usageData.forEach((userData: TypesUsersAggregatedUsageMetric) => {
-      userData.metrics?.forEach((metric: TypesAggregatedUsageMetric) => {
-        if (metric.date) allDates.add(metric.date);
-      });
-    });
 
-    // Sort dates
-    const sortedDates = Array.from(allDates).sort();
-    const xAxisDates = sortedDates.map(date => new Date(date));
 
-    // Create series data for each user
-    const series = usageData.map((userData: TypesUsersAggregatedUsageMetric) => {
-      const userMetricsByDate = new Map<string, TypesAggregatedUsageMetric>();
-      userData.metrics?.forEach((metric: TypesAggregatedUsageMetric) => {
-        if (metric.date) userMetricsByDate.set(metric.date, metric);
-      });
 
-      return {
-        label: userData.user?.username || 'Unknown User',
-        data: sortedDates.map(date => {
-          const metric = userMetricsByDate.get(date);
-          return metric?.total_tokens || 0;
-        }),
-      };
-    });
-
-    return {
-      xAxis: xAxisDates,
-      series,
-    };
-  };
-
-  const chartData = useMemo(() => prepareChartData(usageData as TypesUsersAggregatedUsageMetric[]), [usageData, selectedPeriod, usageLoading]);
 
   // Filter interactions based on search query
   const filteredInteractions = useMemo(() => {
@@ -336,7 +304,7 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
         `}
       </style>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, mr: 2 }}>
-        <Typography variant="h6">Token usage</Typography>
+        <Typography variant="h6">Usage</Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <ToggleButtonGroup
             value={selectedPeriod}
@@ -362,63 +330,26 @@ const AppLogsTable: FC<AppLogsTableProps> = ({ appId }) => {
           </Button>
         </Box>
       </Box>
-      <Box sx={{ p: 2, height: 300 }}> 
+      <Box sx={{ p: 2 }}> 
         {usageLoading ? (
           <Typography variant="body1" textAlign="center">Loading usage data...</Typography>
-        ) : chartData.series.length > 0 ? (
-          <LineChart
-            xAxis={[{
-              data: chartData.xAxis,
-              scaleType: 'time',
-              valueFormatter: (value: number) => {
-                const date = new Date(value);
-                return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
-              },
-              labelStyle: {
-                angle: 0,
-                textAnchor: 'middle'
-              },
-              tickMinStep: 24 * 60 * 60 * 1000,
-              min: chartData.xAxis.length > 0 ? chartData.xAxis[0].getTime() : undefined,
-              max: chartData.xAxis.length > 0 ? chartData.xAxis[chartData.xAxis.length - 1].getTime() : undefined
-            }]}
-            yAxis={[{                            
-              valueFormatter: (value: number) => {
-                if (value >= 1000) {
-                  return `${(value / 1000).toFixed(0)}k`;
-                }
-                return value.toString();
-              }
-            }]}
-            margin={{ left: 60, right: 20, top: 20, bottom: 40 }}
-            series={chartData.series.map(series => ({
-              ...series,
-              showMarkers: false,
-              area: true,
-              lineStyle: { marker: { display: 'none' } }
-            }))}
-            height={300}
-            slotProps={{
-              legend: {
-                hidden: true
-              }
-            }}
-            sx={{
-              '& .MuiAreaElement-root': {
-                fill: 'url(#usageGradient)',
-              },
-              '& .MuiMarkElement-root': {
-                display: 'none',
-              },
-            }}
-          >
-            <defs>
-              <linearGradient id="usageGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={theme.chartGradientStart} stopOpacity={theme.chartGradientStartOpacity} />
-                <stop offset="100%" stopColor={theme.chartGradientEnd} stopOpacity={theme.chartGradientEndOpacity} />
-              </linearGradient>
-            </defs>
-          </LineChart>
+        ) : usageData && usageData.length > 0 ? (
+          <Grid container spacing={2}>
+            {/* Tokens Chart */}
+            <Grid item xs={12} md={4}>
+              <TokenUsage usageData={usageData as TypesUsersAggregatedUsageMetric[]} isLoading={usageLoading} />
+            </Grid>
+
+            {/* Request Count Chart */}
+            <Grid item xs={12} md={4}>
+              <TotalRequests usageData={usageData as TypesUsersAggregatedUsageMetric[]} isLoading={usageLoading} />
+            </Grid>
+
+            {/* Costs Chart */}
+            <Grid item xs={12} md={4}>
+              <TotalCost usageData={usageData as TypesUsersAggregatedUsageMetric[]} isLoading={usageLoading} />
+            </Grid>
+          </Grid>
         ) : (
           <Typography variant="body1" textAlign="center">No usage data available</Typography>
         )}
@@ -771,10 +702,11 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
             <TableHead>
               <TableRow>
                 <TableCell>Timestamp</TableCell>
-                <TableCell>Step</TableCell>
-                <TableCell>Token Usage</TableCell>
+                <TableCell>Step</TableCell>                                
                 <TableCell>Duration (ms)</TableCell>
                 <TableCell>Model</TableCell>
+                <TableCell>Token Usage</TableCell>
+                <TableCell>Cost</TableCell>
                 <TableCell>Details</TableCell>
               </TableRow>
             </TableHead>
@@ -787,9 +719,32 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
                   onMouseLeave={() => onHoverCallId(null)}
                 >
                   <TableCell>{call.created ? new Date(call.created).toLocaleString() : ''}</TableCell>
-                  <TableCell>{call.step || 'n/a'}</TableCell>
+                  <TableCell>{call.step || 'n/a'}</TableCell>                                    
                   <TableCell>
-                    <Tooltip 
+                    {call.duration_ms ? formatDuration(call.duration_ms) : 'n/a'}
+                    {call.duration_ms && call.duration_ms > 5000 && (
+                      <Tooltip title="Model taking a long time to think">
+                        <WarningIcon 
+                          sx={{ 
+                            ml: 1, 
+                            color: '#ff9800',
+                            verticalAlign: 'middle',
+                            fontSize: '1rem'
+                          }} 
+                        />
+                      </Tooltip>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Tooltip title={getReasoningEffort(call.request) !== 'n/a' ? `Reasoning effort: ${getReasoningEffort(call.request)}` : ''}>
+                      <span>{call.model || 'n/a'}</span>
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell>
+                    <Tooltip
+                      placement='right'
+                      enterDelay={50}
+                      enterNextDelay={50}
                       title={
                         <div style={{ minWidth: '200px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -811,24 +766,35 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
                     </Tooltip>
                   </TableCell>
                   <TableCell>
-                    {call.duration_ms ? formatDuration(call.duration_ms) : 'n/a'}
-                    {call.duration_ms && call.duration_ms > 5000 && (
-                      <Tooltip title="Model taking a long time to think">
-                        <WarningIcon 
-                          sx={{ 
-                            ml: 1, 
-                            color: '#ff9800',
-                            verticalAlign: 'middle',
-                            fontSize: '1rem'
-                          }} 
-                        />
-                      </Tooltip>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Tooltip title={getReasoningEffort(call.request) !== 'n/a' ? `Reasoning effort: ${getReasoningEffort(call.request)}` : ''}>
-                      <span>{call.model || 'n/a'}</span>
-                    </Tooltip>
+                    <Tooltip 
+                      placement='right'
+                      enterDelay={50}
+                      enterNextDelay={50}
+                      title={
+                        call.total_cost === 0 || call.prompt_cost === 0 || call.completion_cost === 0 ? (
+                          <div style={{ minWidth: '200px' }}>
+                            Pricing is not available for this call
+                          </div>
+                        ) : (
+                          <div style={{ minWidth: '200px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span>Prompt cost:</span>
+                              <span>{call.prompt_cost ? `$${call.prompt_cost.toFixed(6)}` : 'n/a'}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span>Completion cost:</span>
+                              <span>{call.completion_cost ? `$${call.completion_cost.toFixed(6)}` : 'n/a'}</span>
+                            </div>
+                          </div>
+                        )
+                      }
+                      
+                      slotProps={{ tooltip: { sx: { bgcolor: '#222', opacity: 1 } } }}
+                    >
+                      <span>
+                      {call.total_cost && call.total_cost > 0 ? `$${call.total_cost.toFixed(2)}` : '-'}
+                      </span>
+                    </Tooltip>                    
                   </TableCell>
                   <TableCell>
                     <IconButton
