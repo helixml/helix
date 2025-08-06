@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useCallback } from 'react'
+import React, { FC, useEffect, useCallback, useState } from 'react'
 import Container from '@mui/material/Container'
 import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
@@ -10,6 +10,10 @@ import ListItemText from '@mui/material/ListItemText'
 import IconButton from '@mui/material/IconButton'
 import Paper from '@mui/material/Paper'
 import Grid from '@mui/material/Grid'
+import FormControl from '@mui/material/FormControl'
+import InputLabel from '@mui/material/InputLabel'
+import Select from '@mui/material/Select'
+import MenuItem from '@mui/material/MenuItem'
 
 import Page from '../components/system/Page'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -19,11 +23,15 @@ import useSnackbar from '../hooks/useSnackbar'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 
+import { useGetUserWallet } from '../services/useBilling'
+
 const Account: FC = () => {
   const account = useAccount()
   const api = useApi()
   const snackbar = useSnackbar()
-
+  const { data: wallet } = useGetUserWallet()
+  const [topUpAmount, setTopUpAmount] = useState<number>(20)
+  
   const handleCopy = useCallback((text: string) => {
     navigator.clipboard.writeText(text)
       .then(() => {
@@ -66,6 +74,18 @@ const Account: FC = () => {
     document.location = result
   }, [
     account.user,
+  ])
+
+  const handleTopUp = useCallback(async () => {
+    const result = await api.post(`/api/v1/top-ups/new`, { amount: topUpAmount }, {}, {
+      loading: true,
+      snackbar: true,
+    })
+    if(!result) return
+    document.location = result
+  }, [
+    account.user,
+    topUpAmount,
   ])
 
   useEffect(() => {
@@ -146,6 +166,40 @@ export HELIX_API_KEY=${apiKey}
             <Grid container spacing={2}>
               {paymentsActive && (
                 <>
+                <Grid item xs={12} md={colSize}>
+                  <Typography variant="h4" gutterBottom sx={{mt:4}}>Balance</Typography>
+                  <Paper sx={{ p: 2 }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'left', justifyContent: 'center' }}>
+                      <Box sx={{ alignItems: 'center', justifyContent: 'center' }}>
+                        <Typography variant="h6" gutterBottom>Current Balance</Typography>
+                        <Typography variant="h4" gutterBottom color="primary">
+                          ${wallet?.balance?.toFixed(2) || '0.00'}
+                        </Typography>
+                        <Typography variant="body2" gutterBottom>Add credits to your account to use premium models and features</Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2 }}>
+                          <FormControl sx={{ minWidth: 120 }}>
+                            <InputLabel id="topup-amount-label">Amount</InputLabel>
+                            <Select
+                              labelId="topup-amount-label"
+                              value={topUpAmount}
+                              label="Amount"
+                              onChange={(e) => setTopUpAmount(e.target.value as number)}
+                            >
+                              <MenuItem value={5}>$5</MenuItem>
+                              <MenuItem value={10}>$10</MenuItem>
+                              <MenuItem value={20}>$20</MenuItem>
+                              <MenuItem value={50}>$50</MenuItem>
+                              <MenuItem value={100}>$100</MenuItem>
+                            </Select>
+                          </FormControl>
+                          <Button variant="contained" color="secondary" onClick={handleTopUp}>
+                            Add Credits
+                          </Button>
+                        </Box>
+                      </Box>
+                    </Box>
+                  </Paper>
+                </Grid>
                 <Grid item xs={12} md={colSize}>
                   <Typography variant="h4" gutterBottom sx={{mt:4}}>Billing</Typography>
                   <Paper sx={{ p: 2 }}>

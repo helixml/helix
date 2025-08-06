@@ -3407,6 +3407,22 @@ definitions:
       user:
         $ref: '#/definitions/types.User'
     type: object
+  types.Wallet:
+    properties:
+      balance:
+        type: number
+      created_at:
+        type: string
+      id:
+        type: string
+      org_id:
+        description: If belongs to an organization
+        type: string
+      updated_at:
+        type: string
+      user_id:
+        type: string
+    type: object
   types.WebsiteCrawler:
     properties:
       enabled:
@@ -5149,6 +5165,19 @@ paths:
       summary: Reload skills
       tags:
       - skills
+  /api/v1/top-ups/new:
+    post:
+      description: Create a top up
+      responses:
+        "200":
+          description: Top up session URL
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Create a top up
+      tags:
+      - top-ups
   /api/v1/triggers:
     get:
       description: List all triggers configurations for either user or the org or
@@ -5333,6 +5362,24 @@ paths:
       summary: Get user token usage
       tags:
       - users
+  /api/v1/wallet:
+    get:
+      description: Get a wallet
+      parameters:
+      - description: Organization ID
+        in: query
+        name: org_id
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Wallet'
+      security:
+      - BearerAuth: []
+      summary: Get a wallet
+      tags:
+      - wallets
   /v1/chat/completions:
     post:
       description: Creates a model response for the given chat conversation.
