@@ -5165,6 +5165,19 @@ paths:
       summary: Reload skills
       tags:
       - skills
+  /api/v1/top-ups/new:
+    post:
+      description: Create a top up
+      responses:
+        "200":
+          description: Top up session URL
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Create a top up
+      tags:
+      - top-ups
   /api/v1/triggers:
     get:
       description: List all triggers configurations for either user or the org or

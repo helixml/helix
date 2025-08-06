@@ -2751,6 +2751,28 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/top-ups/new": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a top up",
+                "tags": [
+                    "top-ups"
+                ],
+                "summary": "Create a top up",
+                "responses": {
+                    "200": {
+                        "description": "Top up session URL",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/triggers": {
             "get": {
                 "security": [

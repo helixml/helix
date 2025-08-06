@@ -894,6 +894,38 @@ func (apiServer *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *
 	return apiServer.Stripe.GetCheckoutSessionURL(user.ID, user.Email)
 }
 
+// createTopUp godoc
+// @Summary Create a top up
+// @Description Create a top up with specified amount
+// @Tags    top-ups
+// @Param request body map[string]interface{} true "Request body with amount"
+// @Success 200 {string} string "Top up session URL"
+// @Router /api/v1/top-ups/new [post]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (string, error) {
+	user := getRequestUser(req)
+
+	// Parse request body to get amount
+	var requestBody map[string]interface{}
+	if err := json.NewDecoder(req.Body).Decode(&requestBody); err != nil {
+		return "", fmt.Errorf("failed to decode request body: %w", err)
+	}
+
+	amount, ok := requestBody["amount"].(float64)
+	if !ok {
+		return "", fmt.Errorf("amount is required and must be a number")
+	}
+
+	// Validate amount
+	if amount <= 0 {
+		return "", fmt.Errorf("amount must be greater than 0")
+	}
+
+	// TODO: handle orgs
+
+	return apiServer.Stripe.GetTopUpSessionURL(user.ID, user.Email, amount)
+}
+
 func (apiServer *HelixAPIServer) subscriptionManage(_ http.ResponseWriter, req *http.Request) (string, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()
