@@ -2074,6 +2074,16 @@ export interface TypesUsersAggregatedUsageMetric {
   user?: TypesUser;
 }
 
+export interface TypesWallet {
+  balance?: number;
+  created_at?: string;
+  id?: string;
+  /** If belongs to an organization */
+  org_id?: string;
+  updated_at?: string;
+  user_id?: string;
+}
+
 export interface TypesWebsiteCrawler {
   enabled?: boolean;
   firecrawl?: TypesFirecrawl;
@@ -3891,6 +3901,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Create a top up
+     *
+     * @tags top-ups
+     * @name V1TopUpsNewCreate
+     * @summary Create a top up
+     * @request POST:/api/v1/top-ups/new
+     * @secure
+     */
+    v1TopUpsNewCreate: (params: RequestParams = {}) =>
+      this.request<string, any>({
+        path: `/api/v1/top-ups/new`,
+        method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description List all triggers configurations for either user or the org or user within an org
      *
      * @tags apps
@@ -4056,6 +4083,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesUserTokenUsageResponse, any>({
         path: `/api/v1/users/token-usage`,
         method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get a wallet
+     *
+     * @tags wallets
+     * @name V1WalletList
+     * @summary Get a wallet
+     * @request GET:/api/v1/wallet
+     * @secure
+     */
+    v1WalletList: (
+      query?: {
+        /** Organization ID */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWallet, any>({
+        path: `/api/v1/wallet`,
+        method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),
