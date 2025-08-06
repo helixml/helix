@@ -303,6 +303,23 @@ type Store interface {
 	GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error)
 	DeleteSlackThread(ctx context.Context, olderThan time.Time) error
 
+	// wallet methods
+	CreateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
+	GetWallet(ctx context.Context, id string) (*types.Wallet, error)
+	GetWalletByUser(ctx context.Context, userID string) (*types.Wallet, error)
+	GetWalletByOrg(ctx context.Context, orgID string) (*types.Wallet, error)
+	UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
+	DeleteWallet(ctx context.Context, id string) error
+	UpdateWalletBalance(ctx context.Context, walletID string, amount float64) (*types.Wallet, error)
+
+	// transaction methods
+	CreateTransaction(ctx context.Context, transaction *types.Transaction) (*types.Transaction, error)
+	ListTransactions(ctx context.Context, q *ListTransactionsQuery) ([]*types.Transaction, error)
+
+	// topup methods
+	CreateTopUp(ctx context.Context, topUp *types.TopUp) (*types.TopUp, error)
+	ListTopUps(ctx context.Context, q *ListTopUpsQuery) ([]*types.TopUp, error)
+
 	// trigger configurations
 	CreateTriggerConfiguration(ctx context.Context, triggerConfig *types.TriggerConfiguration) (*types.TriggerConfiguration, error)
 	GetTriggerConfiguration(ctx context.Context, q *GetTriggerConfigurationQuery) (*types.TriggerConfiguration, error)
