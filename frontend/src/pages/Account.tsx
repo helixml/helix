@@ -163,8 +163,8 @@ export HELIX_API_KEY=${apiKey}
                         <Box sx={{ alignItems: 'center', justifyContent: 'center' }}>
                           <Typography variant="h6" gutterBottom>Helix Premium</Typography>
                           <Typography variant="subtitle1" gutterBottom>$20.00 / month</Typography>
-                          <Typography variant="body2" gutterBottom>Get priority access to the Helix GPU cloud</Typography>
-                          <Button variant="contained" color="primary" sx={{ mt: 2 }} onClick={handleSubscribe}>
+                          <Typography variant="body2" gutterBottom>Get priority access to the Helix GPU cloud. Subscription payment will also be converted to Helix credits that you can spend on LLMs.</Typography>
+                          <Button variant="contained" color="secondary" sx={{ mt: 2 }} onClick={handleSubscribe}>
                             Start Subscription
                           </Button>
                         </Box>
