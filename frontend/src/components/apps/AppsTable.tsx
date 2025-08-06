@@ -22,6 +22,10 @@ import {
   IApp,
 } from '../../types'
 
+import {
+  TypesAggregatedUsageMetric
+} from '../../api/api'
+
 import {  
   getAppName,  
 } from '../../utils/apps'
@@ -33,12 +37,6 @@ import {
 
 // Import the Helix icon
 import HelixIcon from '../../../assets/img/logo.png'
-
-interface TypesAggregatedUsageMetric {
-  date: string;
-  total_tokens: number;
-  // Add other fields if they exist in the API type
-}
 
 const AppsDataGrid: FC<React.PropsWithChildren<{
   data: IApp[],
@@ -120,7 +118,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       // const last7DaysData = appUsage?.slice(-7) || []
       const usageValues = appUsage.map((day: TypesAggregatedUsageMetric) => day.total_tokens || 0)
       const usageLabels = appUsage.map((day: TypesAggregatedUsageMetric) => {
-        const date = new Date(day.date)
+        const date = new Date(day.date || '')
         return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' }) // e.g., "Mon 3"
       })      
 
