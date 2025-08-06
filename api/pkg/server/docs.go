@@ -3038,6 +3038,36 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/wallet": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a wallet",
+                "tags": [
+                    "wallets"
+                ],
+                "summary": "Get a wallet",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Wallet"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/chat/completions": {
             "post": {
                 "security": [
@@ -7953,6 +7983,30 @@ const docTemplate = `{
                 },
                 "user": {
                     "$ref": "#/definitions/types.User"
+                }
+            }
+        },
+        "types.Wallet": {
+            "type": "object",
+            "properties": {
+                "balance": {
+                    "type": "number"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "org_id": {
+                    "description": "If belongs to an organization",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
                 }
             }
         },

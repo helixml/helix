@@ -345,6 +345,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/users/search", apiServer.searchUsers).Methods(http.MethodGet)
 	authRouter.HandleFunc("/users/token-usage", apiServer.getUserTokenUsage).Methods(http.MethodGet)
 
+	// Billing
+	authRouter.HandleFunc("/wallet", system.Wrapper(apiServer.getWalletHandler)).Methods(http.MethodGet)
+
 	// OpenAI API compatible routes
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
 	router.HandleFunc("/v1/embeddings", apiServer.authMiddleware.auth(apiServer.createEmbeddings)).Methods(http.MethodPost, http.MethodOptions)
