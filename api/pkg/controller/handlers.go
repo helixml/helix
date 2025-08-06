@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -278,4 +279,44 @@ func (c *Controller) HandleSubscriptionEvent(eventType types.SubscriptionEventTy
 		return err
 	}
 	return c.Options.Janitor.WriteSubscriptionEvent(eventType, user)
+}
+
+func (c *Controller) HandleTopUpEvent(userID string, amount float64) error {
+	ctx := context.Background()
+
+	// Get or create user's wallet
+	wallet, err := c.Options.Store.GetWalletByUser(ctx, userID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			// Create wallet if it doesn't exist
+			wallet, err = c.Options.Store.CreateWallet(ctx, &types.Wallet{
+				UserID:  userID,
+				Balance: c.Options.Config.Stripe.InitialBalance,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to create wallet for user %s: %w", userID, err)
+			}
+		} else {
+			return fmt.Errorf("failed to get wallet for user %s: %w", userID, err)
+		}
+	}
+
+	// Create topup record
+	topUp := &types.TopUp{
+		WalletID: wallet.ID,
+		Amount:   amount,
+	}
+
+	_, err = c.Options.Store.CreateTopUp(ctx, topUp)
+	if err != nil {
+		return fmt.Errorf("failed to create topup for user %s: %w", userID, err)
+	}
+
+	log.Info().
+		Str("user_id", userID).
+		Float64("amount", amount).
+		Str("wallet_id", wallet.ID).
+		Msg("topup completed successfully")
+
+	return nil
 }
