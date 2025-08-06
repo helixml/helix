@@ -163,20 +163,20 @@ export HELIX_API_KEY=${apiKey}
       <Container maxWidth="lg">
         <Box sx={{ width: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
           <Box sx={{ width: '100%', flexGrow: 1, overflowY: 'auto', px: 2 }}>
+          <Typography variant="h4" gutterBottom sx={{mt:4}}></Typography>
             <Grid container spacing={2}>
               {paymentsActive && (
                 <>
-                <Grid item xs={12} md={colSize}>
-                  <Typography variant="h4" gutterBottom sx={{mt:4}}>Balance</Typography>
-                  <Paper sx={{ p: 2 }}>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'left', justifyContent: 'center' }}>
+                <Grid item xs={12} md={colSize}>                  
+                  <Paper sx={{ p: 2, minHeight: 200, display: 'flex', flexDirection: 'column' }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'left', justifyContent: 'center', flex: 1 }}>
                       <Box sx={{ alignItems: 'center', justifyContent: 'center' }}>
                         <Typography variant="h6" gutterBottom>Current Balance</Typography>
                         <Typography variant="h4" gutterBottom color="primary">
                           ${wallet?.balance?.toFixed(2) || '0.00'}
                         </Typography>
                         <Typography variant="body2" gutterBottom>Add credits to your account to use premium models and features</Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2, justifyContent: 'space-between' }}>
                           <FormControl sx={{ minWidth: 120 }}>
                             <InputLabel id="topup-amount-label">Amount</InputLabel>
                             <Select
@@ -192,7 +192,7 @@ export HELIX_API_KEY=${apiKey}
                               <MenuItem value={100}>$100</MenuItem>
                             </Select>
                           </FormControl>
-                          <Button variant="contained" color="secondary" onClick={handleTopUp}>
+                          <Button variant="contained" color="secondary" onClick={handleTopUp} sx={{ minWidth: 140 }}>
                             Add Credits
                           </Button>
                         </Box>
@@ -200,27 +200,30 @@ export HELIX_API_KEY=${apiKey}
                     </Box>
                   </Paper>
                 </Grid>
-                <Grid item xs={12} md={colSize}>
-                  <Typography variant="h4" gutterBottom sx={{mt:4}}>Billing</Typography>
-                  <Paper sx={{ p: 2 }}>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'left', justifyContent: 'center' }}>
+                <Grid item xs={12} md={colSize}>                  
+                  <Paper sx={{ p: 2, minHeight: 200, display: 'flex', flexDirection: 'column' }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'left', justifyContent: 'center', flex: 1 }}>
                       {account.userConfig.stripe_subscription_active ? (
                         <Box sx={{ alignItems: 'center', justifyContent: 'center' }}>
                           <Typography variant="h6" gutterBottom>Subscription Active</Typography>
-                          <Typography variant="subtitle1" gutterBottom>Helix Premium : $20.00 / month</Typography>
+                          <Typography variant="h4" gutterBottom color="primary">Helix Premium</Typography>
                           <Typography variant="body2" gutterBottom>You have priority access to the Helix GPU cloud</Typography>
-                          <Button variant="contained" color="primary" sx={{ mt: 2 }} onClick={handleManage}>
-                            Manage Subscription
-                          </Button>
+                          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+                            <Button variant="contained" color="primary" sx={{ minWidth: 140 }} onClick={handleManage}>
+                              Manage Subscription
+                            </Button>
+                          </Box>
                         </Box>
                       ) : (
                         <Box sx={{ alignItems: 'center', justifyContent: 'center' }}>
                           <Typography variant="h6" gutterBottom>Helix Premium</Typography>
-                          <Typography variant="subtitle1" gutterBottom>$20.00 / month</Typography>
+                          <Typography variant="h4" gutterBottom color="primary">$20.00 / month</Typography>
                           <Typography variant="body2" gutterBottom>Get priority access to the Helix GPU cloud. Subscription payment will also be converted to Helix credits that you can spend on LLMs.</Typography>
-                          <Button variant="contained" color="secondary" sx={{ mt: 2 }} onClick={handleSubscribe}>
-                            Start Subscription
-                          </Button>
+                          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+                            <Button variant="contained" color="secondary" sx={{ minWidth: 140 }} onClick={handleSubscribe}>
+                              Start Subscription
+                            </Button>
+                          </Box>
                         </Box>
                       )}
                     </Box>
