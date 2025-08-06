@@ -52,9 +52,11 @@ func (s *PostgresStore) GetAppDailyUsageMetrics(ctx context.Context, appID strin
 			SUM(prompt_tokens) as prompt_tokens,
 			SUM(completion_tokens) as completion_tokens,
 			SUM(total_tokens) as total_tokens,
+			SUM(total_cost) as total_cost,
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
-			SUM(response_size_bytes) as response_size_bytes
+			SUM(response_size_bytes) as response_size_bytes,
+			COUNT(DISTINCT interaction_id) as total_requests
 		`).
 		Where("app_id = ? AND date >= ? AND date <= ?", appID, from, to).
 		Group("date, app_id").
@@ -80,9 +82,11 @@ func (s *PostgresStore) GetProviderDailyUsageMetrics(ctx context.Context, provid
 			SUM(prompt_tokens) as prompt_tokens,
 			SUM(completion_tokens) as completion_tokens,
 			SUM(total_tokens) as total_tokens,
+			SUM(total_cost) as total_cost,
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
-			SUM(response_size_bytes) as response_size_bytes
+			SUM(response_size_bytes) as response_size_bytes,
+			COUNT(DISTINCT interaction_id) as total_requests
 		`).
 		Where("provider = ? AND date >= ? AND date <= ?", providerID, from, to).
 		Group("date, provider").
@@ -109,9 +113,13 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 		PromptTokens      int       `gorm:"column:prompt_tokens"`
 		CompletionTokens  int       `gorm:"column:completion_tokens"`
 		TotalTokens       int       `gorm:"column:total_tokens"`
+		PromptCost        float64   `gorm:"column:prompt_cost"`
+		CompletionCost    float64   `gorm:"column:completion_cost"`
+		TotalCost         float64   `gorm:"column:total_cost"`
 		DurationMs        float64   `gorm:"column:duration_ms"`
 		RequestSizeBytes  int       `gorm:"column:request_size_bytes"`
 		ResponseSizeBytes int       `gorm:"column:response_size_bytes"`
+		TotalRequests     int       `gorm:"column:total_requests"`
 	}
 
 	err := s.gdb.WithContext(ctx).
@@ -122,9 +130,13 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 			SUM(prompt_tokens) as prompt_tokens,
 			SUM(completion_tokens) as completion_tokens,
 			SUM(total_tokens) as total_tokens,
+			SUM(prompt_cost) as prompt_cost,
+			SUM(completion_cost) as completion_cost,
+			SUM(total_cost) as total_cost,
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
-			SUM(response_size_bytes) as response_size_bytes
+			SUM(response_size_bytes) as response_size_bytes,
+			COUNT(DISTINCT interaction_id) as total_requests
 		`).
 		Where("provider = ? AND date >= ? AND date <= ?", provider, from, to).
 		Group("user_id, date").
@@ -146,9 +158,11 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 			PromptTokens:      m.PromptTokens,
 			CompletionTokens:  m.CompletionTokens,
 			TotalTokens:       m.TotalTokens,
+			TotalCost:         m.TotalCost,
 			LatencyMs:         m.DurationMs,
 			RequestSizeBytes:  m.RequestSizeBytes,
 			ResponseSizeBytes: m.ResponseSizeBytes,
+			TotalRequests:     m.TotalRequests,
 		})
 	}
 
@@ -205,9 +219,13 @@ func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, a
 		PromptTokens      int       `gorm:"column:prompt_tokens"`
 		CompletionTokens  int       `gorm:"column:completion_tokens"`
 		TotalTokens       int       `gorm:"column:total_tokens"`
+		PromptCost        float64   `gorm:"column:prompt_cost"`
+		CompletionCost    float64   `gorm:"column:completion_cost"`
+		TotalCost         float64   `gorm:"column:total_cost"`
 		DurationMs        float64   `gorm:"column:duration_ms"`
 		RequestSizeBytes  int       `gorm:"column:request_size_bytes"`
 		ResponseSizeBytes int       `gorm:"column:response_size_bytes"`
+		TotalRequests     int       `gorm:"column:total_requests"` // Grouped by interaction_id
 	}
 
 	err := s.gdb.WithContext(ctx).
@@ -218,9 +236,13 @@ func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, a
 			SUM(prompt_tokens) as prompt_tokens,
 			SUM(completion_tokens) as completion_tokens,
 			SUM(total_tokens) as total_tokens,
+			SUM(prompt_cost) as prompt_cost,
+			SUM(completion_cost) as completion_cost,
+			SUM(total_cost) as total_cost,
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
-			SUM(response_size_bytes) as response_size_bytes
+			SUM(response_size_bytes) as response_size_bytes,
+			COUNT(DISTINCT interaction_id) as total_requests
 		`).
 		Where("app_id = ? AND date >= ? AND date <= ?", appID, from, to).
 		Group("user_id, date").
@@ -242,9 +264,13 @@ func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, a
 			PromptTokens:      m.PromptTokens,
 			CompletionTokens:  m.CompletionTokens,
 			TotalTokens:       m.TotalTokens,
+			TotalCost:         m.TotalCost,
+			PromptCost:        m.PromptCost,
+			CompletionCost:    m.CompletionCost,
 			LatencyMs:         m.DurationMs,
 			RequestSizeBytes:  m.RequestSizeBytes,
 			ResponseSizeBytes: m.ResponseSizeBytes,
+			TotalRequests:     m.TotalRequests,
 		})
 	}
 

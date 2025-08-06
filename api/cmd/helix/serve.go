@@ -222,7 +222,14 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	// Reset any running executions
 	err = postgresStore.ResetRunningExecutions(ctx)
 	if err != nil {
-		return err
+		log.Error().Err(err).Msg("failed to reset running executions")
+	}
+
+	log.Info().Msg("resetting running interactions")
+
+	err = postgresStore.ResetRunningInteractions(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to reset running interactions")
 	}
 
 	ps, err := pubsub.New(cfg)
@@ -486,6 +493,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		ps,
 		gse,
 		providerManager,
+		modelInfoProvider,
 		helixInference,
 		keycloakAuthenticator,
 		stripe,

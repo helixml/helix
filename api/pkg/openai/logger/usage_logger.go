@@ -23,6 +23,7 @@ func (l *UsageLogger) CreateLLMCall(ctx context.Context, call *types.LLMCall) (*
 		OrganizationID:    call.OrganizationID,
 		AppID:             call.AppID,
 		UserID:            call.UserID,
+		InteractionID:     call.InteractionID,
 		Model:             call.Model,
 		Provider:          call.Provider,
 		PromptTokens:      int(call.PromptTokens),

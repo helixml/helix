@@ -25,6 +25,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
@@ -76,6 +77,7 @@ type HelixAPIServer struct {
 	authMiddleware    *authMiddleware
 	pubsub            pubsub.PubSub
 	providerManager   manager.ProviderManager
+	modelInfoProvider model.ModelInfoProvider
 	gptScriptExecutor gptscript.Executor
 	inferenceServer   *openai.InternalHelixServer
 	knowledgeManager  knowledge.Manager
@@ -97,6 +99,7 @@ func NewServer(
 	ps pubsub.PubSub,
 	gptScriptExecutor gptscript.Executor,
 	providerManager manager.ProviderManager,
+	modelInfoProvider model.ModelInfoProvider,
 	inferenceServer *openai.InternalHelixServer,
 	authenticator auth.Authenticator,
 	stripe *stripe.Stripe,
@@ -203,6 +206,7 @@ func NewServer(
 			},
 		),
 		providerManager:   providerManager,
+		modelInfoProvider: modelInfoProvider,
 		pubsub:            ps,
 		knowledgeManager:  knowledgeManager,
 		skillManager:      skillManager,

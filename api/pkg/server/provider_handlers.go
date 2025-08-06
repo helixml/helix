@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -244,6 +245,17 @@ func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint
 			Str("owner", providerEndpoint.Owner).
 			Msg("error listing models")
 		return nil, err
+	}
+
+	for idx, m := range models {
+		modelInfo, err := s.modelInfoProvider.GetModelInfo(ctx, &model.ModelInfoRequest{
+			BaseURL:  providerEndpoint.BaseURL,
+			Provider: providerEndpoint.Name,
+			Model:    m.ID,
+		})
+		if err == nil {
+			models[idx].ModelInfo = modelInfo
+		}
 	}
 
 	// Cache the models
