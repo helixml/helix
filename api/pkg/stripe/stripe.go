@@ -10,6 +10,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 	"github.com/stripe/stripe-go/v76"
 	portalsession "github.com/stripe/stripe-go/v76/billingportal/session"
 	"github.com/stripe/stripe-go/v76/checkout/session"
@@ -20,21 +21,26 @@ import (
 
 type EventHandler func(eventType types.SubscriptionEventType, user types.StripeUser) error
 
+type TopUpEventHandler func(userID string, amount float64) error
+
 type Stripe struct {
-	Cfg          config.Stripe
-	eventHandler EventHandler
+	Cfg               config.Stripe
+	eventHandler      EventHandler
+	topUpEventHandler TopUpEventHandler
 }
 
 func NewStripe(
 	cfg config.Stripe,
 	eventHandler EventHandler,
+	topUpEventHandler TopUpEventHandler,
 ) *Stripe {
 	if cfg.SecretKey != "" {
 		stripe.Key = cfg.SecretKey
 	}
 	return &Stripe{
-		Cfg:          cfg,
-		eventHandler: eventHandler,
+		Cfg:               cfg,
+		eventHandler:      eventHandler,
+		topUpEventHandler: topUpEventHandler,
 	}
 }
 
@@ -58,6 +64,54 @@ func (s *Stripe) getSubscriptionURL(id string) string {
 		testMode = "/test"
 	}
 	return fmt.Sprintf("https://dashboard.stripe.com%s/subscriptions/%s", testMode, id)
+}
+
+func (s *Stripe) GetTopUpSessionURL(
+	userID string,
+	userEmail string,
+	amount float64,
+) (string, error) {
+	err := s.EnabledError()
+	if err != nil {
+		return "", err
+	}
+
+	// Convert amount to cents for Stripe
+	amountInCents := int64(amount * 100)
+
+	checkoutParams := &stripe.CheckoutSessionParams{
+		Mode: stripe.String(string(stripe.CheckoutSessionModePayment)),
+		// this is how we link the payment to our user
+		PaymentIntentData: &stripe.CheckoutSessionPaymentIntentDataParams{
+			Metadata: map[string]string{
+				"user_id": userID,
+				"type":    "topup",
+			},
+		},
+		LineItems: []*stripe.CheckoutSessionLineItemParams{
+			{
+				PriceData: &stripe.CheckoutSessionLineItemPriceDataParams{
+					Currency: stripe.String("usd"),
+					ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{
+						Name:        stripe.String("Helix Credits"),
+						Description: stripe.String(fmt.Sprintf("Top up of $%.2f", amount)),
+					},
+					UnitAmount: stripe.Int64(amountInCents),
+				},
+				Quantity: stripe.Int64(1),
+			},
+		},
+		CustomerEmail: stripe.String(userEmail),
+		SuccessURL:    stripe.String(s.Cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"),
+		CancelURL:     stripe.String(s.Cfg.AppURL + "/account?canceled=true"),
+	}
+
+	newSession, err := session.New(checkoutParams)
+	if err != nil {
+		return "", err
+	}
+
+	return newSession.URL, nil
 }
 
 func (s *Stripe) GetCheckoutSessionURL(
@@ -162,6 +216,34 @@ func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
 	return nil
 }
 
+func (s *Stripe) handleTopUpEvent(event stripe.Event) error {
+	var paymentIntent stripe.PaymentIntent
+	err := json.Unmarshal(event.Data.Raw, &paymentIntent)
+	if err != nil {
+		return fmt.Errorf("error parsing payment intent JSON: %s", err.Error())
+	}
+
+	userID := paymentIntent.Metadata["user_id"]
+	if userID == "" {
+		return fmt.Errorf("no user_id found in metadata")
+	}
+
+	// Check if this is a topup payment
+	paymentType := paymentIntent.Metadata["type"]
+	if paymentType != "topup" {
+		return fmt.Errorf("payment is not a topup")
+	}
+
+	// Calculate the amount in dollars (Stripe amounts are in cents)
+	amount := float64(paymentIntent.Amount) / 100.0
+
+	if s.topUpEventHandler != nil {
+		return s.topUpEventHandler(userID, amount)
+	}
+
+	return nil
+}
+
 func (s *Stripe) ProcessWebhook(w http.ResponseWriter, req *http.Request) {
 	const MaxBodyBytes = int64(65536)
 	bodyReader := http.MaxBytesReader(w, req.Body, MaxBodyBytes)
@@ -173,19 +255,34 @@ func (s *Stripe) ProcessWebhook(w http.ResponseWriter, req *http.Request) {
 	}
 	endpointSecret := s.Cfg.WebhookSigningSecret
 	signatureHeader := req.Header.Get("Stripe-Signature")
-	event, err := webhook.ConstructEvent(payload, signatureHeader, endpointSecret)
+	event, err := webhook.ConstructEventWithOptions(payload, signatureHeader, endpointSecret, webhook.ConstructEventOptions{
+		IgnoreAPIVersionMismatch: true,
+	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "⚠️  Webhook signature verification failed. %s\n", err.Error())
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	err = s.handleSubscriptionEvent(event)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️  Handling event failed. %s\n", err.Error())
-		w.WriteHeader(http.StatusBadRequest)
+	// Handle different event types
+	switch event.Type {
+	case "customer.subscription.deleted", "customer.subscription.updated", "customer.subscription.created":
+		err := s.handleSubscriptionEvent(event)
+		if err != nil {
+			log.Error().Msgf("Error handling subscription event: %s", err.Error())
+		}
+		return
+	case "payment_intent.succeeded":
+		err := s.handleTopUpEvent(event)
+		if err != nil {
+			log.Error().Msgf("Error handling top up event: %s", err.Error())
+		}
+		return
+	default:
+		// Log unhandled events but don't fail
+		// fmt.Fprintf(os.Stderr, "Unhandled event type: %s\n", event.Type)
+		// err = nil
+		log.Info().Msgf("Unhandled event type: %s", event.Type)
 		return
 	}
-
-	w.WriteHeader(http.StatusOK)
 }
