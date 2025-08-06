@@ -463,6 +463,9 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		func(eventType types.SubscriptionEventType, user types.StripeUser) error {
 			return appController.HandleSubscriptionEvent(eventType, user)
 		},
+		func(userID string, amount float64) error {
+			return appController.HandleTopUpEvent(userID, amount)
+		},
 	)
 
 	// Initialize ping service if not disabled
