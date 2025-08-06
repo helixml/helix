@@ -197,6 +197,7 @@ type Janitor struct {
 }
 
 type Stripe struct {
+	InitialBalance       float64 `envconfig:"STRIPE_INITIAL_BALANCE" default:"10" description:"The initial balance for the wallet"`
 	AppURL               string
 	SecretKey            string `envconfig:"STRIPE_SECRET_KEY" description:"The secret key for stripe."`
 	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET" description:"The webhook signing secret for stripe."`
