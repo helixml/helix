@@ -371,9 +371,22 @@ export interface ServerModelSubstitution {
   reason?: string;
 }
 
+export interface SqlNullString {
+  string?: string;
+  /** Valid is true if String is not NULL */
+  valid?: boolean;
+}
+
 export interface SystemHTTPError {
   message?: string;
   statusCode?: number;
+}
+
+export enum TypesAPIKeyType {
+  APIkeytypeNone = "",
+  APIkeytypeAPI = "api",
+  APIkeytypeGithub = "github",
+  APIkeytypeApp = "app",
 }
 
 export interface TypesAccessGrant {
@@ -427,6 +440,16 @@ export interface TypesAggregatedUsageMetric {
   total_cost?: number;
   total_requests?: number;
   total_tokens?: number;
+}
+
+export interface TypesApiKey {
+  app_id?: SqlNullString;
+  created?: string;
+  key?: string;
+  name?: string;
+  owner?: string;
+  owner_type?: TypesOwnerType;
+  type?: TypesAPIKeyType;
 }
 
 export interface TypesApp {
@@ -2250,6 +2273,71 @@ export class HttpClient<SecurityDataType = unknown> {
  */
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
+    /**
+     * @description Delete an API key
+     *
+     * @tags api-keys
+     * @name V1ApiKeysDelete
+     * @summary Delete an API key
+     * @request DELETE:/api/v1/api_keys
+     */
+    v1ApiKeysDelete: (
+      query: {
+        /** API key to delete */
+        key: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, any>({
+        path: `/api/v1/api_keys`,
+        method: "DELETE",
+        query: query,
+        ...params,
+      }),
+
+    /**
+     * @description Get API keys
+     *
+     * @tags api-keys
+     * @name V1ApiKeysList
+     * @summary Get API keys
+     * @request GET:/api/v1/api_keys
+     * @secure
+     */
+    v1ApiKeysList: (
+      query?: {
+        /** Filter by types (comma-separated list) */
+        types?: string;
+        /** Filter by app ID */
+        app_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesApiKey[], any>({
+        path: `/api/v1/api_keys`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a new API key
+     *
+     * @tags api-keys
+     * @name V1ApiKeysCreate
+     * @summary Create a new API key
+     * @request POST:/api/v1/api_keys
+     */
+    v1ApiKeysCreate: (request: Record<string, any>, params: RequestParams = {}) =>
+      this.request<string, any>({
+        path: `/api/v1/api_keys`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
+        ...params,
+      }),
+
     /**
      * @description List apps for the user. Apps are pre-configured to spawn sessions with specific tools and config.
      *

@@ -17,23 +17,31 @@ import TextField from '@mui/material/TextField'
 import InputAdornment from '@mui/material/InputAdornment'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
+import Dialog from '@mui/material/Dialog'
+import DialogTitle from '@mui/material/DialogTitle'
+import DialogContent from '@mui/material/DialogContent'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContentText from '@mui/material/DialogContentText'
 
 import Page from '../components/system/Page'
 import DeleteIcon from '@mui/icons-material/Delete'
 import CopyIcon from '@mui/icons-material/CopyAll'
+import RefreshIcon from '@mui/icons-material/Refresh'
 
 import useSnackbar from '../hooks/useSnackbar'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 
 import { useGetUserWallet } from '../services/useBilling'
-import { useGetUserUsage } from '../services/userService'
+import { useGetUserUsage, useRegenerateUserAPIKey } from '../services/userService'
 import TokenUsage from '../components/usage/TokenUsage'
 import TotalCost from '../components/usage/TotalCost'
 import TotalRequests from '../components/usage/TotalRequests'
 import useThemeConfig from '../hooks/useThemeConfig'
 import { Prism as SyntaxHighlighterPrism } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+
+import { useGetUserAPIKeys, useCreateUserAPIKey, useDeleteUserAPIKey } from '../services/userService'
 
 const SyntaxHighlighter = SyntaxHighlighterPrism as unknown as React.FC<any>;
 
@@ -47,6 +55,12 @@ const Account: FC = () => {
 
   const { data: usage } = useGetUserUsage()
   const [showApiKey, setShowApiKey] = useState(false)
+  const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false)
+  const [keyToRegenerate, setKeyToRegenerate] = useState<string>('')
+
+  const { data: apiKeys, isLoading: isLoadingApiKeys } = useGetUserAPIKeys()
+
+  const regenerateApiKey = useRegenerateUserAPIKey()
 
   const handleCopy = useCallback((text: string) => {
     navigator.clipboard.writeText(text)
@@ -59,15 +73,26 @@ const Account: FC = () => {
       })
   }, [snackbar])
 
-  const handleDeleteApiKey = useCallback(async (key: string) => {
-    await api.delete(`/api/v1/api_keys`, {
-      params: {
-        key,
-      }
-    }, {
-      loading: true,
-      snackbar: true,
-    })
+  const handleRegenerateApiKey = useCallback(async (key: string) => {
+    setKeyToRegenerate(key)
+    setRegenerateDialogOpen(true)
+  }, [])
+
+  const handleConfirmRegenerate = useCallback(async () => {
+    try {
+      await regenerateApiKey.mutateAsync(keyToRegenerate)
+      snackbar.success('API key regenerated successfully')
+      setRegenerateDialogOpen(false)
+      setKeyToRegenerate('')
+    } catch (error) {
+      console.error('Failed to regenerate API key:', error)
+      snackbar.error('Failed to regenerate API key')
+    }
+  }, [regenerateApiKey, keyToRegenerate, snackbar])
+
+  const handleCancelRegenerate = useCallback(() => {
+    setRegenerateDialogOpen(false)
+    setKeyToRegenerate('')
   }, [])
 
   const handleSubscribe = useCallback(async () => {
@@ -115,21 +140,19 @@ const Account: FC = () => {
     if (!account.token) {
       return
     }
-    account.loadApiKeys({
-      types: 'api',
-    })
+    // API keys are now loaded automatically via React Query hooks
   }, [
     account.token,
   ])
 
-  if (!account.user || !account.apiKeys || !account.models || !account.serverConfig) {
+  if (!account.user || !apiKeys || !account.models || !account.serverConfig) {
     return null
   }
 
   const paymentsActive = account.serverConfig.stripe_enabled
   const colSize = paymentsActive ? 6 : 12
 
-  const apiKey = account.apiKeys.length > 0 ? account.apiKeys[0].key : ''
+  const apiKey = apiKeys.length > 0 ? apiKeys[0].key : ''
 
   const cliInstall = `curl -Ls -O https://get.helixml.tech/install.sh && bash install.sh --cli`
 
@@ -243,43 +266,52 @@ export HELIX_API_KEY=${apiKey}
                     Specify your key as a header 'Authorization: Bearer &lt;token&gt;' with every request
                   </Typography>
                   
-                  {account.apiKeys.map((apiKey) => (
-                    <Box key={apiKey.key} sx={{ mb: 2 }}>
-                      <TextField
-                        fullWidth
-                        label="API Key"
-                        value={apiKey.key}
-                        type={showApiKey ? 'text' : 'password'}
-                        variant="outlined"
-                        InputProps={{
-                          endAdornment: (
-                            <InputAdornment position="end">
-                              <IconButton
-                                onClick={() => setShowApiKey(!showApiKey)}
-                                edge="end"
-                                sx={{ mr: 0.25 }}
-                              >
-                                {showApiKey ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                              </IconButton>
-                              <IconButton
-                                onClick={() => handleCopy(apiKey.key)}
-                                edge="end"
-                                sx={{ mr: 0.25 }}
-                              >
-                                <CopyIcon />
-                              </IconButton>
-                              <IconButton
-                                onClick={() => handleDeleteApiKey(apiKey.key)}
-                                edge="end"
-                              >
-                                <DeleteIcon />
-                              </IconButton>
-                            </InputAdornment>
-                          ),
-                        }}
-                      />
+                  {apiKeys && apiKeys.length > 0 ? (
+                    apiKeys.map((apiKey) => (
+                      <Box key={apiKey.key} sx={{ mb: 2 }}>
+                        <TextField
+                          fullWidth
+                          label="API Key"
+                          value={apiKey.key}
+                          type={showApiKey ? 'text' : 'password'}
+                          variant="outlined"
+                          InputProps={{
+                            endAdornment: (
+                              <InputAdornment position="end">
+                                <IconButton
+                                  onClick={() => setShowApiKey(!showApiKey)}
+                                  edge="end"
+                                  sx={{ mr: 0.25 }}
+                                >
+                                  {showApiKey ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                                </IconButton>
+                                <IconButton
+                                  onClick={() => handleCopy(apiKey.key || '')}
+                                  edge="end"
+                                  sx={{ mr: 0.25 }}
+                                >
+                                  <CopyIcon />
+                                </IconButton>
+                                <IconButton
+                                  onClick={() => handleRegenerateApiKey(apiKey.key || '')}
+                                  edge="end"
+                                  color="warning"
+                                >
+                                  <RefreshIcon />
+                                </IconButton>
+                              </InputAdornment>
+                            ),
+                          }}
+                        />
+                      </Box>
+                    ))
+                  ) : (
+                    <Box sx={{ mb: 2, p: 2, border: '1px dashed', borderColor: 'divider', borderRadius: 1 }}>
+                      <Typography variant="body2" color="text.secondary" align="center">
+                        No API keys available. Creating a new key...
+                      </Typography>
                     </Box>
-                  ))}
+                  )}
                 </Box>
 
                 {/* CLI Installation */}
@@ -325,41 +357,78 @@ export HELIX_API_KEY=${apiKey}
                     Set your authentication credentials for the CLI
                   </Typography>
                   
-                  {account.apiKeys.map((apiKey) => (
-                    <Box key={apiKey.key} sx={{ position: 'relative' }}>
-                      <Box sx={{ position: 'absolute', right: 8, top: 8, zIndex: 1 }}>
-                        <Button
-                          size="small"
-                          onClick={() => handleCopy(cliLogin)}
-                          startIcon={<CopyIcon />}
-                          sx={{
-                            backgroundColor: 'rgba(0, 0, 0, 0.6)',
-                            '&:hover': {
-                              backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                            }
+                  {apiKeys && apiKeys.length > 0 ? (
+                    apiKeys.map((apiKey) => (
+                      <Box key={apiKey.key} sx={{ position: 'relative' }}>
+                        <Box sx={{ position: 'absolute', right: 8, top: 8, zIndex: 1 }}>
+                          <Button
+                            size="small"
+                            onClick={() => handleCopy(cliLogin)}
+                            startIcon={<CopyIcon />}
+                            sx={{
+                              backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                              '&:hover': {
+                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                              }
+                            }}
+                          >
+                            Copy
+                          </Button>
+                        </Box>
+                        <SyntaxHighlighter
+                          language="bash"
+                          style={oneDark}
+                          customStyle={{
+                            margin: 0,
+                            borderRadius: '4px',
                           }}
                         >
-                          Copy
-                        </Button>
+                          {cliLogin}
+                        </SyntaxHighlighter>
                       </Box>
-                      <SyntaxHighlighter
-                        language="bash"
-                        style={oneDark}
-                        customStyle={{
-                          margin: 0,
-                          borderRadius: '4px',
-                        }}
-                      >
-                        {cliLogin}
-                      </SyntaxHighlighter>
+                    ))
+                  ) : (
+                    <Box sx={{ p: 2, border: '1px dashed', borderColor: 'divider', borderRadius: 1 }}>
+                      <Typography variant="body2" color="text.secondary" align="center">
+                        CLI authentication will be available once API key is created.
+                      </Typography>
                     </Box>
-                  ))}
+                  )}
                 </Box>
               </Grid>
             </Grid>
           </Box>
         </Box>
       </Container>
+
+      {/* Regenerate API Key Confirmation Dialog */}
+      <Dialog
+        open={regenerateDialogOpen}
+        onClose={handleCancelRegenerate}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Regenerate API Key</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to regenerate your API key? This will invalidate the current key and create a new one. 
+            Any applications or scripts using the current key will need to be updated with the new key.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelRegenerate} disabled={regenerateApiKey.isPending}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleConfirmRegenerate} 
+            color="warning" 
+            variant="contained" 
+            disabled={regenerateApiKey.isPending}
+          >
+            {regenerateApiKey.isPending ? 'Regenerating...' : 'Regenerate Key'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Page>
   )
 }
