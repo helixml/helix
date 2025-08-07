@@ -8,7 +8,6 @@ import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemText from '@mui/material/ListItemText'
 import IconButton from '@mui/material/IconButton'
-import Paper from '@mui/material/Paper'
 import Grid from '@mui/material/Grid'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
@@ -39,7 +38,7 @@ const Account: FC = () => {
   const [topUpAmount, setTopUpAmount] = useState<number>(20)
 
   const { data: usage } = useGetUserUsage()
-  
+
   const handleCopy = useCallback((text: string) => {
     navigator.clipboard.writeText(text)
       .then(() => {
@@ -67,7 +66,7 @@ const Account: FC = () => {
       loading: true,
       snackbar: true,
     })
-    if(!result) return
+    if (!result) return
     document.location = result
   }, [
     account.user,
@@ -78,7 +77,7 @@ const Account: FC = () => {
       loading: true,
       snackbar: true,
     })
-    if(!result) return
+    if (!result) return
     document.location = result
   }, [
     account.user,
@@ -89,7 +88,7 @@ const Account: FC = () => {
       loading: true,
       snackbar: true,
     })
-    if(!result) return
+    if (!result) return
     document.location = result
   }, [
     account.user,
@@ -104,7 +103,7 @@ const Account: FC = () => {
   }, [])
 
   useEffect(() => {
-    if(!account.token) {
+    if (!account.token) {
       return
     }
     account.loadApiKeys({
@@ -136,8 +135,8 @@ export HELIX_API_KEY=${apiKey}
       <Container maxWidth="lg">
         <Box sx={{ width: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
           <Box sx={{ width: '100%', flexGrow: 1, overflowY: 'auto', px: 2 }}>
-          <Typography variant="h4" gutterBottom sx={{mt:4}}></Typography>
-            
+            <Typography variant="h4" gutterBottom sx={{ mt: 4 }}></Typography>
+
             {/* Usage Charts Row */}
             <Grid container spacing={2} sx={{ mb: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
               <Grid item xs={12} md={4}>
@@ -150,95 +149,100 @@ export HELIX_API_KEY=${apiKey}
                 <TotalRequests usageData={usage ? [{ metrics: usage }] : []} isLoading={false} />
               </Grid>
             </Grid>
-            
-            <Grid container spacing={2}>
+
+            <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
               {paymentsActive && (
                 <>
-                <Grid item xs={12} md={colSize}>                  
-                  <Paper sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column' }}>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                      <Box sx={{ flex: 1 }}>
-                        <Typography variant="h6" gutterBottom>Current Balance</Typography>
-                        <Typography variant="h4" gutterBottom color="primary">
-                          ${wallet?.balance?.toFixed(2) || '0.00'}
-                        </Typography>
-                      </Box>
-                      
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <FormControl sx={{ minWidth: 120 }}>
-                          <InputLabel id="topup-amount-label">Amount</InputLabel>
-                          <Select
-                            labelId="topup-amount-label"
-                            value={topUpAmount}
-                            label="Amount"
-                            onChange={(e) => setTopUpAmount(e.target.value as number)}
-                          >
-                            <MenuItem value={5}>$5</MenuItem>
-                            <MenuItem value={10}>$10</MenuItem>
-                            <MenuItem value={20}>$20</MenuItem>
-                            <MenuItem value={50}>$50</MenuItem>
-                            <MenuItem value={100}>$100</MenuItem>
-                          </Select>
-                        </FormControl>
-                        <Button variant="contained" color="secondary" onClick={handleTopUp} sx={{ minWidth: 140 }}>
-                          Add Credits
-                        </Button>
-                      </Box>
-                    </Box>
-                  </Paper>
-                </Grid>
-                <Grid item xs={12} md={colSize}>                  
-                  <Paper sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column' }}>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                      {account.userConfig.stripe_subscription_active ? (
-                        <>
-                          <Box sx={{ flex: 1 }}>
-                            <Typography variant="h6" gutterBottom>Subscription Active</Typography>
-                            <Typography variant="h4" gutterBottom color="primary">Helix Premium</Typography>
-                            <Typography variant="body2" gutterBottom>You have priority access to the Helix GPU cloud</Typography>
-                          </Box>
-                          <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                            <Button variant="contained" color="primary" sx={{ minWidth: 140 }} onClick={handleManage}>
-                              Manage Subscription
-                            </Button>
-                          </Box>
-                        </>
-                      ) : (
-                        <>
-                          <Box sx={{ flex: 1 }}>
-                            <Typography variant="h6" gutterBottom>Helix Premium</Typography>
-                            <Typography variant="h4" gutterBottom color="primary">$20.00 / month</Typography>
-                            <Typography variant="body2" gutterBottom>Get priority access to the Helix GPU cloud. Subscription payment will also be converted to Helix credits that you can spend on LLMs.</Typography>
-                          </Box>
-                          <Box sx={{ display: 'flex', mb: 1,  justifyContent: 'flex-end' }}>
-                            <Button variant="contained" color="secondary" sx={{ minWidth: 140 }} onClick={handleSubscribe}>
-                              Start Subscription
-                            </Button>
-                          </Box>
-                        </>
-                      )}
-                    </Box>
-                  </Paper>
-                </Grid></>
-              )}
-              <Grid item xs={12} md={colSize}>
-                <Typography variant="h4" gutterBottom sx={{mt:4}}>API Keys</Typography>
-                <Paper sx={{ p: 0 }}>
-                  <Typography sx={{ p: 2}} variant="h6">API Keys</Typography>
-                  <List>
-                  <ListItem >
-                    <ListItemText 
-                      primary={'Authenticating to the API'} 
-                      secondary={`Specify your key as a header 'Authorization: Bearer <token>' with every request`} />
+                  <Grid item xs={12} md={colSize}>
+                    <Box sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column', backgroundColor: 'transparent', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="h6" gutterBottom>Current Balance</Typography>
+                          <Typography variant="h4" gutterBottom color="primary">
+                            ${wallet?.balance?.toFixed(2) || '0.00'}
+                          </Typography>
+                        </Box>
 
-                  </ListItem>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <FormControl sx={{ minWidth: 120 }}>
+                            <InputLabel id="topup-amount-label">Amount</InputLabel>
+                            <Select
+                              labelId="topup-amount-label"
+                              value={topUpAmount}
+                              label="Amount"
+                              onChange={(e) => setTopUpAmount(e.target.value as number)}
+                            >
+                              <MenuItem value={5}>$5</MenuItem>
+                              <MenuItem value={10}>$10</MenuItem>
+                              <MenuItem value={20}>$20</MenuItem>
+                              <MenuItem value={50}>$50</MenuItem>
+                              <MenuItem value={100}>$100</MenuItem>
+                            </Select>
+                          </FormControl>
+                          <Button variant="contained" color="secondary" onClick={handleTopUp} sx={{ minWidth: 140 }}>
+                            Add Credits
+                          </Button>
+                        </Box>
+                      </Box>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} md={colSize}>
+                    <Box sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                        {account.userConfig.stripe_subscription_active ? (
+                          <>
+                            <Box sx={{ flex: 1 }}>
+                              <Typography variant="h6" gutterBottom>Subscription Active</Typography>
+                              <Typography variant="h4" gutterBottom color="primary">Helix Premium</Typography>
+                              <Typography variant="body2" gutterBottom>You have priority access to the Helix GPU cloud</Typography>
+                            </Box>
+                            <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                              <Button variant="contained" color="primary" sx={{ minWidth: 140 }} onClick={handleManage}>
+                                Manage Subscription
+                              </Button>
+                            </Box>
+                          </>
+                        ) : (
+                          <>
+                            <Box sx={{ flex: 1 }}>
+                              <Typography variant="h6" gutterBottom>Helix Premium</Typography>
+                              <Typography variant="h4" gutterBottom color="primary">$20.00 / month</Typography>
+                              <Typography variant="body2" gutterBottom>Get priority access to the Helix GPU cloud, increase quotas and priority support. Subscription payment will also top-up your Helix credits.</Typography>
+                            </Box>
+                            <Box sx={{ display: 'flex', mb: 1, justifyContent: 'flex-end' }}>
+                              <Button variant="contained" color="secondary" sx={{ minWidth: 140 }} onClick={handleSubscribe}>
+                                Start Subscription
+                              </Button>
+                            </Box>
+                          </>
+                        )}
+                      </Box>
+                    </Box>
+                  </Grid></>
+              )}
+            </Grid>
+
+            {/* API keys setup */}
+
+            <Grid item xs={12} md={12}>
+              <Grid item xs={12} md={colSize}>
+                <Typography variant="h4" gutterBottom sx={{ mt: 4 }}>API Keys</Typography>
+                <Box sx={{ p: 0, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                  <Typography sx={{ p: 2 }} variant="h6">API Keys</Typography>
+                  <List>
+                    <ListItem >
+                      <ListItemText
+                        primary={'Authenticating to the API'}
+                        secondary={`Specify your key as a header 'Authorization: Bearer <token>' with every request`} />
+
+                    </ListItem>
                     {account.apiKeys.map((apiKey) => (
                       <ListItem key={apiKey.key}>
                         <ListItemText primary={apiKey.name} secondary={apiKey.key} />
                         <ListItemSecondaryAction>
-                          <IconButton 
-                            edge="end" 
-                            aria-label="copy" 
+                          <IconButton
+                            edge="end"
+                            aria-label="copy"
                             sx={{ mr: 2 }}
                             onClick={() => handleCopy(apiKey.key)}
                           >
@@ -251,72 +255,72 @@ export HELIX_API_KEY=${apiKey}
                       </ListItem>
                     ))}
                   </List>
-                </Paper>
+                </Box>
 
-                <Paper sx={{ mt: 2 }}>
-                  <Typography sx={{ p: 2}} variant="h6">Helix CLI setup</Typography>
+                <Box sx={{ mt: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                  <Typography sx={{ p: 2 }} variant="h6">Helix CLI setup</Typography>
                   <List>
                     <ListItem>
-                      <ListItemText                         
+                      <ListItemText
                         secondary={'To install the Helix CLI, run:'} />
                     </ListItem>
                     <ListItem>
-                      <Typography component="pre" 
-                          sx={{
+                      <Typography component="pre"
+                        sx={{
                           wordBreak: 'break-all',
                           wordWrap: 'break-all',
                           whiteSpace: 'pre-wrap',
-                          fontSize: '0.8rem',                      
+                          fontSize: '0.8rem',
                           ml: 0,
                           fontFamily: "monospace",
-                          }}
+                        }}
                       >
-                        {cliInstall}                  
+                        {cliInstall}
                       </Typography>
                       <ListItemSecondaryAction>
-                        <IconButton 
-                          edge="end" 
-                          aria-label="copy" 
+                        <IconButton
+                          edge="end"
+                          aria-label="copy"
                           sx={{ mr: 2 }}
                           onClick={() => handleCopy(cliInstall)}
                         >
                           <CopyIcon />
-                        </IconButton>                          
+                        </IconButton>
                       </ListItemSecondaryAction>
                     </ListItem>
 
                     <ListItem>
-                      <ListItemText                         
+                      <ListItemText
                         secondary={'Set authentication credentials:'} />
                     </ListItem>
-                    
+
                     {account.apiKeys.map((apiKey) => (
                       <ListItem key={apiKey.key}>
-                        <Typography component="pre" 
-                            sx={{
+                        <Typography component="pre"
+                          sx={{
                             wordBreak: 'break-all',
                             wordWrap: 'break-all',
                             whiteSpace: 'pre-wrap',
-                            fontSize: '0.8rem',                                                  
+                            fontSize: '0.8rem',
                             fontFamily: "monospace",
-                            }}
+                          }}
                         >
-                          {cliLogin}                  
+                          {cliLogin}
                         </Typography>
                         <ListItemSecondaryAction>
-                          <IconButton 
-                            edge="end" 
-                            aria-label="copy" 
+                          <IconButton
+                            edge="end"
+                            aria-label="copy"
                             sx={{ mr: 2 }}
                             onClick={() => handleCopy(cliLogin)}
                           >
                             <CopyIcon />
-                          </IconButton>                          
+                          </IconButton>
                         </ListItemSecondaryAction>
                       </ListItem>
                     ))}
                   </List>
-                </Paper>
+                </Box>
               </Grid>
             </Grid>
           </Box>
