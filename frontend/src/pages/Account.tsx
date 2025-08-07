@@ -228,8 +228,8 @@ export HELIX_API_KEY=${apiKey}
                               <Typography variant="h4" gutterBottom color="primary">Helix Premium</Typography>
                               <Typography variant="body2" gutterBottom>You have priority access to the Helix GPU cloud</Typography>
                             </Box>
-                            <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                              <Button variant="contained" color="primary" sx={{ minWidth: 140 }} onClick={handleManage}>
+                            <Box sx={{ display: 'flex',  mb: 1,justifyContent: 'flex-end' }}>
+                              <Button variant="outlined" color="secondary" sx={{ minWidth: 140 }} onClick={handleManage}>
                                 Manage Subscription
                               </Button>
                             </Box>
