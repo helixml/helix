@@ -3901,7 +3901,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Create a top up
+     * @description Create a top up with specified amount
      *
      * @tags top-ups
      * @name V1TopUpsNewCreate
@@ -3909,11 +3909,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request POST:/api/v1/top-ups/new
      * @secure
      */
-    v1TopUpsNewCreate: (params: RequestParams = {}) =>
+    v1TopUpsNewCreate: (request: Record<string, any>, params: RequestParams = {}) =>
       this.request<string, any>({
         path: `/api/v1/top-ups/new`,
         method: "POST",
+        body: request,
         secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -4037,6 +4039,36 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         query: query,
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get daily usage
+     *
+     * @tags usage
+     * @name V1UsageList
+     * @summary Get daily usage
+     * @request GET:/api/v1/usage
+     * @secure
+     */
+    v1UsageList: (
+      query?: {
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+        /** Organization ID */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
