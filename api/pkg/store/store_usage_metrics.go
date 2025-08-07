@@ -218,7 +218,6 @@ func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAgg
 		Model(&types.UsageMetric{}).
 		Select(`
 			date,
-			provider,
 			SUM(prompt_tokens) as prompt_tokens,
 			SUM(completion_tokens) as completion_tokens,
 			SUM(prompt_cost) as prompt_cost,
@@ -240,8 +239,8 @@ func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAgg
 		query = query.Where("organization_id = ?", q.OrganizationID)
 	}
 
-	err := query.Group("user_id, date").
-		Order("user_id ASC, date ASC").
+	err := query.Group("date").
+		Order("date ASC").
 		Find(&metrics).Error
 	if err != nil {
 		return nil, err
