@@ -342,6 +342,7 @@ export HELIX_API_KEY=${apiKey}
                       customStyle={{
                         margin: 0,
                         borderRadius: '4px',
+                        fontSize: '0.8rem',
                       }}
                     >
                       {cliInstall}
@@ -380,6 +381,7 @@ export HELIX_API_KEY=${apiKey}
                           customStyle={{
                             margin: 0,
                             borderRadius: '4px',
+                            fontSize: '0.8rem',
                           }}
                         >
                           {cliLogin}
@@ -412,12 +414,11 @@ export HELIX_API_KEY=${apiKey}
           }}
         >
           <Typography
-            sx={{
-              
+            sx={{              
               fontSize: '0.8rem',
             }}
           >
-            
+            {/* TODO: Add footer text, maybe helix version */}
           </Typography>
         </Box>
 
