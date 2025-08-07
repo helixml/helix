@@ -164,7 +164,7 @@ export HELIX_API_KEY=${apiKey}
     <Page
       breadcrumbTitle="Account"
     >
-      <Container maxWidth="lg">
+      <Container maxWidth="lg" sx={{ mb: 4}}>
         <Box sx={{ width: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
           <Box sx={{ width: '100%', flexGrow: 1, overflowY: 'auto', px: 2 }}>
             <Typography variant="h4" gutterBottom sx={{ mt: 4 }}></Typography>
@@ -294,8 +294,7 @@ export HELIX_API_KEY=${apiKey}
                                 </IconButton>
                                 <IconButton
                                   onClick={() => handleRegenerateApiKey(apiKey.key || '')}
-                                  edge="end"
-                                  color="warning"
+                                  edge="end"                                  
                                 >
                                   <RefreshIcon />
                                 </IconButton>
@@ -316,7 +315,7 @@ export HELIX_API_KEY=${apiKey}
 
                 {/* CLI Installation */}
                 <Box sx={{ mb: 3 }}>
-                  <Typography variant="h6" gutterBottom>Helix CLI Installation</Typography>
+                  <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>CLI Installation</Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                     Install the Helix CLI to interact with the API from your terminal
                   </Typography>
@@ -352,7 +351,7 @@ export HELIX_API_KEY=${apiKey}
 
                 {/* CLI Authentication */}
                 <Box>
-                  <Typography variant="h6" gutterBottom>CLI Authentication</Typography>
+                  <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>CLI Authentication</Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                     Set your authentication credentials for the CLI
                   </Typography>
@@ -401,6 +400,27 @@ export HELIX_API_KEY=${apiKey}
         </Box>
       </Container>
 
+      {/* Footer */}
+      <Box
+          component="footer"
+          sx={{
+            py: 2,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            borderTop: (theme) => `1px solid ${theme.palette.divider}`,
+          }}
+        >
+          <Typography
+            sx={{
+              
+              fontSize: '0.8rem',
+            }}
+          >
+            
+          </Typography>
+        </Box>
+
       {/* Regenerate API Key Confirmation Dialog */}
       <Dialog
         open={regenerateDialogOpen}
@@ -421,7 +441,7 @@ export HELIX_API_KEY=${apiKey}
           </Button>
           <Button 
             onClick={handleConfirmRegenerate} 
-            color="warning" 
+            color="error" 
             variant="contained" 
             disabled={regenerateApiKey.isPending}
           >
