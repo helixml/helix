@@ -72,7 +72,8 @@ type Providers struct {
 	Anthropic                 Anthropic
 	Helix                     Helix
 	VLLM                      VLLM
-	EnableCustomUserProviders bool `envconfig:"ENABLE_CUSTOM_USER_PROVIDERS" default:"false"` // Allow users to configure their own providers, if "false" then only admins can add them
+	EnableCustomUserProviders bool   `envconfig:"ENABLE_CUSTOM_USER_PROVIDERS" default:"false"` // Allow users to configure their own providers, if "false" then only admins can add them
+	DynamicProviders          string `envconfig:"DYNAMIC_PROVIDERS"`                            // Format: "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
 }
 
 type OpenAI struct {

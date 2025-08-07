@@ -43,6 +43,10 @@ services:
       - RAG_HAYSTACK_URL=http://haystack:8000
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # Dynamic providers: format is "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
+      # Only creates providers that don't already exist (won't overwrite existing ones)
+      # Example: DYNAMIC_PROVIDERS=groq:gsk_xxxx:https://api.groq.com/openai/v1,cerebras:csk_xxxx:https://api.cerebras.ai/v1
+      - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
     volumes:
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
       - helix-socket:/socket
