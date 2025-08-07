@@ -556,6 +556,14 @@ definitions:
       reason:
         type: string
     type: object
+  sql.NullString:
+    properties:
+      string:
+        type: string
+      valid:
+        description: Valid is true if String is not NULL
+        type: boolean
+    type: object
   system.HTTPError:
     properties:
       message:
@@ -563,6 +571,18 @@ definitions:
       statusCode:
         type: integer
     type: object
+  types.APIKeyType:
+    enum:
+    - ""
+    - api
+    - github
+    - app
+    type: string
+    x-enum-varnames:
+    - APIkeytypeNone
+    - APIkeytypeAPI
+    - APIkeytypeGithub
+    - APIkeytypeApp
   types.AccessGrant:
     properties:
       created_at:
@@ -650,6 +670,23 @@ definitions:
         type: integer
       total_tokens:
         type: integer
+    type: object
+  types.ApiKey:
+    properties:
+      app_id:
+        $ref: '#/definitions/sql.NullString'
+      created:
+        type: string
+      key:
+        type: string
+      name:
+        type: string
+      owner:
+        type: string
+      owner_type:
+        $ref: '#/definitions/types.OwnerType'
+      type:
+        $ref: '#/definitions/types.APIKeyType'
     type: object
   types.App:
     properties:
@@ -3472,6 +3509,64 @@ info:
     altText: Helix logo
     url: https://avatars.githubusercontent.com/u/149581110?s=200&v=4
 paths:
+  /api/v1/api_keys:
+    delete:
+      description: Delete an API key
+      parameters:
+      - description: API key to delete
+        in: query
+        name: key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: API key
+          schema:
+            type: string
+      summary: Delete an API key
+      tags:
+      - api-keys
+    get:
+      description: Get API keys
+      parameters:
+      - description: Filter by types (comma-separated list)
+        in: query
+        name: types
+        type: string
+      - description: Filter by app ID
+        in: query
+        name: app_id
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ApiKey'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Get API keys
+      tags:
+      - api-keys
+    post:
+      description: Create a new API key
+      parameters:
+      - description: Request body with name and type
+        in: body
+        name: request
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      responses:
+        "200":
+          description: API key
+          schema:
+            type: string
+      summary: Create a new API key
+      tags:
+      - api-keys
   /api/v1/apps:
     get:
       description: List apps for the user. Apps are pre-configured to spawn sessions

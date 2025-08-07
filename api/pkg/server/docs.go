@@ -23,6 +23,96 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/v1/api_keys": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get API keys",
+                "tags": [
+                    "api-keys"
+                ],
+                "summary": "Get API keys",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by types (comma-separated list)",
+                        "name": "types",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by app ID",
+                        "name": "app_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.ApiKey"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Create a new API key",
+                "tags": [
+                    "api-keys"
+                ],
+                "summary": "Create a new API key",
+                "parameters": [
+                    {
+                        "description": "Request body with name and type",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "API key",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Delete an API key",
+                "tags": [
+                    "api-keys"
+                ],
+                "summary": "Delete an API key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "API key to delete",
+                        "name": "key",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "API key",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps": {
             "get": {
                 "security": [
@@ -4030,6 +4120,18 @@ const docTemplate = `{
                 }
             }
         },
+        "sql.NullString": {
+            "type": "object",
+            "properties": {
+                "string": {
+                    "type": "string"
+                },
+                "valid": {
+                    "description": "Valid is true if String is not NULL",
+                    "type": "boolean"
+                }
+            }
+        },
         "system.HTTPError": {
             "type": "object",
             "properties": {
@@ -4040,6 +4142,21 @@ const docTemplate = `{
                     "type": "integer"
                 }
             }
+        },
+        "types.APIKeyType": {
+            "type": "string",
+            "enum": [
+                "",
+                "api",
+                "github",
+                "app"
+            ],
+            "x-enum-varnames": [
+                "APIkeytypeNone",
+                "APIkeytypeAPI",
+                "APIkeytypeGithub",
+                "APIkeytypeApp"
+            ]
         },
         "types.AccessGrant": {
             "type": "object",
@@ -4165,6 +4282,32 @@ const docTemplate = `{
                 },
                 "total_tokens": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.ApiKey": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "$ref": "#/definitions/sql.NullString"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "owner_type": {
+                    "$ref": "#/definitions/types.OwnerType"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.APIKeyType"
                 }
             }
         },
