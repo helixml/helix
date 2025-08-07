@@ -13,6 +13,10 @@ import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
+import TextField from '@mui/material/TextField'
+import InputAdornment from '@mui/material/InputAdornment'
+import VisibilityIcon from '@mui/icons-material/Visibility'
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 
 import Page from '../components/system/Page'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -28,6 +32,10 @@ import TokenUsage from '../components/usage/TokenUsage'
 import TotalCost from '../components/usage/TotalCost'
 import TotalRequests from '../components/usage/TotalRequests'
 import useThemeConfig from '../hooks/useThemeConfig'
+import { Prism as SyntaxHighlighterPrism } from 'react-syntax-highlighter'
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+
+const SyntaxHighlighter = SyntaxHighlighterPrism as unknown as React.FC<any>;
 
 const Account: FC = () => {
   const account = useAccount()
@@ -38,6 +46,7 @@ const Account: FC = () => {
   const [topUpAmount, setTopUpAmount] = useState<number>(20)
 
   const { data: usage } = useGetUserUsage()
+  const [showApiKey, setShowApiKey] = useState(false)
 
   const handleCopy = useCallback((text: string) => {
     navigator.clipboard.writeText(text)
@@ -223,103 +232,128 @@ export HELIX_API_KEY=${apiKey}
             </Grid>
 
             {/* API keys setup */}
-
-            <Grid item xs={12} md={12}>
-              <Grid item xs={12} md={colSize}>
-                <Typography variant="h4" gutterBottom sx={{ mt: 4 }}>API Keys</Typography>
-                <Box sx={{ p: 0, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
-                  <Typography sx={{ p: 2 }} variant="h6">API Keys</Typography>
-                  <List>
-                    <ListItem >
-                      <ListItemText
-                        primary={'Authenticating to the API'}
-                        secondary={`Specify your key as a header 'Authorization: Bearer <token>' with every request`} />
-
-                    </ListItem>
-                    {account.apiKeys.map((apiKey) => (
-                      <ListItem key={apiKey.key}>
-                        <ListItemText primary={apiKey.name} secondary={apiKey.key} />
-                        <ListItemSecondaryAction>
-                          <IconButton
-                            edge="end"
-                            aria-label="copy"
-                            sx={{ mr: 2 }}
-                            onClick={() => handleCopy(apiKey.key)}
-                          >
-                            <CopyIcon />
-                          </IconButton>
-                          <IconButton edge="end" aria-label="delete" onClick={() => handleDeleteApiKey(apiKey.key)}>
-                            <DeleteIcon />
-                          </IconButton>
-                        </ListItemSecondaryAction>
-                      </ListItem>
-                    ))}
-                  </List>
+            <Grid container spacing={2} sx={{ mt: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+              <Grid item xs={12}>
+                {/* <Typography variant="h4" gutterBottom>API Keys</Typography> */}
+                
+                {/* API Key Display */}
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="h6" sx={{ mb: 2 }} gutterBottom>API Key</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Specify your key as a header 'Authorization: Bearer &lt;token&gt;' with every request
+                  </Typography>
+                  
+                  {account.apiKeys.map((apiKey) => (
+                    <Box key={apiKey.key} sx={{ mb: 2 }}>
+                      <TextField
+                        fullWidth
+                        label="API Key"
+                        value={apiKey.key}
+                        type={showApiKey ? 'text' : 'password'}
+                        variant="outlined"
+                        InputProps={{
+                          endAdornment: (
+                            <InputAdornment position="end">
+                              <IconButton
+                                onClick={() => setShowApiKey(!showApiKey)}
+                                edge="end"
+                                sx={{ mr: 0.25 }}
+                              >
+                                {showApiKey ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                              </IconButton>
+                              <IconButton
+                                onClick={() => handleCopy(apiKey.key)}
+                                edge="end"
+                                sx={{ mr: 0.25 }}
+                              >
+                                <CopyIcon />
+                              </IconButton>
+                              <IconButton
+                                onClick={() => handleDeleteApiKey(apiKey.key)}
+                                edge="end"
+                              >
+                                <DeleteIcon />
+                              </IconButton>
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+                    </Box>
+                  ))}
                 </Box>
 
-                <Box sx={{ mt: 2, borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
-                  <Typography sx={{ p: 2 }} variant="h6">Helix CLI setup</Typography>
-                  <List>
-                    <ListItem>
-                      <ListItemText
-                        secondary={'To install the Helix CLI, run:'} />
-                    </ListItem>
-                    <ListItem>
-                      <Typography component="pre"
+                {/* CLI Installation */}
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="h6" gutterBottom>Helix CLI Installation</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Install the Helix CLI to interact with the API from your terminal
+                  </Typography>
+                  
+                  <Box sx={{ position: 'relative' }}>
+                    <Box sx={{ position: 'absolute', right: 8, top: 8, zIndex: 1 }}>
+                      <Button
+                        size="small"
+                        onClick={() => handleCopy(cliInstall)}
+                        startIcon={<CopyIcon />}
                         sx={{
-                          wordBreak: 'break-all',
-                          wordWrap: 'break-all',
-                          whiteSpace: 'pre-wrap',
-                          fontSize: '0.8rem',
-                          ml: 0,
-                          fontFamily: "monospace",
+                          backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                          '&:hover': {
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                          }
                         }}
                       >
-                        {cliInstall}
-                      </Typography>
-                      <ListItemSecondaryAction>
-                        <IconButton
-                          edge="end"
-                          aria-label="copy"
-                          sx={{ mr: 2 }}
-                          onClick={() => handleCopy(cliInstall)}
-                        >
-                          <CopyIcon />
-                        </IconButton>
-                      </ListItemSecondaryAction>
-                    </ListItem>
+                        Copy
+                      </Button>
+                    </Box>
+                    <SyntaxHighlighter
+                      language="bash"
+                      style={oneDark}
+                      customStyle={{
+                        margin: 0,
+                        borderRadius: '4px',
+                      }}
+                    >
+                      {cliInstall}
+                    </SyntaxHighlighter>
+                  </Box>
+                </Box>
 
-                    <ListItem>
-                      <ListItemText
-                        secondary={'Set authentication credentials:'} />
-                    </ListItem>
-
-                    {account.apiKeys.map((apiKey) => (
-                      <ListItem key={apiKey.key}>
-                        <Typography component="pre"
+                {/* CLI Authentication */}
+                <Box>
+                  <Typography variant="h6" gutterBottom>CLI Authentication</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Set your authentication credentials for the CLI
+                  </Typography>
+                  
+                  {account.apiKeys.map((apiKey) => (
+                    <Box key={apiKey.key} sx={{ position: 'relative' }}>
+                      <Box sx={{ position: 'absolute', right: 8, top: 8, zIndex: 1 }}>
+                        <Button
+                          size="small"
+                          onClick={() => handleCopy(cliLogin)}
+                          startIcon={<CopyIcon />}
                           sx={{
-                            wordBreak: 'break-all',
-                            wordWrap: 'break-all',
-                            whiteSpace: 'pre-wrap',
-                            fontSize: '0.8rem',
-                            fontFamily: "monospace",
+                            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                            '&:hover': {
+                              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            }
                           }}
                         >
-                          {cliLogin}
-                        </Typography>
-                        <ListItemSecondaryAction>
-                          <IconButton
-                            edge="end"
-                            aria-label="copy"
-                            sx={{ mr: 2 }}
-                            onClick={() => handleCopy(cliLogin)}
-                          >
-                            <CopyIcon />
-                          </IconButton>
-                        </ListItemSecondaryAction>
-                      </ListItem>
-                    ))}
-                  </List>
+                          Copy
+                        </Button>
+                      </Box>
+                      <SyntaxHighlighter
+                        language="bash"
+                        style={oneDark}
+                        customStyle={{
+                          margin: 0,
+                          borderRadius: '4px',
+                        }}
+                      >
+                        {cliLogin}
+                      </SyntaxHighlighter>
+                    </Box>
+                  ))}
                 </Box>
               </Grid>
             </Grid>
