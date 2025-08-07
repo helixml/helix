@@ -82,6 +82,8 @@ func (s *PostgresStore) GetProviderDailyUsageMetrics(ctx context.Context, provid
 			SUM(prompt_tokens) as prompt_tokens,
 			SUM(completion_tokens) as completion_tokens,
 			SUM(total_tokens) as total_tokens,
+			SUM(prompt_cost) as prompt_cost,
+			SUM(completion_cost) as completion_cost,
 			SUM(total_cost) as total_cost,
 			AVG(duration_ms) as duration_ms,
 			SUM(request_size_bytes) as request_size_bytes,
@@ -207,6 +209,48 @@ func (s *PostgresStore) GetUsersAggregatedUsageMetrics(ctx context.Context, prov
 	}
 
 	return metrics, nil
+}
+
+func (s *PostgresStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error) {
+	metrics := []*types.AggregatedUsageMetric{}
+
+	query := s.gdb.WithContext(ctx).
+		Model(&types.UsageMetric{}).
+		Select(`
+			date,
+			provider,
+			SUM(prompt_tokens) as prompt_tokens,
+			SUM(completion_tokens) as completion_tokens,
+			SUM(prompt_cost) as prompt_cost,
+			SUM(completion_cost) as completion_cost,
+			SUM(total_tokens) as total_tokens,
+			SUM(total_cost) as total_cost,
+			AVG(duration_ms) as duration_ms,
+			SUM(request_size_bytes) as request_size_bytes,
+			SUM(response_size_bytes) as response_size_bytes,
+			COUNT(DISTINCT interaction_id) as total_requests
+		`)
+
+	query = query.Where("date >= ? AND date <= ?", q.From, q.To)
+
+	if q.UserID != "" {
+		query = query.Where("user_id = ?", q.UserID)
+	}
+	if q.OrganizationID != "" {
+		query = query.Where("organization_id = ?", q.OrganizationID)
+	}
+
+	err := query.Group("user_id, date").
+		Order("user_id ASC, date ASC").
+		Find(&metrics).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// Fill in missing dates
+	completeMetrics := fillInMissingDates(metrics, q.From, q.To)
+
+	return completeMetrics, nil
 }
 
 func (s *PostgresStore) GetAppUsersAggregatedUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error) {

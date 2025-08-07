@@ -110,6 +110,13 @@ type SearchUsersQuery struct {
 	Offset         int    `json:"offset"`          // Offset for pagination
 }
 
+type GetAggregatedUsageMetricsQuery struct {
+	UserID         string
+	OrganizationID string
+	From           time.Time
+	To             time.Time
+}
+
 var _ Store = &PostgresStore{}
 
 //go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
@@ -298,6 +305,8 @@ type Store interface {
 
 	GetUsersAggregatedUsageMetrics(ctx context.Context, provider string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error)
 	GetAppUsersAggregatedUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error)
+
+	GetAggregatedUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
 
 	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)
 	GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error)

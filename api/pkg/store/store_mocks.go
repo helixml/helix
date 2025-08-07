@@ -996,6 +996,21 @@ func (mr *MockStoreMockRecorder) GetAccessGrantRoleBindings(ctx, q any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccessGrantRoleBindings", reflect.TypeOf((*MockStore)(nil).GetAccessGrantRoleBindings), ctx, q)
 }
 
+// GetAggregatedUsageMetrics mocks base method.
+func (m *MockStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAggregatedUsageMetrics", ctx, q)
+	ret0, _ := ret[0].([]*types.AggregatedUsageMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAggregatedUsageMetrics indicates an expected call of GetAggregatedUsageMetrics.
+func (mr *MockStoreMockRecorder) GetAggregatedUsageMetrics(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAggregatedUsageMetrics", reflect.TypeOf((*MockStore)(nil).GetAggregatedUsageMetrics), ctx, q)
+}
+
 // GetApp mocks base method.
 func (m *MockStore) GetApp(ctx context.Context, id string) (*types.App, error) {
 	m.ctrl.T.Helper()

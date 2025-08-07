@@ -5167,7 +5167,15 @@ paths:
       - skills
   /api/v1/top-ups/new:
     post:
-      description: Create a top up
+      description: Create a top up with specified amount
+      parameters:
+      - description: Request body with amount
+        in: body
+        name: request
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
       responses:
         "200":
           description: Top up session URL
@@ -5318,6 +5326,50 @@ paths:
       summary: List trigger executions
       tags:
       - apps
+  /api/v1/usage:
+    get:
+      consumes:
+      - application/json
+      description: Get daily usage
+      parameters:
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      - description: Organization ID
+        in: query
+        name: org_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get daily usage
+      tags:
+      - usage
   /api/v1/users/search:
     get:
       description: Search users by email, name, or username
