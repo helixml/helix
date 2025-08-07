@@ -168,63 +168,67 @@ export HELIX_API_KEY=${apiKey}
               {paymentsActive && (
                 <>
                 <Grid item xs={12} md={colSize}>                  
-                  <Paper sx={{ p: 2, minHeight: 200, display: 'flex', flexDirection: 'column' }}>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'left', justifyContent: 'center', flex: 1 }}>
-                      <Box sx={{ alignItems: 'center', justifyContent: 'center' }}>
+                  <Paper sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column' }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                      <Box sx={{ flex: 1 }}>
                         <Typography variant="h6" gutterBottom>Current Balance</Typography>
                         <Typography variant="h4" gutterBottom color="primary">
                           ${wallet?.balance?.toFixed(2) || '0.00'}
                         </Typography>
-                        <Typography variant="body2" gutterBottom>Add credits to your account to use premium models and features</Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2, justifyContent: 'space-between' }}>
-                          <FormControl sx={{ minWidth: 120 }}>
-                            <InputLabel id="topup-amount-label">Amount</InputLabel>
-                            <Select
-                              labelId="topup-amount-label"
-                              value={topUpAmount}
-                              label="Amount"
-                              onChange={(e) => setTopUpAmount(e.target.value as number)}
-                            >
-                              <MenuItem value={5}>$5</MenuItem>
-                              <MenuItem value={10}>$10</MenuItem>
-                              <MenuItem value={20}>$20</MenuItem>
-                              <MenuItem value={50}>$50</MenuItem>
-                              <MenuItem value={100}>$100</MenuItem>
-                            </Select>
-                          </FormControl>
-                          <Button variant="contained" color="secondary" onClick={handleTopUp} sx={{ minWidth: 140 }}>
-                            Add Credits
-                          </Button>
-                        </Box>
+                      </Box>
+                      
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'space-between' }}>
+                        <FormControl sx={{ minWidth: 120 }}>
+                          <InputLabel id="topup-amount-label">Amount</InputLabel>
+                          <Select
+                            labelId="topup-amount-label"
+                            value={topUpAmount}
+                            label="Amount"
+                            onChange={(e) => setTopUpAmount(e.target.value as number)}
+                          >
+                            <MenuItem value={5}>$5</MenuItem>
+                            <MenuItem value={10}>$10</MenuItem>
+                            <MenuItem value={20}>$20</MenuItem>
+                            <MenuItem value={50}>$50</MenuItem>
+                            <MenuItem value={100}>$100</MenuItem>
+                          </Select>
+                        </FormControl>
+                        <Button variant="contained" color="secondary" onClick={handleTopUp} sx={{ minWidth: 140 }}>
+                          Add Credits
+                        </Button>
                       </Box>
                     </Box>
                   </Paper>
                 </Grid>
                 <Grid item xs={12} md={colSize}>                  
-                  <Paper sx={{ p: 2, minHeight: 200, display: 'flex', flexDirection: 'column' }}>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'left', justifyContent: 'center', flex: 1 }}>
+                  <Paper sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column' }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                       {account.userConfig.stripe_subscription_active ? (
-                        <Box sx={{ alignItems: 'center', justifyContent: 'center' }}>
-                          <Typography variant="h6" gutterBottom>Subscription Active</Typography>
-                          <Typography variant="h4" gutterBottom color="primary">Helix Premium</Typography>
-                          <Typography variant="body2" gutterBottom>You have priority access to the Helix GPU cloud</Typography>
-                          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+                        <>
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="h6" gutterBottom>Subscription Active</Typography>
+                            <Typography variant="h4" gutterBottom color="primary">Helix Premium</Typography>
+                            <Typography variant="body2" gutterBottom>You have priority access to the Helix GPU cloud</Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                             <Button variant="contained" color="primary" sx={{ minWidth: 140 }} onClick={handleManage}>
                               Manage Subscription
                             </Button>
                           </Box>
-                        </Box>
+                        </>
                       ) : (
-                        <Box sx={{ alignItems: 'center', justifyContent: 'center' }}>
-                          <Typography variant="h6" gutterBottom>Helix Premium</Typography>
-                          <Typography variant="h4" gutterBottom color="primary">$20.00 / month</Typography>
-                          <Typography variant="body2" gutterBottom>Get priority access to the Helix GPU cloud. Subscription payment will also be converted to Helix credits that you can spend on LLMs.</Typography>
-                          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+                        <>
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="h6" gutterBottom>Helix Premium</Typography>
+                            <Typography variant="h4" gutterBottom color="primary">$20.00 / month</Typography>
+                            <Typography variant="body2" gutterBottom>Get priority access to the Helix GPU cloud. Subscription payment will also be converted to Helix credits that you can spend on LLMs.</Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                             <Button variant="contained" color="secondary" sx={{ minWidth: 140 }} onClick={handleSubscribe}>
                               Start Subscription
                             </Button>
                           </Box>
-                        </Box>
+                        </>
                       )}
                     </Box>
                   </Paper>
