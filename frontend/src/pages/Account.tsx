@@ -115,41 +115,6 @@ const Account: FC = () => {
 
   const apiKey = account.apiKeys.length > 0 ? account.apiKeys[0].key : ''
 
-  const modelId = account.models && account.models.length > 0 ? account.models[0].id : 'default_model'
-
-  const curlExample = `curl --request POST \\
-  --url ${window.location.protocol}//${window.location.host}/api/v1/sessions/chat \\
-  --header 'Authorization: Bearer ${apiKey}' \\
-  --header 'Content-Type: application/json' \\
-  --data '{
-    "model": "${modelId}",
-    "session_id": "",
-    "system": "you are an intelligent assistant that helps with geography",
-    "messages": [
-      {
-        "role": "user",
-        "content": { "content_type": "text", "parts": ["where are the Faroe islands located?"] }
-      }
-    ]
-  }'`
-
-  const openAICurlExample = `curl --request POST \\
-  --url ${window.location.protocol}//${window.location.host}/v1/chat/completions \\
-  --header 'Authorization: Bearer ${apiKey}' \\
-  --header 'Content-Type: application/json' \\
-  --data '{
-    "model": "${modelId}",
-    "stream": false,
-    "messages": [
-      { "role": "system", "content": "You are a helpful assistant." },
-      { "role": "user", "content": "how big was the roman empire?" }
-    ]
-  }'`
-
-  const openAIAzureEnvVars = `export AZURE_OPENAI_ENDPOINT=${window.location.protocol}//${window.location.host}
-export AZURE_OPENAI_API_BASE=${window.location.protocol}//${window.location.host}
-export AZURE_OPENAI_API_KEY=${apiKey}
-`
   const cliInstall = `curl -Ls -O https://get.helixml.tech/install.sh && bash install.sh --cli`
 
   const cliLogin = `export HELIX_URL=${window.location.protocol}//${window.location.host}
@@ -177,7 +142,7 @@ export HELIX_API_KEY=${apiKey}
                         </Typography>
                       </Box>
                       
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'space-between' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <FormControl sx={{ minWidth: 120 }}>
                           <InputLabel id="topup-amount-label">Amount</InputLabel>
                           <Select
@@ -223,7 +188,7 @@ export HELIX_API_KEY=${apiKey}
                             <Typography variant="h4" gutterBottom color="primary">$20.00 / month</Typography>
                             <Typography variant="body2" gutterBottom>Get priority access to the Helix GPU cloud. Subscription payment will also be converted to Helix credits that you can spend on LLMs.</Typography>
                           </Box>
-                          <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                          <Box sx={{ display: 'flex', mb: 1,  justifyContent: 'flex-end' }}>
                             <Button variant="contained" color="secondary" sx={{ minWidth: 140 }} onClick={handleSubscribe}>
                               Start Subscription
                             </Button>
