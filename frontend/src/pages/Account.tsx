@@ -24,13 +24,21 @@ import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 
 import { useGetUserWallet } from '../services/useBilling'
+import { useGetUserUsage } from '../services/userService'
+import TokenUsage from '../components/usage/TokenUsage'
+import TotalCost from '../components/usage/TotalCost'
+import TotalRequests from '../components/usage/TotalRequests'
+import useThemeConfig from '../hooks/useThemeConfig'
 
 const Account: FC = () => {
   const account = useAccount()
   const api = useApi()
   const snackbar = useSnackbar()
+  const themeConfig = useThemeConfig()
   const { data: wallet } = useGetUserWallet()
   const [topUpAmount, setTopUpAmount] = useState<number>(20)
+
+  const { data: usage } = useGetUserUsage()
   
   const handleCopy = useCallback((text: string) => {
     navigator.clipboard.writeText(text)
@@ -129,6 +137,20 @@ export HELIX_API_KEY=${apiKey}
         <Box sx={{ width: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
           <Box sx={{ width: '100%', flexGrow: 1, overflowY: 'auto', px: 2 }}>
           <Typography variant="h4" gutterBottom sx={{mt:4}}></Typography>
+            
+            {/* Usage Charts Row */}
+            <Grid container spacing={2} sx={{ mb: 2, backgroundColor: themeConfig.darkPanel, p: 2, borderRadius: 2 }}>
+              <Grid item xs={12} md={4}>
+                <TokenUsage usageData={usage ? [{ metrics: usage }] : []} isLoading={false} />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TotalCost usageData={usage ? [{ metrics: usage }] : []} isLoading={false} />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TotalRequests usageData={usage ? [{ metrics: usage }] : []} isLoading={false} />
+              </Grid>
+            </Grid>
+            
             <Grid container spacing={2}>
               {paymentsActive && (
                 <>
