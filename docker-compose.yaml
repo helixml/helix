@@ -43,6 +43,7 @@ services:
       - RAG_HAYSTACK_URL=http://haystack:8000
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - HELIX_HF_TOKEN=${HELIX_HF_TOKEN:-}
     volumes:
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
       - helix-socket:/socket
