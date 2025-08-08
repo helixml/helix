@@ -142,6 +142,82 @@ func (c *RunnerController) Send(ctx context.Context, runnerID string, headers ma
 	return &resp, nil
 }
 
+// SyncSystemSettings pushes system settings to a specific runner
+func (c *RunnerController) SyncSystemSettings(ctx context.Context, runnerID string) error {
+	// Get effective system settings (includes environment variable fallback)
+	settings, err := c.store.GetEffectiveSystemSettings(ctx)
+	if err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Msg("failed to get effective system settings for runner sync")
+		return fmt.Errorf("failed to get effective system settings: %w", err)
+	}
+
+	// Prepare system config request
+	var hfToken *string
+	if settings.HuggingFaceToken != "" {
+		hfToken = &settings.HuggingFaceToken
+	}
+
+	configReq := types.RunnerSystemConfigRequest{
+		HuggingFaceToken: hfToken,
+	}
+
+	reqBody, err := json.Marshal(configReq)
+	if err != nil {
+		return fmt.Errorf("failed to marshal system config request: %w", err)
+	}
+
+	// Send system config to runner
+	req := &types.Request{
+		Method: "PUT",
+		URL:    "/api/v1/system/config",
+		Body:   reqBody,
+	}
+
+	resp, err := c.Send(ctx, runnerID, nil, req, 30*time.Second)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("runner_id", runnerID).
+			Msg("failed to sync system settings to runner")
+		return fmt.Errorf("failed to send system config to runner %s: %w", runnerID, err)
+	}
+
+	if resp.StatusCode != 200 {
+		log.Error().
+			Int("status_code", resp.StatusCode).
+			Str("runner_id", runnerID).
+			Str("response_body", string(resp.Body)).
+			Msg("runner rejected system settings update")
+		return fmt.Errorf("runner %s rejected system settings with status %d", runnerID, resp.StatusCode)
+	}
+
+	log.Info().
+		Str("runner_id", runnerID).
+		Bool("hf_token_sent", hfToken != nil && *hfToken != "").
+		Msg("successfully synced system settings to runner")
+
+	return nil
+}
+
+// SyncSystemSettingsToAllRunners pushes system settings to all connected runners
+func (c *RunnerController) SyncSystemSettingsToAllRunners(ctx context.Context) {
+	c.mu.RLock()
+	runners := make([]string, len(c.runners))
+	copy(runners, c.runners)
+	c.mu.RUnlock()
+
+	for _, runnerID := range runners {
+		go func(id string) {
+			if err := c.SyncSystemSettings(ctx, id); err != nil {
+				log.Error().
+					Err(err).
+					Str("runner_id", id).
+					Msg("failed to sync system settings to runner")
+			}
+		}(runnerID)
+	}
+}
+
 func (c *RunnerController) OnConnectedHandler(id string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -154,6 +230,17 @@ func (c *RunnerController) OnConnectedHandler(id string) {
 		if err != nil {
 			log.Error().Err(err).Str("runner_id", id).Msg("error setting models on runner")
 		}
+
+		// Sync system settings to the new runner
+		go func() {
+			// Run in a goroutine to avoid blocking runner registration
+			if err := c.SyncSystemSettings(c.ctx, id); err != nil {
+				log.Error().
+					Err(err).
+					Str("runner_id", id).
+					Msg("failed to sync system settings to newly connected runner")
+			}
+		}()
 
 		// Call the prewarming callback if it's set
 		if c.onRunnerConnectedFn != nil {
@@ -622,30 +709,65 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 			log.Debug().Str("model", modelName).Int64("context_length", contextLength).Msg("Using context length from model")
 		}
 
-		// If this is a VLLM runtime, get the model-specific args
+		// If this is a VLLM runtime, get the runtime args
 		if slot.InitialWork().Runtime() == types.RuntimeVLLM {
-			// Get model-specific args for vLLM
-			modelArgs, argsErr := model.GetVLLMArgsForModel(modelName)
-			if argsErr == nil && len(modelArgs) > 0 {
+			// First check if the model has stored RuntimeArgs
+			if len(modelObj.RuntimeArgs) > 0 {
 				log.Debug().
 					Str("model", modelName).
-					Strs("vllm_args", modelArgs).
-					Msg("Found model-specific vLLM args in scheduler")
+					Interface("stored_runtime_args", modelObj.RuntimeArgs).
+					Msg("Using stored RuntimeArgs from database")
 
-				// Substitute placeholders with actual values
-				substitutedArgs := c.substituteVLLMArgsPlaceholders(modelArgs, slot.RunnerID, modelObj.Memory)
+				// Use the stored runtime args directly
+				runtimeArgs = modelObj.RuntimeArgs
 
-				// Add the substituted args to the runtime args
-				runtimeArgs = map[string]interface{}{
-					"args": substitutedArgs,
+				// If there are args in the runtime args, substitute placeholders
+				if args, ok := modelObj.RuntimeArgs["args"].([]interface{}); ok {
+					// Convert []interface{} to []string for placeholder substitution
+					argStrings := make([]string, len(args))
+					for i, v := range args {
+						argStrings[i] = fmt.Sprintf("%v", v)
+					}
+
+					// Substitute placeholders with actual values
+					substitutedArgs := c.substituteVLLMArgsPlaceholders(argStrings, slot.RunnerID, modelObj.Memory)
+
+					// Update the runtime args with substituted values
+					runtimeArgs = map[string]interface{}{
+						"args": substitutedArgs,
+					}
+
+					log.Debug().
+						Str("model", modelName).
+						Strs("original_args", argStrings).
+						Strs("substituted_args", substitutedArgs).
+						Interface("runtime_args", runtimeArgs).
+						Msg("Substituted placeholders in stored RuntimeArgs")
 				}
+			} else {
+				// Fall back to hardcoded args for backward compatibility
+				modelArgs, argsErr := model.GetVLLMArgsForModel(modelName)
+				if argsErr == nil && len(modelArgs) > 0 {
+					log.Debug().
+						Str("model", modelName).
+						Strs("vllm_args", modelArgs).
+						Msg("Falling back to hardcoded vLLM args (no stored RuntimeArgs)")
 
-				log.Debug().
-					Str("model", modelName).
-					Strs("original_args", modelArgs).
-					Strs("substituted_args", substitutedArgs).
-					Interface("runtime_args", runtimeArgs).
-					Msg("Created runtime_args map with substituted values in scheduler")
+					// Substitute placeholders with actual values
+					substitutedArgs := c.substituteVLLMArgsPlaceholders(modelArgs, slot.RunnerID, modelObj.Memory)
+
+					// Add the substituted args to the runtime args
+					runtimeArgs = map[string]interface{}{
+						"args": substitutedArgs,
+					}
+
+					log.Debug().
+						Str("model", modelName).
+						Strs("original_args", modelArgs).
+						Strs("substituted_args", substitutedArgs).
+						Interface("runtime_args", runtimeArgs).
+						Msg("Created runtime_args map with substituted values from hardcoded fallback")
+				}
 			}
 		}
 	} else {

@@ -1097,6 +1097,8 @@ export interface TypesModel {
   /** Whether to prewarm this model to fill free GPU memory on runners */
   prewarm?: boolean;
   runtime?: TypesRuntime;
+  /** Runtime-specific arguments (e.g., VLLM command line args) */
+  runtime_args?: Record<string, any>;
   /** Order for sorting models in UI (lower numbers appear first) */
   sort_order?: number;
   type?: TypesModelType;
@@ -4121,4 +4123,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         ...params,
       }),
   };
+}
+
+// Manual additions for System Settings (until auto-generated)
+export interface TypesSystemSettingsResponse {
+  id: string;
+  created: string;
+  updated: string;
+  huggingface_token_set: boolean;
+  huggingface_token_source: string;
+}
+
+export interface TypesSystemSettingsRequest {
+  huggingface_token?: string;
 }
