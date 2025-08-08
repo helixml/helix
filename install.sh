@@ -95,7 +95,7 @@ Options:
   --openai-base-url <url>  Specify the base URL for the OpenAI API
   --anthropic-api-key <key> Specify the Anthropic API key for Claude models
   --older-gpu              Disable axolotl and sdxl models (which don't work on older GPUs) on the runner
-  --hf-token <token>       Specify the Hugging Face token for downloading models
+  --hf-token <token>       Specify the Hugging Face token for the control plane (automatically distributed to runners)
   -y                       Auto approve the installation
   --extra-ollama-models    Specify additional Ollama models to download when installing the runner (comma-separated), for example "nemotron-mini:4b,codegemma:2b-code-q8_0"
   --helix-version <version>  Override the Helix version to install (e.g. 1.4.0-rc4, defaults to latest stable)
@@ -745,6 +745,13 @@ ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
 EOF
     fi
 
+    # Add Hugging Face token configuration if provided
+    if [ -n "$HF_TOKEN" ]; then
+        cat << EOF >> "$ENV_FILE"
+HELIX_HF_TOKEN=$HF_TOKEN
+EOF
+    fi
+
     # Set default FINETUNING_PROVIDER to helix if neither OpenAI nor TogetherAI are specified
     if [ -z "$OPENAI_API_KEY" ] && [ -z "$TOGETHER_API_KEY" ] && [ "$AUTODETECTED_LLM" = false ]; then
         cat << EOF >> "$ENV_FILE"
@@ -901,7 +908,6 @@ RUNNER_TAG="${RUNNER_TAG}"
 API_HOST="${API_HOST}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
 OLDER_GPU="${OLDER_GPU:-false}"
-HF_TOKEN="${HF_TOKEN}"
 EXTRA_OLLAMA_MODELS="${EXTRA_OLLAMA_MODELS}"
 
 # Set older GPU parameter
@@ -911,12 +917,9 @@ else
     OLDER_GPU_PARAM=""
 fi
 
-# Set HF_TOKEN parameter
-if [ -n "\$HF_TOKEN" ]; then
-    HF_TOKEN_PARAM="-e HF_TOKEN=\$HF_TOKEN"
-else
-    HF_TOKEN_PARAM=""
-fi
+# HF_TOKEN is now managed by the control plane and distributed to runners automatically
+# No longer setting HF_TOKEN on runners to avoid confusion
+HF_TOKEN_PARAM=""
 
 # Set EXTRA_OLLAMA_MODELS parameter
 if [ -n "\$EXTRA_OLLAMA_MODELS" ]; then
@@ -947,7 +950,6 @@ docker run --privileged --gpus all --shm-size=10g \\
     --network="helix_default" \\
     -v \${HOME}/.cache/huggingface:/root/.cache/huggingface \\
     \${OLDER_GPU_PARAM} \\
-    \${HF_TOKEN_PARAM} \\
     \${EXTRA_OLLAMA_MODELS_PARAM} \\
     registry.helixml.tech/helix/runner:\${RUNNER_TAG} \\
     --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\

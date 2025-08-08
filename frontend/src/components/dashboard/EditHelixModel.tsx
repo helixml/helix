@@ -366,8 +366,8 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                   multiline
                   rows={6}
                   autoComplete="off"
-                  placeholder='{"args": ["--trust-remote-code", "--max-model-len", "32768"]}'
-                  helperText="VLLM runtime arguments in JSON format. Example: {\"args\": [\"--trust-remote-code\", \"--gpu-memory-utilization\", \"0.9\"]}"
+                  placeholder='["--trust-remote-code", "--max-model-len", "32768"]'
+                  helperText='VLLM runtime arguments in JSON format. Note that --gpu-memory-utilization is automatically calculated and added based on model memory requirements and available GPU memory, so you do not need to and should not specify this parameter.'
                   disabled={loading}
               />
            )}

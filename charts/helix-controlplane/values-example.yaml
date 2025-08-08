@@ -114,20 +114,6 @@ pgvector:
   #   # annotations:
   #   #   kubernetes.io/service-account.name: "pgvector-reader"
 
-## GPTScript configuration
-gptscript:
-  # Enable GPTScript runner for tool execution
-  enabled: true
-  # Use custom image if needed
-  # image:
-  #   repository: my-registry.example.com/helix/gptscript-runner
-  #   tag: "latest"
-
-  # Scaling configuration
-  replicas: 3
-  concurrency: 50
-  maxTasks: 100 # Set to 0 for unlimited
-
 ## Controlplane configuration
 controlplane:
   # Optional: Custom filestore path
@@ -138,7 +124,6 @@ controlplane:
 
   # Runner token for authentication (should be a secure random string)
   runnerToken: "your-secure-runner-token-here"
-
   # Option: Use existing secret for runner token
   # runnerTokenExistingSecret: "runner-token-secret"
   # runnerTokenExistingSecretKey: "token"  # defaults to "token" if not specified
@@ -146,12 +131,21 @@ controlplane:
   # License key for deployment identification
   # Get your license key from https://deploy.helix.ml/licenses
   licenseKey: ""
-
   # Option: Use existing secret for license key (recommended for production)
   # Create the license secret with:
   #   kubectl create secret generic helix-license --from-literal=license-key="<your-license-key-here>"
   # licenseKeyExistingSecret: "helix-license"
   # licenseKeyExistingSecretKey: "license-key"  # defaults to "license-key" if not specified
+
+  # Hugging Face token configuration (distributed to all runners automatically,
+  # only required if you need to use vLLM models)
+  huggingface:
+    token: "hf_your_huggingface_token_here"
+    # Option: Use existing secret for Hugging Face token (recommended for production)
+    # Create the secret with:
+    #   kubectl create secret generic huggingface-token --from-literal=token="hf_your_actual_token_here"
+    # existingSecret: "huggingface-token"
+    # existingSecretTokenKey: "token"  # defaults to "token" if not specified
 
   # Keycloak configuration
   keycloak:
