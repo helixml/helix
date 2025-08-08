@@ -92,6 +92,20 @@ type ListRunnerSlotsResponse struct {
 	Slots []*RunnerSlot `json:"slots"`
 }
 
+// RunnerSystemConfigRequest represents system configuration updates sent to runners
+// Currently supports global HF token, but designed to extend for per-org/per-user tokens
+// Future: This will be sent when user context changes or per-slot configuration is needed
+type RunnerSystemConfigRequest struct {
+	// Global fallback HF token (current implementation)
+	HuggingFaceToken *string `json:"huggingface_token,omitempty"`
+
+	// Future extensions for per-org/per-user tokens:
+	// UserID           *string `json:"user_id,omitempty"`
+	// OrganizationID   *string `json:"organization_id,omitempty"`
+	// UserHFToken      *string `json:"user_hf_token,omitempty"`
+	// OrgHFToken       *string `json:"org_hf_token,omitempty"`
+}
+
 // A generic helix type to support nats reply requests, based upon RunnerLLMInferenceRequest
 type RunnerNatsReplyRequest struct {
 	RequestID     string

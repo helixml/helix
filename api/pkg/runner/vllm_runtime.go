@@ -26,24 +26,26 @@ var (
 )
 
 type VLLMRuntime struct {
-	version       string
-	cacheDir      string
-	port          int
-	startTimeout  time.Duration
-	contextLength int64
-	model         string
-	args          []string
-	cmd           *exec.Cmd
-	cancel        context.CancelFunc
+	version          string
+	cacheDir         string
+	port             int
+	startTimeout     time.Duration
+	contextLength    int64
+	model            string
+	args             []string
+	huggingFaceToken string
+	cmd              *exec.Cmd
+	cancel           context.CancelFunc
 }
 
 type VLLMRuntimeParams struct {
-	CacheDir      *string        // Where to store the models
-	Port          *int           // If nil, will be assigned a random port
-	StartTimeout  *time.Duration // How long to wait for vLLM to start, if nil, will use default
-	ContextLength *int64         // Optional: Context length to use for the model
-	Model         *string        // Optional: Model to use
-	Args          []string       // Optional: Additional arguments to pass to vLLM
+	CacheDir         *string        // Where to store the models
+	Port             *int           // If nil, will be assigned a random port
+	StartTimeout     *time.Duration // How long to wait for vLLM to start, if nil, will use default
+	ContextLength    *int64         // Optional: Context length to use for the model
+	Model            *string        // Optional: Model to use
+	Args             []string       // Optional: Additional arguments to pass to vLLM
+	HuggingFaceToken *string        // Optional: Hugging Face token for model access
 }
 
 func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, error) {
@@ -83,21 +85,29 @@ func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, 
 		log.Debug().Str("model", model).Msg("Using model")
 	}
 
+	// Extract HF token
+	var hfToken string
+	if params.HuggingFaceToken != nil {
+		hfToken = *params.HuggingFaceToken
+	}
+
 	// Log args received
 	log.Debug().
 		Str("model", model).
 		Int64("context_length", contextLength).
 		Strs("args", params.Args).
+		Bool("hf_token_provided", hfToken != "").
 		Msg("NewVLLMRuntime received args")
 
 	return &VLLMRuntime{
-		version:       "unknown",
-		cacheDir:      *params.CacheDir,
-		port:          *params.Port,
-		startTimeout:  *params.StartTimeout,
-		contextLength: contextLength,
-		model:         model,
-		args:          params.Args,
+		version:          "unknown",
+		cacheDir:         *params.CacheDir,
+		port:             *params.Port,
+		startTimeout:     *params.StartTimeout,
+		contextLength:    contextLength,
+		model:            model,
+		args:             params.Args,
+		huggingFaceToken: hfToken,
 	}, nil
 }
 
@@ -137,7 +147,7 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 	}()
 
 	// Start vLLM cmd
-	cmd, err := startVLLMCmd(ctx, vllmCommander, v.port, v.cacheDir, v.contextLength, v.model, v.args)
+	cmd, err := startVLLMCmd(ctx, vllmCommander, v.port, v.cacheDir, v.contextLength, v.model, v.args, v.huggingFaceToken)
 	if err != nil {
 		return fmt.Errorf("error building vLLM cmd: %w", err)
 	}
@@ -443,7 +453,15 @@ func (v *VLLMRuntime) waitUntilVLLMIsReady(ctx context.Context, startTimeout tim
 	}
 }
 
-func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, model string, customArgs []string) (*exec.Cmd, error) {
+// getEffectiveToken returns the provided token if not empty, otherwise falls back to environment variable
+func getEffectiveToken(providedToken string) string {
+	if providedToken != "" {
+		return providedToken
+	}
+	return os.Getenv("HF_TOKEN")
+}
+
+func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, model string, customArgs []string, hfToken string) (*exec.Cmd, error) {
 	// Use clean vLLM virtualenv Python - fail if not found (no fallback to avoid confusion)
 	vllmPath := "/workspace/vllm/venv/bin/python"
 	if _, err := os.Stat(vllmPath); os.IsNotExist(err) {
@@ -567,8 +585,8 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 		// "HF_HUB_OFFLINE=1",
 		// TODO: figure out how to do offline vLLM properly..
 
-		// Hugging Face authentication
-		fmt.Sprintf("HF_TOKEN=%s", os.Getenv("HF_TOKEN")),
+		// Hugging Face authentication - prefer provided token over environment
+		fmt.Sprintf("HF_TOKEN=%s", getEffectiveToken(hfToken)),
 	}
 
 	// Check for CPU-only mode

@@ -227,6 +227,12 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		return err
 	}
 
+	// Seed models from environment variables
+	if err := apiServer.Store.SeedModelsFromEnvironment(ctx); err != nil {
+		log.Error().Err(err).Msg("failed to seed models from environment - continuing startup")
+		// Don't fail startup if seeding fails, just log the error
+	}
+
 	apiServer.startUserWebSocketServer(
 		ctx,
 		apiRouter,
@@ -472,6 +478,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	adminRouter.HandleFunc("/helix-models", apiServer.createHelixModel).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/helix-models/{id:.*}", apiServer.updateHelixModel).Methods(http.MethodPut)
 	adminRouter.HandleFunc("/helix-models/{id:.*}", apiServer.deleteHelixModel).Methods(http.MethodDelete)
+
+	// System settings - only admins can access
+	adminRouter.HandleFunc("/system/settings", apiServer.getSystemSettings).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/system/settings", apiServer.updateSystemSettings).Methods(http.MethodPut)
 
 	// all these routes are secured via runner tokens
 	insecureRouter.HandleFunc("/runner/{runner_id}/ws", func(w http.ResponseWriter, r *http.Request) {

@@ -130,6 +130,11 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 	return s, nil
 }
 
+// GetRunnerController returns the RunnerController for external access
+func (s *Scheduler) GetRunnerController() *RunnerController {
+	return s.controller
+}
+
 func (s *Scheduler) Enqueue(work *Workload) error {
 	startTime := time.Now()
 

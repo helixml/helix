@@ -26,6 +26,7 @@ type Slot struct {
 	Ready                  bool           // True if the slot is ready to be used
 	runnerOptions          *Options
 	runningRuntime         Runtime
+	apiServer              *HelixRunnerAPIServer // Reference to API server for system config
 }
 
 type PullProgress struct {
@@ -52,8 +53,9 @@ type CreateSlotParams struct {
 	Runtime                types.Runtime
 	Model                  string
 	ModelMemoryRequirement uint64
-	ContextLength          int64          // Optional context length override
-	RuntimeArgs            map[string]any // Runtime-specific arguments
+	ContextLength          int64                 // Optional context length override
+	RuntimeArgs            map[string]any        // Runtime-specific arguments
+	APIServer              *HelixRunnerAPIServer // Reference to API server for system config
 	// RuntimeArgs can include:
 	// - "model": string - Override the model to use
 	// - "args": []string - Additional command line arguments to pass to the runtime
@@ -74,6 +76,7 @@ func NewEmptySlot(params CreateSlotParams) *Slot {
 		Ready:                  false,
 		runnerOptions:          params.RunnerOptions,
 		runningRuntime:         nil, // This is set during creation
+		apiServer:              params.APIServer,
 	}
 }
 
@@ -137,9 +140,20 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 			return
 		}
 	case types.RuntimeDiffusers:
+		// Get effective HF token from API server (with fallback to env)
+		// Same token resolution hierarchy as VLLM (see VLLM case for details)
+		var hfToken *string
+		if s.apiServer != nil {
+			effectiveToken := s.apiServer.GetEffectiveHuggingFaceToken()
+			if effectiveToken != "" {
+				hfToken = &effectiveToken
+			}
+		}
+
 		s.runningRuntime, err = NewDiffusersRuntime(ctx, DiffusersRuntimeParams{
-			CacheDir: &s.runnerOptions.CacheDir,
-		}) // TODO(phil): Add params
+			CacheDir:         &s.runnerOptions.CacheDir,
+			HuggingFaceToken: hfToken,
+		})
 		if err != nil {
 			return
 		}
@@ -151,8 +165,25 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 			return
 		}
 	case types.RuntimeVLLM:
+		// Get effective HF token from API server (with fallback to env)
+		// Current: Uses global system token
+		// Future: Will resolve in priority order:
+		//   1. Model-specific token (from RuntimeArgs)
+		//   2. User-specific token (from session context)
+		//   3. Organization-specific token (from user's org)
+		//   4. Global system token (current implementation)
+		//   5. Environment variable (backward compatibility)
+		var hfToken *string
+		if s.apiServer != nil {
+			effectiveToken := s.apiServer.GetEffectiveHuggingFaceToken()
+			if effectiveToken != "" {
+				hfToken = &effectiveToken
+			}
+		}
+
 		runtimeParams := VLLMRuntimeParams{
-			CacheDir: &s.runnerOptions.CacheDir,
+			CacheDir:         &s.runnerOptions.CacheDir,
+			HuggingFaceToken: hfToken,
 		}
 
 		// Only set ContextLength if it's non-zero
@@ -175,46 +206,51 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 			}
 
 			// Handle vLLM command line arguments
+			// Support both flattened format (runtime_args as direct array) and nested format (runtime_args.args)
+			var parsedArgs []string
+
+			// Check if runtime_args contains a direct "args" key (nested format)
 			if args, ok := s.RuntimeArgs["args"].([]string); ok && len(args) > 0 {
+				parsedArgs = args
 				log.Debug().
-					Strs("args", args).
+					Strs("nested_args", parsedArgs).
 					Str("model", modelStr).
-					Msg("Using string array arguments for vLLM")
-				runtimeParams.Args = args
+					Msg("Using nested runtime_args.args (string array) for vLLM")
 			} else if argsIface, ok := s.RuntimeArgs["args"].([]interface{}); ok && len(argsIface) > 0 {
 				// Convert []interface{} to []string (common after JSON deserialization)
-				args := make([]string, len(argsIface))
+				parsedArgs = make([]string, len(argsIface))
 				for i, v := range argsIface {
-					args[i] = fmt.Sprintf("%v", v)
+					parsedArgs[i] = fmt.Sprintf("%v", v)
 				}
-
 				log.Debug().
-					Strs("converted_args", args).
+					Strs("nested_converted_args", parsedArgs).
 					Str("model", modelStr).
-					Msg("Converted []interface{} to []string for vLLM args")
-				runtimeParams.Args = args
+					Msg("Converted nested []interface{} to []string for vLLM args")
 			} else if argsMap, ok := s.RuntimeArgs["args"].(map[string]interface{}); ok && len(argsMap) > 0 {
 				// Convert map to array of args in the format ["--key1", "value1", "--key2", "value2"]
-				args := []string{}
+				parsedArgs = []string{}
 				for k, v := range argsMap {
 					if !strings.HasPrefix(k, "--") {
 						k = "--" + k
 					}
-					args = append(args, k, fmt.Sprintf("%v", v))
+					parsedArgs = append(parsedArgs, k, fmt.Sprintf("%v", v))
 				}
 				log.Debug().
 					Interface("args_map", argsMap).
-					Strs("converted_args", args).
+					Strs("nested_converted_args", parsedArgs).
 					Str("model", modelStr).
-					Msg("Using map arguments for vLLM")
-				runtimeParams.Args = args
+					Msg("Using nested map arguments for vLLM")
 			} else if argsVal, ok := s.RuntimeArgs["args"]; ok {
-				// Log when we can't parse the args
+				// Log when we can't parse the nested args
 				log.Warn().
-					Interface("args_value", argsVal).
+					Interface("nested_args_value", argsVal).
 					Str("args_type", fmt.Sprintf("%T", argsVal)).
 					Str("model", modelStr).
-					Msg("Could not parse args of unexpected type")
+					Msg("Could not parse nested args of unexpected type")
+			}
+
+			if len(parsedArgs) > 0 {
+				runtimeParams.Args = parsedArgs
 			}
 		}
 

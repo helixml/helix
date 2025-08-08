@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -40,6 +41,10 @@ type HelixRunnerAPIServer struct {
 
 	modelsMu sync.Mutex
 	models   []*types.Model
+
+	// System configuration received from control plane
+	systemConfigMu sync.RWMutex
+	huggingFaceToken string
 }
 
 func NewHelixRunnerAPIServer(
@@ -98,6 +103,7 @@ func (apiServer *HelixRunnerAPIServer) registerRoutes(_ context.Context) (*mux.R
 	subRouter.Use(server.ErrorLoggingMiddleware)
 	subRouter.HandleFunc("/healthz", apiServer.healthz).Methods(http.MethodGet)
 	subRouter.HandleFunc("/status", apiServer.status).Methods(http.MethodGet)
+	subRouter.HandleFunc("/system/config", apiServer.updateSystemConfig).Methods(http.MethodPut)
 	subRouter.HandleFunc("/helix-models", apiServer.listHelixModelsHandler).Methods(http.MethodGet) // List current models
 	subRouter.HandleFunc("/helix-models", apiServer.setHelixModelsHandler).Methods(http.MethodPost) // Which models to pull
 	subRouter.HandleFunc("/slots", apiServer.createSlot).Methods(http.MethodPost)
@@ -126,6 +132,48 @@ func (apiServer *HelixRunnerAPIServer) healthz(w http.ResponseWriter, _ *http.Re
 	if err != nil {
 		log.Error().Err(err).Msg("error writing healthz response")
 	}
+}
+
+// updateSystemConfig handles system configuration updates from the control plane
+func (apiServer *HelixRunnerAPIServer) updateSystemConfig(w http.ResponseWriter, r *http.Request) {
+	var req types.RunnerSystemConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Error().Err(err).Msg("error decoding system config request")
+		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	apiServer.systemConfigMu.Lock()
+	defer apiServer.systemConfigMu.Unlock()
+
+	// Update Hugging Face token if provided
+	if req.HuggingFaceToken != nil {
+		apiServer.huggingFaceToken = *req.HuggingFaceToken
+		log.Info().
+			Str("runner_id", apiServer.runnerOptions.ID).
+			Bool("token_provided", *req.HuggingFaceToken != "").
+			Msg("updated hugging face token from control plane")
+	}
+
+	w.WriteHeader(http.StatusOK)
+	_, err := w.Write([]byte(`{"status": "ok"}`))
+	if err != nil {
+		log.Error().Err(err).Msg("error writing system config response")
+	}
+}
+
+// GetEffectiveHuggingFaceToken returns the effective HF token, preferring control plane config over environment
+func (apiServer *HelixRunnerAPIServer) GetEffectiveHuggingFaceToken() string {
+	apiServer.systemConfigMu.RLock()
+	defer apiServer.systemConfigMu.RUnlock()
+
+	// Prefer token from control plane if set
+	if apiServer.huggingFaceToken != "" {
+		return apiServer.huggingFaceToken
+	}
+
+	// Fall back to environment variable for backward compatibility
+	return os.Getenv("HF_TOKEN")
 }
 
 func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Request) {
@@ -271,6 +319,7 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		ModelMemoryRequirement: slotRequest.Attributes.ModelMemoryRequirement,
 		ContextLength:          slotRequest.Attributes.ContextLength,
 		RuntimeArgs:            slotRequest.Attributes.RuntimeArgs,
+		APIServer:              apiServer,
 	})
 	apiServer.slots.Store(slotRequest.ID, s)
 

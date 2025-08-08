@@ -36,6 +36,7 @@ import ProviderEndpointsTable from '../components/dashboard/ProviderEndpointsTab
 import OAuthProvidersTable from '../components/dashboard/OAuthProvidersTable'
 import HelixModelsTable from '../components/dashboard/HelixModelsTable'
 import SchedulingDecisionsTable from '../components/dashboard/SchedulingDecisionsTable'
+import SystemSettingsTable from '../components/dashboard/SystemSettingsTable'
 import Chip from '@mui/material/Chip'
 import { useFloatingRunnerState } from '../contexts/floatingRunnerState'
 import LaunchIcon from '@mui/icons-material/Launch'
@@ -473,6 +474,19 @@ const Dashboard: FC = () => {
             }}
           >
             <HelixModelsTable />
+          </Box>
+        )}
+
+        {tab === 'system_settings' && account.admin && (
+          <Box
+            sx={{
+              width: '100%',
+              height: '100%',
+              overflow: 'auto',
+              p: 2,
+            }}
+          >
+            <SystemSettingsTable />
           </Box>
         )}
 
