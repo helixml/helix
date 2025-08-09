@@ -2,11 +2,7 @@ import React, { FC, useEffect, useCallback, useState } from 'react'
 import Container from '@mui/material/Container'
 import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
-import ListItemSecondaryAction from '@mui/material/ListItemSecondaryAction'
 import Typography from '@mui/material/Typography'
-import List from '@mui/material/List'
-import ListItem from '@mui/material/ListItem'
-import ListItemText from '@mui/material/ListItemText'
 import IconButton from '@mui/material/IconButton'
 import Grid from '@mui/material/Grid'
 import FormControl from '@mui/material/FormControl'
@@ -24,7 +20,6 @@ import DialogActions from '@mui/material/DialogActions'
 import DialogContentText from '@mui/material/DialogContentText'
 
 import Page from '../components/system/Page'
-import DeleteIcon from '@mui/icons-material/Delete'
 import CopyIcon from '@mui/icons-material/CopyAll'
 import RefreshIcon from '@mui/icons-material/Refresh'
 
@@ -32,7 +27,7 @@ import useSnackbar from '../hooks/useSnackbar'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 
-import { useGetUserWallet } from '../services/useBilling'
+import { useGetWallet } from '../services/useBilling'
 import { useGetUserUsage, useRegenerateUserAPIKey } from '../services/userService'
 import TokenUsage from '../components/usage/TokenUsage'
 import TotalCost from '../components/usage/TotalCost'
@@ -41,7 +36,7 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import { Prism as SyntaxHighlighterPrism } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
-import { useGetUserAPIKeys, useCreateUserAPIKey, useDeleteUserAPIKey } from '../services/userService'
+import { useGetUserAPIKeys } from '../services/userService'
 
 const SyntaxHighlighter = SyntaxHighlighterPrism as unknown as React.FC<any>;
 
@@ -50,7 +45,7 @@ const Account: FC = () => {
   const api = useApi()
   const snackbar = useSnackbar()
   const themeConfig = useThemeConfig()
-  const { data: wallet } = useGetUserWallet()
+  const { data: wallet } = useGetWallet()
   const [topUpAmount, setTopUpAmount] = useState<number>(10)
 
   const { data: usage } = useGetUserUsage()
