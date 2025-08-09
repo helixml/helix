@@ -31,15 +31,11 @@ type TopUpEventHandler func(paymentIntentID, orgID, userID string, amount float6
 type Stripe struct {
 	cfg   config.Stripe
 	store store.Store
-	// subscriptionEventHandler EventHandler
-	// topUpEventHandler        TopUpEventHandler
 }
 
 func NewStripe(
 	cfg config.Stripe,
 	store store.Store,
-	// subscriptionEventHandler EventHandler,
-	// topUpEventHandler TopUpEventHandler,
 ) *Stripe {
 	if cfg.SecretKey != "" {
 		stripe.Key = cfg.SecretKey
