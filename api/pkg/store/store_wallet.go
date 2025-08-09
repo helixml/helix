@@ -110,7 +110,7 @@ func (s *PostgresStore) UpdateWallet(ctx context.Context, wallet *types.Wallet) 
 
 	wallet.UpdatedAt = time.Now()
 
-	err := s.gdb.WithContext(ctx).Updates(
+	err := s.gdb.WithContext(ctx).Model(&types.Wallet{}).Where("id = ?", wallet.ID).Updates(
 		map[string]interface{}{
 			"updated_at":                        wallet.UpdatedAt,
 			"stripe_subscription_id":            wallet.StripeSubscriptionID,
@@ -119,7 +119,7 @@ func (s *PostgresStore) UpdateWallet(ctx context.Context, wallet *types.Wallet) 
 			"subscription_current_period_end":   wallet.SubscriptionCurrentPeriodEnd,
 			"subscription_created":              wallet.SubscriptionCreated,
 		},
-	).Where("id = ?", wallet.ID).Error
+	).Error
 	if err != nil {
 		return nil, err
 	}
