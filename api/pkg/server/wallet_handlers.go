@@ -2,11 +2,13 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -83,4 +85,75 @@ func (s *HelixAPIServer) getOrCreateWallet(ctx context.Context, user *types.User
 	}
 
 	return wallet, nil
+}
+
+type CreateTopUpRequest struct {
+	Amount float64 `json:"amount"`
+	OrgID  string  `json:"org_id"`
+}
+
+// createTopUp godoc
+// @Summary Create a top up
+// @Description Create a top up with specified amount
+// @Tags    wallets
+// @Param request body CreateTopUpRequest true "Request body with amount"
+// @Success 200 {string} string "Top up session URL"
+// @Router /api/v1/top-ups/new [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (string, error) {
+	user := getRequestUser(req)
+
+	// Parse request body to get amount
+	var requestBody CreateTopUpRequest
+	if err := json.NewDecoder(req.Body).Decode(&requestBody); err != nil {
+		return "", fmt.Errorf("failed to decode request body: %w", err)
+	}
+
+	if requestBody.OrgID != "" {
+		_, err := s.authorizeOrgOwner(req.Context(), user, requestBody.OrgID)
+		if err != nil {
+			return "", fmt.Errorf("failed to authorize org owner: %w", err)
+		}
+	}
+
+	// Validate amount
+	if requestBody.Amount <= 0 {
+		return "", fmt.Errorf("amount must be greater than 0")
+	}
+
+	params := stripe.TopUpSessionParams{
+		OrgID:     requestBody.OrgID,
+		UserID:    user.ID,
+		UserEmail: user.Email,
+		Amount:    requestBody.Amount,
+	}
+
+	return s.Stripe.GetTopUpSessionURL(params)
+}
+
+func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Request) (string, error) {
+	user := getRequestUser(req)
+
+	return s.Stripe.GetCheckoutSessionURL(user.ID, user.Email)
+}
+
+func (s *HelixAPIServer) subscriptionManage(_ http.ResponseWriter, req *http.Request) (string, error) {
+	user := getRequestUser(req)
+	ctx := req.Context()
+
+	userMeta, err := s.Store.GetUserMeta(ctx, user.ID)
+	if err != nil {
+		return "", err
+	}
+	if userMeta == nil {
+		return "", fmt.Errorf("no such user")
+	}
+	if userMeta.Config.StripeCustomerID == "" {
+		return "", fmt.Errorf("no stripe customer id found")
+	}
+	return s.Stripe.GetPortalSessionURL(userMeta.Config.StripeCustomerID)
+}
+
+func (s *HelixAPIServer) subscriptionWebhook(res http.ResponseWriter, req *http.Request) {
+	s.Stripe.ProcessWebhook(res, req)
 }
