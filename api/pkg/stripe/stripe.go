@@ -21,7 +21,7 @@ import (
 
 type EventHandler func(eventType types.SubscriptionEventType, user types.StripeUser) error
 
-type TopUpEventHandler func(userID string, amount float64) error
+type TopUpEventHandler func(paymentIntentID, orgID, userID string, amount float64) error
 
 type Stripe struct {
 	Cfg               config.Stripe
@@ -58,6 +58,30 @@ func (s *Stripe) EnabledError() error {
 	return nil
 }
 
+// CreateStripeCustomer - creates a stripe customer for a user or organization, Stripe customer
+// ID is then stored in the wallet.
+func (s *Stripe) CreateStripeCustomer(user *types.User, orgID string) (string, error) {
+	customerParams := &stripe.CustomerParams{
+		Email: stripe.String(user.Email),
+	}
+
+	if orgID != "" {
+		customerParams.Description = stripe.String(fmt.Sprintf("organization %s", orgID))
+		customerParams.AddMetadata("account_type", "organization")
+		customerParams.AddMetadata("org_id", orgID)
+	} else {
+		customerParams.Description = stripe.String(fmt.Sprintf("user %s", user.ID))
+		customerParams.AddMetadata("account_type", "user")
+		customerParams.AddMetadata("user_id", user.ID)
+	}
+
+	customer, err := customer.New(customerParams)
+	if err != nil {
+		return "", err
+	}
+	return customer.ID, nil
+}
+
 func (s *Stripe) getSubscriptionURL(id string) string {
 	testMode := ""
 	if strings.HasPrefix(s.Cfg.SecretKey, "sk_test_") {
@@ -66,10 +90,15 @@ func (s *Stripe) getSubscriptionURL(id string) string {
 	return fmt.Sprintf("https://dashboard.stripe.com%s/subscriptions/%s", testMode, id)
 }
 
+type TopUpSessionParams struct {
+	OrgID     string
+	UserID    string
+	UserEmail string
+	Amount    float64
+}
+
 func (s *Stripe) GetTopUpSessionURL(
-	userID string,
-	userEmail string,
-	amount float64,
+	params TopUpSessionParams,
 ) (string, error) {
 	err := s.EnabledError()
 	if err != nil {
@@ -77,14 +106,15 @@ func (s *Stripe) GetTopUpSessionURL(
 	}
 
 	// Convert amount to cents for Stripe
-	amountInCents := int64(amount * 100)
+	amountInCents := int64(params.Amount * 100)
 
 	checkoutParams := &stripe.CheckoutSessionParams{
 		Mode: stripe.String(string(stripe.CheckoutSessionModePayment)),
 		// this is how we link the payment to our user
 		PaymentIntentData: &stripe.CheckoutSessionPaymentIntentDataParams{
 			Metadata: map[string]string{
-				"user_id": userID,
+				"user_id": params.UserID,
+				"org_id":  params.OrgID,
 				"type":    "topup",
 			},
 		},
@@ -94,14 +124,14 @@ func (s *Stripe) GetTopUpSessionURL(
 					Currency: stripe.String("usd"),
 					ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{
 						Name:        stripe.String("Helix Credits"),
-						Description: stripe.String(fmt.Sprintf("Top up of $%.2f", amount)),
+						Description: stripe.String(fmt.Sprintf("Top up of $%.2f", params.Amount)),
 					},
 					UnitAmount: stripe.Int64(amountInCents),
 				},
 				Quantity: stripe.Int64(1),
 			},
 		},
-		CustomerEmail: stripe.String(userEmail),
+		CustomerEmail: stripe.String(params.UserEmail),
 		SuccessURL:    stripe.String(s.Cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"),
 		CancelURL:     stripe.String(s.Cfg.AppURL + "/account?canceled=true"),
 	}
@@ -115,6 +145,7 @@ func (s *Stripe) GetTopUpSessionURL(
 }
 
 func (s *Stripe) GetCheckoutSessionURL(
+	orgID string,
 	userID string,
 	userEmail string,
 ) (string, error) {
@@ -141,6 +172,7 @@ func (s *Stripe) GetCheckoutSessionURL(
 		SubscriptionData: &stripe.CheckoutSessionSubscriptionDataParams{
 			Metadata: map[string]string{
 				"user_id": userID,
+				"org_id":  orgID,
 			},
 		},
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
@@ -228,6 +260,11 @@ func (s *Stripe) handleTopUpEvent(event stripe.Event) error {
 		return fmt.Errorf("no user_id found in metadata")
 	}
 
+	orgID := paymentIntent.Metadata["org_id"]
+	if orgID == "" {
+		return fmt.Errorf("no org_id found in metadata")
+	}
+
 	// Check if this is a topup payment
 	paymentType := paymentIntent.Metadata["type"]
 	if paymentType != "topup" {
@@ -238,8 +275,14 @@ func (s *Stripe) handleTopUpEvent(event stripe.Event) error {
 	amount := float64(paymentIntent.Amount) / 100.0
 
 	if s.topUpEventHandler != nil {
-		return s.topUpEventHandler(userID, amount)
+		return s.topUpEventHandler(paymentIntent.ID, orgID, userID, amount)
 	}
+
+	return nil
+}
+
+// handleInvoicePaymentPaidEvent is received when a user pays an invoice for a subscription
+func (s *Stripe) handleInvoicePaymentPaidEvent(event stripe.Event) error {
 
 	return nil
 }
@@ -270,6 +313,12 @@ func (s *Stripe) ProcessWebhook(w http.ResponseWriter, req *http.Request) {
 		err := s.handleSubscriptionEvent(event)
 		if err != nil {
 			log.Error().Msgf("Error handling subscription event: %s", err.Error())
+		}
+		return
+	case "invoice_payment.paid":
+		err := s.handleInvoicePaymentPaidEvent(event)
+		if err != nil {
+			log.Error().Msgf("Error handling invoice payment paid event: %s", err.Error())
 		}
 		return
 	case "payment_intent.succeeded":
