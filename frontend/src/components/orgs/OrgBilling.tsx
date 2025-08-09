@@ -21,6 +21,22 @@ import TotalCost from '../usage/TotalCost'
 import TotalRequests from '../usage/TotalRequests'
 import useThemeConfig from '../../hooks/useThemeConfig'
 
+// Extended wallet interface to include subscription fields
+interface ExtendedWallet {
+  subscription_status?: string
+  subscription_current_period_end?: number
+  subscription_current_period_start?: number
+  subscription_created?: number
+  stripe_subscription_id?: string
+  balance?: number
+  created_at?: string
+  id?: string
+  org_id?: string
+  stripe_customer_id?: string
+  updated_at?: string
+  user_id?: string
+}
+
 const OrgBilling: FC = () => {
   const account = useAccount()
   const api = useApi()
@@ -43,12 +59,13 @@ const OrgBilling: FC = () => {
       return
     }
     
-    const result = await api.post(`/api/v1/subscription/new`, { org_id: orgId }, {}, {
-      loading: true,
-      snackbar: true,
+    // const result = await api.post(`/api/v1/subscription/new`, { org_id: orgId }, {}, {
+    const resp = await client.v1SubscriptionNewCreate({
+      org_id: orgId
     })
-    if (!result) return
-    document.location = result
+    if (!resp.data) return
+
+    document.location = resp.data
   }, [api, orgId, snackbar])
 
   const handleManage = useCallback(async () => {
@@ -57,12 +74,11 @@ const OrgBilling: FC = () => {
       return
     }
     
-    const result = await api.post(`/api/v1/subscription/manage`, { org_id: orgId }, {}, {
-      loading: true,
-      snackbar: true,
+    const resp = await client.v1SubscriptionManageCreate({
+      org_id: orgId
     })
-    if (!result) return
-    document.location = result
+    if (!resp.data) return
+    document.location = resp.data
   }, [api, orgId, snackbar])
 
   const handleTopUp = useCallback(async () => {
@@ -88,6 +104,11 @@ const OrgBilling: FC = () => {
 
   // Check if user has admin permissions for this org
   const isReadOnly = !account.isOrgAdmin
+
+  // Check if subscription is active based on wallet status from backend
+  // The wallet contains subscription information from Stripe stored in the database
+  const extendedWallet = wallet as ExtendedWallet
+  const isSubscriptionActive = extendedWallet?.subscription_status === 'active'
 
   return (
     <Page
@@ -131,7 +152,7 @@ const OrgBilling: FC = () => {
                       <Box sx={{ flex: 1 }}>
                         <Typography variant="h6" gutterBottom>Organization Balance</Typography>
                         <Typography variant="h4" gutterBottom color="primary">
-                          ${wallet?.balance?.toFixed(2) || '0.00'}
+                          ${extendedWallet?.balance?.toFixed(2) || '0.00'}
                         </Typography>
                         <Typography variant="body2" color="text.secondary" gutterBottom>
                           Available credits for {organization.display_name || organization.name}
@@ -169,21 +190,47 @@ const OrgBilling: FC = () => {
                 <Grid item xs={12} md={colSize}>
                   <Box sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
                     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                      {/* Note: Organization subscription logic would need to be implemented in the backend */}
-                      <Box sx={{ flex: 1 }}>
-                        <Typography variant="h6" gutterBottom>Organization Subscription</Typography>
-                        <Typography variant="h4" gutterBottom color="primary">Helix Enterprise</Typography>
-                        <Typography variant="body2" gutterBottom>
-                          Enhanced quotas, priority support, and advanced organization features for teams.
-                        </Typography>
-                      </Box>
-                      
-                      {!isReadOnly && (
-                        <Box sx={{ display: 'flex', mb: 1, justifyContent: 'flex-end' }}>
-                          <Button variant="contained" color="secondary" sx={{ minWidth: 140 }} onClick={handleSubscribe}>
-                            Manage Subscription
-                          </Button>
-                        </Box>
+                      {isSubscriptionActive ? (
+                        <>
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="h6" gutterBottom>Organization Subscription</Typography>
+                            <Typography variant="h4" gutterBottom color="primary">Helix Enterprise</Typography>
+                            <Typography variant="body2" gutterBottom>
+                              Enhanced quotas, priority support, and advanced organization features for teams.
+                            </Typography>
+                            {extendedWallet?.subscription_current_period_end && (
+                              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                Next billing: {new Date(extendedWallet.subscription_current_period_end * 1000).toLocaleDateString()}
+                              </Typography>
+                            )}
+                          </Box>
+                          
+                          {!isReadOnly && (
+                            <Box sx={{ display: 'flex', mb: 1, justifyContent: 'flex-end' }}>
+                              <Button variant="contained" color="secondary" sx={{ minWidth: 140 }} onClick={handleManage}>
+                                Manage Subscription
+                              </Button>
+                            </Box>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="h6" gutterBottom>Organization Subscription</Typography>
+                            <Typography variant="h4" gutterBottom color="text.secondary">Not Active</Typography>
+                            <Typography variant="body2" gutterBottom>
+                              Subscribe to Helix Enterprise for enhanced quotas, priority support, and advanced organization features.
+                            </Typography>
+                          </Box>
+                          
+                          {!isReadOnly && (
+                            <Box sx={{ display: 'flex', mb: 1, justifyContent: 'flex-end' }}>
+                              <Button variant="contained" color="primary" sx={{ minWidth: 140 }} onClick={handleSubscribe}>
+                                Start Subscription
+                              </Button>
+                            </Box>
+                          )}
+                        </>
                       )}
                     </Box>
                   </Box>

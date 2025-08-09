@@ -382,6 +382,17 @@ export interface SqlNullString {
   valid?: boolean;
 }
 
+export enum StripeSubscriptionStatus {
+  SubscriptionStatusActive = "active",
+  SubscriptionStatusCanceled = "canceled",
+  SubscriptionStatusIncomplete = "incomplete",
+  SubscriptionStatusIncompleteExpired = "incomplete_expired",
+  SubscriptionStatusPastDue = "past_due",
+  SubscriptionStatusPaused = "paused",
+  SubscriptionStatusTrialing = "trialing",
+  SubscriptionStatusUnpaid = "unpaid",
+}
+
 export interface SystemHTTPError {
   message?: string;
   statusCode?: number;
@@ -2109,7 +2120,10 @@ export interface TypesWallet {
   org_id?: string;
   stripe_customer_id?: string;
   stripe_subscription_id?: string;
-  subscription_active?: boolean;
+  subscription_created?: number;
+  subscription_current_period_end?: number;
+  subscription_current_period_start?: number;
+  subscription_status?: StripeSubscriptionStatus;
   updated_at?: string;
   user_id?: string;
 }
