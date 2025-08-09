@@ -91,10 +91,11 @@ func (s *Stripe) getSubscriptionURL(id string) string {
 }
 
 type TopUpSessionParams struct {
-	OrgID     string
-	UserID    string
-	UserEmail string
-	Amount    float64
+	StripeCustomerID string
+	OrgID            string
+	OrgName          string // Used for redirect URL (for example 'acme-org' for 'orgs/acme-org/billing')
+	UserID           string
+	Amount           float64
 }
 
 func (s *Stripe) GetTopUpSessionURL(
@@ -107,6 +108,16 @@ func (s *Stripe) GetTopUpSessionURL(
 
 	// Convert amount to cents for Stripe
 	amountInCents := int64(params.Amount * 100)
+
+	successURL := s.Cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"
+	if params.OrgID != "" {
+		successURL = s.Cfg.AppURL + "/orgs/" + params.OrgName + "/billing?success=true&session_id={CHECKOUT_SESSION_ID}"
+	}
+
+	cancelURL := s.Cfg.AppURL + "/account?canceled=true"
+	if params.OrgID != "" {
+		cancelURL = s.Cfg.AppURL + "/orgs/" + params.OrgName + "/billing?canceled=true"
+	}
 
 	checkoutParams := &stripe.CheckoutSessionParams{
 		Mode: stripe.String(string(stripe.CheckoutSessionModePayment)),
@@ -131,9 +142,9 @@ func (s *Stripe) GetTopUpSessionURL(
 				Quantity: stripe.Int64(1),
 			},
 		},
-		CustomerEmail: stripe.String(params.UserEmail),
-		SuccessURL:    stripe.String(s.Cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"),
-		CancelURL:     stripe.String(s.Cfg.AppURL + "/account?canceled=true"),
+		Customer:   stripe.String(params.StripeCustomerID),
+		SuccessURL: stripe.String(successURL),
+		CancelURL:  stripe.String(cancelURL),
 	}
 
 	newSession, err := session.New(checkoutParams)

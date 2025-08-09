@@ -2875,6 +2875,14 @@ const docTemplate = `{
                     "wallets"
                 ],
                 "summary": "Create a subscription",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "Subscription session URL",
