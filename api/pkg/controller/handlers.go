@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -251,72 +250,4 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 		Queue:               queue,
 		SchedulingDecisions: schedulingDecisions,
 	}, nil
-}
-
-func (c *Controller) updateSubscriptionUser(userID string, stripeCustomerID string, stripeSubscriptionID string, active bool) error {
-	existingUser, err := c.Options.Store.GetUserMeta(context.Background(), userID)
-	if err != nil || existingUser != nil {
-		existingUser = &types.UserMeta{
-			ID: userID,
-			Config: types.UserConfig{
-				StripeCustomerID:     stripeCustomerID,
-				StripeSubscriptionID: stripeSubscriptionID,
-			},
-		}
-	}
-	existingUser.Config.StripeSubscriptionActive = active
-	_, err = c.Options.Store.EnsureUserMeta(context.Background(), *existingUser)
-	return err
-}
-
-func (c *Controller) HandleSubscriptionEvent(eventType types.SubscriptionEventType, user types.StripeUser) error {
-	isSubscriptionActive := true
-	if eventType == types.SubscriptionEventTypeDeleted {
-		isSubscriptionActive = false
-	}
-	err := c.updateSubscriptionUser(user.HelixID, user.StripeID, user.SubscriptionID, isSubscriptionActive)
-	if err != nil {
-		return err
-	}
-	return c.Options.Janitor.WriteSubscriptionEvent(eventType, user)
-}
-
-func (c *Controller) HandleTopUpEvent(userID string, amount float64) error {
-	ctx := context.Background()
-
-	// Get or create user's wallet
-	wallet, err := c.Options.Store.GetWalletByUser(ctx, userID)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			// Create wallet if it doesn't exist
-			wallet, err = c.Options.Store.CreateWallet(ctx, &types.Wallet{
-				UserID:  userID,
-				Balance: c.Options.Config.Stripe.InitialBalance,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to create wallet for user %s: %w", userID, err)
-			}
-		} else {
-			return fmt.Errorf("failed to get wallet for user %s: %w", userID, err)
-		}
-	}
-
-	// Create topup record
-	topUp := &types.TopUp{
-		WalletID: wallet.ID,
-		Amount:   amount,
-	}
-
-	_, err = c.Options.Store.CreateTopUp(ctx, topUp)
-	if err != nil {
-		return fmt.Errorf("failed to create topup for user %s: %w", userID, err)
-	}
-
-	log.Info().
-		Str("user_id", userID).
-		Float64("amount", amount).
-		Str("wallet_id", wallet.ID).
-		Msg("topup completed successfully")
-
-	return nil
 }

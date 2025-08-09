@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/rs/zerolog/log"
 )
 
 // getWalletHandler godoc
@@ -28,12 +28,17 @@ func (s *HelixAPIServer) getWalletHandler(_ http.ResponseWriter, req *http.Reque
 
 	orgID := req.URL.Query().Get("org_id")
 	if orgID != "" {
-		// Authorize org member
-		_, err := s.authorizeOrgMember(req.Context(), user, orgID)
+		org, err := s.lookupOrg(req.Context(), orgID)
 		if err != nil {
-			log.Err(err).Msg("error authorizing org owner")
-			return nil, system.NewHTTPError403("Could not authorize org owner: " + err.Error())
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to lookup org: %s", err))
 		}
+
+		_, err = s.authorizeOrgOwner(req.Context(), user, org.ID)
+		if err != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to authorize org owner: %s", err))
+		}
+
+		orgID = org.ID
 	}
 
 	wallet, err := s.getOrCreateWallet(ctx, user, orgID)
@@ -47,7 +52,15 @@ func (s *HelixAPIServer) getWalletHandler(_ http.ResponseWriter, req *http.Reque
 func (s *HelixAPIServer) getOrCreateWallet(ctx context.Context, user *types.User, orgID string) (*types.Wallet, error) {
 	// Org paths
 	if orgID != "" {
-		wallet, err := s.Store.GetWalletByOrg(ctx, orgID)
+		// Check if org exists
+		org, err := s.Store.GetOrganization(ctx, &store.GetOrganizationQuery{
+			ID: orgID,
+		})
+		if err != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to get organization %s, error: %s", orgID, err))
+		}
+
+		wallet, err := s.Store.GetWalletByOrg(ctx, org.ID)
 		if err == nil {
 			return wallet, nil
 		}
@@ -125,10 +138,17 @@ func (s *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (
 	}
 
 	if requestBody.OrgID != "" {
-		_, err := s.authorizeOrgOwner(req.Context(), user, requestBody.OrgID)
+		org, err := s.lookupOrg(req.Context(), requestBody.OrgID)
+		if err != nil {
+			return "", fmt.Errorf("failed to lookup org: %w", err)
+		}
+
+		_, err = s.authorizeOrgOwner(req.Context(), user, org.ID)
 		if err != nil {
 			return "", fmt.Errorf("failed to authorize org owner: %w", err)
 		}
+
+		requestBody.OrgID = org.ID
 	}
 
 	// Validate amount
@@ -162,6 +182,24 @@ func (s *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (
 	return s.Stripe.GetTopUpSessionURL(params)
 }
 
+func (s *HelixAPIServer) lookupOrg(ctx context.Context, orgStr string) (*types.Organization, error) {
+	query := &store.GetOrganizationQuery{}
+
+	if strings.HasPrefix(orgStr, "org_") {
+		query.ID = orgStr
+	} else {
+		// Lookup by ID
+		query.Name = orgStr
+	}
+
+	org, err := s.Store.GetOrganization(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get organization: %w", err)
+	}
+
+	return org, nil
+}
+
 // subscriptionCreate godoc
 // @Summary Create a subscription
 // @Description Create a subscription
@@ -174,11 +212,19 @@ func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Req
 	user := getRequestUser(req)
 
 	orgID := req.URL.Query().Get("org_id")
+
 	if orgID != "" {
-		_, err := s.authorizeOrgOwner(req.Context(), user, orgID)
+		org, err := s.lookupOrg(req.Context(), orgID)
+		if err != nil {
+			return "", fmt.Errorf("failed to lookup org: %w", err)
+		}
+
+		_, err = s.authorizeOrgOwner(req.Context(), user, org.ID)
 		if err != nil {
 			return "", fmt.Errorf("failed to authorize org owner: %w", err)
 		}
+
+		orgID = org.ID
 	}
 
 	wallet, err := s.getOrCreateWallet(req.Context(), user, orgID)
@@ -207,10 +253,17 @@ func (s *HelixAPIServer) subscriptionManage(_ http.ResponseWriter, req *http.Req
 
 	orgID := req.URL.Query().Get("org_id")
 	if orgID != "" {
-		_, err := s.authorizeOrgOwner(req.Context(), user, orgID)
+		org, err := s.lookupOrg(req.Context(), orgID)
+		if err != nil {
+			return "", fmt.Errorf("failed to lookup org: %w", err)
+		}
+
+		_, err = s.authorizeOrgOwner(req.Context(), user, org.ID)
 		if err != nil {
 			return "", fmt.Errorf("failed to authorize org owner: %w", err)
 		}
+
+		orgID = org.ID
 	}
 
 	wallet, err := s.getOrCreateWallet(req.Context(), user, orgID)
