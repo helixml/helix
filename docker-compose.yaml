@@ -184,22 +184,27 @@ services:
     restart: always
     depends_on:
       - vectorchord-kodit # Wait for VectorChord to start before Kodit
+      - api
     environment:
       - DATA_DIR=/data
       - DB_URL=postgresql+asyncpg://postgres:${PGVECTOR_PASSWORD-pgvector}@vectorchord-kodit:5432/kodit
       - DEFAULT_SEARCH_PROVIDER=vectorchord
 
       # External embedding provider
-      - EMBEDDING_ENDPOINT_TYPE=openai
-      - EMBEDDING_ENDPOINT_BASE_URL=https://api.openai.com/v1
-      - EMBEDDING_ENDPOINT_API_KEY=${OPENAI_API_KEY:-}
-      - EMBEDDING_ENDPOINT_MODEL=text-embedding-3-small
+      # - EMBEDDING_ENDPOINT_TYPE=openai
+      # - EMBEDDING_ENDPOINT_SOCKET_PATH=/socket/embeddings.sock
+      # - EMBEDDING_ENDPOINT_BASE_URL=http://api:8080/v1
+      # - EMBEDDING_ENDPOINT_MODEL=MrLight/dse-qwen2-2b-mrl-v1
+      # - EMBEDDING_ENDPOINT_NUM_PARALLEL_TASKS=1
+      # - EMBEDDING_ENDPOINT_TIMEOUT=120
 
       # External enrichment provider
       - ENRICHMENT_ENDPOINT_TYPE=openai
-      - ENRICHMENT_ENDPOINT_BASE_URL=https://api.openai.com/v1
-      - ENRICHMENT_ENDPOINT_API_KEY=${OPENAI_API_KEY:-}
-      - ENRICHMENT_ENDPOINT_MODEL=o3-mini
+      - ENRICHMENT_ENDPOINT_SOCKET_PATH=/socket/embeddings.sock
+      - ENRICHMENT_ENDPOINT_BASE_URL=http://api:8080/v1
+      - ENRICHMENT_ENDPOINT_MODEL=qwen3:8b
+      - ENRICHMENT_ENDPOINT_NUM_PARALLEL_TASKS=3
+      - ENRICHMENT_ENDPOINT_TIMEOUT=120
 
       # Sync configuration
       - SYNC_PERIODIC_ENABLED=true
@@ -215,6 +220,7 @@ services:
 
     volumes:
       - ${KODIT_DATA:-helix-kodit}:/data
+      - helix-socket:/socket
 
   vectorchord-kodit:
     profiles: [kodit]
