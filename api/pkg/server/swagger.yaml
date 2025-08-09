@@ -536,6 +536,13 @@ definitions:
         - $ref: '#/definitions/types.User'
         description: Owner user struct, populated by the server for organization views
     type: object
+  server.CreateTopUpRequest:
+    properties:
+      amount:
+        type: number
+      org_id:
+        type: string
+    type: object
   server.LicenseKeyRequest:
     properties:
       license_key:
@@ -575,13 +582,11 @@ definitions:
     enum:
     - ""
     - api
-    - github
     - app
     type: string
     x-enum-varnames:
     - APIkeytypeNone
     - APIkeytypeAPI
-    - APIkeytypeGithub
     - APIkeytypeApp
   types.AccessGrant:
     properties:
@@ -5260,6 +5265,32 @@ paths:
       summary: Reload skills
       tags:
       - skills
+  /api/v1/subscription/manage:
+    post:
+      description: Manage a subscription
+      responses:
+        "200":
+          description: Subscription session URL
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Manage a subscription
+      tags:
+      - wallets
+  /api/v1/subscription/new:
+    post:
+      description: Create a subscription
+      responses:
+        "200":
+          description: Subscription session URL
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Create a subscription
+      tags:
+      - wallets
   /api/v1/top-ups/new:
     post:
       description: Create a top up with specified amount
@@ -5269,8 +5300,7 @@ paths:
         name: request
         required: true
         schema:
-          additionalProperties: true
-          type: object
+          $ref: '#/definitions/server.CreateTopUpRequest'
       responses:
         "200":
           description: Top up session URL
@@ -5280,7 +5310,7 @@ paths:
       - BearerAuth: []
       summary: Create a top up
       tags:
-      - top-ups
+      - wallets
   /api/v1/triggers:
     get:
       description: List all triggers configurations for either user or the org or
