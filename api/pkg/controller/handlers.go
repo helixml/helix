@@ -251,31 +251,3 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 		SchedulingDecisions: schedulingDecisions,
 	}, nil
 }
-
-func (c *Controller) updateSubscriptionUser(userID string, stripeCustomerID string, stripeSubscriptionID string, active bool) error {
-	existingUser, err := c.Options.Store.GetUserMeta(context.Background(), userID)
-	if err != nil || existingUser != nil {
-		existingUser = &types.UserMeta{
-			ID: userID,
-			Config: types.UserConfig{
-				StripeCustomerID:     stripeCustomerID,
-				StripeSubscriptionID: stripeSubscriptionID,
-			},
-		}
-	}
-	existingUser.Config.StripeSubscriptionActive = active
-	_, err = c.Options.Store.EnsureUserMeta(context.Background(), *existingUser)
-	return err
-}
-
-func (c *Controller) HandleSubscriptionEvent(eventType types.SubscriptionEventType, user types.StripeUser) error {
-	isSubscriptionActive := true
-	if eventType == types.SubscriptionEventTypeDeleted {
-		isSubscriptionActive = false
-	}
-	err := c.updateSubscriptionUser(user.HelixID, user.StripeID, user.SubscriptionID, isSubscriptionActive)
-	if err != nil {
-		return err
-	}
-	return c.Options.Janitor.WriteSubscriptionEvent(eventType, user)
-}

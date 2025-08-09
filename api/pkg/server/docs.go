@@ -23,6 +23,96 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/v1/api_keys": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get API keys",
+                "tags": [
+                    "api-keys"
+                ],
+                "summary": "Get API keys",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by types (comma-separated list)",
+                        "name": "types",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by app ID",
+                        "name": "app_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.ApiKey"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Create a new API key",
+                "tags": [
+                    "api-keys"
+                ],
+                "summary": "Create a new API key",
+                "parameters": [
+                    {
+                        "description": "Request body with name and type",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "API key",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Delete an API key",
+                "tags": [
+                    "api-keys"
+                ],
+                "summary": "Delete an API key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "API key to delete",
+                        "name": "key",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "API key",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps": {
             "get": {
                 "security": [
@@ -2751,6 +2841,99 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/subscription/manage": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Manage a subscription",
+                "tags": [
+                    "wallets"
+                ],
+                "summary": "Manage a subscription",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Subscription session URL",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/subscription/new": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a subscription",
+                "tags": [
+                    "wallets"
+                ],
+                "summary": "Create a subscription",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Subscription session URL",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/top-ups/new": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a top up with specified amount",
+                "tags": [
+                    "wallets"
+                ],
+                "summary": "Create a top up",
+                "parameters": [
+                    {
+                        "description": "Request body with amount",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.CreateTopUpRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Top up session URL",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/triggers": {
             "get": {
                 "security": [
@@ -2967,6 +3150,75 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get daily usage",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "usage"
+                ],
+                "summary": "Get daily usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Start date",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users/search": {
             "get": {
                 "security": [
@@ -3033,6 +3285,36 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.UserTokenUsageResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/wallet": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a wallet",
+                "tags": [
+                    "wallets"
+                ],
+                "summary": "Get a wallet",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Wallet"
                         }
                     }
                 }
@@ -3866,6 +4148,17 @@ const docTemplate = `{
                 }
             }
         },
+        "server.CreateTopUpRequest": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "number"
+                },
+                "org_id": {
+                    "type": "string"
+                }
+            }
+        },
         "server.LicenseKeyRequest": {
             "type": "object",
             "properties": {
@@ -3897,6 +4190,41 @@ const docTemplate = `{
                 }
             }
         },
+        "sql.NullString": {
+            "type": "object",
+            "properties": {
+                "string": {
+                    "type": "string"
+                },
+                "valid": {
+                    "description": "Valid is true if String is not NULL",
+                    "type": "boolean"
+                }
+            }
+        },
+        "stripe.SubscriptionStatus": {
+            "type": "string",
+            "enum": [
+                "active",
+                "canceled",
+                "incomplete",
+                "incomplete_expired",
+                "past_due",
+                "paused",
+                "trialing",
+                "unpaid"
+            ],
+            "x-enum-varnames": [
+                "SubscriptionStatusActive",
+                "SubscriptionStatusCanceled",
+                "SubscriptionStatusIncomplete",
+                "SubscriptionStatusIncompleteExpired",
+                "SubscriptionStatusPastDue",
+                "SubscriptionStatusPaused",
+                "SubscriptionStatusTrialing",
+                "SubscriptionStatusUnpaid"
+            ]
+        },
         "system.HTTPError": {
             "type": "object",
             "properties": {
@@ -3907,6 +4235,19 @@ const docTemplate = `{
                     "type": "integer"
                 }
             }
+        },
+        "types.APIKeyType": {
+            "type": "string",
+            "enum": [
+                "",
+                "api",
+                "app"
+            ],
+            "x-enum-varnames": [
+                "APIkeytypeNone",
+                "APIkeytypeAPI",
+                "APIkeytypeApp"
+            ]
         },
         "types.AccessGrant": {
             "type": "object",
@@ -4032,6 +4373,32 @@ const docTemplate = `{
                 },
                 "total_tokens": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.ApiKey": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "$ref": "#/definitions/sql.NullString"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "owner_type": {
+                    "$ref": "#/definitions/types.OwnerType"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.APIKeyType"
                 }
             }
         },
@@ -7953,6 +8320,48 @@ const docTemplate = `{
                 },
                 "user": {
                     "$ref": "#/definitions/types.User"
+                }
+            }
+        },
+        "types.Wallet": {
+            "type": "object",
+            "properties": {
+                "balance": {
+                    "type": "number"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "org_id": {
+                    "description": "If belongs to an organization",
+                    "type": "string"
+                },
+                "stripe_customer_id": {
+                    "type": "string"
+                },
+                "stripe_subscription_id": {
+                    "type": "string"
+                },
+                "subscription_created": {
+                    "type": "integer"
+                },
+                "subscription_current_period_end": {
+                    "type": "integer"
+                },
+                "subscription_current_period_start": {
+                    "type": "integer"
+                },
+                "subscription_status": {
+                    "$ref": "#/definitions/stripe.SubscriptionStatus"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
                 }
             }
         },

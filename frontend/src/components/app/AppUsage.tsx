@@ -25,15 +25,12 @@ import {
 import RefreshIcon from '@mui/icons-material/Refresh';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import WarningIcon from '@mui/icons-material/Warning';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 // import SearchIcon from '@mui/icons-material/Search';
 import { CircleCheck, Cog, OctagonX, Search, ExternalLink, Eye } from 'lucide-react';
-import useApi from '../../hooks/useApi';
 import { TypesLLMCall, TypesInteraction, TypesInteractionState } from '../../api/api';
-import { LineChart } from '@mui/x-charts';
-import { TypesUsersAggregatedUsageMetric, TypesAggregatedUsageMetric } from '../../api/api';
+import { TypesUsersAggregatedUsageMetric } from '../../api/api';
 import useAccount from '../../hooks/useAccount';
 import LLMCallTimelineChart from './LLMCallTimelineChart';
 import LLMCallDialog from './LLMCallDialog';

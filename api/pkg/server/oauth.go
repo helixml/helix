@@ -31,8 +31,7 @@ func (s *HelixAPIServer) setupOAuthRoutes(r *mux.Router) {
 	r.HandleFunc("/oauth/connections/{id}/test", system.DefaultWrapper(s.handleTestOAuthConnection)).Methods("GET")
 
 	// OAuth flow routes (except callback which is registered in insecureRouter)
-	flowRouter := r.PathPrefix("/oauth/flow").Subrouter()
-	flowRouter.HandleFunc("/start/{provider_id}", system.DefaultWrapper(s.handleStartOAuthFlow)).Methods("GET")
+	r.HandleFunc("/oauth/flow/start/{provider_id}", system.DefaultWrapper(s.handleStartOAuthFlow)).Methods("GET")
 }
 
 // handleListOAuthProviders returns the list of available OAuth providers

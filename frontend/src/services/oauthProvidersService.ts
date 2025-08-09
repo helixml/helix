@@ -58,7 +58,7 @@ export function useDeleteOAuthProvider() {
 }
 
 // OAuth Connections methods
-export function useListOAuthConnections() {
+export function useListOAuthConnections(refetchInterval?: number) {
   const api = useApi()
   const apiClient = api.getApiClient()  
 
@@ -70,6 +70,7 @@ export function useListOAuthConnections() {
     },
     enabled: true,
     staleTime: 3 * 1000, // 3 seconds (useful when going between pages)
+    refetchInterval: refetchInterval,
   });
 }
 

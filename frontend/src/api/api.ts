@@ -358,6 +358,11 @@ export interface ServerAppCreateResponse {
   user?: TypesUser;
 }
 
+export interface ServerCreateTopUpRequest {
+  amount?: number;
+  org_id?: string;
+}
+
 export interface ServerLicenseKeyRequest {
   license_key?: string;
 }
@@ -371,9 +376,32 @@ export interface ServerModelSubstitution {
   reason?: string;
 }
 
+export interface SqlNullString {
+  string?: string;
+  /** Valid is true if String is not NULL */
+  valid?: boolean;
+}
+
+export enum StripeSubscriptionStatus {
+  SubscriptionStatusActive = "active",
+  SubscriptionStatusCanceled = "canceled",
+  SubscriptionStatusIncomplete = "incomplete",
+  SubscriptionStatusIncompleteExpired = "incomplete_expired",
+  SubscriptionStatusPastDue = "past_due",
+  SubscriptionStatusPaused = "paused",
+  SubscriptionStatusTrialing = "trialing",
+  SubscriptionStatusUnpaid = "unpaid",
+}
+
 export interface SystemHTTPError {
   message?: string;
   statusCode?: number;
+}
+
+export enum TypesAPIKeyType {
+  APIkeytypeNone = "",
+  APIkeytypeAPI = "api",
+  APIkeytypeApp = "app",
 }
 
 export interface TypesAccessGrant {
@@ -427,6 +455,16 @@ export interface TypesAggregatedUsageMetric {
   total_cost?: number;
   total_requests?: number;
   total_tokens?: number;
+}
+
+export interface TypesApiKey {
+  app_id?: SqlNullString;
+  created?: string;
+  key?: string;
+  name?: string;
+  owner?: string;
+  owner_type?: TypesOwnerType;
+  type?: TypesAPIKeyType;
 }
 
 export interface TypesApp {
@@ -2074,6 +2112,22 @@ export interface TypesUsersAggregatedUsageMetric {
   user?: TypesUser;
 }
 
+export interface TypesWallet {
+  balance?: number;
+  created_at?: string;
+  id?: string;
+  /** If belongs to an organization */
+  org_id?: string;
+  stripe_customer_id?: string;
+  stripe_subscription_id?: string;
+  subscription_created?: number;
+  subscription_current_period_end?: number;
+  subscription_current_period_start?: number;
+  subscription_status?: StripeSubscriptionStatus;
+  updated_at?: string;
+  user_id?: string;
+}
+
 export interface TypesWebsiteCrawler {
   enabled?: boolean;
   firecrawl?: TypesFirecrawl;
@@ -2240,6 +2294,71 @@ export class HttpClient<SecurityDataType = unknown> {
  */
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
+    /**
+     * @description Delete an API key
+     *
+     * @tags api-keys
+     * @name V1ApiKeysDelete
+     * @summary Delete an API key
+     * @request DELETE:/api/v1/api_keys
+     */
+    v1ApiKeysDelete: (
+      query: {
+        /** API key to delete */
+        key: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, any>({
+        path: `/api/v1/api_keys`,
+        method: "DELETE",
+        query: query,
+        ...params,
+      }),
+
+    /**
+     * @description Get API keys
+     *
+     * @tags api-keys
+     * @name V1ApiKeysList
+     * @summary Get API keys
+     * @request GET:/api/v1/api_keys
+     * @secure
+     */
+    v1ApiKeysList: (
+      query?: {
+        /** Filter by types (comma-separated list) */
+        types?: string;
+        /** Filter by app ID */
+        app_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesApiKey[], any>({
+        path: `/api/v1/api_keys`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a new API key
+     *
+     * @tags api-keys
+     * @name V1ApiKeysCreate
+     * @summary Create a new API key
+     * @request POST:/api/v1/api_keys
+     */
+    v1ApiKeysCreate: (request: Record<string, any>, params: RequestParams = {}) =>
+      this.request<string, any>({
+        path: `/api/v1/api_keys`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
+        ...params,
+      }),
+
     /**
      * @description List apps for the user. Apps are pre-configured to spawn sessions with specific tools and config.
      *
@@ -3891,6 +4010,73 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Manage a subscription
+     *
+     * @tags wallets
+     * @name V1SubscriptionManageCreate
+     * @summary Manage a subscription
+     * @request POST:/api/v1/subscription/manage
+     * @secure
+     */
+    v1SubscriptionManageCreate: (
+      query?: {
+        /** Organization ID */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, any>({
+        path: `/api/v1/subscription/manage`,
+        method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a subscription
+     *
+     * @tags wallets
+     * @name V1SubscriptionNewCreate
+     * @summary Create a subscription
+     * @request POST:/api/v1/subscription/new
+     * @secure
+     */
+    v1SubscriptionNewCreate: (
+      query?: {
+        /** Organization ID */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, any>({
+        path: `/api/v1/subscription/new`,
+        method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a top up with specified amount
+     *
+     * @tags wallets
+     * @name V1TopUpsNewCreate
+     * @summary Create a top up
+     * @request POST:/api/v1/top-ups/new
+     * @secure
+     */
+    v1TopUpsNewCreate: (request: ServerCreateTopUpRequest, params: RequestParams = {}) =>
+      this.request<string, any>({
+        path: `/api/v1/top-ups/new`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * @description List all triggers configurations for either user or the org or user within an org
      *
      * @tags apps
@@ -4014,6 +4200,36 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get daily usage
+     *
+     * @tags usage
+     * @name V1UsageList
+     * @summary Get daily usage
+     * @request GET:/api/v1/usage
+     * @secure
+     */
+    v1UsageList: (
+      query?: {
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+        /** Organization ID */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Search users by email, name, or username
      *
      * @tags users
@@ -4056,6 +4272,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesUserTokenUsageResponse, any>({
         path: `/api/v1/users/token-usage`,
         method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get a wallet
+     *
+     * @tags wallets
+     * @name V1WalletList
+     * @summary Get a wallet
+     * @request GET:/api/v1/wallet
+     * @secure
+     */
+    v1WalletList: (
+      query?: {
+        /** Organization ID */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWallet, any>({
+        path: `/api/v1/wallet`,
+        method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),

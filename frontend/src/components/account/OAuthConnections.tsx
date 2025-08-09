@@ -20,7 +20,6 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
-  SvgIcon,
 } from '@mui/material'
 import DeleteIcon from '@mui/icons-material/Delete'
 import RefreshIcon from '@mui/icons-material/Refresh'
@@ -80,7 +79,7 @@ const OAuthConnections: React.FC<{}> = () => {
     data: connectionsData, 
     isLoading: connectionsLoading, 
     error: connectionsError 
-  } = useListOAuthConnections()
+  } = useListOAuthConnections(5 * 1000) // 5 seconds
   
   const { 
     data: providersData, 

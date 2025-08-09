@@ -3,6 +3,7 @@ import React, { FC } from 'react'
 import GroupIcon from '@mui/icons-material/Group'
 import SettingsIcon from '@mui/icons-material/Settings'
 import TeamsIcon from '@mui/icons-material/Groups'
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet'
 
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
@@ -38,6 +39,13 @@ const OrgSidebar: FC = () => {
           icon: <TeamsIcon />,
           isActive: currentRouteName === 'org_teams',
           onClick: () => handleNavigationClick('org_teams')
+        },
+        {
+          id: 'billing',
+          label: 'Billing',
+          icon: <AccountBalanceWalletIcon />,
+          isActive: currentRouteName === 'org_billing',
+          onClick: () => handleNavigationClick('org_billing')
         },
         {
           id: 'settings',

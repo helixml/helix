@@ -238,8 +238,6 @@ const (
 	APIkeytypeNone APIKeyType = ""
 	// generic access token for a user
 	APIkeytypeAPI APIKeyType = "api"
-	// a github oauth token
-	APIkeytypeGithub APIKeyType = "github"
 	// a helix access token for a specific app
 	APIkeytypeApp APIKeyType = "app"
 )

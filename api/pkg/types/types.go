@@ -669,11 +669,11 @@ type OwnerContext struct {
 }
 
 type StripeUser struct {
-	StripeID        string
-	HelixID         string
-	Email           string
-	SubscriptionID  string
-	SubscriptionURL string
+	StripeCustomerID string
+	UserID           string
+	Email            string
+	SubscriptionID   string
+	SubscriptionURL  string
 }
 
 // this is given to the frontend as user context
