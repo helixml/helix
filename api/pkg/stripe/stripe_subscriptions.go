@@ -29,9 +29,15 @@ func (s *Stripe) GetCheckoutSessionURL(
 	if err != nil {
 		return "", err
 	}
+
+	priceLookupKey := s.cfg.PriceLookupKey
+	if params.OrgID != "" {
+		priceLookupKey = s.cfg.OrgPriceLookupKey
+	}
+
 	priceParams := &stripe.PriceListParams{
 		LookupKeys: stripe.StringSlice([]string{
-			s.cfg.PriceLookupKey,
+			priceLookupKey,
 		}),
 	}
 	priceResult := price.List(priceParams)
@@ -120,11 +126,6 @@ func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
 		return fmt.Errorf("no stripe customer id found in subscription")
 	}
 
-	isSubscriptionActive := true
-	if eventType == types.SubscriptionEventTypeDeleted {
-		isSubscriptionActive = false
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -134,7 +135,15 @@ func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
 	}
 
 	wallet.StripeSubscriptionID = subscription.ID
-	wallet.SubscriptionActive = isSubscriptionActive
+	wallet.SubscriptionCurrentPeriodStart = subscription.CurrentPeriodStart
+	wallet.SubscriptionCurrentPeriodEnd = subscription.CurrentPeriodEnd
+	wallet.SubscriptionCreated = subscription.Created
+
+	if eventType == types.SubscriptionEventTypeDeleted {
+		wallet.SubscriptionStatus = stripe.SubscriptionStatusCanceled
+	} else {
+		wallet.SubscriptionStatus = subscription.Status
+	}
 
 	_, err = s.store.UpdateWallet(ctx, wallet)
 	if err != nil {
