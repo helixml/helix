@@ -1566,6 +1566,21 @@ func (mr *MockStoreMockRecorder) GetWalletByOrg(ctx, orgID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWalletByOrg", reflect.TypeOf((*MockStore)(nil).GetWalletByOrg), ctx, orgID)
 }
 
+// GetWalletByStripeCustomerID mocks base method.
+func (m *MockStore) GetWalletByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*types.Wallet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWalletByStripeCustomerID", ctx, stripeCustomerID)
+	ret0, _ := ret[0].(*types.Wallet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWalletByStripeCustomerID indicates an expected call of GetWalletByStripeCustomerID.
+func (mr *MockStoreMockRecorder) GetWalletByStripeCustomerID(ctx, stripeCustomerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWalletByStripeCustomerID", reflect.TypeOf((*MockStore)(nil).GetWalletByStripeCustomerID), ctx, stripeCustomerID)
+}
+
 // GetWalletByUser mocks base method.
 func (m *MockStore) GetWalletByUser(ctx context.Context, userID string) (*types.Wallet, error) {
 	m.ctrl.T.Helper()

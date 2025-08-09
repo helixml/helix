@@ -70,6 +70,22 @@ func (s *PostgresStore) GetWalletByUser(ctx context.Context, userID string) (*ty
 	return &wallet, nil
 }
 
+func (s *PostgresStore) GetWalletByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*types.Wallet, error) {
+	if stripeCustomerID == "" {
+		return nil, fmt.Errorf("stripe_customer_id not specified")
+	}
+
+	var wallet types.Wallet
+	err := s.gdb.WithContext(ctx).Where("stripe_customer_id = ?", stripeCustomerID).First(&wallet).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &wallet, nil
+}
+
 func (s *PostgresStore) GetWalletByOrg(ctx context.Context, orgID string) (*types.Wallet, error) {
 	if orgID == "" {
 		return nil, fmt.Errorf("org_id not specified")
@@ -86,6 +102,7 @@ func (s *PostgresStore) GetWalletByOrg(ctx context.Context, orgID string) (*type
 	return &wallet, nil
 }
 
+// UpdateWallet updates subscription ID, status (does not update balance, for that use dedicated method)
 func (s *PostgresStore) UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error) {
 	if wallet.ID == "" {
 		return nil, fmt.Errorf("id not specified")
@@ -93,7 +110,16 @@ func (s *PostgresStore) UpdateWallet(ctx context.Context, wallet *types.Wallet) 
 
 	wallet.UpdatedAt = time.Now()
 
-	err := s.gdb.WithContext(ctx).Save(wallet).Error
+	err := s.gdb.WithContext(ctx).Updates(
+		map[string]interface{}{
+			"updated_at":                        wallet.UpdatedAt,
+			"stripe_subscription_id":            wallet.StripeSubscriptionID,
+			"subscription_status":               wallet.SubscriptionStatus,
+			"subscription_current_period_start": wallet.SubscriptionCurrentPeriodStart,
+			"subscription_current_period_end":   wallet.SubscriptionCurrentPeriodEnd,
+			"subscription_created":              wallet.SubscriptionCreated,
+		},
+	).Where("id = ?", wallet.ID).Error
 	if err != nil {
 		return nil, err
 	}
