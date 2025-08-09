@@ -358,6 +358,11 @@ export interface ServerAppCreateResponse {
   user?: TypesUser;
 }
 
+export interface ServerCreateTopUpRequest {
+  amount?: number;
+  org_id?: string;
+}
+
 export interface ServerLicenseKeyRequest {
   license_key?: string;
 }
@@ -385,7 +390,6 @@ export interface SystemHTTPError {
 export enum TypesAPIKeyType {
   APIkeytypeNone = "",
   APIkeytypeAPI = "api",
-  APIkeytypeGithub = "github",
   APIkeytypeApp = "app",
 }
 
@@ -2103,6 +2107,9 @@ export interface TypesWallet {
   id?: string;
   /** If belongs to an organization */
   org_id?: string;
+  stripe_customer_id?: string;
+  stripe_subscription_id?: string;
+  subscription_active?: boolean;
   updated_at?: string;
   user_id?: string;
 }
@@ -3989,15 +3996,63 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Manage a subscription
+     *
+     * @tags wallets
+     * @name V1SubscriptionManageCreate
+     * @summary Manage a subscription
+     * @request POST:/api/v1/subscription/manage
+     * @secure
+     */
+    v1SubscriptionManageCreate: (
+      query?: {
+        /** Organization ID */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, any>({
+        path: `/api/v1/subscription/manage`,
+        method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a subscription
+     *
+     * @tags wallets
+     * @name V1SubscriptionNewCreate
+     * @summary Create a subscription
+     * @request POST:/api/v1/subscription/new
+     * @secure
+     */
+    v1SubscriptionNewCreate: (
+      query?: {
+        /** Organization ID */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, any>({
+        path: `/api/v1/subscription/new`,
+        method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Create a top up with specified amount
      *
-     * @tags top-ups
+     * @tags wallets
      * @name V1TopUpsNewCreate
      * @summary Create a top up
      * @request POST:/api/v1/top-ups/new
      * @secure
      */
-    v1TopUpsNewCreate: (request: Record<string, any>, params: RequestParams = {}) =>
+    v1TopUpsNewCreate: (request: ServerCreateTopUpRequest, params: RequestParams = {}) =>
       this.request<string, any>({
         path: `/api/v1/top-ups/new`,
         method: "POST",
