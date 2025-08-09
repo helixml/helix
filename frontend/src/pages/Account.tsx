@@ -51,7 +51,7 @@ const Account: FC = () => {
   const snackbar = useSnackbar()
   const themeConfig = useThemeConfig()
   const { data: wallet } = useGetUserWallet()
-  const [topUpAmount, setTopUpAmount] = useState<number>(20)
+  const [topUpAmount, setTopUpAmount] = useState<number>(10)
 
   const { data: usage } = useGetUserUsage()
   const [showApiKey, setShowApiKey] = useState(false)
