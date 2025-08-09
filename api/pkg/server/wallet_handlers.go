@@ -131,12 +131,26 @@ func (s *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (
 	return s.Stripe.GetTopUpSessionURL(params)
 }
 
+// subscriptionCreate godoc
+// @Summary Create a subscription
+// @Description Create a subscription
+// @Tags    wallets
+// @Success 200 {string} string "Subscription session URL"
+// @Router /api/v1/subscription/new [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Request) (string, error) {
 	user := getRequestUser(req)
 
 	return s.Stripe.GetCheckoutSessionURL(user.ID, user.Email)
 }
 
+// subscriptionManage godoc
+// @Summary Manage a subscription
+// @Description Manage a subscription
+// @Tags    wallets
+// @Success 200 {string} string "Subscription session URL"
+// @Router /api/v1/subscription/manage [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) subscriptionManage(_ http.ResponseWriter, req *http.Request) (string, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()

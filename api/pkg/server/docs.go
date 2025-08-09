@@ -2841,6 +2841,50 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/subscription/manage": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Manage a subscription",
+                "tags": [
+                    "wallets"
+                ],
+                "summary": "Manage a subscription",
+                "responses": {
+                    "200": {
+                        "description": "Subscription session URL",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/subscription/new": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a subscription",
+                "tags": [
+                    "wallets"
+                ],
+                "summary": "Create a subscription",
+                "responses": {
+                    "200": {
+                        "description": "Subscription session URL",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/top-ups/new": {
             "post": {
                 "security": [
@@ -2850,7 +2894,7 @@ const docTemplate = `{
                 ],
                 "description": "Create a top up with specified amount",
                 "tags": [
-                    "top-ups"
+                    "wallets"
                 ],
                 "summary": "Create a top up",
                 "parameters": [
@@ -2860,8 +2904,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/server.CreateTopUpRequest"
                         }
                     }
                 ],
@@ -4089,6 +4132,17 @@ const docTemplate = `{
                 }
             }
         },
+        "server.CreateTopUpRequest": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "number"
+                },
+                "org_id": {
+                    "type": "string"
+                }
+            }
+        },
         "server.LicenseKeyRequest": {
             "type": "object",
             "properties": {
@@ -4148,13 +4202,11 @@ const docTemplate = `{
             "enum": [
                 "",
                 "api",
-                "github",
                 "app"
             ],
             "x-enum-varnames": [
                 "APIkeytypeNone",
                 "APIkeytypeAPI",
-                "APIkeytypeGithub",
                 "APIkeytypeApp"
             ]
         },
