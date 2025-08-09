@@ -460,12 +460,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	stripe := stripe.NewStripe(
 		cfg.Stripe,
-		func(eventType types.SubscriptionEventType, user types.StripeUser) error {
-			return appController.HandleSubscriptionEvent(eventType, user)
-		},
-		func(userID string, amount float64) error {
-			return appController.HandleTopUpEvent(userID, amount)
-		},
+		postgresStore,
 	)
 
 	// Initialize ping service if not disabled
