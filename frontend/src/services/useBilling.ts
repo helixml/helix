@@ -7,7 +7,7 @@ export const userWalletQueryKey = (orgId?: string) => [
   orgId
 ];
 
-export function useGetUserWallet(orgId?: string) {
+export function useGetWallet(orgId?: string) {
   const api = useApi()
   const apiClient = api.getApiClient()  
 
