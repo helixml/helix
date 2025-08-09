@@ -5281,6 +5281,11 @@ paths:
   /api/v1/subscription/new:
     post:
       description: Create a subscription
+      parameters:
+      - description: Organization ID
+        in: query
+        name: org_id
+        type: string
       responses:
         "200":
           description: Subscription session URL

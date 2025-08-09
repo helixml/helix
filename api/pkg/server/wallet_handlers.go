@@ -45,6 +45,7 @@ func (s *HelixAPIServer) getWalletHandler(_ http.ResponseWriter, req *http.Reque
 }
 
 func (s *HelixAPIServer) getOrCreateWallet(ctx context.Context, user *types.User, orgID string) (*types.Wallet, error) {
+	// Org paths
 	if orgID != "" {
 		wallet, err := s.Store.GetWalletByOrg(ctx, orgID)
 		if err == nil {
@@ -55,9 +56,16 @@ func (s *HelixAPIServer) getOrCreateWallet(ctx context.Context, user *types.User
 			return nil, system.NewHTTPError500(fmt.Sprintf("failed to get wallet for org %s, error: %s", orgID, err))
 		}
 
+		// Create stripe customer
+		stripeCustomerID, err := s.Stripe.CreateStripeCustomer(user, orgID)
+		if err != nil {
+			return nil, system.NewHTTPError500(fmt.Sprintf("failed to create stripe customer for org %s, error: %s", orgID, err))
+		}
+
 		wallet, err = s.Store.CreateWallet(ctx, &types.Wallet{
-			OrgID:   orgID,
-			Balance: s.Cfg.Stripe.InitialBalance,
+			OrgID:            orgID,
+			Balance:          s.Cfg.Stripe.InitialBalance,
+			StripeCustomerID: stripeCustomerID,
 		})
 		if err != nil {
 			return nil, system.NewHTTPError500(fmt.Sprintf("failed to create wallet for org %s, error: %s", orgID, err))
@@ -76,9 +84,16 @@ func (s *HelixAPIServer) getOrCreateWallet(ctx context.Context, user *types.User
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get wallet for user %s, error: %s", user.ID, err))
 	}
 
+	// Create stripe customer
+	stripeCustomerID, err := s.Stripe.CreateStripeCustomer(user, "")
+	if err != nil {
+		return nil, system.NewHTTPError500(fmt.Sprintf("failed to create stripe customer for user %s, error: %s", user.ID, err))
+	}
+
 	wallet, err = s.Store.CreateWallet(ctx, &types.Wallet{
-		UserID:  user.ID,
-		Balance: s.Cfg.Stripe.InitialBalance,
+		UserID:           user.ID,
+		Balance:          s.Cfg.Stripe.InitialBalance,
+		StripeCustomerID: stripeCustomerID,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to create wallet for user %s, error: %s", user.ID, err))
@@ -121,11 +136,27 @@ func (s *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (
 		return "", fmt.Errorf("amount must be greater than 0")
 	}
 
+	// Get wallet
+	wallet, err := s.getOrCreateWallet(req.Context(), user, requestBody.OrgID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get or create wallet: %w", err)
+	}
+
 	params := stripe.TopUpSessionParams{
-		OrgID:     requestBody.OrgID,
-		UserID:    user.ID,
-		UserEmail: user.Email,
-		Amount:    requestBody.Amount,
+		StripeCustomerID: wallet.StripeCustomerID,
+		OrgID:            requestBody.OrgID,
+		UserID:           user.ID,
+		Amount:           requestBody.Amount,
+	}
+
+	if requestBody.OrgID != "" {
+		org, err := s.Store.GetOrganization(req.Context(), &store.GetOrganizationQuery{
+			ID: requestBody.OrgID,
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to get organization: %w", err)
+		}
+		params.OrgName = org.Name // Using 'slug' as this will be used in the redirect URL
 	}
 
 	return s.Stripe.GetTopUpSessionURL(params)
@@ -136,12 +167,21 @@ func (s *HelixAPIServer) createTopUp(_ http.ResponseWriter, req *http.Request) (
 // @Description Create a subscription
 // @Tags    wallets
 // @Success 200 {string} string "Subscription session URL"
+// @Param   org_id query string false "Organization ID"
 // @Router /api/v1/subscription/new [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Request) (string, error) {
 	user := getRequestUser(req)
 
-	return s.Stripe.GetCheckoutSessionURL(user.ID, user.Email)
+	orgID := req.URL.Query().Get("org_id")
+	if orgID != "" {
+		_, err := s.authorizeOrgOwner(req.Context(), user, orgID)
+		if err != nil {
+			return "", fmt.Errorf("failed to authorize org owner: %w", err)
+		}
+	}
+
+	return s.Stripe.GetCheckoutSessionURL(orgID, user.ID, user.Email)
 }
 
 // subscriptionManage godoc
