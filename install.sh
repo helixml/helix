@@ -60,6 +60,15 @@ elif [ "$OS" = "darwin" ]; then
     INSTALL_DIR="$HOME/HelixML"
 fi
 
+  # Compose command (sudo-aware) + fallback to legacy docker-compose
+  COMPOSE_CMD="fi compose"
+  if ! $COMPOSE_CMD version >/dev/null 2>&1; then
+    if command -v docker-compose >/dev/null 2>&1; then
+      COMPOSE_CMD="docker-compose"
+    fi
+  fi
+
+
 # Function to check if docker works without sudo
 check_docker_sudo() {
     # Try without sudo first
@@ -305,7 +314,7 @@ install_docker() {
         fi
     fi
 
-    if ! docker compose version &> /dev/null; then
+    if ! $COMPOSE_CMD version &> /dev/null; then
         echo "Docker Compose plugin not found. Installing Docker Compose plugin..."
         sudo apt-get update
         sudo apt-get install -y docker-compose-plugin
@@ -848,9 +857,9 @@ EOF"
     echo "│"
     echo "│ cd $INSTALL_DIR"
     if [ "$NEED_SUDO" = "true" ]; then
-        echo "│ sudo docker compose up -d --remove-orphans"
+        echo "│ $COMPOSE_CMD up -d --remove-orphans"
     else
-        echo "│ docker compose up -d --remove-orphans"
+        echo "│ $COMPOSE_CMD up -d --remove-orphans"
     fi
     if [ "$CADDY" = true ]; then
         echo "│ sudo systemctl restart caddy"
