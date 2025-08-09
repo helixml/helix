@@ -150,7 +150,7 @@ const OrgBilling: FC = () => {
                   <Box sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column', backgroundColor: 'transparent', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
                     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                       <Box sx={{ flex: 1 }}>
-                        <Typography variant="h6" gutterBottom>Organization Balance</Typography>
+                        <Typography variant="h6" gutterBottom>Balance</Typography>
                         <Typography variant="h4" gutterBottom color="primary">
                           ${extendedWallet?.balance?.toFixed(2) || '0.00'}
                         </Typography>
@@ -193,8 +193,8 @@ const OrgBilling: FC = () => {
                       {isSubscriptionActive ? (
                         <>
                           <Box sx={{ flex: 1 }}>
-                            <Typography variant="h6" gutterBottom>Organization Subscription</Typography>
-                            <Typography variant="h4" gutterBottom color="primary">Helix Enterprise</Typography>
+                            <Typography variant="h6" gutterBottom>Subscription</Typography>
+                            <Typography variant="h4" gutterBottom color="primary">Helix Business</Typography>
                             <Typography variant="body2" gutterBottom>
                               Enhanced quotas, priority support, and advanced organization features for teams.
                             </Typography>
@@ -216,17 +216,18 @@ const OrgBilling: FC = () => {
                       ) : (
                         <>
                           <Box sx={{ flex: 1 }}>
-                            <Typography variant="h6" gutterBottom>Organization Subscription</Typography>
-                            <Typography variant="h4" gutterBottom color="text.secondary">Not Active</Typography>
-                            <Typography variant="body2" gutterBottom>
-                              Subscribe to Helix Enterprise for enhanced quotas, priority support, and advanced organization features.
+                            <Typography variant="h6" gutterBottom>Subscription</Typography>
+                            <Typography variant="h4" gutterBottom color="text.secondary">Free</Typography>
+                            <Typography variant="body2" color="text.secondary"  gutterBottom>
+                              Subscribe to Helix Business for enhanced quotas, priority support, and advanced organization features.
+                              Monthly fee is converted to credits and added to your balance.
                             </Typography>
                           </Box>
                           
                           {!isReadOnly && (
                             <Box sx={{ display: 'flex', mb: 1, justifyContent: 'flex-end' }}>
-                              <Button variant="contained" color="primary" sx={{ minWidth: 140 }} onClick={handleSubscribe}>
-                                Start Subscription
+                              <Button variant="contained" color="secondary" sx={{ minWidth: 140 }} onClick={handleSubscribe}>
+                                Start Subscription ($399/m)
                               </Button>
                             </Box>
                           )}
