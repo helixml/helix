@@ -37,6 +37,13 @@ type Transaction struct {
 	LLMCallID     string `json:"llm_call_id"`
 }
 
+type TopUpType string
+
+const (
+	TopUpTypeRegular      TopUpType = "regular"
+	TopUpTypeSubscription TopUpType = "subscription"
+)
+
 type TopUp struct {
 	ID                    string    `json:"id" gorm:"primaryKey"`
 	CreatedAt             time.Time `json:"created_at"`
@@ -44,4 +51,5 @@ type TopUp struct {
 	StripePaymentIntentID string    `json:"stripe_payment_intent_id"`
 	WalletID              string    `json:"wallet_id" gorm:"index"`
 	Amount                float64   `json:"amount"`
+	Type                  TopUpType `json:"type"`
 }
