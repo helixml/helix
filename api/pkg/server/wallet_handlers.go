@@ -181,7 +181,17 @@ func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Req
 		}
 	}
 
-	return s.Stripe.GetCheckoutSessionURL(orgID, user.ID, user.Email)
+	wallet, err := s.getOrCreateWallet(req.Context(), user, orgID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get or create wallet: %w", err)
+	}
+
+	return s.Stripe.GetCheckoutSessionURL(stripe.SubscriptionSessionParams{
+		StripeCustomerID: wallet.StripeCustomerID,
+		OrgID:            orgID,
+		UserID:           user.ID,
+		Amount:           s.Cfg.Stripe.InitialBalance,
+	})
 }
 
 // subscriptionManage godoc
@@ -189,23 +199,33 @@ func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Req
 // @Description Manage a subscription
 // @Tags    wallets
 // @Success 200 {string} string "Subscription session URL"
+// @Param   org_id query string false "Organization ID"
 // @Router /api/v1/subscription/manage [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) subscriptionManage(_ http.ResponseWriter, req *http.Request) (string, error) {
 	user := getRequestUser(req)
-	ctx := req.Context()
 
-	userMeta, err := s.Store.GetUserMeta(ctx, user.ID)
+	orgID := req.URL.Query().Get("org_id")
+	if orgID != "" {
+		_, err := s.authorizeOrgOwner(req.Context(), user, orgID)
+		if err != nil {
+			return "", fmt.Errorf("failed to authorize org owner: %w", err)
+		}
+	}
+
+	wallet, err := s.getOrCreateWallet(req.Context(), user, orgID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get or create wallet: %w", err)
 	}
-	if userMeta == nil {
-		return "", fmt.Errorf("no such user")
+
+	org, err := s.Store.GetOrganization(req.Context(), &store.GetOrganizationQuery{
+		ID: orgID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to get organization: %w", err)
 	}
-	if userMeta.Config.StripeCustomerID == "" {
-		return "", fmt.Errorf("no stripe customer id found")
-	}
-	return s.Stripe.GetPortalSessionURL(userMeta.Config.StripeCustomerID)
+
+	return s.Stripe.GetPortalSessionURL(wallet.StripeCustomerID, org.Name)
 }
 
 func (s *HelixAPIServer) subscriptionWebhook(res http.ResponseWriter, req *http.Request) {
