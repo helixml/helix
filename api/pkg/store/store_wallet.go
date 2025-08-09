@@ -181,6 +181,60 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 	return wallet, nil
 }
 
+// UpdateWalletBalanceAtomic updates the wallet balance atomically without locking
+func (s *PostgresStore) UpdateWalletBalanceAtomic(ctx context.Context, walletID string, amount float64) (*types.Wallet, error) {
+	if walletID == "" {
+		return nil, fmt.Errorf("wallet_id not specified")
+	}
+
+	var wallet types.Wallet
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// For deductions, check sufficient balance first
+		if amount < 0 {
+			var currentBalance float64
+			if err := tx.Model(&types.Wallet{}).Where("id = ?", walletID).
+				Select("balance").Scan(&currentBalance).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ErrNotFound
+				}
+				return err
+			}
+
+			if currentBalance+amount < 0 {
+				return fmt.Errorf("insufficient balance: current balance %.2f, attempted to deduct %.2f",
+					currentBalance, -amount)
+			}
+		}
+
+		// Update balance atomically using SQL arithmetic
+		result := tx.Model(&types.Wallet{}).Where("id = ?", walletID).Updates(map[string]interface{}{
+			"balance":    gorm.Expr("balance + ?", amount),
+			"updated_at": time.Now(),
+		})
+
+		if result.Error != nil {
+			return result.Error
+		}
+
+		if result.RowsAffected == 0 {
+			return ErrNotFound
+		}
+
+		// Get the updated wallet
+		if err := tx.Where("id = ?", walletID).First(&wallet).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &wallet, nil
+}
+
 // Transaction methods
 
 func (s *PostgresStore) CreateTransaction(ctx context.Context, transaction *types.Transaction) (*types.Transaction, error) {
