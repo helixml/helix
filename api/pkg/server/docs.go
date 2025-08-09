@@ -2853,6 +2853,14 @@ const docTemplate = `{
                     "wallets"
                 ],
                 "summary": "Manage a subscription",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "Subscription session URL",
@@ -8306,6 +8314,9 @@ const docTemplate = `{
                 },
                 "org_id": {
                     "description": "If belongs to an organization",
+                    "type": "string"
+                },
+                "stripe_customer_id": {
                     "type": "string"
                 },
                 "updated_at": {

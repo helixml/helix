@@ -3460,6 +3460,8 @@ definitions:
       org_id:
         description: If belongs to an organization
         type: string
+      stripe_customer_id:
+        type: string
       updated_at:
         type: string
       user_id:
@@ -5268,6 +5270,11 @@ paths:
   /api/v1/subscription/manage:
     post:
       description: Manage a subscription
+      parameters:
+      - description: Organization ID
+        in: query
+        name: org_id
+        type: string
       responses:
         "200":
           description: Subscription session URL
