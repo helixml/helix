@@ -8319,6 +8319,12 @@ const docTemplate = `{
                 "stripe_customer_id": {
                     "type": "string"
                 },
+                "stripe_subscription_id": {
+                    "type": "string"
+                },
+                "subscription_active": {
+                    "type": "boolean"
+                },
                 "updated_at": {
                     "type": "string"
                 },

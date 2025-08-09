@@ -202,8 +202,8 @@ type Stripe struct {
 	AppURL               string
 	SecretKey            string `envconfig:"STRIPE_SECRET_KEY" description:"The secret key for stripe."`
 	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET" description:"The webhook signing secret for stripe."`
-	PriceLookupKey       string `envconfig:"STRIPE_PRICE_LOOKUP_KEY" description:"The lookup key for the stripe price."`
-	TopUpPriceLookupKey  string `envconfig:"STRIPE_TOPUP_PRICE_LOOKUP_KEY" description:"The lookup key for the stripe topup price."`
+	PriceLookupKey       string `envconfig:"STRIPE_PRICE_LOOKUP_KEY" default:"helix-subscription" description:"The lookup key for the stripe price."`
+	OrgPriceLookupKey    string `envconfig:"STRIPE_ORG_PRICE_LOOKUP_KEY" default:"helix-org-subscription" description:"The lookup key for the stripe price."`
 }
 
 type DataPrepText struct {
