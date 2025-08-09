@@ -4202,6 +4202,29 @@ const docTemplate = `{
                 }
             }
         },
+        "stripe.SubscriptionStatus": {
+            "type": "string",
+            "enum": [
+                "active",
+                "canceled",
+                "incomplete",
+                "incomplete_expired",
+                "past_due",
+                "paused",
+                "trialing",
+                "unpaid"
+            ],
+            "x-enum-varnames": [
+                "SubscriptionStatusActive",
+                "SubscriptionStatusCanceled",
+                "SubscriptionStatusIncomplete",
+                "SubscriptionStatusIncompleteExpired",
+                "SubscriptionStatusPastDue",
+                "SubscriptionStatusPaused",
+                "SubscriptionStatusTrialing",
+                "SubscriptionStatusUnpaid"
+            ]
+        },
         "system.HTTPError": {
             "type": "object",
             "properties": {
@@ -8322,8 +8345,17 @@ const docTemplate = `{
                 "stripe_subscription_id": {
                     "type": "string"
                 },
-                "subscription_active": {
-                    "type": "boolean"
+                "subscription_created": {
+                    "type": "integer"
+                },
+                "subscription_current_period_end": {
+                    "type": "integer"
+                },
+                "subscription_current_period_start": {
+                    "type": "integer"
+                },
+                "subscription_status": {
+                    "$ref": "#/definitions/stripe.SubscriptionStatus"
                 },
                 "updated_at": {
                     "type": "string"
