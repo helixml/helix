@@ -320,10 +320,9 @@ type Store interface {
 	GetWalletByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*types.Wallet, error)
 	UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
 	DeleteWallet(ctx context.Context, id string) error
-	UpdateWalletBalance(ctx context.Context, walletID string, amount float64) (*types.Wallet, error)
+	UpdateWalletBalance(ctx context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error)
 
 	// transaction methods
-	CreateTransaction(ctx context.Context, transaction *types.Transaction) (*types.Transaction, error)
 	ListTransactions(ctx context.Context, q *ListTransactionsQuery) ([]*types.Transaction, error)
 
 	// topup methods
