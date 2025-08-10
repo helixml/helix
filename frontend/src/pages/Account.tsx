@@ -35,6 +35,7 @@ import TotalRequests from '../components/usage/TotalRequests'
 import useThemeConfig from '../hooks/useThemeConfig'
 import { Prism as SyntaxHighlighterPrism } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import SmallSpinner from '../components/system/SmallSpinner'
 
 import { useGetUserAPIKeys } from '../services/userService'
 
@@ -45,7 +46,7 @@ const Account: FC = () => {
   const api = useApi()
   const snackbar = useSnackbar()
   const themeConfig = useThemeConfig()
-  const { data: wallet } = useGetWallet()
+  const { data: wallet, isLoading: isLoadingWallet } = useGetWallet()
   const [topUpAmount, setTopUpAmount] = useState<number>(10)
 
   const { data: usage } = useGetUserUsage()
@@ -185,9 +186,18 @@ export HELIX_API_KEY=${apiKey}
                       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                         <Box sx={{ flex: 1 }}>
                           <Typography variant="h6" gutterBottom>Current Balance</Typography>
-                          <Typography variant="h4" gutterBottom color="primary">
-                            ${wallet?.balance?.toFixed(2) || '0.00'}
-                          </Typography>
+                          {isLoadingWallet ? (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <SmallSpinner size={24} />
+                              <Typography variant="h4" color="text.secondary">
+                                Loading...
+                              </Typography>
+                            </Box>
+                          ) : (
+                            <Typography variant="h4" gutterBottom color="primary">
+                              ${wallet?.balance?.toFixed(2) || '0.00'}
+                            </Typography>
+                          )}
                         </Box>
 
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
