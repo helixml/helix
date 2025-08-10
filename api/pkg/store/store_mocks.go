@@ -437,21 +437,6 @@ func (mr *MockStoreMockRecorder) CreateTeamMembership(ctx, membership any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTeamMembership", reflect.TypeOf((*MockStore)(nil).CreateTeamMembership), ctx, membership)
 }
 
-// CreateTopUp mocks base method.
-func (m *MockStore) CreateTopUp(ctx context.Context, topUp *types.TopUp) (*types.TopUp, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateTopUp", ctx, topUp)
-	ret0, _ := ret[0].(*types.TopUp)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CreateTopUp indicates an expected call of CreateTopUp.
-func (mr *MockStoreMockRecorder) CreateTopUp(ctx, topUp any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTopUp", reflect.TypeOf((*MockStore)(nil).CreateTopUp), ctx, topUp)
-}
-
 // CreateTriggerConfiguration mocks base method.
 func (m *MockStore) CreateTriggerConfiguration(ctx context.Context, triggerConfig *types.TriggerConfiguration) (*types.TriggerConfiguration, error) {
 	m.ctrl.T.Helper()

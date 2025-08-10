@@ -686,88 +686,6 @@ func (suite *WalletTestSuite) TestListTransactions_WithOffset() {
 	suite.Len(retrievedTransactions, 2)
 }
 
-// TopUp Tests
-
-func (suite *WalletTestSuite) TestCreateTopUp() {
-	userID := system.GenerateID()
-	wallet := &types.Wallet{
-		UserID:  userID,
-		Balance: 100.0,
-	}
-
-	createdWallet, err := suite.db.CreateWallet(suite.ctx, wallet)
-	suite.NoError(err)
-
-	topUp := &types.TopUp{
-		WalletID: createdWallet.ID,
-		Amount:   50.0,
-	}
-
-	createdTopUp, err := suite.db.CreateTopUp(suite.ctx, topUp)
-	suite.NoError(err)
-	suite.NotNil(createdTopUp)
-	suite.NotEmpty(createdTopUp.ID)
-	suite.Equal(createdWallet.ID, createdTopUp.WalletID)
-	suite.Equal(50.0, createdTopUp.Amount)
-	suite.NotZero(createdTopUp.CreatedAt)
-	suite.NotZero(createdTopUp.UpdatedAt)
-
-	// Verify wallet balance was updated
-	updatedWallet, err := suite.db.GetWallet(suite.ctx, createdWallet.ID)
-	suite.NoError(err)
-	suite.Equal(150.0, updatedWallet.Balance)
-}
-
-func (suite *WalletTestSuite) TestCreateTopUp_EmptyWalletID() {
-	topUp := &types.TopUp{
-		Amount: 50.0,
-	}
-
-	_, err := suite.db.CreateTopUp(suite.ctx, topUp)
-	suite.Error(err)
-	suite.Contains(err.Error(), "wallet_id not specified")
-}
-
-func (suite *WalletTestSuite) TestCreateTopUp_ZeroAmount() {
-	userID := system.GenerateID()
-	wallet := &types.Wallet{
-		UserID:  userID,
-		Balance: 100.0,
-	}
-
-	createdWallet, err := suite.db.CreateWallet(suite.ctx, wallet)
-	suite.NoError(err)
-
-	topUp := &types.TopUp{
-		WalletID: createdWallet.ID,
-		Amount:   0.0,
-	}
-
-	_, err = suite.db.CreateTopUp(suite.ctx, topUp)
-	suite.Error(err)
-	suite.Contains(err.Error(), "amount must be greater than 0")
-}
-
-func (suite *WalletTestSuite) TestCreateTopUp_NegativeAmount() {
-	userID := system.GenerateID()
-	wallet := &types.Wallet{
-		UserID:  userID,
-		Balance: 100.0,
-	}
-
-	createdWallet, err := suite.db.CreateWallet(suite.ctx, wallet)
-	suite.NoError(err)
-
-	topUp := &types.TopUp{
-		WalletID: createdWallet.ID,
-		Amount:   -50.0,
-	}
-
-	_, err = suite.db.CreateTopUp(suite.ctx, topUp)
-	suite.Error(err)
-	suite.Contains(err.Error(), "amount must be greater than 0")
-}
-
 func (suite *WalletTestSuite) TestListTopUps() {
 	userID := system.GenerateID()
 	wallet := &types.Wallet{
@@ -795,7 +713,10 @@ func (suite *WalletTestSuite) TestListTopUps() {
 	}
 
 	for _, topUp := range topUps {
-		_, err := suite.db.CreateTopUp(suite.ctx, topUp)
+		_, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, topUp.Amount, types.TransactionMetadata{
+			TransactionType: types.TransactionTypeTopUp,
+			TopUpID:         topUp.ID,
+		})
 		suite.NoError(err)
 	}
 
@@ -831,7 +752,10 @@ func (suite *WalletTestSuite) TestListTopUps_WithLimit() {
 			WalletID: createdWallet.ID,
 			Amount:   10.0,
 		}
-		_, err := suite.db.CreateTopUp(suite.ctx, topUp)
+		_, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, topUp.Amount, types.TransactionMetadata{
+			TransactionType: types.TransactionTypeTopUp,
+			TopUpID:         topUp.ID,
+		})
 		suite.NoError(err)
 	}
 
@@ -862,7 +786,10 @@ func (suite *WalletTestSuite) TestListTopUps_WithOffset() {
 			WalletID: createdWallet.ID,
 			Amount:   10.0,
 		}
-		_, err := suite.db.CreateTopUp(suite.ctx, topUp)
+		_, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, topUp.Amount, types.TransactionMetadata{
+			TransactionType: types.TransactionTypeTopUp,
+			TopUpID:         topUp.ID,
+		})
 		suite.NoError(err)
 	}
 
