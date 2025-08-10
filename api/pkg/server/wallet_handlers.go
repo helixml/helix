@@ -251,6 +251,7 @@ func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Req
 func (s *HelixAPIServer) subscriptionManage(_ http.ResponseWriter, req *http.Request) (string, error) {
 	user := getRequestUser(req)
 
+	var orgName string
 	orgID := req.URL.Query().Get("org_id")
 	if orgID != "" {
 		org, err := s.lookupOrg(req.Context(), orgID)
@@ -264,6 +265,14 @@ func (s *HelixAPIServer) subscriptionManage(_ http.ResponseWriter, req *http.Req
 		}
 
 		orgID = org.ID
+
+		org, err = s.Store.GetOrganization(req.Context(), &store.GetOrganizationQuery{
+			ID: orgID,
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to get organization: %w", err)
+		}
+		orgName = org.Name
 	}
 
 	wallet, err := s.getOrCreateWallet(req.Context(), user, orgID)
@@ -271,14 +280,7 @@ func (s *HelixAPIServer) subscriptionManage(_ http.ResponseWriter, req *http.Req
 		return "", fmt.Errorf("failed to get or create wallet: %w", err)
 	}
 
-	org, err := s.Store.GetOrganization(req.Context(), &store.GetOrganizationQuery{
-		ID: orgID,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to get organization: %w", err)
-	}
-
-	return s.Stripe.GetPortalSessionURL(wallet.StripeCustomerID, org.Name)
+	return s.Stripe.GetPortalSessionURL(wallet.StripeCustomerID, orgName)
 }
 
 func (s *HelixAPIServer) subscriptionWebhook(res http.ResponseWriter, req *http.Request) {
