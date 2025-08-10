@@ -452,21 +452,6 @@ func (mr *MockStoreMockRecorder) CreateTopUp(ctx, topUp any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTopUp", reflect.TypeOf((*MockStore)(nil).CreateTopUp), ctx, topUp)
 }
 
-// CreateTransaction mocks base method.
-func (m *MockStore) CreateTransaction(ctx context.Context, transaction *types.Transaction) (*types.Transaction, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateTransaction", ctx, transaction)
-	ret0, _ := ret[0].(*types.Transaction)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CreateTransaction indicates an expected call of CreateTransaction.
-func (mr *MockStoreMockRecorder) CreateTransaction(ctx, transaction any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTransaction", reflect.TypeOf((*MockStore)(nil).CreateTransaction), ctx, transaction)
-}
-
 // CreateTriggerConfiguration mocks base method.
 func (m *MockStore) CreateTriggerConfiguration(ctx context.Context, triggerConfig *types.TriggerConfiguration) (*types.TriggerConfiguration, error) {
 	m.ctrl.T.Helper()
@@ -2361,18 +2346,18 @@ func (mr *MockStoreMockRecorder) UpdateWallet(ctx, wallet any) *gomock.Call {
 }
 
 // UpdateWalletBalance mocks base method.
-func (m *MockStore) UpdateWalletBalance(ctx context.Context, walletID string, amount float64) (*types.Wallet, error) {
+func (m *MockStore) UpdateWalletBalance(ctx context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateWalletBalance", ctx, walletID, amount)
+	ret := m.ctrl.Call(m, "UpdateWalletBalance", ctx, walletID, amount, meta)
 	ret0, _ := ret[0].(*types.Wallet)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // UpdateWalletBalance indicates an expected call of UpdateWalletBalance.
-func (mr *MockStoreMockRecorder) UpdateWalletBalance(ctx, walletID, amount any) *gomock.Call {
+func (mr *MockStoreMockRecorder) UpdateWalletBalance(ctx, walletID, amount, meta any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWalletBalance", reflect.TypeOf((*MockStore)(nil).UpdateWalletBalance), ctx, walletID, amount)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWalletBalance", reflect.TypeOf((*MockStore)(nil).UpdateWalletBalance), ctx, walletID, amount, meta)
 }
 
 // MockEmbeddingsStore is a mock of EmbeddingsStore interface.

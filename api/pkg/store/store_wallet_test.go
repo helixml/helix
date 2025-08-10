@@ -9,6 +9,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
+	"github.com/stripe/stripe-go/v76"
 )
 
 func TestWalletTestSuite(t *testing.T) {
@@ -193,22 +194,134 @@ func (suite *WalletTestSuite) TestUpdateWallet() {
 	createdWallet, err := suite.db.CreateWallet(suite.ctx, wallet)
 	suite.NoError(err)
 
-	// Update the wallet
-	createdWallet.Balance = 200.0
-	updatedWallet, err := suite.db.UpdateWallet(suite.ctx, createdWallet)
+	// Update subscription-related fields (UpdateWallet does not update balance)
+	subscriptionID := "sub_123456789"
+	subscriptionStatus := stripe.SubscriptionStatusActive
+	periodStart := int64(1640995200) // Jan 1, 2022
+	periodEnd := int64(1672531200)   // Jan 1, 2023
+	subscriptionCreated := int64(1640995100)
+
+	updatedWallet := &types.Wallet{
+		ID:                             createdWallet.ID,
+		StripeSubscriptionID:           subscriptionID,
+		SubscriptionStatus:             subscriptionStatus,
+		SubscriptionCurrentPeriodStart: periodStart,
+		SubscriptionCurrentPeriodEnd:   periodEnd,
+		SubscriptionCreated:            subscriptionCreated,
+	}
+
+	result, err := suite.db.UpdateWallet(suite.ctx, updatedWallet)
 	suite.NoError(err)
-	suite.Equal(200.0, updatedWallet.Balance)
-	suite.True(updatedWallet.UpdatedAt.After(createdWallet.UpdatedAt))
+	suite.NotNil(result)
+
+	// Verify subscription fields were updated correctly
+	suite.Equal(subscriptionID, result.StripeSubscriptionID)
+	suite.Equal(subscriptionStatus, result.SubscriptionStatus)
+	suite.Equal(periodStart, result.SubscriptionCurrentPeriodStart)
+	suite.Equal(periodEnd, result.SubscriptionCurrentPeriodEnd)
+	suite.Equal(subscriptionCreated, result.SubscriptionCreated)
+
+	// Verify balance was NOT changed (UpdateWallet should not update balance)
+	suite.Equal(100.0, result.Balance)
+
+	// Verify other fields remain unchanged
+	suite.Equal(createdWallet.ID, result.ID)
+	suite.Equal(createdWallet.UserID, result.UserID)
+	suite.Equal(createdWallet.OrgID, result.OrgID)
+	suite.Equal(createdWallet.StripeCustomerID, result.StripeCustomerID)
+
+	// Verify updated_at was changed
+	suite.True(result.UpdatedAt.After(createdWallet.UpdatedAt))
 }
 
 func (suite *WalletTestSuite) TestUpdateWallet_EmptyID() {
 	wallet := &types.Wallet{
-		Balance: 100.0,
+		StripeSubscriptionID: "sub_123456789",
+		SubscriptionStatus:   stripe.SubscriptionStatusActive,
 	}
 
 	_, err := suite.db.UpdateWallet(suite.ctx, wallet)
 	suite.Error(err)
 	suite.Contains(err.Error(), "id not specified")
+}
+
+func (suite *WalletTestSuite) TestUpdateWallet_NonExistentWallet() {
+	wallet := &types.Wallet{
+		ID:                   "non-existent-wallet-id",
+		StripeSubscriptionID: "sub_123456789",
+		SubscriptionStatus:   stripe.SubscriptionStatusActive,
+	}
+
+	// The method doesn't explicitly check if wallet exists before updating,
+	// but the returned wallet from GetWallet should be nil if wallet doesn't exist
+	result, err := suite.db.UpdateWallet(suite.ctx, wallet)
+	suite.Error(err)
+	suite.Nil(result)
+	suite.Equal(ErrNotFound, err)
+}
+
+func (suite *WalletTestSuite) TestUpdateWallet_PartialUpdate() {
+	userID := system.GenerateID()
+	wallet := &types.Wallet{
+		UserID:  userID,
+		Balance: 100.0,
+	}
+
+	createdWallet, err := suite.db.CreateWallet(suite.ctx, wallet)
+	suite.NoError(err)
+
+	// Update only subscription ID, leave other subscription fields empty
+	updatedWallet := &types.Wallet{
+		ID:                   createdWallet.ID,
+		StripeSubscriptionID: "sub_partial_update",
+	}
+
+	result, err := suite.db.UpdateWallet(suite.ctx, updatedWallet)
+	suite.NoError(err)
+	suite.NotNil(result)
+
+	// Verify only subscription ID was updated
+	suite.Equal("sub_partial_update", result.StripeSubscriptionID)
+	suite.Equal(stripe.SubscriptionStatus(""), result.SubscriptionStatus) // Should be empty/zero value
+	suite.Equal(int64(0), result.SubscriptionCurrentPeriodStart)
+	suite.Equal(int64(0), result.SubscriptionCurrentPeriodEnd)
+	suite.Equal(int64(0), result.SubscriptionCreated)
+
+	// Verify other fields remain unchanged
+	suite.Equal(100.0, result.Balance)
+	suite.Equal(createdWallet.UserID, result.UserID)
+}
+
+func (suite *WalletTestSuite) TestUpdateWallet_SubscriptionStatusVariations() {
+	userID := system.GenerateID()
+	wallet := &types.Wallet{
+		UserID:  userID,
+		Balance: 100.0,
+	}
+
+	createdWallet, err := suite.db.CreateWallet(suite.ctx, wallet)
+	suite.NoError(err)
+
+	// Test different subscription statuses
+	statuses := []stripe.SubscriptionStatus{
+		stripe.SubscriptionStatusActive,
+		stripe.SubscriptionStatusCanceled,
+		stripe.SubscriptionStatusIncomplete,
+		stripe.SubscriptionStatusPastDue,
+		stripe.SubscriptionStatusTrialing,
+		stripe.SubscriptionStatusUnpaid,
+	}
+
+	for i, status := range statuses {
+		updatedWallet := &types.Wallet{
+			ID:                 createdWallet.ID,
+			SubscriptionStatus: status,
+		}
+
+		result, err := suite.db.UpdateWallet(suite.ctx, updatedWallet)
+		suite.NoError(err, "Failed to update wallet with status %s", status)
+		suite.Equal(status, result.SubscriptionStatus, "Iteration %d: expected status %s, got %s", i, status, result.SubscriptionStatus)
+	}
 }
 
 func (suite *WalletTestSuite) TestDeleteWallet() {
@@ -255,9 +368,22 @@ func (suite *WalletTestSuite) TestUpdateWalletBalance_Positive() {
 	suite.NoError(err)
 
 	// Add 50.0 to balance
-	updatedWallet, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 50.0)
+	updatedWallet, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 50.0, types.TransactionMetadata{
+		TransactionType: types.TransactionTypeTopUp,
+		TopUpID:         "test-top-up",
+	})
 	suite.NoError(err)
 	suite.Equal(150.0, updatedWallet.Balance)
+
+	// List transactions
+	transactions, err := suite.db.ListTransactions(suite.ctx, &ListTransactionsQuery{
+		WalletID: createdWallet.ID,
+	})
+	suite.NoError(err)
+	suite.Len(transactions, 1)
+	suite.Equal(50.0, transactions[0].Amount)
+	suite.Equal(types.TransactionTypeTopUp, transactions[0].Type)
+	suite.Equal("test-top-up", transactions[0].TopUpID)
 }
 
 func (suite *WalletTestSuite) TestUpdateWalletBalance_Negative() {
@@ -271,9 +397,25 @@ func (suite *WalletTestSuite) TestUpdateWalletBalance_Negative() {
 	suite.NoError(err)
 
 	// Subtract 30.0 from balance
-	updatedWallet, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, -30.0)
+	updatedWallet, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, -30.0, types.TransactionMetadata{
+		TransactionType: types.TransactionTypeUsage,
+		InteractionID:   "test-interaction",
+		LLMCallID:       "test-llm-call",
+	})
 	suite.NoError(err)
 	suite.Equal(70.0, updatedWallet.Balance)
+
+	// List transactions
+	transactions, err := suite.db.ListTransactions(suite.ctx, &ListTransactionsQuery{
+		WalletID: createdWallet.ID,
+	})
+	suite.NoError(err)
+	suite.Len(transactions, 1)
+
+	suite.Equal(-30.0, transactions[0].Amount)
+	suite.Equal(types.TransactionTypeUsage, transactions[0].Type)
+	suite.Equal("test-interaction", transactions[0].InteractionID)
+	suite.Equal("test-llm-call", transactions[0].LLMCallID)
 }
 
 func (suite *WalletTestSuite) TestUpdateWalletBalance_InsufficientFunds() {
@@ -287,63 +429,27 @@ func (suite *WalletTestSuite) TestUpdateWalletBalance_InsufficientFunds() {
 	suite.NoError(err)
 
 	// Try to subtract more than available balance
-	_, err = suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, -150.0)
+	_, err = suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, -150.0, types.TransactionMetadata{
+		TransactionType: types.TransactionTypeUsage,
+	})
 	suite.Error(err)
 	suite.Contains(err.Error(), "insufficient balance")
 }
 
 func (suite *WalletTestSuite) TestUpdateWalletBalance_EmptyWalletID() {
-	_, err := suite.db.UpdateWalletBalance(suite.ctx, "", 50.0)
+	_, err := suite.db.UpdateWalletBalance(suite.ctx, "", 50.0, types.TransactionMetadata{
+		TransactionType: types.TransactionTypeUsage,
+	})
 	suite.Error(err)
 	suite.Contains(err.Error(), "wallet_id not specified")
 }
 
 func (suite *WalletTestSuite) TestUpdateWalletBalance_NonExistentWallet() {
-	_, err := suite.db.UpdateWalletBalance(suite.ctx, "non-existent-wallet", 50.0)
+	_, err := suite.db.UpdateWalletBalance(suite.ctx, "non-existent-wallet", 50.0, types.TransactionMetadata{
+		TransactionType: types.TransactionTypeUsage,
+	})
 	suite.Error(err)
 	suite.Equal(ErrNotFound, err)
-}
-
-// Transaction Tests
-
-func (suite *WalletTestSuite) TestCreateTransaction() {
-	userID := system.GenerateID()
-	wallet := &types.Wallet{
-		UserID:  userID,
-		Balance: 100.0,
-	}
-
-	createdWallet, err := suite.db.CreateWallet(suite.ctx, wallet)
-	suite.NoError(err)
-
-	transaction := &types.Transaction{
-		WalletID:      createdWallet.ID,
-		Amount:        -25.0,
-		InteractionID: "interaction-123",
-		LLMCallID:     "llm-call-456",
-	}
-
-	createdTransaction, err := suite.db.CreateTransaction(suite.ctx, transaction)
-	suite.NoError(err)
-	suite.NotNil(createdTransaction)
-	suite.NotEmpty(createdTransaction.ID)
-	suite.Equal(createdWallet.ID, createdTransaction.WalletID)
-	suite.Equal(-25.0, createdTransaction.Amount)
-	suite.Equal("interaction-123", createdTransaction.InteractionID)
-	suite.Equal("llm-call-456", createdTransaction.LLMCallID)
-	suite.NotZero(createdTransaction.CreatedAt)
-	suite.NotZero(createdTransaction.UpdatedAt)
-}
-
-func (suite *WalletTestSuite) TestCreateTransaction_EmptyWalletID() {
-	transaction := &types.Transaction{
-		Amount:        -25.0,
-		InteractionID: "interaction-123",
-	}
-
-	_, err := suite.db.CreateTransaction(suite.ctx, transaction)
-	suite.Error(err)
-	suite.Contains(err.Error(), "wallet_id not specified")
 }
 
 func (suite *WalletTestSuite) TestListTransactions() {
@@ -379,7 +485,11 @@ func (suite *WalletTestSuite) TestListTransactions() {
 	}
 
 	for _, tx := range transactions {
-		_, err := suite.db.CreateTransaction(suite.ctx, tx)
+		_, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, tx.Amount, types.TransactionMetadata{
+			TransactionType: tx.Type,
+			InteractionID:   tx.InteractionID,
+			LLMCallID:       tx.LLMCallID,
+		})
 		suite.NoError(err)
 	}
 
@@ -429,7 +539,11 @@ func (suite *WalletTestSuite) TestListTransactions_ByInteractionID() {
 	}
 
 	for _, tx := range transactions {
-		_, err := suite.db.CreateTransaction(suite.ctx, tx)
+		_, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, tx.Amount, types.TransactionMetadata{
+			TransactionType: tx.Type,
+			InteractionID:   tx.InteractionID,
+			LLMCallID:       tx.LLMCallID,
+		})
 		suite.NoError(err)
 	}
 
@@ -478,7 +592,11 @@ func (suite *WalletTestSuite) TestListTransactions_ByLLMCallID() {
 	}
 
 	for _, tx := range transactions {
-		_, err := suite.db.CreateTransaction(suite.ctx, tx)
+		_, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, tx.Amount, types.TransactionMetadata{
+			TransactionType: tx.Type,
+			InteractionID:   tx.InteractionID,
+			LLMCallID:       tx.LLMCallID,
+		})
 		suite.NoError(err)
 	}
 
@@ -513,7 +631,11 @@ func (suite *WalletTestSuite) TestListTransactions_WithLimit() {
 			WalletID: createdWallet.ID,
 			Amount:   -10.0,
 		}
-		_, err := suite.db.CreateTransaction(suite.ctx, transaction)
+		_, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, transaction.Amount, types.TransactionMetadata{
+			TransactionType: transaction.Type,
+			InteractionID:   transaction.InteractionID,
+			LLMCallID:       transaction.LLMCallID,
+		})
 		suite.NoError(err)
 	}
 
@@ -544,7 +666,11 @@ func (suite *WalletTestSuite) TestListTransactions_WithOffset() {
 			WalletID: createdWallet.ID,
 			Amount:   -10.0,
 		}
-		_, err := suite.db.CreateTransaction(suite.ctx, transaction)
+		_, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, transaction.Amount, types.TransactionMetadata{
+			TransactionType: transaction.Type,
+			InteractionID:   transaction.InteractionID,
+			LLMCallID:       transaction.LLMCallID,
+		})
 		suite.NoError(err)
 	}
 
@@ -766,39 +892,29 @@ func (suite *WalletTestSuite) TestWalletTransactionFlow() {
 	suite.NoError(err)
 	suite.Equal(100.0, createdWallet.Balance)
 
-	// Add funds via top-up
-	topUp := &types.TopUp{
-		WalletID: createdWallet.ID,
-		Amount:   50.0,
-	}
-
-	_, err = suite.db.CreateTopUp(suite.ctx, topUp)
+	_, err = suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 50.0, types.TransactionMetadata{
+		TransactionType: types.TransactionTypeTopUp,
+		TopUpID:         "test-top-up",
+	})
 	suite.NoError(err)
 
 	// Verify balance increased
-	updatedWallet, err := suite.db.GetWallet(suite.ctx, createdWallet.ID)
+	storedWallet, err := suite.db.GetWallet(suite.ctx, createdWallet.ID)
 	suite.NoError(err)
-	suite.Equal(150.0, updatedWallet.Balance)
-
-	// Create a transaction
-	transaction := &types.Transaction{
-		WalletID:      createdWallet.ID,
-		Amount:        -25.0,
-		InteractionID: "test-interaction",
-		LLMCallID:     "test-llm-call",
-	}
-
-	_, err = suite.db.CreateTransaction(suite.ctx, transaction)
-	suite.NoError(err)
+	suite.Equal(150.0, storedWallet.Balance)
 
 	// Deduct funds from wallet
-	_, err = suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, -25.0)
+	updatedWallet, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, -25.0, types.TransactionMetadata{
+		TransactionType: types.TransactionTypeUsage,
+		InteractionID:   "test-interaction",
+	})
 	suite.NoError(err)
+	suite.Equal(125.0, updatedWallet.Balance)
 
 	// Verify final balance
 	finalWallet, err := suite.db.GetWallet(suite.ctx, createdWallet.ID)
 	suite.NoError(err)
-	suite.Equal(100.0, finalWallet.Balance)
+	suite.Equal(125.0, finalWallet.Balance)
 
 	// List transactions
 	query := &ListTransactionsQuery{
@@ -807,19 +923,16 @@ func (suite *WalletTestSuite) TestWalletTransactionFlow() {
 
 	transactions, err := suite.db.ListTransactions(suite.ctx, query)
 	suite.NoError(err)
-	suite.Len(transactions, 1)
+	suite.Require().Len(transactions, 2)
+
 	suite.Equal(-25.0, transactions[0].Amount)
+	suite.Equal(types.TransactionTypeUsage, transactions[0].Type)
 	suite.Equal("test-interaction", transactions[0].InteractionID)
 
-	// List top-ups
-	topUpQuery := &ListTopUpsQuery{
-		WalletID: createdWallet.ID,
-	}
+	suite.Equal(50.0, transactions[1].Amount)
+	suite.Equal(types.TransactionTypeTopUp, transactions[1].Type)
+	suite.Equal("test-top-up", transactions[1].TopUpID)
 
-	topUps, err := suite.db.ListTopUps(suite.ctx, topUpQuery)
-	suite.NoError(err)
-	suite.Len(topUps, 1)
-	suite.Equal(50.0, topUps[0].Amount)
 }
 
 func (suite *WalletTestSuite) TestConcurrentWalletBalanceUpdates() {
@@ -836,17 +949,23 @@ func (suite *WalletTestSuite) TestConcurrentWalletBalanceUpdates() {
 	results := make(chan error, 3)
 
 	go func() {
-		_, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 10.0)
+		_, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 10.0, types.TransactionMetadata{
+			TransactionType: types.TransactionTypeUsage,
+		})
 		results <- err
 	}()
 
 	go func() {
-		_, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 20.0)
+		_, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, 20.0, types.TransactionMetadata{
+			TransactionType: types.TransactionTypeUsage,
+		})
 		results <- err
 	}()
 
 	go func() {
-		_, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, -5.0)
+		_, err := suite.db.UpdateWalletBalance(suite.ctx, createdWallet.ID, -5.0, types.TransactionMetadata{
+			TransactionType: types.TransactionTypeUsage,
+		})
 		results <- err
 	}()
 
