@@ -25,6 +25,21 @@ type Wallet struct {
 	Balance float64 `json:"balance"`
 }
 
+type TransactionMetadata struct {
+	InteractionID   string          `json:"interaction_id"`
+	LLMCallID       string          `json:"llm_call_id"`
+	TopUpID         string          `json:"top_up_id"`
+	TransactionType TransactionType `json:"transaction_type"`
+}
+
+type TransactionType string
+
+const (
+	TransactionTypeUsage        TransactionType = "usage"
+	TransactionTypeTopUp        TransactionType = "top_up"
+	TransactionTypeSubscription TransactionType = "subscription"
+)
+
 // Transaction is a record of a transaction on a wallet.
 type Transaction struct {
 	ID        string    `json:"id" gorm:"primaryKey"`
@@ -33,16 +48,16 @@ type Transaction struct {
 	WalletID  string    `json:"wallet_id" gorm:"index"`
 	Amount    float64   `json:"amount"`
 
-	InteractionID string `json:"interaction_id"`
-	LLMCallID     string `json:"llm_call_id"`
+	BalanceBefore float64 `json:"balance_before"`
+	BalanceAfter  float64 `json:"balance_after"`
+
+	Type TransactionType `json:"type"`
+
+	InteractionID string `json:"interaction_id"` // For usage
+	LLMCallID     string `json:"llm_call_id"`    // For usage
+
+	TopUpID string `json:"top_up_id"` // For top-ups
 }
-
-type TopUpType string
-
-const (
-	TopUpTypeRegular      TopUpType = "regular"
-	TopUpTypeSubscription TopUpType = "subscription"
-)
 
 type TopUp struct {
 	ID                    string    `json:"id" gorm:"primaryKey"`
@@ -51,5 +66,4 @@ type TopUp struct {
 	StripePaymentIntentID string    `json:"stripe_payment_intent_id"`
 	WalletID              string    `json:"wallet_id" gorm:"index"`
 	Amount                float64   `json:"amount"`
-	Type                  TopUpType `json:"type"`
 }
