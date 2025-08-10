@@ -148,17 +148,13 @@ func (s *Stripe) handleTopUpEvent(event stripe.Event) error {
 		}
 
 	default:
-
+		return fmt.Errorf("no wallet found for user %s or org %s", userID, orgID)
 	}
 
-	// Create topup record
-	topUp := &types.TopUp{
+	_, err = s.store.UpdateWalletBalance(ctx, wallet.ID, amount, types.TransactionMetadata{
+		TransactionType:       types.TransactionTypeTopUp,
 		StripePaymentIntentID: paymentIntent.ID,
-		WalletID:              wallet.ID,
-		Amount:                amount,
-	}
-
-	_, err = s.store.CreateTopUp(ctx, topUp)
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create topup for user %s: %w", userID, err)
 	}
