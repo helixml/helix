@@ -193,6 +193,22 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 			return err
 		}
 
+		// If this is a top-up, create a top-up record (for tracking purposes)
+		if meta.TransactionType == types.TransactionTypeTopUp {
+			topUp := &types.TopUp{
+				ID:                    system.GenerateTopUpID(),
+				CreatedAt:             time.Now(),
+				UpdatedAt:             time.Now(),
+				WalletID:              walletID,
+				Amount:                amount,
+				StripePaymentIntentID: meta.StripePaymentIntentID,
+			}
+
+			if err := tx.Create(topUp).Error; err != nil {
+				return err
+			}
+		}
+
 		// Get the updated wallet
 		if err := tx.Where("id = ?", walletID).First(&wallet).Error; err != nil {
 			return err
@@ -209,11 +225,12 @@ func (s *PostgresStore) UpdateWalletBalance(ctx context.Context, walletID string
 }
 
 type ListTransactionsQuery struct {
-	WalletID      string
-	InteractionID string
-	LLMCallID     string
-	Limit         int
-	Offset        int
+	WalletID        string
+	InteractionID   string
+	LLMCallID       string
+	TransactionType types.TransactionType
+	Limit           int
+	Offset          int
 }
 
 func (s *PostgresStore) ListTransactions(ctx context.Context, q *ListTransactionsQuery) ([]*types.Transaction, error) {
@@ -233,6 +250,10 @@ func (s *PostgresStore) ListTransactions(ctx context.Context, q *ListTransaction
 		query = query.Where("llm_call_id = ?", q.LLMCallID)
 	}
 
+	if q.TransactionType != "" {
+		query = query.Where("type = ?", q.TransactionType)
+	}
+
 	if q.Limit > 0 {
 		query = query.Limit(q.Limit)
 	}
@@ -247,32 +268,6 @@ func (s *PostgresStore) ListTransactions(ctx context.Context, q *ListTransaction
 	}
 
 	return transactions, nil
-}
-
-// TopUp methods
-
-func (s *PostgresStore) CreateTopUp(ctx context.Context, topUp *types.TopUp) (*types.TopUp, error) {
-	if topUp.ID == "" {
-		topUp.ID = system.GenerateTopUpID()
-	}
-
-	if topUp.WalletID == "" {
-		return nil, fmt.Errorf("wallet_id not specified")
-	}
-
-	if topUp.Amount <= 0 {
-		return nil, fmt.Errorf("amount must be greater than 0")
-	}
-
-	topUp.CreatedAt = time.Now()
-	topUp.UpdatedAt = time.Now()
-
-	err := s.gdb.WithContext(ctx).Create(topUp).Error
-	if err != nil {
-		return nil, err
-	}
-
-	return topUp, nil
 }
 
 type ListTopUpsQuery struct {

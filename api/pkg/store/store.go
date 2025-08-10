@@ -326,7 +326,6 @@ type Store interface {
 	ListTransactions(ctx context.Context, q *ListTransactionsQuery) ([]*types.Transaction, error)
 
 	// topup methods
-	CreateTopUp(ctx context.Context, topUp *types.TopUp) (*types.TopUp, error)
 	ListTopUps(ctx context.Context, q *ListTopUpsQuery) ([]*types.TopUp, error)
 
 	// trigger configurations
