@@ -1397,6 +1397,7 @@ export interface TypesProviderEndpoint {
   api_key_file?: string;
   available_models?: TypesOpenAIModel[];
   base_url?: string;
+  billing_enabled?: boolean;
   created?: string;
   /** Set from environment variable */
   default?: boolean;
@@ -1592,6 +1593,7 @@ export interface TypesSecret {
 
 export interface TypesServerConfigForFrontend {
   apps_enabled?: boolean;
+  /** Charging for usage */
   billing_enabled?: boolean;
   deployment_id?: string;
   disable_llm_call_logging?: boolean;
@@ -1611,6 +1613,7 @@ export interface TypesServerConfigForFrontend {
   rudderstack_data_plane_url?: string;
   rudderstack_write_key?: string;
   sentry_dsn_frontend?: string;
+  /** Stripe top-ups enabled */
   stripe_enabled?: boolean;
   tools_enabled?: boolean;
   version?: string;

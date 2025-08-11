@@ -40,7 +40,10 @@ import googleLogo from '../../../assets/img/providers/google.svg'
 import anthropicLogo from '../../../assets/img/providers/anthropic.png'
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
+
 import { useGetOrgByName } from '../../services/orgService';
+import { useGetConfig } from '../../services/userService'
+
 import useRouter from '../../hooks/useRouter';
 
 interface AdvancedModelPickerProps {
@@ -154,7 +157,10 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [showOnlyEnabled, setShowOnlyEnabled] = useState(true);
 
-  const orgName = router.params.org_id    
+  const orgName = router.params.org_id
+
+  // Server configuration for billing
+  const { data: serverConfig, isLoading: isLoadingServerConfig } = useGetConfig();
 
   // Get org if orgName is set  
   const { data: org, isLoading: isLoadingOrg } = useGetOrgByName(orgName, orgName !== undefined)  
