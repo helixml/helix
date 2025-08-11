@@ -24,7 +24,7 @@ var settingsGetCmd = &cobra.Command{
 	Use:   "get",
 	Short: "Get current system settings",
 	Long:  `Display current system settings including token sources and configuration status.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
 			return fmt.Errorf("failed to create API client: %w", err)
@@ -61,7 +61,7 @@ var settingsSetCmd = &cobra.Command{
 	Use:   "set",
 	Short: "Set system settings",
 	Long:  `Update system settings. Requires admin privileges.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
 			return fmt.Errorf("failed to create API client: %w", err)
