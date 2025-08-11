@@ -6636,6 +6636,9 @@ const docTemplate = `{
                 "base_url": {
                     "type": "string"
                 },
+                "billing_enabled": {
+                    "type": "boolean"
+                },
                 "created": {
                     "type": "string"
                 },
@@ -7129,6 +7132,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "billing_enabled": {
+                    "description": "Charging for usage",
                     "type": "boolean"
                 },
                 "deployment_id": {
@@ -7166,6 +7170,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "stripe_enabled": {
+                    "description": "Stripe top-ups enabled",
                     "type": "boolean"
                 },
                 "tools_enabled": {
