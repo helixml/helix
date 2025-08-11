@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	"github.com/helixml/helix/api/pkg/pricing"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -256,6 +257,19 @@ func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint
 		})
 		if err == nil {
 			models[idx].ModelInfo = modelInfo
+		}
+
+		// If billing is enabled and we don't have pricing, disable the model
+		if providerEndpoint.BillingEnabled {
+			if modelInfo == nil {
+				models[idx].Enabled = false
+				continue
+			}
+			// Got model info, checking the price
+			promptCost, completionCost, _ := pricing.CalculateTokenPrice(modelInfo, 10, 10)
+			if promptCost == 0 && completionCost == 0 {
+				models[idx].Enabled = false
+			}
 		}
 	}
 
