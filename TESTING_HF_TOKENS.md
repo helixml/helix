@@ -12,13 +12,19 @@ This guide shows how to test the new centralized Hugging Face token management s
 
 ## Step 1: Set Global HF Token
 
-### Via CLI (Future - not implemented yet)
+### Via CLI (Recommended)
 ```bash
-# This would be the ideal future CLI command
-helix system config set --huggingface-token "hf_your_token_here"
+# Get current system settings
+helix system settings get
+
+# Set HF token
+helix system settings set --huggingface-token "hf_your_token_here"
+
+# Clear HF token (falls back to environment variable)
+helix system settings set --clear-hf-token
 ```
 
-### Via API (Current Implementation)
+### Via API (Alternative)
 ```bash
 # Get current system settings (admin required)
 curl -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
@@ -41,14 +47,13 @@ Use the comprehensive VLLM model example from the CLI help:
 
 ```bash
 # Create a model that requires HF token (like Qwen 2.5 VL)
-helix model create \
-  --id "Qwen/Qwen2.5-VL-7B-Instruct" \
+helix model create Qwen/Qwen2.5-VL-7B-Instruct \
   --name "Qwen 2.5 VL 7B" \
   --type chat \
   --runtime vllm \
   --memory 39GB \
   --context 32768 \
-  --runtime-args '["--trust-remote-code", "--max-model-len", "32768", "--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}"]'
+  --runtime-args '["--trust-remote-code", "--max-model-len", "32768"]'
 ```
 
 Or create from JSON file:
@@ -60,7 +65,7 @@ cat > model.json << EOF
   "name": "Qwen 2.5 VL 7B",
   "type": "chat",
   "runtime": "vllm",
-  "memory": 41943040000,
+  "memory": "39GB",
   "context_length": 32768,
   "description": "Multi-modal vision-language model from Alibaba",
   "enabled": true,
@@ -69,7 +74,6 @@ cat > model.json << EOF
   "runtime_args": [
     "--trust-remote-code",
     "--max-model-len", "32768",
-    "--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}",
     "--limit-mm-per-prompt", "{\"image\":10}",
     "--enforce-eager",
     "--max-num-seqs", "64"

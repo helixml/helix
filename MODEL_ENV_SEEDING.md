@@ -9,11 +9,11 @@ Given the complexity of model specifications (runtime, memory, context length, r
 ### Option 1: Individual JSON Models (Recommended)
 ```bash
 # Define individual models as JSON strings
-HELIX_SEED_MODEL_1='{"id":"llama3.1:8b","name":"Llama 3.1 8B","type":"chat","runtime":"ollama","memory":8589934592,"enabled":true}'
+HELIX_SEED_MODEL_1='{"id":"llama3.1:8b","name":"Llama 3.1 8B","type":"chat","runtime":"ollama","memory":"8GB","enabled":true}'
 
-HELIX_SEED_MODEL_2='{"id":"Qwen/Qwen2.5-VL-7B-Instruct","name":"Qwen 2.5 VL 7B","type":"chat","runtime":"vllm","memory":"39GB","context_length":32768,"runtime_args":["--trust-remote-code","--max-model-len","32768","--gpu-memory-utilization","{{.DynamicMemoryUtilizationRatio}}"]}'
+HELIX_SEED_MODEL_2='{"id":"Qwen/Qwen2.5-VL-7B-Instruct","name":"Qwen 2.5 VL 7B","type":"chat","runtime":"vllm","memory":"39GB","context_length":32768,"runtime_args":["--trust-remote-code","--max-model-len","32768"]}'
 
-HELIX_SEED_MODEL_3='{"id":"BAAI/bge-large-en-v1.5","name":"BGE Large EN v1.5","type":"embed","runtime":"vllm","memory":"5GB","context_length":512,"runtime_args":["--task","embed","--trust-remote-code"]}'
+HELIX_SEED_MODEL_3='{"id":"BAAI/bge-large-en-v1.5","name":"BGE Large EN v1.5","type":"embed","runtime":"vllm","memory":"5GiB","context_length":512,"runtime_args":["--task","embed","--trust-remote-code"]}'
 
 # Control seeding behavior
 HELIX_SEED_MODELS_ENABLED=true
@@ -30,7 +30,7 @@ HELIX_SEED_MODELS='[
     "name": "Llama 3.1 8B", 
     "type": "chat",
     "runtime": "ollama",
-    "memory": 8589934592,
+    "memory": "8GB",
     "enabled": true
   },
   {
@@ -42,8 +42,7 @@ HELIX_SEED_MODELS='[
     "context_length": 32768,
     "runtime_args": [
       "--trust-remote-code", 
-      "--max-model-len", "32768",
-      "--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}"
+      "--max-model-len", "32768"
     ]
   }
 ]'
@@ -80,7 +79,7 @@ interface SeedModel {
   runtime: "ollama" | "vllm" | "diffusers" | "axolotl"; // Runtime
   
   // Optional fields  
-  memory?: number;               // Memory in bytes
+  memory?: number | string;      // Memory in bytes (number) or human-readable format (string: "8GB", "16GiB")
   context_length?: number;       // Context window size
   description?: string;          // Model description
   enabled?: boolean;             // Default: true
@@ -89,8 +88,8 @@ interface SeedModel {
   prewarm?: boolean;             // Default: false
   user_modified?: boolean;       // Default: false (system managed)
   
-  // Runtime-specific configuration
-  runtime_args?: {
+  // Runtime-specific configuration (flattened array format supported)
+  runtime_args?: string[] | {    // Direct array: ["--trust-remote-code"] or nested: {"args": [...]}
     args?: string[];             // Command line arguments
     [key: string]: any;          // Other runtime-specific config
   };
@@ -152,8 +151,8 @@ SeedModels(ctx context.Context, models []*types.Model) error
 
 ### Docker Deployment
 ```dockerfile
-ENV HELIX_SEED_MODEL_1='{"id":"llama3.1:8b","name":"Llama 3.1 8B","type":"chat","runtime":"ollama","memory":8589934592}'
-ENV HELIX_SEED_MODEL_2='{"id":"stable-diffusion-xl","name":"SDXL","type":"image","runtime":"diffusers","memory":12884901888}'
+ENV HELIX_SEED_MODEL_1='{"id":"llama3.1:8b","name":"Llama 3.1 8B","type":"chat","runtime":"ollama","memory":"8GB"}'
+ENV HELIX_SEED_MODEL_2='{"id":"stable-diffusion-xl","name":"SDXL","type":"image","runtime":"diffusers","memory":"12GiB"}'
 ```
 
 ### Kubernetes ConfigMap
@@ -170,7 +169,7 @@ data:
         "name": "Llama 3.1 8B",
         "type": "chat",
         "runtime": "ollama",
-        "memory": 8589934592
+        "memory": "8GB"
       }
     ]
 ---
@@ -181,7 +180,7 @@ data:
 ```bash
 # .env file
 HELIX_SEED_MODELS_ENABLED=true
-HELIX_SEED_MODEL_DEV='{"id":"llama3.1:8b","name":"Dev Model","type":"chat","runtime":"ollama","memory":4294967296,"enabled":true}'
+HELIX_SEED_MODEL_DEV='{"id":"llama3.1:8b","name":"Dev Model","type":"chat","runtime":"ollama","memory":"4GB","enabled":true}'
 ```
 
 ## Migration and Compatibility
@@ -191,10 +190,26 @@ HELIX_SEED_MODEL_DEV='{"id":"llama3.1:8b","name":"Dev Model","type":"chat","runt
 - **User models**: `user_modified=true` - never touched by seeding
 - **New models**: Added with `user_modified=false`
 
+### Memory Format Support
+The `memory` field supports both numeric (bytes) and human-readable string formats:
+
+**Supported Units:**
+- **Binary units (1024-based)**: `B`, `KiB`, `MiB`, `GiB`, `TiB` 
+- **Decimal units (1000-based)**: `KB`, `MB`, `GB`, `TB`
+- **Numeric**: Raw bytes as integer
+
+**Examples:**
+```json
+{"memory": "8GB"}        // 8 billion bytes
+{"memory": "8GiB"}       // 8 gibibytes (8 * 1024^3 bytes)  
+{"memory": 8589934592}   // Raw bytes (8GB)
+{"memory": "16.5GB"}     // Decimal values supported
+```
+
 ### Validation
 - JSON schema validation for all seed models
-- Memory format parsing (support "8GB", bytes, etc.)
-- Runtime argument validation
+- Memory format parsing with unit conversion
+- Runtime argument validation (supports both flattened arrays and nested objects)
 - Duplicate ID detection and handling
 
 This approach provides maximum flexibility while keeping the environment variable interface clean and manageable.
