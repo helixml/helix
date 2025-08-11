@@ -44,7 +44,7 @@ func init() {
 	createCmd.Flags().StringVar(&createRuntimeArgs, "runtime-args", "", "Runtime-specific arguments as JSON")
 	createCmd.Flags().StringVarP(&createFromFile, "file", "f", "", "Create model from JSON file")
 
-	createCmd.MarkFlagRequired("name")
+	_ = createCmd.MarkFlagRequired("name")
 }
 
 // createCmd represents the create command
@@ -120,7 +120,7 @@ VLLM embedding model:
     "--trust-remote-code"
   ]
 }`,
-	Args: func(cmd *cobra.Command, args []string) error {
+	Args: func(_ *cobra.Command, args []string) error {
 		if createFromFile != "" {
 			return nil // No args needed when using file
 		}

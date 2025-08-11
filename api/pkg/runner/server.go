@@ -43,7 +43,7 @@ type HelixRunnerAPIServer struct {
 	models   []*types.Model
 
 	// System configuration received from control plane
-	systemConfigMu sync.RWMutex
+	systemConfigMu   sync.RWMutex
 	huggingFaceToken string
 }
 

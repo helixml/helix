@@ -23,6 +23,7 @@ func TestPrewarmNewRunner_Success(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,
@@ -84,6 +85,7 @@ func TestPrewarmNewRunner_VerifyWorkloadCreation(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,
@@ -127,6 +129,7 @@ func TestOnRunnerConnectedCallback(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,
@@ -172,6 +175,7 @@ func TestPrewarmWorkloadProperties(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,
@@ -239,6 +243,7 @@ func TestMultipleRunnerConnections(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,
@@ -293,6 +298,7 @@ func TestPrewarmingMemoryAwareSelection(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,
@@ -368,6 +374,7 @@ func TestPrewarmingMemoryConstrainedSelection(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,
@@ -444,6 +451,7 @@ func TestMemoryAwarePrewarming(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,

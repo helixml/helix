@@ -291,7 +291,7 @@ func (s *PostgresStore) parseMemoryString(memStr string) (uint64, error) {
 		unit = "B" // Default to bytes
 	}
 
-	var multiplier uint64 = 1
+	var multiplier uint64
 	switch unit {
 	case "B":
 		multiplier = 1

@@ -70,7 +70,7 @@ Examples:
   helix model update my-model --file updated-model.json
 
 Note: Only specified fields will be updated. Existing values remain unchanged unless explicitly set.`,
-	Args: func(cmd *cobra.Command, args []string) error {
+	Args: func(_ *cobra.Command, args []string) error {
 		if updateFromFile != "" {
 			if len(args) > 1 {
 				return fmt.Errorf("cannot specify MODEL_ID when using --file")
