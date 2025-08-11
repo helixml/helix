@@ -21,6 +21,7 @@ import TokenUsage from '../usage/TokenUsage'
 import TotalCost from '../usage/TotalCost'
 import TotalRequests from '../usage/TotalRequests'
 import useThemeConfig from '../../hooks/useThemeConfig'
+import { useGetConfig } from '../../services/userService'
 
 // Extended wallet interface to include subscription fields
 interface ExtendedWallet {
@@ -48,6 +49,8 @@ const OrgBilling: FC = () => {
   
   const orgId = router.params.org_id
   const organization = account.organizationTools.organization
+
+  const { data: serverConfig, isLoading: isLoadingServerConfig } = useGetConfig()
   
   const { data: wallet } = useGetWallet(orgId)
   const { data: usage } = useGetOrgUsage(orgId || '', !!orgId)
@@ -115,11 +118,11 @@ const OrgBilling: FC = () => {
     }
   }, [client, orgId, topUpAmount, snackbar])
 
-  if (!account.user || !organization) {
+  if (!account.user || !organization || isLoadingServerConfig) {
     return null
   }
 
-  const paymentsActive = account.serverConfig?.stripe_enabled
+  const paymentsActive = serverConfig?.stripe_enabled
   const colSize = paymentsActive ? 6 : 12
 
   // Check if user has admin permissions for this org
