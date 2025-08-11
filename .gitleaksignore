@@ -2,7 +2,3 @@ frontend/src/utils/timezones.ts:generic-api-key:348
 charts/helix-controlplane/templates/searxng_configmap.yaml:generic-api-key:23
 searxng/settings.yml:generic-api-key:13
 install.sh:generic-api-key:573
-MODEL_SEEDING_EXAMPLES.md:curl-auth-header:250
-MODEL_SEEDING_EXAMPLES.md:curl-auth-header:254
-TESTING_HF_TOKENS.md:curl-auth-header:24
-TESTING_HF_TOKENS.md:curl-auth-header:28
