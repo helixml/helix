@@ -86,14 +86,8 @@ func (s *Stripe) handleTopUpEvent(event stripe.Event) error {
 	}
 
 	userID := paymentIntent.Metadata["user_id"]
-	if userID == "" {
-		return fmt.Errorf("no user_id found in metadata")
-	}
 
 	orgID := paymentIntent.Metadata["org_id"]
-	if orgID == "" {
-		return fmt.Errorf("no org_id found in metadata")
-	}
 
 	// Check if this is a topup payment
 	paymentType := paymentIntent.Metadata["type"]
