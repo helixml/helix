@@ -8,6 +8,7 @@ import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
+import CircularProgress from '@mui/material/CircularProgress'
 
 import Page from '../system/Page'
 import useAccount from '../../hooks/useAccount'
@@ -52,6 +53,8 @@ const OrgBilling: FC = () => {
   const { data: usage } = useGetOrgUsage(orgId || '', !!orgId)
   
   const [topUpAmount, setTopUpAmount] = useState<number>(10)
+  const [isSubscribing, setIsSubscribing] = useState<boolean>(false)
+  const [isToppingUp, setIsToppingUp] = useState<boolean>(false)
 
   const handleSubscribe = useCallback(async () => {
     if (!orgId) {
@@ -59,14 +62,22 @@ const OrgBilling: FC = () => {
       return
     }
     
-    // const result = await api.post(`/api/v1/subscription/new`, { org_id: orgId }, {}, {
-    const resp = await client.v1SubscriptionNewCreate({
-      org_id: orgId
-    })
-    if (!resp.data) return
+    try {
+      setIsSubscribing(true)
+      
+      const resp = await client.v1SubscriptionNewCreate({
+        org_id: orgId
+      })
+      if (!resp.data) return
 
-    document.location = resp.data
-  }, [api, orgId, snackbar])
+      document.location = resp.data
+    } catch (error) {
+      console.error('Subscription error:', error)
+      snackbar.error('Failed to start subscription process')
+    } finally {
+      setIsSubscribing(false)
+    }
+  }, [client, orgId, snackbar])
 
   const handleManage = useCallback(async () => {
     if (!orgId) {
@@ -87,13 +98,22 @@ const OrgBilling: FC = () => {
       return
     }
 
-    const resp = await client.v1TopUpsNewCreate({
-      amount: topUpAmount,
-      org_id: orgId
-    })
-    if (!resp.data) return
-    document.location = resp.data
-  }, [api, orgId, topUpAmount, snackbar])
+    try {
+      setIsToppingUp(true)
+      
+      const resp = await client.v1TopUpsNewCreate({
+        amount: topUpAmount,
+        org_id: orgId
+      })
+      if (!resp.data) return
+      document.location = resp.data
+    } catch (error) {
+      console.error('Top-up error:', error)
+      snackbar.error('Failed to start top-up process')
+    } finally {
+      setIsToppingUp(false)
+    }
+  }, [client, orgId, topUpAmount, snackbar])
 
   if (!account.user || !organization) {
     return null
@@ -150,7 +170,7 @@ const OrgBilling: FC = () => {
                   <Box sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column', backgroundColor: 'transparent', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
                     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                       <Box sx={{ flex: 1 }}>
-                        <Typography variant="h6" gutterBottom>Balance</Typography>
+                        <Typography variant="h6" gutterBottom>Organization Balance</Typography>
                         <Typography variant="h4" gutterBottom color="primary">
                           ${extendedWallet?.balance?.toFixed(2) || '0.00'}
                         </Typography>
@@ -178,8 +198,15 @@ const OrgBilling: FC = () => {
                               <MenuItem value={1000}>$1000</MenuItem>
                             </Select>
                           </FormControl>
-                          <Button variant="contained" color="secondary" onClick={handleTopUp} sx={{ minWidth: 140 }}>
-                            Add Credits
+                          <Button 
+                            variant="contained" 
+                            color="secondary" 
+                            onClick={handleTopUp} 
+                            disabled={isToppingUp}
+                            startIcon={isToppingUp ? <CircularProgress size={16} color="inherit" /> : undefined}
+                            sx={{ minWidth: 140 }}
+                          >
+                            {isToppingUp ? 'Processing...' : 'Add Credits'}
                           </Button>
                         </Box>
                       )}
@@ -226,8 +253,15 @@ const OrgBilling: FC = () => {
                           
                           {!isReadOnly && (
                             <Box sx={{ display: 'flex', mb: 1, justifyContent: 'flex-end' }}>
-                              <Button variant="contained" color="secondary" sx={{ minWidth: 140 }} onClick={handleSubscribe}>
-                                Start Subscription ($399/m)
+                              <Button 
+                                variant="contained" 
+                                color="secondary" 
+                                onClick={handleSubscribe}
+                                disabled={isSubscribing}
+                                startIcon={isSubscribing ? <CircularProgress size={16} color="inherit" /> : undefined}
+                                sx={{ minWidth: 140 }}
+                              >
+                                {isSubscribing ? 'Processing...' : 'Start Subscription ($399/m)'}
                               </Button>
                             </Box>
                           )}
