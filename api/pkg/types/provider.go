@@ -65,6 +65,7 @@ type ProviderEndpoint struct {
 	APIKey         string               `json:"api_key"`
 	APIKeyFromFile string               `json:"api_key_file"`     // Must be mounted to the container
 	Default        bool                 `json:"default" gorm:"-"` // Set from environment variable
+	BillingEnabled bool                 `json:"billing_enabled"`
 
 	AvailableModels []OpenAIModel          `json:"available_models" gorm:"-"`
 	Status          ProviderEndpointStatus `json:"status" gorm:"-"` // If we can't fetch models
