@@ -211,8 +211,8 @@ func (s *HelixAPIServer) lookupOrg(ctx context.Context, orgStr string) (*types.O
 func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Request) (string, error) {
 	user := getRequestUser(req)
 
+	var orgName string
 	orgID := req.URL.Query().Get("org_id")
-
 	if orgID != "" {
 		org, err := s.lookupOrg(req.Context(), orgID)
 		if err != nil {
@@ -225,6 +225,7 @@ func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Req
 		}
 
 		orgID = org.ID
+		orgName = org.Name
 	}
 
 	wallet, err := s.getOrCreateWallet(req.Context(), user, orgID)
@@ -235,6 +236,7 @@ func (s *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Req
 	return s.Stripe.GetCheckoutSessionURL(stripe.SubscriptionSessionParams{
 		StripeCustomerID: wallet.StripeCustomerID,
 		OrgID:            orgID,
+		OrgName:          orgName,
 		UserID:           user.ID,
 		Amount:           s.Cfg.Stripe.InitialBalance,
 	})
@@ -266,12 +268,6 @@ func (s *HelixAPIServer) subscriptionManage(_ http.ResponseWriter, req *http.Req
 
 		orgID = org.ID
 
-		org, err = s.Store.GetOrganization(req.Context(), &store.GetOrganizationQuery{
-			ID: orgID,
-		})
-		if err != nil {
-			return "", fmt.Errorf("failed to get organization: %w", err)
-		}
 		orgName = org.Name
 	}
 
