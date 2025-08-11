@@ -135,13 +135,14 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 		}
 
 		providerEndpoints = append(providerEndpoints, &types.ProviderEndpoint{
-			ID:           "-",
-			Name:         string(provider),
-			Description:  "",
-			BaseURL:      baseURL,
-			EndpointType: types.ProviderEndpointTypeGlobal,
-			Owner:        string(types.OwnerTypeSystem),
-			APIKey:       "",
+			ID:             "-",
+			Name:           string(provider),
+			Description:    "",
+			BaseURL:        baseURL,
+			EndpointType:   types.ProviderEndpointTypeGlobal,
+			Owner:          string(types.OwnerTypeSystem),
+			APIKey:         "",
+			BillingEnabled: s.Cfg.Stripe.BillingEnabled,
 		})
 	}
 
