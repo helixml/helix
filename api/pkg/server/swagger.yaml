@@ -1316,6 +1316,27 @@ definitions:
             type: integer
         type: object
     type: object
+  types.FrontendLicenseInfo:
+    properties:
+      features:
+        properties:
+          users:
+            type: boolean
+        type: object
+      limits:
+        properties:
+          machines:
+            type: integer
+          users:
+            type: integer
+        type: object
+      organization:
+        type: string
+      valid:
+        type: boolean
+      valid_until:
+        type: string
+    type: object
   types.ImageURLDetail:
     enum:
     - high
@@ -2595,6 +2616,47 @@ definitions:
         items:
           type: integer
         type: array
+    type: object
+  types.ServerConfigForFrontend:
+    properties:
+      apps_enabled:
+        type: boolean
+      billing_enabled:
+        type: boolean
+      deployment_id:
+        type: string
+      disable_llm_call_logging:
+        type: boolean
+      eval_user_id:
+        type: string
+      filestore_prefix:
+        description: |-
+          used to prepend onto raw filestore paths to download files
+          the filestore path will have the user info in it - i.e.
+          it's a low level filestore path
+          if we are using an object storage thing - then this URL
+          can be the prefix to the bucket
+        type: string
+      google_analytics_frontend:
+        type: string
+      latest_version:
+        type: string
+      license:
+        $ref: '#/definitions/types.FrontendLicenseInfo'
+      organizations_create_enabled_for_non_admins:
+        type: boolean
+      rudderstack_data_plane_url:
+        type: string
+      rudderstack_write_key:
+        type: string
+      sentry_dsn_frontend:
+        type: string
+      stripe_enabled:
+        type: boolean
+      tools_enabled:
+        type: boolean
+      version:
+        type: string
     type: object
   types.Session:
     properties:
@@ -4174,6 +4236,19 @@ paths:
       summary: User information
       tags:
       - auth
+  /api/v1/config:
+    get:
+      description: Get config
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ServerConfigForFrontend'
+      security:
+      - BearerAuth: []
+      summary: Get config
+      tags:
+      - config
   /api/v1/context-menu:
     get:
       description: contextMenuHandler
