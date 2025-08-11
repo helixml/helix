@@ -38,6 +38,7 @@ HF_TOKEN=""
 PROXY=https://get.helixml.tech
 HELIX_VERSION=""
 CLI_INSTALL_PATH="/usr/local/bin/helix"
+EMBEDDINGS_PROVIDER="helix"
 
 # Determine OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -92,8 +93,8 @@ Options:
   --openai-api-key <key>   Specify the OpenAI API key for any OpenAI compatible API
   --openai-base-url <url>  Specify the base URL for the OpenAI API
   --anthropic-api-key <key> Specify the Anthropic API key for Claude models
-
   --hf-token <token>       Specify the Hugging Face token for the control plane (automatically distributed to runners)
+  --embeddings-provider <provider> Specify the provider for embeddings (openai, togetherai, vllm, helix, default: helix)
   -y                       Auto approve the installation
 
   --helix-version <version>  Override the Helix version to install (e.g. 1.4.0-rc4, defaults to latest stable)
@@ -124,6 +125,9 @@ Examples:
 
 8. Install CLI and controlplane with OpenAI-compatible API key and base URL:
    ./install.sh --cli --controlplane --openai-api-key YOUR_OPENAI_API_KEY --openai-base-url YOUR_OPENAI_BASE_URL
+
+9. Install CLI and controlplane with custom embeddings provider:
+   ./install.sh --cli --controlplane --embeddings-provider openai
 
 EOF
 }
@@ -210,6 +214,21 @@ while [[ $# -gt 0 ]]; do
             ANTHROPIC_API_KEY="$2"
             shift 2
             ;;
+<<<<<<< HEAD
+=======
+        --embeddings-provider=*)
+            EMBEDDINGS_PROVIDER="${1#*=}"
+            shift
+            ;;
+        --embeddings-provider)
+            EMBEDDINGS_PROVIDER="$2"
+            shift 2
+            ;;
+        --older-gpu)
+            OLDER_GPU=true
+            shift
+            ;;
+>>>>>>> main
         --hf-token=*)
             HF_TOKEN="${1#*=}"
             shift
@@ -561,7 +580,7 @@ server:
     secret_key: 'replace_me' # Is overwritten by \${SEARXNG_SECRET}
 engines:
     - name: wolframalpha
-    disabled: false
+      disabled: false
 EOF
 
     cat << EOF > "$INSTALL_DIR/searxng/limiter.toml"
@@ -731,12 +750,19 @@ ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
 EOF
     fi
 
+<<<<<<< HEAD
     # Add Hugging Face token configuration if provided
     if [ -n "$HF_TOKEN" ]; then
         cat << EOF >> "$ENV_FILE"
 HELIX_HF_TOKEN=$HF_TOKEN
 EOF
     fi
+=======
+    # Add embeddings provider configuration
+    cat << EOF >> "$ENV_FILE"
+RAG_PGVECTOR_PROVIDER=$EMBEDDINGS_PROVIDER
+EOF
+>>>>>>> main
 
     # Set default FINETUNING_PROVIDER to helix if neither OpenAI nor TogetherAI are specified
     if [ -z "$OPENAI_API_KEY" ] && [ -z "$TOGETHER_API_KEY" ] && [ "$AUTODETECTED_LLM" = false ]; then
