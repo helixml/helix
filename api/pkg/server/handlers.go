@@ -176,6 +176,13 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 	}, nil
 }
 
+// getConfig godoc
+// @Summary Get config
+// @Description Get config
+// @Tags    config
+// @Success 200 {object} types.ServerConfigForFrontend
+// @Router /api/v1/config [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerConfigForFrontend, error) {
 	filestorePrefix := ""
 
@@ -224,6 +231,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	config := types.ServerConfigForFrontend{
 		FilestorePrefix:                        filestorePrefix,
 		StripeEnabled:                          apiServer.Stripe.Enabled(),
+		BillingEnabled:                         apiServer.Cfg.Stripe.BillingEnabled,
 		SentryDSNFrontend:                      apiServer.Cfg.Janitor.SentryDsnFrontend,
 		GoogleAnalyticsFrontend:                apiServer.Cfg.Janitor.GoogleAnalyticsFrontend,
 		EvalUserID:                             apiServer.Cfg.WebServer.EvalUserID,

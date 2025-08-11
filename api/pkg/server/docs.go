@@ -1012,6 +1012,28 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/config": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get config",
+                "tags": [
+                    "config"
+                ],
+                "summary": "Get config",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ServerConfigForFrontend"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/context-menu": {
             "get": {
                 "description": "contextMenuHandler",
@@ -5254,6 +5276,39 @@ const docTemplate = `{
                 }
             }
         },
+        "types.FrontendLicenseInfo": {
+            "type": "object",
+            "properties": {
+                "features": {
+                    "type": "object",
+                    "properties": {
+                        "users": {
+                            "type": "boolean"
+                        }
+                    }
+                },
+                "limits": {
+                    "type": "object",
+                    "properties": {
+                        "machines": {
+                            "type": "integer"
+                        },
+                        "users": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "organization": {
+                    "type": "string"
+                },
+                "valid": {
+                    "type": "boolean"
+                },
+                "valid_until": {
+                    "type": "string"
+                }
+            }
+        },
         "types.ImageURLDetail": {
             "type": "string",
             "enum": [
@@ -7064,6 +7119,60 @@ const docTemplate = `{
                     "items": {
                         "type": "integer"
                     }
+                }
+            }
+        },
+        "types.ServerConfigForFrontend": {
+            "type": "object",
+            "properties": {
+                "apps_enabled": {
+                    "type": "boolean"
+                },
+                "billing_enabled": {
+                    "type": "boolean"
+                },
+                "deployment_id": {
+                    "type": "string"
+                },
+                "disable_llm_call_logging": {
+                    "type": "boolean"
+                },
+                "eval_user_id": {
+                    "type": "string"
+                },
+                "filestore_prefix": {
+                    "description": "used to prepend onto raw filestore paths to download files\nthe filestore path will have the user info in it - i.e.\nit's a low level filestore path\nif we are using an object storage thing - then this URL\ncan be the prefix to the bucket",
+                    "type": "string"
+                },
+                "google_analytics_frontend": {
+                    "type": "string"
+                },
+                "latest_version": {
+                    "type": "string"
+                },
+                "license": {
+                    "$ref": "#/definitions/types.FrontendLicenseInfo"
+                },
+                "organizations_create_enabled_for_non_admins": {
+                    "type": "boolean"
+                },
+                "rudderstack_data_plane_url": {
+                    "type": "string"
+                },
+                "rudderstack_write_key": {
+                    "type": "string"
+                },
+                "sentry_dsn_frontend": {
+                    "type": "string"
+                },
+                "stripe_enabled": {
+                    "type": "boolean"
+                },
+                "tools_enabled": {
+                    "type": "boolean"
+                },
+                "version": {
+                    "type": "string"
                 }
             }
         },
