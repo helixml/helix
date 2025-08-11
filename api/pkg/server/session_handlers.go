@@ -297,7 +297,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 				model = modelName
 			}
 
-			name, err := s.generateSessionName(user, startReq.OrganizationID, session.ID, provider, model, message)
+			name, err := s.generateSessionName(ctx, user, startReq.OrganizationID, session, provider, model, message)
 			if err != nil {
 				log.Error().Err(err).Msg("error generating session name")
 				return
@@ -522,8 +522,8 @@ func (s *HelixAPIServer) getTemporarySessionName(prompt string) string {
 	return strings.Join(words, " ")
 }
 
-func (s *HelixAPIServer) generateSessionName(user *types.User, orgID, sessionID, provider, model, prompt string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func (s *HelixAPIServer) generateSessionName(ctx context.Context, user *types.User, orgID string, session *types.Session, provider, model, prompt string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	ownerID := user.ID
@@ -531,10 +531,16 @@ func (s *HelixAPIServer) generateSessionName(user *types.User, orgID, sessionID,
 		ownerID = oai.RunnerID
 	}
 
+	// Get last interaction ID
+	lastInteractionID := "n/a"
+	if len(session.Interactions) > 0 {
+		lastInteractionID = session.Interactions[len(session.Interactions)-1].ID
+	}
+
 	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
 		OwnerID:       ownerID,
-		SessionID:     sessionID,
-		InteractionID: "n/a",
+		SessionID:     session.ID,
+		InteractionID: lastInteractionID,
 	})
 
 	ctx = oai.SetStep(ctx, &oai.Step{

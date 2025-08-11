@@ -37,7 +37,15 @@ func (s *HelixAPIServer) getDailyUsage(_ http.ResponseWriter, r *http.Request) (
 	}
 
 	if orgID != "" {
-		_, err := s.authorizeOrgMember(r.Context(), user, orgID)
+		// Lookup org
+		org, err := s.lookupOrg(r.Context(), orgID)
+		if err != nil {
+			return nil, system.NewHTTPError404(err.Error())
+		}
+
+		orgID = org.ID
+
+		_, err = s.authorizeOrgMember(r.Context(), user, orgID)
 		if err != nil {
 			return nil, system.NewHTTPError403(err.Error())
 		}
