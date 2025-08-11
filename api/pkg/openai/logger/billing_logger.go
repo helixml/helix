@@ -11,14 +11,21 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type NoopBillingLogger struct{}
+
+func (l *NoopBillingLogger) CreateLLMCall(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
+	return call, nil
+}
+
 type BillingLogger struct {
-	store store.Store
-	cache *ristretto.Cache[string, string]
+	store   store.Store
+	enabled bool
+	cache   *ristretto.Cache[string, string]
 }
 
 var _ LogStore = &BillingLogger{}
 
-func NewBillingLogger(store store.Store) (*BillingLogger, error) {
+func NewBillingLogger(store store.Store, enabled bool) (*BillingLogger, error) {
 	cache, err := ristretto.NewCache(&ristretto.Config[string, string]{
 		NumCounters: 1e7,     // number of keys to track frequency of (10M).
 		MaxCost:     1 << 30, // maximum cost of cache (1GB).
@@ -28,10 +35,13 @@ func NewBillingLogger(store store.Store) (*BillingLogger, error) {
 		return nil, fmt.Errorf("failed to create cache: %w", err)
 	}
 
-	return &BillingLogger{store: store, cache: cache}, nil
+	return &BillingLogger{store: store, enabled: enabled, cache: cache}, nil
 }
 
 func (l *BillingLogger) CreateLLMCall(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
+	if !l.enabled {
+		return call, nil
+	}
 
 	// Lookup wallet
 	walletID, err := l.getWalletID(ctx, call.OrganizationID, call.UserID)

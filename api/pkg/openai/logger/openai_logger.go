@@ -41,7 +41,7 @@ type LoggingMiddleware struct {
 	defaultCodec      tokenizer.Codec
 }
 
-func Wrap(cfg *config.ServerConfig, provider types.Provider, client oai.Client, modelInfoProvider model.ModelInfoProvider, logStores ...LogStore) *LoggingMiddleware {
+func Wrap(cfg *config.ServerConfig, provider types.Provider, client oai.Client, modelInfoProvider model.ModelInfoProvider, billingLogger LogStore, logStores ...LogStore) *LoggingMiddleware {
 	enc, err := tokenizer.Get(tokenizer.Cl100kBase)
 	if err != nil {
 		panic("failed to initialize tokenizer")
