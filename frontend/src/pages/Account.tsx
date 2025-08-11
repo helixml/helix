@@ -37,7 +37,7 @@ import { Prism as SyntaxHighlighterPrism } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import SmallSpinner from '../components/system/SmallSpinner'
 
-import { useGetUserAPIKeys } from '../services/userService'
+import { useGetUserAPIKeys, useGetConfig } from '../services/userService'
 
 const SyntaxHighlighter = SyntaxHighlighterPrism as unknown as React.FC<any>;
 
@@ -50,6 +50,7 @@ const Account: FC = () => {
   const [topUpAmount, setTopUpAmount] = useState<number>(10)
 
   const { data: usage } = useGetUserUsage()
+  const { data: serverConfig, isLoading: isLoadingServerConfig } = useGetConfig()
   const [showApiKey, setShowApiKey] = useState(false)
   const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false)
   const [keyToRegenerate, setKeyToRegenerate] = useState<string>('')
@@ -143,11 +144,11 @@ const Account: FC = () => {
     account.token,
   ])
 
-  if (!account.user || !apiKeys || !account.models || !account.serverConfig) {
+  if (!account.user || !apiKeys || !account.models || isLoadingServerConfig) {
     return null
   }
 
-  const paymentsActive = account.serverConfig.stripe_enabled
+  const paymentsActive = serverConfig?.stripe_enabled
   const colSize = paymentsActive ? 6 : 12
 
   const apiKey = apiKeys.length > 0 ? apiKeys[0].key : ''

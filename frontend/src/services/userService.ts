@@ -12,6 +12,18 @@ export const userUsageQueryKey = (id: string) => [
   "usage"
 ];
 
+export function useGetConfig() {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  return useQuery({
+    queryKey: ["config"],
+    queryFn: async () => {
+      const response = await apiClient.v1ConfigList()
+      return response.data
+    },
+  })
+}
+
 export function useGetUserTokenUsage() {
   const api = useApi()
   const apiClient = api.getApiClient()  
