@@ -45,7 +45,6 @@ func (s *Stripe) handleInvoicePaymentPaidEvent(event stripe.Event) error {
 
 	_, err = s.store.UpdateWalletBalance(context.Background(), wallet.ID, amount, types.TransactionMetadata{
 		TransactionType: types.TransactionTypeSubscription,
-		TopUpID:         invoice.ID,
 	})
 
 	if err != nil {
