@@ -45,7 +45,7 @@ HELIX_SEED_MODEL_2='{
   "runtime_args": [
     "--trust-remote-code",
     "--max-model-len", "32768",
-    "--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}",
+
     "--limit-mm-per-prompt", "{\"image\":10}",
     "--enforce-eager",
     "--max-num-seqs", "64"
@@ -126,7 +126,7 @@ The `runtime_args` field now supports a **flattened array structure** (recommend
   "runtime_args": [
     "--trust-remote-code",
     "--max-model-len", "32768",
-    "--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}",
+
     "--enforce-eager"
   ]
 }
@@ -204,8 +204,7 @@ data:
       "enabled": true,
       "runtime_args": [
         "--trust-remote-code", 
-        "--max-model-len", "32768",
-        "--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}"
+        "--max-model-len", "32768"
       ]
     }
 ---

@@ -97,7 +97,6 @@ VLLM model with comprehensive configuration:
   "runtime_args": [
     "--trust-remote-code",
     "--max-model-len", "32768",
-    "--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}",
     "--limit-mm-per-prompt", "{\"image\":10}",
     "--enforce-eager",
     "--max-num-seqs", "64"

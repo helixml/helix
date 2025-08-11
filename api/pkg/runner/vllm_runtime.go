@@ -536,6 +536,12 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 		}
 	}
 
+	// Add GPU memory utilization if not specified (only for GPU mode)
+	if !customArgsMap["--gpu-memory-utilization"] && os.Getenv("DEVELOPMENT_CPU_ONLY") != "true" && os.Getenv("VLLM_DEVICE") != "cpu" {
+		log.Debug().Msg("Adding --gpu-memory-utilization with dynamic placeholder")
+		args = append(args, "--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}")
+	}
+
 	// Add custom arguments
 	args = append(args, customArgs...)
 
