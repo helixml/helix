@@ -185,7 +185,7 @@ export HELIX_API_KEY=${apiKey}
                     <Box sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column', backgroundColor: 'transparent', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
                       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                         <Box sx={{ flex: 1 }}>
-                          <Typography variant="h6" gutterBottom>Current Balance</Typography>
+                          <Typography variant="h6" gutterBottom>Personal Balance</Typography>
                           {isLoadingWallet ? (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                               <SmallSpinner size={24} />
@@ -226,10 +226,10 @@ export HELIX_API_KEY=${apiKey}
                   <Grid item xs={12} md={colSize}>
                     <Box sx={{ p: 2, height: 250, display: 'flex', flexDirection: 'column', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
                       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                        {account.userConfig.stripe_subscription_active ? (
+                        {wallet?.stripe_subscription_id !== '' && wallet?.subscription_status !== 'canceled' ? (
                           <>
                             <Box sx={{ flex: 1 }}>
-                              <Typography variant="h6" gutterBottom>Subscription Active</Typography>
+                              <Typography variant="h6" gutterBottom>Subscription {wallet?.subscription_status}</Typography>
                               <Typography variant="h4" gutterBottom color="primary">Helix Premium</Typography>
                               <Typography variant="body2" gutterBottom>You have priority access to the Helix GPU cloud</Typography>
                             </Box>
