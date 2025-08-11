@@ -60,6 +60,16 @@ type MultiClientManager struct {
 func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInference openai.Client, modelInfoProvider model.ModelInfoProvider, logStores ...logger.LogStore) *MultiClientManager {
 	clients := make(map[types.Provider]*providerClient)
 
+	if cfg.Stripe.BillingEnabled {
+		log.Info().Msg("initializing billing logger")
+		billingLogger, err := logger.NewBillingLogger(store)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to initialize billing logger")
+		} else {
+			logStores = append(logStores, billingLogger)
+		}
+	}
+
 	if cfg.Providers.OpenAI.APIKey != "" {
 		log.Info().
 			Str("base_url", cfg.Providers.OpenAI.BaseURL).
