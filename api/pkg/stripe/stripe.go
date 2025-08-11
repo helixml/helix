@@ -1,13 +1,11 @@
 package stripe
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -32,6 +30,7 @@ func NewStripe(
 	store store.Store,
 ) *Stripe {
 	if cfg.SecretKey != "" {
+		log.Info().Msgf("Stripe key set")
 		stripe.Key = cfg.SecretKey
 	}
 	return &Stripe{
@@ -99,68 +98,6 @@ var eventMap = map[stripe.EventType]types.SubscriptionEventType{
 	"customer.subscription.created": types.SubscriptionEventTypeCreated,
 }
 
-// Activates/deactivates subscription for a wallet
-
-// handleInvoicePaymentPaidEvent is received when a user pays an invoice for a subscription
-func (s *Stripe) handleInvoicePaymentPaidEvent(event stripe.Event) error {
-	var invoice stripe.Invoice
-	err := json.Unmarshal(event.Data.Raw, &invoice)
-	if err != nil {
-		return fmt.Errorf("error parsing invoice JSON: %s", err.Error())
-	}
-
-	// Only process invoices with successful payment
-	if invoice.Status != stripe.InvoiceStatusPaid {
-		log.Debug().
-			Str("invoice_id", invoice.ID).
-			Str("status", string(invoice.Status)).
-			Msg("invoice payment not successful, skipping topup")
-		return nil
-	}
-
-	spew.Dump(invoice)
-
-	// stripeCustomerID := invoice.Customer.ID
-	// if stripeCustomerID == "" {
-	// 	log.Error().Any("invoice", invoice).Msgf("no stripe customer id found in invoice")
-	// 	return fmt.Errorf("no stripe customer id found in invoice")
-	// }
-
-	// ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	// defer cancel()
-
-	// wallet, err := s.store.GetWalletByStripeCustomerID(ctx, stripeCustomerID)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to get wallet for stripe customer %s: %w", stripeCustomerID, err)
-	// }
-
-	// // Calculate the amount in dollars (Stripe amounts are in cents)
-	// amount := float64(invoice.Total) / 100.0
-
-	// // Create subscription topup record
-	// topUp := &types.TopUp{
-	// 	StripePaymentIntentID: invoice.PaymentIntent.ID,
-	// 	WalletID:              wallet.ID,
-	// 	Amount:                amount,
-	// 	Type:                  types.TopUpTypeSubscription,
-	// }
-
-	// _, err = s.store.CreateTopUp(ctx, topUp)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to create subscription topup for wallet %s: %w", wallet.ID, err)
-	// }
-
-	// log.Info().
-	// 	Str("wallet_id", wallet.ID).
-	// 	Str("user_id", wallet.UserID).
-	// 	Str("org_id", wallet.OrgID).
-	// 	Float64("amount", amount).
-	// 	Str("invoice_id", invoice.ID).
-	// 	Msg("subscription topup completed successfully")
-
-	return nil
-}
-
 func (s *Stripe) ProcessWebhook(w http.ResponseWriter, req *http.Request) {
 	const MaxBodyBytes = int64(65536)
 	bodyReader := http.MaxBytesReader(w, req.Body, MaxBodyBytes)
@@ -183,19 +120,19 @@ func (s *Stripe) ProcessWebhook(w http.ResponseWriter, req *http.Request) {
 
 	// Handle different event types
 	switch event.Type {
-	case "customer.subscription.deleted", "customer.subscription.updated", "customer.subscription.created":
+	case stripe.EventTypeCustomerSubscriptionDeleted, stripe.EventTypeCustomerSubscriptionUpdated, stripe.EventTypeCustomerSubscriptionCreated:
 		err := s.handleSubscriptionEvent(event)
 		if err != nil {
 			log.Error().Msgf("Error handling subscription event: %s", err.Error())
 		}
 		return
-	case "invoice_payment.paid":
+	case stripe.EventTypeInvoicePaid:
 		err := s.handleInvoicePaymentPaidEvent(event)
 		if err != nil {
 			log.Error().Msgf("Error handling invoice payment paid event: %s", err.Error())
 		}
 		return
-	case "payment_intent.succeeded":
+	case stripe.EventTypePaymentIntentSucceeded:
 		err := s.handleTopUpEvent(event)
 		if err != nil {
 			log.Error().Msgf("Error handling top up event: %s", err.Error())
