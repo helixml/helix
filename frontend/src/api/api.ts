@@ -838,6 +838,19 @@ export interface TypesFlexibleEmbeddingResponse {
   };
 }
 
+export interface TypesFrontendLicenseInfo {
+  features?: {
+    users?: boolean;
+  };
+  limits?: {
+    machines?: number;
+    users?: number;
+  };
+  organization?: string;
+  valid?: boolean;
+  valid_until?: string;
+}
+
 export enum TypesImageURLDetail {
   ImageURLDetailHigh = "high",
   ImageURLDetailLow = "low",
@@ -1575,6 +1588,32 @@ export interface TypesSecret {
   ownerType?: TypesOwnerType;
   updated?: string;
   value?: number[];
+}
+
+export interface TypesServerConfigForFrontend {
+  apps_enabled?: boolean;
+  billing_enabled?: boolean;
+  deployment_id?: string;
+  disable_llm_call_logging?: boolean;
+  eval_user_id?: string;
+  /**
+   * used to prepend onto raw filestore paths to download files
+   * the filestore path will have the user info in it - i.e.
+   * it's a low level filestore path
+   * if we are using an object storage thing - then this URL
+   * can be the prefix to the bucket
+   */
+  filestore_prefix?: string;
+  google_analytics_frontend?: string;
+  latest_version?: string;
+  license?: TypesFrontendLicenseInfo;
+  organizations_create_enabled_for_non_admins?: boolean;
+  rudderstack_data_plane_url?: string;
+  rudderstack_write_key?: string;
+  sentry_dsn_frontend?: string;
+  stripe_enabled?: boolean;
+  tools_enabled?: boolean;
+  version?: string;
 }
 
 export interface TypesSession {
@@ -2861,6 +2900,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesUserResponse, any>({
         path: `/api/v1/auth/user`,
         method: "GET",
+        ...params,
+      }),
+
+    /**
+     * @description Get config
+     *
+     * @tags config
+     * @name V1ConfigList
+     * @summary Get config
+     * @request GET:/api/v1/config
+     * @secure
+     */
+    v1ConfigList: (params: RequestParams = {}) =>
+      this.request<TypesServerConfigForFrontend, any>({
+        path: `/api/v1/config`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
