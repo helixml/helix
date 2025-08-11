@@ -129,6 +129,8 @@ const Account: FC = () => {
     const query = new URLSearchParams(window.location.search)
     if (query.get('success')) {
       snackbar.success('Subscription successful')
+      // Clear 'success' query parameter
+      query.delete('success')
     }
   }, [])
 
