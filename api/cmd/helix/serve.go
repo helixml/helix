@@ -364,12 +364,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	// Will run async and watch for changes in the API keys, non-blocking
 	providerManager.StartRefresh(ctx)
 
-	dataprepOpenAIClient, err := createDataPrepOpenAIClient(cfg, helixInference)
-	if err != nil {
-		return err
-	}
-	dataprepOpenAIClient = logger.Wrap(cfg, cfg.FineTuning.Provider, dataprepOpenAIClient, modelInfoProvider, logStores...)
-
 	var ragClient rag.RAG
 
 	switch cfg.RAG.DefaultRagProvider {
@@ -407,21 +401,20 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	})
 
 	controllerOptions := controller.Options{
-		Config:               cfg,
-		Store:                postgresStore,
-		PubSub:               ps,
-		RAG:                  ragClient,
-		Extractor:            extractor,
-		GPTScriptExecutor:    gse,
-		Filestore:            fs,
-		Janitor:              janitor,
-		Notifier:             notifier,
-		ProviderManager:      providerManager,
-		DataprepOpenAIClient: dataprepOpenAIClient,
-		Scheduler:            scheduler,
-		RunnerController:     runnerController,
-		Browser:              browserPool,
-		SearchProvider:       searchProvider,
+		Config:            cfg,
+		Store:             postgresStore,
+		PubSub:            ps,
+		RAG:               ragClient,
+		Extractor:         extractor,
+		GPTScriptExecutor: gse,
+		Filestore:         fs,
+		Janitor:           janitor,
+		Notifier:          notifier,
+		ProviderManager:   providerManager,
+		Scheduler:         scheduler,
+		RunnerController:  runnerController,
+		Browser:           browserPool,
+		SearchProvider:    searchProvider,
 	}
 
 	// Create the OAuth manager
