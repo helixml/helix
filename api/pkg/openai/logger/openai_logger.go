@@ -35,6 +35,7 @@ type LoggingMiddleware struct {
 	cfg               *config.ServerConfig
 	client            oai.Client
 	logStores         []LogStore
+	billingLogger     LogStore
 	wg                sync.WaitGroup
 	provider          types.Provider
 	modelInfoProvider model.ModelInfoProvider
@@ -50,6 +51,7 @@ func Wrap(cfg *config.ServerConfig, provider types.Provider, client oai.Client, 
 	return &LoggingMiddleware{
 		cfg:               cfg,
 		logStores:         logStores,
+		billingLogger:     billingLogger,
 		client:            client,
 		wg:                sync.WaitGroup{},
 		provider:          provider,
@@ -342,6 +344,13 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 		_, err = logStore.CreateLLMCall(ctx, llmCall)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to log LLM call")
+		}
+	}
+
+	if m.billingLogger != nil {
+		_, err = m.billingLogger.CreateLLMCall(ctx, llmCall)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to log LLM call to billing logger")
 		}
 	}
 }
