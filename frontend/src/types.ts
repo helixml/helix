@@ -1016,6 +1016,7 @@ export interface IProviderEndpoint {
   api_key: string
   api_key_file?: string
   default: boolean
+  billing_enabled?: boolean
 }
 
 // Resource type for access grants

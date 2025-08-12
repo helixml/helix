@@ -12,6 +12,26 @@ export const userUsageQueryKey = (id: string) => [
   "usage"
 ];
 
+export const getUserByIdQueryKey = (id: string) => [
+  "user",
+  "details",
+  id
+];
+
+
+export function getUserById(id: string, enabled?: boolean) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  return useQuery({
+    queryKey: getUserByIdQueryKey(id),
+    queryFn: async () => {
+      const response = await apiClient.v1UsersDetail(id)
+      return response.data
+    },
+    enabled: enabled,
+  })
+}
+
 export function useGetConfig() {
   const api = useApi()
   const apiClient = api.getApiClient()
@@ -24,12 +44,19 @@ export function useGetConfig() {
   })
 }
 
+export function getUserTokenUsageQueryKey() {
+  return [
+    "user",
+    "token-usage"
+  ];
+}
+
 export function useGetUserTokenUsage() {
   const api = useApi()
   const apiClient = api.getApiClient()  
 
   return useQuery({
-    queryKey: userQueryKey("token-usage"),
+    queryKey: getUserTokenUsageQueryKey(),
     queryFn: async () => {
       const response = await apiClient.v1UsersTokenUsageList()
       return response.data
@@ -49,6 +76,7 @@ export function useGetUserUsage(enabled?: boolean) {
       return response.data
     },
     refetchInterval: 30000, // 30 seconds
+    enabled: enabled ?? true,
   })
 }
 

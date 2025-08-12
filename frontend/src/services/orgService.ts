@@ -12,6 +12,26 @@ export const orgUsageQueryKey = (id: string) => [
   "usage"
 ];
 
+export function getOrgByIdQueryKey(id: string) {
+  return [
+    "org",
+    id
+  ];
+}
+
+export function useGetOrgById(id: string, enabled?: boolean) {
+  const api = useApi()
+  const apiClient = api.getApiClient()
+  return useQuery({
+    queryKey: getOrgByIdQueryKey(id),
+    queryFn: async () => {
+      const response = await apiClient.v1OrganizationsDetail(id)
+      return response.data
+    },
+    enabled: enabled,
+  })
+}
+
 export function useGetOrgByName(name: string, enabled?: boolean) {
   const api = useApi()
   const apiClient = api.getApiClient()  

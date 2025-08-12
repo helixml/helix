@@ -19,8 +19,6 @@ import { SparkLineChart } from '@mui/x-charts';
 import { IProviderEndpoint } from '../../types';
 import AddIcon from '@mui/icons-material/Add';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
-import LockIcon from '@mui/icons-material/Lock';
-import LockOpenIcon from '@mui/icons-material/LockOpen';
 import CreateProviderEndpointDialog from './CreateProviderEndpointDialog';
 import DeleteProviderEndpointDialog from './DeleteProviderEndpointDialog';
 import EditProviderEndpointDialog from './EditProviderEndpointDialog';
@@ -28,11 +26,40 @@ import ProviderEndpointUsageDialog from './ProviderEndpointUsageDialog';
 import EditProviderModelsDialog from './EditProviderModelsDialog';
 import { useApi } from '../../hooks/useApi';
 import { useListProviders } from '../../services/providersService';
+import { getUserById } from '../../services/userService';
+import { useGetOrgById } from '../../services/orgService';
 
 interface TypesAggregatedUsageMetric {
   date: string;
   total_tokens: number;
 }
+
+// Component to display owner information
+const OwnerInfo: FC<{ ownerId: string; ownerType?: string }> = ({ ownerId, ownerType }) => {
+  
+  
+  const { data: user, isLoading, error } = getUserById(ownerId, ownerType === 'user');
+  const { data: org, isLoading: isLoadingOrg, error: errorOrg } = useGetOrgById(ownerId, ownerType === 'org');
+
+  if (isLoading || isLoadingOrg) {
+    return <Typography variant="body2" color="text.secondary">Loading...</Typography>;
+  }
+
+  if (error || errorOrg || (!user && !org)) {
+    return (
+      <Typography variant="body2" color="error">
+        {ownerId}
+        {ownerType && ` (${ownerType})`}
+      </Typography>
+    );
+  }
+
+  return (
+    <Typography variant="body2">
+      {ownerType === 'user' ? user?.email || user?.username || ownerId : org?.name || ownerId}
+    </Typography>
+  );
+};
 
 const ProviderEndpointsTable: FC = () => {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -46,7 +73,11 @@ const ProviderEndpointsTable: FC = () => {
   const api = useApi()
   const apiClient = api.getApiClient()    
 
-  const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders(true);
+  const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders({
+    loadModels: false,    
+    all: true,
+    enabled: true,
+  });
 
   // Fetch usage data for all providers
   useEffect(() => {
@@ -116,33 +147,14 @@ const ProviderEndpointsTable: FC = () => {
     return endpoint.endpoint_type === 'global' && endpoint.owner === 'system';
   };
 
-  const renderAuthCell = (endpoint: IProviderEndpoint) => {
-    // If endpoint is global, don't show anything
-    if (isSystemEndpoint(endpoint)) {
-      return null;
+  // Helper function to render owner information
+  const renderOwnerInfo = (endpoint: IProviderEndpoint) => {
+    if (endpoint.owner === 'system') {
+      return 'System';
     }
 
-    if (endpoint.api_key === '********') {
-      return (
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <LockIcon fontSize="small" sx={{ mr: 1 }} />
-          <Typography variant="body2">token</Typography>
-        </Box>
-      );
-    }
-    if (endpoint.api_key_file) {
-      return (
-        <Typography variant="body2">
-          File: {endpoint.api_key_file}
-        </Typography>
-      );
-    }
-    return (
-      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-        <LockOpenIcon fontSize="small" sx={{ mr: 1 }} />
-        <Typography variant="body2">none</Typography>
-      </Box>
-    );
+    // For non-system endpoints, fetch and display user email
+    return <OwnerInfo ownerId={endpoint.owner} ownerType={endpoint.owner_type} />;
   };
 
   if (!providerEndpoints || providerEndpoints.length === 0) {
@@ -189,7 +201,7 @@ const ProviderEndpointsTable: FC = () => {
               <TableCell>Type</TableCell>
               <TableCell>Owner</TableCell>
               <TableCell>Base URL</TableCell>
-              <TableCell>Default</TableCell>
+              <TableCell>Billing</TableCell>
               <TableCell>Usage</TableCell>
               <TableCell>Actions</TableCell>
             </TableRow>
@@ -208,14 +220,21 @@ const ProviderEndpointsTable: FC = () => {
                   </Typography>
                 </TableCell>
                 <TableCell>{endpoint.endpoint_type}</TableCell>
-                <TableCell>{endpoint.owner_type ? `${endpoint.owner} (${endpoint.owner_type})` : endpoint.owner}</TableCell>
-                <TableCell>{endpoint.base_url}</TableCell>                
-                <TableCell>{endpoint.default ? 'Yes' : 'No'}</TableCell>
+                <TableCell>{renderOwnerInfo(endpoint)}</TableCell>
+                <TableCell>{endpoint.base_url}</TableCell>
+                <TableCell>
+                  <Typography variant="body2" color={endpoint.billing_enabled ? "success.main" : "text.secondary"}>
+                    {endpoint.billing_enabled ? "Enabled" : "Disabled"}
+                  </Typography>
+                </TableCell>
                 <TableCell>
                   <Box sx={{ width: 200, height: 50 }}>
                     <Tooltip
                       title={
                         <Box>
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            Owner: {endpoint.owner_type === 'system' ? 'System' : endpoint.owner_type === 'org' ? 'Organization' : 'User'}
+                          </Typography>
                           <Typography variant="body2">Daily usage:</Typography>
                           {(usageData[endpoint.name] || []).map((day: TypesAggregatedUsageMetric, i: number) => (
                             <Typography key={i} variant="caption" component="div">

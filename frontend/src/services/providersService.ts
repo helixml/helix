@@ -7,7 +7,15 @@ export const providersQueryKey = (loadModels: boolean = false) => [
   loadModels ? "withModels" : "withoutModels"
 ];
 
-export function useListProviders(loadModels: boolean = false, orgId?: string, enabled?: boolean) {
+export interface ListProvidersOptions {
+  loadModels?: boolean;
+  orgId?: string;
+  all?: boolean;
+  enabled?: boolean;
+}
+
+export function useListProviders(options: ListProvidersOptions = {}) {
+  const { loadModels = false, orgId, all = false, enabled = true } = options;
   const api = useApi()
   const apiClient = api.getApiClient()  
 
@@ -17,6 +25,7 @@ export function useListProviders(loadModels: boolean = false, orgId?: string, en
       const result = await apiClient.v1ProviderEndpointsList({
         with_models: loadModels,
         org_id: orgId,
+        all: all,
       })
       return result.data
     },  

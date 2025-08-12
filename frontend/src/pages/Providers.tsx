@@ -30,7 +30,11 @@ const Providers: React.FC = () => {
   const { data: org, isLoading: isLoadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
 
   // Get provider endpoints
-  const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders(false, org?.id, !isLoadingOrg);
+  const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders({
+    loadModels: false,
+    orgId: org?.id,
+    enabled: !isLoadingOrg,
+  });
 
 
   let editAllowed = false
