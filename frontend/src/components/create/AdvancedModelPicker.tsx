@@ -162,7 +162,11 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   const { data: org, isLoading: isLoadingOrg } = useGetOrgByName(orgName, orgName !== undefined)  
   
   // Fetch providers and models
-  const { data: providers, isLoading: isLoadingProviders } = useListProviders(true, org?.id, !isLoadingOrg);  
+  const { data: providers, isLoading: isLoadingProviders } = useListProviders({
+    loadModels: true,
+    orgId: org?.id,
+    enabled: !isLoadingOrg,
+  });  
 
   const { data: tokenUsage, isLoading: isLoadingTokenUsage } = useGetUserTokenUsage();
 

@@ -175,7 +175,7 @@ const OrgBilling: FC = () => {
                       <Box sx={{ flex: 1 }}>
                         <Typography variant="h6" gutterBottom>Organization Balance</Typography>
                         <Typography variant="h4" gutterBottom color="primary">
-                          ${extendedWallet?.balance?.toFixed(2) || '0.00'}
+                          ${extendedWallet?.balance?.toFixed(2) || '0.00'} credits
                         </Typography>
                         <Typography variant="body2" color="text.secondary" gutterBottom>
                           Available credits for {organization.display_name || organization.name}

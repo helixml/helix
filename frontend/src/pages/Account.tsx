@@ -198,7 +198,7 @@ export HELIX_API_KEY=${apiKey}
                             </Box>
                           ) : (
                             <Typography variant="h4" gutterBottom color="primary">
-                              ${wallet?.balance?.toFixed(2) || '0.00'}
+                              ${wallet?.balance?.toFixed(2) || '0.00'} credits
                             </Typography>
                           )}
                         </Box>
@@ -220,7 +220,7 @@ export HELIX_API_KEY=${apiKey}
                             </Select>
                           </FormControl>
                           <Button variant="contained" color="secondary" onClick={handleTopUp} sx={{ minWidth: 140 }}>
-                            Add Credits
+                            Purchase Credits
                           </Button>
                         </Box>
                       </Box>
