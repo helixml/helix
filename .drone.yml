@@ -102,7 +102,7 @@ steps:
 
     commands:
       - chmod +x scripts/run-tests-with-timeout.sh
-      - scripts/run-tests-with-timeout.sh -timeout 8m -v ./api/...
+      - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./api/...
     when:
       event:
         - push
@@ -154,7 +154,7 @@ steps:
       # Build API server
       - go install ./api/..
       # Run tests
-      - scripts/run-tests-with-timeout.sh -timeout 8m -v ./integration-test/api/...
+      - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./integration-test/api/...
     when:
       event:
         - push
