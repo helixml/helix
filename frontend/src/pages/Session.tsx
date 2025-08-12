@@ -85,7 +85,6 @@ interface MemoizedInteractionProps {
   appID?: string | null;
   onHandleFilterDocument?: (docId: string) => void;
   session_id: string;
-  hasSubscription: boolean;
   onRegenerate?: (interactionID: string, message: string) => void;
   sessionSteps: TypesStepInfo[];
 }
@@ -111,7 +110,6 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
       isOwner={props.isOwner}
       isAdmin={props.isAdmin}
       session_id={props.session_id}
-      hasSubscription={props.hasSubscription}
     >
       {isLive && (props.isOwner || props.isAdmin) && (
         <InteractionLiveStream
@@ -119,7 +117,6 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
           interaction={props.interaction}
           session={props.session}
           serverConfig={props.serverConfig}
-          hasSubscription={props.hasSubscription}
           onMessageUpdate={props.isLastInteraction ? props.scrollToBottom : undefined}
           onFilterDocument={props.appID ? props.onHandleFilterDocument : undefined}
         />
@@ -1078,7 +1075,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       appID={appID}
                       onHandleFilterDocument={onHandleFilterDocument}
                       session_id={sessionData.id || ''}
-                      hasSubscription={account.userConfig.stripe_subscription_active || false}
                       onRegenerate={onRegenerate}
                       sessionSteps={sessionSteps?.data || []}
                     />
@@ -1097,7 +1093,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     account.serverConfig,
     account.user?.id,
     account.admin,
-    account.userConfig.stripe_subscription_active,
     highlightAllFiles,    
     safeReloadSession,
     onAddDocuments,

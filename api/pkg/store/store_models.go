@@ -231,12 +231,6 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 			}
 		}
 
-		log.Debug().
-			Str("model_id", model.ID).
-			Str("determined_type", string(modelType)).
-			Strs("model_args", model.Args).
-			Msg("Determined VLLM model type from args")
-
 		// Determine sort order - embedding models get higher numbers (lower priority)
 		sortOrder := i + 100 // Start VLLM models at 100+ to come after Ollama models
 		if modelType == types.ModelTypeEmbed {

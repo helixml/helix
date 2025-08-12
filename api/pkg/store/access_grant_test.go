@@ -4,10 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -25,13 +23,7 @@ type AccessGrantTestSuite struct {
 func (suite *AccessGrantTestSuite) SetupTest() {
 	suite.ctx = context.Background()
 
-	var storeCfg config.Store
-	err := envconfig.Process("", &storeCfg)
-	suite.NoError(err)
-
-	store, err := NewPostgresStore(storeCfg)
-	suite.Require().NoError(err)
-	suite.db = store
+	suite.db = GetTestDB()
 
 	// Create a test organization for all access grant tests
 	orgID := system.GenerateOrganizationID()
@@ -52,8 +44,6 @@ func (suite *AccessGrantTestSuite) TearDownTestSuite() {
 		err := suite.db.DeleteOrganization(suite.ctx, suite.org.ID)
 		suite.NoError(err)
 	}
-
-	_ = suite.db.Close()
 }
 
 func (suite *AccessGrantTestSuite) TestCreateAccessGrant() {

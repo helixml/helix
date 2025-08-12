@@ -512,6 +512,21 @@ func (mr *MockStoreMockRecorder) CreateUserMeta(ctx, UserMeta any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUserMeta", reflect.TypeOf((*MockStore)(nil).CreateUserMeta), ctx, UserMeta)
 }
 
+// CreateWallet mocks base method.
+func (m *MockStore) CreateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateWallet", ctx, wallet)
+	ret0, _ := ret[0].(*types.Wallet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateWallet indicates an expected call of CreateWallet.
+func (mr *MockStoreMockRecorder) CreateWallet(ctx, wallet any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateWallet", reflect.TypeOf((*MockStore)(nil).CreateWallet), ctx, wallet)
+}
+
 // DeleteAPIKey mocks base method.
 func (m *MockStore) DeleteAPIKey(ctx context.Context, apiKey string) error {
 	m.ctrl.T.Helper()
@@ -877,6 +892,20 @@ func (mr *MockStoreMockRecorder) DeleteUser(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUser", reflect.TypeOf((*MockStore)(nil).DeleteUser), ctx, id)
 }
 
+// DeleteWallet mocks base method.
+func (m *MockStore) DeleteWallet(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteWallet", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteWallet indicates an expected call of DeleteWallet.
+func (mr *MockStoreMockRecorder) DeleteWallet(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWallet", reflect.TypeOf((*MockStore)(nil).DeleteWallet), ctx, id)
+}
+
 // EnsureUserMeta mocks base method.
 func (m *MockStore) EnsureUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error) {
 	m.ctrl.T.Helper()
@@ -935,6 +964,21 @@ func (m *MockStore) GetAccessGrantRoleBindings(ctx context.Context, q *GetAccess
 func (mr *MockStoreMockRecorder) GetAccessGrantRoleBindings(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAccessGrantRoleBindings", reflect.TypeOf((*MockStore)(nil).GetAccessGrantRoleBindings), ctx, q)
+}
+
+// GetAggregatedUsageMetrics mocks base method.
+func (m *MockStore) GetAggregatedUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAggregatedUsageMetrics", ctx, q)
+	ret0, _ := ret[0].([]*types.AggregatedUsageMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAggregatedUsageMetrics indicates an expected call of GetAggregatedUsageMetrics.
+func (mr *MockStoreMockRecorder) GetAggregatedUsageMetrics(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAggregatedUsageMetrics", reflect.TypeOf((*MockStore)(nil).GetAggregatedUsageMetrics), ctx, q)
 }
 
 // GetApp mocks base method.
@@ -1462,6 +1506,66 @@ func (mr *MockStoreMockRecorder) GetUsersAggregatedUsageMetrics(ctx, provider, f
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUsersAggregatedUsageMetrics", reflect.TypeOf((*MockStore)(nil).GetUsersAggregatedUsageMetrics), ctx, provider, from, to)
 }
 
+// GetWallet mocks base method.
+func (m *MockStore) GetWallet(ctx context.Context, id string) (*types.Wallet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWallet", ctx, id)
+	ret0, _ := ret[0].(*types.Wallet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWallet indicates an expected call of GetWallet.
+func (mr *MockStoreMockRecorder) GetWallet(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWallet", reflect.TypeOf((*MockStore)(nil).GetWallet), ctx, id)
+}
+
+// GetWalletByOrg mocks base method.
+func (m *MockStore) GetWalletByOrg(ctx context.Context, orgID string) (*types.Wallet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWalletByOrg", ctx, orgID)
+	ret0, _ := ret[0].(*types.Wallet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWalletByOrg indicates an expected call of GetWalletByOrg.
+func (mr *MockStoreMockRecorder) GetWalletByOrg(ctx, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWalletByOrg", reflect.TypeOf((*MockStore)(nil).GetWalletByOrg), ctx, orgID)
+}
+
+// GetWalletByStripeCustomerID mocks base method.
+func (m *MockStore) GetWalletByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*types.Wallet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWalletByStripeCustomerID", ctx, stripeCustomerID)
+	ret0, _ := ret[0].(*types.Wallet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWalletByStripeCustomerID indicates an expected call of GetWalletByStripeCustomerID.
+func (mr *MockStoreMockRecorder) GetWalletByStripeCustomerID(ctx, stripeCustomerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWalletByStripeCustomerID", reflect.TypeOf((*MockStore)(nil).GetWalletByStripeCustomerID), ctx, stripeCustomerID)
+}
+
+// GetWalletByUser mocks base method.
+func (m *MockStore) GetWalletByUser(ctx context.Context, userID string) (*types.Wallet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWalletByUser", ctx, userID)
+	ret0, _ := ret[0].(*types.Wallet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWalletByUser indicates an expected call of GetWalletByUser.
+func (mr *MockStoreMockRecorder) GetWalletByUser(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWalletByUser", reflect.TypeOf((*MockStore)(nil).GetWalletByUser), ctx, userID)
+}
+
 // ListAPIKeys mocks base method.
 func (m *MockStore) ListAPIKeys(ctx context.Context, query *ListAPIKeysQuery) ([]*types.ApiKey, error) {
 	m.ctrl.T.Helper()
@@ -1762,6 +1866,36 @@ func (m *MockStore) ListTeams(ctx context.Context, query *ListTeamsQuery) ([]*ty
 func (mr *MockStoreMockRecorder) ListTeams(ctx, query any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTeams", reflect.TypeOf((*MockStore)(nil).ListTeams), ctx, query)
+}
+
+// ListTopUps mocks base method.
+func (m *MockStore) ListTopUps(ctx context.Context, q *ListTopUpsQuery) ([]*types.TopUp, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTopUps", ctx, q)
+	ret0, _ := ret[0].([]*types.TopUp)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTopUps indicates an expected call of ListTopUps.
+func (mr *MockStoreMockRecorder) ListTopUps(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTopUps", reflect.TypeOf((*MockStore)(nil).ListTopUps), ctx, q)
+}
+
+// ListTransactions mocks base method.
+func (m *MockStore) ListTransactions(ctx context.Context, q *ListTransactionsQuery) ([]*types.Transaction, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTransactions", ctx, q)
+	ret0, _ := ret[0].([]*types.Transaction)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTransactions indicates an expected call of ListTransactions.
+func (mr *MockStoreMockRecorder) ListTransactions(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTransactions", reflect.TypeOf((*MockStore)(nil).ListTransactions), ctx, q)
 }
 
 // ListTriggerConfigurations mocks base method.
@@ -2179,6 +2313,36 @@ func (m *MockStore) UpdateUserMeta(ctx context.Context, UserMeta types.UserMeta)
 func (mr *MockStoreMockRecorder) UpdateUserMeta(ctx, UserMeta any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserMeta", reflect.TypeOf((*MockStore)(nil).UpdateUserMeta), ctx, UserMeta)
+}
+
+// UpdateWallet mocks base method.
+func (m *MockStore) UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWallet", ctx, wallet)
+	ret0, _ := ret[0].(*types.Wallet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateWallet indicates an expected call of UpdateWallet.
+func (mr *MockStoreMockRecorder) UpdateWallet(ctx, wallet any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWallet", reflect.TypeOf((*MockStore)(nil).UpdateWallet), ctx, wallet)
+}
+
+// UpdateWalletBalance mocks base method.
+func (m *MockStore) UpdateWalletBalance(ctx context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWalletBalance", ctx, walletID, amount, meta)
+	ret0, _ := ret[0].(*types.Wallet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateWalletBalance indicates an expected call of UpdateWalletBalance.
+func (mr *MockStoreMockRecorder) UpdateWalletBalance(ctx, walletID, amount, meta any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWalletBalance", reflect.TypeOf((*MockStore)(nil).UpdateWalletBalance), ctx, walletID, amount, meta)
 }
 
 // MockEmbeddingsStore is a mock of EmbeddingsStore interface.

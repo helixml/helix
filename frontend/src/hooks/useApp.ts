@@ -54,7 +54,11 @@ export const useApp = (appId: string) => {
   // Get org if orgName is set  
   const { data: org, isLoading: isLoadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
   
-  const { data: providers, isLoading: isLoadingProviders } = useListProviders(true, org?.id, !isLoadingOrg);
+  const { data: providers, isLoading: isLoadingProviders } = useListProviders({
+    loadModels: true,
+    orgId: org?.id,
+    enabled: !isLoadingOrg,
+  });
   const { NewInference } = useStreaming()
   const userAccess = useUserAppAccess(appId)
   

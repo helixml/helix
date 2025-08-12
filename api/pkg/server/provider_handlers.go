@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/openai/manager"
+	"github.com/helixml/helix/api/pkg/pricing"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -56,12 +57,14 @@ var blankAPIKey = "********"
 // @Success 200 {array} types.ProviderEndpoint
 // @Param with_models query bool false "Include models"
 // @Param org_id query string false "Organization ID"
+// @Param all query bool false "Include all endpoints (system admin only)"
 // @Router /api/v1/provider-endpoints [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	includeModels := r.URL.Query().Get("with_models") == "true"
 	orgID := r.URL.Query().Get("org_id")
+	all := r.URL.Query().Get("all") == "true"
 
 	user := getRequestUser(r)
 
@@ -82,6 +85,7 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 
 	query := &store.ListProviderEndpointsQuery{
 		WithGlobal: true,
+		All:        all,
 	}
 
 	if orgID != "" {
@@ -94,6 +98,11 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 
 	// If authenticated, fetch user endpoints
 	if user != nil {
+		if query.All && !user.Admin {
+			http.Error(rw, "Only system admins can list all endpoints", http.StatusForbidden)
+			return
+		}
+
 		providerEndpoints, err = s.Store.ListProviderEndpoints(ctx, query)
 		if err != nil {
 			log.Err(err).Msg("error listing provider endpoints")
@@ -135,13 +144,14 @@ func (s *HelixAPIServer) listProviderEndpoints(rw http.ResponseWriter, r *http.R
 		}
 
 		providerEndpoints = append(providerEndpoints, &types.ProviderEndpoint{
-			ID:           "-",
-			Name:         string(provider),
-			Description:  "",
-			BaseURL:      baseURL,
-			EndpointType: types.ProviderEndpointTypeGlobal,
-			Owner:        string(types.OwnerTypeSystem),
-			APIKey:       "",
+			ID:             "-",
+			Name:           string(provider),
+			Description:    "",
+			BaseURL:        baseURL,
+			EndpointType:   types.ProviderEndpointTypeGlobal,
+			Owner:          string(types.OwnerTypeSystem),
+			APIKey:         "",
+			BillingEnabled: s.Cfg.Stripe.BillingEnabled,
 		})
 	}
 
@@ -255,6 +265,19 @@ func (s *HelixAPIServer) getProviderModels(ctx context.Context, providerEndpoint
 		})
 		if err == nil {
 			models[idx].ModelInfo = modelInfo
+		}
+
+		// If billing is enabled and we don't have pricing, disable the model
+		if providerEndpoint.BillingEnabled {
+			if modelInfo == nil {
+				models[idx].Enabled = false
+				continue
+			}
+			// Got model info, checking the price
+			promptCost, completionCost, _ := pricing.CalculateTokenPrice(modelInfo, 10, 10)
+			if promptCost == 0 && completionCost == 0 {
+				models[idx].Enabled = false
+			}
 		}
 	}
 

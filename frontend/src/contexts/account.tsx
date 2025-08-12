@@ -7,14 +7,13 @@ import useRouter from '../hooks/useRouter'
 import useSnackbar from '../hooks/useSnackbar'
 import useOrganizations, { IOrganizationTools, defaultOrganizationTools } from '../hooks/useOrganizations'
 
-
 import {
   IApiKey,
   IHelixModel,
   IKeycloakUser,
   IServerConfig,
   IUserConfig,
-  IProviderEndpoint
+  IProviderEndpoint,  
 } from '../types'
 
 export interface IAccountContext {
@@ -29,8 +28,7 @@ export interface IAccountContext {
   tokenUrlEscaped?: string,
   loggingOut?: boolean,
   serverConfig: IServerConfig,
-  userConfig: IUserConfig,
-  apiKeys: IApiKey[],
+  userConfig: IUserConfig,  
   appApiKeys: IApiKey[],
   mobileMenuOpen: boolean,
   setMobileMenuOpen: (val: boolean) => void,
@@ -66,7 +64,6 @@ export const AccountContext = createContext<IAccountContext>({
     apps_enabled: true,
   },
   userConfig: {},
-  apiKeys: [],
   appApiKeys: [],
   mobileMenuOpen: false,
   setMobileMenuOpen: () => { },
@@ -179,11 +176,8 @@ export const useAccountContext = (): IAccountContext => {
   }, [])
 
   const loadApiKeys = useCallback(async (params: Record<string, string> = {}) => {
-    const result = await api.get<IApiKey[]>('/api/v1/api_keys', {
-      params,
-    })
-    if (!result) return
-    setApiKeys(result)
+    // This function is kept for backward compatibility but now relies on React Query
+    // The actual loading is handled by the useGetUserAPIKeys hook
   }, [])
 
   const loadAppApiKeys = useCallback(async (appId: string) => {
@@ -440,7 +434,6 @@ export const useAccountContext = (): IAccountContext => {
     showLoginWindow,
     setShowLoginWindow,
     credits,
-    apiKeys,
     appApiKeys,
     onLogin,
     onLogout,

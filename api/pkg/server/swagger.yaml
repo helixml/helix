@@ -536,6 +536,13 @@ definitions:
         - $ref: '#/definitions/types.User'
         description: Owner user struct, populated by the server for organization views
     type: object
+  server.CreateTopUpRequest:
+    properties:
+      amount:
+        type: number
+      org_id:
+        type: string
+    type: object
   server.LicenseKeyRequest:
     properties:
       license_key:
@@ -556,6 +563,34 @@ definitions:
       reason:
         type: string
     type: object
+  sql.NullString:
+    properties:
+      string:
+        type: string
+      valid:
+        description: Valid is true if String is not NULL
+        type: boolean
+    type: object
+  stripe.SubscriptionStatus:
+    enum:
+    - active
+    - canceled
+    - incomplete
+    - incomplete_expired
+    - past_due
+    - paused
+    - trialing
+    - unpaid
+    type: string
+    x-enum-varnames:
+    - SubscriptionStatusActive
+    - SubscriptionStatusCanceled
+    - SubscriptionStatusIncomplete
+    - SubscriptionStatusIncompleteExpired
+    - SubscriptionStatusPastDue
+    - SubscriptionStatusPaused
+    - SubscriptionStatusTrialing
+    - SubscriptionStatusUnpaid
   system.HTTPError:
     properties:
       message:
@@ -563,6 +598,16 @@ definitions:
       statusCode:
         type: integer
     type: object
+  types.APIKeyType:
+    enum:
+    - ""
+    - api
+    - app
+    type: string
+    x-enum-varnames:
+    - APIkeytypeNone
+    - APIkeytypeAPI
+    - APIkeytypeApp
   types.AccessGrant:
     properties:
       created_at:
@@ -650,6 +695,23 @@ definitions:
         type: integer
       total_tokens:
         type: integer
+    type: object
+  types.ApiKey:
+    properties:
+      app_id:
+        $ref: '#/definitions/sql.NullString'
+      created:
+        type: string
+      key:
+        type: string
+      name:
+        type: string
+      owner:
+        type: string
+      owner_type:
+        $ref: '#/definitions/types.OwnerType'
+      type:
+        $ref: '#/definitions/types.APIKeyType'
     type: object
   types.App:
     properties:
@@ -1253,6 +1315,27 @@ definitions:
           total_tokens:
             type: integer
         type: object
+    type: object
+  types.FrontendLicenseInfo:
+    properties:
+      features:
+        properties:
+          users:
+            type: boolean
+        type: object
+      limits:
+        properties:
+          machines:
+            type: integer
+          users:
+            type: integer
+        type: object
+      organization:
+        type: string
+      valid:
+        type: boolean
+      valid_until:
+        type: string
     type: object
   types.ImageURLDetail:
     enum:
@@ -2185,6 +2268,8 @@ definitions:
         type: array
       base_url:
         type: string
+      billing_enabled:
+        type: boolean
       created:
         type: string
       default:
@@ -2533,6 +2618,49 @@ definitions:
         items:
           type: integer
         type: array
+    type: object
+  types.ServerConfigForFrontend:
+    properties:
+      apps_enabled:
+        type: boolean
+      billing_enabled:
+        description: Charging for usage
+        type: boolean
+      deployment_id:
+        type: string
+      disable_llm_call_logging:
+        type: boolean
+      eval_user_id:
+        type: string
+      filestore_prefix:
+        description: |-
+          used to prepend onto raw filestore paths to download files
+          the filestore path will have the user info in it - i.e.
+          it's a low level filestore path
+          if we are using an object storage thing - then this URL
+          can be the prefix to the bucket
+        type: string
+      google_analytics_frontend:
+        type: string
+      latest_version:
+        type: string
+      license:
+        $ref: '#/definitions/types.FrontendLicenseInfo'
+      organizations_create_enabled_for_non_admins:
+        type: boolean
+      rudderstack_data_plane_url:
+        type: string
+      rudderstack_write_key:
+        type: string
+      sentry_dsn_frontend:
+        type: string
+      stripe_enabled:
+        description: Stripe top-ups enabled
+        type: boolean
+      tools_enabled:
+        type: boolean
+      version:
+        type: string
     type: object
   types.Session:
     properties:
@@ -3407,6 +3535,34 @@ definitions:
       user:
         $ref: '#/definitions/types.User'
     type: object
+  types.Wallet:
+    properties:
+      balance:
+        type: number
+      created_at:
+        type: string
+      id:
+        type: string
+      org_id:
+        description: If belongs to an organization
+        type: string
+      stripe_customer_id:
+        type: string
+      stripe_subscription_id:
+        type: string
+      subscription_created:
+        type: integer
+      subscription_current_period_end:
+        type: integer
+      subscription_current_period_start:
+        type: integer
+      subscription_status:
+        $ref: '#/definitions/stripe.SubscriptionStatus'
+      updated_at:
+        type: string
+      user_id:
+        type: string
+    type: object
   types.WebsiteCrawler:
     properties:
       enabled:
@@ -3456,6 +3612,64 @@ info:
     altText: Helix logo
     url: https://avatars.githubusercontent.com/u/149581110?s=200&v=4
 paths:
+  /api/v1/api_keys:
+    delete:
+      description: Delete an API key
+      parameters:
+      - description: API key to delete
+        in: query
+        name: key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: API key
+          schema:
+            type: string
+      summary: Delete an API key
+      tags:
+      - api-keys
+    get:
+      description: Get API keys
+      parameters:
+      - description: Filter by types (comma-separated list)
+        in: query
+        name: types
+        type: string
+      - description: Filter by app ID
+        in: query
+        name: app_id
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ApiKey'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Get API keys
+      tags:
+      - api-keys
+    post:
+      description: Create a new API key
+      parameters:
+      - description: Request body with name and type
+        in: body
+        name: request
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      responses:
+        "200":
+          description: API key
+          schema:
+            type: string
+      summary: Create a new API key
+      tags:
+      - api-keys
   /api/v1/apps:
     get:
       description: List apps for the user. Apps are pre-configured to spawn sessions
@@ -4026,6 +4240,19 @@ paths:
       summary: User information
       tags:
       - auth
+  /api/v1/config:
+    get:
+      description: Get config
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ServerConfigForFrontend'
+      security:
+      - BearerAuth: []
+      summary: Get config
+      tags:
+      - config
   /api/v1/context-menu:
     get:
       description: contextMenuHandler
@@ -4725,6 +4952,10 @@ paths:
         in: query
         name: org_id
         type: string
+      - description: Include all endpoints (system admin only)
+        in: query
+        name: all
+        type: boolean
       responses:
         "200":
           description: OK
@@ -5149,6 +5380,62 @@ paths:
       summary: Reload skills
       tags:
       - skills
+  /api/v1/subscription/manage:
+    post:
+      description: Manage a subscription
+      parameters:
+      - description: Organization ID
+        in: query
+        name: org_id
+        type: string
+      responses:
+        "200":
+          description: Subscription session URL
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Manage a subscription
+      tags:
+      - wallets
+  /api/v1/subscription/new:
+    post:
+      description: Create a subscription
+      parameters:
+      - description: Organization ID
+        in: query
+        name: org_id
+        type: string
+      responses:
+        "200":
+          description: Subscription session URL
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Create a subscription
+      tags:
+      - wallets
+  /api/v1/top-ups/new:
+    post:
+      description: Create a top up with specified amount
+      parameters:
+      - description: Request body with amount
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.CreateTopUpRequest'
+      responses:
+        "200":
+          description: Top up session URL
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Create a top up
+      tags:
+      - wallets
   /api/v1/triggers:
     get:
       description: List all triggers configurations for either user or the org or
@@ -5289,6 +5576,69 @@ paths:
       summary: List trigger executions
       tags:
       - apps
+  /api/v1/usage:
+    get:
+      consumes:
+      - application/json
+      description: Get daily usage
+      parameters:
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      - description: Organization ID
+        in: query
+        name: org_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get daily usage
+      tags:
+      - usage
+  /api/v1/users/{id}:
+    get:
+      description: Get user by ID
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.User'
+      security:
+      - BearerAuth: []
+      summary: Get user details
+      tags:
+      - users
   /api/v1/users/search:
     get:
       description: Search users by email, name, or username
@@ -5333,6 +5683,24 @@ paths:
       summary: Get user token usage
       tags:
       - users
+  /api/v1/wallet:
+    get:
+      description: Get a wallet
+      parameters:
+      - description: Organization ID
+        in: query
+        name: org_id
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Wallet'
+      security:
+      - BearerAuth: []
+      summary: Get a wallet
+      tags:
+      - wallets
   /v1/chat/completions:
     post:
       description: Creates a model response for the given chat conversation.

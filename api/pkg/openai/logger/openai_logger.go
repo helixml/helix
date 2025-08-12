@@ -35,13 +35,14 @@ type LoggingMiddleware struct {
 	cfg               *config.ServerConfig
 	client            oai.Client
 	logStores         []LogStore
+	billingLogger     LogStore
 	wg                sync.WaitGroup
 	provider          types.Provider
 	modelInfoProvider model.ModelInfoProvider
 	defaultCodec      tokenizer.Codec
 }
 
-func Wrap(cfg *config.ServerConfig, provider types.Provider, client oai.Client, modelInfoProvider model.ModelInfoProvider, logStores ...LogStore) *LoggingMiddleware {
+func Wrap(cfg *config.ServerConfig, provider types.Provider, client oai.Client, modelInfoProvider model.ModelInfoProvider, billingLogger LogStore, logStores ...LogStore) *LoggingMiddleware {
 	enc, err := tokenizer.Get(tokenizer.Cl100kBase)
 	if err != nil {
 		panic("failed to initialize tokenizer")
@@ -50,6 +51,7 @@ func Wrap(cfg *config.ServerConfig, provider types.Provider, client oai.Client, 
 	return &LoggingMiddleware{
 		cfg:               cfg,
 		logStores:         logStores,
+		billingLogger:     billingLogger,
 		client:            client,
 		wg:                sync.WaitGroup{},
 		provider:          provider,
@@ -68,6 +70,16 @@ func (m *LoggingMiddleware) BaseURL() string {
 
 func (m *LoggingMiddleware) ListModels(ctx context.Context) ([]types.OpenAIModel, error) {
 	return m.client.ListModels(ctx)
+}
+
+// BillingLogger used for testing
+func (m *LoggingMiddleware) BillingLogger() LogStore {
+	return m.billingLogger
+}
+
+// UsageLogStores used for testing
+func (m *LoggingMiddleware) UsageLogStores() []LogStore {
+	return m.logStores
 }
 
 func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
@@ -342,6 +354,13 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 		_, err = logStore.CreateLLMCall(ctx, llmCall)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to log LLM call")
+		}
+	}
+
+	if m.billingLogger != nil {
+		_, err = m.billingLogger.CreateLLMCall(ctx, llmCall)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to log LLM call to billing logger")
 		}
 	}
 }

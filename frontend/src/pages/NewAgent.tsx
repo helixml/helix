@@ -125,7 +125,11 @@ const NewAgent: FC = () => {
   // Get org if orgName is set  
   const { data: org, isLoading: isLoadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
 
-  const { data: providerEndpoints = [], isLoading: isLoadingProviders } = useListProviders(false, org?.id, !isLoadingOrg)
+  const { data: providerEndpoints = [], isLoading: isLoadingProviders } = useListProviders({
+    loadModels: false,
+    orgId: org?.id,
+    enabled: !isLoadingOrg,
+  })
 
   const [name, setName] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')
