@@ -29,14 +29,7 @@ func (suite *WalletTestSuite) SetupTest() {
 	err := envconfig.Process("", &storeCfg)
 	suite.NoError(err)
 
-	store, err := NewPostgresStore(storeCfg)
-	suite.Require().NoError(err)
-	suite.db = store
-
-}
-
-func (suite *WalletTestSuite) TearDownTestSuite() {
-	_ = suite.db.Close()
+	suite.db = GetTestDB()
 }
 
 // Wallet CRUD Tests
