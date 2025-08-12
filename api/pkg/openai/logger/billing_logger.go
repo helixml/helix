@@ -13,7 +13,7 @@ import (
 
 type NoopBillingLogger struct{}
 
-func (l *NoopBillingLogger) CreateLLMCall(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
+func (l *NoopBillingLogger) CreateLLMCall(_ context.Context, call *types.LLMCall) (*types.LLMCall, error) {
 	return call, nil
 }
 
