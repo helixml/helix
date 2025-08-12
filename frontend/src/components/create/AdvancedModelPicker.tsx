@@ -618,9 +618,9 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                         },
                         borderRadius: 1,
                         mb: 0.5,
-                        ...(model.id === selectedModelId && !isModelDisabled && {
+                        ...(model.id === selectedModelId && !isModelDisabled ? {
                           backgroundColor: '#353945',
-                        }),
+                        } : {}),
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
