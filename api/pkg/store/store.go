@@ -59,9 +59,9 @@ type ListDataEntitiesQuery struct {
 }
 
 type ListProviderEndpointsQuery struct {
-	Owner     string
-	OwnerType types.OwnerType
-
+	Owner      string
+	OwnerType  types.OwnerType
+	All        bool
 	WithGlobal bool
 }
 
