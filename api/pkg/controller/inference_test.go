@@ -146,6 +146,8 @@ func (suite *ControllerSuite) Test_BasicInference_WithBalanceCheck_Success() {
 		},
 	}
 
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
+
 	suite.openAiClient.EXPECT().CreateChatCompletion(suite.ctx, gomock.Any()).Return(openai.ChatCompletionResponse{
 		Choices: []openai.ChatCompletionChoice{
 			{
@@ -190,6 +192,8 @@ func (suite *ControllerSuite) Test_BasicInference_WithBalanceCheck_InsufficientB
 	suite.controller.Options.Config.Stripe.BillingEnabled = true
 	suite.controller.Options.Config.Stripe.MinimumInferenceBalance = 0.01
 
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
+
 	suite.store.EXPECT().GetWalletByUser(suite.ctx, suite.user.ID).Return(&types.Wallet{
 		Balance: 0.009,
 	}, nil)
@@ -212,6 +216,8 @@ func (suite *ControllerSuite) Test_BasicInference_WithBalanceCheck_Org_Insuffici
 
 	suite.controller.Options.Config.Stripe.BillingEnabled = true
 	suite.controller.Options.Config.Stripe.MinimumInferenceBalance = 0.01
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
 
 	suite.store.EXPECT().GetWalletByOrg(suite.ctx, "org_123").Return(&types.Wallet{
 		Balance: 0.009,
