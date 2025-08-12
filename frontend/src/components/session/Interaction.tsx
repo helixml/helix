@@ -72,7 +72,6 @@ interface InteractionProps {
   appID?: string | null;
   onHandleFilterDocument?: (docId: string) => void;
   session_id: string;
-  hasSubscription: boolean;
   onRegenerate?: (interactionID: string, message: string) => void;
   sessionSteps?: any[];  
 }
@@ -85,8 +84,6 @@ export const Interaction: FC<InteractionProps> = ({
   headerButtons,
   children,
   isLastInteraction,  
-  session_id,
-  hasSubscription,
   onRegenerate,
   sessionSteps = [],
 }) => {
