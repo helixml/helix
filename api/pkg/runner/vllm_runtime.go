@@ -98,9 +98,9 @@ func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, 
 	}
 
 	// Extract GPU configuration
-	var gpuIndex int = 0
+	var gpuIndex int
 	var gpuIndices []int
-	var tensorParallelSize int = 1
+	tensorParallelSize := 1
 
 	// Multi-GPU setup takes precedence over single-GPU
 	if len(params.GPUIndices) > 0 {
@@ -507,7 +507,7 @@ func formatGPUIndices(gpuIndices []int) string {
 	return strings.Join(indices, ",")
 }
 
-func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, model string, customArgs []string, hfToken string, gpuIndex int, gpuIndices []int, tensorParallelSize int) (*exec.Cmd, error) {
+func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, model string, customArgs []string, hfToken string, _ int, gpuIndices []int, tensorParallelSize int) (*exec.Cmd, error) {
 	// Use clean vLLM virtualenv Python - fail if not found (no fallback to avoid confusion)
 	vllmPath := "/workspace/vllm/venv/bin/python"
 	if _, err := os.Stat(vllmPath); os.IsNotExist(err) {

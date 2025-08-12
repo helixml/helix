@@ -345,11 +345,6 @@ func (g *GPUManager) GetBestGPUsForMultiGPUModel(modelMemoryRequirement uint64, 
 	return selectedGPUs, true
 }
 
-func (g *GPUManager) fetchTotalMemory() uint64 {
-	totalMemory, _ := g.fetchTotalMemoryAndCount()
-	return totalMemory
-}
-
 func (g *GPUManager) fetchTotalMemoryAndCount() (uint64, int) {
 	totalMemory, gpuCount := g.getActualTotalMemoryAndCount()
 
@@ -361,11 +356,6 @@ func (g *GPUManager) fetchTotalMemoryAndCount() (uint64, int) {
 	}
 
 	return totalMemory, gpuCount
-}
-
-func (g *GPUManager) getActualTotalMemory() uint64 {
-	totalMemory, _ := g.getActualTotalMemoryAndCount()
-	return totalMemory
 }
 
 func (g *GPUManager) getActualTotalMemoryAndCount() (uint64, int) {

@@ -298,6 +298,7 @@ paths:
 	// Create an in-memory PubSub for testing
 	helixPubSub, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err, "Failed to create in-memory PubSub")
+	defer helixPubSub.Close()
 
 	// Create a controller with context
 	ctrl, err := controller.NewController(context.Background(), controller.Options{
@@ -312,6 +313,11 @@ paths:
 		Scheduler:       nil, // No scheduler needed for direct API calls
 	})
 	require.NoError(t, err, "Failed to create controller")
+	defer func() {
+		if err := ctrl.Close(); err != nil {
+			t.Logf("Failed to close controller: %v", err)
+		}
+	}()
 	ctrl.ToolsPlanner = toolsPlanner
 
 	t.Logf("****************************************************")
@@ -407,7 +413,7 @@ paths:
 
 		// Wait a bit to ensure any asynchronous calls complete
 		t.Log("Waiting for any API calls to complete...")
-		time.Sleep(5 * time.Second)
+		time.Sleep(1 * time.Second)
 
 		// Verify that our mock server received a request
 		t.Logf("Request counter: %d (original: %d)", requestCounter, originalRequestCount)
