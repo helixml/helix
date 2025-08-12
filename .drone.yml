@@ -101,8 +101,9 @@ steps:
       KEYCLOAK_PASSWORD: REPLACE_ME
 
     commands:
+      - chmod +x scripts/run-tests-with-timeout.sh
       - cd api
-      - go test -v ./...
+      - ../scripts/run-tests-with-timeout.sh -timeout 8m -v ./...
     when:
       event:
         - push
@@ -150,11 +151,12 @@ steps:
       SMALL_GENERATION_MODEL: gpt-4o-mini
 
     commands:
+      - chmod +x scripts/run-tests-with-timeout.sh
       # Build API server
       - go install ./api/..
       # Run tests
       - cd integration-test/api
-      - go test -v ./...
+      - ../../scripts/run-tests-with-timeout.sh -timeout 8m -v ./...
     when:
       event:
         - push
