@@ -3658,6 +3658,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         with_models?: boolean;
         /** Organization ID */
         org_id?: string;
+        /** Include all endpoints (system admin only) */
+        all?: boolean;
       },
       params: RequestParams = {},
     ) =>
@@ -4285,6 +4287,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         secure: true,
         type: ContentType.Json,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get user by ID
+     *
+     * @tags users
+     * @name V1UsersDetail
+     * @summary Get user details
+     * @request GET:/api/v1/users/{id}
+     * @secure
+     */
+    v1UsersDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesUser, any>({
+        path: `/api/v1/users/${id}`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
