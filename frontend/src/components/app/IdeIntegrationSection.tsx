@@ -12,6 +12,7 @@ import Button from '@mui/material/Button';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import useSnackbar from '../../hooks/useSnackbar';
 import useAccount from '../../hooks/useAccount'
+import { useGetUserAPIKeys } from '../../services/userService'
 
 interface IdeIntegrationSectionProps {
   appId: string;
@@ -25,15 +26,9 @@ const IdeIntegrationSection: React.FC<IdeIntegrationSectionProps> = ({
   const [selectedIde, setSelectedIde] = useState<string>('cline');
   const { success: snackbarSuccess } = useSnackbar();
 
-  useEffect(() => {
-    account.loadApiKeys({
-      types: 'api',
-    })
-  }, [
-    account.token,
-  ])
+  const { data: apiKeys, isLoading: isLoadingApiKeys } = useGetUserAPIKeys()
 
-  const apiKey = account.apiKeys.length > 0 ? account.apiKeys[0].key : ''
+  const apiKey = apiKeys?.length && apiKeys.length > 0 ? apiKeys[0].key : ''
 
 
   const getGenericMCPConfig = () => {
