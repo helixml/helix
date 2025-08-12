@@ -358,7 +358,7 @@ func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) 
 
 	// If it's a personal endpoint, replace the billing logger with a NoopBillingLogger
 	billingLogger := m.billingLogger
-	if endpoint.EndpointType == types.ProviderEndpointTypeUser || endpoint.EndpointType == types.ProviderEndpointTypeOrg {
+	if !endpoint.BillingEnabled && (endpoint.EndpointType == types.ProviderEndpointTypeUser || endpoint.EndpointType == types.ProviderEndpointTypeOrg) {
 		billingLogger = &logger.NoopBillingLogger{}
 	}
 
