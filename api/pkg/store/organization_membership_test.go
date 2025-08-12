@@ -31,9 +31,7 @@ func (suite *OrganizationMembershipTestSuite) SetupTest() {
 	err := envconfig.Process("", &storeCfg)
 	suite.NoError(err)
 
-	store, err := NewPostgresStore(storeCfg)
-	suite.Require().NoError(err)
-	suite.db = store
+	suite.db = GetTestDB()
 
 	// Create a test organization for all membership tests
 	orgID := system.GenerateOrganizationID()
@@ -58,10 +56,6 @@ func (suite *OrganizationMembershipTestSuite) SetupTest() {
 	createdUser, err := suite.db.CreateUser(suite.ctx, user)
 	suite.Require().NoError(err)
 	suite.user = createdUser
-}
-
-func (suite *OrganizationMembershipTestSuite) TearDownTestSuite() {
-	_ = suite.db.Close()
 }
 
 func (suite *OrganizationMembershipTestSuite) TearDownTest() {
