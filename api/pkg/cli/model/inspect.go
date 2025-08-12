@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v2"
 
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/store"
@@ -87,10 +88,16 @@ Examples:
 
 func outputJSON(cmd *cobra.Command, models []*types.Model) error {
 	var output interface{}
+
+	// Convert to CRD format for consistency with helix model apply
 	if len(models) == 1 {
-		output = models[0]
+		output = modelToCRD(models[0])
 	} else {
-		output = models
+		var crds []types.ModelCRD
+		for _, model := range models {
+			crds = append(crds, modelToCRD(model))
+		}
+		output = crds
 	}
 
 	var data []byte
@@ -111,10 +118,26 @@ func outputJSON(cmd *cobra.Command, models []*types.Model) error {
 }
 
 func outputYAML(cmd *cobra.Command, models []*types.Model) error {
-	// For now, just output JSON since we don't have YAML library
-	// This can be enhanced later with yaml package
-	fmt.Fprintln(cmd.OutOrStderr(), "YAML output not yet implemented, using JSON:")
-	return outputJSON(cmd, models)
+	var output interface{}
+
+	// Convert to CRD format for consistency with helix model apply
+	if len(models) == 1 {
+		output = modelToCRD(models[0])
+	} else {
+		var crds []types.ModelCRD
+		for _, model := range models {
+			crds = append(crds, modelToCRD(model))
+		}
+		output = crds
+	}
+
+	data, err := yaml.Marshal(output)
+	if err != nil {
+		return fmt.Errorf("failed to marshal YAML: %w", err)
+	}
+
+	fmt.Fprintln(cmd.OutOrStdout(), string(data))
+	return nil
 }
 
 func outputTable(cmd *cobra.Command, models []*types.Model) error {
@@ -154,4 +177,16 @@ func outputTable(cmd *cobra.Command, models []*types.Model) error {
 	}
 
 	return nil
+}
+
+// modelToCRD converts a Model to ModelCRD format for consistent output
+func modelToCRD(model *types.Model) types.ModelCRD {
+	return types.ModelCRD{
+		APIVersion: "model.aispec.org/v1alpha1",
+		Kind:       "Model",
+		Metadata: types.ModelMetadata{
+			Name: model.ID,
+		},
+		Spec: *model,
+	}
 }

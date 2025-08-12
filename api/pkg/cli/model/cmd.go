@@ -8,7 +8,7 @@ var rootCmd = &cobra.Command{
 	Use:     "model",
 	Short:   "Helix model management",
 	Aliases: []string{"models", "m"},
-	Long:    `Manage Helix models including Ollama and VLLM models. Supports listing, creating, updating, deleting, and inspecting model configurations.`,
+	Long:    `Manage Helix models including Ollama and VLLM models. Supports applying, listing, deleting, and inspecting model configurations using CRD format.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return listCmd.RunE(cmd, args)
 	},

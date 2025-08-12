@@ -133,3 +133,15 @@ type Pricing struct {
 	WebSearch         string `json:"web_search"`
 	InternalReasoning string `json:"internal_reasoning"`
 }
+
+// Model CRD structures following the same pattern as App CRD
+type ModelMetadata struct {
+	Name string `json:"name" yaml:"name"`
+}
+
+type ModelCRD struct {
+	APIVersion string        `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string        `json:"kind" yaml:"kind"`
+	Metadata   ModelMetadata `json:"metadata" yaml:"metadata"`
+	Spec       Model         `json:"spec" yaml:"spec"`
+}
