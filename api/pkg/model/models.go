@@ -186,6 +186,24 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 	models := []*OllamaGenericText{
 		// Latest models, July 2025 updates
 		{
+			ID:            "gpt-oss:20b", // https://ollama.com/library/gpt-oss:20b
+			Name:          "GPT-OSS 20B",
+			Memory:        GB * 16, // Based on OpenAI specs, ~16GB memory requirement
+			ContextLength: 131072,  // Assuming 128K context window (standard for recent models)
+			Description:   "Open-weight reasoning model with agentic capabilities, from OpenAI - optimized for consumer hardware, ~20B parameters",
+			Hide:          false,
+			Prewarm:       true,
+		},
+		{
+			ID:            "gpt-oss:120b", // https://ollama.com/library/gpt-oss:120b
+			Name:          "GPT-OSS 120B",
+			Memory:        GB * 80, // Based on OpenAI specs, ~80GB memory requirement
+			ContextLength: 131072,  // Assuming 128K context window (standard for recent models)
+			Description:   "Large open-weight reasoning model with advanced capabilities, from OpenAI - production-grade, ~120B parameters",
+			Hide:          false,
+			Prewarm:       false, // Don't prewarm due to high memory requirements
+		},
+		{
 			ID:            "qwen3:8b", // https://ollama.com/library/qwen3:8b
 			Name:          "Qwen3 8B",
 			Memory:        GB * 10, // Based on Q4_K_M quantization, ~10GB model size

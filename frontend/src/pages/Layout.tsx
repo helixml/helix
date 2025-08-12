@@ -108,6 +108,11 @@ const Layout: FC<{
       return account.serverConfig.version !== account.serverConfig.latest_version;
     }
     
+    // Never show release candidates as updates (rc, alpha, beta, etc.)
+    if (latestVersion.isPreRelease) {
+      return false;
+    }
+    
     // Compare major, minor, patch
     if (currentVersion.major !== latestVersion.major) {
       return currentVersion.major < latestVersion.major;
