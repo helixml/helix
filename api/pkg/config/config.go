@@ -197,7 +197,7 @@ type Janitor struct {
 }
 
 type Stripe struct {
-	BillingEnabled       bool    `envconfig:"STRIPE_BILLING_ENABLED" default:"true" description:"Whether to enable billing."`
+	BillingEnabled       bool    `envconfig:"STRIPE_BILLING_ENABLED" default:"false" description:"Whether to enable billing."`
 	InitialBalance       float64 `envconfig:"STRIPE_INITIAL_BALANCE" default:"10" description:"The initial balance for the wallet"`
 	AppURL               string
 	SecretKey            string `envconfig:"STRIPE_SECRET_KEY" description:"The secret key for stripe."`
