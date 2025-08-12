@@ -101,7 +101,7 @@ steps:
       KEYCLOAK_PASSWORD: REPLACE_ME
 
     commands:
-      - chmod +x scripts/run-tests-with-timeout.sh
+      - chmod +x ./scripts/run-tests-with-timeout.sh
       - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./api/...
     when:
       event:
@@ -150,7 +150,7 @@ steps:
       SMALL_GENERATION_MODEL: gpt-4o-mini
 
     commands:
-      - chmod +x scripts/run-tests-with-timeout.sh
+      - chmod +x ./scripts/run-tests-with-timeout.sh
       # Build API server
       - go install ./api/..
       # Run tests
@@ -217,7 +217,7 @@ steps:
       SMALL_GENERATION_MODEL: gpt-4o-mini
 
     commands:
-      - chmod +x scripts/run-oauth-integration-test.sh
+      - chmod +x ./scripts/run-oauth-integration-test.sh
       - ./scripts/run-oauth-integration-test.sh github TestGitHubOAuthSkillsE2E
     when:
       event:
@@ -234,7 +234,7 @@ steps:
       CI_SHARED_SECRET:
         from_secret: ci_shared_secret
     commands:
-      - chmod +x scripts/upload-oauth-test-artifacts.sh
+      - chmod +x ./scripts/upload-oauth-test-artifacts.sh
       - ./scripts/upload-oauth-test-artifacts.sh github
     when:
       event:
@@ -460,7 +460,7 @@ steps:
   #     SMALL_GENERATION_MODEL: gpt-4o-mini
 
   #   commands:
-  #     - chmod +x scripts/run-oauth-integration-test.sh
+  #     - chmod +x ./scripts/run-oauth-integration-test.sh
   #     - ./scripts/run-oauth-integration-test.sh google-calendar TestGoogleCalendarOAuthSkillsE2E
   #   when:
   #     event:
@@ -477,7 +477,7 @@ steps:
   #     CI_SHARED_SECRET:
   #       from_secret: ci_shared_secret
   #   commands:
-  #     - chmod +x scripts/upload-oauth-test-artifacts.sh
+  #     - chmod +x ./scripts/upload-oauth-test-artifacts.sh
   #     - ./scripts/upload-oauth-test-artifacts.sh google-calendar
   #   when:
   #     event:
@@ -545,7 +545,7 @@ steps:
   #     SMALL_GENERATION_MODEL: gpt-4o-mini
 
   #   commands:
-  #     - chmod +x scripts/run-oauth-integration-test.sh
+  #     - chmod +x ./scripts/run-oauth-integration-test.sh
   #     - echo "=== Environment Variable Check ==="
   #     - echo "GMAIL_CREDENTIALS_BASE64 length:" $(echo -n "${GMAIL_CREDENTIALS_BASE64}" | wc -c)
   #     - echo "ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID}" && echo "YES" || echo "NO")
@@ -568,7 +568,7 @@ steps:
   #     CI_SHARED_SECRET:
   #       from_secret: ci_shared_secret
   #   commands:
-  #     - chmod +x scripts/upload-oauth-test-artifacts.sh
+  #     - chmod +x ./scripts/upload-oauth-test-artifacts.sh
   #     - ./scripts/upload-oauth-test-artifacts.sh jira
   #   when:
   #     event:
@@ -636,7 +636,7 @@ steps:
   #     SMALL_GENERATION_MODEL: gpt-4o-mini
 
   #   commands:
-  #     - chmod +x scripts/run-oauth-integration-test.sh
+  #     - chmod +x ./scripts/run-oauth-integration-test.sh
   #     - echo "=== Environment Variable Check ==="
   #     - echo "GMAIL_CREDENTIALS_BASE64 length:" $(echo -n "${GMAIL_CREDENTIALS_BASE64}" | wc -c)
   #     - echo "ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID}" && echo "YES" || echo "NO")
@@ -659,7 +659,7 @@ steps:
   #     CI_SHARED_SECRET:
   #       from_secret: ci_shared_secret
   #   commands:
-  #     - chmod +x scripts/upload-oauth-test-artifacts.sh
+  #     - chmod +x ./scripts/upload-oauth-test-artifacts.sh
   #     - ./scripts/upload-oauth-test-artifacts.sh confluence
   #   when:
   #     event:
