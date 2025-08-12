@@ -1,20 +1,26 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
+import IconButton from '@mui/material/IconButton'
+import CloseIcon from '@mui/icons-material/Close'
 import WarningIcon from '@mui/icons-material/Warning'
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
 import useAccount from '../../hooks/useAccount'
 import { useGetConfig } from '../../services/userService'
 import { useGetWallet } from '../../services/useBilling'
+import { getWithTTL, setWithTTL } from '../../utils/localStorage'
 
 const LOW_BALANCE_THRESHOLD = 5.0
+const DISMISS_STORAGE_KEY = 'low-credits-dismissed'
+const DISMISS_TTL_HOURS = 12
 
 const LowCreditsDisplay: React.FC = () => {  
   const router = useRouter()
   const lightTheme = useLightTheme()
   const account = useAccount()
+  const [isDismissed, setIsDismissed] = useState(false)
   
   const { data: serverConfig, isLoading: isLoadingServerConfig } = useGetConfig()
   
@@ -24,6 +30,20 @@ const LowCreditsDisplay: React.FC = () => {
   
   // Fetch appropriate wallet based on context
   const { data: wallet, isLoading: isLoadingWallet } = useGetWallet(orgId)
+
+  // Check if dialog was dismissed
+  useEffect(() => {
+    const dismissed = getWithTTL<boolean>(DISMISS_STORAGE_KEY)
+    if (dismissed) {
+      setIsDismissed(true)
+    }
+  }, [])
+
+  // Handle dismiss
+  const handleDismiss = () => {
+    setWithTTL(DISMISS_STORAGE_KEY, true, DISMISS_TTL_HOURS)
+    setIsDismissed(true)
+  }
   
   // While loading, don't render anything
   if (isLoadingServerConfig || isLoadingWallet) {
@@ -35,8 +55,13 @@ const LowCreditsDisplay: React.FC = () => {
     return null
   }
 
-  // Only show if wallet exists and balance is below $1
+  // Only show if wallet exists and balance is below threshold
   if (!wallet || (wallet.balance && wallet.balance >= LOW_BALANCE_THRESHOLD)) {
+    return null
+  }
+
+  // Don't show if dismissed
+  if (isDismissed) {
     return null
   }
 
@@ -78,9 +103,27 @@ const LowCreditsDisplay: React.FC = () => {
         borderRadius: 1,
         borderColor: 'warning.main',
         borderWidth: 1,
+        position: 'relative',
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1, maxWidth: '100%' }}>
+      {/* Close button */}
+      <IconButton
+        onClick={handleDismiss}
+        size="small"
+        sx={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          color: 'warning.main',
+          '&:hover': {
+            backgroundColor: 'rgba(255, 152, 0, 0.1)',
+          },
+        }}
+      >
+        <CloseIcon fontSize="small" />
+      </IconButton>
+
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1, maxWidth: 'calc(100% - 40px)' }}>
         <WarningIcon sx={{ color: 'warning.main', mr: 1, fontSize: 20, flexShrink: 0 }} />
         <Typography variant="body2" sx={{ 
           color: 'warning.main', 
@@ -95,7 +138,7 @@ const LowCreditsDisplay: React.FC = () => {
       <Typography variant="body2" sx={{ 
         color: lightTheme.textColor, 
         mb: 1,
-        maxWidth: '100%',
+        maxWidth: 'calc(100% - 40px)',
         wordBreak: 'break-word',
         overflowWrap: 'break-word',
         whiteSpace: 'normal',
@@ -108,7 +151,7 @@ const LowCreditsDisplay: React.FC = () => {
         color: lightTheme.textColorFaded, 
         mb: 1.5, 
         display: 'block',
-        maxWidth: '100%',
+        maxWidth: 'calc(100% - 40px)',
         wordBreak: 'break-word',
         overflowWrap: 'break-word',
         whiteSpace: 'normal',
