@@ -3,3 +3,4 @@ charts/helix-controlplane/templates/searxng_configmap.yaml:generic-api-key:23
 searxng/settings.yml:generic-api-key:13
 install.sh:generic-api-key:573
 api/pkg/stripe/testdata/sub_active.json:generic-api-key:194
+api/pkg/stripe/testdata/paid.json:generic-api-key:250
