@@ -9,7 +9,7 @@ import useAccount from '../../hooks/useAccount'
 import { useGetConfig } from '../../services/userService'
 import { useGetWallet } from '../../services/useBilling'
 
-const LOW_BALANCE_THRESHOLD = 15.0
+const LOW_BALANCE_THRESHOLD = 5.0
 
 const LowCreditsDisplay: React.FC = () => {  
   const router = useRouter()
