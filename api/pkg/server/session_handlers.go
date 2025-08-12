@@ -204,6 +204,12 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			return
 		}
 
+		log.Info().
+			Int("interactions", len(interactions)).
+			Str("session_id", session.ID).
+			Int("generation_id", session.GenerationID).
+			Msg("session loaded")
+
 		// Updating session interactions
 		session.Interactions = interactions
 
