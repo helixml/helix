@@ -118,7 +118,9 @@ func createDataPrepOpenAIClient(cfg *config.ServerConfig, helixInference openai.
 
 		return openai.New(
 			cfg.Providers.OpenAI.APIKey,
-			cfg.Providers.OpenAI.BaseURL), nil
+			cfg.Providers.OpenAI.BaseURL,
+			cfg.Stripe.BillingEnabled,
+		), nil
 
 	case types.ProviderTogetherAI:
 		if cfg.Providers.TogetherAI.APIKey == "" {
@@ -132,7 +134,9 @@ func createDataPrepOpenAIClient(cfg *config.ServerConfig, helixInference openai.
 
 		return openai.New(
 			cfg.Providers.TogetherAI.APIKey,
-			cfg.Providers.TogetherAI.BaseURL), nil
+			cfg.Providers.TogetherAI.BaseURL,
+			cfg.Stripe.BillingEnabled,
+		), nil
 
 	case types.ProviderHelix:
 		log.Info().Msg("using Helix provider for inference")

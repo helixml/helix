@@ -74,6 +74,7 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 		openaiClient := openai.New(
 			cfg.Providers.OpenAI.APIKey,
 			cfg.Providers.OpenAI.BaseURL,
+			cfg.Stripe.BillingEnabled,
 			cfg.Providers.OpenAI.Models...)
 
 		loggedClient := logger.Wrap(cfg, types.ProviderOpenAI, openaiClient, modelInfoProvider, billingLogger, logStores...)
@@ -89,6 +90,7 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 		togetherAiClient := openai.New(
 			cfg.Providers.TogetherAI.APIKey,
 			cfg.Providers.TogetherAI.BaseURL,
+			cfg.Stripe.BillingEnabled,
 			cfg.Providers.TogetherAI.Models...)
 
 		loggedClient := logger.Wrap(cfg, types.ProviderTogetherAI, togetherAiClient, modelInfoProvider, billingLogger, logStores...)
@@ -104,6 +106,7 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 		anthropicClient := openai.New(
 			cfg.Providers.Anthropic.APIKey,
 			cfg.Providers.Anthropic.BaseURL,
+			cfg.Stripe.BillingEnabled,
 			cfg.Providers.Anthropic.Models...)
 
 		loggedClient := logger.Wrap(cfg, types.ProviderAnthropic, anthropicClient, modelInfoProvider, billingLogger, logStores...)
@@ -120,6 +123,7 @@ func NewProviderManager(cfg *config.ServerConfig, store store.Store, helixInfere
 		vllmClient := openai.New(
 			cfg.Providers.VLLM.APIKey,
 			cfg.Providers.VLLM.BaseURL,
+			cfg.Stripe.BillingEnabled,
 			cfg.Providers.VLLM.Models...)
 
 		loggedClient := logger.Wrap(cfg, types.ProviderVLLM, vllmClient, modelInfoProvider, billingLogger, logStores...)
@@ -243,7 +247,7 @@ func (m *MultiClientManager) updateClientAPIKeyFromFile(provider types.Provider,
 	}
 
 	// Recreate the client with the new key
-	openaiClient := openai.New(newKey, baseURL)
+	openaiClient := openai.New(newKey, baseURL, m.cfg.Stripe.BillingEnabled)
 
 	loggedClient := logger.Wrap(m.cfg, provider, openaiClient, m.modelInfoProvider, m.billingLogger, m.logStores...)
 
@@ -354,7 +358,7 @@ func (m *MultiClientManager) initializeClient(endpoint *types.ProviderEndpoint) 
 		apiKey = strings.TrimSpace(string(bts))
 	}
 
-	openaiClient := openai.New(apiKey, endpoint.BaseURL, endpoint.Models...)
+	openaiClient := openai.New(apiKey, endpoint.BaseURL, endpoint.BillingEnabled, endpoint.Models...)
 
 	// If it's a personal endpoint, replace the billing logger with a NoopBillingLogger
 	billingLogger := m.billingLogger

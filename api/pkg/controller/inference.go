@@ -57,15 +57,6 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		opts.Provider = assistant.Provider
 	}
 
-	hasEnoughBalance, err := c.hasEnoughBalance(ctx, user, opts.OrganizationID, opts.Provider)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
-	}
-
-	if !hasEnoughBalance {
-		return nil, nil, fmt.Errorf("insufficient balance")
-	}
-
 	// Check token quota before processing
 	if err := c.checkInferenceTokenQuota(ctx, user.ID, opts.Provider); err != nil {
 		return nil, nil, err
@@ -74,6 +65,15 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
+	}
+
+	hasEnoughBalance, err := c.hasEnoughBalance(ctx, user, opts.OrganizationID, client)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
+	}
+
+	if !hasEnoughBalance {
+		return nil, nil, fmt.Errorf("insufficient balance")
 	}
 
 	// Evaluate and add OAuth tokens
@@ -198,15 +198,6 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		opts.Provider = assistant.Provider
 	}
 
-	hasEnoughBalance, err := c.hasEnoughBalance(ctx, user, opts.OrganizationID, opts.Provider)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
-	}
-
-	if !hasEnoughBalance {
-		return nil, nil, fmt.Errorf("insufficient balance")
-	}
-
 	// Check token quota before processing
 	if err := c.checkInferenceTokenQuota(ctx, user.ID, opts.Provider); err != nil {
 		return nil, nil, err
@@ -215,6 +206,15 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
+	}
+
+	hasEnoughBalance, err := c.hasEnoughBalance(ctx, user, opts.OrganizationID, client)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
+	}
+
+	if !hasEnoughBalance {
+		return nil, nil, fmt.Errorf("insufficient balance")
 	}
 
 	// Evaluate and add OAuth tokens

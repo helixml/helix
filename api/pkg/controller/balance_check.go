@@ -4,12 +4,18 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-func (c *Controller) hasEnoughBalance(ctx context.Context, user *types.User, orgID, provider string) (bool, error) {
+func (c *Controller) hasEnoughBalance(ctx context.Context, user *types.User, orgID string, client openai.Client) (bool, error) {
 	if !c.Options.Config.Stripe.BillingEnabled {
 		// Billing not enabled
+		return true, nil
+	}
+
+	if !client.BillingEnabled() {
+		// Billing not enabled for this client
 		return true, nil
 	}
 
