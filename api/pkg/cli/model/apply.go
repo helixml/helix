@@ -28,11 +28,10 @@ func init() {
 var applyCmd = &cobra.Command{
 	Use:   "apply",
 	Short: "Apply a Helix model configuration",
-	Long: `Apply a Helix model configuration from a JSON or YAML file in CRD format.
+	Long: `Apply a Helix model configuration from a JSON or YAML file
 
-CRD format (required - supports Model, Agent, or AIApp kinds):
 apiVersion: model.aispec.org/v1alpha1
-kind: Model  # or "Agent" or "AIApp" 
+kind: Model
 metadata:
   name: llama3.1:8b
 spec:
