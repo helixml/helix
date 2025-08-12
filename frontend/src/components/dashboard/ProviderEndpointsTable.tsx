@@ -74,7 +74,7 @@ const ProviderEndpointsTable: FC = () => {
   const apiClient = api.getApiClient()    
 
   const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders({
-    loadModels: false,    
+    loadModels: false,
     all: true,
     enabled: true,
   });
@@ -208,7 +208,7 @@ const ProviderEndpointsTable: FC = () => {
           </TableHead>
           <TableBody>
             {(providerEndpoints as IProviderEndpoint[]).map((endpoint: IProviderEndpoint) => (
-              <TableRow key={endpoint.name}>
+              <TableRow key={endpoint.id && endpoint.id !== "-" ? endpoint.id : endpoint.name}>
                 <TableCell>
                   <Typography variant="body2">
                     {endpoint.name}
