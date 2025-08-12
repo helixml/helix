@@ -232,3 +232,30 @@ func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient_MissingFile(
 		suite.T().Fatal("Timeout waiting for background goroutines to finish")
 	}
 }
+
+func (suite *MultiClientManagerTestSuite) Test_initializeClient_WithoutBilling() {
+	endpoint := &types.ProviderEndpoint{
+		ID:     "openai",
+		APIKey: "openai-api-key",
+	}
+
+	suite.cfg.Stripe.BillingEnabled = false
+
+	manager := NewProviderManager(suite.cfg, suite.store, nil, suite.modelInfoProvider)
+	client, err := manager.initializeClient(endpoint)
+	suite.NoError(err)
+	suite.NotNil(client)
+
+	wrappedClient, ok := client.(*logger.LoggingMiddleware)
+	suite.Require().True(ok)
+
+	// Check that the billing logger is a NoopBillingLogger
+	billingLogger := wrappedClient.BillingLogger()
+
+	// Should be no-op
+	res, err := billingLogger.CreateLLMCall(context.Background(), &types.LLMCall{
+		Model: "gpt-4o",
+	})
+	suite.NoError(err)
+	suite.NotNil(res)
+}
