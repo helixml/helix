@@ -348,8 +348,6 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time,
 	}
 
 	if m.billingLogger != nil {
-		fmt.Println("XX")
-
 		_, err = m.billingLogger.CreateLLMCall(ctx, llmCall)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to log LLM call to billing logger")
