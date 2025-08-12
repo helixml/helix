@@ -57,6 +57,15 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		opts.Provider = assistant.Provider
 	}
 
+	hasEnoughBalance, err := c.hasEnoughBalance(ctx, user, opts.OrganizationID, opts.Provider)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
+	}
+
+	if !hasEnoughBalance {
+		return nil, nil, fmt.Errorf("insufficient balance")
+	}
+
 	// Check token quota before processing
 	if err := c.checkInferenceTokenQuota(ctx, user.ID, opts.Provider); err != nil {
 		return nil, nil, err
@@ -187,6 +196,15 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 
 	if assistant.Provider != "" {
 		opts.Provider = assistant.Provider
+	}
+
+	hasEnoughBalance, err := c.hasEnoughBalance(ctx, user, opts.OrganizationID, opts.Provider)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
+	}
+
+	if !hasEnoughBalance {
+		return nil, nil, fmt.Errorf("insufficient balance")
 	}
 
 	// Check token quota before processing
