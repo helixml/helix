@@ -72,6 +72,16 @@ func (m *LoggingMiddleware) ListModels(ctx context.Context) ([]types.OpenAIModel
 	return m.client.ListModels(ctx)
 }
 
+// BillingLogger used for testing
+func (m *LoggingMiddleware) BillingLogger() LogStore {
+	return m.billingLogger
+}
+
+// UsageLogStores used for testing
+func (m *LoggingMiddleware) UsageLogStores() []LogStore {
+	return m.logStores
+}
+
 func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
 	start := time.Now()
 	resp, err := m.client.CreateChatCompletion(ctx, request)
