@@ -46,7 +46,7 @@ var settingsGetCmd = &cobra.Command{
 		fmt.Printf("  Source: %s\n", settings.HuggingFaceTokenSource)
 
 		if settings.HuggingFaceTokenSource == "environment" {
-			fmt.Println("  Note: Token is read from HELIX_HF_TOKEN environment variable")
+			fmt.Println("  Note: Token is read from HF_TOKEN environment variable")
 		} else if settings.HuggingFaceTokenSource == "database" {
 			fmt.Println("  Note: Token is stored in database (set via API/CLI)")
 		} else {
@@ -92,7 +92,7 @@ var settingsSetCmd = &cobra.Command{
 
 		if settingsClearHFToken {
 			fmt.Println("  Hugging Face token: cleared")
-			fmt.Println("  Note: Will fall back to HELIX_HF_TOKEN environment variable if set")
+			fmt.Println("  Note: Will fall back to HF_TOKEN environment variable if set")
 		} else if settingsHuggingFaceToken != "" {
 			// Mask the token for security
 			maskedToken := maskToken(settingsHuggingFaceToken)

@@ -44,7 +44,7 @@ func (s *PostgresStore) GetEffectiveSystemSettings(ctx context.Context) (*types.
 
 	// If no HF token is set in database, check environment variable
 	if effectiveSettings.HuggingFaceToken == "" {
-		if envToken := os.Getenv("HELIX_HF_TOKEN"); envToken != "" {
+		if envToken := os.Getenv("HF_TOKEN"); envToken != "" {
 			effectiveSettings.HuggingFaceToken = envToken
 		}
 	}

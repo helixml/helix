@@ -275,14 +275,14 @@ spec:
             {{- end }}
             {{- end }}
             {{- if .Values.controlplane.huggingface.existingSecret }}
-            - name: HELIX_HF_TOKEN
+            - name: HF_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.controlplane.huggingface.existingSecret }}
                   key: {{ .Values.controlplane.huggingface.existingSecretTokenKey | default "token" }}
             {{- else }}
             {{- with (default "" .Values.controlplane.huggingface.token) }}
-            - name: HELIX_HF_TOKEN
+            - name: HF_TOKEN
               value: {{ . | quote }}
             {{- end }}
             {{- end }}

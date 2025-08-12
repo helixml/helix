@@ -208,13 +208,25 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
                 const modelMemory = getModelMemory(slot.model || '')
                 const modelName = slot.model?.split(':')[0] || slot.runtime || 'unknown'
                 const memoryDisplay = modelMemory ? ` (${prettyBytes(modelMemory)})` : ''
+                
+                // GPU allocation display
+                let gpuDisplay = ''
+                if (slot.gpu_indices && slot.gpu_indices.length > 1) {
+                  gpuDisplay = ` [GPUs:${slot.gpu_indices.join(',')}]`
+                  if (slot.tensor_parallel_size && slot.tensor_parallel_size > 1) {
+                    gpuDisplay += ` TP:${slot.tensor_parallel_size}`
+                  }
+                } else if (slot.gpu_index !== undefined) {
+                  gpuDisplay = ` [GPU:${slot.gpu_index}]`
+                }
+                
                 const isLoading = !slot.ready && !slot.active
                 
                 return (
                   <Box key={slot.id || index} sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
                     <Chip 
                       size="small"
-                      label={`${modelName}${memoryDisplay}`}
+                      label={`${modelName}${memoryDisplay}${gpuDisplay}`}
                       sx={{ 
                         height: 14, 
                         fontSize: '0.55rem',

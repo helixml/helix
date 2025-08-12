@@ -153,6 +153,47 @@ export const ModelInstanceSummary: FC<{
                   {prettyBytes(modelMemory)}
                 </Typography>
               )}
+              {/* Multi-GPU allocation display */}
+              {slot.gpu_indices && slot.gpu_indices.length > 1 && (
+                <Typography 
+                  variant="caption" 
+                  sx={{ 
+                    ml: 1,
+                    color: 'rgba(255, 255, 255, 0.8)',
+                    backgroundColor: 'rgba(0, 200, 255, 0.1)',
+                    border: '1px solid rgba(0, 200, 255, 0.3)',
+                    px: 1,
+                    py: 0.3,
+                    borderRadius: '3px',
+                    fontFamily: 'monospace',
+                    fontSize: '0.7rem'
+                  }}
+                >
+                  GPUs: {slot.gpu_indices.join(',')}
+                  {slot.tensor_parallel_size && slot.tensor_parallel_size > 1 && (
+                    <> (TP:{slot.tensor_parallel_size})</>
+                  )}
+                </Typography>
+              )}
+              {/* Single GPU allocation display */}
+              {slot.gpu_index !== undefined && (!slot.gpu_indices || slot.gpu_indices.length <= 1) && (
+                <Typography 
+                  variant="caption" 
+                  sx={{ 
+                    ml: 1,
+                    color: 'rgba(255, 255, 255, 0.7)',
+                    backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                    border: '1px solid rgba(156, 39, 176, 0.3)',
+                    px: 1,
+                    py: 0.3,
+                    borderRadius: '3px',
+                    fontFamily: 'monospace',
+                    fontSize: '0.7rem'
+                  }}
+                >
+                  GPU: {slot.gpu_index}
+                </Typography>
+              )}
             </Typography>
           </Grid>
           <Grid item>

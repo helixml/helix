@@ -2751,6 +2751,89 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/system/settings": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get global system settings. Requires admin privileges.",
+                "tags": [
+                    "system"
+                ],
+                "summary": "Get system settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SystemSettingsResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update global system settings. Requires admin privileges.",
+                "tags": [
+                    "system"
+                ],
+                "summary": "Update system settings",
+                "parameters": [
+                    {
+                        "description": "System settings update",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SystemSettingsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SystemSettingsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/triggers": {
             "get": {
                 "security": [
@@ -5553,6 +5636,11 @@ const docTemplate = `{
                 "runtime": {
                     "$ref": "#/definitions/types.Runtime"
                 },
+                "runtime_args": {
+                    "description": "Runtime-specific arguments (e.g., VLLM command line args)",
+                    "type": "object",
+                    "additionalProperties": true
+                },
                 "sort_order": {
                     "description": "Order for sorting models in UI (lower numbers appear first)",
                     "type": "integer"
@@ -6532,6 +6620,17 @@ const docTemplate = `{
                     "description": "Context length used for the model, if specified",
                     "type": "integer"
                 },
+                "gpu_index": {
+                    "description": "Primary GPU for single-GPU models (for VLLM)",
+                    "type": "integer"
+                },
+                "gpu_indices": {
+                    "description": "All GPUs used for multi-GPU models",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
                 "id": {
                     "type": "string"
                 },
@@ -6551,6 +6650,10 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                },
+                "tensor_parallel_size": {
+                    "description": "Number of GPUs for tensor parallelism (1 = single GPU)",
+                    "type": "integer"
                 },
                 "version": {
                     "type": "string"
@@ -7290,6 +7393,36 @@ const docTemplate = `{
                 "arguments": {
                     "type": "object",
                     "additionalProperties": true
+                }
+            }
+        },
+        "types.SystemSettingsRequest": {
+            "type": "object",
+            "properties": {
+                "huggingface_token": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SystemSettingsResponse": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "string"
+                },
+                "huggingface_token_set": {
+                    "description": "Sensitive fields are masked",
+                    "type": "boolean"
+                },
+                "huggingface_token_source": {
+                    "description": "\"database\", \"environment\", or \"none\"",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "updated": {
+                    "type": "string"
                 }
             }
         },

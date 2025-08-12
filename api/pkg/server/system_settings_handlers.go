@@ -33,7 +33,7 @@ func (apiServer *HelixAPIServer) getSystemSettings(rw http.ResponseWriter, r *ht
 	}
 
 	// Return masked response with source information
-	envToken := os.Getenv("HELIX_HF_TOKEN")
+	envToken := os.Getenv("HF_TOKEN")
 	writeResponse(rw, settings.ToResponseWithSource(settings.HuggingFaceToken, envToken), http.StatusOK)
 }
 
