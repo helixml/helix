@@ -1,11 +1,11 @@
-#!/bin/bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 # Script to run tests with goroutine dump on timeout
 # Usage: ./run-tests-with-timeout.sh [timeout_seconds] [test_args...]
 
 # Parse arguments - if first arg is a number, use it as timeout, otherwise use default
-if [[ ${1:-} =~ ^[0-9]+$ ]]; then
+if [ -n "${1:-}" ] && echo "$1" | grep -q '^[0-9][0-9]*$'; then
     TIMEOUT=$1
     shift
 else
