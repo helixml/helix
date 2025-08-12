@@ -1480,6 +1480,10 @@ export interface TypesRunnerSlot {
   active?: boolean;
   /** Context length used for the model, if specified */
   context_length?: number;
+  /** Primary GPU for single-GPU models (for VLLM) */
+  gpu_index?: number;
+  /** All GPUs used for multi-GPU models */
+  gpu_indices?: number[];
   id?: string;
   model?: string;
   ready?: boolean;
@@ -1487,6 +1491,8 @@ export interface TypesRunnerSlot {
   /** Runtime-specific arguments */
   runtime_args?: Record<string, any>;
   status?: string;
+  /** Number of GPUs for tensor parallelism (1 = single GPU) */
+  tensor_parallel_size?: number;
   version?: string;
 }
 
@@ -1793,6 +1799,20 @@ export interface TypesStepInfo {
 
 export interface TypesStepInfoDetails {
   arguments?: Record<string, any>;
+}
+
+export interface TypesSystemSettingsRequest {
+  huggingface_token?: string;
+}
+
+export interface TypesSystemSettingsResponse {
+  created?: string;
+  /** Sensitive fields are masked */
+  huggingface_token_set?: boolean;
+  /** "database", "environment", or "none" */
+  huggingface_token_source?: string;
+  id?: string;
+  updated?: string;
 }
 
 export interface TypesTeam {
@@ -3893,6 +3913,42 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get global system settings. Requires admin privileges.
+     *
+     * @tags system
+     * @name V1SystemSettingsList
+     * @summary Get system settings
+     * @request GET:/api/v1/system/settings
+     * @secure
+     */
+    v1SystemSettingsList: (params: RequestParams = {}) =>
+      this.request<TypesSystemSettingsResponse, string>({
+        path: `/api/v1/system/settings`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Update global system settings. Requires admin privileges.
+     *
+     * @tags system
+     * @name V1SystemSettingsUpdate
+     * @summary Update system settings
+     * @request PUT:/api/v1/system/settings
+     * @secure
+     */
+    v1SystemSettingsUpdate: (request: TypesSystemSettingsRequest, params: RequestParams = {}) =>
+      this.request<TypesSystemSettingsResponse, string>({
+        path: `/api/v1/system/settings`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * @description List all triggers configurations for either user or the org or user within an org
      *
      * @tags apps
@@ -4123,17 +4179,4 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         ...params,
       }),
   };
-}
-
-// Manual additions for System Settings (until auto-generated)
-export interface TypesSystemSettingsResponse {
-  id: string;
-  created: string;
-  updated: string;
-  huggingface_token_set: boolean;
-  huggingface_token_source: string;
-}
-
-export interface TypesSystemSettingsRequest {
-  huggingface_token?: string;
 }

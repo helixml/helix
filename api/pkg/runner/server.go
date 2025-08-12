@@ -236,6 +236,18 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 		return true
 	})
 
+	// Convert per-GPU info to status format
+	var gpuStatuses []*types.GPUStatus
+	gpuInfo := apiServer.gpuManager.GetGPUInfo()
+	for _, gpu := range gpuInfo {
+		gpuStatuses = append(gpuStatuses, &types.GPUStatus{
+			Index:       gpu.Index,
+			TotalMemory: gpu.TotalMemory,
+			FreeMemory:  gpu.FreeMemory,
+			UsedMemory:  gpu.UsedMemory,
+		})
+	}
+
 	status := &types.RunnerStatus{
 		ID:              apiServer.runnerOptions.ID,
 		Created:         startTime,
@@ -245,6 +257,8 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 		FreeMemory:      apiServer.gpuManager.GetFreeMemory(),
 		UsedMemory:      apiServer.gpuManager.GetUsedMemory(),
 		AllocatedMemory: allocatedMemory,
+		GPUCount:        apiServer.gpuManager.GetGPUCount(),
+		GPUs:            gpuStatuses,
 		Labels:          apiServer.runnerOptions.Labels,
 		Models:          apiServer.listHelixModelsStatus(),
 	}
@@ -311,6 +325,15 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		}
 	}
 
+	// Log GPU allocation received from scheduler
+	log.Debug().
+		Str("slot_id", slotRequest.ID.String()).
+		Str("model", slotRequest.Attributes.Model).
+		Interface("gpu_index", slotRequest.Attributes.GPUIndex).
+		Ints("gpu_indices", slotRequest.Attributes.GPUIndices).
+		Int("tensor_parallel_size", slotRequest.Attributes.TensorParallelSize).
+		Msg("Using GPU allocation from scheduler")
+
 	s := NewEmptySlot(CreateSlotParams{
 		RunnerOptions:          apiServer.runnerOptions,
 		ID:                     slotRequest.ID,
@@ -320,6 +343,11 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		ContextLength:          slotRequest.Attributes.ContextLength,
 		RuntimeArgs:            slotRequest.Attributes.RuntimeArgs,
 		APIServer:              apiServer,
+
+		// GPU allocation from scheduler - authoritative allocation decision
+		GPUIndex:           slotRequest.Attributes.GPUIndex,
+		GPUIndices:         slotRequest.Attributes.GPUIndices,
+		TensorParallelSize: slotRequest.Attributes.TensorParallelSize,
 	})
 	apiServer.slots.Store(slotRequest.ID, s)
 
@@ -345,14 +373,17 @@ func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, r *http.
 	slotList := make([]*types.RunnerSlot, 0, apiServer.slots.Size())
 	apiServer.slots.Range(func(id uuid.UUID, slot *Slot) bool {
 		slotList = append(slotList, &types.RunnerSlot{
-			ID:            id,
-			Runtime:       slot.Runtime(),
-			Version:       slot.Version(),
-			Model:         slot.Model,
-			ContextLength: slot.ContextLength,
-			Active:        slot.Active,
-			Ready:         slot.Ready,
-			Status:        slot.Status(r.Context()),
+			ID:                 id,
+			Runtime:            slot.Runtime(),
+			Version:            slot.Version(),
+			Model:              slot.Model,
+			ContextLength:      slot.ContextLength,
+			Active:             slot.Active,
+			Ready:              slot.Ready,
+			Status:             slot.Status(r.Context()),
+			GPUIndex:           slot.GPUIndex,
+			GPUIndices:         slot.GPUIndices,
+			TensorParallelSize: slot.TensorParallelSize,
 		})
 		return true
 	})

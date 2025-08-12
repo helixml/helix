@@ -24,6 +24,9 @@ type Slot struct {
 	RuntimeArgs            map[string]any // Runtime-specific arguments
 	Active                 bool           // True if the slot is active
 	Ready                  bool           // True if the slot is ready to be used
+	GPUIndex               *int           // Primary GPU for single-GPU models (nil for CPU-only)
+	GPUIndices             []int          // All GPUs used for multi-GPU models
+	TensorParallelSize     int            // Number of GPUs for tensor parallelism (1 = single GPU, 0 = CPU-only)
 	runnerOptions          *Options
 	runningRuntime         Runtime
 	apiServer              *HelixRunnerAPIServer // Reference to API server for system config
@@ -56,6 +59,12 @@ type CreateSlotParams struct {
 	ContextLength          int64                 // Optional context length override
 	RuntimeArgs            map[string]any        // Runtime-specific arguments
 	APIServer              *HelixRunnerAPIServer // Reference to API server for system config
+
+	// GPU allocation from scheduler - authoritative allocation decision
+	GPUIndex           *int  // Primary GPU for single-GPU models
+	GPUIndices         []int // All GPUs used for multi-GPU models
+	TensorParallelSize int   // Number of GPUs for tensor parallelism (1 = single GPU)
+
 	// RuntimeArgs can include:
 	// - "model": string - Override the model to use
 	// - "args": []string - Additional command line arguments to pass to the runtime
@@ -74,9 +83,15 @@ func NewEmptySlot(params CreateSlotParams) *Slot {
 		RuntimeArgs:            params.RuntimeArgs,
 		Active:                 false,
 		Ready:                  false,
-		runnerOptions:          params.RunnerOptions,
-		runningRuntime:         nil, // This is set during creation
-		apiServer:              params.APIServer,
+
+		// GPU allocation from scheduler - set during slot creation
+		GPUIndex:           params.GPUIndex,
+		GPUIndices:         params.GPUIndices,
+		TensorParallelSize: params.TensorParallelSize,
+
+		runnerOptions:  params.RunnerOptions,
+		runningRuntime: nil, // This is set during creation
+		apiServer:      params.APIServer,
 	}
 }
 
@@ -131,12 +146,56 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 			runtimeParams.ContextLength = &s.ContextLength
 		}
 
+		// Use GPU allocation from scheduler (authoritative decision)
+		// The scheduler has already made the optimal GPU allocation decision
+		if s.GPUIndex != nil {
+			runtimeParams.GPUIndex = s.GPUIndex
+			s.TensorParallelSize = 1
+			log.Info().
+				Str("slot_id", s.ID.String()).
+				Str("model", s.Model).
+				Int("selected_gpu", *s.GPUIndex).
+				Uint64("model_memory_requirement", s.ModelMemoryRequirement).
+				Msg("Using single GPU allocation from scheduler for Ollama model")
+		} else if len(s.GPUIndices) > 0 {
+			runtimeParams.GPUIndices = s.GPUIndices
+			s.TensorParallelSize = len(s.GPUIndices)
+			log.Info().
+				Str("slot_id", s.ID.String()).
+				Str("model", s.Model).
+				Ints("selected_gpus", s.GPUIndices).
+				Int("tensor_parallel_size", s.TensorParallelSize).
+				Uint64("model_memory_requirement", s.ModelMemoryRequirement).
+				Msg("Using multi-GPU allocation from scheduler for Ollama model")
+		} else {
+			// No specific allocation - let Ollama use all available GPUs
+			s.TensorParallelSize = 0 // Indicates auto mode
+			log.Info().
+				Str("slot_id", s.ID.String()).
+				Str("model", s.Model).
+				Uint64("model_memory_requirement", s.ModelMemoryRequirement).
+				Msg("No specific GPU allocation from scheduler, using all available GPUs for Ollama model")
+		}
+
 		// Note, we don't pass through RuntimeArgs for Ollama because model
 		// params are defined by ollama model pulls rather than in commandline
 		// flags like vLLM
 
+		log.Debug().
+			Str("model", s.Model).
+			Interface("runtime_params", runtimeParams).
+			Interface("gpu_index", s.GPUIndex).
+			Ints("gpu_indices", s.GPUIndices).
+			Int("tensor_parallel_size", s.TensorParallelSize).
+			Msg("Creating Ollama runtime with scheduler GPU allocation")
+
 		s.runningRuntime, err = NewOllamaRuntime(ctx, runtimeParams)
 		if err != nil {
+			log.Error().
+				Err(err).
+				Str("model", s.Model).
+				Interface("runtime_params", runtimeParams).
+				Msg("Failed to create Ollama runtime")
 			return
 		}
 	case types.RuntimeDiffusers:
@@ -263,11 +322,48 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 		// Set the model parameter
 		runtimeParams.Model = &modelStr
 
+		// Use GPU allocation from scheduler (authoritative decision)
+		// The scheduler has already made the optimal GPU allocation decision
+		if s.GPUIndex != nil {
+			runtimeParams.GPUIndex = s.GPUIndex
+			s.TensorParallelSize = 1
+			log.Info().
+				Str("slot_id", s.ID.String()).
+				Str("model", modelStr).
+				Int("selected_gpu", *s.GPUIndex).
+				Uint64("model_memory_requirement", s.ModelMemoryRequirement).
+				Msg("Using single GPU allocation from scheduler for VLLM model")
+		} else if len(s.GPUIndices) > 0 {
+			runtimeParams.GPUIndices = s.GPUIndices
+			runtimeParams.TensorParallelSize = &s.TensorParallelSize
+			log.Info().
+				Str("slot_id", s.ID.String()).
+				Str("model", modelStr).
+				Ints("selected_gpus", s.GPUIndices).
+				Int("tensor_parallel_size", s.TensorParallelSize).
+				Uint64("model_memory_requirement", s.ModelMemoryRequirement).
+				Msg("Using multi-GPU allocation from scheduler for VLLM model")
+		} else {
+			// Fallback to default GPU 0 if no allocation provided
+			defaultGPU := 0
+			runtimeParams.GPUIndex = &defaultGPU
+			s.GPUIndex = &defaultGPU
+			s.TensorParallelSize = 1
+			log.Warn().
+				Str("slot_id", s.ID.String()).
+				Str("model", modelStr).
+				Uint64("model_memory_requirement", s.ModelMemoryRequirement).
+				Msg("No GPU allocation from scheduler, using default GPU 0 for VLLM model")
+		}
+
 		log.Debug().
 			Str("model", modelStr).
 			Interface("runtime_params", runtimeParams).
 			Strs("args", runtimeParams.Args).
-			Msg("Creating vLLM runtime with args")
+			Interface("gpu_index", s.GPUIndex).
+			Ints("gpu_indices", s.GPUIndices).
+			Int("tensor_parallel_size", s.TensorParallelSize).
+			Msg("Creating vLLM runtime with scheduler GPU allocation")
 
 		s.runningRuntime, err = NewVLLMRuntime(ctx, runtimeParams)
 		if err != nil {

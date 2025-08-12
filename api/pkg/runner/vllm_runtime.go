@@ -26,26 +26,32 @@ var (
 )
 
 type VLLMRuntime struct {
-	version          string
-	cacheDir         string
-	port             int
-	startTimeout     time.Duration
-	contextLength    int64
-	model            string
-	args             []string
-	huggingFaceToken string
-	cmd              *exec.Cmd
-	cancel           context.CancelFunc
+	version            string
+	cacheDir           string
+	port               int
+	startTimeout       time.Duration
+	contextLength      int64
+	model              string
+	args               []string
+	huggingFaceToken   string
+	gpuIndex           int   // Primary GPU index for single-GPU models
+	gpuIndices         []int // All GPU indices for multi-GPU models
+	tensorParallelSize int   // Number of GPUs for tensor parallelism
+	cmd                *exec.Cmd
+	cancel             context.CancelFunc
 }
 
 type VLLMRuntimeParams struct {
-	CacheDir         *string        // Where to store the models
-	Port             *int           // If nil, will be assigned a random port
-	StartTimeout     *time.Duration // How long to wait for vLLM to start, if nil, will use default
-	ContextLength    *int64         // Optional: Context length to use for the model
-	Model            *string        // Optional: Model to use
-	Args             []string       // Optional: Additional arguments to pass to vLLM
-	HuggingFaceToken *string        // Optional: Hugging Face token for model access
+	CacheDir           *string        // Where to store the models
+	Port               *int           // If nil, will be assigned a random port
+	StartTimeout       *time.Duration // How long to wait for vLLM to start, if nil, will use default
+	ContextLength      *int64         // Optional: Context length to use for the model
+	Model              *string        // Optional: Model to use
+	Args               []string       // Optional: Additional arguments to pass to vLLM
+	HuggingFaceToken   *string        // Optional: Hugging Face token for model access
+	GPUIndex           *int           // Optional: Primary GPU index for single-GPU models (for multi-GPU scheduling)
+	GPUIndices         []int          // Optional: GPU indices for multi-GPU models (overrides GPUIndex)
+	TensorParallelSize *int           // Optional: Number of GPUs for tensor parallelism (default 1)
 }
 
 func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, error) {
@@ -91,23 +97,50 @@ func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, 
 		hfToken = *params.HuggingFaceToken
 	}
 
+	// Extract GPU configuration
+	var gpuIndex int = 0
+	var gpuIndices []int
+	var tensorParallelSize int = 1
+
+	// Multi-GPU setup takes precedence over single-GPU
+	if len(params.GPUIndices) > 0 {
+		gpuIndices = params.GPUIndices
+		gpuIndex = gpuIndices[0] // Use first GPU as primary
+		tensorParallelSize = len(gpuIndices)
+	} else if params.GPUIndex != nil {
+		gpuIndex = *params.GPUIndex
+		gpuIndices = []int{gpuIndex}
+		tensorParallelSize = 1
+	}
+
+	// Override tensor parallel size if explicitly provided
+	if params.TensorParallelSize != nil {
+		tensorParallelSize = *params.TensorParallelSize
+	}
+
 	// Log args received
 	log.Debug().
 		Str("model", model).
 		Int64("context_length", contextLength).
 		Strs("args", params.Args).
 		Bool("hf_token_provided", hfToken != "").
+		Int("gpu_index", gpuIndex).
+		Ints("gpu_indices", gpuIndices).
+		Int("tensor_parallel_size", tensorParallelSize).
 		Msg("NewVLLMRuntime received args")
 
 	return &VLLMRuntime{
-		version:          "unknown",
-		cacheDir:         *params.CacheDir,
-		port:             *params.Port,
-		startTimeout:     *params.StartTimeout,
-		contextLength:    contextLength,
-		model:            model,
-		args:             params.Args,
-		huggingFaceToken: hfToken,
+		version:            "unknown",
+		cacheDir:           *params.CacheDir,
+		port:               *params.Port,
+		startTimeout:       *params.StartTimeout,
+		contextLength:      contextLength,
+		model:              model,
+		args:               params.Args,
+		huggingFaceToken:   hfToken,
+		gpuIndex:           gpuIndex,
+		gpuIndices:         gpuIndices,
+		tensorParallelSize: tensorParallelSize,
 	}, nil
 }
 
@@ -147,7 +180,7 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 	}()
 
 	// Start vLLM cmd
-	cmd, err := startVLLMCmd(ctx, vllmCommander, v.port, v.cacheDir, v.contextLength, v.model, v.args, v.huggingFaceToken)
+	cmd, err := startVLLMCmd(ctx, vllmCommander, v.port, v.cacheDir, v.contextLength, v.model, v.args, v.huggingFaceToken, v.gpuIndex, v.gpuIndices, v.tensorParallelSize)
 	if err != nil {
 		return fmt.Errorf("error building vLLM cmd: %w", err)
 	}
@@ -461,7 +494,20 @@ func getEffectiveToken(providedToken string) string {
 	return os.Getenv("HF_TOKEN")
 }
 
-func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, model string, customArgs []string, hfToken string) (*exec.Cmd, error) {
+// formatGPUIndices converts a slice of GPU indices to a comma-separated string for CUDA_VISIBLE_DEVICES
+func formatGPUIndices(gpuIndices []int) string {
+	if len(gpuIndices) == 0 {
+		return "0" // Default to GPU 0
+	}
+
+	var indices []string
+	for _, idx := range gpuIndices {
+		indices = append(indices, fmt.Sprintf("%d", idx))
+	}
+	return strings.Join(indices, ",")
+}
+
+func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, model string, customArgs []string, hfToken string, gpuIndex int, gpuIndices []int, tensorParallelSize int) (*exec.Cmd, error) {
 	// Use clean vLLM virtualenv Python - fail if not found (no fallback to avoid confusion)
 	vllmPath := "/workspace/vllm/venv/bin/python"
 	if _, err := os.Stat(vllmPath); os.IsNotExist(err) {
@@ -532,15 +578,14 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 				args = append(args, "--tensor-parallel-size", "1")
 			}
 		} else if !customArgsMap["--tensor-parallel-size"] {
-			args = append(args, "--tensor-parallel-size", "1") // Default to 1 GPU
+			// Use dynamic tensor parallel size for GPU mode
+			args = append(args, "--tensor-parallel-size", fmt.Sprintf("%d", tensorParallelSize))
 		}
 	}
 
-	// Add GPU memory utilization if not specified (only for GPU mode)
-	if !customArgsMap["--gpu-memory-utilization"] && os.Getenv("DEVELOPMENT_CPU_ONLY") != "true" && os.Getenv("VLLM_DEVICE") != "cpu" {
-		log.Debug().Msg("Adding --gpu-memory-utilization with dynamic placeholder")
-		args = append(args, "--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}")
-	}
+	// GPU memory utilization is now handled by the scheduler via RuntimeArgs
+	// The scheduler calculates the appropriate ratio and passes it via substituted RuntimeArgs
+	// No need to add a template placeholder here as it won't be substituted at runtime level
 
 	// Add custom arguments
 	args = append(args, customArgs...)
@@ -575,8 +620,8 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 		// Python configuration
 		"PYTHONUNBUFFERED=1",
 
-		// CUDA configuration
-		"CUDA_VISIBLE_DEVICES=0", // Default to first GPU
+		// CUDA configuration - use selected GPU(s) for proper multi-GPU scheduling
+		fmt.Sprintf("CUDA_VISIBLE_DEVICES=%s", formatGPUIndices(gpuIndices)),
 
 		// Cache directories
 		fmt.Sprintf("TRANSFORMERS_CACHE=%s", cacheDir),

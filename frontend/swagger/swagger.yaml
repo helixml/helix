@@ -1729,6 +1729,10 @@ definitions:
         type: boolean
       runtime:
         $ref: '#/definitions/types.Runtime'
+      runtime_args:
+        additionalProperties: true
+        description: Runtime-specific arguments (e.g., VLLM command line args)
+        type: object
       sort_order:
         description: Order for sorting models in UI (lower numbers appear first)
         type: integer
@@ -2413,6 +2417,14 @@ definitions:
       context_length:
         description: Context length used for the model, if specified
         type: integer
+      gpu_index:
+        description: Primary GPU for single-GPU models (for VLLM)
+        type: integer
+      gpu_indices:
+        description: All GPUs used for multi-GPU models
+        items:
+          type: integer
+        type: array
       id:
         type: string
       model:
@@ -2427,6 +2439,9 @@ definitions:
         type: object
       status:
         type: string
+      tensor_parallel_size:
+        description: Number of GPUs for tensor parallelism (1 = single GPU)
+        type: integer
       version:
         type: string
     type: object
@@ -2954,6 +2969,26 @@ definitions:
       arguments:
         additionalProperties: true
         type: object
+    type: object
+  types.SystemSettingsRequest:
+    properties:
+      huggingface_token:
+        type: string
+    type: object
+  types.SystemSettingsResponse:
+    properties:
+      created:
+        type: string
+      huggingface_token_set:
+        description: Sensitive fields are masked
+        type: boolean
+      huggingface_token_source:
+        description: '"database", "environment", or "none"'
+        type: string
+      id:
+        type: string
+      updated:
+        type: string
     type: object
   types.Team:
     properties:
@@ -5149,6 +5184,58 @@ paths:
       summary: Reload skills
       tags:
       - skills
+  /api/v1/system/settings:
+    get:
+      description: Get global system settings. Requires admin privileges.
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SystemSettingsResponse'
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get system settings
+      tags:
+      - system
+    put:
+      description: Update global system settings. Requires admin privileges.
+      parameters:
+      - description: System settings update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SystemSettingsRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SystemSettingsResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            type: string
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Update system settings
+      tags:
+      - system
   /api/v1/triggers:
     get:
       description: List all triggers configurations for either user or the org or

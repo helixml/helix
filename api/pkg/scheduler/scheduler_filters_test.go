@@ -64,6 +64,15 @@ func Test_filterRunnersByMemory_SomeRunnersSufficient(t *testing.T) {
 		ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
 			return types.RunnerStatus{
 				TotalMemory: memory,
+				GPUCount:    1, // Single GPU setup for test
+				GPUs: []*types.GPUStatus{
+					{
+						Index:       0,
+						TotalMemory: memory,
+						FreeMemory:  memory, // Assume all memory is free for test
+						UsedMemory:  0,
+					},
+				},
 				Models: []*types.RunnerModelStatus{
 					{
 						ModelID:            "test-model",
@@ -127,6 +136,15 @@ func Test_filterRunnersByMemory_NoRunnersSufficient(t *testing.T) {
 		ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
 			return types.RunnerStatus{
 				TotalMemory: memory,
+				GPUCount:    1, // Single GPU setup for test
+				GPUs: []*types.GPUStatus{
+					{
+						Index:       0,
+						TotalMemory: memory,
+						FreeMemory:  memory, // Assume all memory is free for test
+						UsedMemory:  0,
+					},
+				},
 				Models: []*types.RunnerModelStatus{
 					{
 						ModelID:            "test-model",

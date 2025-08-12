@@ -746,7 +746,7 @@ EOF
     # Add Hugging Face token configuration if provided
     if [ -n "$HF_TOKEN" ]; then
         cat << EOF >> "$ENV_FILE"
-HELIX_HF_TOKEN=$HF_TOKEN
+HF_TOKEN=$HF_TOKEN
 EOF
     fi
     # Add embeddings provider configuration

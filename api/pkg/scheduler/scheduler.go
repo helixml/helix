@@ -54,6 +54,18 @@ type Scheduler struct {
 	modelStaleFunc   TimeoutFunc                 // Function to check if models are stale
 	slotTimeoutFunc  TimeoutFunc                 // Function to check if slots have timed out due to error
 	decisionsTracker *SchedulingDecisionsTracker // Tracks scheduling decisions for dashboard
+
+	// GPU allocation tracking - maps workload+runner to specific GPU allocation
+	gpuAllocations *xsync.MapOf[string, *GPUAllocation]
+}
+
+// GPUAllocation represents a specific GPU allocation decision made by the scheduler
+type GPUAllocation struct {
+	WorkloadID         string // Workload identifier
+	RunnerID           string // Runner identifier
+	SingleGPU          *int   // For single-GPU models
+	MultiGPUs          []int  // For multi-GPU models
+	TensorParallelSize int    // Number of GPUs for tensor parallelism
 }
 
 type Params struct {
@@ -113,6 +125,7 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		modelStaleFunc:   modelStaleFunc,
 		slotTimeoutFunc:  slotTimeoutFunc,
 		decisionsTracker: NewSchedulingDecisionsTracker(100), // Keep last 100 decisions
+		gpuAllocations:   xsync.NewMapOf[string, *GPUAllocation](),
 	}
 
 	// Start the queue processor
@@ -133,6 +146,59 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 // GetRunnerController returns the RunnerController for external access
 func (s *Scheduler) GetRunnerController() *RunnerController {
 	return s.controller
+}
+
+// storeGPUAllocation stores the GPU allocation decision for a workload-runner combination
+func (s *Scheduler) storeGPUAllocation(work *Workload, runnerID string, singleGPU *int, multiGPUs []int) {
+	var tensorParallelSize int
+	if singleGPU != nil {
+		tensorParallelSize = 1
+	} else {
+		tensorParallelSize = len(multiGPUs)
+	}
+
+	key := fmt.Sprintf("%s-%s", work.ID(), runnerID)
+	allocation := &GPUAllocation{
+		WorkloadID:         work.ID(),
+		RunnerID:           runnerID,
+		SingleGPU:          singleGPU,
+		MultiGPUs:          multiGPUs,
+		TensorParallelSize: tensorParallelSize,
+	}
+
+	s.gpuAllocations.Store(key, allocation)
+
+	log.Debug().
+		Str("workload_id", work.ID()).
+		Str("runner_id", runnerID).
+		Interface("single_gpu", singleGPU).
+		Ints("multi_gpus", multiGPUs).
+		Int("tensor_parallel_size", tensorParallelSize).
+		Msg("Stored GPU allocation decision")
+}
+
+// getGPUAllocation retrieves the GPU allocation decision for a workload-runner combination
+func (s *Scheduler) getGPUAllocation(workloadID, runnerID string) *GPUAllocation {
+	key := fmt.Sprintf("%s-%s", workloadID, runnerID)
+	if allocation, ok := s.gpuAllocations.Load(key); ok {
+		return allocation
+	}
+	return nil
+}
+
+// clearGPUAllocation removes the GPU allocation for a workload when it's completed
+func (s *Scheduler) clearGPUAllocation(workloadID string) {
+	// Remove all allocations for this workload across all runners
+	s.gpuAllocations.Range(func(key string, allocation *GPUAllocation) bool {
+		if allocation.WorkloadID == workloadID {
+			s.gpuAllocations.Delete(key)
+			log.Debug().
+				Str("workload_id", workloadID).
+				Str("runner_id", allocation.RunnerID).
+				Msg("Cleared GPU allocation for completed workload")
+		}
+		return true
+	})
 }
 
 func (s *Scheduler) Enqueue(work *Workload) error {
@@ -350,9 +416,11 @@ func (s *Scheduler) reconcileRunnersOnce() {
 func (s *Scheduler) deleteRunnerSlots(runnerID string) {
 	// First collect the slots to delete
 	var slotsToDelete []uuid.UUID
+	var workloadsToCleanup []string
 	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 		if slot.RunnerID == runnerID {
 			slotsToDelete = append(slotsToDelete, slot.ID)
+			workloadsToCleanup = append(workloadsToCleanup, slot.InitialWork().ID())
 		}
 		return true
 	})
@@ -360,6 +428,11 @@ func (s *Scheduler) deleteRunnerSlots(runnerID string) {
 	// Then delete them after the range is complete
 	for _, slotID := range slotsToDelete {
 		s.slots.Delete(slotID)
+	}
+	
+	// Clean up GPU allocations for deleted workloads
+	for _, workloadID := range workloadsToCleanup {
+		s.clearGPUAllocation(workloadID)
 	}
 }
 
@@ -656,8 +729,9 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 				continue // Try next runner
 			}
 
-			// Success! Create slot on this runner
-			slot := NewSlot(runnerID, req.ExampleWorkload, s.modelStaleFunc, s.slotTimeoutFunc)
+			// Success! Create slot on this runner with GPU allocation from scheduler
+			gpuAllocation := s.getGPUAllocation(req.ExampleWorkload.ID(), runnerID)
+			slot := NewSlot(runnerID, req.ExampleWorkload, s.modelStaleFunc, s.slotTimeoutFunc, gpuAllocation)
 			s.slots.Store(slot.ID, slot)
 
 			// Log successful new slot creation with memory info
@@ -870,6 +944,9 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (to
 			runnerID, evictedSlot.ID.String(), time.Now(), finalFreeMem/1024/1024, work.model.Memory/1024/1024, totalMem/1024/1024)
 
 		s.slots.Delete(evictedSlot.ID)
+		
+		// Clean up GPU allocation for evicted workload
+		s.clearGPUAllocation(evictedSlot.InitialWork().ID())
 	}
 	return totalMem, finalAllocatedMem, finalFreeMem, nil
 }

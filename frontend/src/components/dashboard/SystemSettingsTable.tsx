@@ -136,7 +136,7 @@ const SystemSettingsTable: FC = () => {
   const getTokenSourceDescription = (source: string) => {
     switch (source) {
       case 'database': return 'Token stored in database (managed via UI/API)'
-      case 'environment': return 'Token from HELIX_HF_TOKEN environment variable'
+      case 'environment': return 'Token from HF_TOKEN environment variable'
       case 'none': return 'No token configured - only public models accessible'
       default: return 'Unknown source'
     }
@@ -284,7 +284,7 @@ const SystemSettingsTable: FC = () => {
             </FormControl>
             
             <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-              Leave empty to clear the database token and fall back to HELIX_HF_TOKEN environment variable.
+              Leave empty to clear the database token and fall back to HF_TOKEN environment variable.
             </Typography>
           </Box>
         </DialogContent>
