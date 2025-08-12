@@ -111,7 +111,7 @@ func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRun
 	}
 
 	// Extract GPU configuration
-	var gpuIndex int = 0
+	var gpuIndex int
 	var gpuIndices []int
 
 	// Multi-GPU setup takes precedence over single-GPU
@@ -486,7 +486,7 @@ func (i *OllamaRuntime) waitUntilOllamaIsReady(ctx context.Context, startTimeout
 	}
 }
 
-func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, gpuIndex int, gpuIndices []int) (*exec.Cmd, error) {
+func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, _ int, gpuIndices []int) (*exec.Cmd, error) {
 	// Find ollama on the path
 	ollamaPath, err := commander.LookPath("ollama")
 	if err != nil {
