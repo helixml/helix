@@ -214,8 +214,6 @@ while [[ $# -gt 0 ]]; do
             ANTHROPIC_API_KEY="$2"
             shift 2
             ;;
-<<<<<<< HEAD
-=======
         --embeddings-provider=*)
             EMBEDDINGS_PROVIDER="${1#*=}"
             shift
@@ -224,11 +222,6 @@ while [[ $# -gt 0 ]]; do
             EMBEDDINGS_PROVIDER="$2"
             shift 2
             ;;
-        --older-gpu)
-            OLDER_GPU=true
-            shift
-            ;;
->>>>>>> main
         --hf-token=*)
             HF_TOKEN="${1#*=}"
             shift
@@ -750,19 +743,16 @@ ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
 EOF
     fi
 
-<<<<<<< HEAD
     # Add Hugging Face token configuration if provided
     if [ -n "$HF_TOKEN" ]; then
         cat << EOF >> "$ENV_FILE"
 HELIX_HF_TOKEN=$HF_TOKEN
 EOF
     fi
-=======
     # Add embeddings provider configuration
     cat << EOF >> "$ENV_FILE"
 RAG_PGVECTOR_PROVIDER=$EMBEDDINGS_PROVIDER
 EOF
->>>>>>> main
 
     # Set default FINETUNING_PROVIDER to helix if neither OpenAI nor TogetherAI are specified
     if [ -z "$OPENAI_API_KEY" ] && [ -z "$TOGETHER_API_KEY" ] && [ "$AUTODETECTED_LLM" = false ]; then
