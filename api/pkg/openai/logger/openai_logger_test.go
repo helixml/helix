@@ -1,12 +1,18 @@
 package logger
 
 import (
+	"context"
 	"testing"
 
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tiktoken-go/tokenizer"
+	"go.uber.org/mock/gomock"
+
+	"github.com/helixml/helix/api/pkg/model"
+	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func Test_computeTokenUsage_SingleMessage(t *testing.T) {
@@ -65,4 +71,66 @@ func Test_computeTokenUsage_MultipleMessage(t *testing.T) {
 	assert.Equal(t, 9, promptTokens)
 	assert.Equal(t, 2, completionTokens)
 	assert.Equal(t, 11, totalTokens)
+}
+
+func Test_logLLMCall_WithoutBillingLogger(t *testing.T) {
+	enc, err := tokenizer.Get(tokenizer.Cl100kBase)
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+
+	mockClient := oai.NewMockClient(ctrl)
+
+	modelInfoProvider, err := model.NewBaseModelInfoProvider()
+	require.NoError(t, err)
+
+	// Create a LoggingMiddleware without a billing logger
+	mw := &LoggingMiddleware{
+		defaultCodec: enc,
+		// billingLogger is nil by default
+		provider:          types.ProviderOpenAI, // Set a default provider
+		modelInfoProvider: modelInfoProvider,
+	}
+
+	// Create test request and response
+	req := &openai.ChatCompletionRequest{
+		Model: "gpt-3.5-turbo",
+		Messages: []openai.ChatCompletionMessage{
+			{Role: "user", Content: "Hello, world!"},
+		},
+	}
+
+	resp := &openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{Content: "Hello, world!"},
+			},
+		},
+		Usage: openai.Usage{
+			PromptTokens:     4,
+			CompletionTokens: 4,
+			TotalTokens:      8,
+		},
+	}
+
+	// Create a context with some test values
+	ctx := context.Background()
+
+	// Create a mock model info provider
+
+	mw.client = mockClient
+	mw.billingLogger = nil // Explicitly set to nil
+
+	mockClient.EXPECT().CreateChatCompletion(ctx, *req).Return(*resp, nil)
+
+	mockClient.EXPECT().BaseURL().Return("https://api.openai.com/v1")
+
+	// Test that CreateChatCompletion works without a billing logger
+	// This will call logLLMCall internally
+	result, err := mw.CreateChatCompletion(ctx, *req)
+	require.NoError(t, err)
+	assert.Equal(t, resp.Choices[0].Message.Content, result.Choices[0].Message.Content)
+
+	// Wait for the goroutine to complete
+	mw.wg.Wait()
 }
