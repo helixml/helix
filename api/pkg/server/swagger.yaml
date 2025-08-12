@@ -4952,6 +4952,10 @@ paths:
         in: query
         name: org_id
         type: string
+      - description: Include all endpoints (system admin only)
+        in: query
+        name: all
+        type: boolean
       responses:
         "200":
           description: OK
@@ -5616,6 +5620,25 @@ paths:
       summary: Get daily usage
       tags:
       - usage
+  /api/v1/users/{id}:
+    get:
+      description: Get user by ID
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.User'
+      security:
+      - BearerAuth: []
+      summary: Get user details
+      tags:
+      - users
   /api/v1/users/search:
     get:
       description: Search users by email, name, or username
