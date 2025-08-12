@@ -553,38 +553,6 @@ func (suite *BaseOAuthTestSuite) ExecuteSessionQuery(userMessage, sessionName, a
 		Str("session_name", sessionName).
 		Msg("Executing session query with Helix controller")
 
-	// Create a new session for this query
-	// session, err := suite.store.CreateSession(suite.ctx, types.Session{
-	// 	Name:      sessionName,
-	// 	Owner:     suite.testUser.ID,
-	// 	OwnerType: types.OwnerTypeUser,
-	// 	Mode:      types.SessionModeInference,
-	// 	Type:      types.SessionTypeText,
-	// 	ModelName: "gpt-4o-mini",
-	// 	ParentApp: appID,
-	// })
-	// if err != nil {
-	// 	return "", fmt.Errorf("failed to create session: %w", err)
-	// }
-
-	// suite.logger.Info().
-	// 	Str("session_id", session.ID).
-	// 	Str("app_id", appID).
-	// 	Msg("Created session for execution")
-
-	// Add user interaction to the session
-	// userInteraction := &types.Interaction{
-	// 	ID:            system.GenerateUUID(),
-	// 	Created:       time.Now(),
-	// 	Updated:       time.Now(),
-	// 	Mode:          types.SessionModeInference,
-	// 	PromptMessage: userMessage,
-	// 	State:         types.InteractionStateWaiting,
-	// }
-
-	// // Update session with the user interaction
-	// session.Interactions = append(session.Interactions, userInteraction)
-
 	// Prepare OpenAI chat completion request
 	openaiReq := goai.ChatCompletionRequest{
 		Model: "gpt-4o-mini",
@@ -631,32 +599,6 @@ func (suite *BaseOAuthTestSuite) ExecuteSessionQuery(userMessage, sessionName, a
 	if agentResponse == "" {
 		return "", fmt.Errorf("no response from agent")
 	}
-
-	// Update the session with assistant response
-	// assistantInteraction := &types.Interaction{
-	// 	ID:      system.GenerateUUID(),
-	// 	Created: time.Now(),
-	// 	Updated: time.Now(),
-	// 	Creator: types.CreatorTypeAssistant,
-	// 	Mode:    types.SessionModeInference,
-	// 	Message: agentResponse,
-	// 	Content: types.MessageContent{
-	// 		ContentType: types.MessageContentTypeText,
-	// 		Parts:       []any{agentResponse},
-	// 	},
-	// 	State:     types.InteractionStateComplete,
-	// 	Finished:  true,
-	// 	Completed: time.Now(),
-	// 	Metadata:  map[string]string{},
-	// }
-
-	// session.Interactions = append(session.Interactions, assistantInteraction)
-
-	// // Write the session back to store
-	// err = suite.helixAPIServer.Controller.WriteSession(suite.ctx, session)
-	// if err != nil {
-	// 	suite.logger.Warn().Err(err).Msg("Failed to write session to store")
-	// }
 
 	suite.logger.Info().
 		// Str("session_id", session.ID).

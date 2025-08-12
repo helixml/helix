@@ -32,9 +32,7 @@ func (suite *TeamMembershipTestSuite) SetupTest() {
 	err := envconfig.Process("", &storeCfg)
 	suite.NoError(err)
 
-	store, err := NewPostgresStore(storeCfg)
-	suite.Require().NoError(err)
-	suite.db = store
+	suite.db = GetTestDB()
 
 	// Create a test organization
 	orgID := system.GenerateOrganizationID()

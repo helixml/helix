@@ -358,6 +358,11 @@ export interface ServerAppCreateResponse {
   user?: TypesUser;
 }
 
+export interface ServerCreateTopUpRequest {
+  amount?: number;
+  org_id?: string;
+}
+
 export interface ServerLicenseKeyRequest {
   license_key?: string;
 }
@@ -371,9 +376,32 @@ export interface ServerModelSubstitution {
   reason?: string;
 }
 
+export interface SqlNullString {
+  string?: string;
+  /** Valid is true if String is not NULL */
+  valid?: boolean;
+}
+
+export enum StripeSubscriptionStatus {
+  SubscriptionStatusActive = "active",
+  SubscriptionStatusCanceled = "canceled",
+  SubscriptionStatusIncomplete = "incomplete",
+  SubscriptionStatusIncompleteExpired = "incomplete_expired",
+  SubscriptionStatusPastDue = "past_due",
+  SubscriptionStatusPaused = "paused",
+  SubscriptionStatusTrialing = "trialing",
+  SubscriptionStatusUnpaid = "unpaid",
+}
+
 export interface SystemHTTPError {
   message?: string;
   statusCode?: number;
+}
+
+export enum TypesAPIKeyType {
+  APIkeytypeNone = "",
+  APIkeytypeAPI = "api",
+  APIkeytypeApp = "app",
 }
 
 export interface TypesAccessGrant {
@@ -427,6 +455,16 @@ export interface TypesAggregatedUsageMetric {
   total_cost?: number;
   total_requests?: number;
   total_tokens?: number;
+}
+
+export interface TypesApiKey {
+  app_id?: SqlNullString;
+  created?: string;
+  key?: string;
+  name?: string;
+  owner?: string;
+  owner_type?: TypesOwnerType;
+  type?: TypesAPIKeyType;
 }
 
 export interface TypesApp {
@@ -798,6 +836,19 @@ export interface TypesFlexibleEmbeddingResponse {
     prompt_tokens?: number;
     total_tokens?: number;
   };
+}
+
+export interface TypesFrontendLicenseInfo {
+  features?: {
+    users?: boolean;
+  };
+  limits?: {
+    machines?: number;
+    users?: number;
+  };
+  organization?: string;
+  valid?: boolean;
+  valid_until?: string;
 }
 
 export enum TypesImageURLDetail {
@@ -1346,6 +1397,7 @@ export interface TypesProviderEndpoint {
   api_key_file?: string;
   available_models?: TypesOpenAIModel[];
   base_url?: string;
+  billing_enabled?: boolean;
   created?: string;
   /** Set from environment variable */
   default?: boolean;
@@ -1537,6 +1589,34 @@ export interface TypesSecret {
   ownerType?: TypesOwnerType;
   updated?: string;
   value?: number[];
+}
+
+export interface TypesServerConfigForFrontend {
+  apps_enabled?: boolean;
+  /** Charging for usage */
+  billing_enabled?: boolean;
+  deployment_id?: string;
+  disable_llm_call_logging?: boolean;
+  eval_user_id?: string;
+  /**
+   * used to prepend onto raw filestore paths to download files
+   * the filestore path will have the user info in it - i.e.
+   * it's a low level filestore path
+   * if we are using an object storage thing - then this URL
+   * can be the prefix to the bucket
+   */
+  filestore_prefix?: string;
+  google_analytics_frontend?: string;
+  latest_version?: string;
+  license?: TypesFrontendLicenseInfo;
+  organizations_create_enabled_for_non_admins?: boolean;
+  rudderstack_data_plane_url?: string;
+  rudderstack_write_key?: string;
+  sentry_dsn_frontend?: string;
+  /** Stripe top-ups enabled */
+  stripe_enabled?: boolean;
+  tools_enabled?: boolean;
+  version?: string;
 }
 
 export interface TypesSession {
@@ -2074,6 +2154,22 @@ export interface TypesUsersAggregatedUsageMetric {
   user?: TypesUser;
 }
 
+export interface TypesWallet {
+  balance?: number;
+  created_at?: string;
+  id?: string;
+  /** If belongs to an organization */
+  org_id?: string;
+  stripe_customer_id?: string;
+  stripe_subscription_id?: string;
+  subscription_created?: number;
+  subscription_current_period_end?: number;
+  subscription_current_period_start?: number;
+  subscription_status?: StripeSubscriptionStatus;
+  updated_at?: string;
+  user_id?: string;
+}
+
 export interface TypesWebsiteCrawler {
   enabled?: boolean;
   firecrawl?: TypesFirecrawl;
@@ -2240,6 +2336,71 @@ export class HttpClient<SecurityDataType = unknown> {
  */
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
+    /**
+     * @description Delete an API key
+     *
+     * @tags api-keys
+     * @name V1ApiKeysDelete
+     * @summary Delete an API key
+     * @request DELETE:/api/v1/api_keys
+     */
+    v1ApiKeysDelete: (
+      query: {
+        /** API key to delete */
+        key: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, any>({
+        path: `/api/v1/api_keys`,
+        method: "DELETE",
+        query: query,
+        ...params,
+      }),
+
+    /**
+     * @description Get API keys
+     *
+     * @tags api-keys
+     * @name V1ApiKeysList
+     * @summary Get API keys
+     * @request GET:/api/v1/api_keys
+     * @secure
+     */
+    v1ApiKeysList: (
+      query?: {
+        /** Filter by types (comma-separated list) */
+        types?: string;
+        /** Filter by app ID */
+        app_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesApiKey[], any>({
+        path: `/api/v1/api_keys`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a new API key
+     *
+     * @tags api-keys
+     * @name V1ApiKeysCreate
+     * @summary Create a new API key
+     * @request POST:/api/v1/api_keys
+     */
+    v1ApiKeysCreate: (request: Record<string, any>, params: RequestParams = {}) =>
+      this.request<string, any>({
+        path: `/api/v1/api_keys`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
+        ...params,
+      }),
+
     /**
      * @description List apps for the user. Apps are pre-configured to spawn sessions with specific tools and config.
      *
@@ -2742,6 +2903,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesUserResponse, any>({
         path: `/api/v1/auth/user`,
         method: "GET",
+        ...params,
+      }),
+
+    /**
+     * @description Get config
+     *
+     * @tags config
+     * @name V1ConfigList
+     * @summary Get config
+     * @request GET:/api/v1/config
+     * @secure
+     */
+    v1ConfigList: (params: RequestParams = {}) =>
+      this.request<TypesServerConfigForFrontend, any>({
+        path: `/api/v1/config`,
+        method: "GET",
+        secure: true,
         ...params,
       }),
 
@@ -3480,6 +3658,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         with_models?: boolean;
         /** Organization ID */
         org_id?: string;
+        /** Include all endpoints (system admin only) */
+        all?: boolean;
       },
       params: RequestParams = {},
     ) =>
@@ -3891,6 +4071,73 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Manage a subscription
+     *
+     * @tags wallets
+     * @name V1SubscriptionManageCreate
+     * @summary Manage a subscription
+     * @request POST:/api/v1/subscription/manage
+     * @secure
+     */
+    v1SubscriptionManageCreate: (
+      query?: {
+        /** Organization ID */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, any>({
+        path: `/api/v1/subscription/manage`,
+        method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a subscription
+     *
+     * @tags wallets
+     * @name V1SubscriptionNewCreate
+     * @summary Create a subscription
+     * @request POST:/api/v1/subscription/new
+     * @secure
+     */
+    v1SubscriptionNewCreate: (
+      query?: {
+        /** Organization ID */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, any>({
+        path: `/api/v1/subscription/new`,
+        method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a top up with specified amount
+     *
+     * @tags wallets
+     * @name V1TopUpsNewCreate
+     * @summary Create a top up
+     * @request POST:/api/v1/top-ups/new
+     * @secure
+     */
+    v1TopUpsNewCreate: (request: ServerCreateTopUpRequest, params: RequestParams = {}) =>
+      this.request<string, any>({
+        path: `/api/v1/top-ups/new`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * @description List all triggers configurations for either user or the org or user within an org
      *
      * @tags apps
@@ -4014,6 +4261,53 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get daily usage
+     *
+     * @tags usage
+     * @name V1UsageList
+     * @summary Get daily usage
+     * @request GET:/api/v1/usage
+     * @secure
+     */
+    v1UsageList: (
+      query?: {
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+        /** Organization ID */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get user by ID
+     *
+     * @tags users
+     * @name V1UsersDetail
+     * @summary Get user details
+     * @request GET:/api/v1/users/{id}
+     * @secure
+     */
+    v1UsersDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesUser, any>({
+        path: `/api/v1/users/${id}`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Search users by email, name, or username
      *
      * @tags users
@@ -4056,6 +4350,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesUserTokenUsageResponse, any>({
         path: `/api/v1/users/token-usage`,
         method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get a wallet
+     *
+     * @tags wallets
+     * @name V1WalletList
+     * @summary Get a wallet
+     * @request GET:/api/v1/wallet
+     * @secure
+     */
+    v1WalletList: (
+      query?: {
+        /** Organization ID */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWallet, any>({
+        path: `/api/v1/wallet`,
+        method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),

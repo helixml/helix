@@ -11,7 +11,6 @@ import ToolStepsWidget from './ToolStepsWidget'
 export const InteractionLiveStream: FC<{
   session_id: string,
   interaction: TypesInteraction,
-  hasSubscription?: boolean,
   serverConfig?: IServerConfig,
   session: TypesSession,
   onMessageChange?: {
@@ -23,8 +22,7 @@ export const InteractionLiveStream: FC<{
   session_id,
   serverConfig,
   session,
-  interaction,
-  hasSubscription = false,
+  interaction,  
   onMessageChange,
   onMessageUpdate,
   onFilterDocument,
@@ -124,7 +122,7 @@ export const InteractionLiveStream: FC<{
 
         {showLoading && isStale && (
           <WaitingInQueue
-            hasSubscription={hasSubscription}
+            hasSubscription={false}
           />
         )}
       </>

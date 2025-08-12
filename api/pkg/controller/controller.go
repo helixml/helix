@@ -15,7 +15,6 @@ import (
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
-	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
@@ -27,22 +26,22 @@ import (
 )
 
 type Options struct {
-	Config               *config.ServerConfig
-	Store                store.Store
-	PubSub               pubsub.PubSub
-	Extractor            extract.Extractor
-	RAG                  rag.RAG
-	GPTScriptExecutor    gptscript.Executor
-	Filestore            filestore.FileStore
-	Janitor              *janitor.Janitor
-	Notifier             notification.Notifier
-	ProviderManager      manager.ProviderManager // OpenAI client provider
-	DataprepOpenAIClient openai.Client
-	Scheduler            *scheduler.Scheduler
-	RunnerController     *scheduler.RunnerController
-	OAuthManager         *oauth.Manager
-	Browser              *browser.Browser
-	SearchProvider       searxng.SearchProvider
+	Config            *config.ServerConfig
+	Store             store.Store
+	PubSub            pubsub.PubSub
+	Extractor         extract.Extractor
+	RAG               rag.RAG
+	GPTScriptExecutor gptscript.Executor
+	Filestore         filestore.FileStore
+	Janitor           *janitor.Janitor
+	Notifier          notification.Notifier
+	ProviderManager   manager.ProviderManager // OpenAI client provider
+	// DataprepOpenAIClient openai.Client
+	Scheduler        *scheduler.Scheduler
+	RunnerController *scheduler.RunnerController
+	OAuthManager     *oauth.Manager
+	Browser          *browser.Browser
+	SearchProvider   searxng.SearchProvider
 }
 
 type Controller struct {
@@ -52,7 +51,7 @@ type Controller struct {
 
 	providerManager manager.ProviderManager
 
-	dataprepOpenAIClient openai.Client
+	// dataprepOpenAIClient openai.Client
 
 	newRagClient func(settings *types.RAGSettings) rag.RAG
 
@@ -104,11 +103,10 @@ func NewController(
 	}
 
 	controller := &Controller{
-		Ctx:                  ctx,
-		Options:              options,
-		providerManager:      options.ProviderManager,
-		dataprepOpenAIClient: options.DataprepOpenAIClient,
-		models:               models,
+		Ctx:             ctx,
+		Options:         options,
+		providerManager: options.ProviderManager,
+		models:          models,
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
 			return rag.NewLlamaindex(settings)
 		},

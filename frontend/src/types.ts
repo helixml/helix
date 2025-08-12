@@ -94,9 +94,7 @@ export interface IKeycloakUser {
 }
 
 export interface IUserConfig {
-  stripe_subscription_active?: boolean,
-  stripe_customer_id?: string,
-  stripe_subscription_id?: string,
+  // Removed stripe subscription fields - now come from wallet
 }
 
 export interface IHelixModel {
@@ -1018,6 +1016,7 @@ export interface IProviderEndpoint {
   api_key: string
   api_key_file?: string
   default: boolean
+  billing_enabled?: boolean
 }
 
 // Resource type for access grants
@@ -1113,4 +1112,19 @@ export interface IAppCreateResponse {
   owner: string;
   owner_type: IOwnerType;
   model_substitutions?: IModelSubstitution[]
+}
+
+export interface IWallet {
+  id?: string;
+  balance?: number;
+  created_at?: string;
+  updated_at?: string;
+  stripe_customer_id?: string;
+  stripe_subscription_id?: string;
+  subscription_status?: string;
+  subscription_current_period_start?: number;
+  subscription_current_period_end?: number;
+  subscription_created?: number;
+  user_id?: string;
+  org_id?: string;
 }

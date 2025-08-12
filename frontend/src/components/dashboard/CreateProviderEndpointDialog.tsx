@@ -16,6 +16,8 @@ import {
   FormControlLabel,
   Radio,
   FormLabel,
+  Checkbox,
+  Typography,
 } from '@mui/material';
 
 import { IProviderEndpoint } from '../../types';
@@ -46,6 +48,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
     endpoint_type: 'user' as const,
     description: '',
     auth_type: 'none' as AuthType,
+    billing_enabled: false,
   });
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | { name?: string; value: unknown }>) => {
@@ -55,6 +58,15 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
       [name as string]: value,
     }));
     // Clear error when user makes changes
+    setError('');
+  };
+
+  const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, checked } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: checked,
+    }));
     setError('');
   };
 
@@ -112,6 +124,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
         api_key_file: formData.auth_type === 'none' ? '' : formData.auth_type === 'api_key_file' ? formData.api_key_file : undefined,
         endpoint_type: (formData.endpoint_type as TypesProviderEndpointType),
         description: formData.description,
+        billing_enabled: formData.billing_enabled,
       });
       handleClose();
     } catch (err) {
@@ -130,6 +143,7 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
       endpoint_type: 'user',
       description: '',
       auth_type: 'none',
+      billing_enabled: false,
     });
     setError('');
     onClose();
@@ -211,6 +225,20 @@ const CreateProviderEndpointDialog: React.FC<CreateProviderEndpointDialogProps> 
               <MenuItem value="global">Global (available to all users in Helix installation)</MenuItem>
             </Select>
           </FormControl>
+
+          <FormControlLabel
+            control={
+              <Checkbox
+                name="billing_enabled"
+                checked={formData.billing_enabled}
+                onChange={handleCheckboxChange}
+              />
+            }
+            label="Billing Enabled"
+          />
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            Users will be using their wallet balance for inference
+          </Typography>
         </Stack>
       </DialogContent>
       <DialogActions>

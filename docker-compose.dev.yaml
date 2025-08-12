@@ -165,12 +165,6 @@ services:
       - KEY=${WEBHOOK_RELAY_KEY:-}
       - SECRET=${WEBHOOK_RELAY_SECRET:-}
       - BUCKET=${WEBHOOK_RELAY_BUCKET:-}
-  webhook_relay_github:
-    image: webhookrelay/webhookrelayd
-    environment:
-      - KEY=${WEBHOOK_RELAY_KEY:-}
-      - SECRET=${WEBHOOK_RELAY_SECRET:-}
-      - BUCKET=${WEBHOOK_RELAY_BUCKET_GITHUB:-}
   tika:
     image: apache/tika:2.9.2.1
     ports:
