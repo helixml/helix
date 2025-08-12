@@ -18,7 +18,10 @@ const TokenUsageDisplay: React.FC = () => {
   const { data: tokenUsage, isLoading: loading, error } = useGetUserTokenUsage()
 
   // Load providers
-  const { data: providers, isLoading: loadingProviders } = useListProviders(true)
+  const { data: providers, isLoading: loadingProviders } = useListProviders({
+    loadModels: false,
+    orgId: router.params.org_id,
+  })
 
   // While loading, don't render anything
   if (loadingProviders) {

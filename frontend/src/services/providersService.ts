@@ -2,9 +2,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
 import { TypesProviderEndpoint, RequestParams, TypesUpdateProviderEndpoint, ContentType } from '../api/api';
 
-export const providersQueryKey = (loadModels: boolean = false) => [
+export const providersQueryKey = (loadModels: boolean = false, orgId?: string, all?: boolean) => [
   "providers",
-  loadModels ? "withModels" : "withoutModels"
+  loadModels ? "withModels" : "withoutModels",
+  orgId,
+  all
 ];
 
 export interface ListProvidersOptions {
@@ -14,13 +16,13 @@ export interface ListProvidersOptions {
   enabled?: boolean;
 }
 
-export function useListProviders(options: ListProvidersOptions = {}) {
-  const { loadModels = false, orgId, all = false, enabled = true } = options;
+export function useListProviders(options: ListProvidersOptions) {
+  const { loadModels, orgId, all, enabled } = options;
   const api = useApi()
-  const apiClient = api.getApiClient()  
+  const apiClient = api.getApiClient()
 
   return useQuery({
-    queryKey: providersQueryKey(loadModels),
+    queryKey: providersQueryKey(loadModels, orgId, all),
     queryFn: async () => {
       const result = await apiClient.v1ProviderEndpointsList({
         with_models: loadModels,
