@@ -429,7 +429,7 @@ func (s *Scheduler) deleteRunnerSlots(runnerID string) {
 	for _, slotID := range slotsToDelete {
 		s.slots.Delete(slotID)
 	}
-	
+
 	// Clean up GPU allocations for deleted workloads
 	for _, workloadID := range workloadsToCleanup {
 		s.clearGPUAllocation(workloadID)
@@ -944,7 +944,7 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (to
 			runnerID, evictedSlot.ID.String(), time.Now(), finalFreeMem/1024/1024, work.model.Memory/1024/1024, totalMem/1024/1024)
 
 		s.slots.Delete(evictedSlot.ID)
-		
+
 		// Clean up GPU allocation for evicted workload
 		s.clearGPUAllocation(evictedSlot.InitialWork().ID())
 	}
