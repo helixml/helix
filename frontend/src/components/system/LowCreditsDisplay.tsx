@@ -9,7 +9,7 @@ import useAccount from '../../hooks/useAccount'
 import { useGetConfig } from '../../services/userService'
 import { useGetWallet } from '../../services/useBilling'
 
-const LOW_BALANCE_THRESHOLD = 5.0
+const LOW_BALANCE_THRESHOLD = 15.0
 
 const LowCreditsDisplay: React.FC = () => {  
   const router = useRouter()
@@ -41,7 +41,7 @@ const LowCreditsDisplay: React.FC = () => {
   }
 
   const handleBillingClick = () => {
-    if (isOrgContext && orgId) {
+    if (isOrgContext && wallet.org_id) {
       // Navigate to organization billing page
       router.navigate('org_billing', { org_id: orgId })
     } else {
