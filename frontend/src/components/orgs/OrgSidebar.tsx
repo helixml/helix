@@ -1,8 +1,6 @@
-import React, { FC } from 'react'
+import { FC } from 'react'
 
-import GroupIcon from '@mui/icons-material/Group'
-import SettingsIcon from '@mui/icons-material/Settings'
-import TeamsIcon from '@mui/icons-material/Groups'
+import { User, Users, CreditCard, Settings } from 'lucide-react'
 
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
@@ -28,21 +26,28 @@ const OrgSidebar: FC = () => {
         {
           id: 'people',
           label: 'People',
-          icon: <GroupIcon />,
+          icon: <User size={20} />,
           isActive: currentRouteName === 'org_people',
           onClick: () => handleNavigationClick('org_people')
         },
         {
           id: 'teams',
           label: 'Teams',
-          icon: <TeamsIcon />,
+          icon: <Users size={20} />,
           isActive: currentRouteName === 'org_teams',
           onClick: () => handleNavigationClick('org_teams')
         },
         {
+          id: 'billing',
+          label: 'Billing',
+          icon: <CreditCard size={20} />,
+          isActive: currentRouteName === 'org_billing',
+          onClick: () => handleNavigationClick('org_billing')
+        },
+        {
           id: 'settings',
           label: 'Settings',
-          icon: <SettingsIcon />,
+          icon: <Settings size={20} />,
           isActive: currentRouteName === 'org_settings',
           onClick: () => handleNavigationClick('org_settings')
         }

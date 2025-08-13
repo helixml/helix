@@ -89,10 +89,19 @@ func (s *PostgresStore) ListProviderEndpoints(ctx context.Context, q *ListProvid
 	var providerEndpoints []*types.ProviderEndpoint
 	query := s.gdb.Debug().WithContext(ctx)
 
+	// If all is true, load all endpoints
+	if q.All {
+		err := query.Find(&providerEndpoints).Error
+		if err != nil {
+			return nil, err
+		}
+		return providerEndpoints, nil
+	}
+
 	if q.Owner != "" {
 		query = query.Where("owner = ?", q.Owner)
 	}
-
+	// Org not specified, loading user endpoints only
 	query = query.Where("owner = ? AND endpoint_type = ?", q.Owner, types.ProviderEndpointTypeUser)
 
 	if q.WithGlobal {

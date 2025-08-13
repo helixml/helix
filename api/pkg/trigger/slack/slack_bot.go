@@ -380,17 +380,27 @@ func (s *SlackBot) handleMessage(ctx context.Context, existingThread *types.Slac
 }
 
 func (s *SlackBot) middlewareConnecting(_ *socketmode.Event, _ *socketmode.Client) {
-	log.Debug().Msg("Connecting to Slack with Socket Mode...")
+	log.Debug().
+		Str("app_id", s.app.ID).
+		Str("organization_id", s.app.OrganizationID).
+		Msg("Connecting to Slack with Socket Mode...")
 	s.setStatus(false, "Connecting to Slack...")
 }
 
 func (s *SlackBot) middlewareConnectionError(evt *socketmode.Event, _ *socketmode.Client) {
-	log.Error().Any("event", evt).Msg("Connection failed. Retrying later...")
+	log.Error().
+		Str("app_id", s.app.ID).
+		Str("organization_id", s.app.OrganizationID).
+		Any("event", evt).
+		Msg("Connection failed. Retrying later...")
 	s.setStatus(false, "Connection failed. Retrying later...")
 }
 
 func (s *SlackBot) middlewareConnected(_ *socketmode.Event, _ *socketmode.Client) {
-	log.Debug().Msg("Connected to Slack with Socket Mode.")
+	log.Debug().
+		Str("app_id", s.app.ID).
+		Str("organization_id", s.app.OrganizationID).
+		Msg("Connected to Slack with Socket Mode.")
 	s.setStatus(true, "Connected to Slack")
 }
 

@@ -59,9 +59,9 @@ type ListDataEntitiesQuery struct {
 }
 
 type ListProviderEndpointsQuery struct {
-	Owner     string
-	OwnerType types.OwnerType
-
+	Owner      string
+	OwnerType  types.OwnerType
+	All        bool
 	WithGlobal bool
 }
 
@@ -108,6 +108,13 @@ type SearchUsersQuery struct {
 	OrganizationID string `json:"organization_id"` // Organization ID to filter users that are members of the org
 	Limit          int    `json:"limit"`           // Maximum number of results to return
 	Offset         int    `json:"offset"`          // Offset for pagination
+}
+
+type GetAggregatedUsageMetricsQuery struct {
+	UserID         string
+	OrganizationID string
+	From           time.Time
+	To             time.Time
 }
 
 var _ Store = &PostgresStore{}
@@ -299,9 +306,27 @@ type Store interface {
 	GetUsersAggregatedUsageMetrics(ctx context.Context, provider string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error)
 	GetAppUsersAggregatedUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error)
 
+	GetAggregatedUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
+
 	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)
 	GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error)
 	DeleteSlackThread(ctx context.Context, olderThan time.Time) error
+
+	// wallet methods
+	CreateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
+	GetWallet(ctx context.Context, id string) (*types.Wallet, error)
+	GetWalletByUser(ctx context.Context, userID string) (*types.Wallet, error)
+	GetWalletByOrg(ctx context.Context, orgID string) (*types.Wallet, error)
+	GetWalletByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*types.Wallet, error)
+	UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
+	DeleteWallet(ctx context.Context, id string) error
+	UpdateWalletBalance(ctx context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error)
+
+	// transaction methods
+	ListTransactions(ctx context.Context, q *ListTransactionsQuery) ([]*types.Transaction, error)
+
+	// topup methods
+	ListTopUps(ctx context.Context, q *ListTopUpsQuery) ([]*types.TopUp, error)
 
 	// trigger configurations
 	CreateTriggerConfiguration(ctx context.Context, triggerConfig *types.TriggerConfiguration) (*types.TriggerConfiguration, error)

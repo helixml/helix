@@ -532,7 +532,6 @@ const Dashboard: FC = () => {
                   session_id={viewingSession.id || ''}
                   highlightAllFiles={false}
                   isLastInteraction={i === (viewingSession.interactions?.length || 0) - 1}
-                  hasSubscription={true}
                 />
               )
             })}

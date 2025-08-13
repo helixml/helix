@@ -33,6 +33,7 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_Interactions() {
 	interaction := types.Interaction{
 		ID:            system.GenerateInteractionID(),
 		SessionID:     session.ID,
+		GenerationID:  1,
 		UserID:        userID,
 		PromptMessage: "hello",
 		PromptMessageContent: types.MessageContent{
@@ -71,4 +72,13 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_Interactions() {
 	gotInteraction, err := suite.db.GetInteraction(context.Background(), createdInteraction.ID)
 	suite.NoError(err)
 	suite.Equal("foobar2", gotInteraction.ResponseMessage)
+
+	// List
+	interactions, total, err := suite.db.ListInteractions(context.Background(), &types.ListInteractionsQuery{
+		SessionID:    session.ID,
+		GenerationID: 1,
+	})
+	suite.NoError(err)
+	suite.Equal(1, int(total))
+	suite.Equal(createdInteraction.ID, interactions[0].ID)
 }

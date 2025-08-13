@@ -135,6 +135,101 @@ func (suite *ControllerSuite) Test_BasicInference() {
 	}, resp)
 }
 
+func (suite *ControllerSuite) Test_BasicInference_WithBalanceCheck_Success() {
+	req := openai.ChatCompletionRequest{
+		Model: openai.GPT4TurboPreview,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: "Hello",
+			},
+		},
+	}
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
+
+	suite.openAiClient.EXPECT().CreateChatCompletion(suite.ctx, gomock.Any()).Return(openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{
+					Content: "Hello",
+				},
+			},
+		},
+	}, nil)
+
+	suite.controller.Options.Config.Stripe.BillingEnabled = true
+	suite.controller.Options.Config.Stripe.MinimumInferenceBalance = 0.01
+
+	suite.store.EXPECT().GetWalletByUser(suite.ctx, suite.user.ID).Return(&types.Wallet{
+		Balance: 0.02,
+	}, nil)
+
+	resp, _, err := suite.controller.ChatCompletion(suite.ctx, suite.user, req, &ChatCompletionOptions{})
+	suite.NoError(err)
+	suite.Equal(&openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{
+					Content: "Hello",
+				},
+			},
+		},
+	}, resp)
+}
+
+func (suite *ControllerSuite) Test_BasicInference_WithBalanceCheck_InsufficientBalance() {
+	req := openai.ChatCompletionRequest{
+		Model: openai.GPT4TurboPreview,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: "Hello",
+			},
+		},
+	}
+
+	suite.controller.Options.Config.Stripe.BillingEnabled = true
+	suite.controller.Options.Config.Stripe.MinimumInferenceBalance = 0.01
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
+
+	suite.store.EXPECT().GetWalletByUser(suite.ctx, suite.user.ID).Return(&types.Wallet{
+		Balance: 0.009,
+	}, nil)
+
+	resp, _, err := suite.controller.ChatCompletion(suite.ctx, suite.user, req, &ChatCompletionOptions{})
+	suite.Error(err)
+	suite.Nil(resp)
+}
+
+func (suite *ControllerSuite) Test_BasicInference_WithBalanceCheck_Org_InsufficientBalance() {
+	req := openai.ChatCompletionRequest{
+		Model: openai.GPT4TurboPreview,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: "Hello",
+			},
+		},
+	}
+
+	suite.controller.Options.Config.Stripe.BillingEnabled = true
+	suite.controller.Options.Config.Stripe.MinimumInferenceBalance = 0.01
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
+
+	suite.store.EXPECT().GetWalletByOrg(suite.ctx, "org_123").Return(&types.Wallet{
+		Balance: 0.009,
+	}, nil)
+
+	resp, _, err := suite.controller.ChatCompletion(suite.ctx, suite.user, req, &ChatCompletionOptions{
+		OrganizationID: "org_123",
+	})
+	suite.Error(err)
+	suite.Nil(resp)
+}
+
 func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge() {
 	req := openai.ChatCompletionRequest{
 		Model: openai.GPT4TurboPreview,

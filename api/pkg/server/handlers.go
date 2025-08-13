@@ -12,7 +12,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -174,6 +176,13 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 	}, nil
 }
 
+// getConfig godoc
+// @Summary Get config
+// @Description Get config
+// @Tags    config
+// @Success 200 {object} types.ServerConfigForFrontend
+// @Router /api/v1/config [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerConfigForFrontend, error) {
 	filestorePrefix := ""
 
@@ -222,6 +231,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	config := types.ServerConfigForFrontend{
 		FilestorePrefix:                        filestorePrefix,
 		StripeEnabled:                          apiServer.Stripe.Enabled(),
+		BillingEnabled:                         apiServer.Cfg.Stripe.BillingEnabled,
 		SentryDSNFrontend:                      apiServer.Cfg.Janitor.SentryDsnFrontend,
 		GoogleAnalyticsFrontend:                apiServer.Cfg.Janitor.GoogleAnalyticsFrontend,
 		EvalUserID:                             apiServer.Cfg.WebServer.EvalUserID,
@@ -781,6 +791,13 @@ func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.
 	return system.DefaultController(apiServer.Store.DeleteSession(req.Context(), session.ID))
 }
 
+// createAPIKey godoc
+// @Summary Create a new API key
+// @Description Create a new API key
+// @Tags    api-keys
+// @Param request body map[string]interface{} true "Request body with name and type"
+// @Success 200 {string} string "API key"
+// @Router /api/v1/api_keys [post]
 func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.Request) (string, error) {
 	newAPIKey := &types.ApiKey{}
 	name := req.URL.Query().Get("name")
@@ -844,6 +861,15 @@ func containsType(keyType string, typesParam string) bool {
 	return false
 }
 
+// getAPIKeys godoc
+// @Summary Get API keys
+// @Description Get API keys
+// @Tags    api-keys
+// @Param types query string false "Filter by types (comma-separated list)"
+// @Param app_id query string false "Filter by app ID"
+// @Success 200 {array} types.ApiKey
+// @Router /api/v1/api_keys [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Request) ([]*types.ApiKey, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()
@@ -872,9 +898,33 @@ func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Req
 		filteredAPIKeys = append(filteredAPIKeys, key)
 	}
 	apiKeys = filteredAPIKeys
+
+	// If filter is missing, we are getting user keys. If we haven't got any. create a new one.
+	if typesParam == "" && appIDParam == "" && len(apiKeys) == 0 {
+		createdKey, err := apiServer.Controller.CreateAPIKey(ctx, user, &types.ApiKey{
+			Created: time.Now(),
+			Key:     uuid.New().String(),
+			Name:    "API Key",
+			Type:    types.APIkeytypeAPI,
+			Owner:   user.ID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		apiKeys = append(apiKeys, createdKey)
+		return apiKeys, nil
+	}
+
 	return apiKeys, nil
 }
 
+// deleteAPIKey godoc
+// @Summary Delete an API key
+// @Description Delete an API key
+// @Tags    api-keys
+// @Param key query string true "API key to delete"
+// @Success 200 {string} string "API key"
+// @Router /api/v1/api_keys [delete]
 func (apiServer *HelixAPIServer) deleteAPIKey(_ http.ResponseWriter, req *http.Request) (string, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()
@@ -897,31 +947,4 @@ func (apiServer *HelixAPIServer) checkAPIKey(_ http.ResponseWriter, req *http.Re
 		return nil, err
 	}
 	return key, nil
-}
-
-func (apiServer *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Request) (string, error) {
-	user := getRequestUser(req)
-
-	return apiServer.Stripe.GetCheckoutSessionURL(user.ID, user.Email)
-}
-
-func (apiServer *HelixAPIServer) subscriptionManage(_ http.ResponseWriter, req *http.Request) (string, error) {
-	user := getRequestUser(req)
-	ctx := req.Context()
-
-	userMeta, err := apiServer.Store.GetUserMeta(ctx, user.ID)
-	if err != nil {
-		return "", err
-	}
-	if userMeta == nil {
-		return "", fmt.Errorf("no such user")
-	}
-	if userMeta.Config.StripeCustomerID == "" {
-		return "", fmt.Errorf("no stripe customer id found")
-	}
-	return apiServer.Stripe.GetPortalSessionURL(userMeta.Config.StripeCustomerID)
-}
-
-func (apiServer *HelixAPIServer) subscriptionWebhook(res http.ResponseWriter, req *http.Request) {
-	apiServer.Stripe.ProcessWebhook(res, req)
 }

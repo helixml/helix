@@ -1,165 +1,101 @@
 package stripe
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"strings"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 	"github.com/stripe/stripe-go/v76"
-	portalsession "github.com/stripe/stripe-go/v76/billingportal/session"
-	"github.com/stripe/stripe-go/v76/checkout/session"
 	"github.com/stripe/stripe-go/v76/customer"
-	"github.com/stripe/stripe-go/v76/price"
+	"github.com/stripe/stripe-go/v76/subscription"
 	"github.com/stripe/stripe-go/v76/webhook"
 )
 
 type EventHandler func(eventType types.SubscriptionEventType, user types.StripeUser) error
 
+type TopUpEventHandler func(paymentIntentID, orgID, userID string, amount float64) error
+
 type Stripe struct {
-	Cfg          config.Stripe
-	eventHandler EventHandler
+	cfg   config.Stripe
+	store store.Store
 }
 
 func NewStripe(
 	cfg config.Stripe,
-	eventHandler EventHandler,
+	store store.Store,
 ) *Stripe {
 	if cfg.SecretKey != "" {
+		log.Info().Msgf("Stripe key set")
 		stripe.Key = cfg.SecretKey
 	}
 	return &Stripe{
-		Cfg:          cfg,
-		eventHandler: eventHandler,
+		cfg:   cfg,
+		store: store,
 	}
 }
 
 func (s *Stripe) Enabled() bool {
-	return s.Cfg.SecretKey != "" && s.Cfg.WebhookSigningSecret != ""
+	return s.cfg.SecretKey != "" && s.cfg.WebhookSigningSecret != ""
 }
 
 func (s *Stripe) EnabledError() error {
-	if s.Cfg.SecretKey == "" {
+	if s.cfg.SecretKey == "" {
 		return fmt.Errorf("stripe secret key is required")
 	}
-	if s.Cfg.WebhookSigningSecret == "" {
+	if s.cfg.WebhookSigningSecret == "" {
 		return fmt.Errorf("stripe webhook signing secret is required")
 	}
 	return nil
 }
 
-func (s *Stripe) getSubscriptionURL(id string) string {
-	testMode := ""
-	if strings.HasPrefix(s.Cfg.SecretKey, "sk_test_") {
-		testMode = "/test"
+// CreateStripeCustomer - creates a stripe customer for a user or organization, Stripe customer
+// ID is then stored in the wallet.
+func (s *Stripe) CreateStripeCustomer(user *types.User, orgID string) (string, error) {
+	customerParams := &stripe.CustomerParams{
+		Email: stripe.String(user.Email),
 	}
-	return fmt.Sprintf("https://dashboard.stripe.com%s/subscriptions/%s", testMode, id)
+
+	if orgID != "" {
+		customerParams.Description = stripe.String(fmt.Sprintf("organization %s", orgID))
+		customerParams.AddMetadata("account_type", "organization")
+		customerParams.AddMetadata("org_id", orgID)
+	} else {
+		customerParams.Description = stripe.String(fmt.Sprintf("user %s", user.ID))
+		customerParams.AddMetadata("account_type", "user")
+		customerParams.AddMetadata("user_id", user.ID)
+	}
+
+	customer, err := customer.New(customerParams)
+	if err != nil {
+		return "", err
+	}
+	return customer.ID, nil
 }
 
-func (s *Stripe) GetCheckoutSessionURL(
-	userID string,
-	userEmail string,
-) (string, error) {
-	err := s.EnabledError()
-	if err != nil {
-		return "", err
-	}
-	params := &stripe.PriceListParams{
-		LookupKeys: stripe.StringSlice([]string{
-			s.Cfg.PriceLookupKey,
-		}),
-	}
-	priceResult := price.List(params)
-	var price *stripe.Price
-	for priceResult.Next() {
-		price = priceResult.Price()
-	}
-	if price == nil {
-		return "", fmt.Errorf("price not found")
-	}
-	checkoutParams := &stripe.CheckoutSessionParams{
-		Mode: stripe.String(string(stripe.CheckoutSessionModeSubscription)),
-		// this is how we link the subscription to our user
-		SubscriptionData: &stripe.CheckoutSessionSubscriptionDataParams{
-			Metadata: map[string]string{
-				"user_id": userID,
-			},
+func (s *Stripe) ListSubscriptions(stripeCustomerID string) ([]*stripe.Subscription, error) {
+	subscriptions := subscription.List(
+		&stripe.SubscriptionListParams{
+			Customer: stripe.String(stripeCustomerID),
 		},
-		LineItems: []*stripe.CheckoutSessionLineItemParams{
-			{
-				Price:    stripe.String(price.ID),
-				Quantity: stripe.Int64(1),
-			},
-		},
-		CustomerEmail: stripe.String(userEmail),
-		SuccessURL:    stripe.String(s.Cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"),
-		CancelURL:     stripe.String(s.Cfg.AppURL + "/account?canceled=true"),
+	)
+
+	var subs []*stripe.Subscription
+	for subscriptions.Next() {
+		sub := subscriptions.Subscription()
+		subs = append(subs, sub)
 	}
-
-	newSession, err := session.New(checkoutParams)
-	if err != nil {
-		return "", err
-	}
-
-	return newSession.URL, nil
-}
-
-func (s *Stripe) GetPortalSessionURL(
-	customerID string,
-) (string, error) {
-	params := &stripe.BillingPortalSessionParams{
-		Customer:  stripe.String(customerID),
-		ReturnURL: stripe.String(s.Cfg.AppURL + "/account"),
-	}
-
-	ps, err := portalsession.New(params)
-
-	if err != nil {
-		return "", err
-	}
-
-	return ps.URL, nil
+	return subs, nil
 }
 
 var eventMap = map[stripe.EventType]types.SubscriptionEventType{
 	"customer.subscription.deleted": types.SubscriptionEventTypeDeleted,
 	"customer.subscription.updated": types.SubscriptionEventTypeUpdated,
 	"customer.subscription.created": types.SubscriptionEventTypeCreated,
-}
-
-func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
-	eventType, ok := eventMap[event.Type]
-	if !ok {
-		return fmt.Errorf("unhandled event type: %s", event.Type)
-	}
-	var subscription stripe.Subscription
-	err := json.Unmarshal(event.Data.Raw, &subscription)
-	if err != nil {
-		return fmt.Errorf("error parsing webhook JSON: %s", err.Error())
-	}
-	userID := subscription.Metadata["user_id"]
-	if userID == "" {
-		return fmt.Errorf("no user_id found in metadata")
-	}
-	customerData, err := customer.Get(subscription.Customer.ID, nil)
-	if err != nil {
-		return fmt.Errorf("error loading customer: %s", err.Error())
-	}
-	user := types.StripeUser{
-		HelixID:         userID,
-		StripeID:        customerData.ID,
-		Email:           customerData.Email,
-		SubscriptionID:  subscription.ID,
-		SubscriptionURL: s.getSubscriptionURL(subscription.ID),
-	}
-	if err := s.eventHandler(eventType, user); err != nil {
-		return fmt.Errorf("error handling event: %v", err)
-	}
-	return nil
 }
 
 func (s *Stripe) ProcessWebhook(w http.ResponseWriter, req *http.Request) {
@@ -171,21 +107,42 @@ func (s *Stripe) ProcessWebhook(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
-	endpointSecret := s.Cfg.WebhookSigningSecret
+	endpointSecret := s.cfg.WebhookSigningSecret
 	signatureHeader := req.Header.Get("Stripe-Signature")
-	event, err := webhook.ConstructEvent(payload, signatureHeader, endpointSecret)
+	event, err := webhook.ConstructEventWithOptions(payload, signatureHeader, endpointSecret, webhook.ConstructEventOptions{
+		IgnoreAPIVersionMismatch: true,
+	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️  Webhook signature verification failed. %s\n", err.Error())
+		log.Error().Msgf("Error verifying webhook signature: %s", err.Error())
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	err = s.handleSubscriptionEvent(event)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️  Handling event failed. %s\n", err.Error())
-		w.WriteHeader(http.StatusBadRequest)
+	// Handle different event types
+	switch event.Type {
+	case stripe.EventTypeCustomerSubscriptionDeleted, stripe.EventTypeCustomerSubscriptionUpdated, stripe.EventTypeCustomerSubscriptionCreated:
+		err := s.handleSubscriptionEvent(event)
+		if err != nil {
+			log.Error().Msgf("Error handling subscription event: %s", err.Error())
+		}
+		return
+	case stripe.EventTypeInvoicePaid:
+		err := s.handleInvoicePaymentPaidEvent(event)
+		if err != nil {
+			log.Error().Msgf("Error handling invoice payment paid event: %s", err.Error())
+		}
+		return
+	case stripe.EventTypePaymentIntentSucceeded:
+		err := s.handleTopUpEvent(event)
+		if err != nil {
+			log.Error().Msgf("Error handling top up event: %s", err.Error())
+		}
+		return
+	default:
+		// Log unhandled events but don't fail
+		// fmt.Fprintf(os.Stderr, "Unhandled event type: %s\n", event.Type)
+		// err = nil
+		log.Info().Msgf("Unhandled event type: %s", event.Type)
 		return
 	}
-
-	w.WriteHeader(http.StatusOK)
 }

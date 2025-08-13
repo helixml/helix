@@ -40,7 +40,9 @@ import googleLogo from '../../../assets/img/providers/google.svg'
 import anthropicLogo from '../../../assets/img/providers/anthropic.png'
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
+
 import { useGetOrgByName } from '../../services/orgService';
+
 import useRouter from '../../hooks/useRouter';
 
 interface AdvancedModelPickerProps {
@@ -156,13 +158,17 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [showOnlyEnabled, setShowOnlyEnabled] = useState(true);
 
-  const orgName = router.params.org_id    
+  const orgName = router.params.org_id  
 
   // Get org if orgName is set  
   const { data: org, isLoading: isLoadingOrg } = useGetOrgByName(orgName, orgName !== undefined)  
   
   // Fetch providers and models
-  const { data: providers, isLoading: isLoadingProviders } = useListProviders(true, org?.id, !isLoadingOrg);  
+  const { data: providers, isLoading: isLoadingProviders } = useListProviders({
+    loadModels: true,
+    orgId: org?.id,
+    enabled: !isLoadingOrg,
+  });  
 
   const { data: tokenUsage, isLoading: isLoadingTokenUsage } = useGetUserTokenUsage();
 
@@ -508,6 +514,14 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                               {model.description}
                             </Typography>
                           )}
+                          <Typography variant="body2" component="span" sx={{ color: isModelDisabled ? '#A0AEC0' : '#A0AEC0', fontSize: '0.75rem' }}>
+                            {model.provider.name}                        
+                            {model.provider.billing_enabled && model.model_info?.pricing && (<>{' | '}            
+                                {model.model_info.pricing.prompt && `$${(parseFloat(model.model_info.pricing.prompt) * 1000000).toFixed(2)}/M input tokens`}
+                                {model.model_info.pricing.prompt && model.model_info.pricing.completion && ' | '}
+                                {model.model_info.pricing.completion && `$${(parseFloat(model.model_info.pricing.completion) * 1000000).toFixed(2)}/M output tokens`}                            
+                          </>)}
+                           </Typography>
                         </Box>
                       }
                       primaryTypographyProps={{

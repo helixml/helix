@@ -669,11 +669,11 @@ type OwnerContext struct {
 }
 
 type StripeUser struct {
-	StripeID        string
-	HelixID         string
-	Email           string
-	SubscriptionID  string
-	SubscriptionURL string
+	StripeCustomerID string
+	UserID           string
+	Email            string
+	SubscriptionID   string
+	SubscriptionURL  string
 }
 
 // this is given to the frontend as user context
@@ -826,7 +826,8 @@ type ServerConfigForFrontend struct {
 	// if we are using an object storage thing - then this URL
 	// can be the prefix to the bucket
 	FilestorePrefix                        string               `json:"filestore_prefix"`
-	StripeEnabled                          bool                 `json:"stripe_enabled"`
+	StripeEnabled                          bool                 `json:"stripe_enabled"`  // Stripe top-ups enabled
+	BillingEnabled                         bool                 `json:"billing_enabled"` // Charging for usage
 	SentryDSNFrontend                      string               `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend                string               `json:"google_analytics_frontend"`
 	EvalUserID                             string               `json:"eval_user_id"`
