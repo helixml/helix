@@ -166,6 +166,8 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
         });
       }
 
+      // React Query will automatically invalidate and refetch the data
+      // But we also call refreshData to ensure immediate UI update
       refreshData();
       onClose();
     } catch (err) {
