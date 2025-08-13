@@ -67,7 +67,7 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 	config, err := LoadConfig()
 	require.NoError(t, err)
 
-	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
+	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL, cfg.Stripe.BillingEnabled)
 
 	planner, err := tools.NewChainStrategy(&cfg, store, executor, client)
 	require.NoError(t, err)

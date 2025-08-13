@@ -5,9 +5,37 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+// getUserDetails godoc
+// @Summary Get user details
+// @Description Get user by ID
+// @Tags    users
+// @Success 200 {object} types.User
+// @Param id path string true "User ID"
+// @Router /api/v1/users/{id} [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getUserDetails(rw http.ResponseWriter, r *http.Request) {
+	userID := mux.Vars(r)["id"]
+	if userID == "" {
+		http.Error(rw, "user ID is required", http.StatusBadRequest)
+		return
+	}
+
+	user, err := apiServer.Store.GetUser(r.Context(), &store.GetUserQuery{ID: userID})
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("error getting user '%s': %v", userID, err), http.StatusInternalServerError)
+		return
+	}
+
+	user.Token = ""
+	user.TokenType = ""
+
+	writeResponse(rw, user, http.StatusOK)
+}
 
 // searchUsers godoc
 // @Summary Search users

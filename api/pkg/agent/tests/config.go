@@ -46,7 +46,7 @@ func LoadConfig() (*Config, error) {
 }
 
 func getLLM(config *Config) *agent.LLM {
-	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
+	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL, false)
 
 	reasoning := agent.LLMModelConfig{
 		Client: client,

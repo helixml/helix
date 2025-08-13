@@ -11,6 +11,7 @@ import OrgSettings from './pages/OrgSettings'
 import OrgTeams from './pages/OrgTeams'
 import OrgPeople from './pages/OrgPeople'
 import TeamPeople from './pages/TeamPeople'
+import OrgBilling from './components/orgs/OrgBilling'
 import App from './pages/App'
 import Dashboard from './pages/Dashboard'
 import Create from './pages/Create'
@@ -175,6 +176,16 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <OrgTeams />
+  ),
+}, {
+  name: 'org_billing',
+  path: '/orgs/:org_id/billing',
+  meta: {
+    drawer: true,
+    menu: 'orgs',
+  },
+  render: () => (
+    <OrgBilling />
   ),
 }, {
   name: 'team_people',

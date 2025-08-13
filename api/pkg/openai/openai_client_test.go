@@ -32,7 +32,7 @@ func TestRetry(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client := New("test", ts.URL)
+	client := New("test", ts.URL, true)
 
 	resp, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{})
 	require.NoError(t, err)
@@ -44,7 +44,7 @@ func TestRetry(t *testing.T) {
 
 func TestValidateModel_Denied(t *testing.T) {
 
-	client := New("test", "https://api.openai.com/v1", "gpt-4.1")
+	client := New("test", "https://api.openai.com/v1", false, "gpt-4.1")
 
 	_, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
 		Model: "gpt-4.1-mini",
@@ -55,7 +55,7 @@ func TestValidateModel_Denied(t *testing.T) {
 
 func TestValidateMode_Stream_Denied(t *testing.T) {
 
-	client := New("test", "https://api.openai.com/v1", "gpt-4.1")
+	client := New("test", "https://api.openai.com/v1", false, "gpt-4.1")
 
 	_, err := client.CreateChatCompletionStream(context.Background(), openai.ChatCompletionRequest{
 		Model: "gpt-4.1-mini",
@@ -75,7 +75,7 @@ func TestValidateModel_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client := New("test", ts.URL, "test-model")
+	client := New("test", ts.URL, true, "test-model")
 
 	resp, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
 		Model: "test-model",
@@ -86,7 +86,7 @@ func TestValidateModel_Success(t *testing.T) {
 }
 
 func TestDoNotRetryOnAuthFailures(t *testing.T) {
-	client := New("test", "https://api.together.xyz/v1")
+	client := New("test", "https://api.together.xyz/v1", true)
 
 	_, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{})
 	require.Error(t, err)
@@ -102,7 +102,7 @@ func TestDoNotRetryOnAuthFailures_TestServer(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client := New("test", ts.URL)
+	client := New("test", ts.URL, true)
 
 	_, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{})
 	require.Error(t, err)
