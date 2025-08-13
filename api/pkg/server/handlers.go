@@ -763,6 +763,17 @@ func (apiServer *HelixAPIServer) dashboard(_ http.ResponseWriter, req *http.Requ
 	return apiServer.Controller.GetDashboardData(req.Context())
 }
 
+// getSchedulerHeartbeats godoc
+// @Summary Get scheduler goroutine heartbeat status
+// @Description Get the health status of all scheduler goroutines
+// @Tags    dashboard
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/scheduler/heartbeats [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getSchedulerHeartbeats(_ http.ResponseWriter, req *http.Request) (interface{}, error) {
+	return apiServer.Controller.GetSchedulerHeartbeats(req.Context())
+}
+
 // deleteSession godoc
 // @Summary Delete a session by ID
 // @Description Delete a session by ID

@@ -93,7 +93,7 @@ func (w *Workload) Runtime() types.Runtime {
 		if err == nil {
 			for _, vllmModel := range vllmModels {
 				if vllmModel.ID == w.llmInferenceRequest.Request.Model {
-					log.Info().
+					log.Trace().
 						Str("model", w.llmInferenceRequest.Request.Model).
 						Msg("using VLLM runtime for inference request")
 					return types.RuntimeVLLM

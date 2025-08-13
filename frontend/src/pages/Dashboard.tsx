@@ -36,11 +36,13 @@ import ProviderEndpointsTable from '../components/dashboard/ProviderEndpointsTab
 import OAuthProvidersTable from '../components/dashboard/OAuthProvidersTable'
 import HelixModelsTable from '../components/dashboard/HelixModelsTable'
 import SchedulingDecisionsTable from '../components/dashboard/SchedulingDecisionsTable'
+import SystemSettingsTable from '../components/dashboard/SystemSettingsTable'
 import Chip from '@mui/material/Chip'
 import { useFloatingRunnerState } from '../contexts/floatingRunnerState'
 import LaunchIcon from '@mui/icons-material/Launch'
 import Button from '@mui/material/Button'
 import Tooltip from '@mui/material/Tooltip'
+import SchedulerHealthIndicators from '../components/dashboard/SchedulerHealthIndicators'
 
 const START_ACTIVE = true
 
@@ -384,18 +386,33 @@ const Dashboard: FC = () => {
                 }}
               >
                 {/* Runners Section Header */}
-                <Typography 
-                  variant="h5"
-                  sx={{ 
-                    mb: 4,
-                    color: 'rgba(255, 255, 255, 0.95)',
-                    fontWeight: 600,
-                    borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                    pb: 1,
-                  }}
-                >
-                  Runner State
-                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 4 }}>
+                  <Typography 
+                    variant="h5"
+                    sx={{ 
+                      color: 'rgba(255, 255, 255, 0.95)',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Runner State
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Typography 
+                      variant="caption"
+                      sx={{ 
+                        color: 'rgba(255, 255, 255, 0.7)',
+                        fontSize: '0.75rem',
+                      }}
+                    >
+                      Scheduler Health:
+                    </Typography>
+                    <SchedulerHealthIndicators runnerId="" />
+                  </Box>
+                </Box>
+                <Box sx={{ 
+                  borderBottom: '1px solid rgba(255, 255, 255, 0.1)', 
+                  mb: 4 
+                }} />
 
                 <Grid
                   container
@@ -473,6 +490,19 @@ const Dashboard: FC = () => {
             }}
           >
             <HelixModelsTable />
+          </Box>
+        )}
+
+        {tab === 'system_settings' && account.admin && (
+          <Box
+            sx={{
+              width: '100%',
+              height: '100%',
+              overflow: 'auto',
+              p: 2,
+            }}
+          >
+            <SystemSettingsTable />
           </Box>
         )}
 

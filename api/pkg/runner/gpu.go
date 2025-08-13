@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -21,17 +22,34 @@ type GPUManager struct {
 	gpuMemory     uint64
 	freeMemory    uint64
 	usedMemory    uint64
+	gpuCount      int
+	gpuMemoryMap  map[int]*GPUInfo // Per-GPU memory tracking
 	runnerOptions *Options
+}
+
+// GPUInfo tracks memory usage for individual GPUs
+type GPUInfo struct {
+	Index         int    `json:"index"`          // GPU index (0, 1, 2, etc.)
+	TotalMemory   uint64 `json:"total_memory"`   // Total memory in bytes
+	FreeMemory    uint64 `json:"free_memory"`    // Free memory in bytes
+	UsedMemory    uint64 `json:"used_memory"`    // Used memory in bytes
+	ModelName     string `json:"model_name"`     // GPU model name (e.g., "NVIDIA H100 PCIe", "NVIDIA GeForce RTX 4090")
+	DriverVersion string `json:"driver_version"` // NVIDIA driver version
+	CUDAVersion   string `json:"cuda_version"`   // CUDA version
 }
 
 func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
 	g := &GPUManager{
 		runnerOptions: runnerOptions,
+		gpuMemoryMap:  make(map[int]*GPUInfo),
 	}
 
 	// These are slow, but run on startup so it's probably fine
 	g.hasGPU = g.detectGPU()
-	g.gpuMemory = g.fetchTotalMemory()
+	g.gpuMemory, g.gpuCount = g.fetchTotalMemoryAndCount()
+
+	// Initialize per-GPU memory tracking
+	g.initializeGPUMemoryMap()
 
 	// Fetch free memory once to initialize values before background updates
 	g.freeMemory = g.fetchFreeMemory()
@@ -40,6 +58,7 @@ func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
 		Uint64("total_memory", g.gpuMemory).
 		Uint64("free_memory", g.freeMemory).
 		Uint64("used_memory", g.usedMemory).
+		Int("gpu_count", g.gpuCount).
 		Msg("GPU manager initialized")
 
 	// In dev CPU mode, log the configuration
@@ -62,12 +81,14 @@ func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
 				return
 			case <-ticker.C:
 				g.freeMemory = g.fetchFreeMemory()
+				g.updateGPUMemoryMap() // Update per-GPU memory tracking
 				// Log occasional updates for debugging
 				if rand.Intn(20) == 0 { // ~5% chance to log an update
 					log.Trace().
 						Uint64("total_memory", g.gpuMemory).
 						Uint64("free_memory", g.freeMemory).
 						Uint64("used_memory", g.usedMemory).
+						Int("gpu_count", g.gpuCount).
 						Msg("GPU memory periodic update")
 				}
 			}
@@ -226,21 +247,123 @@ func (g *GPUManager) GetTotalMemory() uint64 {
 	return g.gpuMemory
 }
 
-func (g *GPUManager) fetchTotalMemory() uint64 {
-	totalMemory := g.getActualTotalMemory()
+// GetGPUCount returns the number of GPUs detected
+func (g *GPUManager) GetGPUCount() int {
+	return g.gpuCount
+}
+
+// GetPerGPUMemory returns the memory per individual GPU
+// For single-GPU VLLM models, this is what should be used for memory calculations
+func (g *GPUManager) GetPerGPUMemory() uint64 {
+	if g.gpuCount == 0 {
+		return g.gpuMemory // Fallback to total memory if no GPU count
+	}
+	return g.gpuMemory / uint64(g.gpuCount)
+}
+
+// GetGPUInfo returns information about all individual GPUs
+func (g *GPUManager) GetGPUInfo() map[int]*GPUInfo {
+	return g.gpuMemoryMap
+}
+
+// GetBestGPUForModel returns the GPU index with the most free memory that can fit the model
+// Returns -1 if no GPU has enough memory
+func (g *GPUManager) GetBestGPUForModel(modelMemoryRequirement uint64) int {
+	bestGPU := -1
+	maxFreeMemory := uint64(0)
+
+	for gpuIndex, gpuInfo := range g.gpuMemoryMap {
+		// Check if this GPU has enough free memory for the model
+		if gpuInfo.FreeMemory >= modelMemoryRequirement {
+			// Select the GPU with the most free memory to balance load
+			if gpuInfo.FreeMemory > maxFreeMemory {
+				maxFreeMemory = gpuInfo.FreeMemory
+				bestGPU = gpuIndex
+			}
+		}
+	}
+
+	log.Debug().
+		Int("selected_gpu", bestGPU).
+		Uint64("model_memory_requirement", modelMemoryRequirement).
+		Uint64("max_free_memory", maxFreeMemory).
+		Int("total_gpus", len(g.gpuMemoryMap)).
+		Msg("Selected GPU for VLLM model")
+
+	return bestGPU
+}
+
+// GetBestGPUsForMultiGPUModel selects the best set of GPUs for a multi-GPU model
+// Returns GPU indices and whether the allocation is possible
+func (g *GPUManager) GetBestGPUsForMultiGPUModel(modelMemoryRequirement uint64, tensorParallelSize int) ([]int, bool) {
+	if !g.hasGPU || g.gpuCount == 0 || tensorParallelSize <= 0 {
+		log.Warn().
+			Bool("has_gpu", g.hasGPU).
+			Int("gpu_count", g.gpuCount).
+			Int("tensor_parallel_size", tensorParallelSize).
+			Msg("Cannot schedule multi-GPU model: insufficient GPU resources")
+		return nil, false
+	}
+
+	// For multi-GPU models, we need to distribute memory across GPUs
+	// VLLM will split the model across GPUs, so each GPU needs roughly modelMemory/tensorParallelSize
+	memoryPerGPU := modelMemoryRequirement / uint64(tensorParallelSize)
+
+	// Add some buffer for overhead (10%)
+	memoryPerGPU = uint64(float64(memoryPerGPU) * 1.1)
+
+	// Find GPUs with sufficient memory
+	var candidateGPUs []int
+	for gpuIndex, gpu := range g.gpuMemoryMap {
+		if gpu.FreeMemory >= memoryPerGPU {
+			candidateGPUs = append(candidateGPUs, gpuIndex)
+		}
+	}
+
+	// Check if we have enough GPUs
+	if len(candidateGPUs) < tensorParallelSize {
+		log.Warn().
+			Int("available_gpus", len(candidateGPUs)).
+			Int("required_gpus", tensorParallelSize).
+			Uint64("memory_per_gpu_required", memoryPerGPU).
+			Uint64("total_model_memory", modelMemoryRequirement).
+			Msg("Insufficient GPUs available for multi-GPU model")
+		return nil, false
+	}
+
+	// Sort candidates by available memory (descending) and select the best ones
+	sort.Slice(candidateGPUs, func(i, j int) bool {
+		return g.gpuMemoryMap[candidateGPUs[i]].FreeMemory > g.gpuMemoryMap[candidateGPUs[j]].FreeMemory
+	})
+
+	selectedGPUs := candidateGPUs[:tensorParallelSize]
+
+	log.Info().
+		Ints("selected_gpus", selectedGPUs).
+		Int("tensor_parallel_size", tensorParallelSize).
+		Uint64("memory_per_gpu", memoryPerGPU).
+		Uint64("total_model_memory", modelMemoryRequirement).
+		Msg("Selected GPUs for multi-GPU model")
+
+	return selectedGPUs, true
+}
+
+func (g *GPUManager) fetchTotalMemoryAndCount() (uint64, int) {
+	totalMemory, gpuCount := g.getActualTotalMemoryAndCount()
 
 	// If the user has manually set the total memory, then use that
 	// But make sure it is less than the actual total memory
 	if g.runnerOptions.MemoryBytes > 0 && (g.runnerOptions.MemoryBytes < totalMemory || g.runnerOptions.DevelopmentCPUOnly) {
 		totalMemory = g.runnerOptions.MemoryBytes
+		// Note: We keep the actual GPU count even when memory is manually set
 	}
 
-	return totalMemory
+	return totalMemory, gpuCount
 }
 
-func (g *GPUManager) getActualTotalMemory() uint64 {
+func (g *GPUManager) getActualTotalMemoryAndCount() (uint64, int) {
 	if !g.hasGPU && !g.runnerOptions.DevelopmentCPUOnly {
-		return 0
+		return 0, 0
 	}
 
 	// In development CPU-only mode, use system memory
@@ -264,13 +387,13 @@ func (g *GPUManager) getActualTotalMemory() uint64 {
 							Str("platform", "linux").
 							Uint64("system_memory_bytes", systemMemory).
 							Msg("Using actual system memory for development CPU-only mode")
-						return systemMemory
+						return systemMemory, 1 // CPU mode simulates 1 GPU
 					}
 				}
 			}
 			// If we couldn't read system memory, log an error and return a reasonable default
 			log.Error().Msg("Failed to read system memory from /proc/meminfo, using 16GB default")
-			return 16 * 1024 * 1024 * 1024 // 16GB default as fallback
+			return 16 * 1024 * 1024 * 1024, 1 // 16GB default as fallback, CPU mode simulates 1 GPU
 
 		case "darwin":
 			// Use the same approach we use for Mac Silicon
@@ -287,22 +410,22 @@ func (g *GPUManager) getActualTotalMemory() uint64 {
 							Str("platform", "darwin").
 							Uint64("system_memory_bytes", systemMemory).
 							Msg("Using actual system memory for development CPU-only mode")
-						return systemMemory
+						return systemMemory, 1 // CPU mode simulates 1 GPU
 					}
 				}
 			}
 			log.Error().Msg("Failed to read system memory on macOS, using 16GB default")
-			return 16 * 1024 * 1024 * 1024 // 16GB default as fallback
+			return 16 * 1024 * 1024 * 1024, 1 // 16GB default as fallback, CPU mode simulates 1 GPU
 
 		case "windows":
 			// Use a simple default for Windows - we don't develop on Windows
 			log.Info().Msg("Windows platform detected, using 16GB default for development CPU-only mode")
-			return 16 * 1024 * 1024 * 1024 // 16GB default
+			return 16 * 1024 * 1024 * 1024, 1 // 16GB default, CPU mode simulates 1 GPU
 		}
 
 		// Fallback if we couldn't determine the system memory
 		log.Warn().Msg("Could not determine system memory, using 16GB default for development CPU-only mode")
-		return 16 * 1024 * 1024 * 1024 // 16GB default
+		return 16 * 1024 * 1024 * 1024, 1 // 16GB default, CPU mode simulates 1 GPU
 	}
 
 	switch runtime.GOOS {
@@ -311,20 +434,20 @@ func (g *GPUManager) getActualTotalMemory() uint64 {
 		connectCmdStdErrToLogger(cmd)
 		output, err := cmd.Output()
 		if err == nil {
-			return g.parseAndSumGPUMemory(string(output), "total")
+			return g.parseAndSumGPUMemoryWithCount(string(output), "total")
 		}
 	case "darwin":
 		arch, err := getMacArchitecture()
 		if err != nil {
 			log.Error().Err(err).Msg("failed to get Mac architecture")
-			return 0
+			return 0, 0
 		}
 
 		switch arch {
 		// If it is an intel based mac, try to get any external VRAM from the in-built GPU
 		case MacArchitectureIntel:
 			log.Error().Msg("Intel Mac architecture not supported, please get in touch if you need this")
-			return 0
+			return 0, 0
 		case MacArchitectureApple:
 			// If it is an Apple Silicon based mac, then it's unified memory, so just return the
 			// total memory
@@ -336,7 +459,7 @@ func (g *GPUManager) getActualTotalMemory() uint64 {
 				parts := strings.Split(string(output), ":")
 				if len(parts) == 2 {
 					if total, err := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 64); err == nil {
-						return total
+						return total, 1 // Mac Silicon has unified memory, count as 1 GPU
 					}
 				}
 			}
@@ -344,7 +467,7 @@ func (g *GPUManager) getActualTotalMemory() uint64 {
 	case "windows":
 		log.Error().Msg("Windows not yet supported, please get in touch if you need this")
 	}
-	return 0
+	return 0, 0
 }
 
 type MacArchitecture string
@@ -454,6 +577,12 @@ func connectCmdStdErrToLogger(cmd *exec.Cmd) {
 // parseAndSumGPUMemory parses nvidia-smi output that may contain multiple lines (one per GPU)
 // and sums the memory values across all GPUs
 func (g *GPUManager) parseAndSumGPUMemory(output, memoryType string) uint64 {
+	totalMemory, _ := g.parseAndSumGPUMemoryWithCount(output, memoryType)
+	return totalMemory
+}
+
+// parseAndSumGPUMemoryWithCount parses nvidia-smi output and returns both total memory and GPU count
+func (g *GPUManager) parseAndSumGPUMemoryWithCount(output, memoryType string) (uint64, int) {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	var totalMemory uint64
 	var gpuCount int
@@ -491,5 +620,219 @@ func (g *GPUManager) parseAndSumGPUMemory(output, memoryType string) uint64 {
 		Str("memory_type", memoryType).
 		Msg("Successfully summed GPU memory across all GPUs")
 
-	return totalMemory
+	return totalMemory, gpuCount
+}
+
+// initializeGPUMemoryMap sets up per-GPU memory tracking with model information
+func (g *GPUManager) initializeGPUMemoryMap() {
+	if !g.hasGPU || g.gpuCount == 0 {
+		return
+	}
+
+	switch runtime.GOOS {
+	case "linux":
+		// Get comprehensive GPU information including model name, driver version, and memory
+		cmd := exec.Command("nvidia-smi", "--query-gpu=index,name,memory.total,driver_version", "--format=csv,noheader,nounits")
+		connectCmdStdErrToLogger(cmd)
+		output, err := cmd.Output()
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to get GPU information, using fallback")
+			g.initializeFallbackGPUMap()
+			return
+		}
+
+		// Get CUDA version separately
+		cudaVersion := g.getCUDAVersion()
+
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+
+			// Parse CSV line: index,name,memory.total,driver_version
+			parts := strings.Split(line, ", ")
+			if len(parts) < 4 {
+				log.Error().Str("line", line).Msg("Invalid GPU info format")
+				continue
+			}
+
+			index, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+			if err != nil {
+				log.Error().Err(err).Str("index", parts[0]).Msg("Error parsing GPU index")
+				continue
+			}
+
+			modelName := strings.TrimSpace(parts[1])
+
+			memory, err := strconv.ParseUint(strings.TrimSpace(parts[2]), 10, 64)
+			if err != nil {
+				log.Error().Err(err).Str("memory", parts[2]).Msg("Error parsing GPU memory")
+				continue
+			}
+
+			driverVersion := strings.TrimSpace(parts[3])
+
+			memoryBytes := memory * 1024 * 1024 // Convert MiB to bytes
+			g.gpuMemoryMap[index] = &GPUInfo{
+				Index:         index,
+				TotalMemory:   memoryBytes,
+				FreeMemory:    memoryBytes, // Initially assume all memory is free
+				UsedMemory:    0,
+				ModelName:     modelName,
+				DriverVersion: driverVersion,
+				CUDAVersion:   cudaVersion,
+			}
+
+			log.Info().
+				Int("gpu_index", index).
+				Str("model_name", modelName).
+				Str("driver_version", driverVersion).
+				Str("cuda_version", cudaVersion).
+				Uint64("total_memory_bytes", memoryBytes).
+				Msg("Initialized GPU with model information")
+		}
+	default:
+		// For non-Linux systems, use fallback
+		g.initializeFallbackGPUMap()
+	}
+
+	// Update with actual free/used memory
+	g.updateGPUMemoryMap()
+}
+
+// getCUDAVersion retrieves the CUDA version from nvidia-smi header
+func (g *GPUManager) getCUDAVersion() string {
+	// Get CUDA version from nvidia-smi header output
+	cmd := exec.Command("nvidia-smi")
+	connectCmdStdErrToLogger(cmd)
+	output, err := cmd.Output()
+	if err != nil {
+		log.Debug().Err(err).Msg("Failed to get CUDA version from nvidia-smi")
+		// Try alternative method using nvcc if available
+		cmd = exec.Command("nvcc", "--version")
+		connectCmdStdErrToLogger(cmd)
+		nvccOutput, nvccErr := cmd.Output()
+		if nvccErr != nil {
+			log.Debug().Err(nvccErr).Msg("Failed to get CUDA version from nvcc")
+			return "unknown"
+		}
+
+		// Parse nvcc output to extract version
+		lines := strings.Split(string(nvccOutput), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "release") {
+				// Example: "Cuda compilation tools, release 12.2, V12.2.140"
+				parts := strings.Split(line, "release ")
+				if len(parts) > 1 {
+					versionPart := strings.Split(parts[1], ",")[0]
+					return strings.TrimSpace(versionPart)
+				}
+			}
+		}
+		return "unknown"
+	}
+
+	// Parse nvidia-smi header to extract CUDA version
+	// Header format: "| NVIDIA-SMI 575.57.08              Driver Version: 575.57.08      CUDA Version: 12.9     |"
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "CUDA Version:") {
+			parts := strings.Split(line, "CUDA Version:")
+			if len(parts) > 1 {
+				// Extract version number and clean up
+				versionPart := strings.TrimSpace(parts[1])
+				versionPart = strings.Split(versionPart, " ")[0]  // Take first part before any spaces
+				versionPart = strings.TrimRight(versionPart, "|") // Remove trailing |
+				return strings.TrimSpace(versionPart)
+			}
+		}
+	}
+
+	return "unknown"
+}
+
+// initializeFallbackGPUMap creates a fallback GPU memory map when nvidia-smi is not available
+func (g *GPUManager) initializeFallbackGPUMap() {
+	if g.gpuCount == 0 {
+		g.gpuCount = 1 // Assume at least one GPU
+	}
+
+	perGPUMemory := g.gpuMemory / uint64(g.gpuCount)
+	for i := 0; i < g.gpuCount; i++ {
+		g.gpuMemoryMap[i] = &GPUInfo{
+			Index:         i,
+			TotalMemory:   perGPUMemory,
+			FreeMemory:    perGPUMemory,
+			UsedMemory:    0,
+			ModelName:     "unknown",
+			DriverVersion: "unknown",
+			CUDAVersion:   "unknown",
+		}
+	}
+
+	log.Debug().
+		Int("gpu_count", g.gpuCount).
+		Uint64("per_gpu_memory", perGPUMemory).
+		Msg("Initialized fallback GPU memory map")
+}
+
+// updateGPUMemoryMap refreshes the free/used memory for each GPU
+func (g *GPUManager) updateGPUMemoryMap() {
+	if !g.hasGPU || len(g.gpuMemoryMap) == 0 {
+		return
+	}
+
+	switch runtime.GOOS {
+	case "linux":
+		// Get per-GPU used memory
+		cmd := exec.Command("nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits")
+		connectCmdStdErrToLogger(cmd)
+		output, err := cmd.Output()
+		if err != nil {
+			log.Trace().Err(err).Msg("Failed to update per-GPU used memory")
+			return
+		}
+
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		for i, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+
+			usedMemory, err := strconv.ParseUint(line, 10, 64)
+			if err != nil {
+				log.Error().Err(err).Str("line", line).Msg("Error parsing GPU used memory")
+				continue
+			}
+
+			usedMemoryBytes := usedMemory * 1024 * 1024 // Convert MiB to bytes
+			if gpuInfo, exists := g.gpuMemoryMap[i]; exists {
+				gpuInfo.UsedMemory = usedMemoryBytes
+				gpuInfo.FreeMemory = gpuInfo.TotalMemory - usedMemoryBytes
+
+				log.Trace().
+					Int("gpu_index", i).
+					Uint64("used_memory_bytes", usedMemoryBytes).
+					Uint64("free_memory_bytes", gpuInfo.FreeMemory).
+					Msg("Updated GPU memory usage")
+			}
+		}
+	default:
+		// For non-Linux systems, we can't track per-GPU memory accurately
+		// Just distribute the aggregated used memory evenly
+		if g.gpuCount > 0 {
+			perGPUUsedMemory := g.usedMemory / uint64(g.gpuCount)
+			for _, gpuInfo := range g.gpuMemoryMap {
+				gpuInfo.UsedMemory = perGPUUsedMemory
+				if gpuInfo.TotalMemory > perGPUUsedMemory {
+					gpuInfo.FreeMemory = gpuInfo.TotalMemory - perGPUUsedMemory
+				} else {
+					gpuInfo.FreeMemory = 0
+				}
+			}
+		}
+	}
 }

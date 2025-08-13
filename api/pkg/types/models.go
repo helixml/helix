@@ -1,6 +1,9 @@
 package types
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type ModelType string
 
@@ -30,8 +33,71 @@ type Model struct {
 	SortOrder     int       `json:"sort_order,omitempty" yaml:"sort_order,omitempty"` // Order for sorting models in UI (lower numbers appear first)
 	Prewarm       bool      `json:"prewarm,omitempty" yaml:"prewarm,omitempty"`       // Whether to prewarm this model to fill free GPU memory on runners
 
+	// Runtime-specific arguments (e.g., VLLM command line args)
+	RuntimeArgs map[string]interface{} `json:"runtime_args,omitempty" yaml:"runtime_args,omitempty" gorm:"type:jsonb;serializer:json"`
+
 	// User modification tracking - system defaults are automatically updated if this is false
 	UserModified bool `json:"user_modified,omitempty" yaml:"user_modified,omitempty"` // Whether user has modified system defaults
+}
+
+// UnmarshalJSON handles both flattened array format and nested object format for RuntimeArgs
+func (m *Model) UnmarshalJSON(data []byte) error {
+	// Define a temporary struct that matches Model but with RuntimeArgs as interface{}
+	type TempModel struct {
+		ID            string      `json:"id,omitempty"`
+		Created       time.Time   `json:"created,omitempty"`
+		Updated       time.Time   `json:"updated,omitempty"`
+		Type          ModelType   `json:"type,omitempty"`
+		Runtime       Runtime     `json:"runtime,omitempty"`
+		Name          string      `json:"name,omitempty"`
+		Memory        uint64      `json:"memory,omitempty"`
+		ContextLength int64       `json:"context_length,omitempty"`
+		Description   string      `json:"description,omitempty"`
+		Hide          bool        `json:"hide,omitempty"`
+		Enabled       bool        `json:"enabled,omitempty"`
+		AutoPull      bool        `json:"auto_pull,omitempty"`
+		SortOrder     int         `json:"sort_order,omitempty"`
+		Prewarm       bool        `json:"prewarm,omitempty"`
+		RuntimeArgs   interface{} `json:"runtime_args,omitempty"`
+		UserModified  bool        `json:"user_modified,omitempty"`
+	}
+
+	var temp TempModel
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return err
+	}
+
+	// Copy all fields except RuntimeArgs
+	m.ID = temp.ID
+	m.Created = temp.Created
+	m.Updated = temp.Updated
+	m.Type = temp.Type
+	m.Runtime = temp.Runtime
+	m.Name = temp.Name
+	m.Memory = temp.Memory
+	m.ContextLength = temp.ContextLength
+	m.Description = temp.Description
+	m.Hide = temp.Hide
+	m.Enabled = temp.Enabled
+	m.AutoPull = temp.AutoPull
+	m.SortOrder = temp.SortOrder
+	m.Prewarm = temp.Prewarm
+	m.UserModified = temp.UserModified
+
+	// Handle RuntimeArgs - convert flattened array to nested format
+	if temp.RuntimeArgs != nil {
+		if argsArray, ok := temp.RuntimeArgs.([]interface{}); ok {
+			// Flattened format - wrap in "args" key
+			m.RuntimeArgs = map[string]interface{}{
+				"args": argsArray,
+			}
+		} else if argsMap, ok := temp.RuntimeArgs.(map[string]interface{}); ok {
+			// Already nested format - use as-is
+			m.RuntimeArgs = argsMap
+		}
+	}
+
+	return nil
 }
 
 type Modality string
@@ -66,4 +132,16 @@ type Pricing struct {
 	Request           string `json:"request"`
 	WebSearch         string `json:"web_search"`
 	InternalReasoning string `json:"internal_reasoning"`
+}
+
+// Model CRD structures following the same pattern as App CRD
+type ModelMetadata struct {
+	Name string `json:"name" yaml:"name"`
+}
+
+type ModelCRD struct {
+	APIVersion string        `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string        `json:"kind" yaml:"kind"`
+	Metadata   ModelMetadata `json:"metadata" yaml:"metadata"`
+	Spec       Model         `json:"spec" yaml:"spec"`
 }

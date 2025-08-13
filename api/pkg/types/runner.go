@@ -37,8 +37,21 @@ type RunnerStatus struct {
 	FreeMemory      uint64               `json:"free_memory"`
 	UsedMemory      uint64               `json:"used_memory"`
 	AllocatedMemory uint64               `json:"allocated_memory"` // Memory allocated to slots/workloads
+	GPUCount        int                  `json:"gpu_count"`        // Number of GPUs detected
+	GPUs            []*GPUStatus         `json:"gpus"`             // Per-GPU memory status
 	Labels          map[string]string    `json:"labels"`
 	Models          []*RunnerModelStatus `json:"models"`
+}
+
+// GPUStatus represents the status of an individual GPU
+type GPUStatus struct {
+	Index         int    `json:"index"`          // GPU index (0, 1, 2, etc.)
+	TotalMemory   uint64 `json:"total_memory"`   // Total memory in bytes
+	FreeMemory    uint64 `json:"free_memory"`    // Free memory in bytes
+	UsedMemory    uint64 `json:"used_memory"`    // Used memory in bytes
+	ModelName     string `json:"model_name"`     // GPU model name (e.g., "NVIDIA H100 PCIe", "NVIDIA GeForce RTX 4090")
+	DriverVersion string `json:"driver_version"` // NVIDIA driver version
+	CUDAVersion   string `json:"cuda_version"`   // CUDA version
 }
 
 type RunnerModelStatus struct {
@@ -69,6 +82,11 @@ type CreateRunnerSlotAttributes struct {
 	ModelMemoryRequirement uint64         `json:"model_memory_requirement,omitempty"` // Optional: Memory requirement of the model
 	ContextLength          int64          `json:"context_length,omitempty"`           // Optional: Context length to use for the model
 	RuntimeArgs            map[string]any `json:"runtime_args,omitempty"`             // Optional: Runtime-specific arguments
+
+	// GPU allocation from scheduler - authoritative allocation decision
+	GPUIndex           *int  `json:"gpu_index,omitempty"`            // Primary GPU for single-GPU models
+	GPUIndices         []int `json:"gpu_indices,omitempty"`          // All GPUs used for multi-GPU models
+	TensorParallelSize int   `json:"tensor_parallel_size,omitempty"` // Number of GPUs for tensor parallelism (1 = single GPU)
 }
 
 type CreateRunnerSlotRequest struct {
@@ -77,19 +95,37 @@ type CreateRunnerSlotRequest struct {
 }
 
 type RunnerSlot struct {
-	ID            uuid.UUID      `json:"id"`
-	Runtime       Runtime        `json:"runtime"`
-	Model         string         `json:"model"`
-	ContextLength int64          `json:"context_length,omitempty"` // Context length used for the model, if specified
-	RuntimeArgs   map[string]any `json:"runtime_args,omitempty"`   // Runtime-specific arguments
-	Version       string         `json:"version"`
-	Active        bool           `json:"active"`
-	Ready         bool           `json:"ready"`
-	Status        string         `json:"status"`
+	ID                 uuid.UUID      `json:"id"`
+	Runtime            Runtime        `json:"runtime"`
+	Model              string         `json:"model"`
+	ContextLength      int64          `json:"context_length,omitempty"` // Context length used for the model, if specified
+	RuntimeArgs        map[string]any `json:"runtime_args,omitempty"`   // Runtime-specific arguments
+	Version            string         `json:"version"`
+	Active             bool           `json:"active"`
+	Ready              bool           `json:"ready"`
+	Status             string         `json:"status"`
+	GPUIndex           *int           `json:"gpu_index,omitempty"`            // Primary GPU for single-GPU models (for VLLM)
+	GPUIndices         []int          `json:"gpu_indices,omitempty"`          // All GPUs used for multi-GPU models
+	TensorParallelSize int            `json:"tensor_parallel_size,omitempty"` // Number of GPUs for tensor parallelism (1 = single GPU)
+	CommandLine        string         `json:"command_line,omitempty"`         // The actual command line executed for this slot
 }
 
 type ListRunnerSlotsResponse struct {
 	Slots []*RunnerSlot `json:"slots"`
+}
+
+// RunnerSystemConfigRequest represents system configuration updates sent to runners
+// Currently supports global HF token, but designed to extend for per-org/per-user tokens
+// Future: This will be sent when user context changes or per-slot configuration is needed
+type RunnerSystemConfigRequest struct {
+	// Global fallback HF token (current implementation)
+	HuggingFaceToken *string `json:"huggingface_token,omitempty"`
+
+	// Future extensions for per-org/per-user tokens:
+	// UserID           *string `json:"user_id,omitempty"`
+	// OrganizationID   *string `json:"organization_id,omitempty"`
+	// UserHFToken      *string `json:"user_hf_token,omitempty"`
+	// OrgHFToken       *string `json:"org_hf_token,omitempty"`
 }
 
 // A generic helix type to support nats reply requests, based upon RunnerLLMInferenceRequest

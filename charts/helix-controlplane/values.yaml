@@ -147,6 +147,10 @@ controlplane:
       apiKey: ""
       existingSecret: ""
       existingSecretApiKeyKey: ""
+  huggingface:
+    token: ""
+    existingSecret: ""
+    existingSecretTokenKey: ""
   extraEnv: []
 
 imagePullSecrets: []

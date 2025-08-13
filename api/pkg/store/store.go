@@ -339,6 +339,14 @@ type Store interface {
 	CreateTriggerExecution(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error)
 	UpdateTriggerExecution(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error)
 	ResetRunningExecutions(ctx context.Context) error
+
+	// system settings
+	GetSystemSettings(ctx context.Context) (*types.SystemSettings, error)
+	GetEffectiveSystemSettings(ctx context.Context) (*types.SystemSettings, error)
+	UpdateSystemSettings(ctx context.Context, req *types.SystemSettingsRequest) (*types.SystemSettings, error)
+
+	// model seeding
+	SeedModelsFromEnvironment(ctx context.Context) error
 }
 
 type EmbeddingsStore interface {

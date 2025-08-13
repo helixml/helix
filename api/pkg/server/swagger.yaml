@@ -548,6 +548,23 @@ definitions:
       license_key:
         type: string
     type: object
+  server.LogsSummary:
+    properties:
+      active_instances:
+        type: integer
+      error_retention_hours:
+        type: integer
+      instances_with_errors:
+        type: integer
+      max_lines_per_buffer:
+        type: integer
+      recent_errors:
+        type: integer
+      slots:
+        items:
+          $ref: '#/definitions/server.SlotLogSummary'
+        type: array
+    type: object
   server.ModelSubstitution:
     properties:
       assistant_name:
@@ -561,6 +578,17 @@ definitions:
       original_provider:
         type: string
       reason:
+        type: string
+    type: object
+  server.SlotLogSummary:
+    properties:
+      has_logs:
+        type: boolean
+      id:
+        type: string
+      model:
+        type: string
+      runner_id:
         type: string
     type: object
   sql.NullString:
@@ -1230,6 +1258,14 @@ definitions:
         type: string
       free_memory:
         type: integer
+      gpu_count:
+        description: Number of GPUs detected
+        type: integer
+      gpus:
+        description: Per-GPU memory status
+        items:
+          $ref: '#/definitions/types.GPUStatus'
+        type: array
       id:
         type: string
       labels:
@@ -1336,6 +1372,31 @@ definitions:
         type: boolean
       valid_until:
         type: string
+    type: object
+  types.GPUStatus:
+    properties:
+      cuda_version:
+        description: CUDA version
+        type: string
+      driver_version:
+        description: NVIDIA driver version
+        type: string
+      free_memory:
+        description: Free memory in bytes
+        type: integer
+      index:
+        description: GPU index (0, 1, 2, etc.)
+        type: integer
+      model_name:
+        description: GPU model name (e.g., "NVIDIA H100 PCIe", "NVIDIA GeForce RTX
+          4090")
+        type: string
+      total_memory:
+        description: Total memory in bytes
+        type: integer
+      used_memory:
+        description: Used memory in bytes
+        type: integer
     type: object
   types.ImageURLDetail:
     enum:
@@ -1812,6 +1873,10 @@ definitions:
         type: boolean
       runtime:
         $ref: '#/definitions/types.Runtime'
+      runtime_args:
+        additionalProperties: true
+        description: Runtime-specific arguments (e.g., VLLM command line args)
+        type: object
       sort_order:
         description: Order for sorting models in UI (lower numbers appear first)
         type: integer
@@ -2495,9 +2560,20 @@ definitions:
     properties:
       active:
         type: boolean
+      command_line:
+        description: The actual command line executed for this slot
+        type: string
       context_length:
         description: Context length used for the model, if specified
         type: integer
+      gpu_index:
+        description: Primary GPU for single-GPU models (for VLLM)
+        type: integer
+      gpu_indices:
+        description: All GPUs used for multi-GPU models
+        items:
+          type: integer
+        type: array
       id:
         type: string
       model:
@@ -2512,6 +2588,9 @@ definitions:
         type: object
       status:
         type: string
+      tensor_parallel_size:
+        description: Number of GPUs for tensor parallelism (1 = single GPU)
+        type: integer
       version:
         type: string
     type: object
@@ -3082,6 +3161,26 @@ definitions:
       arguments:
         additionalProperties: true
         type: object
+    type: object
+  types.SystemSettingsRequest:
+    properties:
+      huggingface_token:
+        type: string
+    type: object
+  types.SystemSettingsResponse:
+    properties:
+      created:
+        type: string
+      huggingface_token_set:
+        description: Sensitive fields are masked
+        type: boolean
+      huggingface_token_source:
+        description: '"database", "environment", or "none"'
+        type: string
+      id:
+        type: string
+      updated:
+        type: string
     type: object
   types.Team:
     properties:
@@ -4561,6 +4660,53 @@ paths:
       summary: List LLM calls
       tags:
       - llm_calls
+  /api/v1/logs/{slot_id}:
+    get:
+      description: Retrieve logs for a specific slot by proxying the request to the
+        runner
+      parameters:
+      - description: Slot ID
+        in: path
+        name: slot_id
+        required: true
+        type: string
+      - description: 'Maximum number of lines to return (default: 500)'
+        in: query
+        name: lines
+        type: integer
+      - description: Return logs since this timestamp (RFC3339 format)
+        in: query
+        name: since
+        type: string
+      - description: Filter by log level (ERROR, WARN, INFO, DEBUG)
+        in: query
+        name: level
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get logs for a specific slot
+      tags:
+      - logs
   /api/v1/oauth/connections:
     get:
       description: List OAuth connections for the user.
@@ -5089,6 +5235,20 @@ paths:
             type: array
       security:
       - BearerAuth: []
+  /api/v1/scheduler/heartbeats:
+    get:
+      description: Get the health status of all scheduler goroutines
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get scheduler goroutine heartbeat status
+      tags:
+      - dashboard
   /api/v1/search:
     get:
       description: Search knowledges for a given app and prompt
@@ -5416,6 +5576,58 @@ paths:
       summary: Create a subscription
       tags:
       - wallets
+  /api/v1/system/settings:
+    get:
+      description: Get global system settings. Requires admin privileges.
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SystemSettingsResponse'
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get system settings
+      tags:
+      - system
+    put:
+      description: Update global system settings. Requires admin privileges.
+      parameters:
+      - description: System settings update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SystemSettingsRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SystemSettingsResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            type: string
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Update system settings
+      tags:
+      - system
   /api/v1/top-ups/new:
     post:
       description: Create a top up with specified amount

@@ -34,10 +34,8 @@ OPENAI_API_KEY=""
 OPENAI_BASE_URL=""
 ANTHROPIC_API_KEY=""
 AUTO_APPROVE=false
-OLDER_GPU=false
 HF_TOKEN=""
 PROXY=https://get.helixml.tech
-EXTRA_OLLAMA_MODELS=""
 HELIX_VERSION=""
 CLI_INSTALL_PATH="/usr/local/bin/helix"
 EMBEDDINGS_PROVIDER="helix"
@@ -95,11 +93,10 @@ Options:
   --openai-api-key <key>   Specify the OpenAI API key for any OpenAI compatible API
   --openai-base-url <url>  Specify the base URL for the OpenAI API
   --anthropic-api-key <key> Specify the Anthropic API key for Claude models
+  --hf-token <token>       Specify the Hugging Face token for the control plane (automatically distributed to runners)
   --embeddings-provider <provider> Specify the provider for embeddings (openai, togetherai, vllm, helix, default: helix)
-  --older-gpu              Disable axolotl and sdxl models (which don't work on older GPUs) on the runner
-  --hf-token <token>       Specify the Hugging Face token for downloading models
   -y                       Auto approve the installation
-  --extra-ollama-models    Specify additional Ollama models to download when installing the runner (comma-separated), for example "nemotron-mini:4b,codegemma:2b-code-q8_0"
+
   --helix-version <version>  Override the Helix version to install (e.g. 1.4.0-rc4, defaults to latest stable)
   --cli-install-path <path> Specify custom installation path for the CLI binary (default: /usr/local/bin/helix)
 
@@ -225,10 +222,6 @@ while [[ $# -gt 0 ]]; do
             EMBEDDINGS_PROVIDER="$2"
             shift 2
             ;;
-        --older-gpu)
-            OLDER_GPU=true
-            shift
-            ;;
         --hf-token=*)
             HF_TOKEN="${1#*=}"
             shift
@@ -240,14 +233,6 @@ while [[ $# -gt 0 ]]; do
         -y)
             AUTO_APPROVE=true
             shift
-            ;;
-        --extra-ollama-models=*)
-            EXTRA_OLLAMA_MODELS="${1#*=}"
-            shift
-            ;;
-        --extra-ollama-models)
-            EXTRA_OLLAMA_MODELS="$2"
-            shift 2
             ;;
         --helix-version=*)
             HELIX_VERSION="${1#*=}"
@@ -758,6 +743,12 @@ ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
 EOF
     fi
 
+    # Add Hugging Face token configuration if provided
+    if [ -n "$HF_TOKEN" ]; then
+        cat << EOF >> "$ENV_FILE"
+HF_TOKEN=$HF_TOKEN
+EOF
+    fi
     # Add embeddings provider configuration
     cat << EOF >> "$ENV_FILE"
 RAG_PGVECTOR_PROVIDER=$EMBEDDINGS_PROVIDER
@@ -918,30 +909,10 @@ if [ "$RUNNER" = true ]; then
 RUNNER_TAG="${RUNNER_TAG}"
 API_HOST="${API_HOST}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
-OLDER_GPU="${OLDER_GPU:-false}"
-HF_TOKEN="${HF_TOKEN}"
-EXTRA_OLLAMA_MODELS="${EXTRA_OLLAMA_MODELS}"
 
-# Set older GPU parameter
-if [ "\$OLDER_GPU" = "true" ]; then
-    OLDER_GPU_PARAM="-e RUNTIME_AXOLOTL_ENABLED=false"
-else
-    OLDER_GPU_PARAM=""
-fi
-
-# Set HF_TOKEN parameter
-if [ -n "\$HF_TOKEN" ]; then
-    HF_TOKEN_PARAM="-e HF_TOKEN=\$HF_TOKEN"
-else
-    HF_TOKEN_PARAM=""
-fi
-
-# Set EXTRA_OLLAMA_MODELS parameter
-if [ -n "\$EXTRA_OLLAMA_MODELS" ]; then
-    EXTRA_OLLAMA_MODELS_PARAM="-e RUNTIME_OLLAMA_WARMUP_MODELS=\$EXTRA_OLLAMA_MODELS"
-else
-    EXTRA_OLLAMA_MODELS_PARAM=""
-fi
+# HF_TOKEN is now managed by the control plane and distributed to runners automatically
+# No longer setting HF_TOKEN on runners to avoid confusion
+HF_TOKEN_PARAM=""
 
 # Check if api-1 container is running
 if docker ps --format '{{.Image}}' | grep 'registry.helixml.tech/helix/controlplane'; then
@@ -963,10 +934,6 @@ docker run --privileged --gpus all --shm-size=10g \\
     --name helix-runner --ipc=host --ulimit memlock=-1 \\
     --ulimit stack=67108864 \\
     --network="helix_default" \\
-    -v \${HOME}/.cache/huggingface:/root/.cache/huggingface \\
-    \${OLDER_GPU_PARAM} \\
-    \${HF_TOKEN_PARAM} \\
-    \${EXTRA_OLLAMA_MODELS_PARAM} \\
     registry.helixml.tech/helix/runner:\${RUNNER_TAG} \\
     --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\
     --runner-id \$(hostname)

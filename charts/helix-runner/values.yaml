@@ -28,7 +28,8 @@ runner:
   # This allows sharing the same secret with the controlplane or storing tokens securely
   tokenExistingSecret: ""
   tokenExistingSecretKey: ""  # defaults to "token" if not specified
-  # Hugging Face token
+  # Hugging Face token (OPTIONAL - automatically distributed from control plane)
+  # Only specify if you need a fallback token when control plane token is not configured
   huggingfaceToken: ""
   # Alternative: read Hugging Face token from a Kubernetes secret (leave huggingfaceToken empty when using this)
   huggingfaceTokenExistingSecret: ""

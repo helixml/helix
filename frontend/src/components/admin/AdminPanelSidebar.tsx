@@ -6,6 +6,7 @@ import DnsIcon from '@mui/icons-material/Dns'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import DirectionsRunIcon from '@mui/icons-material/DirectionsRun'
 import ModelTrainingIcon from '@mui/icons-material/ModelTraining'
+import SettingsIcon from '@mui/icons-material/Settings'
 
 import useRouter from '../../hooks/useRouter'
 import ContextSidebar, { ContextSidebarSection } from '../system/ContextSidebar'
@@ -67,6 +68,13 @@ const AdminPanelSidebar: FC = () => {
           icon: <ModelTrainingIcon />,
           isActive: currentTab === 'helix_models',
           onClick: () => handleNavigationClick('helix_models')
+        },
+        {
+          id: 'system_settings',
+          label: 'System Settings',
+          icon: <SettingsIcon />,
+          isActive: currentTab === 'system_settings',
+          onClick: () => handleNavigationClick('system_settings')
         }
       ]
     }

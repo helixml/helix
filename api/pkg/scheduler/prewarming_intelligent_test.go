@@ -23,6 +23,7 @@ func TestIntelligentPrewarming_WithDefaultPrewarmModels(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,
@@ -39,7 +40,7 @@ func TestIntelligentPrewarming_WithDefaultPrewarmModels(t *testing.T) {
 	// Test that default prewarm models are returned when no specific distribution exists
 	testRunnerID := "test-runner-1"
 	prewarmModels := scheduler.getPrewarmModels(testRunnerID)
-	require.Equal(t, 3, len(prewarmModels), "Should return default prewarm models from configuration")
+	require.Equal(t, 4, len(prewarmModels), "Should return default prewarm models from configuration")
 
 	// Verify the expected models are included
 	modelIDs := make(map[string]bool)
@@ -50,6 +51,7 @@ func TestIntelligentPrewarming_WithDefaultPrewarmModels(t *testing.T) {
 	require.True(t, modelIDs["Qwen/Qwen2.5-VL-7B-Instruct"], "Should include Qwen2.5-VL-7B")
 	require.True(t, modelIDs["MrLight/dse-qwen2-2b-mrl-v1"], "Should include MrLight model")
 	require.True(t, modelIDs["qwen3:8b"], "Should include qwen3:8b")
+	require.True(t, modelIDs["gpt-oss:20b"], "Should include gpt-oss:20b")
 }
 
 func TestIntelligentPrewarming_UnevenDistribution(t *testing.T) {
@@ -62,6 +64,7 @@ func TestIntelligentPrewarming_UnevenDistribution(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,
@@ -136,6 +139,7 @@ func TestIntelligentPrewarming_BalancedDistribution(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,
@@ -179,7 +183,7 @@ func TestIntelligentPrewarming_BalancedDistribution(t *testing.T) {
 	prewarmModels := scheduler.getPrewarmModels(testRunnerID)
 
 	// With perfectly balanced distribution (difference <= 1), should prewarm all models
-	require.Equal(t, 3, len(prewarmModels), "Should prewarm all models when distribution is balanced")
+	require.Equal(t, 4, len(prewarmModels), "Should prewarm all models when distribution is balanced")
 
 	t.Logf("Balanced scenario - prewarming all %d models", len(prewarmModels))
 }
@@ -194,6 +198,7 @@ func TestIntelligentPrewarming_EmptyCluster(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,
@@ -233,6 +238,7 @@ func TestAnalyzeGlobalModelDistribution(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,
@@ -299,6 +305,7 @@ func TestSelectModelsForBalancing(t *testing.T) {
 
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub: ps,

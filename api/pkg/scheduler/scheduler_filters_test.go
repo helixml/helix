@@ -26,11 +26,19 @@ func Test_filterRunnersByMemory_NoRunners(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	runners, err := scheduler.filterRunnersByMemory(&Workload{
-		model: &types.Model{
-			Memory: 1000,
-		},
-	}, []string{})
+	// Create a proper workload using the constructor
+	workload, err := NewSessionWorkload(&types.Session{
+		ID:        "test-session",
+		ModelName: "test-model",
+		Mode:      types.SessionModeInference,
+		Type:      types.SessionTypeText,
+	}, &types.Model{
+		ID:     "test-model",
+		Memory: 1000,
+	})
+	require.NoError(t, err)
+
+	runners, err := scheduler.filterRunnersByMemory(workload, []string{})
 	require.Error(t, err)
 	require.Nil(t, runners)
 }
@@ -64,6 +72,15 @@ func Test_filterRunnersByMemory_SomeRunnersSufficient(t *testing.T) {
 		ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
 			return types.RunnerStatus{
 				TotalMemory: memory,
+				GPUCount:    1, // Single GPU setup for test
+				GPUs: []*types.GPUStatus{
+					{
+						Index:       0,
+						TotalMemory: memory,
+						FreeMemory:  memory, // Assume all memory is free for test
+						UsedMemory:  0,
+					},
+				},
 				Models: []*types.RunnerModelStatus{
 					{
 						ModelID:            "test-model",
@@ -77,17 +94,15 @@ func Test_filterRunnersByMemory_SomeRunnersSufficient(t *testing.T) {
 		}))
 	}
 
-	workload := &Workload{
-		llmInferenceRequest: &types.RunnerLLMInferenceRequest{
-			Request: &openai.ChatCompletionRequest{
-				Model: "test-model",
-			},
+	workload, err := NewLLMWorkload(&types.RunnerLLMInferenceRequest{
+		Request: &openai.ChatCompletionRequest{
+			Model: "test-model",
 		},
-		WorkloadType: WorkloadTypeLLMInferenceRequest,
-		model: &types.Model{
-			Memory: requiredMemory,
-		},
-	}
+	}, &types.Model{
+		ID:     "test-model",
+		Memory: requiredMemory,
+	})
+	require.NoError(t, err)
 
 	availableRunners := []string{runner1, runner2, runner3}
 	filteredRunners, err := scheduler.filterRunnersByMemory(workload, availableRunners)
@@ -127,6 +142,15 @@ func Test_filterRunnersByMemory_NoRunnersSufficient(t *testing.T) {
 		ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
 			return types.RunnerStatus{
 				TotalMemory: memory,
+				GPUCount:    1, // Single GPU setup for test
+				GPUs: []*types.GPUStatus{
+					{
+						Index:       0,
+						TotalMemory: memory,
+						FreeMemory:  memory, // Assume all memory is free for test
+						UsedMemory:  0,
+					},
+				},
 				Models: []*types.RunnerModelStatus{
 					{
 						ModelID:            "test-model",
@@ -140,17 +164,15 @@ func Test_filterRunnersByMemory_NoRunnersSufficient(t *testing.T) {
 		}))
 	}
 
-	workload := &Workload{
-		llmInferenceRequest: &types.RunnerLLMInferenceRequest{
-			Request: &openai.ChatCompletionRequest{
-				Model: "test-model",
-			},
+	workload, err := NewLLMWorkload(&types.RunnerLLMInferenceRequest{
+		Request: &openai.ChatCompletionRequest{
+			Model: "test-model",
 		},
-		WorkloadType: WorkloadTypeLLMInferenceRequest,
-		model: &types.Model{
-			Memory: requiredMemory,
-		},
-	}
+	}, &types.Model{
+		ID:     "test-model",
+		Memory: requiredMemory,
+	})
+	require.NoError(t, err)
 
 	availableRunners := []string{runner1, runner2, runner3}
 	filteredRunners, err := scheduler.filterRunnersByMemory(workload, availableRunners)
@@ -174,12 +196,16 @@ func Test_filterRunnersByModel_NoRunners(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	workload := &Workload{
-		model: &types.Model{
-			ID:      "test-model",
-			Runtime: types.RuntimeOllama,
-		},
-	}
+	workload, err := NewSessionWorkload(&types.Session{
+		ID:        "test-session",
+		ModelName: "test-model",
+		Mode:      types.SessionModeInference,
+		Type:      types.SessionTypeText,
+	}, &types.Model{
+		ID:      "test-model",
+		Runtime: types.RuntimeOllama,
+	})
+	require.NoError(t, err)
 
 	filteredRunners, err := scheduler.filterRunnersByModel(workload, []string{})
 	require.Error(t, err)
@@ -201,12 +227,16 @@ func Test_filterRunnersByModel_RuntimeNotOllama(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	workload := &Workload{
-		model: &types.Model{
-			ID:      "test-model",
-			Runtime: types.RuntimeVLLM, // Not Ollama
-		},
-	}
+	workload, err := NewSessionWorkload(&types.Session{
+		ID:        "test-session",
+		ModelName: "test-model",
+		Mode:      types.SessionModeInference,
+		Type:      types.SessionTypeText,
+	}, &types.Model{
+		ID:      "test-model",
+		Runtime: types.RuntimeVLLM, // Not Ollama
+	})
+	require.NoError(t, err)
 
 	runnerIDs := []string{"runner-1", "runner-2"}
 	filteredRunners, err := scheduler.filterRunnersByModel(workload, runnerIDs)
@@ -250,12 +280,16 @@ func Test_filterRunnersByModel_AllRunnersHaveModel(t *testing.T) {
 		}))
 	}
 
-	workload := &Workload{
-		model: &types.Model{
-			ID:      modelID,
-			Runtime: types.RuntimeOllama,
-		},
-	}
+	workload, err := NewSessionWorkload(&types.Session{
+		ID:        "test-session",
+		ModelName: modelID,
+		Mode:      types.SessionModeInference,
+		Type:      types.SessionTypeText,
+	}, &types.Model{
+		ID:      modelID,
+		Runtime: types.RuntimeOllama,
+	})
+	require.NoError(t, err)
 
 	filteredRunners, err := scheduler.filterRunnersByModel(workload, runnerIDs)
 	require.NoError(t, err)
@@ -322,12 +356,16 @@ func Test_filterRunnersByModel_OneRunnerHasModel(t *testing.T) {
 		}, nil
 	}, CacheConfig{updateInterval: 1 * time.Second}))
 
-	workload := &Workload{
-		model: &types.Model{
-			ID:      modelID,
-			Runtime: types.RuntimeOllama,
-		},
-	}
+	workload, err := NewSessionWorkload(&types.Session{
+		ID:        "test-session",
+		ModelName: modelID,
+		Mode:      types.SessionModeInference,
+		Type:      types.SessionTypeText,
+	}, &types.Model{
+		ID:      modelID,
+		Runtime: types.RuntimeOllama,
+	})
+	require.NoError(t, err)
 
 	filteredRunners, err := scheduler.filterRunnersByModel(workload, runnerIDs)
 	require.NoError(t, err)
@@ -381,12 +419,16 @@ func Test_filterRunnersByModel_NoRunnerHasModel(t *testing.T) {
 		}, nil
 	}, CacheConfig{updateInterval: 1 * time.Second}))
 
-	workload := &Workload{
-		model: &types.Model{
-			ID:      modelID,
-			Runtime: types.RuntimeOllama,
-		},
-	}
+	workload, err := NewSessionWorkload(&types.Session{
+		ID:        "test-session",
+		ModelName: modelID,
+		Mode:      types.SessionModeInference,
+		Type:      types.SessionTypeText,
+	}, &types.Model{
+		ID:      modelID,
+		Runtime: types.RuntimeOllama,
+	})
+	require.NoError(t, err)
 
 	filteredRunners, err := scheduler.filterRunnersByModel(workload, runnerIDs)
 	require.Error(t, err)
