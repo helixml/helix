@@ -1,4 +1,4 @@
-ARG UV_VERSION="0.6.9"
+ARG UV_VERSION="0.8.9"
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 FROM ghcr.io/astral-sh/uv:${UV_VERSION}-bookworm-slim AS diffusers-build-env
@@ -53,8 +53,14 @@ COPY --from=diffusers-build-env /usr/share/nltk_data /usr/share/nltk_data
 COPY --from=diffusers-build-env /app/.venv /app/.venv
 COPY pyproject.toml uv.lock .python-version ./
 
-# Install the project and its dependencies
-RUN uv pip install -e .
+# Copy the application code first so sync can find it
+COPY . /app
+
+# Sync the project dependencies with the existing virtual environment
+RUN uv sync --frozen --no-dev
+
+# Set PATH to use the virtual environment
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Expose port
 EXPOSE 8000
@@ -62,6 +68,3 @@ EXPOSE 8000
 # Run the service
 ENTRYPOINT ["uv", "run", "--frozen", "--no-dev"]
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-# Copy the application code last to leverage Docker layer caching
-COPY . /app
