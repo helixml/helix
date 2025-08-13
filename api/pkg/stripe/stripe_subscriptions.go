@@ -3,9 +3,11 @@ package stripe
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"github.com/stripe/stripe-go/v76"
@@ -131,6 +133,13 @@ func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
 
 	wallet, err := s.store.GetWalletByStripeCustomerID(ctx, stripeCustomerID)
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			log.Info().
+				Str("customer_id", stripeCustomerID).
+				Str("subscription_id", subscription.ID).
+				Msg("no wallet found for stripe customer id, skipping")
+			return nil
+		}
 		return err
 	}
 
