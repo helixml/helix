@@ -39,19 +39,23 @@ type VLLMRuntime struct {
 	tensorParallelSize int   // Number of GPUs for tensor parallelism
 	cmd                *exec.Cmd
 	cancel             context.CancelFunc
+	logBuffer          *system.ModelInstanceLogBuffer // Log buffer for this instance
+	commandLine        string                         // The actual command line executed
+	ready              bool                           // True when vLLM is ready to handle requests
 }
 
 type VLLMRuntimeParams struct {
-	CacheDir           *string        // Where to store the models
-	Port               *int           // If nil, will be assigned a random port
-	StartTimeout       *time.Duration // How long to wait for vLLM to start, if nil, will use default
-	ContextLength      *int64         // Optional: Context length to use for the model
-	Model              *string        // Optional: Model to use
-	Args               []string       // Optional: Additional arguments to pass to vLLM
-	HuggingFaceToken   *string        // Optional: Hugging Face token for model access
-	GPUIndex           *int           // Optional: Primary GPU index for single-GPU models (for multi-GPU scheduling)
-	GPUIndices         []int          // Optional: GPU indices for multi-GPU models (overrides GPUIndex)
-	TensorParallelSize *int           // Optional: Number of GPUs for tensor parallelism (default 1)
+	CacheDir           *string                        // Where to store the models
+	Port               *int                           // If nil, will be assigned a random port
+	StartTimeout       *time.Duration                 // How long to wait for vLLM to start, if nil, will use default
+	ContextLength      *int64                         // Optional: Context length to use for the model
+	Model              *string                        // Optional: Model to use
+	Args               []string                       // Optional: Additional arguments to pass to vLLM
+	HuggingFaceToken   *string                        // Optional: Hugging Face token for model access
+	GPUIndex           *int                           // Optional: Primary GPU index for single-GPU models (for multi-GPU scheduling)
+	GPUIndices         []int                          // Optional: GPU indices for multi-GPU models (overrides GPUIndex)
+	TensorParallelSize *int                           // Optional: Number of GPUs for tensor parallelism (default 1)
+	LogBuffer          *system.ModelInstanceLogBuffer // Optional: Log buffer for capturing logs
 }
 
 func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, error) {
@@ -141,6 +145,7 @@ func NewVLLMRuntime(_ context.Context, params VLLMRuntimeParams) (*VLLMRuntime, 
 		gpuIndex:           gpuIndex,
 		gpuIndices:         gpuIndices,
 		tensorParallelSize: tensorParallelSize,
+		logBuffer:          params.LogBuffer,
 	}, nil
 }
 
@@ -180,11 +185,12 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 	}()
 
 	// Start vLLM cmd
-	cmd, err := startVLLMCmd(ctx, vllmCommander, v.port, v.cacheDir, v.contextLength, v.model, v.args, v.huggingFaceToken, v.gpuIndex, v.gpuIndices, v.tensorParallelSize)
+	cmd, commandLine, err := startVLLMCmd(ctx, vllmCommander, v.port, v.cacheDir, v.contextLength, v.model, v.args, v.huggingFaceToken, v.gpuIndex, v.gpuIndices, v.tensorParallelSize, v.logBuffer)
 	if err != nil {
 		return fmt.Errorf("error building vLLM cmd: %w", err)
 	}
 	v.cmd = cmd
+	v.commandLine = commandLine
 
 	// Wait for vLLM to be ready
 	log.Debug().Str("url", v.URL()).Dur("timeout", v.startTimeout).Msg("Waiting for vLLM to start")
@@ -192,6 +198,10 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("error waiting for vLLM to start: %s", err.Error())
 	}
+
+	// Mark as ready only after HTTP readiness check passes
+	v.ready = true
+
 	log.Info().
 		Str("model", v.model).
 		Strs("args", v.args).
@@ -210,6 +220,9 @@ func (v *VLLMRuntime) URL() string {
 
 func (v *VLLMRuntime) Stop() error {
 	defer v.cancel() // Cancel the context no matter what
+
+	// Mark as not ready when stopping
+	v.ready = false
 
 	if v.cmd == nil {
 		return nil
@@ -383,10 +396,34 @@ func (v *VLLMRuntime) Version() string {
 	return v.version
 }
 
-func (v *VLLMRuntime) Status(_ context.Context) string {
-	// vLLM doesn't have a built-in status endpoint like Ollama
-	// For now, just return a simple status
+func (v *VLLMRuntime) Status(ctx context.Context) string {
+	if !v.ready {
+		return "starting"
+	}
+
+	// Double-check that vLLM is still responding to requests
+	client := &http.Client{Timeout: 2 * time.Second}
+	url := fmt.Sprintf("%s/v1/models", v.URL())
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "error"
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "error"
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return "error"
+	}
+
 	return "running"
+}
+
+func (v *VLLMRuntime) CommandLine() string {
+	return v.commandLine
 }
 
 func (v *VLLMRuntime) waitUntilVLLMIsReady(ctx context.Context, startTimeout time.Duration) error {
@@ -507,11 +544,11 @@ func formatGPUIndices(gpuIndices []int) string {
 	return strings.Join(indices, ",")
 }
 
-func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, model string, customArgs []string, hfToken string, _ int, gpuIndices []int, tensorParallelSize int) (*exec.Cmd, error) {
+func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, model string, customArgs []string, hfToken string, _ int, gpuIndices []int, tensorParallelSize int, logBuffer *system.ModelInstanceLogBuffer) (*exec.Cmd, string, error) {
 	// Use clean vLLM virtualenv Python - fail if not found (no fallback to avoid confusion)
 	vllmPath := "/workspace/vllm/venv/bin/python"
 	if _, err := os.Stat(vllmPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("vLLM virtualenv not found at %s - Docker build may have failed or vLLM installation incomplete", vllmPath)
+		return nil, "", fmt.Errorf("vLLM virtualenv not found at %s - Docker build may have failed or vLLM installation incomplete", vllmPath)
 	}
 	log.Debug().Str("python_path", vllmPath).Msg("Using clean vLLM virtualenv Python 3.12 - completely isolated from system packages")
 
@@ -548,7 +585,7 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 	if !customArgsMap["--model"] && model != "" {
 		args = append(args, "--model", model)
 	} else if !customArgsMap["--model"] && model == "" {
-		return nil, fmt.Errorf("model parameter is required for vLLM runtime")
+		return nil, "", fmt.Errorf("model parameter is required for vLLM runtime")
 	}
 
 	if !customArgsMap["--max-model-len"] && contextLength > 0 {
@@ -659,18 +696,30 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 
 	cmd.Env = env
 
-	log.Debug().Interface("env", cmd.Env).Str("cmd", fmt.Sprintf("%s %s", vllmPath, strings.Join(args, " "))).Msg("vLLM serve command")
+	// Construct the full command line for display
+	commandLine := fmt.Sprintf("%s %s", vllmPath, strings.Join(args, " "))
+	log.Debug().Interface("env", cmd.Env).Str("cmd", commandLine).Msg("vLLM serve command")
 
 	// Prepare stdout and stderr
 	log.Debug().Msg("Preparing stdout and stderr")
 	cmd.Stdout = os.Stdout
-	// this buffer is so we can keep the last 10kb of stderr so if
-	// there is an error we can send it to the api
-	stderrBuf := system.NewLimitedBuffer(1024 * 10)
-	stderrWriters := []io.Writer{os.Stderr, stderrBuf}
+
+	// Set up stderr capture with enhanced logging
+	var stderrBuf *system.LimitedBuffer
+	var stderrWriters []io.Writer
+
+	// Always include the legacy limited buffer for backward compatibility
+	stderrBuf = system.NewLimitedBuffer(1024 * 10)
+	stderrWriters = []io.Writer{os.Stderr, stderrBuf}
+
+	// If we have a log buffer for this instance, add it to the writers
+	if logBuffer != nil {
+		stderrWriters = append(stderrWriters, logBuffer)
+	}
+
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	go func() {
 		_, err := io.Copy(io.MultiWriter(stderrWriters...), stderrPipe)
@@ -681,7 +730,7 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 
 	log.Debug().Msg("Starting vLLM serve")
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("error starting vLLM model instance: %w", err)
+		return nil, "", fmt.Errorf("error starting vLLM model instance: %w", err)
 	}
 
 	go func() {
@@ -689,6 +738,11 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 			if err := cmd.Wait(); err != nil {
 				errMsg := string(stderrBuf.Bytes())
 				log.Error().Err(err).Str("stderr", errMsg).Int("exit_code", cmd.ProcessState.ExitCode()).Msg("vLLM exited with error")
+
+				// Update log buffer status if available
+				if logBuffer != nil {
+					logBuffer.SetStatus("errored")
+				}
 
 				// Don't restart if context is canceled
 				if ctx.Err() != nil {
@@ -719,6 +773,12 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 				// Set up stderr handling
 				newStderrBuf := system.NewLimitedBuffer(1024 * 10)
 				newStderrWriters := []io.Writer{os.Stderr, newStderrBuf}
+
+				// If we have a log buffer for this instance, add it to the writers
+				if logBuffer != nil {
+					newStderrWriters = append(newStderrWriters, logBuffer)
+				}
+
 				newStderrPipe, err := newCmd.StderrPipe()
 				if err != nil {
 					log.Error().Err(err).Msg("Failed to create stderr pipe for restarted vLLM")
@@ -753,5 +813,5 @@ func startVLLMCmd(ctx context.Context, commander Commander, port int, cacheDir s
 		}
 	}()
 
-	return cmd, nil
+	return cmd, commandLine, nil
 }

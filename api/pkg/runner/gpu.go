@@ -29,10 +29,13 @@ type GPUManager struct {
 
 // GPUInfo tracks memory usage for individual GPUs
 type GPUInfo struct {
-	Index       int    `json:"index"`        // GPU index (0, 1, 2, etc.)
-	TotalMemory uint64 `json:"total_memory"` // Total memory in bytes
-	FreeMemory  uint64 `json:"free_memory"`  // Free memory in bytes
-	UsedMemory  uint64 `json:"used_memory"`  // Used memory in bytes
+	Index         int    `json:"index"`          // GPU index (0, 1, 2, etc.)
+	TotalMemory   uint64 `json:"total_memory"`   // Total memory in bytes
+	FreeMemory    uint64 `json:"free_memory"`    // Free memory in bytes
+	UsedMemory    uint64 `json:"used_memory"`    // Used memory in bytes
+	ModelName     string `json:"model_name"`     // GPU model name (e.g., "NVIDIA H100 PCIe", "NVIDIA GeForce RTX 4090")
+	DriverVersion string `json:"driver_version"` // NVIDIA driver version
+	CUDAVersion   string `json:"cuda_version"`   // CUDA version
 }
 
 func NewGPUManager(ctx context.Context, runnerOptions *Options) *GPUManager {
@@ -620,49 +623,75 @@ func (g *GPUManager) parseAndSumGPUMemoryWithCount(output, memoryType string) (u
 	return totalMemory, gpuCount
 }
 
-// initializeGPUMemoryMap sets up per-GPU memory tracking
+// initializeGPUMemoryMap sets up per-GPU memory tracking with model information
 func (g *GPUManager) initializeGPUMemoryMap() {
 	if !g.hasGPU || g.gpuCount == 0 {
 		return
 	}
 
-	// Get per-GPU total memory
 	switch runtime.GOOS {
 	case "linux":
-		cmd := exec.Command("nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits")
+		// Get comprehensive GPU information including model name, driver version, and memory
+		cmd := exec.Command("nvidia-smi", "--query-gpu=index,name,memory.total,driver_version", "--format=csv,noheader,nounits")
 		connectCmdStdErrToLogger(cmd)
 		output, err := cmd.Output()
 		if err != nil {
-			log.Warn().Err(err).Msg("Failed to get per-GPU total memory, using fallback")
+			log.Warn().Err(err).Msg("Failed to get GPU information, using fallback")
 			g.initializeFallbackGPUMap()
 			return
 		}
 
+		// Get CUDA version separately
+		cudaVersion := g.getCUDAVersion()
+
 		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-		for i, line := range lines {
+		for _, line := range lines {
 			line = strings.TrimSpace(line)
 			if line == "" {
 				continue
 			}
 
-			memory, err := strconv.ParseUint(line, 10, 64)
-			if err != nil {
-				log.Error().Err(err).Str("line", line).Msg("Error parsing GPU total memory")
+			// Parse CSV line: index,name,memory.total,driver_version
+			parts := strings.Split(line, ", ")
+			if len(parts) < 4 {
+				log.Error().Str("line", line).Msg("Invalid GPU info format")
 				continue
 			}
 
-			memoryBytes := memory * 1024 * 1024 // Convert MiB to bytes
-			g.gpuMemoryMap[i] = &GPUInfo{
-				Index:       i,
-				TotalMemory: memoryBytes,
-				FreeMemory:  memoryBytes, // Initially assume all memory is free
-				UsedMemory:  0,
+			index, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+			if err != nil {
+				log.Error().Err(err).Str("index", parts[0]).Msg("Error parsing GPU index")
+				continue
 			}
 
-			log.Debug().
-				Int("gpu_index", i).
+			modelName := strings.TrimSpace(parts[1])
+
+			memory, err := strconv.ParseUint(strings.TrimSpace(parts[2]), 10, 64)
+			if err != nil {
+				log.Error().Err(err).Str("memory", parts[2]).Msg("Error parsing GPU memory")
+				continue
+			}
+
+			driverVersion := strings.TrimSpace(parts[3])
+
+			memoryBytes := memory * 1024 * 1024 // Convert MiB to bytes
+			g.gpuMemoryMap[index] = &GPUInfo{
+				Index:         index,
+				TotalMemory:   memoryBytes,
+				FreeMemory:    memoryBytes, // Initially assume all memory is free
+				UsedMemory:    0,
+				ModelName:     modelName,
+				DriverVersion: driverVersion,
+				CUDAVersion:   cudaVersion,
+			}
+
+			log.Info().
+				Int("gpu_index", index).
+				Str("model_name", modelName).
+				Str("driver_version", driverVersion).
+				Str("cuda_version", cudaVersion).
 				Uint64("total_memory_bytes", memoryBytes).
-				Msg("Initialized GPU memory tracking")
+				Msg("Initialized GPU with model information")
 		}
 	default:
 		// For non-Linux systems, use fallback
@@ -671,6 +700,57 @@ func (g *GPUManager) initializeGPUMemoryMap() {
 
 	// Update with actual free/used memory
 	g.updateGPUMemoryMap()
+}
+
+// getCUDAVersion retrieves the CUDA version from nvidia-smi header
+func (g *GPUManager) getCUDAVersion() string {
+	// Get CUDA version from nvidia-smi header output
+	cmd := exec.Command("nvidia-smi")
+	connectCmdStdErrToLogger(cmd)
+	output, err := cmd.Output()
+	if err != nil {
+		log.Debug().Err(err).Msg("Failed to get CUDA version from nvidia-smi")
+		// Try alternative method using nvcc if available
+		cmd = exec.Command("nvcc", "--version")
+		connectCmdStdErrToLogger(cmd)
+		nvccOutput, nvccErr := cmd.Output()
+		if nvccErr != nil {
+			log.Debug().Err(nvccErr).Msg("Failed to get CUDA version from nvcc")
+			return "unknown"
+		}
+
+		// Parse nvcc output to extract version
+		lines := strings.Split(string(nvccOutput), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "release") {
+				// Example: "Cuda compilation tools, release 12.2, V12.2.140"
+				parts := strings.Split(line, "release ")
+				if len(parts) > 1 {
+					versionPart := strings.Split(parts[1], ",")[0]
+					return strings.TrimSpace(versionPart)
+				}
+			}
+		}
+		return "unknown"
+	}
+
+	// Parse nvidia-smi header to extract CUDA version
+	// Header format: "| NVIDIA-SMI 575.57.08              Driver Version: 575.57.08      CUDA Version: 12.9     |"
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "CUDA Version:") {
+			parts := strings.Split(line, "CUDA Version:")
+			if len(parts) > 1 {
+				// Extract version number and clean up
+				versionPart := strings.TrimSpace(parts[1])
+				versionPart = strings.Split(versionPart, " ")[0]  // Take first part before any spaces
+				versionPart = strings.TrimRight(versionPart, "|") // Remove trailing |
+				return strings.TrimSpace(versionPart)
+			}
+		}
+	}
+
+	return "unknown"
 }
 
 // initializeFallbackGPUMap creates a fallback GPU memory map when nvidia-smi is not available
@@ -682,10 +762,13 @@ func (g *GPUManager) initializeFallbackGPUMap() {
 	perGPUMemory := g.gpuMemory / uint64(g.gpuCount)
 	for i := 0; i < g.gpuCount; i++ {
 		g.gpuMemoryMap[i] = &GPUInfo{
-			Index:       i,
-			TotalMemory: perGPUMemory,
-			FreeMemory:  perGPUMemory,
-			UsedMemory:  0,
+			Index:         i,
+			TotalMemory:   perGPUMemory,
+			FreeMemory:    perGPUMemory,
+			UsedMemory:    0,
+			ModelName:     "unknown",
+			DriverVersion: "unknown",
+			CUDAVersion:   "unknown",
 		}
 	}
 

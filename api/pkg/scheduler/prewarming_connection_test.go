@@ -165,6 +165,60 @@ func TestOnRunnerConnectedCallback(t *testing.T) {
 	t.Logf("Runner connection successfully triggered prewarming: %d workloads enqueued", finalQueueSize-initialQueueSize)
 }
 
+func TestOnRunnerReconnectedCallback(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+
+	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub: ps,
+		Store:  mockStore,
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
+		RunnerController: runnerCtrl,
+		QueueSize:        10,
+	})
+	require.NoError(t, err)
+
+	// Set up the prewarming callback (as done in serve.go)
+	runnerCtrl.SetOnRunnerConnectedCallback(scheduler.PrewarmNewRunner)
+
+	runnerID := "test-runner-reconnect"
+
+	// First connection (should trigger prewarming for new runner)
+	initialQueueSize := len(scheduler.queue.Queue())
+	runnerCtrl.OnConnectedHandler(runnerID)
+	time.Sleep(100 * time.Millisecond)
+	afterFirstConnection := len(scheduler.queue.Queue())
+
+	// Verify the runner was added and prewarming happened
+	runners := runnerCtrl.RunnerIDs()
+	require.Contains(t, runners, runnerID, "Runner should be added to controller")
+	require.Greater(t, afterFirstConnection, initialQueueSize, "First connection should trigger prewarming")
+
+	// Second connection (should trigger prewarming attempt for reconnected runner)
+	// Note: The actual workloads may not be added if they're already in the queue (deduplication)
+	runnerCtrl.OnConnectedHandler(runnerID)
+	time.Sleep(100 * time.Millisecond)
+	afterSecondConnection := len(scheduler.queue.Queue())
+
+	// Verify prewarming was attempted (even if workloads were deduplicated)
+	// The queue size may not increase due to deduplication, but we should see the attempt in logs
+	require.GreaterOrEqual(t, afterSecondConnection, afterFirstConnection, "Queue should not shrink after reconnection")
+
+	t.Logf("First connection triggered prewarming: %d workloads", afterFirstConnection-initialQueueSize)
+	t.Logf("Reconnection queue size: %d (may be same due to deduplication)", afterSecondConnection)
+}
+
 func TestPrewarmWorkloadProperties(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)

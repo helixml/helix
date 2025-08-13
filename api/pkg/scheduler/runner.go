@@ -24,7 +24,7 @@ import (
 
 const (
 	submitChatCompletionRequestTimeout = 300 * time.Second
-	defaultRequestTimeout              = 300 * time.Second
+	defaultRequestTimeout              = 5 * time.Second // Reduced from 300s - we need fast failure for slot reconciliation
 	cacheUpdateInterval                = 1 * time.Second // Reduced from 5s for more responsive dashboard updates
 )
 
@@ -119,9 +119,44 @@ func (c *RunnerController) Send(ctx context.Context, runnerID string, headers ma
 		return nil, fmt.Errorf("error marshalling request: %w", err)
 	}
 
+	// Check if runner is still connected before making NATS call
+	if !slices.Contains(c.RunnerIDs(), runnerID) {
+		return nil, fmt.Errorf("runner %s is not connected", runnerID)
+	}
+
+	// Create a context that will be cancelled if the runner disconnects during the request
+	requestCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	
+	// For long operations (> 10 seconds), start background monitoring to cancel if runner disappears
+	if timeout > 10*time.Second {
+		go func() {
+			ticker := time.NewTicker(1 * time.Second) // Check every second
+			defer ticker.Stop()
+			
+			for {
+				select {
+				case <-requestCtx.Done():
+					return // Context already cancelled
+				case <-ticker.C:
+					// Check if runner is still connected
+					if !slices.Contains(c.RunnerIDs(), runnerID) {
+						log.Debug().
+							Str("runner_id", runnerID).
+							Str("method", req.Method).
+							Str("url", req.URL).
+							Msg("Runner disconnected during NATS request, cancelling")
+						cancel() // Cancel the context immediately
+						return
+					}
+				}
+			}
+		}()
+	}
+
 	// Publish the task to the "tasks" subject
 	start := time.Now()
-	response, err := c.ps.Request(ctx, pubsub.GetRunnerQueue(runnerID), headers, data, timeout)
+	response, err := c.ps.Request(requestCtx, pubsub.GetRunnerQueue(runnerID), headers, data, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("error sending request to runner: %w", err)
 	}
@@ -221,34 +256,52 @@ func (c *RunnerController) SyncSystemSettingsToAllRunners(ctx context.Context) {
 func (c *RunnerController) OnConnectedHandler(id string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	isNewRunner := !slices.Contains(c.runners, id)
+
 	// Add the runner to the cluster if it is not already in the cluster.
-	if !slices.Contains(c.runners, id) {
+	if isNewRunner {
 		c.runners = append(c.runners, id)
+		log.Info().Str("runner_id", id).Msg("new runner connected")
+	} else {
+		log.Info().Str("runner_id", id).Msg("existing runner reconnected")
+	}
 
-		// Reconcile runner models immediately
-		err := c.SetModels(id)
-		if err != nil {
-			log.Error().Err(err).Str("runner_id", id).Msg("error setting models on runner")
+	// CRITICAL FIX: Invalidate caches when runner connects/reconnects
+	// This ensures that status and slots information is fresh and available immediately
+	// for scheduling decisions, rather than waiting up to 1 second for cache refresh
+	c.statusCache.DeleteCache(id)
+	c.slotsCache.DeleteCache(id)
+	log.Debug().Str("runner_id", id).Msg("invalidated runner caches on connection")
+
+	// Always reconcile runner models (for both new and reconnected runners)
+	err := c.SetModels(id)
+	if err != nil {
+		log.Error().Err(err).Str("runner_id", id).Msg("error setting models on runner")
+	}
+
+	// Always sync system settings (for both new and reconnected runners)
+	go func() {
+		// Run in a goroutine to avoid blocking runner registration
+		if err := c.SyncSystemSettings(c.ctx, id); err != nil {
+			log.Error().
+				Err(err).
+				Str("runner_id", id).
+				Msg("failed to sync system settings to connected runner")
 		}
+	}()
 
-		// Sync system settings to the new runner
+	// Always call the prewarming callback (for both new and reconnected runners)
+	// This ensures that models get prewarmed when runners restart
+	if c.onRunnerConnectedFn != nil {
 		go func() {
 			// Run in a goroutine to avoid blocking runner registration
-			if err := c.SyncSystemSettings(c.ctx, id); err != nil {
-				log.Error().
-					Err(err).
-					Str("runner_id", id).
-					Msg("failed to sync system settings to newly connected runner")
-			}
+			log.Info().
+				Str("runner_id", id).
+				Bool("is_new_runner", isNewRunner).
+				Msg("triggering prewarming for connected runner")
+			c.onRunnerConnectedFn(id)
 		}()
-
-		// Call the prewarming callback if it's set
-		if c.onRunnerConnectedFn != nil {
-			go func() {
-				// Run in a goroutine to avoid blocking runner registration
-				c.onRunnerConnectedFn(id)
-			}()
-		}
 	}
 }
 
@@ -888,6 +941,8 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 		Str("runtime", string(slot.InitialWork().Runtime())).
 		Msg("creating slot")
 
+
+
 	// Get the context length from the model
 	modelName := slot.InitialWork().ModelName().String()
 
@@ -1019,7 +1074,7 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 		Str("json_body", string(body)).
 		Msg("JSON body being sent to runner")
 
-	resp, err := c.Send(c.ctx, slot.RunnerID, nil, &types.Request{
+		resp, err := c.Send(c.ctx, slot.RunnerID, nil, &types.Request{
 		Method: "POST",
 		URL:    "/api/v1/slots",
 		Body:   body,

@@ -35,6 +35,7 @@ type HelixRunnerAPIServer struct {
 	cliContext    context.Context
 	slots         *xsync.MapOf[uuid.UUID, *Slot]
 	gpuManager    *GPUManager
+	logManager    *system.LogManager
 
 	modelStatusMu sync.Mutex
 	modelStatus   map[string]*types.RunnerModelStatus
@@ -67,6 +68,7 @@ func NewHelixRunnerAPIServer(
 		slots:         xsync.NewMapOf[uuid.UUID, *Slot](),
 		cliContext:    ctx,
 		gpuManager:    NewGPUManager(ctx, runnerOptions),
+		logManager:    system.NewLogManager(1000, 14*24*time.Hour), // 1000 lines, 14 days error retention
 		modelStatusMu: sync.Mutex{},
 		modelStatus:   make(map[string]*types.RunnerModelStatus),
 		modelsMu:      sync.Mutex{},
@@ -120,6 +122,10 @@ func (apiServer *HelixRunnerAPIServer) registerRoutes(_ context.Context) (*mux.R
 	subRouter.HandleFunc("/slots/{slot_id}/v1/fine_tuning/jobs", apiServer.slotActivationMiddleware(apiServer.createFinetuningJob)).Methods(http.MethodPost, http.MethodOptions)
 	subRouter.HandleFunc("/slots/{slot_id}/v1/fine_tuning/jobs/{job_id}/events", apiServer.listFinetuningJobEvents).Methods(http.MethodGet, http.MethodOptions)
 	subRouter.HandleFunc("/slots/{slot_id}/v1/helix/fine_tuning/jobs", apiServer.createHelixFinetuningJob).Methods(http.MethodPost, http.MethodOptions)
+
+	// Log endpoints
+	subRouter.HandleFunc("/logs", apiServer.getLogsSummary).Methods(http.MethodGet)
+	subRouter.HandleFunc("/logs/{slot_id}", apiServer.getSlotLogs).Methods(http.MethodGet)
 
 	// register pprof routes
 	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
@@ -241,10 +247,13 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 	gpuInfo := apiServer.gpuManager.GetGPUInfo()
 	for _, gpu := range gpuInfo {
 		gpuStatuses = append(gpuStatuses, &types.GPUStatus{
-			Index:       gpu.Index,
-			TotalMemory: gpu.TotalMemory,
-			FreeMemory:  gpu.FreeMemory,
-			UsedMemory:  gpu.UsedMemory,
+			Index:         gpu.Index,
+			TotalMemory:   gpu.TotalMemory,
+			FreeMemory:    gpu.FreeMemory,
+			UsedMemory:    gpu.UsedMemory,
+			ModelName:     gpu.ModelName,
+			DriverVersion: gpu.DriverVersion,
+			CUDAVersion:   gpu.CUDAVersion,
 		})
 	}
 
@@ -384,6 +393,7 @@ func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, r *http.
 			GPUIndex:           slot.GPUIndex,
 			GPUIndices:         slot.GPUIndices,
 			TensorParallelSize: slot.TensorParallelSize,
+			CommandLine:        slot.CommandLine,
 		})
 		return true
 	})
@@ -419,6 +429,7 @@ func (apiServer *HelixRunnerAPIServer) getSlot(w http.ResponseWriter, r *http.Re
 		Active:        slot.Active,
 		Ready:         slot.Ready,
 		Status:        slot.Status(r.Context()),
+		CommandLine:   slot.CommandLine,
 	}
 
 	err = json.NewEncoder(w).Encode(response)
@@ -557,4 +568,79 @@ func (apiServer *HelixRunnerAPIServer) setHelixModelsStatus(status *types.Runner
 	defer apiServer.modelStatusMu.Unlock()
 
 	apiServer.modelStatus[status.ModelID] = status
+}
+
+// getLogsSummary returns a summary of all log buffers
+func (apiServer *HelixRunnerAPIServer) getLogsSummary(w http.ResponseWriter, r *http.Request) {
+	summary := apiServer.logManager.GetLogsSummary()
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(summary); err != nil {
+		log.Error().Err(err).Msg("Error encoding logs summary response")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
+// getSlotLogs returns logs for a specific slot
+func (apiServer *HelixRunnerAPIServer) getSlotLogs(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	slotID := vars["slot_id"]
+
+	if slotID == "" {
+		http.Error(w, "slot_id is required", http.StatusBadRequest)
+		return
+	}
+
+	// Parse query parameters
+	query := r.URL.Query()
+	maxLines := 1000 // default
+	if lines := query.Get("lines"); lines != "" {
+		if parsed, err := fmt.Sscanf(lines, "%d", &maxLines); err != nil || parsed != 1 {
+			http.Error(w, "Invalid lines parameter", http.StatusBadRequest)
+			return
+		}
+	}
+
+	var since *time.Time
+	if sinceStr := query.Get("since"); sinceStr != "" {
+		if parsedTime, err := time.Parse(time.RFC3339, sinceStr); err == nil {
+			since = &parsedTime
+		}
+	}
+
+	level := query.Get("level") // ERROR, WARN, INFO, DEBUG
+
+	// Get the log buffer (check both active and recent errors)
+	var buffer *system.ModelInstanceLogBuffer
+	if buffer = apiServer.logManager.GetBuffer(slotID); buffer == nil {
+		// Check recent errors
+		recentErrors := apiServer.logManager.GetRecentErrors()
+		if recentBuffer, exists := recentErrors[slotID]; exists {
+			buffer = recentBuffer
+		}
+	}
+
+	if buffer == nil {
+		http.Error(w, "Slot not found or no logs available", http.StatusNotFound)
+		return
+	}
+
+	// Get logs and metadata
+	logs := buffer.GetLogs(maxLines, since, level)
+	metadata := buffer.GetMetadata()
+
+	response := map[string]interface{}{
+		"slot_id":  slotID,
+		"metadata": metadata,
+		"logs":     logs,
+		"count":    len(logs),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Error().Err(err).Msg("Error encoding slot logs response")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 }

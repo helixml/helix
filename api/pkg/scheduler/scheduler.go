@@ -57,6 +57,21 @@ type Scheduler struct {
 
 	// GPU allocation tracking - maps workload+runner to specific GPU allocation
 	gpuAllocations *xsync.MapOf[string, *GPUAllocation]
+
+	// Channel to trigger immediate queue processing (e.g., when runners reconnect)
+	queueTrigger chan struct{}
+
+	// Heartbeat tracking for goroutines
+	heartbeats *xsync.MapOf[string, *GoroutineHeartbeat]
+}
+
+// GoroutineHeartbeat tracks the health of scheduler goroutines
+type GoroutineHeartbeat struct {
+	Name          string    `json:"name"`
+	LastBeat      time.Time `json:"last_beat"`
+	RestartCount  int       `json:"restart_count"`
+	IsHealthy     bool      `json:"is_healthy"`
+	CurrentStatus string    `json:"current_status"`
 }
 
 // GPUAllocation represents a specific GPU allocation decision made by the scheduler
@@ -126,6 +141,8 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		slotTimeoutFunc:  slotTimeoutFunc,
 		decisionsTracker: NewSchedulingDecisionsTracker(100), // Keep last 100 decisions
 		gpuAllocations:   xsync.NewMapOf[string, *GPUAllocation](),
+		queueTrigger:     make(chan struct{}, 1), // Buffered channel to avoid blocking
+		heartbeats:       xsync.NewMapOf[string, *GoroutineHeartbeat](),
 	}
 
 	// Start the queue processor
@@ -141,6 +158,112 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 	go s.reconcileRunners(ctx)
 
 	return s, nil
+}
+
+// runGoroutineWithRestart runs a goroutine with automatic restart on both panic and normal exit
+func (s *Scheduler) runGoroutineWithRestart(ctx context.Context, name string, fn func(context.Context)) {
+	// Initialize heartbeat
+	s.heartbeats.Store(name, &GoroutineHeartbeat{
+		Name:          name,
+		LastBeat:      time.Now(),
+		RestartCount:  0,
+		IsHealthy:     true,
+		CurrentStatus: "initializing",
+	})
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				// Mark as unhealthy when context is cancelled
+				if hb, ok := s.heartbeats.Load(name); ok {
+					hb.IsHealthy = false
+					s.heartbeats.Store(name, hb)
+				}
+				log.Info().Str("goroutine", name).Msg("goroutine shutting down due to context cancellation")
+				return
+			default:
+				// Run the goroutine function with recovery
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							// Update heartbeat on panic
+							if hb, ok := s.heartbeats.Load(name); ok {
+								hb.RestartCount++
+								hb.LastBeat = time.Now()
+								s.heartbeats.Store(name, hb)
+							}
+							log.Error().
+								Str("goroutine", name).
+								Interface("panic", r).
+								Msg("goroutine panicked - restarting in 5 seconds")
+						}
+					}()
+
+					// Update heartbeat before starting
+					s.updateHeartbeat(name)
+
+					// Run the actual function
+					fn(ctx)
+
+					// If we reach here, the function exited normally
+					if hb, ok := s.heartbeats.Load(name); ok {
+						hb.RestartCount++
+						hb.LastBeat = time.Now()
+						s.heartbeats.Store(name, hb)
+					}
+					log.Warn().
+						Str("goroutine", name).
+						Msg("goroutine exited normally - restarting in 5 seconds")
+				}()
+
+				// Wait 5 seconds before restarting (unless context is cancelled)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(5 * time.Second):
+					// Continue to restart
+				}
+			}
+		}
+	}()
+}
+
+// updateHeartbeat updates the heartbeat for a goroutine
+func (s *Scheduler) updateHeartbeat(name string) {
+	if hb, ok := s.heartbeats.Load(name); ok {
+		hb.LastBeat = time.Now()
+		hb.IsHealthy = true
+		s.heartbeats.Store(name, hb)
+	}
+}
+
+// updateHeartbeatStatus updates the current status for a goroutine
+func (s *Scheduler) updateHeartbeatStatus(name string, status string) {
+	if hb, ok := s.heartbeats.Load(name); ok {
+		hb.CurrentStatus = status
+		s.heartbeats.Store(name, hb)
+	}
+}
+
+// GetGoroutineHeartbeats returns the current heartbeat status of all scheduler goroutines
+func (s *Scheduler) GetGoroutineHeartbeats() map[string]*GoroutineHeartbeat {
+	result := make(map[string]*GoroutineHeartbeat)
+	s.heartbeats.Range(func(name string, hb *GoroutineHeartbeat) bool {
+		// Check if heartbeat is stale (no update in last 30 seconds)
+		isStale := time.Since(hb.LastBeat) > 30*time.Second
+
+		// Create a copy to avoid race conditions
+		result[name] = &GoroutineHeartbeat{
+			Name:          hb.Name,
+			LastBeat:      hb.LastBeat,
+			RestartCount:  hb.RestartCount,
+			IsHealthy:     hb.IsHealthy && !isStale,
+			CurrentStatus: hb.CurrentStatus,
+		}
+		return true
+	})
+	return result
 }
 
 // GetRunnerController returns the RunnerController for external access
@@ -287,40 +410,60 @@ func (s *Scheduler) RunnerSlots(runnerID string) ([]*types.RunnerSlot, error) {
 
 // processQueue runs in a goroutine to processes the queue of requests.
 func (s *Scheduler) processQueue(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(queueReconcileInterval):
-			s.processQueueOnce()
+	s.runGoroutineWithRestart(ctx, "processQueue", func(ctx context.Context) {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(queueReconcileInterval):
+				s.updateHeartbeat("processQueue")
+				s.processQueueOnce()
+			case <-s.queueTrigger:
+				s.updateHeartbeat("processQueue")
+				s.processQueueOnce()
+			}
 		}
-	}
+	})
 }
 
 // reconcileSlots runs in a goroutine to reconcile slots.
 // The reason why we do this async is because we don't want to have to check the runner on the hot
 // path. When a user makes a request we want to forward it to a warm runner as quickly as possible.
 func (s *Scheduler) reconcileSlots(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(runnerReconcileInterval):
-			s.reconcileSlotsOnce(ctx)
+	s.runGoroutineWithRestart(ctx, "reconcileSlots", func(ctx context.Context) {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(runnerReconcileInterval):
+				s.updateHeartbeat("reconcileSlots")
+				s.updateHeartbeatStatus("reconcileSlots", "starting reconcile cycle")
+				log.Debug().
+					Str("SLOT_RECONCILE_DEBUG", "starting_reconcile").
+					Msg("SLOT_RECONCILE_DEBUG: Starting reconcileSlots cycle")
+				s.reconcileSlotsOnce(ctx)
+				log.Debug().
+					Str("SLOT_RECONCILE_DEBUG", "finished_reconcile").
+					Msg("SLOT_RECONCILE_DEBUG: Finished reconcileSlots cycle")
+				s.updateHeartbeatStatus("reconcileSlots", "idle - waiting for next cycle")
+			}
 		}
-	}
+	})
 }
 
 // reconcileActivity runs in a goroutine to reconcile activity.
 func (s *Scheduler) reconcileActivity(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(activityReconcileInterval):
-			s.reconcileActivityOnce()
+	s.runGoroutineWithRestart(ctx, "reconcileActivity", func(ctx context.Context) {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(activityReconcileInterval):
+				s.updateHeartbeat("reconcileActivity")
+				s.reconcileActivityOnce()
+			}
 		}
-	}
+	})
 }
 
 func (s *Scheduler) reconcileActivityOnce() {
@@ -379,14 +522,17 @@ func (s *Scheduler) reconcileActivityOnce() {
 
 // reconcileRunners runs in a goroutine to reconcile runners.
 func (s *Scheduler) reconcileRunners(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(runnerReconcileInterval):
-			s.reconcileRunnersOnce()
+	s.runGoroutineWithRestart(ctx, "reconcileRunners", func(ctx context.Context) {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(runnerReconcileInterval):
+				s.updateHeartbeat("reconcileRunners")
+				s.reconcileRunnersOnce()
+			}
 		}
-	}
+	})
 }
 
 func (s *Scheduler) reconcileRunnersOnce() {
@@ -438,13 +584,16 @@ func (s *Scheduler) deleteRunnerSlots(runnerID string) {
 
 // reconcileSlotsOnce reconciles slots once.
 func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
+	s.updateHeartbeatStatus("reconcileSlots", "getting runner list")
 	// Get all runners
 	runnerIDs := s.controller.RunnerIDs()
-	log.Trace().Strs("runner_ids", runnerIDs).Msg("Starting slot reconciliation")
+	log.Info().Strs("runner_ids", runnerIDs).Msg("SLOT_RECONCILE_DEBUG: Starting slot reconciliation")
+
+	s.updateHeartbeatStatus("reconcileSlots", "getting required slots from queue")
 
 	// Ensure new slots are created and ready to take work
 	requiredSlots := s.queue.GetRequiredSlots()
-	log.Trace().Interface("required_slots", requiredSlots).Msg("Required slots for current workload")
+	log.Info().Interface("required_slots", requiredSlots).Msg("SLOT_RECONCILE_DEBUG: Required slots for current workload")
 
 	// Track slot stats
 	existingSlotCount := 0
@@ -453,6 +602,7 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	orphanedSlotCount := 0
 	mismatchedRunnerCount := 0
 
+	s.updateHeartbeatStatus("reconcileSlots", "processing slot requirements")
 	// For each requirement, ensure we have enough slots for that work right now
 	for _, req := range requiredSlots {
 		// Check if we have enough slots for this work right now
@@ -481,8 +631,29 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 				Int("existing", existingCount).
 				Int("required", req.Count).
 				Int("to_create", slotsNeeded).
-				Msg("Creating new slots for requirement")
+				Msg("SLOT_RECONCILE_DEBUG: Creating new slots for requirement")
+
+			log.Debug().
+				Str("SLOT_RECONCILE_DEBUG", "calling_ensure_slots").
+				Str("model", req.Model.String()).
+				Int("slots_needed", slotsNeeded).
+				Msg("SLOT_RECONCILE_DEBUG: About to call ensureSlots")
+
+			s.updateHeartbeatStatus("reconcileSlots", fmt.Sprintf("creating %d slots for model %s", slotsNeeded, req.Model.String()))
 			s.ensureSlots(req, slotsNeeded)
+
+			log.Debug().
+				Str("SLOT_RECONCILE_DEBUG", "ensure_slots_returned").
+				Str("model", req.Model.String()).
+				Int("slots_needed", slotsNeeded).
+				Msg("SLOT_RECONCILE_DEBUG: ensureSlots returned")
+		} else {
+			log.Info().
+				Str("model", req.Model.String()).
+				Str("runtime", string(req.Runtime)).
+				Int("existing", existingCount).
+				Int("required", req.Count).
+				Msg("SLOT_RECONCILE_DEBUG: No new slots needed for requirement")
 		}
 	}
 
@@ -582,7 +753,23 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 				Bool("is_running", slot.IsRunning()).
 				Msg("found slot on the scheduler that doesn't exist on the runner, creating...")
 
+			log.Debug().
+				Str("SLOT_RECONCILE_DEBUG", "calling_create_new_slot").
+				Str("runner_id", slot.RunnerID).
+				Str("slot_id", slot.ID.String()).
+				Str("model", slot.InitialWork().ModelName().String()).
+				Msg("SLOT_RECONCILE_DEBUG: About to call createNewSlot for orphaned slot")
+
 			err := s.createNewSlot(ctx, slot)
+
+			log.Debug().
+				Str("SLOT_RECONCILE_DEBUG", "create_new_slot_returned").
+				Str("runner_id", slot.RunnerID).
+				Str("slot_id", slot.ID.String()).
+				Str("model", slot.InitialWork().ModelName().String()).
+				Bool("had_error", err != nil).
+				Msg("SLOT_RECONCILE_DEBUG: createNewSlot returned for orphaned slot")
+
 			if err != nil {
 				// Then see if we can retry
 				retry, err := ErrorHandlingStrategy(err, slot.InitialWork())
@@ -686,26 +873,42 @@ func (s *Scheduler) getModelMemory(modelID string) uint64 {
 }
 
 func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
+	log.Info().
+		Str("model", req.Model.String()).
+		Str("runtime", string(req.Runtime)).
+		Int("count", count).
+		Msg("SLOT_RECONCILE_DEBUG: Starting ensureSlots")
+
 	for i := 0; i < count; i++ {
 		startTime := time.Now()
 
 		// Get all runners sorted by preference
 		sortedRunners, err := s.getSortedRunners(req.ExampleWorkload)
 		if err != nil {
+			log.Error().Err(err).
+				Str("model", req.Model.String()).
+				Msg("SLOT_RECONCILE_DEBUG: Failed to get sorted runners")
+
 			// Log scheduling rejection - no specific runner info available
 			s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeRejected, false,
 				fmt.Sprintf("Failed to get runners: %v", err), "", "", startTime, 0, req.ExampleWorkload.model.Memory, 0)
 
 			retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
 			if retry {
-				log.Info().Err(err).Interface("requirement", req).Msg("failed to get runners for requirement, retrying...")
+				log.Info().Err(err).Interface("requirement", req).Msg("SLOT_RECONCILE_DEBUG: failed to get runners for requirement, retrying...")
 				return
 			}
-			log.Warn().Err(err).Interface("requirement", req).Msg("failed to get runners for requirement, skipping...")
+			log.Warn().Err(err).Interface("requirement", req).Msg("SLOT_RECONCILE_DEBUG: failed to get runners for requirement, skipping...")
 			s.onSchedulingErr(req.ExampleWorkload, err)
 			s.queue.Remove(req.ExampleWorkload)
 			return
 		}
+
+		log.Info().
+			Str("model", req.Model.String()).
+			Strs("sorted_runners", sortedRunners).
+			Int("runner_count", len(sortedRunners)).
+			Msg("SLOT_RECONCILE_DEBUG: Got sorted runners for slot creation")
 
 		// Try each runner in order of preference until one succeeds
 		var lastErr error
@@ -765,6 +968,18 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 	}
 }
 
+// TriggerQueueProcessing triggers immediate queue processing without waiting for the next interval.
+// This is useful when runners reconnect and queued work might now be schedulable.
+func (s *Scheduler) TriggerQueueProcessing() {
+	select {
+	case s.queueTrigger <- struct{}{}:
+		log.Debug().Msg("triggered immediate queue processing")
+	default:
+		// Channel is full, meaning a trigger is already pending
+		log.Debug().Msg("queue processing trigger already pending")
+	}
+}
+
 func (s *Scheduler) processQueueOnce() {
 	// Try to take next work item that has a warm slot available
 	work := s.queue.TakeNext(func(w *Workload) bool {
@@ -773,8 +988,8 @@ func (s *Scheduler) processQueueOnce() {
 	})
 
 	if work == nil {
-		// Check if there's any work in the queue that can't be scheduled and log why
-		s.logUnschedulableWork()
+		// Don't do expensive logging analysis in the hot path - it causes performance issues
+		// and prevents actual slot reconciliation from working properly
 		return // Nothing can be scheduled right now
 	}
 
@@ -1166,12 +1381,25 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 
 // createNewSlot creates a new slot for the given runner and workload.
 func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
-	withSlotContext(&log.Logger, slot).Info().Msg("creating new slot on runner")
+	withSlotContext(&log.Logger, slot).Info().
+		Str("SLOT_CREATION", "starting").
+		Msg("SLOT_CREATION: Starting createNewSlot")
 
+	defer func() {
+		withSlotContext(&log.Logger, slot).Info().
+			Str("SLOT_CREATION", "finished").
+			Msg("SLOT_CREATION: Finished createNewSlot")
+	}()
+
+	s.updateHeartbeatStatus("reconcileSlots", fmt.Sprintf("creating slot %s on runner %s", slot.ID.String()[:8], slot.RunnerID))
+
+	s.updateHeartbeatStatus("reconcileSlots", fmt.Sprintf("calling CreateSlot for slot %s on runner %s", slot.ID.String()[:8], slot.RunnerID))
 	err := s.controller.CreateSlot(slot)
 	if err != nil {
+		s.updateHeartbeatStatus("reconcileSlots", fmt.Sprintf("CreateSlot failed for slot %s: %v", slot.ID.String()[:8], err))
 		return err
 	}
+	s.updateHeartbeatStatus("reconcileSlots", fmt.Sprintf("CreateSlot succeeded for slot %s, starting wait loop", slot.ID.String()[:8]))
 
 	// Wait for the slot to be ready
 	slotReady := make(chan bool)
@@ -1181,6 +1409,8 @@ func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
 	readyTimeout := 120 * time.Minute
 	lastLogTime := startTime
 	attemptCount := 0
+
+	s.updateHeartbeatStatus("reconcileSlots", fmt.Sprintf("waiting for slot %s to be ready (model: %s)", slot.ID.String()[:8], slot.InitialWork().ModelName().String()))
 
 	withSlotContext(&log.Logger, slot).Info().
 		Dur("timeout", readyTimeout).
@@ -1199,9 +1429,10 @@ func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
 				attemptCount++
 				elapsed := time.Since(startTime)
 
-				// Log status every 10 seconds
+				// Log status every 10 seconds and update heartbeat status
 				if time.Since(lastLogTime) > 10*time.Second {
 					timeLeft := readyTimeout - elapsed
+					s.updateHeartbeatStatus("reconcileSlots", fmt.Sprintf("waiting for slot %s (%s elapsed, %d attempts)", slot.ID.String()[:8], elapsed.Round(time.Second), attemptCount))
 					withSlotContext(&log.Logger, slot).Debug().
 						Dur("elapsed", elapsed).
 						Dur("time_left", timeLeft).
@@ -1210,19 +1441,58 @@ func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
 					lastLogTime = time.Now()
 				}
 
+				// First check if the runner is still connected - this is the key fix!
+				// If runner is gone, we should exit immediately instead of waiting 2 hours
+				runnerIDs := s.controller.RunnerIDs()
+				runnerConnected := slices.Contains(runnerIDs, slot.RunnerID)
+
+				withSlotContext(&log.Logger, slot).Debug().
+					Str("SLOT_WAIT_CHECK", "runner_connection_check").
+					Strs("connected_runners", runnerIDs).
+					Str("target_runner", slot.RunnerID).
+					Bool("runner_connected", runnerConnected).
+					Dur("elapsed", elapsed).
+					Msg("SLOT_WAIT_CHECK: Checking if runner is still connected")
+
+				if !runnerConnected {
+					withSlotContext(&log.Logger, slot).Warn().
+						Str("SLOT_WAIT_CHECK", "runner_disconnected").
+						Dur("elapsed", elapsed).
+						Msg("SLOT_WAIT_CHECK: Runner is no longer connected while waiting for slot - aborting slot creation")
+					close(slotReady)
+					return
+				}
+
+				// Runner is healthy, now check if slot is ready
+				withSlotContext(&log.Logger, slot).Debug().
+					Str("SLOT_WAIT_CHECK", "fetching_slot_status").
+					Str("runner_id", slot.RunnerID).
+					Str("slot_id", slot.ID.String()).
+					Dur("elapsed", elapsed).
+					Msg("SLOT_WAIT_CHECK: About to fetch slot status from runner")
+
 				if s, err := s.controller.fetchSlot(slot.RunnerID, slot.ID); err == nil {
+					withSlotContext(&log.Logger, slot).Debug().
+						Str("SLOT_WAIT_CHECK", "slot_status_received").
+						Bool("slot_ready", s.Ready).
+						Bool("slot_active", s.Active).
+						Dur("elapsed", elapsed).
+						Msg("SLOT_WAIT_CHECK: Received slot status from runner")
+
 					if s.Ready {
 						withSlotContext(&log.Logger, slot).Info().
+							Str("SLOT_WAIT_CHECK", "slot_ready_success").
 							Dur("elapsed", elapsed).
 							Int("attempts", attemptCount).
-							Msg("Slot is now ready")
+							Msg("SLOT_WAIT_CHECK: Slot is now ready")
 						slotReady <- true
 					}
 				} else {
 					withSlotContext(&log.Logger, slot).Warn().
+						Str("SLOT_WAIT_CHECK", "fetch_slot_error").
 						Err(err).
 						Dur("elapsed", elapsed).
-						Msg("Error checking if slot is ready")
+						Msg("SLOT_WAIT_CHECK: Error checking if slot is ready - closing wait loop")
 					close(slotReady)
 					return
 				}
@@ -1353,76 +1623,10 @@ func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types
 		Msg("Scheduling decision logged")
 }
 
-// logUnschedulableWork checks for work in the queue that can't be scheduled and logs the reasons
-// This captures BOTH why warm slots aren't available AND why new slots can't be created
-func (s *Scheduler) logUnschedulableWork() {
-	startTime := time.Now()
-	queuedWork := s.queue.Queue()
-
-	if len(queuedWork) == 0 {
-		return // No work in queue to check
-	}
-
-	// Check each work item to see why it can't be scheduled using the ACTUAL decision logic
-	for _, work := range queuedWork {
-		var reason string
-		warmSlots := s.warmSlotsWithReason(work, &reason)
-
-		if len(warmSlots) == 0 {
-			// No warm slots available - but can we create a new slot?
-			newSlotReason := s.analyzeNewSlotCreationFailure(work)
-			if newSlotReason != "" {
-				// Combine both warm slot failure and new slot creation failure
-				reason = fmt.Sprintf("%s; New slot creation: %s", reason, newSlotReason)
-			}
-
-			// Log the unschedulable decision with deduplication via repeat count
-			s.logSchedulingDecision(work, types.SchedulingDecisionTypeUnschedulable, false,
-				reason, "", "", startTime, 0, work.model.Memory, 0)
-		}
-	}
-}
-
-// analyzeNewSlotCreationFailure checks if a new slot could be created for this work using actual scheduling logic
-func (s *Scheduler) analyzeNewSlotCreationFailure(work *Workload) string {
-	// Use the EXACT same logic as ensureSlots()
-
-	// Step 1: Get runners (same as ensureSlots)
-	sortedRunners, err := s.getSortedRunners(work)
-	if err != nil {
-		return fmt.Sprintf("cannot get runners: %v", err)
-	}
-
-	if len(sortedRunners) == 0 {
-		return "no runners available"
-	}
-
-	// Step 2: Try each runner using EXACT same logic as ensureSlots (without actually creating slots)
-	var lastFailureReason string
-	for _, runnerID := range sortedRunners {
-		// Try to see if we can free memory on this runner (same logic as ensureSlots)
-		_, _, _, err := s.deleteMostStaleStrategy(runnerID, work)
-		if err != nil {
-			lastFailureReason = fmt.Sprintf("runner %s: %v", runnerID, err)
-			continue // Try next runner
-		}
-
-		// If we get here, this runner could accommodate the work
-		return "" // No failure - new slot creation would succeed
-	}
-
-	// All runners failed
-	if lastFailureReason != "" {
-		return fmt.Sprintf("all %d runners failed: %s", len(sortedRunners), lastFailureReason)
-	}
-
-	return fmt.Sprintf("all %d runners failed for unknown reasons", len(sortedRunners))
-}
-
-// PrewarmNewRunner creates prewarming workloads for newly connected runners
+// PrewarmNewRunner creates prewarming workloads for newly connected or reconnected runners
 func (s *Scheduler) PrewarmNewRunner(runnerID string) {
 	withContext := log.With().Str("runner_id", runnerID).Logger()
-	withContext.Info().Msg("prewarming new runner")
+	withContext.Info().Msg("prewarming runner")
 
 	// Get models that should be prewarmed on this runner
 	prewarmModels := s.getPrewarmModels(runnerID)
@@ -1433,10 +1637,18 @@ func (s *Scheduler) PrewarmNewRunner(runnerID string) {
 
 	withContext.Info().
 		Int("model_count", len(prewarmModels)).
-		Msg("starting prewarming for new runner")
+		Msg("starting prewarming for runner")
 
 	successCount := 0
 	for _, model := range prewarmModels {
+		// Safety check: skip nil models or models with empty IDs
+		if model == nil || model.ID == "" {
+			withContext.Warn().
+				Interface("model", model).
+				Msg("skipping invalid model in prewarming - model is nil or has empty ID")
+			continue
+		}
+
 		// Create a dummy workload for prewarming
 		prewarmWorkload := &Workload{
 			WorkloadType: WorkloadTypeLLMInferenceRequest,
@@ -1475,7 +1687,11 @@ func (s *Scheduler) PrewarmNewRunner(runnerID string) {
 	withContext.Info().
 		Int("total_models", len(prewarmModels)).
 		Int("successful_enqueues", successCount).
-		Msg("completed prewarming for new runner")
+		Msg("completed prewarming for runner")
+
+	// Trigger immediate queue processing to handle any existing queued work
+	// that might now be schedulable on this reconnected runner
+	s.TriggerQueueProcessing()
 }
 
 // getPrewarmModels returns models that should be prewarmed on the specified runner

@@ -362,6 +362,15 @@ export interface ServerLicenseKeyRequest {
   license_key?: string;
 }
 
+export interface ServerLogsSummary {
+  active_instances?: number;
+  error_retention_hours?: number;
+  instances_with_errors?: number;
+  max_lines_per_buffer?: number;
+  recent_errors?: number;
+  slots?: ServerSlotLogSummary[];
+}
+
 export interface ServerModelSubstitution {
   assistant_name?: string;
   new_model?: string;
@@ -369,6 +378,13 @@ export interface ServerModelSubstitution {
   original_model?: string;
   original_provider?: string;
   reason?: string;
+}
+
+export interface ServerSlotLogSummary {
+  has_logs?: boolean;
+  id?: string;
+  model?: string;
+  runner_id?: string;
 }
 
 export interface SystemHTTPError {
@@ -752,6 +768,10 @@ export interface TypesDashboardRunner {
   allocated_memory?: number;
   created?: string;
   free_memory?: number;
+  /** Number of GPUs detected */
+  gpu_count?: number;
+  /** Per-GPU memory status */
+  gpus?: TypesGPUStatus[];
   id?: string;
   labels?: Record<string, string>;
   models?: TypesRunnerModelStatus[];
@@ -798,6 +818,23 @@ export interface TypesFlexibleEmbeddingResponse {
     prompt_tokens?: number;
     total_tokens?: number;
   };
+}
+
+export interface TypesGPUStatus {
+  /** CUDA version */
+  cuda_version?: string;
+  /** NVIDIA driver version */
+  driver_version?: string;
+  /** Free memory in bytes */
+  free_memory?: number;
+  /** GPU index (0, 1, 2, etc.) */
+  index?: number;
+  /** GPU model name (e.g., "NVIDIA H100 PCIe", "NVIDIA GeForce RTX 4090") */
+  model_name?: string;
+  /** Total memory in bytes */
+  total_memory?: number;
+  /** Used memory in bytes */
+  used_memory?: number;
 }
 
 export enum TypesImageURLDetail {
@@ -1478,6 +1515,8 @@ export interface TypesRunnerModelStatus {
 
 export interface TypesRunnerSlot {
   active?: boolean;
+  /** The actual command line executed for this slot */
+  command_line?: string;
   /** Context length used for the model, if specified */
   context_length?: number;
   /** Primary GPU for single-GPU models (for VLLM) */
@@ -3070,6 +3109,36 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Retrieve logs for a specific slot by proxying the request to the runner
+     *
+     * @tags logs
+     * @name V1LogsDetail
+     * @summary Get logs for a specific slot
+     * @request GET:/api/v1/logs/{slot_id}
+     * @secure
+     */
+    v1LogsDetail: (
+      slotId: string,
+      query?: {
+        /** Maximum number of lines to return (default: 500) */
+        lines?: number;
+        /** Return logs since this timestamp (RFC3339 format) */
+        since?: string;
+        /** Filter by log level (ERROR, WARN, INFO, DEBUG) */
+        level?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, any>, string>({
+        path: `/api/v1/logs/${slotId}`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description List OAuth connections for the user.
      *
      * @tags oauth
@@ -3626,6 +3695,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
     v1ProvidersList: (params: RequestParams = {}) =>
       this.request<TypesProvider[], any>({
         path: `/api/v1/providers`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get the health status of all scheduler goroutines
+     *
+     * @tags dashboard
+     * @name V1SchedulerHeartbeatsList
+     * @summary Get scheduler goroutine heartbeat status
+     * @request GET:/api/v1/scheduler/heartbeats
+     * @secure
+     */
+    v1SchedulerHeartbeatsList: (params: RequestParams = {}) =>
+      this.request<Record<string, any>, any>({
+        path: `/api/v1/scheduler/heartbeats`,
         method: "GET",
         secure: true,
         ...params,

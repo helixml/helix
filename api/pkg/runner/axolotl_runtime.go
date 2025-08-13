@@ -36,11 +36,13 @@ type AxolotlRuntime struct {
 	cancel        context.CancelFunc
 	startTimeout  time.Duration
 	runnerOptions *Options
+	logBuffer     *system.ModelInstanceLogBuffer // Log buffer for this instance
 }
 type AxolotlRuntimeParams struct {
 	Port          *int           // If nil, will be assigned a random port
 	StartTimeout  *time.Duration // How long to wait for axolotl to start
 	RunnerOptions *Options
+	LogBuffer     *system.ModelInstanceLogBuffer // Optional: Log buffer for capturing logs
 }
 
 func NewAxolotlRuntime(_ context.Context, params AxolotlRuntimeParams) (*AxolotlRuntime, error) {
@@ -63,6 +65,7 @@ func NewAxolotlRuntime(_ context.Context, params AxolotlRuntimeParams) (*Axolotl
 		port:          *params.Port,
 		startTimeout:  *params.StartTimeout,
 		runnerOptions: params.RunnerOptions,
+		logBuffer:     params.LogBuffer,
 	}, nil
 }
 
@@ -87,7 +90,7 @@ func (d *AxolotlRuntime) Start(ctx context.Context) error {
 	}()
 
 	// Start axolotl cmd
-	cmd, err := startAxolotlCmd(ctx, axolotlCommander, d.port)
+	cmd, err := startAxolotlCmd(ctx, axolotlCommander, d.port, d.logBuffer)
 	if err != nil {
 		return fmt.Errorf("error building axolotl cmd: %w", err)
 	}
@@ -228,7 +231,7 @@ func (d *AxolotlRuntime) Version() string {
 	return d.version
 }
 
-func startAxolotlCmd(ctx context.Context, commander Commander, port int) (*exec.Cmd, error) {
+func startAxolotlCmd(ctx context.Context, commander Commander, port int, logBuffer *system.ModelInstanceLogBuffer) (*exec.Cmd, error) {
 	log.Trace().Msg("Preparing Axolotl command")
 	cmd := commander.CommandContext(
 		ctx,
@@ -267,6 +270,11 @@ func startAxolotlCmd(ctx context.Context, commander Commander, port int) (*exec.
 	// there is an error we can send it to the api
 	stderrBuf := system.NewLimitedBuffer(1024 * 10)
 	stderrWriters := []io.Writer{os.Stderr, stderrBuf}
+
+	// If we have a log buffer for this instance, add it to the writers
+	if logBuffer != nil {
+		stderrWriters = append(stderrWriters, logBuffer)
+	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
 		return nil, err
@@ -302,6 +310,12 @@ func (d *AxolotlRuntime) Status(_ context.Context) string {
 		return "not ready"
 	}
 	return "ready"
+}
+
+func (d *AxolotlRuntime) CommandLine() string {
+	// Axolotl doesn't expose the command line in a structured way
+	// Return a placeholder for now
+	return "axolotl serve (command line not captured)"
 }
 
 func (d *AxolotlRuntime) waitUntilReady(ctx context.Context) error {
