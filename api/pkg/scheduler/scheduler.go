@@ -1625,11 +1625,29 @@ func (s *Scheduler) logSchedulingDecision(workload *Workload, decisionType types
 
 // PrewarmNewRunner creates prewarming workloads for newly connected or reconnected runners
 func (s *Scheduler) PrewarmNewRunner(runnerID string) {
+	// Safety checks to prevent panics
+	if s == nil {
+		log.Error().Str("runner_id", runnerID).Msg("scheduler is nil in PrewarmNewRunner")
+		return
+	}
+	if s.controller == nil {
+		log.Error().Str("runner_id", runnerID).Msg("scheduler controller is nil in PrewarmNewRunner")
+		return
+	}
+	if runnerID == "" {
+		log.Error().Msg("empty runner ID in PrewarmNewRunner")
+		return
+	}
+
 	withContext := log.With().Str("runner_id", runnerID).Logger()
 	withContext.Info().Msg("prewarming runner")
 
 	// Get models that should be prewarmed on this runner
-	prewarmModels := s.getPrewarmModels(runnerID)
+	prewarmModels, err := s.getPrewarmModelsSafely(runnerID)
+	if err != nil {
+		withContext.Error().Err(err).Msg("failed to get prewarm models")
+		return
+	}
 	if len(prewarmModels) == 0 {
 		withContext.Warn().Msg("no prewarm models configured or selected, skipping prewarming")
 		return
@@ -1692,6 +1710,27 @@ func (s *Scheduler) PrewarmNewRunner(runnerID string) {
 	// Trigger immediate queue processing to handle any existing queued work
 	// that might now be schedulable on this reconnected runner
 	s.TriggerQueueProcessing()
+}
+
+// getPrewarmModelsSafely is a safe wrapper around getPrewarmModels that handles panics
+func (s *Scheduler) getPrewarmModelsSafely(runnerID string) ([]*types.Model, error) {
+	var models []*types.Model
+	var err error
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().
+					Str("runner_id", runnerID).
+					Interface("panic", r).
+					Msg("panic recovered in getPrewarmModels")
+				err = fmt.Errorf("panic in getPrewarmModels: %v", r)
+			}
+		}()
+		models = s.getPrewarmModels(runnerID)
+	}()
+
+	return models, err
 }
 
 // getPrewarmModels returns models that should be prewarmed on the specified runner

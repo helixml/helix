@@ -185,6 +185,12 @@ func (c *RunnerController) Send(ctx context.Context, runnerID string, headers ma
 
 // SyncSystemSettings pushes system settings to a specific runner
 func (c *RunnerController) SyncSystemSettings(ctx context.Context, runnerID string) error {
+	// If no store is configured (e.g., in tests), skip system settings synchronization
+	if c.store == nil {
+		log.Debug().Str("runner_id", runnerID).Msg("no store configured, skipping system settings synchronization")
+		return nil
+	}
+
 	// Get effective system settings (includes environment variable fallback)
 	settings, err := c.store.GetEffectiveSystemSettings(ctx)
 	if err != nil {
@@ -308,6 +314,15 @@ func (c *RunnerController) OnConnectedHandler(id string) {
 	if callback != nil {
 		go func() {
 			// Run in a goroutine to avoid blocking runner registration
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error().
+						Str("runner_id", id).
+						Interface("panic", r).
+						Msg("panic recovered in prewarming callback - this indicates a bug in the prewarming logic")
+				}
+			}()
+
 			log.Info().
 				Str("runner_id", id).
 				Bool("is_new_runner", isNewRunner).
@@ -1157,6 +1172,12 @@ func (c *RunnerController) GetHealthz(runnerID string) error {
 }
 
 func (c *RunnerController) SetModels(runnerID string) error {
+	// If no store is configured (e.g., in tests), skip model synchronization
+	if c.store == nil {
+		log.Debug().Str("runner_id", runnerID).Msg("no store configured, skipping model synchronization")
+		return nil
+	}
+
 	enabled := true
 	// Fetch all enabled models
 	models, err := c.store.ListModels(context.Background(), &store.ListModelsQuery{
