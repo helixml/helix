@@ -116,7 +116,7 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 	modelMemoryMap := make(map[string]uint64)
 	for _, model := range allModels {
 		modelMemoryMap[model.ID] = model.Memory
-		log.Debug().
+		log.Trace().
 			Str("model_id", model.ID).
 			Str("model_type", string(model.Type)).
 			Str("runtime", string(model.Runtime)).
@@ -125,7 +125,7 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 			Msg("📋 Loaded model from store")
 	}
 
-	log.Debug().
+	log.Trace().
 		Int("total_models_in_store", len(allModels)).
 		Msg("📊 Total models loaded from store for memory lookup")
 
@@ -232,6 +232,8 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 			FreeMemory:      runnerStatus.FreeMemory,
 			UsedMemory:      runnerStatus.UsedMemory,
 			AllocatedMemory: runnerStatus.AllocatedMemory,
+			GPUCount:        runnerStatus.GPUCount,
+			GPUs:            runnerStatus.GPUs,
 			Labels:          runnerStatus.Labels,
 			Slots:           runnerSlots,
 			Models:          modelsWithMemory, // Use models with memory info (now includes slot models)
@@ -250,6 +252,10 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 		Queue:               queue,
 		SchedulingDecisions: schedulingDecisions,
 	}, nil
+}
+
+func (c *Controller) GetSchedulerHeartbeats(ctx context.Context) (interface{}, error) {
+	return c.scheduler.GetGoroutineHeartbeats(), nil
 }
 
 func (c *Controller) updateSubscriptionUser(userID string, stripeCustomerID string, stripeSubscriptionID string, active bool) error {

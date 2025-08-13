@@ -2,7 +2,9 @@ import React, { FC, useState, useMemo } from 'react'
 import Box from '@mui/material/Box'
 import { prettyBytes } from '../../utils/format'
 import IconButton from '@mui/material/IconButton'
+import Button from '@mui/material/Button'
 import VisibilityIcon from '@mui/icons-material/Visibility'
+import ViewListIcon from '@mui/icons-material/ViewList'
 import Typography from '@mui/material/Typography'
 import SessionBadge from './SessionBadge'
 import JsonWindowLink from '../widgets/JsonWindowLink'
@@ -19,6 +21,7 @@ import {
   ISlot,
   SESSION_MODE_INFERENCE
 } from '../../types'
+import LogViewerModal from '../admin/LogViewerModal'
 
 import { TypesRunnerSlot, TypesRunnerModelStatus } from '../../api/api'
 
@@ -42,6 +45,7 @@ export const ModelInstanceSummary: FC<{
   models = [],
   onViewSession,
 }) => {
+  const [logModalOpen, setLogModalOpen] = useState(false)
 
   const [ historyViewing, setHistoryViewing ] = useState(false)
 
@@ -213,6 +217,27 @@ export const ModelInstanceSummary: FC<{
           </Grid>
         </Grid>
         
+        {/* View Logs Button */}
+        <Box sx={{ mt: 1 }}>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={() => setLogModalOpen(true)}
+            startIcon={<ViewListIcon />}
+            sx={{
+              fontSize: '0.7rem',
+              borderColor: 'rgba(255, 255, 255, 0.2)',
+              color: 'rgba(255, 255, 255, 0.7)',
+              '&:hover': {
+                borderColor: 'rgba(255, 255, 255, 0.4)',
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+              }
+            }}
+          >
+            View Logs
+          </Button>
+        </Box>
+        
         <Box sx={{ display: 'flex', alignItems: 'center', mt: 1.5, gap: 1 }}>
           <Typography 
             variant="caption" 
@@ -240,6 +265,18 @@ export const ModelInstanceSummary: FC<{
           )}
         </Box>
       </Box>
+      
+      {/* Log Viewer Modal */}
+      <LogViewerModal
+        open={logModalOpen}
+        onClose={() => setLogModalOpen(false)}
+        runner={{
+          id: `runner-for-${slot.id}`,
+          slots: [slot],
+          // Add minimal runner properties needed by the modal
+        } as any} // Type assertion since we're creating a minimal runner object
+        runnerUrl="http://localhost:8080" // TODO: Get this from configuration
+      />
     </Paper>
   )
 }

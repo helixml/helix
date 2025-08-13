@@ -40,8 +40,9 @@ type OllamaRuntime struct {
 	ollamaClient  *api.Client
 	cmd           *exec.Cmd
 	cancel        context.CancelFunc
-	gpuIndex      int   // Primary GPU index for single-GPU models
-	gpuIndices    []int // All GPU indices for multi-GPU models
+	gpuIndex      int                            // Primary GPU index for single-GPU models
+	gpuIndices    []int                          // All GPU indices for multi-GPU models
+	logBuffer     *system.ModelInstanceLogBuffer // Log buffer for this instance
 
 	// GPU allocation restart tracking
 	restartAttempts   int                // Number of restart attempts due to GPU allocation issues
@@ -65,14 +66,15 @@ type Model struct {
 }
 
 type OllamaRuntimeParams struct {
-	CacheDir      *string        // Where to store the models
-	Port          *int           // If nil, will be assigned a random port
-	StartTimeout  *time.Duration // How long to wait for ollama to start, if nil, will use default
-	ContextLength *int64         // Optional: Context length to use for the model
-	Model         *string        // Optional: Model to use
-	Args          []string       // Optional: Additional arguments to pass to Ollama
-	GPUIndex      *int           // Optional: Primary GPU index for single-GPU models
-	GPUIndices    []int          // Optional: GPU indices for multi-GPU models (overrides GPUIndex)
+	CacheDir      *string                        // Where to store the models
+	Port          *int                           // If nil, will be assigned a random port
+	StartTimeout  *time.Duration                 // How long to wait for ollama to start, if nil, will use default
+	ContextLength *int64                         // Optional: Context length to use for the model
+	Model         *string                        // Optional: Model to use
+	Args          []string                       // Optional: Additional arguments to pass to Ollama
+	GPUIndex      *int                           // Optional: Primary GPU index for single-GPU models
+	GPUIndices    []int                          // Optional: GPU indices for multi-GPU models (overrides GPUIndex)
+	LogBuffer     *system.ModelInstanceLogBuffer // Optional: Log buffer for capturing logs
 }
 
 func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRuntime, error) {
@@ -142,6 +144,7 @@ func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRun
 		args:          params.Args,
 		gpuIndex:      gpuIndex,
 		gpuIndices:    gpuIndices,
+		logBuffer:     params.LogBuffer,
 	}, nil
 }
 
@@ -186,7 +189,7 @@ func (i *OllamaRuntime) Start(ctx context.Context) error {
 	}()
 
 	// Start ollama cmd
-	cmd, err := startOllamaCmd(ctx, ollamaCommander, i.port, i.cacheDir, i.contextLength, i.gpuIndex, i.gpuIndices)
+	cmd, err := startOllamaCmd(ctx, ollamaCommander, i.port, i.cacheDir, i.contextLength, i.gpuIndex, i.gpuIndices, i.logBuffer)
 	if err != nil {
 		return fmt.Errorf("error building ollama cmd: %w", err)
 	}
@@ -373,6 +376,12 @@ func (i *OllamaRuntime) Status(ctx context.Context) string {
 	return buf.String()
 }
 
+func (i *OllamaRuntime) CommandLine() string {
+	// Ollama doesn't expose the command line in a structured way
+	// Return a placeholder for now
+	return "ollama serve (command line not captured)"
+}
+
 // CheckGPUAllocation checks if the model is fully allocated to GPU.
 // Returns true if fully allocated (CPU% == 0), false otherwise.
 func (i *OllamaRuntime) CheckGPUAllocation(ctx context.Context) (bool, error) {
@@ -486,7 +495,7 @@ func (i *OllamaRuntime) waitUntilOllamaIsReady(ctx context.Context, startTimeout
 	}
 }
 
-func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, _ int, gpuIndices []int) (*exec.Cmd, error) {
+func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, _ int, gpuIndices []int, logBuffer *system.ModelInstanceLogBuffer) (*exec.Cmd, error) {
 	// Find ollama on the path
 	ollamaPath, err := commander.LookPath("ollama")
 	if err != nil {
@@ -548,6 +557,11 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 	// there is an error we can send it to the api
 	stderrBuf := system.NewLimitedBuffer(1024 * 10)
 	stderrWriters := []io.Writer{os.Stderr, stderrBuf}
+
+	// If we have a log buffer for this instance, add it to the writers
+	if logBuffer != nil {
+		stderrWriters = append(stderrWriters, logBuffer)
+	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
 		return nil, err

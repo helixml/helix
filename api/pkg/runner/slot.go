@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -27,6 +28,7 @@ type Slot struct {
 	GPUIndex               *int           // Primary GPU for single-GPU models (nil for CPU-only)
 	GPUIndices             []int          // All GPUs used for multi-GPU models
 	TensorParallelSize     int            // Number of GPUs for tensor parallelism (1 = single GPU, 0 = CPU-only)
+	CommandLine            string         // The actual command line executed for this slot
 	runnerOptions          *Options
 	runningRuntime         Runtime
 	apiServer              *HelixRunnerAPIServer // Reference to API server for system config
@@ -48,6 +50,7 @@ type Runtime interface {
 	Status(ctx context.Context) string // To hold general status information like ollama ps output
 	Runtime() types.Runtime
 	URL() string
+	CommandLine() string // Returns the actual command line executed (if available)
 }
 
 type CreateSlotParams struct {
@@ -135,10 +138,17 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 		}
 	}()
 
+	// Create log buffer for this slot (for all runtime types)
+	var logBuffer *system.ModelInstanceLogBuffer
+	if s.apiServer != nil {
+		logBuffer = s.apiServer.logManager.CreateBuffer(s.ID.String(), s.Model)
+	}
+
 	switch s.IntendedRuntime {
 	case types.RuntimeOllama:
 		runtimeParams := OllamaRuntimeParams{
-			CacheDir: &s.runnerOptions.CacheDir,
+			CacheDir:  &s.runnerOptions.CacheDir,
+			LogBuffer: logBuffer,
 		}
 
 		// Only set ContextLength if it's non-zero
@@ -212,6 +222,7 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 		s.runningRuntime, err = NewDiffusersRuntime(ctx, DiffusersRuntimeParams{
 			CacheDir:         &s.runnerOptions.CacheDir,
 			HuggingFaceToken: hfToken,
+			LogBuffer:        logBuffer,
 		})
 		if err != nil {
 			return
@@ -219,6 +230,7 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 	case types.RuntimeAxolotl:
 		s.runningRuntime, err = NewAxolotlRuntime(ctx, AxolotlRuntimeParams{
 			RunnerOptions: s.runnerOptions,
+			LogBuffer:     logBuffer,
 		}) // TODO(phil): Add params
 		if err != nil {
 			return
@@ -240,9 +252,12 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 			}
 		}
 
+		// Log buffer was already created above for all runtime types
+
 		runtimeParams := VLLMRuntimeParams{
 			CacheDir:         &s.runnerOptions.CacheDir,
 			HuggingFaceToken: hfToken,
+			LogBuffer:        logBuffer,
 		}
 
 		// Only set ContextLength if it's non-zero
@@ -397,6 +412,16 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 		return
 	}
 
+	// Capture the command line after successful start
+	s.CommandLine = s.runningRuntime.CommandLine()
+	if s.CommandLine != "" {
+		log.Debug().
+			Str("model", s.Model).
+			Str("slot_id", s.ID.String()).
+			Str("command_line", s.CommandLine).
+			Msg("Captured runtime command line")
+	}
+
 	// Create OpenAI Client
 	openAIClient, err := CreateOpenaiClient(ctx, fmt.Sprintf("%s/v1", s.runningRuntime.URL()))
 	if err != nil {
@@ -472,6 +497,11 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 }
 
 func (s *Slot) Delete() error {
+	// Clean up log buffer
+	if s.apiServer != nil {
+		s.apiServer.logManager.RemoveBuffer(s.ID.String())
+	}
+
 	if s.runningRuntime != nil {
 		return s.runningRuntime.Stop()
 	}

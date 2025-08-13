@@ -23,6 +23,12 @@ func (s *Scheduler) filterRunners(work *Workload, runnerIDs []string) ([]string,
 }
 
 func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([]string, error) {
+	log.Debug().
+		Strs("runner_ids", runnerIDs).
+		Str("model", work.ModelName().String()).
+		Uint64("model_memory", work.model.Memory).
+		Msg("starting runner memory filtering")
+
 	if len(runnerIDs) == 0 {
 		return nil, fmt.Errorf("no runners available")
 	}
@@ -34,11 +40,26 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 	for _, runnerID := range runnerIDs {
 		runnerMemory[runnerID] = s.controller.TotalMemory(runnerID)
 
+		log.Debug().
+			Str("runner_id", runnerID).
+			Uint64("total_memory", runnerMemory[runnerID]).
+			Str("model", work.ModelName().String()).
+			Uint64("model_memory", work.model.Memory).
+			Msg("checking runner memory")
+
 		// Check GPU compatibility based on runtime and memory requirements
 		if work.Runtime() == types.RuntimeVLLM || work.Runtime() == types.RuntimeOllama {
 			// Get concrete GPU allocation from scheduler - this is the authoritative decision
 			singleGPU, multiGPUs, _ := s.controller.GetOptimalGPUAllocation(runnerID, work.model.Memory)
 			runnerGPUCompatible[runnerID] = (singleGPU != nil) || (len(multiGPUs) > 0)
+
+			log.Debug().
+				Str("runner_id", runnerID).
+				Str("runtime", string(work.Runtime())).
+				Interface("single_gpu", singleGPU).
+				Ints("multi_gpus", multiGPUs).
+				Bool("gpu_compatible", runnerGPUCompatible[runnerID]).
+				Msg("GPU allocation check")
 
 			// Store the allocation decision for this workload-runner combination
 			if runnerGPUCompatible[runnerID] {
@@ -47,6 +68,14 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 		} else {
 			// For other runtimes, use traditional total memory check
 			runnerGPUCompatible[runnerID] = runnerMemory[runnerID] >= work.model.Memory
+
+			log.Info().
+				Str("runner_id", runnerID).
+				Str("runtime", string(work.Runtime())).
+				Uint64("runner_memory", runnerMemory[runnerID]).
+				Uint64("model_memory", work.model.Memory).
+				Bool("memory_compatible", runnerGPUCompatible[runnerID]).
+				Msg("SLOT_RECONCILE_DEBUG: Traditional memory check")
 		}
 	}
 

@@ -45,10 +45,13 @@ type RunnerStatus struct {
 
 // GPUStatus represents the status of an individual GPU
 type GPUStatus struct {
-	Index       int    `json:"index"`        // GPU index (0, 1, 2, etc.)
-	TotalMemory uint64 `json:"total_memory"` // Total memory in bytes
-	FreeMemory  uint64 `json:"free_memory"`  // Free memory in bytes
-	UsedMemory  uint64 `json:"used_memory"`  // Used memory in bytes
+	Index         int    `json:"index"`          // GPU index (0, 1, 2, etc.)
+	TotalMemory   uint64 `json:"total_memory"`   // Total memory in bytes
+	FreeMemory    uint64 `json:"free_memory"`    // Free memory in bytes
+	UsedMemory    uint64 `json:"used_memory"`    // Used memory in bytes
+	ModelName     string `json:"model_name"`     // GPU model name (e.g., "NVIDIA H100 PCIe", "NVIDIA GeForce RTX 4090")
+	DriverVersion string `json:"driver_version"` // NVIDIA driver version
+	CUDAVersion   string `json:"cuda_version"`   // CUDA version
 }
 
 type RunnerModelStatus struct {
@@ -104,6 +107,7 @@ type RunnerSlot struct {
 	GPUIndex           *int           `json:"gpu_index,omitempty"`            // Primary GPU for single-GPU models (for VLLM)
 	GPUIndices         []int          `json:"gpu_indices,omitempty"`          // All GPUs used for multi-GPU models
 	TensorParallelSize int            `json:"tensor_parallel_size,omitempty"` // Number of GPUs for tensor parallelism (1 = single GPU)
+	CommandLine        string         `json:"command_line,omitempty"`         // The actual command line executed for this slot
 }
 
 type ListRunnerSlotsResponse struct {
