@@ -40,6 +40,13 @@ func TestSendToRunner(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
+	// Simulate runner connection by publishing to the runner.connected.{runnerID} subject
+	err = ps.Publish(context.Background(), pubsub.GetRunnerConnectedQueue(mockRunnerID), []byte("connected"))
+	require.NoError(t, err)
+
+	// Give the controller a moment to process the connection event
+	time.Sleep(10 * time.Millisecond)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
@@ -207,19 +214,26 @@ func TestSubstituteVLLMArgsPlaceholders(t *testing.T) {
 	require.Equal(t, "--limit-mm-per-prompt", substitutedArgs[5])
 	require.Equal(t, "image=10", substitutedArgs[6])
 
-	// Test case 2: No placeholders (should return unchanged)
+	// Test case 2: No placeholders (should automatically add --gpu-memory-utilization)
 	argsWithoutPlaceholder := []string{
 		"--trust-remote-code",
 		"--max-model-len", "32768",
 	}
 
 	substitutedArgs = ctrl.substituteVLLMArgsPlaceholders(argsWithoutPlaceholder, runnerID, 8*1024*1024*1024)
-	require.Equal(t, argsWithoutPlaceholder, substitutedArgs)
+	require.Len(t, substitutedArgs, 5) // Original 3 + 2 for --gpu-memory-utilization and its value
+	require.Equal(t, "--trust-remote-code", substitutedArgs[0])
+	require.Equal(t, "--max-model-len", substitutedArgs[1])
+	require.Equal(t, "32768", substitutedArgs[2])
+	require.Equal(t, "--gpu-memory-utilization", substitutedArgs[3])
+	require.Regexp(t, `^0\.\d{2}$`, substitutedArgs[4]) // Should be a ratio like "0.33"
 
-	// Test case 3: Empty args (should return unchanged)
+	// Test case 3: Empty args (should automatically add --gpu-memory-utilization)
 	emptyArgs := []string{}
 	substitutedArgs = ctrl.substituteVLLMArgsPlaceholders(emptyArgs, runnerID, 8*1024*1024*1024)
-	require.Equal(t, emptyArgs, substitutedArgs)
+	require.Len(t, substitutedArgs, 2) // Should add --gpu-memory-utilization and its value
+	require.Equal(t, "--gpu-memory-utilization", substitutedArgs[0])
+	require.Regexp(t, `^0\.\d{2}$`, substitutedArgs[1]) // Should be a ratio like "0.33"
 
 	// Test case 4: Multiple placeholders (should replace all)
 	multiPlaceholderArgs := []string{
