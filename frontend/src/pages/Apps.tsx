@@ -47,7 +47,7 @@ const Apps: FC = () => {
     if(!result) return
     setDeletingApp(undefined)
     apps.loadApps()
-    snackbar.success('app deleted')
+    snackbar.success('Agent deleted')
   }, [
     deletingApp,
     apps.deleteApp,
