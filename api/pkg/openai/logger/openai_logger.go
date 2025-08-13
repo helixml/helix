@@ -72,6 +72,10 @@ func (m *LoggingMiddleware) ListModels(ctx context.Context) ([]types.OpenAIModel
 	return m.client.ListModels(ctx)
 }
 
+func (m *LoggingMiddleware) BillingEnabled() bool {
+	return m.client.BillingEnabled()
+}
+
 // BillingLogger used for testing
 func (m *LoggingMiddleware) BillingLogger() LogStore {
 	return m.billingLogger

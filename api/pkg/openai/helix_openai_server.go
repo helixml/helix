@@ -133,6 +133,10 @@ func (c *InternalHelixServer) BaseURL() string {
 	return ""
 }
 
+func (c *InternalHelixServer) BillingEnabled() bool {
+	return c.cfg.Stripe.BillingEnabled
+}
+
 func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceRequest) error {
 	model, err := c.store.GetModel(context.Background(), req.Request.Model)
 	if err != nil {

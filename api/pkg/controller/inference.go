@@ -67,6 +67,15 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
 	}
 
+	hasEnoughBalance, err := c.hasEnoughBalance(ctx, user, opts.OrganizationID, client)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
+	}
+
+	if !hasEnoughBalance {
+		return nil, nil, fmt.Errorf("insufficient balance")
+	}
+
 	// Evaluate and add OAuth tokens
 	err = c.evalAndAddOAuthTokens(ctx, client, opts, user)
 	if err != nil {
@@ -197,6 +206,15 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	client, err := c.getClient(ctx, opts.OrganizationID, user.ID, opts.Provider)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
+	}
+
+	hasEnoughBalance, err := c.hasEnoughBalance(ctx, user, opts.OrganizationID, client)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to check balance: %w", err)
+	}
+
+	if !hasEnoughBalance {
+		return nil, nil, fmt.Errorf("insufficient balance")
 	}
 
 	// Evaluate and add OAuth tokens

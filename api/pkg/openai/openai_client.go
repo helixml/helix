@@ -39,11 +39,13 @@ type Client interface {
 
 	APIKey() string
 	BaseURL() string
+
+	BillingEnabled() bool
 }
 
 // New creates a new OpenAI client with the given API key and base URL.
 // If models are provided, models will be filtered to only include the provided models.
-func New(apiKey string, baseURL string, models ...string) *RetryableClient {
+func New(apiKey string, baseURL string, billingEnabled bool, models ...string) *RetryableClient {
 	config := openai.DefaultConfig(apiKey)
 	config.BaseURL = baseURL
 
@@ -64,21 +66,23 @@ func New(apiKey string, baseURL string, models ...string) *RetryableClient {
 	client := openai.NewClientWithConfig(config)
 
 	return &RetryableClient{
-		apiClient:  client,
-		httpClient: httpClient,
-		baseURL:    baseURL,
-		apiKey:     apiKey,
-		models:     models,
+		apiClient:      client,
+		httpClient:     httpClient,
+		baseURL:        baseURL,
+		apiKey:         apiKey,
+		models:         models,
+		billingEnabled: billingEnabled,
 	}
 }
 
 type RetryableClient struct {
 	apiClient *openai.Client
 
-	httpClient *http.Client
-	baseURL    string
-	apiKey     string
-	models     []string
+	httpClient     *http.Client
+	baseURL        string
+	apiKey         string
+	models         []string
+	billingEnabled bool
 }
 
 // APIKey - returns the API key used by the client, used for testing
@@ -89,6 +93,11 @@ func (c *RetryableClient) APIKey() string {
 // BaseURL - returns the base URL used by the client
 func (c *RetryableClient) BaseURL() string {
 	return c.baseURL
+}
+
+// BillingEnabled - returns whether billing is enabled for the client
+func (c *RetryableClient) BillingEnabled() bool {
+	return c.billingEnabled
 }
 
 // trimMessageContent trims trailing whitespace from message content to prevent API errors

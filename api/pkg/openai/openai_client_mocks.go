@@ -70,6 +70,20 @@ func (mr *MockClientMockRecorder) BaseURL() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BaseURL", reflect.TypeOf((*MockClient)(nil).BaseURL))
 }
 
+// BillingEnabled mocks base method.
+func (m *MockClient) BillingEnabled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BillingEnabled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// BillingEnabled indicates an expected call of BillingEnabled.
+func (mr *MockClientMockRecorder) BillingEnabled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BillingEnabled", reflect.TypeOf((*MockClient)(nil).BillingEnabled))
+}
+
 // CreateChatCompletion mocks base method.
 func (m *MockClient) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
 	m.ctrl.T.Helper()
