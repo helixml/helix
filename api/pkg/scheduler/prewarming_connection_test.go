@@ -522,8 +522,8 @@ func TestMemoryAwarePrewarming(t *testing.T) {
 	// Test runner with specific memory constraints
 	testRunnerID := "memory-test-runner"
 
-	// Mock the runner to have specific total memory - let's say 50GB total
-	totalMemory := uint64(50 * 1024 * 1024 * 1024) // 50GB
+	// Mock the runner to have specific total memory - let's say 80GB total (enough for current prewarm models ~73GB)
+	totalMemory := uint64(80 * 1024 * 1024 * 1024) // 80GB
 	runnerCtrl.statusCache.Set(testRunnerID, NewCache(ctx, func() (types.RunnerStatus, error) {
 		return types.RunnerStatus{
 			TotalMemory: totalMemory,
@@ -543,7 +543,7 @@ func TestMemoryAwarePrewarming(t *testing.T) {
 	// Get prewarm models for this specific runner
 	prewarmModels := scheduler.getPrewarmModels(testRunnerID)
 
-	// The memory-aware selection should have chosen models that fit within the 50GB limit
+	// The memory-aware selection should have chosen models that fit within the 80GB limit
 	require.Greater(t, len(prewarmModels), 0, "Should select at least some models for prewarming")
 
 	// Verify that selected models don't exceed available memory
