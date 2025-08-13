@@ -113,7 +113,7 @@ const HelixModelsTable: FC = () => {
   const { data: helixModels = [], isLoading, refetch } = useListHelixModels();
   
   // Fetch model infos for helix provider to get pricing information
-  const { data: modelInfos = [] } = useListModelInfos('helix');
+  const { data: modelInfos = [], refetch: refetchModelInfos } = useListModelInfos('helix');
 
   // Call the hook at the top level
   const { mutateAsync: updateModel, isPending: isUpdating } = useUpdateHelixModel();
@@ -157,6 +157,7 @@ const HelixModelsTable: FC = () => {
   const handleDeleteSuccess = () => {
     handleDeleteDialogClose();
     refetch();
+    refetchModelInfos();
   };
 
   const handleSetPriceClick = () => {
@@ -187,6 +188,7 @@ const HelixModelsTable: FC = () => {
     updateModel({ id: model.id, helixModel: updatedModel }, {
       onSuccess: () => {
         refetch();
+        refetchModelInfos();
         console.log(`Model ${model.id} enabled status updated successfully.`);
       },
       onError: (error) => {
@@ -211,6 +213,7 @@ const HelixModelsTable: FC = () => {
     updateModel({ id: model.id, helixModel: updatedModel }, {
       onSuccess: () => {
         refetch();
+        refetchModelInfos();
         console.log(`Model ${model.id} auto_pull status updated successfully.`);
       },
       onError: (error) => {
@@ -235,6 +238,7 @@ const HelixModelsTable: FC = () => {
     updateModel({ id: model.id, helixModel: updatedModel }, {
       onSuccess: () => {
         refetch();
+        refetchModelInfos();
         console.log(`Model ${model.id} prewarm status updated successfully.`);
       },
       onError: (error) => {
@@ -369,7 +373,10 @@ const HelixModelsTable: FC = () => {
           open={dialogOpen}
           model={selectedModel}
           onClose={handleDialogClose}
-          refreshData={refetch}
+          refreshData={() => {
+            refetch();
+            refetchModelInfos();
+          }}
         />
       </Paper>
     );
@@ -395,7 +402,10 @@ const HelixModelsTable: FC = () => {
         open={dialogOpen}
         model={selectedModel}
         onClose={handleDialogClose}
-        refreshData={refetch}
+        refreshData={() => {
+          refetch();
+          refetchModelInfos();
+        }}
       />
       <DeleteHelixModelDialog
         open={deleteDialogOpen}
@@ -407,7 +417,10 @@ const HelixModelsTable: FC = () => {
         open={pricingDialogOpen}
         model={getModelInfoForPricing(selectedModel)}
         onClose={handlePricingDialogClose}
-        refreshData={refetch}
+        refreshData={() => {
+          refetch();
+          refetchModelInfos();
+        }}
       />
       <TableContainer>
         <Table stickyHeader aria-label="helix models table">
