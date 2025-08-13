@@ -254,7 +254,7 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 	}, nil
 }
 
-func (c *Controller) GetSchedulerHeartbeats(ctx context.Context) (interface{}, error) {
+func (c *Controller) GetSchedulerHeartbeats(_ context.Context) (interface{}, error) {
 	return c.scheduler.GetGoroutineHeartbeats(), nil
 }
 

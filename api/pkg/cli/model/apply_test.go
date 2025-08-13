@@ -132,4 +132,3 @@ func TestValidKinds(t *testing.T) {
 		assert.False(t, isValid, "Kind %s should be invalid", invalidKind)
 	})
 }
-

@@ -576,7 +576,7 @@ func (apiServer *HelixRunnerAPIServer) setHelixModelsStatus(status *types.Runner
 }
 
 // getLogsSummary returns a summary of all log buffers
-func (apiServer *HelixRunnerAPIServer) getLogsSummary(w http.ResponseWriter, r *http.Request) {
+func (apiServer *HelixRunnerAPIServer) getLogsSummary(w http.ResponseWriter, _ *http.Request) {
 	summary := apiServer.logManager.GetLogsSummary()
 
 	w.Header().Set("Content-Type", "application/json")
