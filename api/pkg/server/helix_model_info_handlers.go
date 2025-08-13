@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -73,6 +74,33 @@ func (apiServer *HelixAPIServer) createDynamicModelInfo(rw http.ResponseWriter, 
 		log.Error().Err(err).Msg("error decoding createDynamicModelInfo request body")
 		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	if modelInfo.ModelInfo.Pricing.Prompt != "" {
+		// Try parsing float from prompt price
+		_, err := strconv.ParseFloat(modelInfo.ModelInfo.Pricing.Prompt, 64)
+		if err != nil {
+			http.Error(rw, "Invalid prompt price: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if modelInfo.ModelInfo.Pricing.Completion != "" {
+		// Try parsing float from completion price
+		_, err := strconv.ParseFloat(modelInfo.ModelInfo.Pricing.Completion, 64)
+		if err != nil {
+			http.Error(rw, "Invalid completion price: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if modelInfo.ModelInfo.Pricing.Request != "" {
+		// Try parsing float from request price
+		_, err := strconv.ParseFloat(modelInfo.ModelInfo.Pricing.Request, 64)
+		if err != nil {
+			http.Error(rw, "Invalid request price: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 
 	createdModelInfo, err := apiServer.Store.CreateDynamicModelInfo(r.Context(), &modelInfo)
@@ -163,6 +191,33 @@ func (apiServer *HelixAPIServer) updateDynamicModelInfo(rw http.ResponseWriter, 
 		log.Error().Err(err).Msg("error decoding updateDynamicModelInfo request body")
 		http.Error(rw, "Invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	if modelInfoUpdates.ModelInfo.Pricing.Prompt != "" {
+		// Try parsing float from prompt price
+		_, err := strconv.ParseFloat(modelInfoUpdates.ModelInfo.Pricing.Prompt, 64)
+		if err != nil {
+			http.Error(rw, "Invalid prompt price: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if modelInfoUpdates.ModelInfo.Pricing.Completion != "" {
+		// Try parsing float from completion price
+		_, err := strconv.ParseFloat(modelInfoUpdates.ModelInfo.Pricing.Completion, 64)
+		if err != nil {
+			http.Error(rw, "Invalid completion price: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if modelInfoUpdates.ModelInfo.Pricing.Request != "" {
+		// Try parsing float from request price
+		_, err := strconv.ParseFloat(modelInfoUpdates.ModelInfo.Pricing.Request, 64)
+		if err != nil {
+			http.Error(rw, "Invalid request price: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 
 	existingModelInfo, err := apiServer.Store.GetDynamicModelInfo(r.Context(), modelInfoID)
