@@ -30,7 +30,8 @@ const (
 
 type RunnerController struct {
 	runners             []string
-	mu                  *sync.RWMutex
+	runnersMu           *sync.RWMutex // Dedicated mutex for runners list only
+	callbackMu          *sync.RWMutex // Dedicated mutex for callback function only
 	ps                  pubsub.PubSub
 	ctx                 context.Context
 	fs                  filestore.FileStore
@@ -54,7 +55,8 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 		fs:                  cfg.FS,
 		store:               cfg.Store,
 		runners:             []string{},
-		mu:                  &sync.RWMutex{},
+		runnersMu:           &sync.RWMutex{}, // Dedicated mutex for runners list
+		callbackMu:          &sync.RWMutex{}, // Dedicated mutex for callback
 		slotsCache:          NewLockingRunnerMap[types.ListRunnerSlotsResponse](),
 		statusCache:         NewLockingRunnerMap[types.RunnerStatus](),
 		onRunnerConnectedFn: cfg.OnRunnerConnectedFn,
@@ -88,8 +90,8 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 
 // SetOnRunnerConnectedCallback sets the callback function for when a new runner connects
 func (c *RunnerController) SetOnRunnerConnectedCallback(fn func(runnerID string)) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.callbackMu.Lock()
+	defer c.callbackMu.Unlock()
 	c.onRunnerConnectedFn = fn
 }
 
@@ -114,33 +116,37 @@ func (c *RunnerController) reconcileCaches(ctx context.Context) {
 }
 
 func (c *RunnerController) Send(ctx context.Context, runnerID string, headers map[string]string, req *types.Request, timeout time.Duration) (*types.Response, error) {
+	// PRE-CHECK: Fail fast if runner is not connected (TESTING DEADLOCK)
+	if !slices.Contains(c.RunnerIDs(), runnerID) {
+		return nil, fmt.Errorf("runner %s is not connected", runnerID)
+	}
+
 	data, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("error marshalling request: %w", err)
 	}
 
-	// Check if runner is still connected before making NATS call
-	if !slices.Contains(c.RunnerIDs(), runnerID) {
-		return nil, fmt.Errorf("runner %s is not connected", runnerID)
-	}
-
 	// Create a context that will be cancelled if the runner disconnects during the request
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	
+
 	// For long operations (> 10 seconds), start background monitoring to cancel if runner disappears
 	if timeout > 10*time.Second {
 		go func() {
 			ticker := time.NewTicker(1 * time.Second) // Check every second
 			defer ticker.Stop()
-			
+
 			for {
 				select {
 				case <-requestCtx.Done():
 					return // Context already cancelled
 				case <-ticker.C:
-					// Check if runner is still connected
-					if !slices.Contains(c.RunnerIDs(), runnerID) {
+					// Check if runner is still connected using a separate read to avoid nested locking
+					c.runnersMu.RLock()
+					isConnected := slices.Contains(c.runners, runnerID)
+					c.runnersMu.RUnlock()
+
+					if !isConnected {
 						log.Debug().
 							Str("runner_id", runnerID).
 							Str("method", req.Method).
@@ -236,10 +242,10 @@ func (c *RunnerController) SyncSystemSettings(ctx context.Context, runnerID stri
 
 // SyncSystemSettingsToAllRunners pushes system settings to all connected runners
 func (c *RunnerController) SyncSystemSettingsToAllRunners(ctx context.Context) {
-	c.mu.RLock()
+	c.runnersMu.RLock()
 	runners := make([]string, len(c.runners))
 	copy(runners, c.runners)
-	c.mu.RUnlock()
+	c.runnersMu.RUnlock()
 
 	for _, runnerID := range runners {
 		go func(id string) {
@@ -254,18 +260,20 @@ func (c *RunnerController) SyncSystemSettingsToAllRunners(ctx context.Context) {
 }
 
 func (c *RunnerController) OnConnectedHandler(id string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	// Check if runner is new and add to list if needed - minimal lock scope with panic safety
+	isNewRunner := func() bool {
+		c.runnersMu.Lock()
+		defer c.runnersMu.Unlock()
 
-	isNewRunner := !slices.Contains(c.runners, id)
-
-	// Add the runner to the cluster if it is not already in the cluster.
-	if isNewRunner {
-		c.runners = append(c.runners, id)
-		log.Info().Str("runner_id", id).Msg("new runner connected")
-	} else {
-		log.Info().Str("runner_id", id).Msg("existing runner reconnected")
-	}
+		isNew := !slices.Contains(c.runners, id)
+		if isNew {
+			c.runners = append(c.runners, id)
+			log.Info().Str("runner_id", id).Msg("new runner connected")
+		} else {
+			log.Info().Str("runner_id", id).Msg("existing runner reconnected")
+		}
+		return isNew
+	}()
 
 	// CRITICAL FIX: Invalidate caches when runner connects/reconnects
 	// This ensures that status and slots information is fresh and available immediately
@@ -293,21 +301,25 @@ func (c *RunnerController) OnConnectedHandler(id string) {
 
 	// Always call the prewarming callback (for both new and reconnected runners)
 	// This ensures that models get prewarmed when runners restart
-	if c.onRunnerConnectedFn != nil {
+	c.callbackMu.RLock()
+	callback := c.onRunnerConnectedFn
+	c.callbackMu.RUnlock()
+
+	if callback != nil {
 		go func() {
 			// Run in a goroutine to avoid blocking runner registration
 			log.Info().
 				Str("runner_id", id).
 				Bool("is_new_runner", isNewRunner).
 				Msg("triggering prewarming for connected runner")
-			c.onRunnerConnectedFn(id)
+			callback(id)
 		}()
 	}
 }
 
 func (c *RunnerController) deleteRunner(id string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.runnersMu.Lock()
+	defer c.runnersMu.Unlock()
 	var newRunners []string
 	for _, runner := range c.runners {
 		if runner != id {
@@ -318,8 +330,8 @@ func (c *RunnerController) deleteRunner(id string) {
 }
 
 func (c *RunnerController) RunnerIDs() []string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.runnersMu.RLock()
+	defer c.runnersMu.RUnlock()
 
 	return c.runners
 }
@@ -941,8 +953,6 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 		Str("runtime", string(slot.InitialWork().Runtime())).
 		Msg("creating slot")
 
-
-
 	// Get the context length from the model
 	modelName := slot.InitialWork().ModelName().String()
 
@@ -1074,7 +1084,7 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 		Str("json_body", string(body)).
 		Msg("JSON body being sent to runner")
 
-		resp, err := c.Send(c.ctx, slot.RunnerID, nil, &types.Request{
+	resp, err := c.Send(c.ctx, slot.RunnerID, nil, &types.Request{
 		Method: "POST",
 		URL:    "/api/v1/slots",
 		Body:   body,
