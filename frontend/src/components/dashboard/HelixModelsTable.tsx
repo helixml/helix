@@ -21,6 +21,7 @@ import {
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { TypesModel, TypesRuntime } from '../../api/api'; // Assuming TypesModel is the correct type
 import { useListHelixModels, useUpdateHelixModel } from '../../services/helixModelsService';
+import { useListModelInfos } from '../../services/modelInfoService';
 import AddIcon from '@mui/icons-material/Add';
 import Button from '@mui/material/Button';
 
@@ -108,6 +109,9 @@ const HelixModelsTable: FC = () => {
 
   // TODO: Add filtering by runtime if needed, e.g., pass "gpu" or "cpu"
   const { data: helixModels = [], isLoading, refetch } = useListHelixModels();
+  
+  // Fetch model infos for helix provider to get pricing information
+  const { data: modelInfos = [] } = useListModelInfos('helix');
 
   // Call the hook at the top level
   const { mutateAsync: updateModel, isPending: isUpdating } = useUpdateHelixModel();
@@ -237,6 +241,23 @@ const HelixModelsTable: FC = () => {
     );
   });
 
+  // Helper function to get pricing for a model
+  const getModelPricing = (modelId: string) => {
+    // Find matching model info by name (model ID without provider prefix)
+    const modelName = modelId.replace(/^helix:/, '');
+    const modelInfo = modelInfos.find(info => info.name === modelName);
+    
+    if (!modelInfo || !modelInfo.model_info?.pricing) {
+      return '-';
+    }
+    
+    const pricing = modelInfo.model_info.pricing;
+    const promptPrice = pricing.prompt || 'N/A';
+    const completionPrice = pricing.completion || 'N/A';
+    
+    return `Prompt: ${promptPrice}, Completion: ${completionPrice}`;
+  };
+
   if (isLoading) {
     return (
       <Paper sx={{ p: 2, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
@@ -245,7 +266,7 @@ const HelixModelsTable: FC = () => {
     );
   }
 
-  if (!helixModels || helixModels.length === 0) {
+  if (!filteredModels || filteredModels.length === 0) {
     return (
       <Paper sx={{ p: 2, width: '100%' }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
@@ -297,7 +318,7 @@ const HelixModelsTable: FC = () => {
               <TableCell>ID</TableCell>
               <TableCell>Name</TableCell>
               <TableCell>Context Length</TableCell>
-              <TableCell>Type</TableCell>
+              <TableCell>Pricing</TableCell>
               <TableCell>Enabled</TableCell>
               <TableCell>Auto pull</TableCell>
               <TableCell>Prewarm</TableCell>
@@ -329,7 +350,13 @@ const HelixModelsTable: FC = () => {
                    </Box>
                 </TableCell>
                 <TableCell>{model.context_length || 'N/A'}</TableCell>
-                <TableCell>{model.type || 'N/A'}</TableCell>
+                <TableCell>
+                  <Tooltip title={getModelPricing(model.id || '')}>
+                    <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {getModelPricing(model.id || '')}
+                    </Typography>
+                  </Tooltip>
+                </TableCell>
                 <TableCell>
                   <Switch
                     checked={model.enabled ?? false}
