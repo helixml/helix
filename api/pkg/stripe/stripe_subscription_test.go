@@ -49,3 +49,24 @@ func Test_handleSubscriptionEvent(t *testing.T) {
 	require.NoError(t, err)
 
 }
+
+func Test_handleSubscriptionEvent_NotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	db := store.NewMockStore(ctrl)
+	s := NewStripe(config.Stripe{}, db)
+
+	bts, err := os.ReadFile("testdata/sub_active.json")
+	require.NoError(t, err)
+
+	var event stripe.Event
+	err = json.Unmarshal(bts, &event)
+	require.NoError(t, err)
+
+	db.EXPECT().GetWalletByStripeCustomerID(gomock.Any(), "cus_SqicesZoU7LrDR").Return(nil, store.ErrNotFound)
+
+	err = s.handleSubscriptionEvent(event)
+	require.NoError(t, err)
+
+}
