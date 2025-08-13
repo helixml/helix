@@ -42,3 +42,23 @@ func Test_handleInvoicePaymentPaidEvent(t *testing.T) {
 	err = s.handleInvoicePaymentPaidEvent(event)
 	require.NoError(t, err)
 }
+
+func Test_handleInvoicePaymentPaidEvent_NotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	db := store.NewMockStore(ctrl)
+	s := NewStripe(config.Stripe{}, db)
+
+	bts, err := os.ReadFile("testdata/paid.json")
+	require.NoError(t, err)
+
+	var event stripe.Event
+	err = json.Unmarshal(bts, &event)
+	require.NoError(t, err)
+
+	db.EXPECT().GetWalletByStripeCustomerID(gomock.Any(), "cus_SqicesZoU7LrDR").Return(nil, store.ErrNotFound)
+
+	err = s.handleInvoicePaymentPaidEvent(event)
+	require.NoError(t, err)
+}
