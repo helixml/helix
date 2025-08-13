@@ -77,3 +77,8 @@ type Pricing struct {
 	WebSearch         string `json:"web_search"`
 	InternalReasoning string `json:"internal_reasoning"`
 }
+
+type ListDynamicModelInfosQuery struct {
+	Provider string
+	Name     string
+}

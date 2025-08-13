@@ -30,7 +30,7 @@ func (apiServer *HelixAPIServer) listDynamicModelInfos(rw http.ResponseWriter, r
 		return
 	}
 
-	q := &store.ListDynamicModelInfosQuery{}
+	q := &types.ListDynamicModelInfosQuery{}
 
 	if r.URL.Query().Get("provider") != "" {
 		q.Provider = r.URL.Query().Get("provider")

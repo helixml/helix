@@ -1671,7 +1671,7 @@ func (mr *MockStoreMockRecorder) ListDataEntities(ctx, q any) *gomock.Call {
 }
 
 // ListDynamicModelInfos mocks base method.
-func (m *MockStore) ListDynamicModelInfos(ctx context.Context, q *ListDynamicModelInfosQuery) ([]*types.DynamicModelInfo, error) {
+func (m *MockStore) ListDynamicModelInfos(ctx context.Context, q *types.ListDynamicModelInfosQuery) ([]*types.DynamicModelInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListDynamicModelInfos", ctx, q)
 	ret0, _ := ret[0].([]*types.DynamicModelInfo)
