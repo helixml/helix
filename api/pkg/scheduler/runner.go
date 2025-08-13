@@ -918,19 +918,19 @@ func (c *RunnerController) calculateVLLMMemoryUtilizationRatio(runnerID string, 
 
 // substituteVLLMArgsPlaceholders replaces template placeholders in VLLM args with actual values
 func (c *RunnerController) substituteVLLMArgsPlaceholders(args []string, runnerID string, modelMemoryRequirement uint64) []string {
-	if len(args) == 0 {
-		return args
-	}
-
 	// Calculate the dynamic memory utilization ratio
 	memoryUtilizationRatio := c.calculateVLLMMemoryUtilizationRatio(runnerID, modelMemoryRequirement)
 	ratioStr := fmt.Sprintf("%.2f", memoryUtilizationRatio)
 
 	// Create a new slice to avoid modifying the original
-	substitutedArgs := make([]string, len(args))
-	copy(substitutedArgs, args)
+	var substitutedArgs []string
+	if len(args) > 0 {
+		substitutedArgs = make([]string, len(args))
+		copy(substitutedArgs, args)
+	}
 
-	// Replace the placeholder with the calculated value
+	// Check if --gpu-memory-utilization is already present in the args
+	hasGPUMemoryUtilization := false
 	for i, arg := range substitutedArgs {
 		if arg == "{{.DynamicMemoryUtilizationRatio}}" {
 			substitutedArgs[i] = ratioStr
@@ -939,7 +939,18 @@ func (c *RunnerController) substituteVLLMArgsPlaceholders(args []string, runnerI
 				Str("original_value", arg).
 				Str("substituted_value", ratioStr).
 				Msg("Substituted VLLM memory utilization placeholder")
+		} else if arg == "--gpu-memory-utilization" {
+			hasGPUMemoryUtilization = true
 		}
+	}
+
+	// If --gpu-memory-utilization is not present, automatically add it
+	if !hasGPUMemoryUtilization {
+		substitutedArgs = append(substitutedArgs, "--gpu-memory-utilization", ratioStr)
+		log.Debug().
+			Str("runner_id", runnerID).
+			Str("memory_utilization_ratio", ratioStr).
+			Msg("Automatically added --gpu-memory-utilization argument")
 	}
 
 	return substitutedArgs
@@ -995,12 +1006,12 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 						"args": substitutedArgs,
 					}
 
-					log.Debug().
+					log.Info().
 						Str("model", modelName).
 						Strs("original_args", argStrings).
 						Strs("substituted_args", substitutedArgs).
 						Interface("runtime_args", runtimeArgs).
-						Msg("Substituted placeholders in stored RuntimeArgs")
+						Msg("VLLM Args: Substituted placeholders in stored RuntimeArgs")
 				}
 			} else {
 				// Fall back to hardcoded args for backward compatibility
@@ -1019,12 +1030,12 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 						"args": substitutedArgs,
 					}
 
-					log.Debug().
+					log.Info().
 						Str("model", modelName).
 						Strs("original_args", modelArgs).
 						Strs("substituted_args", substitutedArgs).
 						Interface("runtime_args", runtimeArgs).
-						Msg("Created runtime_args map with substituted values from hardcoded fallback")
+						Msg("VLLM Args: Created runtime_args map with substituted values from hardcoded fallback")
 				}
 			}
 		}
