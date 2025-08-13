@@ -28,7 +28,7 @@ func (s *PostgresStore) CreateDynamicModelInfo(ctx context.Context, modelInfo *t
 
 func validateDynamicModelInfo(modelInfo *types.DynamicModelInfo) error {
 	if modelInfo.ID == "" {
-		return fmt.Errorf("id not specified")
+		return fmt.Errorf("id not specified (should be 'provider/model' slug)")
 	}
 
 	if modelInfo.Provider == "" {
