@@ -117,6 +117,11 @@ type GetAggregatedUsageMetricsQuery struct {
 	To             time.Time
 }
 
+type ListDynamicModelInfosQuery struct {
+	Provider string
+	Name     string
+}
+
 var _ Store = &PostgresStore{}
 
 //go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
@@ -269,6 +274,13 @@ type Store interface {
 	GetModel(ctx context.Context, id string) (*types.Model, error)
 	ListModels(ctx context.Context, q *ListModelsQuery) ([]*types.Model, error)
 	DeleteModel(ctx context.Context, id string) error
+
+	// Model info for dynamic pricing
+	CreateDynamicModelInfo(ctx context.Context, modelInfo *types.DynamicModelInfo) (*types.DynamicModelInfo, error)
+	GetDynamicModelInfo(ctx context.Context, id string) (*types.DynamicModelInfo, error)
+	UpdateDynamicModelInfo(ctx context.Context, modelInfo *types.DynamicModelInfo) (*types.DynamicModelInfo, error)
+	DeleteDynamicModelInfo(ctx context.Context, id string) error
+	ListDynamicModelInfos(ctx context.Context, q *ListDynamicModelInfosQuery) ([]*types.DynamicModelInfo, error)
 
 	// OAuth Provider methods
 	// ListOAuthProvidersQuery contains filters for listing OAuth providers
