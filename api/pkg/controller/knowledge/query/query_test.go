@@ -62,7 +62,9 @@ func (suite *QuerySuite) SetupTest() {
 	if cfg.Providers.TogetherAI.APIKey != "" {
 		apiClient = openai.New(
 			cfg.Providers.TogetherAI.APIKey,
-			cfg.Providers.TogetherAI.BaseURL)
+			cfg.Providers.TogetherAI.BaseURL,
+			cfg.Stripe.BillingEnabled,
+		)
 		cfg.Tools.Model = "meta-llama/Llama-3-8b-chat-hf"
 	} else {
 		apiClient = openai.NewMockClient(suite.ctrl)

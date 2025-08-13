@@ -198,8 +198,10 @@ type Janitor struct {
 }
 
 type Stripe struct {
-	BillingEnabled       bool    `envconfig:"STRIPE_BILLING_ENABLED" default:"false" description:"Whether to enable billing."`
-	InitialBalance       float64 `envconfig:"STRIPE_INITIAL_BALANCE" default:"10" description:"The initial balance for the wallet"`
+	BillingEnabled          bool    `envconfig:"STRIPE_BILLING_ENABLED" default:"false" description:"Whether to enable billing."`
+	MinimumInferenceBalance float64 `envconfig:"STRIPE_MINIMUM_INFERENCE_BALANCE" default:"0.01" description:"Minimum balance required for an inference call."`
+	InitialBalance          float64 `envconfig:"STRIPE_INITIAL_BALANCE" default:"10" description:"The initial balance for the wallet"`
+
 	AppURL               string
 	SecretKey            string `envconfig:"STRIPE_SECRET_KEY" description:"The secret key for stripe."`
 	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET" description:"The webhook signing secret for stripe."`
@@ -521,5 +523,5 @@ type SSL struct {
 }
 
 type Organizations struct {
-	CreateEnabledForNonAdmins bool `envconfig:"ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS" default:"false"`
+	CreateEnabledForNonAdmins bool `envconfig:"ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS" default:"true"`
 }
