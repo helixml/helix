@@ -138,6 +138,8 @@ const getShortModelName = (name: string, displayMode: 'full' | 'short'): string 
   return shortName;
 }
 
+
+
 export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
   selectedModelId,
   selectedProvider,
@@ -451,25 +453,25 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
 
               const listItem = (
                 <ListItem
-                  key={`${model.provider.name}-${model.id}`}
-                  onClick={() => !isModelDisabled && model.id && handleSelectModel(model.provider?.name || '', model.id)}
-                  disabled={isModelDisabled}
-                  sx={{
-                    '&:hover': {
-                      backgroundColor: isModelDisabled ? 'transparent' : '#23262F',
-                    },
-                    borderRadius: 1,
-                    mb: 0.5,
-                    ...(model.id === selectedModelId && !isModelDisabled && {
-                      backgroundColor: '#353945',
-                    }),
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    opacity: isModelDisabled ? 0.5 : 1,
-                    cursor: isModelDisabled ? 'not-allowed' : 'pointer',
-                  }}
-                >
+                    key={`${model.provider.name}-${model.id}`}
+                    onClick={() => !isModelDisabled && model.id && handleSelectModel(model.provider?.name || '', model.id)}
+                    disabled={isModelDisabled}
+                    sx={{
+                      '&:hover': {
+                        backgroundColor: isModelDisabled ? 'transparent' : '#23262F',
+                      },
+                      borderRadius: 1,
+                      mb: 0.5,
+                      ...(model.id === selectedModelId && !isModelDisabled && {
+                        backgroundColor: '#353945',
+                      }),
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      opacity: isModelDisabled ? 0.5 : 1,
+                      cursor: isModelDisabled ? 'not-allowed' : 'pointer',
+                    }}
+                  >
                   <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, overflow: 'hidden' }}>
                     <ListItemIcon sx={{ minWidth: 40 }}>
                       <ProviderIcon provider={model.provider} />
@@ -495,7 +497,23 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                         </Box>
                       }
                       secondary={
-                        <Box>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                          <Typography variant="body2" component="span" sx={{ color: isModelDisabled ? '#A0AEC0' : '#A0AEC0' }}>
+                            {model.provider.name}
+                          </Typography>
+                          {model.description && (
+                            <Typography 
+                              variant="caption" 
+                              component="span" 
+                              sx={{ 
+                                color: isModelDisabled ? '#A0AEC0' : '#94A3B8',
+                                fontSize: '0.75rem',
+                                lineHeight: 1.2,
+                              }}
+                            >
+                              {model.description}
+                            </Typography>
+                          )}
                           <Typography variant="body2" component="span" sx={{ color: isModelDisabled ? '#A0AEC0' : '#A0AEC0', fontSize: '0.75rem' }}>
                             {model.provider.name}                        
                             {model.provider.billing_enabled && model.model_info?.pricing && (<>{' | '}            
@@ -512,10 +530,6 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           color: isModelDisabled ? '#A0AEC0' : '#F1F1F1',
                         }
-                      }}
-                      secondaryTypographyProps={{
-                        variant: 'body2',
-                        sx: { color: isModelDisabled ? '#A0AEC0' : '#A0AEC0' }
                       }}
                       sx={{ mr: 1 }}
                     />
@@ -592,23 +606,172 @@ export const AdvancedModelPicker: React.FC<AdvancedModelPickerProps> = ({
                 </ListItem>
               );
 
-              // Determine tooltip content based on why the model is disabled
-              let tooltipContent = '';
-              if (isGlobalProviderDisabled) {
-                tooltipContent = 'Monthly token limit reached. Upgrade your plan to increase your limit.';
-              } else if (isDisabled) {
-                tooltipContent = 'This model is not enabled for you';
+              // For disabled items, we'll modify the tooltip title to include the disabled reason
+              if (isModelDisabled) {
+                let disabledReason = '';
+                if (isGlobalProviderDisabled) {
+                  disabledReason = 'Monthly token limit reached. Upgrade your plan to increase your limit.';
+                } else if (isDisabled) {
+                  disabledReason = 'This model is not enabled for you';
+                }
+                
+                // Update the tooltip to show the disabled reason instead of description
+                const disabledListItem = (
+                  <Tooltip 
+                    title={disabledReason} 
+                    placement="top" 
+                    key={`${model.provider.name}-${model.id}-disabled-tooltip`}
+                  >
+                    <ListItem
+                      key={`${model.provider.name}-${model.id}`}
+                      onClick={() => !isModelDisabled && model.id && handleSelectModel(model.provider?.name || '', model.id)}
+                      disabled={isModelDisabled}
+                      sx={{
+                        '&:hover': {
+                          backgroundColor: isModelDisabled ? 'transparent' : '#23262F',
+                        },
+                        borderRadius: 1,
+                        mb: 0.5,
+                        ...(model.id === selectedModelId && !isModelDisabled ? {
+                          backgroundColor: '#353945',
+                        } : {}),
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        opacity: isModelDisabled ? 0.5 : 1,
+                        cursor: isModelDisabled ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                    <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, overflow: 'hidden' }}>
+                      <ListItemIcon sx={{ minWidth: 40 }}>
+                        <ProviderIcon provider={model.provider} />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography variant="body1" component="span">
+                              {model.id || 'Unnamed Model'}
+                            </Typography>
+                            {isRecommended && (
+                              <Tooltip title="Recommended model">
+                                <StarIcon 
+                                  sx={{ 
+                                    fontSize: '1rem', 
+                                    color: '#FFD700',
+                                    ml: 0.5,
+                                    verticalAlign: 'middle'
+                                  }} 
+                                />
+                              </Tooltip>
+                            )}
+                          </Box>
+                        }
+                        secondary={
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                            <Typography variant="body2" component="span" sx={{ color: isModelDisabled ? '#A0AEC0' : '#A0AEC0' }}>
+                              {model.provider.name}
+                            </Typography>
+                            {model.description && (
+                              <Typography 
+                                variant="caption" 
+                                component="span" 
+                                sx={{ 
+                                  color: isModelDisabled ? '#A0AEC0' : '#94A3B8',
+                                  fontSize: '0.75rem',
+                                  lineHeight: 1.2,
+                                }}
+                              >
+                                {model.description}
+                              </Typography>
+                            )}
+                          </Box>
+                        }
+                        primaryTypographyProps={{
+                          sx: {
+                            fontWeight: model.id === selectedModelId && !isModelDisabled ? 500 : 400,
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            color: isModelDisabled ? '#A0AEC0' : '#F1F1F1',
+                          }
+                        }}
+                        sx={{ mr: 1 }}
+                      />
+                    </Box>
+                    {model.model_info?.input_modalities?.includes(TypesModality.ModalityImage) && (
+                      <Tooltip title="This model supports vision">
+                        <Chip
+                          icon={<Image size={16} />}                        
+                          size="small"
+                          variant="outlined"
+                          sx={{
+                            color: '#A0AEC0',
+                            borderColor: 'transparent',
+                            backgroundColor: 'transparent',
+                            mr: 1,
+                            '& .MuiChip-icon': {
+                               color: '#3B82F6',
+                               marginLeft: '4px',
+                               marginRight: '-4px',
+                            },
+                            '& .MuiChip-label': {
+                               paddingLeft: '4px',
+                            }
+                          }}
+                         />
+                      </Tooltip>
+                    )}
+                    {model.model_info?.supported_parameters?.includes("tools") && (
+                      <Tooltip title="This model supports tool use">
+                        <Chip
+                          icon={<Cog size={16} />}                        
+                          size="small"
+                          variant="outlined"
+                          sx={{
+                            color: '#A0AEC0',
+                            borderColor: 'transparent',
+                            backgroundColor: 'transparent',
+                            mr: 1,
+                            '& .MuiChip-icon': {
+                               color: '#8B5CF6',
+                               marginLeft: '4px',
+                               marginRight: '-4px',
+                            },
+                            '& .MuiChip-label': {
+                               paddingLeft: '4px',
+                            }
+                          }}
+                         />
+                      </Tooltip>
+                    )}
+                    {formattedContextLength && (
+                      <Tooltip title="Context Length">
+                        <Chip
+                          icon={<MemoryIcon sx={{ color: 'success.main' }} />}
+                          label={formattedContextLength}
+                          size="small"
+                          variant="outlined"
+                          sx={{
+                            color: '#A0AEC0',
+                            borderColor: 'transparent',
+                            backgroundColor: 'transparent',
+                            '& .MuiChip-icon': {
+                               color: '#10B981',
+                               marginLeft: '4px',
+                               marginRight: '-4px',
+                            },
+                            '& .MuiChip-label': {
+                               paddingLeft: '4px',
+                            }
+                          }}
+                         />
+                      </Tooltip>
+                    )}
+                    </ListItem>
+                  </Tooltip>
+                );
+                return disabledListItem;
               }
 
-              // Wrap disabled items in a tooltip
-              return isModelDisabled ? (
-                <Tooltip title={tooltipContent} placement="top" key={`${model.provider.name}-${model.id}-tooltip`}>
-                  {/* The Tooltip needs a child that can accept a ref, a simple div works here if ListItem causes issues */} 
-                  <div>{listItem}</div>
-                </Tooltip>
-              ) : (
-                listItem
-              );
+              return listItem;
             })}
             {!isLoading && filteredModels.length === 0 && searchQuery && (
               <Box sx={{ p: 2, textAlign: 'center' }}>

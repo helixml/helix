@@ -137,6 +137,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.SlackThread{},
 		&types.TriggerConfiguration{},
 		&types.TriggerExecution{},
+		&types.SystemSettings{},
 		&types.Wallet{},
 		&types.Transaction{},
 		&types.TopUp{},

@@ -28,19 +28,23 @@ var (
 )
 
 type DiffusersRuntime struct {
-	version         string
-	DiffusersClient *DiffusersClient
-	cacheDir        string
-	port            int
-	cmd             *exec.Cmd
-	cancel          context.CancelFunc
-	startTimeout    time.Duration
+	version          string
+	DiffusersClient  *DiffusersClient
+	cacheDir         string
+	port             int
+	cmd              *exec.Cmd
+	cancel           context.CancelFunc
+	startTimeout     time.Duration
+	huggingFaceToken string
+	logBuffer        *system.ModelInstanceLogBuffer // Log buffer for this instance
 }
 
 type DiffusersRuntimeParams struct {
-	CacheDir     *string        // Where to store the models
-	Port         *int           // If nil, will be assigned a random port
-	StartTimeout *time.Duration // How long to wait for diffusers to start
+	CacheDir         *string                        // Where to store the models
+	Port             *int                           // If nil, will be assigned a random port
+	StartTimeout     *time.Duration                 // How long to wait for diffusers to start
+	HuggingFaceToken *string                        // Optional: Hugging Face token for model access
+	LogBuffer        *system.ModelInstanceLogBuffer // Optional: Log buffer for capturing logs
 }
 
 func NewDiffusersRuntime(_ context.Context, params DiffusersRuntimeParams) (*DiffusersRuntime, error) {
@@ -61,15 +65,24 @@ func NewDiffusersRuntime(_ context.Context, params DiffusersRuntimeParams) (*Dif
 		params.Port = &port
 		log.Debug().Int("port", *params.Port).Msg("Found free port")
 	}
+	// Extract HF token
+	var hfToken string
+	if params.HuggingFaceToken != nil {
+		hfToken = *params.HuggingFaceToken
+	}
+
 	log.Info().
 		Str("cache_dir", *params.CacheDir).
 		Dur("start_timeout", *params.StartTimeout).
 		Int("port", *params.Port).
+		Bool("hf_token_provided", hfToken != "").
 		Msg("creating diffusers runtime")
 	return &DiffusersRuntime{
-		cacheDir:     *params.CacheDir,
-		port:         *params.Port,
-		startTimeout: *params.StartTimeout,
+		cacheDir:         *params.CacheDir,
+		port:             *params.Port,
+		startTimeout:     *params.StartTimeout,
+		huggingFaceToken: hfToken,
+		logBuffer:        params.LogBuffer,
 	}, nil
 }
 
@@ -104,8 +117,8 @@ func (d *DiffusersRuntime) Start(ctx context.Context) error {
 		}
 	}()
 
-	// Start ollama cmd
-	cmd, err := startDiffusersCmd(ctx, diffusersCommander, d.port, d.cacheDir)
+	// Start diffusers cmd
+	cmd, err := startDiffusersCmd(ctx, diffusersCommander, d.port, d.cacheDir, d.huggingFaceToken, d.logBuffer)
 	if err != nil {
 		return fmt.Errorf("error building diffusers cmd: %w", err)
 	}
@@ -185,7 +198,21 @@ func (d *DiffusersRuntime) Status(_ context.Context) string {
 	return "ready"
 }
 
-func startDiffusersCmd(ctx context.Context, commander Commander, port int, cacheDir string) (*exec.Cmd, error) {
+func (d *DiffusersRuntime) CommandLine() string {
+	// Diffusers doesn't expose the command line in a structured way
+	// Return a placeholder for now
+	return "uv run uvicorn main:app (command line not captured)"
+}
+
+// getEffectiveDiffusersToken returns the provided token if not empty, otherwise falls back to environment variable
+func getEffectiveDiffusersToken(providedToken string) string {
+	if providedToken != "" {
+		return providedToken
+	}
+	return os.Getenv("HF_TOKEN")
+}
+
+func startDiffusersCmd(ctx context.Context, commander Commander, port int, cacheDir string, hfToken string, logBuffer *system.ModelInstanceLogBuffer) (*exec.Cmd, error) {
 	// Find uv on the path
 	uvPath, err := commander.LookPath("uv")
 	if err != nil {
@@ -221,8 +248,8 @@ func startDiffusersCmd(ctx context.Context, commander Commander, port int, cache
 	}
 	cmd.Env = append(cmd.Env,
 		fmt.Sprintf("CACHE_DIR=%s", path.Join(cacheDir, "hub")), // Mimic the diffusers library's default cache dir
-		// Add the HF_TOKEN environment variable which is required by the diffusers library
-		fmt.Sprintf("HF_TOKEN=%s", os.Getenv("HF_TOKEN")),
+		// Add the HF_TOKEN environment variable - prefer provided token over environment
+		fmt.Sprintf("HF_TOKEN=%s", getEffectiveDiffusersToken(hfToken)),
 		// Set python to be unbuffered so we get logs in real time
 		"PYTHONUNBUFFERED=1",
 		fmt.Sprintf("LOG_LEVEL=%s", pythonLogLevel),
@@ -236,6 +263,11 @@ func startDiffusersCmd(ctx context.Context, commander Commander, port int, cache
 	// there is an error we can send it to the api
 	stderrBuf := system.NewLimitedBuffer(1024 * 10)
 	stderrWriters := []io.Writer{os.Stderr, stderrBuf}
+
+	// If we have a log buffer for this instance, add it to the writers
+	if logBuffer != nil {
+		stderrWriters = append(stderrWriters, logBuffer)
+	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
 		return nil, err

@@ -47,6 +47,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - HF_TOKEN=${HF_TOKEN:-}
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
       - STRIPE_WEBHOOK_SIGNING_SECRET=${STRIPE_WEBHOOK_SIGNING_SECRET:-}
       - STRIPE_PRICE_LOOKUP_KEY=${STRIPE_PRICE_LOOKUP_KEY:-}
@@ -230,7 +231,7 @@ services:
       context: .
       dockerfile: Dockerfile.runner
       args:
-        TAG: 2025-07-30d-small
+        TAG: 2025-08-06a-small
         # Builds vllm in CPU-only mode per https://github.com/vllm-project/vllm/discussions/8090
         DEVELOPMENT_CPU_ONLY: "true"
     environment:
@@ -250,7 +251,7 @@ services:
       context: .
       dockerfile: Dockerfile.runner
       args:
-        TAG: 2025-07-30d-large
+        TAG: 2025-08-06a-large
     environment:
       # Prevent toolchain downloads
       - GOTOOLCHAIN=local

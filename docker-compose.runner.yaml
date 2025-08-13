@@ -5,8 +5,6 @@ services:
       context: .
       dockerfile: Dockerfile.runner
     network_mode: "host" # So the runner can access the control plane that is running on the host
-    volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface
     ports:
       - ${SERVER_PORT-8081}:${SERVER_PORT-8081}
     environment:
@@ -19,7 +17,6 @@ services:
       - RUNNER_WARMUP_MODELS=${RUNNER_WARMUP_MODELS-llama3:instruct}
       - SERVER_HOST=${SERVER_HOST-0.0.0.0}
       - SERVER_PORT=${SERVER_PORT-8081}
-      - CACHE_DIR=${CACHE_DIR-/root/.cache/huggingface}
     env_file:
       - .env
     deploy:

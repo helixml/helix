@@ -56,6 +56,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
     hide: false,
     auto_pull: false, // Add auto_pull state
     prewarm: false, // Add prewarm state
+    runtime_args: '', // Store VLLM args as JSON string for editing
   });
 
   // Initialize form data when the dialog opens or the model changes
@@ -74,6 +75,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
           hide: model.hide || false,
           auto_pull: model.auto_pull || false, // Initialize auto_pull
           prewarm: model.prewarm || false, // Initialize prewarm
+          runtime_args: model.runtime_args ? JSON.stringify(model.runtime_args, null, 2) : '', // Convert to formatted JSON string
         });
       } else {
         // Reset for creating a new model
@@ -89,6 +91,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
           hide: false,
           auto_pull: false, // Default auto_pull to false
           prewarm: false, // Default prewarm to false
+          runtime_args: '', // Default empty runtime args
         });
       }
       setError(''); // Clear errors when dialog opens/changes mode
@@ -172,6 +175,17 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
 
     setError(''); // Clear previous errors
 
+    // Parse runtime_args if provided
+    let runtimeArgs: any = undefined;
+    if (formData.runtime_args.trim()) {
+      try {
+        runtimeArgs = JSON.parse(formData.runtime_args);
+      } catch (error) {
+        setError('Invalid JSON in Runtime Args field');
+        return;
+      }
+    }
+
     // Construct the base payload
     const payloadBase: Partial<TypesModel> = {
       // ID is handled differently for create vs update below
@@ -185,6 +199,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
       auto_pull: formData.auto_pull,
       prewarm: formData.prewarm,
       hide: formData.hide,
+      runtime_args: runtimeArgs,
     };
 
     try {
@@ -337,6 +352,23 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                           min: 0
                       }
                   }}
+              />
+           )}
+
+           {/* Conditionally render Runtime Args field for VLLM runtime */}
+           {formData.runtime === TypesRuntime.RuntimeVLLM && (
+             <TextField
+                  name="runtime_args"
+                  label="Runtime Arguments (JSON)"
+                  value={formData.runtime_args}
+                  onChange={handleTextFieldChange}
+                  fullWidth
+                  multiline
+                  rows={6}
+                  autoComplete="off"
+                  placeholder='["--trust-remote-code", "--max-model-len", "32768"]'
+                  helperText='VLLM runtime arguments in JSON format. Note that --gpu-memory-utilization is automatically calculated and added based on model memory requirements and available GPU memory, so you do not need to and should not specify this parameter.'
+                  disabled={loading}
               />
            )}
             

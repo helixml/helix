@@ -274,6 +274,18 @@ spec:
             {{- end }}
             {{- end }}
             {{- end }}
+            {{- if .Values.controlplane.huggingface.existingSecret }}
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlplane.huggingface.existingSecret }}
+                  key: {{ .Values.controlplane.huggingface.existingSecretTokenKey | default "token" }}
+            {{- else }}
+            {{- with (default "" .Values.controlplane.huggingface.token) }}
+            - name: HF_TOKEN
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.controlplane.haystack.enabled }}
             - name: HELIX_EMBEDDINGS_SOCKET
               value: /socket/embeddings.sock

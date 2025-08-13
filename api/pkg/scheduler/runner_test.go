@@ -40,6 +40,13 @@ func TestSendToRunner(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
+	// Simulate runner connection by publishing to the runner.connected.{runnerID} subject
+	err = ps.Publish(context.Background(), pubsub.GetRunnerConnectedQueue(mockRunnerID), []byte("connected"))
+	require.NoError(t, err)
+
+	// Give the controller a moment to process the connection event
+	time.Sleep(10 * time.Millisecond)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
@@ -86,6 +93,7 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 		return types.RunnerStatus{
 			TotalMemory:     80 * 1024 * 1024 * 1024, // 80GB GPU
 			AllocatedMemory: 0,                       // No existing allocations
+			GPUCount:        1,                       // Single GPU
 		}, nil
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio := ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 8*1024*1024*1024) // 8GB model
@@ -96,6 +104,7 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 		return types.RunnerStatus{
 			TotalMemory:     80 * 1024 * 1024 * 1024, // 80GB GPU
 			AllocatedMemory: 0,                       // No existing allocations
+			GPUCount:        1,                       // Single GPU
 		}, nil
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 1*1024*1024*1024) // 1GB model
@@ -106,6 +115,7 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 		return types.RunnerStatus{
 			TotalMemory:     24 * 1024 * 1024 * 1024, // 24GB GPU
 			AllocatedMemory: 0,                       // No existing allocations
+			GPUCount:        1,                       // Single GPU
 		}, nil
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 16*1024*1024*1024) // 16GB model
@@ -118,6 +128,7 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 		return types.RunnerStatus{
 			TotalMemory:     24 * 1024 * 1024 * 1024, // 24GB GPU
 			AllocatedMemory: 0,                       // No existing allocations
+			GPUCount:        1,                       // Single GPU
 		}, nil
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 20*1024*1024*1024) // 20GB model
@@ -129,6 +140,7 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 		return types.RunnerStatus{
 			TotalMemory:     0,
 			AllocatedMemory: 0,
+			GPUCount:        0, // No GPU count info
 		}, nil
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 8*1024*1024*1024)
@@ -139,6 +151,7 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 		return types.RunnerStatus{
 			TotalMemory:     8 * 1024 * 1024 * 1024, // 8GB GPU
 			AllocatedMemory: 0,                      // No existing allocations
+			GPUCount:        1,                      // Single GPU
 		}, nil
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 10*1024*1024*1024) // 10GB model
@@ -149,6 +162,7 @@ func TestCalculateVLLMMemoryUtilizationRatio(t *testing.T) {
 		return types.RunnerStatus{
 			TotalMemory:     24 * 1024 * 1024 * 1024, // 24GB GPU
 			AllocatedMemory: 8 * 1024 * 1024 * 1024,  // 8GB already allocated (not used in calculation)
+			GPUCount:        1,                       // Single GPU
 		}, nil
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 	ratio = ctrl.calculateVLLMMemoryUtilizationRatio(runnerID, 8*1024*1024*1024) // 8GB new model
@@ -176,6 +190,7 @@ func TestSubstituteVLLMArgsPlaceholders(t *testing.T) {
 	ctrl.statusCache.Set(runnerID, NewCache(context.Background(), func() (types.RunnerStatus, error) {
 		return types.RunnerStatus{
 			TotalMemory: 24 * 1024 * 1024 * 1024, // 24GB GPU
+			GPUCount:    1,                       // Single GPU for test
 		}, nil
 	}, CacheConfig{updateInterval: 5 * time.Second}))
 
@@ -199,19 +214,26 @@ func TestSubstituteVLLMArgsPlaceholders(t *testing.T) {
 	require.Equal(t, "--limit-mm-per-prompt", substitutedArgs[5])
 	require.Equal(t, "image=10", substitutedArgs[6])
 
-	// Test case 2: No placeholders (should return unchanged)
+	// Test case 2: No placeholders (should automatically add --gpu-memory-utilization)
 	argsWithoutPlaceholder := []string{
 		"--trust-remote-code",
 		"--max-model-len", "32768",
 	}
 
 	substitutedArgs = ctrl.substituteVLLMArgsPlaceholders(argsWithoutPlaceholder, runnerID, 8*1024*1024*1024)
-	require.Equal(t, argsWithoutPlaceholder, substitutedArgs)
+	require.Len(t, substitutedArgs, 5) // Original 3 + 2 for --gpu-memory-utilization and its value
+	require.Equal(t, "--trust-remote-code", substitutedArgs[0])
+	require.Equal(t, "--max-model-len", substitutedArgs[1])
+	require.Equal(t, "32768", substitutedArgs[2])
+	require.Equal(t, "--gpu-memory-utilization", substitutedArgs[3])
+	require.Regexp(t, `^0\.\d{2}$`, substitutedArgs[4]) // Should be a ratio like "0.33"
 
-	// Test case 3: Empty args (should return unchanged)
+	// Test case 3: Empty args (should automatically add --gpu-memory-utilization)
 	emptyArgs := []string{}
 	substitutedArgs = ctrl.substituteVLLMArgsPlaceholders(emptyArgs, runnerID, 8*1024*1024*1024)
-	require.Equal(t, emptyArgs, substitutedArgs)
+	require.Len(t, substitutedArgs, 2) // Should add --gpu-memory-utilization and its value
+	require.Equal(t, "--gpu-memory-utilization", substitutedArgs[0])
+	require.Regexp(t, `^0\.\d{2}$`, substitutedArgs[1]) // Should be a ratio like "0.33"
 
 	// Test case 4: Multiple placeholders (should replace all)
 	multiPlaceholderArgs := []string{
@@ -265,6 +287,7 @@ func TestVLLMMemoryUtilizationRealWorldScenarios(t *testing.T) {
 				return types.RunnerStatus{
 					TotalMemory:     scenario.gpuMemoryGB * 1024 * 1024 * 1024,
 					AllocatedMemory: scenario.existingMemoryGB * 1024 * 1024 * 1024,
+					GPUCount:        1, // Single GPU for all test scenarios
 				}, nil
 			}, CacheConfig{updateInterval: 5 * time.Second}))
 
