@@ -268,26 +268,51 @@ const HelixModelsTable: FC = () => {
     const promptPrice = pricing.prompt || 'N/A';
     const completionPrice = pricing.completion || 'N/A';
     
-    // Helper function to remove "per 1M tokens" from pricing strings
-    const cleanPrice = (price: string) => {
+    // Helper function to convert per-token price to per-million token price and format it
+    const formatPrice = (price: string) => {
       if (price === 'N/A') return price;
-      return price.replace(/\s+per\s+1M\s+tokens?/i, '');
+      
+      try {
+        // Convert per-token price to per-million token price
+        const perTokenPrice = parseFloat(price);
+        if (isNaN(perTokenPrice)) return price;
+        
+        const perMillionPrice = perTokenPrice * 1000000;
+        
+        // Format and remove trailing zeros
+        let formattedPrice: string;
+        if (perMillionPrice >= 1) {
+          formattedPrice = perMillionPrice.toFixed(2);
+        } else if (perMillionPrice >= 0.01) {
+          formattedPrice = perMillionPrice.toFixed(4);
+        } else {
+          formattedPrice = perMillionPrice.toFixed(6);
+        }
+        
+        // Remove trailing zeros after decimal point
+        formattedPrice = formattedPrice.replace(/\.?0+$/, '');
+        
+        return `$${formattedPrice}`;
+      } catch (error) {
+        console.error("Error formatting price:", price, error);
+        return price;
+      }
     };
     
     // Create a two-line display format
     if (promptPrice !== 'N/A' && completionPrice !== 'N/A') {
       return {
-        prices: `${cleanPrice(promptPrice)} • ${cleanPrice(completionPrice)}`,
+        prices: `${formatPrice(promptPrice)} • ${formatPrice(completionPrice)}`,
         labels: 'Input • Output'
       };
     } else if (promptPrice !== 'N/A') {
       return {
-        prices: cleanPrice(promptPrice),
+        prices: formatPrice(promptPrice),
         labels: 'Input'
       };
     } else if (completionPrice !== 'N/A') {
       return {
-        prices: cleanPrice(completionPrice),
+        prices: formatPrice(completionPrice),
         labels: 'Output'
       };
     }
@@ -424,7 +449,7 @@ const HelixModelsTable: FC = () => {
                 </TableCell>
                 <TableCell>{model.context_length || 'N/A'}</TableCell>
                 <TableCell align="center">
-                  <Tooltip title={'per 1M tokens'}>
+                  <Tooltip title={'Price per 1M tokens'}>
                     <Box sx={{ width: 100 }}>
                       <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
                        {getModelPricing(model.id || '').prices}
