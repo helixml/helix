@@ -279,7 +279,7 @@ func (c *Controller) HandleSubscriptionEvent(eventType types.SubscriptionEventTy
 	if eventType == types.SubscriptionEventTypeDeleted {
 		isSubscriptionActive = false
 	}
-	err := c.updateSubscriptionUser(user.HelixID, user.StripeID, user.SubscriptionID, isSubscriptionActive)
+	err := c.updateSubscriptionUser(user.UserID, user.StripeCustomerID, user.SubscriptionID, isSubscriptionActive)
 	if err != nil {
 		return err
 	}
