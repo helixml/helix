@@ -44,7 +44,7 @@ func TestRetry(t *testing.T) {
 
 func TestValidateModel_Denied(t *testing.T) {
 
-	client := New("test", "https://api.openai.com/v1", false)
+	client := New("test", "https://api.openai.com/v1", false, "gpt-4.1")
 
 	_, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
 		Model: "gpt-4.1-mini",
@@ -55,7 +55,7 @@ func TestValidateModel_Denied(t *testing.T) {
 
 func TestValidateMode_Stream_Denied(t *testing.T) {
 
-	client := New("test", "https://api.openai.com/v1", false)
+	client := New("test", "https://api.openai.com/v1", false, "gpt-4.1")
 
 	_, err := client.CreateChatCompletionStream(context.Background(), openai.ChatCompletionRequest{
 		Model: "gpt-4.1-mini",
@@ -75,7 +75,7 @@ func TestValidateModel_Success(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client := New("test", ts.URL, true)
+	client := New("test", ts.URL, true, "test-model")
 
 	resp, err := client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
 		Model: "test-model",
