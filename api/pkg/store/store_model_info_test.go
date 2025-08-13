@@ -233,19 +233,19 @@ func (suite *DynamicModelInfoTestSuite) TestListDynamicModelInfos() {
 	suite.NoError(err)
 
 	// Test listing all model infos
-	allModelInfos, err := suite.db.ListDynamicModelInfos(suite.ctx, &ListDynamicModelInfosQuery{})
+	allModelInfos, err := suite.db.ListDynamicModelInfos(suite.ctx, &types.ListDynamicModelInfosQuery{})
 	suite.NoError(err)
 	suite.Len(allModelInfos, 3)
 
 	// Test filtering by provider
-	helixModelInfos, err := suite.db.ListDynamicModelInfos(suite.ctx, &ListDynamicModelInfosQuery{
+	helixModelInfos, err := suite.db.ListDynamicModelInfos(suite.ctx, &types.ListDynamicModelInfosQuery{
 		Provider: "helix",
 	})
 	suite.NoError(err)
 	suite.Len(helixModelInfos, 2)
 
 	// Test filtering by name
-	namedModelInfos, err := suite.db.ListDynamicModelInfos(suite.ctx, &ListDynamicModelInfosQuery{
+	namedModelInfos, err := suite.db.ListDynamicModelInfos(suite.ctx, &types.ListDynamicModelInfosQuery{
 		Name: "Test List Model 1",
 	})
 	suite.NoError(err)
@@ -253,7 +253,7 @@ func (suite *DynamicModelInfoTestSuite) TestListDynamicModelInfos() {
 	suite.Equal("Test List Model 1", namedModelInfos[0].Name)
 
 	// Test filtering by both provider and name
-	specificModelInfos, err := suite.db.ListDynamicModelInfos(suite.ctx, &ListDynamicModelInfosQuery{
+	specificModelInfos, err := suite.db.ListDynamicModelInfos(suite.ctx, &types.ListDynamicModelInfosQuery{
 		Provider: "helix",
 		Name:     "Test List Model 1",
 	})

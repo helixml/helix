@@ -83,7 +83,7 @@ func (s *PostgresStore) GetDynamicModelInfo(ctx context.Context, id string) (*ty
 	return &modelInfo, nil
 }
 
-func (s *PostgresStore) ListDynamicModelInfos(ctx context.Context, q *ListDynamicModelInfosQuery) ([]*types.DynamicModelInfo, error) {
+func (s *PostgresStore) ListDynamicModelInfos(ctx context.Context, q *types.ListDynamicModelInfosQuery) ([]*types.DynamicModelInfo, error) {
 	var modelInfos []*types.DynamicModelInfo
 
 	query := s.gdb.WithContext(ctx)
