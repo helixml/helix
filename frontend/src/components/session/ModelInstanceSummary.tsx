@@ -217,6 +217,49 @@ export const ModelInstanceSummary: FC<{
           </Grid>
         </Grid>
         
+        {/* Runtime Arguments Display for VLLM */}
+        {slot.runtime?.toLowerCase().includes('vllm') && slot.runtime_args && slot.runtime_args.args && (
+          <Box sx={{ mt: 1.5 }}>
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.8)',
+                fontWeight: 500,
+                mb: 0.5,
+                display: 'block'
+              }}
+            >
+              VLLM Arguments:
+            </Typography>
+            <Box 
+              sx={{ 
+                backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                border: '1px solid rgba(114, 201, 154, 0.2)',
+                borderRadius: '3px',
+                p: 1,
+                maxHeight: '100px',
+                overflowY: 'auto'
+              }}
+            >
+              <Typography 
+                variant="caption" 
+                sx={{ 
+                  fontFamily: 'monospace',
+                  fontSize: '0.65rem',
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  wordBreak: 'break-all',
+                  lineHeight: 1.2
+                }}
+              >
+                {Array.isArray(slot.runtime_args.args) 
+                  ? slot.runtime_args.args.join(' ')
+                  : JSON.stringify(slot.runtime_args.args)
+                }
+              </Typography>
+            </Box>
+          </Box>
+        )}
+
         {/* View Logs Button */}
         <Box sx={{ mt: 1 }}>
           <Button

@@ -387,6 +387,7 @@ func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, r *http.
 			Version:            slot.Version(),
 			Model:              slot.Model,
 			ContextLength:      slot.ContextLength,
+			RuntimeArgs:        slot.RuntimeArgs, // Include runtime args for frontend display
 			Active:             slot.Active,
 			Ready:              slot.Ready,
 			Status:             slot.Status(r.Context()),
@@ -421,15 +422,19 @@ func (apiServer *HelixRunnerAPIServer) getSlot(w http.ResponseWriter, r *http.Re
 	}
 
 	response := &types.RunnerSlot{
-		ID:            slotUUID,
-		Runtime:       slot.Runtime(),
-		Version:       slot.Version(),
-		Model:         slot.Model,
-		ContextLength: slot.ContextLength,
-		Active:        slot.Active,
-		Ready:         slot.Ready,
-		Status:        slot.Status(r.Context()),
-		CommandLine:   slot.CommandLine,
+		ID:                 slotUUID,
+		Runtime:            slot.Runtime(),
+		Version:            slot.Version(),
+		Model:              slot.Model,
+		ContextLength:      slot.ContextLength,
+		RuntimeArgs:        slot.RuntimeArgs, // Include runtime args for frontend display
+		Active:             slot.Active,
+		Ready:              slot.Ready,
+		Status:             slot.Status(r.Context()),
+		GPUIndex:           slot.GPUIndex,
+		GPUIndices:         slot.GPUIndices,
+		TensorParallelSize: slot.TensorParallelSize,
+		CommandLine:        slot.CommandLine,
 	}
 
 	err = json.NewEncoder(w).Encode(response)
