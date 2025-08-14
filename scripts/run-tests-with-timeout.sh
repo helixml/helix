@@ -16,66 +16,80 @@ TEST_ARGS="$@"
 
 echo "Running tests with ${TIMEOUT}s timeout: go test ${TEST_ARGS}"
 
-# Create a temporary file to store the test PID
-PIDFILE=$(mktemp)
-trap "rm -f $PIDFILE" EXIT
-
 # Function to dump goroutines
 dump_goroutines() {
+    echo ""
     echo "=== TIMEOUT DETECTED - DUMPING GOROUTINES ==="
     echo "Timestamp: $(date)"
     
-    if [ -f "$PIDFILE" ]; then
-        TEST_PID=$(cat "$PIDFILE")
-        if kill -0 "$TEST_PID" 2>/dev/null; then
-            echo "Sending SIGQUIT to test process (PID: $TEST_PID) to dump goroutines..."
-            kill -QUIT "$TEST_PID" 2>/dev/null || true
-            sleep 3
-            
-            # If process is still running, force kill it
-            if kill -0 "$TEST_PID" 2>/dev/null; then
-                echo "Force killing test process..."
-                kill -KILL "$TEST_PID" 2>/dev/null || true
-            fi
-        else
-            echo "Test process (PID: $TEST_PID) not found or already dead"
-        fi
-    fi
+    # Find all go test processes and dump their goroutines
+    echo "Looking for go test processes..."
+    FOUND_PROCESSES=0
     
-    # Also try to find any other go test processes and dump their goroutines
-    echo "Looking for other go test processes..."
-    pgrep -f "go test" | while read -r pid; do
-        if [ "$pid" != "$$" ]; then
-            echo "Sending SIGQUIT to go test process (PID: $pid)..."
-            kill -QUIT "$pid" 2>/dev/null || true
-        fi
+    # Use ps to find go test processes more reliably
+    ps aux | grep "[g]o test" | while read -r user pid cpu mem vsz rss tty stat start time command; do
+        echo "Found go test process: PID=$pid, Command: $command"
+        echo "Sending SIGQUIT to PID $pid to dump goroutines..."
+        kill -QUIT "$pid" 2>/dev/null || echo "Failed to send SIGQUIT to PID $pid"
+        FOUND_PROCESSES=1
     done
     
-    sleep 2
-    echo "=== END GOROUTINE DUMP ==="
+    if [ $FOUND_PROCESSES -eq 0 ]; then
+        echo "No go test processes found, trying pgrep..."
+        pgrep -f "go test" | while read -r pid; do
+            if [ "$pid" != "$$" ]; then
+                echo "Sending SIGQUIT to go test process (PID: $pid)..."
+                kill -QUIT "$pid" 2>/dev/null || echo "Failed to send SIGQUIT to PID $pid"
+                FOUND_PROCESSES=1
+            fi
+        done
+    fi
+    
+    echo "Waiting 5 seconds for goroutine dumps to appear..."
+    sleep 5
+    
+    echo "Force killing any remaining go test processes..."
+    ps aux | grep "[g]o test" | while read -r user pid cpu mem vsz rss tty stat start time command; do
+        echo "Force killing PID $pid..."
+        kill -KILL "$pid" 2>/dev/null || echo "Failed to kill PID $pid"
+    done
+    
+    echo "=== END GOROUTINE DUMP ATTEMPT ==="
+    echo ""
 }
 
-# Set up timeout handler
+# Run the actual test in background
+go test ${TEST_ARGS} &
+TEST_PID=$!
+
+echo "Started go test with PID: $TEST_PID"
+
+# Set up a timeout using a more reliable approach
 (
     sleep "$TIMEOUT"
+    echo ""
     echo "TIMEOUT: Tests have been running for ${TIMEOUT} seconds"
     dump_goroutines
+    
+    # Kill the test process
+    if kill -0 "$TEST_PID" 2>/dev/null; then
+        echo "Killing main test process PID: $TEST_PID"
+        kill -KILL "$TEST_PID" 2>/dev/null || true
+    fi
     exit 124  # Standard timeout exit code
 ) &
 TIMEOUT_PID=$!
-
-# Run the actual test
-go test ${TEST_ARGS} &
-TEST_PID=$!
-echo "$TEST_PID" > "$PIDFILE"
 
 # Wait for either the test to complete or timeout
 wait $TEST_PID 2>/dev/null
 TEST_EXIT_CODE=$?
 
-# Kill the timeout process if test completed
-kill $TIMEOUT_PID 2>/dev/null || true
-wait $TIMEOUT_PID 2>/dev/null || true
+# If we get here, the test completed before timeout
+# Kill the timeout process
+if kill -0 "$TIMEOUT_PID" 2>/dev/null; then
+    kill $TIMEOUT_PID 2>/dev/null || true
+    wait $TIMEOUT_PID 2>/dev/null || true
+fi
 
 # Exit with the test's exit code
 exit $TEST_EXIT_CODE
