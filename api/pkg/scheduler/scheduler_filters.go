@@ -23,7 +23,7 @@ func (s *Scheduler) filterRunners(work *Workload, runnerIDs []string) ([]string,
 }
 
 func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([]string, error) {
-	log.Debug().
+	log.Trace().
 		Strs("runner_ids", runnerIDs).
 		Str("model", work.ModelName().String()).
 		Uint64("model_memory", work.model.Memory).
@@ -53,7 +53,7 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 			singleGPU, multiGPUs, _ := s.controller.GetOptimalGPUAllocation(runnerID, work.model.Memory)
 			runnerGPUCompatible[runnerID] = (singleGPU != nil) || (len(multiGPUs) > 0)
 
-			log.Debug().
+			log.Trace().
 				Str("runner_id", runnerID).
 				Str("runtime", string(work.Runtime())).
 				Interface("single_gpu", singleGPU).
@@ -108,7 +108,7 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 		}
 	}
 
-	withWorkContext(&log.Logger, work).Debug().
+	withWorkContext(&log.Logger, work).Trace().
 		Interface("filtered_runners", filteredRunners).
 		Int("total_memory_failures", numRunnersWithNotEnoughTotalMemory).
 		Int("gpu_fragmentation_failures", numRunnersWithGPUFragmentation).

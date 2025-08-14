@@ -652,7 +652,7 @@ func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryR
 		}
 
 		if bestGPU != nil {
-			log.Debug().
+			log.Trace().
 				Str("runner_id", runnerID).
 				Int("selected_gpu", *bestGPU).
 				Uint64("model_memory_requirement", modelMemoryRequirement).
@@ -711,7 +711,7 @@ func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) map[i
 	// Get scheduler's desired state slots
 	schedulerSlots := c.getSchedulerSlotsFn()
 
-	log.Debug().
+	log.Trace().
 		Str("runner_id", runnerID).
 		Int("total_scheduler_slots", len(schedulerSlots)).
 		Msg("Using scheduler's desired state for memory calculation")
@@ -740,7 +740,7 @@ func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) map[i
 			continue
 		}
 
-		log.Debug().
+		log.Trace().
 			Str("runner_id", runnerID).
 			Str("slot_id", slotID.String()).
 			Str("model", slot.InitialWork().ModelName().String()).
@@ -761,7 +761,7 @@ func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) map[i
 		// CPU-only slots (no GPU allocation) don't count toward GPU memory
 	}
 
-	log.Debug().
+	log.Trace().
 		Str("runner_id", runnerID).
 		Interface("allocated_memory_per_gpu", allocatedMemoryPerGPU).
 		Msg("Calculated allocated memory per GPU (skipped slots with unknown memory requirements)")
@@ -783,7 +783,7 @@ func (c *RunnerController) CanFitModelOnAnyGPUAllocated(runnerID string, modelMe
 		freeMemory := gpu.TotalMemory - allocatedMemory
 
 		if freeMemory >= modelMemoryRequirement {
-			log.Debug().
+			log.Trace().
 				Str("runner_id", runnerID).
 				Int("gpu_index", gpu.Index).
 				Uint64("gpu_total_memory", gpu.TotalMemory).

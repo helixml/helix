@@ -376,7 +376,7 @@ func (s *Scheduler) storeGPUAllocation(work *Workload, runnerID string, singleGP
 
 	s.gpuAllocations.Store(key, allocation)
 
-	log.Debug().
+	log.Trace().
 		Str("workload_id", work.ID()).
 		Str("runner_id", runnerID).
 		Interface("single_gpu", singleGPU).
@@ -586,7 +586,7 @@ func (s *Scheduler) reconcileActivityOnce() {
 				slot.Release()
 				releasedCount++
 			} else {
-				withSlotContext(&log.Logger, slot).Debug().
+				withSlotContext(&log.Logger, slot).Trace().
 					Bool("remote_active", remoteSlot.Active).
 					Bool("remote_ready", remoteSlot.Ready).
 					Msg("slot is still active according to remote")
@@ -1035,7 +1035,7 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 		slotCreated := false
 
 		for j, runnerID := range sortedRunners {
-			withWorkContext(&log.Logger, req.ExampleWorkload).Debug().
+			withWorkContext(&log.Logger, req.ExampleWorkload).Trace().
 				Str("runner_id", runnerID).
 				Int("attempt", j+1).
 				Int("total_runners", len(sortedRunners)).
@@ -1198,7 +1198,7 @@ func (s *Scheduler) getSortedRunners(work *Workload) ([]string, error) {
 			return true
 		})
 	}
-	withWorkContext(&log.Logger, work).Debug().Interface("runner_load", runnerLoad).Msg("runner load")
+	withWorkContext(&log.Logger, work).Trace().Interface("runner_load", runnerLoad).Msg("runner load")
 
 	// Sort the runners by load, increasing, with a random shuffle for ties
 	slices.SortFunc(filteredRunners, func(a, b string) int {
@@ -1207,7 +1207,7 @@ func (s *Scheduler) getSortedRunners(work *Workload) ([]string, error) {
 		}
 		return rand.Intn(3) - 1 // Introduces random shuffle for true ties
 	})
-	withWorkContext(&log.Logger, work).Debug().Interface("sorted_runners", filteredRunners).Msg("sorted runners")
+	withWorkContext(&log.Logger, work).Trace().Interface("sorted_runners", filteredRunners).Msg("sorted runners")
 
 	return filteredRunners, nil
 }
