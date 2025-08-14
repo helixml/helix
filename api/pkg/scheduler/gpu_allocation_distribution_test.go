@@ -107,6 +107,9 @@ func TestGPUAllocationDistribution(t *testing.T) {
 		t.Logf("Model %d: %s (%d GB)", i+1, model.ID, model.Memory/(1024*1024*1024))
 	}
 
+	// Set up minimal scheduler context with no initial slots
+	SetupMinimalSchedulerContext(runnerCtrl, make(map[uuid.UUID]*Slot))
+
 	// Manually test the GPU allocation decisions by simulating what the scheduler does
 	// during slot reconciliation, but without actually creating slots
 
@@ -120,21 +123,14 @@ func TestGPUAllocationDistribution(t *testing.T) {
 
 	t.Logf("✅ First allocation: model-a → GPU %d", *singleGPU1)
 
-	// Now simulate that the first model has been allocated by creating a mock slot
+	// Now simulate that the first model has been allocated by creating a test slot
 	// This is what would happen after the first reconciliation cycle
-	slotID := uuid.New()
-	mockSlot := &types.RunnerSlot{
-		ID:         slotID,
-		Model:      testModels[0].ID,
-		Active:     true,
-		GPUIndex:   singleGPU1,
-		GPUIndices: nil,
-	}
+	testSlots := make(map[uuid.UUID]*Slot)
+	firstSlot := CreateTestSlot(testRunnerID, testModels[0].ID, testModels[0].Memory, singleGPU1, nil)
+	testSlots[firstSlot.ID] = firstSlot
 
-	// Update the slots cache to include our mock allocated slot
-	runnerCtrl.slotsCache.Set(testRunnerID, NewCache(ctx, func() (types.ListRunnerSlotsResponse, error) {
-		return types.ListRunnerSlotsResponse{Slots: []*types.RunnerSlot{mockSlot}}, nil
-	}, CacheConfig{updateInterval: time.Second}))
+	// Set up minimal scheduler context with the allocated slot
+	SetupMinimalSchedulerContext(runnerCtrl, testSlots)
 
 	// Second allocation - should now see the first allocation and choose the other GPU
 	t.Logf("\n=== Testing Second GPU Allocation (model-b) ===")

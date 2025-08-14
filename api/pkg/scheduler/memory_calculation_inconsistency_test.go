@@ -137,7 +137,15 @@ func TestMemoryCalculationInconsistency(t *testing.T) {
 
 	// STEP 3: Manually create a slot to simulate what happens during scheduling
 	// This simulates what happens in ensureSlots() -> NewSlot()
-	slot := NewSlot(testRunnerID, workload, func(string, time.Time) bool { return false }, func(string, time.Time) bool { return false }, nil)
+	// Create a GPU allocation for GPU 0 (single GPU allocation)
+	gpuIndex := 0
+	gpuAllocation := &GPUAllocation{
+		WorkloadID:         workload.ID(),
+		RunnerID:           testRunnerID,
+		SingleGPU:          &gpuIndex,
+		TensorParallelSize: 1,
+	}
+	slot := NewSlot(testRunnerID, workload, func(string, time.Time) bool { return false }, func(string, time.Time) bool { return false }, gpuAllocation)
 	scheduler.slots.Store(slot.ID, slot)
 
 	// Also add to runner controller's slot cache to simulate a running slot

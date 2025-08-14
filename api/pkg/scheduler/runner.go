@@ -40,6 +40,7 @@ type RunnerController struct {
 	store               store.Store
 	onRunnerConnectedFn func(runnerID string)       // Callback for when a new runner connects
 	getModelMemoryFn    func(modelID string) uint64 // Callback to get authoritative model memory from scheduler
+	getSchedulerSlotsFn func() map[uuid.UUID]*Slot  // Callback to get scheduler's desired state slots
 	healthChecker       HealthChecker               // Interface for health checking, allows mocking in tests
 	runnerClient        RunnerClient                // Interface for runner requests, allows mocking in tests
 }
@@ -54,6 +55,7 @@ type HealthChecker interface {
 type RunnerClient interface {
 	CreateSlot(runnerID string, slotID uuid.UUID, req *types.CreateRunnerSlotRequest) error
 	DeleteSlot(runnerID string, slotID uuid.UUID) error
+	FetchSlot(runnerID string, slotID uuid.UUID) (types.RunnerSlot, error)
 	FetchSlots(runnerID string) (types.ListRunnerSlotsResponse, error)
 	FetchStatus(runnerID string) (types.RunnerStatus, error)
 	SyncSystemSettings(runnerID string, settings *types.RunnerSystemConfigRequest) error
@@ -101,6 +103,25 @@ func (r *NATSRunnerClient) DeleteSlot(runnerID string, slotID uuid.UUID) error {
 		return fmt.Errorf("error deleting slot: %s", resp.Body)
 	}
 	return nil
+}
+
+func (r *NATSRunnerClient) FetchSlot(runnerID string, slotID uuid.UUID) (types.RunnerSlot, error) {
+	resp, err := r.controller.Send(r.controller.ctx, runnerID, nil, &types.Request{
+		Method: "GET",
+		URL:    fmt.Sprintf("/api/v1/slots/%s", slotID.String()),
+	}, defaultRequestTimeout)
+	if err != nil {
+		return types.RunnerSlot{}, fmt.Errorf("error getting slot: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return types.RunnerSlot{}, fmt.Errorf("error getting slot (status %d): %s", resp.StatusCode, resp.Body)
+	}
+
+	var slot types.RunnerSlot
+	if err := json.Unmarshal(resp.Body, &slot); err != nil {
+		return types.RunnerSlot{}, fmt.Errorf("error unmarshalling slot: %w", err)
+	}
+	return slot, nil
 }
 
 func (r *NATSRunnerClient) FetchSlots(runnerID string) (types.ListRunnerSlotsResponse, error) {
@@ -283,6 +304,13 @@ func (c *RunnerController) setModelMemoryCallback(fn func(modelID string) uint64
 	c.callbackMu.Lock()
 	defer c.callbackMu.Unlock()
 	c.getModelMemoryFn = fn
+}
+
+// setSchedulerSlotsCallback sets the callback function to get scheduler's desired state slots
+func (c *RunnerController) setSchedulerSlotsCallback(fn func() map[uuid.UUID]*Slot) {
+	c.callbackMu.Lock()
+	defer c.callbackMu.Unlock()
+	c.getSchedulerSlotsFn = fn
 }
 
 func (c *RunnerController) reconcileCaches(ctx context.Context) {
@@ -659,34 +687,45 @@ func (c *RunnerController) Version(runnerID string) string {
 	return status.Version
 }
 
-// calculateAllocatedMemoryPerGPU calculates how much memory is allocated to each GPU based on existing slots
-// This method needs to be called from the scheduler context to access model information
+// calculateAllocatedMemoryPerGPU calculates how much memory is allocated to each GPU based on scheduler's desired state
+// ARCHITECTURAL CHANGE: This now uses the scheduler's desired state instead of actual runner state
+// This prevents overscheduling by making decisions based on what we intend to create, not what currently exists
 func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) map[int]uint64 {
 	allocatedMemoryPerGPU := make(map[int]uint64)
 
-	slots, err := c.GetSlots(runnerID)
-	if err != nil {
-		log.Debug().Err(err).Str("runner_id", runnerID).Msg("Failed to get slots for allocated memory calculation")
+	// CRITICAL: Use scheduler's desired state slots instead of actual runner slots
+	// This prevents race conditions and cache invalidation issues in rapid scheduling scenarios
+	if c.getSchedulerSlotsFn == nil {
+		log.Error().Str("runner_id", runnerID).Msg("CRITICAL: No scheduler slots callback available - this is a programming error")
 		return allocatedMemoryPerGPU
 	}
 
-	for _, slot := range slots {
-		if !slot.Active || slot.Model == "" {
+	// Get scheduler's desired state slots
+	schedulerSlots := c.getSchedulerSlotsFn()
+
+	log.Debug().
+		Str("runner_id", runnerID).
+		Int("total_scheduler_slots", len(schedulerSlots)).
+		Msg("Using scheduler's desired state for memory calculation")
+
+	for slotID, slot := range schedulerSlots {
+		// Only consider slots for this specific runner
+		if slot.RunnerID != runnerID {
 			continue
 		}
 
 		// Get authoritative model memory from the scheduler
 		var modelMemory uint64
 		if c.getModelMemoryFn != nil {
-			modelMemory = c.getModelMemoryFn(slot.Model)
+			modelMemory = c.getModelMemoryFn(slot.InitialWork().ModelName().String())
 		}
 
 		// If we still can't determine model memory, skip this slot to prevent over-scheduling
 		if modelMemory == 0 {
 			log.Error().
 				Str("runner_id", runnerID).
-				Str("slot_id", slot.ID.String()).
-				Str("model", slot.Model).
+				Str("slot_id", slotID.String()).
+				Str("model", slot.InitialWork().ModelName().String()).
 				Msg("CRITICAL: Cannot determine model memory requirements - skipping slot to prevent over-scheduling")
 
 			// Skip this slot entirely rather than guessing - this prevents over-scheduling
@@ -695,23 +734,23 @@ func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) map[i
 
 		log.Debug().
 			Str("runner_id", runnerID).
-			Str("slot_id", slot.ID.String()).
-			Str("model", slot.Model).
+			Str("slot_id", slotID.String()).
+			Str("model", slot.InitialWork().ModelName().String()).
 			Uint64("model_memory_gb", modelMemory/(1024*1024*1024)).
-			Msg("Using authoritative model memory from scheduler")
+			Msg("Using authoritative model memory from scheduler (desired state)")
 
-		// Allocate memory to the appropriate GPU(s)
-		if len(slot.GPUIndices) > 1 {
+		// Allocate memory to the appropriate GPU(s) based on slot's GPU allocation
+		if slot.GPUAllocation != nil && len(slot.GPUAllocation.MultiGPUs) > 1 {
 			// Multi-GPU model: distribute memory across GPUs
-			memoryPerGPU := modelMemory / uint64(len(slot.GPUIndices))
-			for _, gpuIndex := range slot.GPUIndices {
+			memoryPerGPU := modelMemory / uint64(len(slot.GPUAllocation.MultiGPUs))
+			for _, gpuIndex := range slot.GPUAllocation.MultiGPUs {
 				allocatedMemoryPerGPU[gpuIndex] += memoryPerGPU
 			}
-		} else if slot.GPUIndex != nil {
+		} else if slot.GPUAllocation != nil && slot.GPUAllocation.SingleGPU != nil {
 			// Single GPU model: allocate full memory to this GPU
-			allocatedMemoryPerGPU[*slot.GPUIndex] += modelMemory
+			allocatedMemoryPerGPU[*slot.GPUAllocation.SingleGPU] += modelMemory
 		}
-		// CPU-only slots (GPUIndex == nil && len(GPUIndices) == 0) don't count toward GPU memory
+		// CPU-only slots (no GPU allocation) don't count toward GPU memory
 	}
 
 	log.Debug().
@@ -1392,22 +1431,7 @@ func (c *RunnerController) SetModels(runnerID string) error {
 }
 
 func (c *RunnerController) fetchSlot(runnerID string, slotID uuid.UUID) (types.RunnerSlot, error) {
-	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
-		Method: "GET",
-		URL:    fmt.Sprintf("/api/v1/slots/%s", slotID.String()),
-	}, defaultRequestTimeout)
-	if err != nil {
-		return types.RunnerSlot{}, fmt.Errorf("error getting slot: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return types.RunnerSlot{}, fmt.Errorf("error getting slot (status %d): %s", resp.StatusCode, resp.Body)
-	}
-
-	var slot types.RunnerSlot
-	if err := json.Unmarshal(resp.Body, &slot); err != nil {
-		return types.RunnerSlot{}, fmt.Errorf("error unmarshalling slot: %w", err)
-	}
-	return slot, nil
+	return c.runnerClient.FetchSlot(runnerID, slotID)
 }
 
 func (c *RunnerController) fetchStatus(runnerID string) (types.RunnerStatus, error) {

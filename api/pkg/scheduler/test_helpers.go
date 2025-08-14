@@ -2,11 +2,13 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 // MockHealthChecker implements HealthChecker for testing - always reports healthy
@@ -24,23 +26,86 @@ func (m *MockHealthChecker) SetModels(runnerID string) error {
 
 // MockRunnerClient implements RunnerClient for testing - always succeeds
 type MockRunnerClient struct {
-	TotalMemory uint64 // Total memory to report for each runner
-	GPUCount    int    // Number of GPUs to report
+	TotalMemory uint64                         // Total memory to report for each runner
+	GPUCount    int                            // Number of GPUs to report
+	Models      []*types.RunnerModelStatus     // Models to report as available on the runner
+	slots       map[string][]*types.RunnerSlot // Track slots per runner for memory calculations
 }
 
 func (m *MockRunnerClient) CreateSlot(runnerID string, slotID uuid.UUID, req *types.CreateRunnerSlotRequest) error {
-	// In tests, always succeed with slot creation
+	// In tests, track the slot creation for memory calculations
+	if m.slots == nil {
+		m.slots = make(map[string][]*types.RunnerSlot)
+	}
+
+	slot := &types.RunnerSlot{
+		ID:       slotID,
+		Model:    req.Attributes.Model,
+		Active:   true,
+		Ready:    true, // In tests, slots are immediately ready
+		Runtime:  req.Attributes.Runtime,
+		GPUIndex: req.Attributes.GPUIndex,
+	}
+
+	m.slots[runnerID] = append(m.slots[runnerID], slot)
+
+	// Debug logging to see what slots are being created (commented out for cleaner output)
+	// fmt.Printf("🔧 MockRunnerClient.CreateSlot: runner=%s, model=%s, slots_count=%d\n",
+	//	runnerID, req.Attributes.Model, len(m.slots[runnerID]))
+
 	return nil
 }
 
 func (m *MockRunnerClient) DeleteSlot(runnerID string, slotID uuid.UUID) error {
-	// In tests, always succeed with slot deletion
+	// In tests, remove the slot from tracking
+	if m.slots == nil {
+		return nil
+	}
+
+	slots := m.slots[runnerID]
+	for i, slot := range slots {
+		if slot.ID == slotID {
+			// Remove slot from slice
+			m.slots[runnerID] = append(slots[:i], slots[i+1:]...)
+			break
+		}
+	}
 	return nil
 }
 
+func (m *MockRunnerClient) FetchSlot(runnerID string, slotID uuid.UUID) (types.RunnerSlot, error) {
+	// In tests, find the specific slot for this runner
+	if m.slots == nil {
+		return types.RunnerSlot{}, fmt.Errorf("slot not found: %s", slotID)
+	}
+
+	slots := m.slots[runnerID]
+	if slots == nil {
+		return types.RunnerSlot{}, fmt.Errorf("slot not found: %s", slotID)
+	}
+
+	// Find the slot with matching ID
+	for _, slot := range slots {
+		if slot.ID == slotID {
+			return *slot, nil
+		}
+	}
+
+	return types.RunnerSlot{}, fmt.Errorf("slot not found: %s", slotID)
+}
+
 func (m *MockRunnerClient) FetchSlots(runnerID string) (types.ListRunnerSlotsResponse, error) {
-	// In tests, return empty slots list
-	return types.ListRunnerSlotsResponse{Slots: []*types.RunnerSlot{}}, nil
+	// In tests, return the tracked slots for this runner
+	if m.slots == nil {
+		return types.ListRunnerSlotsResponse{Slots: []*types.RunnerSlot{}}, nil
+	}
+
+	slots := m.slots[runnerID]
+	if slots == nil {
+		slots = []*types.RunnerSlot{}
+	}
+
+	return types.ListRunnerSlotsResponse{Slots: slots}, nil
 }
 
 func (m *MockRunnerClient) FetchStatus(runnerID string) (types.RunnerStatus, error) {
@@ -66,11 +131,25 @@ func (m *MockRunnerClient) FetchStatus(runnerID string) (types.RunnerStatus, err
 		}
 	}
 
+	// Use configured models if provided, otherwise use default models
+	models := m.Models
+	if models == nil {
+		// Default models for backward compatibility
+		models = []*types.RunnerModelStatus{
+			{ModelID: "qwen3:8b", Runtime: types.RuntimeOllama, DownloadInProgress: false},
+			{ModelID: "gpt-oss:20b", Runtime: types.RuntimeOllama, DownloadInProgress: false},
+			{ModelID: "qwen2.5vl:32b", Runtime: types.RuntimeOllama, DownloadInProgress: false},
+			{ModelID: "NousResearch/Hermes-3-Llama-3.1-8B", Runtime: types.RuntimeVLLM, DownloadInProgress: false},
+			{ModelID: "MrLight/dse-qwen2-2b-mrl-v1", Runtime: types.RuntimeVLLM, DownloadInProgress: false},
+		}
+	}
+
 	return types.RunnerStatus{
 		ID:          runnerID,
 		TotalMemory: totalMemory,
 		GPUCount:    gpuCount,
 		GPUs:        gpus,
+		Models:      models,
 	}, nil
 }
 
@@ -84,12 +163,72 @@ func NewMockRunnerClient(totalMemoryGB uint64, gpuCount int) *MockRunnerClient {
 	return &MockRunnerClient{
 		TotalMemory: totalMemoryGB * 1024 * 1024 * 1024, // Convert GB to bytes
 		GPUCount:    gpuCount,
+		slots:       make(map[string][]*types.RunnerSlot),
 	}
 }
 
 // DefaultMockRunnerClient creates a MockRunnerClient with default configuration (200GB, 2 GPUs)
 func DefaultMockRunnerClient() *MockRunnerClient {
 	return NewMockRunnerClient(200, 2)
+}
+
+// NewMockRunnerClientWithModels creates a MockRunnerClient with specific models
+func NewMockRunnerClientWithModels(totalMemoryGB uint64, gpuCount int, models []*types.RunnerModelStatus) *MockRunnerClient {
+	client := NewMockRunnerClient(totalMemoryGB, gpuCount)
+	client.Models = models
+	return client
+}
+
+// SetupMinimalSchedulerContext sets up a minimal scheduler context for unit tests that need
+// to test RunnerController methods in isolation. This provides the scheduler slots callback
+// without requiring a full scheduler instance.
+func SetupMinimalSchedulerContext(runnerCtrl *RunnerController, testSlots map[uuid.UUID]*Slot) {
+	// Set up the scheduler slots callback to return the test slots
+	runnerCtrl.setSchedulerSlotsCallback(func() map[uuid.UUID]*Slot {
+		return testSlots
+	})
+}
+
+// CreateTestSlot creates a test slot for use in unit tests
+func CreateTestSlot(runnerID string, modelName string, modelMemory uint64, gpuIndex *int, gpuIndices []int) *Slot {
+	// Create a minimal workload for the slot
+	work := &Workload{
+		WorkloadType: WorkloadTypeLLMInferenceRequest,
+		llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+			RequestID: uuid.New().String(),
+			Request: &openai.ChatCompletionRequest{
+				Model: modelName,
+				Messages: []openai.ChatCompletionMessage{
+					{Role: "user", Content: "test"},
+				},
+			},
+		},
+		model: &types.Model{
+			ID:     modelName,
+			Memory: modelMemory,
+		},
+	}
+
+	// Create GPU allocation
+	var gpuAllocation *GPUAllocation
+	if len(gpuIndices) > 1 {
+		gpuAllocation = &GPUAllocation{
+			WorkloadID:         work.ID(),
+			RunnerID:           runnerID,
+			MultiGPUs:          gpuIndices,
+			TensorParallelSize: len(gpuIndices),
+		}
+	} else if gpuIndex != nil {
+		gpuAllocation = &GPUAllocation{
+			WorkloadID:         work.ID(),
+			RunnerID:           runnerID,
+			SingleGPU:          gpuIndex,
+			TensorParallelSize: 1,
+		}
+	}
+
+	return NewSlot(runnerID, work, func(string, time.Time) bool { return false },
+		func(string, time.Time) bool { return false }, gpuAllocation)
 }
 
 // MockRunnerSetup configures a test runner controller to behave like a healthy runner

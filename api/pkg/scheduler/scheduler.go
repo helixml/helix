@@ -238,6 +238,9 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 
 	// Set up the model memory callback so RunnerController can get authoritative model memory
 	s.controller.setModelMemoryCallback(s.getModelMemory)
+	
+	// Set up the scheduler slots callback so RunnerController can use desired state for scheduling decisions
+	s.controller.setSchedulerSlotsCallback(s.getSchedulerSlots)
 
 	return s, nil
 }
@@ -977,6 +980,16 @@ func (s *Scheduler) getModelMemory(modelID string) uint64 {
 		Str("model_id", modelID).
 		Msg("CRITICAL: model not found in model registry - cannot determine memory requirement")
 	return 0
+}
+
+// getSchedulerSlots returns the scheduler's desired state slots for use in memory calculations
+func (s *Scheduler) getSchedulerSlots() map[uuid.UUID]*Slot {
+	result := make(map[uuid.UUID]*Slot)
+	s.slots.Range(func(key uuid.UUID, value *Slot) bool {
+		result[key] = value
+		return true
+	})
+	return result
 }
 
 func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {

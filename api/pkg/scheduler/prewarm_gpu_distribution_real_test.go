@@ -263,11 +263,9 @@ func TestRealPrewarmWithLargerGPUs(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
-	// Use smaller models that should definitely fit
-	realPrewarmModels := []*types.Model{
-		{ID: "qwen3:8b", Memory: 10 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: true},                 // 10GB
-		{ID: "MrLight/dse-qwen2-2b-mrl-v1", Memory: 8 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: true}, // 8GB
-	}
+	// Use the hardcoded models that the scheduler expects (from GetDefaultTestModels)
+	// This is more realistic than creating custom test models
+	realPrewarmModels := GetDefaultTestModels()
 
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(realPrewarmModels, nil).AnyTimes()
@@ -277,68 +275,42 @@ func TestRealPrewarmWithLargerGPUs(t *testing.T) {
 		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
 	}
 
+	// Use default MockRunnerClient which has the matching hardcoded models
+	mockRunnerClient := NewMockRunnerClient(160, 2) // 160GB total, 2 GPUs = 80GB per GPU
+
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub:        ps,
 		Store:         mockStore,
-		HealthChecker: &MockHealthChecker{},      // Use mock health checker for tests
-		RunnerClient:  DefaultMockRunnerClient(), // Use mock runner client for tests
+		HealthChecker: &MockHealthChecker{}, // Use mock health checker for tests
+		RunnerClient:  mockRunnerClient,     // Use mock runner client with only test models
 	})
 	require.NoError(t, err)
 
+	// Use fast reconciliation interval for test (100ms instead of default 5s)
+	// This allows multiple slots to be created during the test wait period
+	fastReconcileInterval := 100 * time.Millisecond
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		QueueSize:        50,
+		RunnerController:        runnerCtrl,
+		QueueSize:               50,
+		RunnerReconcileInterval: &fastReconcileInterval,
 	})
 	require.NoError(t, err)
 
 	testRunnerID := "large-gpu-test-runner"
 
-	// Set up a runner with 2 GPUs, each with 80GB memory (plenty of space)
-	gpuMemoryBytes := uint64(80 * 1024 * 1024 * 1024) // 80GB per GPU
-	totalMemoryBytes := 2 * gpuMemoryBytes            // 160GB total
+	// Note: Using MockRunnerClient with 160GB total (2x80GB GPUs) configured above
+	// No need to manually set caches with new desired state architecture
+	gpuMemoryBytes := uint64(80 * 1024 * 1024 * 1024) // 80GB per GPU (matches MockRunnerClient config)
 
-	runnerCtrl.statusCache.Set(testRunnerID, NewCache(ctx, func() (types.RunnerStatus, error) {
-		return types.RunnerStatus{
-			ID:          testRunnerID,
-			TotalMemory: totalMemoryBytes,
-			GPUCount:    2,
-			GPUs: []*types.GPUStatus{
-				{
-					Index:       0,
-					TotalMemory: gpuMemoryBytes,
-					FreeMemory:  gpuMemoryBytes,
-					UsedMemory:  0,
-					ModelName:   "NVIDIA A100 80GB PCIe",
-				},
-				{
-					Index:       1,
-					TotalMemory: gpuMemoryBytes,
-					FreeMemory:  gpuMemoryBytes,
-					UsedMemory:  0,
-					ModelName:   "NVIDIA A100 80GB PCIe",
-				},
-			},
-			Models: []*types.RunnerModelStatus{
-				{ModelID: "qwen3:8b", Runtime: types.RuntimeOllama, DownloadInProgress: false},
-				{ModelID: "MrLight/dse-qwen2-2b-mrl-v1", Runtime: types.RuntimeVLLM, DownloadInProgress: false},
-			},
-		}, nil
-	}, CacheConfig{updateInterval: time.Second}))
-
-	runnerCtrl.slotsCache.Set(testRunnerID, NewCache(ctx, func() (types.ListRunnerSlotsResponse, error) {
-		return types.ListRunnerSlotsResponse{Slots: []*types.RunnerSlot{}}, nil
-	}, CacheConfig{updateInterval: time.Second}))
-
-	runnerCtrl.runnersMu.Lock()
-	runnerCtrl.runners = append(runnerCtrl.runners, testRunnerID)
-	runnerCtrl.runnersMu.Unlock()
+	// Simulate runner connection properly using the connection handler
+	runnerCtrl.OnConnectedHandler(testRunnerID)
 
 	t.Logf("Testing pre-warm distribution with large GPUs (%d GB each)", gpuMemoryBytes/(1024*1024*1024))
 
 	// Trigger real pre-warming
 	scheduler.PrewarmNewRunner(testRunnerID)
-	t.Logf("Waiting for slot reconciliation...")
-	time.Sleep(6 * time.Second)
+	t.Logf("Waiting for slot reconciliation with fast 100ms intervals...")
+	time.Sleep(2 * time.Second) // With 100ms intervals, this gives 20 reconciliation cycles
 
 	// Analyze results
 	slotsCreated := 0
@@ -364,7 +336,15 @@ func TestRealPrewarmWithLargerGPUs(t *testing.T) {
 	t.Logf("GPU distribution: GPU0: %d, GPU1: %d", gpuUsageCount[0], gpuUsageCount[1])
 
 	// With plenty of memory, we should create slots for both models
-	assert.Equal(t, len(realPrewarmModels), slotsCreated, "Should create slots for all pre-warm models")
+	// Count how many models actually have Prewarm: true
+	expectedPrewarmSlots := 0
+	for _, model := range realPrewarmModels {
+		if model.Prewarm {
+			expectedPrewarmSlots++
+		}
+	}
+
+	assert.Equal(t, expectedPrewarmSlots, slotsCreated, "Should create slots for all pre-warm models")
 
 	// Check if they're distributed across GPUs (this is the key test)
 	gpu0Count := gpuUsageCount[0]
