@@ -45,7 +45,8 @@ func TestTensorParallelismLargeModelSplitting(t *testing.T) {
 		PubSub:        ps,
 		Store:         mockStore,
 		HealthChecker: &MockHealthChecker{},      // Use mock health checker for tests
-		RunnerClient:  DefaultMockRunnerClient(), // Use mock runner client for tests
+	// Create custom MockRunnerClient with 2x80GB GPUs (160GB total) to match test expectations
+		RunnerClient:  NewMockRunnerClient(160, 2), // Use mock runner client for tests
 	})
 	require.NoError(t, err)
 
@@ -85,10 +86,8 @@ func TestTensorParallelismLargeModelSplitting(t *testing.T) {
 		}, nil
 	}, CacheConfig{updateInterval: time.Second}))
 
-	// Mock the runner slots cache - initially empty
-	runnerCtrl.slotsCache.Set(testRunnerID, NewCache(ctx, func() (types.ListRunnerSlotsResponse, error) {
-		return types.ListRunnerSlotsResponse{Slots: []*types.RunnerSlot{}}, nil
-	}, CacheConfig{updateInterval: time.Second}))
+	// Note: No need to manually set cache with new desired state architecture
+	// The scheduler's slots callback is automatically set up
 
 	// Simulate runner connection by publishing to the runner.connected.{runnerID} subject
 	err = ps.Publish(ctx, pubsub.GetRunnerConnectedQueue(testRunnerID), []byte("connected"))

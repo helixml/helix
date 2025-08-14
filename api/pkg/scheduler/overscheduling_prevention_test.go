@@ -50,8 +50,8 @@ func TestOverSchedulingPrevention(t *testing.T) {
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub:        ps,
 		Store:         mockStore,
-		HealthChecker: &MockHealthChecker{},      // Use mock health checker for tests
-		RunnerClient:  DefaultMockRunnerClient(), // Use mock runner client for tests
+		HealthChecker: &MockHealthChecker{},       // Use mock health checker for tests
+		RunnerClient:  NewMockRunnerClient(40, 1), // Use mock runner client with 40GB, 1 GPU as test expects
 	})
 	require.NoError(t, err)
 
@@ -70,39 +70,10 @@ func TestOverSchedulingPrevention(t *testing.T) {
 	// But NOT qwen2.5vl:32b (32GB alone exceeds 40GB capacity)
 	gpuMemoryBytes := uint64(40 * 1024 * 1024 * 1024) // 40GB GPU
 
-	// Mock the runner status cache - this is the key to making scheduling work in tests
-	runnerCtrl.statusCache.Set(testRunnerID, NewCache(ctx, func() (types.RunnerStatus, error) {
-		return types.RunnerStatus{
-			ID:          testRunnerID,
-			TotalMemory: gpuMemoryBytes,
-			GPUCount:    1,
-			GPUs: []*types.GPUStatus{
-				{
-					Index:       0,
-					TotalMemory: gpuMemoryBytes,
-					FreeMemory:  gpuMemoryBytes, // Initially all free
-					UsedMemory:  0,
-					ModelName:   "NVIDIA A100 40GB",
-				},
-			},
-			Models: []*types.RunnerModelStatus{
-				// Mock that the runner has all the models we want to test
-				{ModelID: "qwen3:8b", Runtime: types.RuntimeOllama, DownloadInProgress: false},
-				{ModelID: "gpt-oss:20b", Runtime: types.RuntimeOllama, DownloadInProgress: false},
-				{ModelID: "qwen2.5vl:32b", Runtime: types.RuntimeOllama, DownloadInProgress: false},
-			},
-		}, nil
-	}, CacheConfig{updateInterval: time.Second}))
+	// The MockRunnerClient will handle status and slots automatically
 
-	// Mock the runner slots cache - initially empty
-	runnerCtrl.slotsCache.Set(testRunnerID, NewCache(ctx, func() (types.ListRunnerSlotsResponse, error) {
-		return types.ListRunnerSlotsResponse{Slots: []*types.RunnerSlot{}}, nil
-	}, CacheConfig{updateInterval: time.Second}))
-
-	// Add runner to the controller's runner list (simulate connection)
-	runnerCtrl.runnersMu.Lock()
-	runnerCtrl.runners = append(runnerCtrl.runners, testRunnerID)
-	runnerCtrl.runnersMu.Unlock()
+	// Connect the runner properly
+	runnerCtrl.OnConnectedHandler(testRunnerID)
 
 	t.Logf("Testing GPU memory over-allocation prevention with %d GB GPU capacity",
 		gpuMemoryBytes/(1024*1024*1024))
