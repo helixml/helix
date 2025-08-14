@@ -15,23 +15,19 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-// init runs before any tests and forcefully sets log level to reduce noise
+// init runs before any tests and sets reasonable log level defaults
 func init() {
-	// Forcefully disable all logging during tests
-	os.Setenv("LOG_LEVEL", "none")
-	zerolog.SetGlobalLevel(zerolog.Disabled)
+	// Set a reasonable log level for tests if not already set
+	if os.Getenv("LOG_LEVEL") == "" {
+		os.Setenv("LOG_LEVEL", "debug")
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	}
 }
 
 // TestMain sets up logging configuration for all scheduler tests
 func TestMain(m *testing.M) {
-	// Disable all logging during tests to reduce noise
-	os.Setenv("LOG_LEVEL", "none")
-
 	// Initialize logging with the configured level
 	system.SetupLogging()
-
-	// Additionally set global log level to disabled to ensure it takes effect
-	zerolog.SetGlobalLevel(zerolog.Disabled)
 
 	// Run the tests
 	code := m.Run()
