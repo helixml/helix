@@ -59,6 +59,9 @@ type RunnerClient interface {
 	FetchSlots(runnerID string) (types.ListRunnerSlotsResponse, error)
 	FetchStatus(runnerID string) (types.RunnerStatus, error)
 	SyncSystemSettings(runnerID string, settings *types.RunnerSystemConfigRequest) error
+	SubmitChatCompletionRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error
+	SubmitEmbeddingRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error
+	SubmitImageGenerationRequest(slot *Slot, session *types.Session) error
 }
 
 // NATSHealthChecker implements HealthChecker using NATS communication
@@ -290,6 +293,11 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 	go controller.reconcileCaches(ctx)
 
 	return controller, nil
+}
+
+// RunnerClient returns the runner client interface
+func (c *RunnerController) RunnerClient() RunnerClient {
+	return c.runnerClient
 }
 
 // SetOnRunnerConnectedCallback sets the callback function for when a new runner connects
@@ -866,6 +874,10 @@ func (c *RunnerController) GetSlots(runnerID string) ([]*types.RunnerSlot, error
 	return slots.Slots, nil
 }
 
+func (r *NATSRunnerClient) SubmitChatCompletionRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error {
+	return r.controller.SubmitChatCompletionRequest(slot, req)
+}
+
 func (c *RunnerController) SubmitChatCompletionRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error {
 	headers := map[string]string{}
 	headers[pubsub.HelixNatsReplyHeader] = pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID)
@@ -903,6 +915,10 @@ func (c *RunnerController) SubmitChatCompletionRequest(slot *Slot, req *types.Ru
 }
 
 // SubmitEmbeddingRequest submits an embedding request to the runner
+func (r *NATSRunnerClient) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error {
+	return r.controller.SubmitEmbeddingRequest(slot, req)
+}
+
 func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error {
 	headers := map[string]string{}
 	headers[pubsub.HelixNatsReplyHeader] = pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID)
@@ -1117,6 +1133,10 @@ func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerL
 		Msg("✅ Embedding request successfully submitted to runner")
 
 	return nil
+}
+
+func (r *NATSRunnerClient) SubmitImageGenerationRequest(slot *Slot, session *types.Session) error {
+	return r.controller.SubmitImageGenerationRequest(slot, session)
 }
 
 func (c *RunnerController) SubmitImageGenerationRequest(slot *Slot, session *types.Session) error {

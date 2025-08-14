@@ -1461,14 +1461,14 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 			llmReq := req.LLMInferenceRequest()
 			if llmReq.Embeddings {
 				withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting embedding request")
-				err := s.controller.SubmitEmbeddingRequest(slot, llmReq)
+				err := s.controller.RunnerClient().SubmitEmbeddingRequest(slot, llmReq)
 				if err != nil {
 					s.onSchedulingErr(req, err)
 					withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting embedding request")
 				}
 			} else {
 				withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting chat completion request")
-				err := s.controller.SubmitChatCompletionRequest(slot, llmReq)
+				err := s.controller.RunnerClient().SubmitChatCompletionRequest(slot, llmReq)
 				if err != nil {
 					s.onSchedulingErr(req, err)
 					withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting chat completion request")
@@ -1480,7 +1480,7 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 				switch req.Session().Type {
 				case types.SessionTypeImage:
 					withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting text2image request")
-					err := s.controller.SubmitImageGenerationRequest(slot, req.Session())
+					err := s.controller.RunnerClient().SubmitImageGenerationRequest(slot, req.Session())
 					if err != nil {
 						s.onSchedulingErr(req, err)
 						withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting text2image request")
@@ -1493,7 +1493,7 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 						convertedRequest.Request.Model = req.Session().LoraDir
 
 						// Forward the request to the chat completion handler
-						err := s.controller.SubmitChatCompletionRequest(slot, convertedRequest)
+						err := s.controller.RunnerClient().SubmitChatCompletionRequest(slot, convertedRequest)
 						if err != nil {
 							s.onSchedulingErr(req, err)
 							withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting LORA inference request")
