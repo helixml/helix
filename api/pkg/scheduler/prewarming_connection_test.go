@@ -21,13 +21,22 @@ func TestPrewarmNewRunner_Success(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
+	// Use default hardcoded models to match production behavior
+	testModels := GetDefaultTestModels()
+
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
+	// Mock GetModel calls for each model
+	for _, model := range testModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
+
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -37,11 +46,44 @@ func TestPrewarmNewRunner_Success(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Set up the test runner with proper status so memory calculation works
+	runnerID := "test-runner-1"
+	totalMemory := uint64(80 * 1024 * 1024 * 1024) // 80GB
+
+	// Set up the cache BEFORE connecting the runner (important for tests)
+	runnerCtrl.statusCache.Set(runnerID, NewCache(ctx, func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			ID:          runnerID,
+			TotalMemory: totalMemory,
+			GPUCount:    1,
+			GPUs: []*types.GPUStatus{
+				{
+					Index:       0,
+					TotalMemory: totalMemory,
+					FreeMemory:  totalMemory, // Initially all free
+					UsedMemory:  0,
+					ModelName:   "Test GPU",
+				},
+			},
+			Models: []*types.RunnerModelStatus{
+				// Mock that the runner has the models we want to test
+				{ModelID: "gpt-oss:20b", Runtime: types.RuntimeOllama, DownloadInProgress: false},
+				{ModelID: "qwen3:8b", Runtime: types.RuntimeOllama, DownloadInProgress: false},
+				{ModelID: "Qwen/Qwen2.5-VL-7B-Instruct", Runtime: types.RuntimeVLLM, DownloadInProgress: false},
+				{ModelID: "MrLight/dse-qwen2-2b-mrl-v1", Runtime: types.RuntimeVLLM, DownloadInProgress: false},
+			},
+		}, nil
+	}, CacheConfig{updateInterval: time.Second}))
+
+	// Also set up slots cache to return empty slots initially
+	runnerCtrl.slotsCache.Set(runnerID, NewCache(ctx, func() (types.ListRunnerSlotsResponse, error) {
+		return types.ListRunnerSlotsResponse{Slots: []*types.RunnerSlot{}}, nil
+	}, CacheConfig{updateInterval: time.Second}))
+
 	// Track the initial queue size
 	initialQueueSize := len(scheduler.queue.Queue())
 
-	// Call PrewarmNewRunner directly
-	runnerID := "test-runner-1"
+	// Call PrewarmNewRunner directly (don't use OnConnectedHandler as it clears caches)
 	scheduler.PrewarmNewRunner(runnerID)
 
 	// Give some time for async processing
@@ -88,8 +130,9 @@ func TestPrewarmNewRunner_VerifyWorkloadCreation(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -132,8 +175,9 @@ func TestOnRunnerConnectedCallback(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -178,8 +222,9 @@ func TestOnRunnerReconnectedCallback(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -232,8 +277,9 @@ func TestPrewarmWorkloadProperties(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -300,8 +346,9 @@ func TestMultipleRunnerConnections(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -355,8 +402,9 @@ func TestPrewarmingMemoryAwareSelection(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -431,8 +479,9 @@ func TestPrewarmingMemoryConstrainedSelection(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -508,8 +557,9 @@ func TestMemoryAwarePrewarming(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 

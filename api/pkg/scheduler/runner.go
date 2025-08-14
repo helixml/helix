@@ -40,6 +40,67 @@ type RunnerController struct {
 	store               store.Store
 	onRunnerConnectedFn func(runnerID string)       // Callback for when a new runner connects
 	getModelMemoryFn    func(modelID string) uint64 // Callback to get authoritative model memory from scheduler
+	healthChecker       HealthChecker               // Interface for health checking, allows mocking in tests
+}
+
+// HealthChecker interface allows for mocking health checks in tests
+type HealthChecker interface {
+	GetHealthz(runnerID string) error
+	SetModels(runnerID string) error
+}
+
+// NATSHealthChecker implements HealthChecker using NATS communication
+type NATSHealthChecker struct {
+	controller *RunnerController
+}
+
+func (h *NATSHealthChecker) GetHealthz(runnerID string) error {
+	resp, err := h.controller.Send(h.controller.ctx, runnerID, nil, &types.Request{
+		Method: "GET",
+		URL:    "/api/v1/healthz",
+	}, defaultRequestTimeout)
+	if err != nil {
+		return fmt.Errorf("error getting healthz: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("runner %s is not healthy", runnerID)
+	}
+	return nil
+}
+
+func (h *NATSHealthChecker) SetModels(runnerID string) error {
+	// If no store is configured (e.g., in tests), skip model synchronization
+	if h.controller.store == nil {
+		log.Debug().Str("runner_id", runnerID).Msg("no store configured, skipping model synchronization")
+		return nil
+	}
+
+	enabled := true
+	// Fetch all enabled models
+	models, err := h.controller.store.ListModels(context.Background(), &store.ListModelsQuery{
+		Enabled: &enabled,
+	})
+	if err != nil {
+		return fmt.Errorf("error listing models: %w", err)
+	}
+
+	bts, err := json.Marshal(models)
+	if err != nil {
+		return fmt.Errorf("error marshalling models: %w", err)
+	}
+
+	resp, err := h.controller.Send(h.controller.ctx, runnerID, nil, &types.Request{
+		Method: "POST",
+		URL:    "/api/v1/helix-models",
+		Body:   bts,
+	}, defaultRequestTimeout)
+	if err != nil {
+		return fmt.Errorf("error setting models: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("runner %s is not healthy", runnerID)
+	}
+	return nil
 }
 
 type RunnerControllerConfig struct {
@@ -48,6 +109,7 @@ type RunnerControllerConfig struct {
 	Store               store.Store
 	OnRunnerConnectedFn func(runnerID string)       // Optional callback for when a new runner connects
 	GetModelMemoryFn    func(modelID string) uint64 // Optional callback to get authoritative model memory
+	HealthChecker       HealthChecker               // Optional: for testing, defaults to NATS-based implementation
 }
 
 func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*RunnerController, error) {
@@ -63,6 +125,13 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 		statusCache:         NewLockingRunnerMap[types.RunnerStatus](),
 		onRunnerConnectedFn: cfg.OnRunnerConnectedFn,
 		getModelMemoryFn:    cfg.GetModelMemoryFn,
+	}
+
+	// Set up health checker - use provided one or default to NATS-based
+	if cfg.HealthChecker != nil {
+		controller.healthChecker = cfg.HealthChecker
+	} else {
+		controller.healthChecker = &NATSHealthChecker{controller: controller}
 	}
 
 	sub, err := cfg.PubSub.SubscribeWithCtx(controller.ctx, pubsub.GetRunnerConnectedQueue("*"), func(_ context.Context, msg *nats.Msg) error {
@@ -1250,52 +1319,11 @@ func (c *RunnerController) GetStatus(runnerID string) (*types.RunnerStatus, erro
 }
 
 func (c *RunnerController) GetHealthz(runnerID string) error {
-	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
-		Method: "GET",
-		URL:    "/api/v1/healthz",
-	}, defaultRequestTimeout)
-	if err != nil {
-		return fmt.Errorf("error getting healthz: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("runner %s is not healthy", runnerID)
-	}
-	return nil
+	return c.healthChecker.GetHealthz(runnerID)
 }
 
 func (c *RunnerController) SetModels(runnerID string) error {
-	// If no store is configured (e.g., in tests), skip model synchronization
-	if c.store == nil {
-		log.Debug().Str("runner_id", runnerID).Msg("no store configured, skipping model synchronization")
-		return nil
-	}
-
-	enabled := true
-	// Fetch all enabled models
-	models, err := c.store.ListModels(context.Background(), &store.ListModelsQuery{
-		Enabled: &enabled,
-	})
-	if err != nil {
-		return fmt.Errorf("error listing models: %w", err)
-	}
-
-	bts, err := json.Marshal(models)
-	if err != nil {
-		return fmt.Errorf("error marshalling models: %w", err)
-	}
-
-	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
-		Method: "POST",
-		URL:    "/api/v1/helix-models",
-		Body:   bts,
-	}, defaultRequestTimeout)
-	if err != nil {
-		return fmt.Errorf("error setting models: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("runner %s is not healthy", runnerID)
-	}
-	return nil
+	return c.healthChecker.SetModels(runnerID)
 }
 
 func (c *RunnerController) fetchSlot(runnerID string, slotID uuid.UUID) (types.RunnerSlot, error) {

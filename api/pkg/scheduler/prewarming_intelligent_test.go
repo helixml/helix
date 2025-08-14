@@ -21,13 +21,22 @@ func TestIntelligentPrewarming_WithDefaultPrewarmModels(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
+	// Use default hardcoded models to match production behavior
+	testModels := GetDefaultTestModels()
+
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
+	// Mock GetModel calls for each model
+	for _, model := range testModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
+
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -62,13 +71,22 @@ func TestIntelligentPrewarming_UnevenDistribution(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
+	// Use default hardcoded models to match production behavior
+	testModels := GetDefaultTestModels()
+
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
+	// Mock GetModel calls for each model
+	for _, model := range testModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
+
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -137,13 +155,22 @@ func TestIntelligentPrewarming_BalancedDistribution(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
+	// Use default hardcoded models to match production behavior
+	testModels := GetDefaultTestModels()
+
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
+	// Mock GetModel calls for each model
+	for _, model := range testModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
+
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -196,13 +223,22 @@ func TestIntelligentPrewarming_EmptyCluster(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
+	// Use default hardcoded models to match production behavior
+	testModels := GetDefaultTestModels()
+
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
+	// Mock GetModel calls for each model
+	for _, model := range testModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
+
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -236,13 +272,22 @@ func TestAnalyzeGlobalModelDistribution(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
+	// Use default hardcoded models to match production behavior
+	testModels := GetDefaultTestModels()
+
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
+	// Mock GetModel calls for each model
+	for _, model := range testModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
+
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -303,13 +348,22 @@ func TestSelectModelsForBalancing(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
+	// Use default hardcoded models to match production behavior
+	testModels := GetDefaultTestModels()
+
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
+	// Mock GetModel calls for each model
+	for _, model := range testModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
+
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 

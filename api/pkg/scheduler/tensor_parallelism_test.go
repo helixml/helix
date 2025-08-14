@@ -42,14 +42,17 @@ func TestTensorParallelismLargeModelSplitting(t *testing.T) {
 	}
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{}, // Use mock health checker for tests
 	})
 	require.NoError(t, err)
 
+	fastInterval := 100 * time.Millisecond
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		QueueSize:        50,
+		RunnerController:        runnerCtrl,
+		QueueSize:               50,
+		RunnerReconcileInterval: &fastInterval, // Fast reconciliation for tests
 	})
 	require.NoError(t, err)
 
@@ -86,10 +89,12 @@ func TestTensorParallelismLargeModelSplitting(t *testing.T) {
 		return types.ListRunnerSlotsResponse{Slots: []*types.RunnerSlot{}}, nil
 	}, CacheConfig{updateInterval: time.Second}))
 
-	// Add runner to the controller's runner list
-	runnerCtrl.runnersMu.Lock()
-	runnerCtrl.runners = append(runnerCtrl.runners, testRunnerID)
-	runnerCtrl.runnersMu.Unlock()
+	// Simulate runner connection by publishing to the runner.connected.{runnerID} subject
+	err = ps.Publish(ctx, pubsub.GetRunnerConnectedQueue(testRunnerID), []byte("connected"))
+	require.NoError(t, err)
+
+	// Give the controller a moment to process the connection event
+	time.Sleep(10 * time.Millisecond)
 
 	t.Logf("Testing tensor parallelism with 2x%d GB GPUs (%d GB total)",
 		gpuMemoryBytes/(1024*1024*1024), (gpuMemoryBytes*uint64(gpuCount))/(1024*1024*1024))
@@ -237,14 +242,17 @@ func TestFragmentationPrevention(t *testing.T) {
 	}
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{}, // Use mock health checker for tests
 	})
 	require.NoError(t, err)
 
+	fastInterval := 100 * time.Millisecond
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		QueueSize:        50,
+		RunnerController:        runnerCtrl,
+		QueueSize:               50,
+		RunnerReconcileInterval: &fastInterval, // Fast reconciliation for tests
 	})
 	require.NoError(t, err)
 
@@ -330,16 +338,22 @@ func TestFragmentationPrevention(t *testing.T) {
 	require.NoError(t, err)
 	t.Logf("✅ Enqueued small model (20GB)")
 
-	// Trigger scheduling for small models
+	// With one-slot-per-cycle, we need to trigger reconciliation twice to schedule both models
+	// First reconciliation cycle: schedule medium model (40GB)
 	scheduler.reconcileSlotsOnce(ctx)
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
-	// Check allocations for small models
+	// Check that the first model is allocated
 	mediumAllocation := scheduler.getGPUAllocation("medium-model-request", testRunnerID)
-	smallAllocation := scheduler.getGPUAllocation("small-model-request", testRunnerID)
+	require.NotNil(t, mediumAllocation, "Medium model should be allocated in first cycle")
 
-	require.NotNil(t, mediumAllocation, "Medium model should be allocated")
-	require.NotNil(t, smallAllocation, "Small model should be allocated")
+	// Second reconciliation cycle: schedule small model (20GB)
+	scheduler.reconcileSlotsOnce(ctx)
+	time.Sleep(50 * time.Millisecond)
+
+	// Check allocations for both models
+	smallAllocation := scheduler.getGPUAllocation("small-model-request", testRunnerID)
+	require.NotNil(t, smallAllocation, "Small model should be allocated in second cycle")
 
 	t.Logf("After scheduling small models:")
 	t.Logf("  Medium model (40GB): GPU %v", mediumAllocation.SingleGPU)
@@ -367,9 +381,9 @@ func TestFragmentationPrevention(t *testing.T) {
 	require.NoError(t, err)
 	t.Logf("✅ Enqueued large model (120GB)")
 
-	// Trigger scheduling for large model
+	// Third reconciliation cycle: schedule large model (120GB)
 	scheduler.reconcileSlotsOnce(ctx)
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	largeAllocation := scheduler.getGPUAllocation("large-model-request", testRunnerID)
 
@@ -461,14 +475,17 @@ func TestOptimalTensorParallelismScheduling(t *testing.T) {
 	}
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{}, // Use mock health checker for tests
 	})
 	require.NoError(t, err)
 
+	fastInterval := 100 * time.Millisecond
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		QueueSize:        50,
+		RunnerController:        runnerCtrl,
+		QueueSize:               50,
+		RunnerReconcileInterval: &fastInterval, // Fast reconciliation for tests
 	})
 	require.NoError(t, err)
 

@@ -17,7 +17,8 @@ func Test_filterRunnersByMemory_NoRunners(t *testing.T) {
 	require.NoError(t, err)
 
 	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
-		PubSub: ps,
+		PubSub:        ps,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -48,7 +49,8 @@ func Test_filterRunnersByMemory_SomeRunnersSufficient(t *testing.T) {
 	require.NoError(t, err)
 
 	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
-		PubSub: ps,
+		PubSub:        ps,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -118,7 +120,8 @@ func Test_filterRunnersByMemory_NoRunnersSufficient(t *testing.T) {
 	require.NoError(t, err)
 
 	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
-		PubSub: ps,
+		PubSub:        ps,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -187,7 +190,8 @@ func Test_filterRunnersByModel_NoRunners(t *testing.T) {
 	require.NoError(t, err)
 
 	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
-		PubSub: ps,
+		PubSub:        ps,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -218,7 +222,8 @@ func Test_filterRunnersByModel_RuntimeNotOllama(t *testing.T) {
 	require.NoError(t, err)
 
 	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
-		PubSub: ps,
+		PubSub:        ps,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -251,7 +256,8 @@ func Test_filterRunnersByModel_AllRunnersHaveModel(t *testing.T) {
 	require.NoError(t, err)
 
 	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
-		PubSub: ps,
+		PubSub:        ps,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -302,7 +308,8 @@ func Test_filterRunnersByModel_OneRunnerHasModel(t *testing.T) {
 	require.NoError(t, err)
 
 	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
-		PubSub: ps,
+		PubSub:        ps,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
@@ -379,7 +386,8 @@ func Test_filterRunnersByModel_NoRunnerHasModel(t *testing.T) {
 	require.NoError(t, err)
 
 	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
-		PubSub: ps,
+		PubSub:        ps,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
