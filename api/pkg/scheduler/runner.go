@@ -38,14 +38,16 @@ type RunnerController struct {
 	slotsCache          *LockingRunnerMap[types.ListRunnerSlotsResponse]
 	statusCache         *LockingRunnerMap[types.RunnerStatus]
 	store               store.Store
-	onRunnerConnectedFn func(runnerID string) // Callback for when a new runner connects
+	onRunnerConnectedFn func(runnerID string)       // Callback for when a new runner connects
+	getModelMemoryFn    func(modelID string) uint64 // Callback to get authoritative model memory from scheduler
 }
 
 type RunnerControllerConfig struct {
 	PubSub              pubsub.PubSub
 	FS                  filestore.FileStore
 	Store               store.Store
-	OnRunnerConnectedFn func(runnerID string) // Optional callback for when a new runner connects
+	OnRunnerConnectedFn func(runnerID string)       // Optional callback for when a new runner connects
+	GetModelMemoryFn    func(modelID string) uint64 // Optional callback to get authoritative model memory
 }
 
 func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*RunnerController, error) {
@@ -60,6 +62,7 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 		slotsCache:          NewLockingRunnerMap[types.ListRunnerSlotsResponse](),
 		statusCache:         NewLockingRunnerMap[types.RunnerStatus](),
 		onRunnerConnectedFn: cfg.OnRunnerConnectedFn,
+		getModelMemoryFn:    cfg.GetModelMemoryFn,
 	}
 
 	sub, err := cfg.PubSub.SubscribeWithCtx(controller.ctx, pubsub.GetRunnerConnectedQueue("*"), func(_ context.Context, msg *nats.Msg) error {
@@ -93,6 +96,13 @@ func (c *RunnerController) SetOnRunnerConnectedCallback(fn func(runnerID string)
 	c.callbackMu.Lock()
 	defer c.callbackMu.Unlock()
 	c.onRunnerConnectedFn = fn
+}
+
+// setModelMemoryCallback sets the callback function to get authoritative model memory from scheduler
+func (c *RunnerController) setModelMemoryCallback(fn func(modelID string) uint64) {
+	c.callbackMu.Lock()
+	defer c.callbackMu.Unlock()
+	c.getModelMemoryFn = fn
 }
 
 func (c *RunnerController) reconcileCaches(ctx context.Context) {
@@ -406,37 +416,6 @@ func (c *RunnerController) PerGPUMemory(runnerID string) uint64 {
 	return perGPUMemory
 }
 
-// CanFitModelOnAnyGPU checks if any individual GPU has enough free memory for the model
-// This is critical for single-GPU VLLM models to avoid memory fragmentation issues
-func (c *RunnerController) CanFitModelOnAnyGPU(runnerID string, modelMemoryRequirement uint64) bool {
-	status, err := c.GetStatus(runnerID)
-	if err != nil {
-		log.Error().Err(err).Msg("error getting runner status for GPU check")
-		return false
-	}
-
-	// Check each individual GPU
-	for _, gpu := range status.GPUs {
-		if gpu.FreeMemory >= modelMemoryRequirement {
-			log.Debug().
-				Str("runner_id", runnerID).
-				Int("gpu_index", gpu.Index).
-				Uint64("gpu_free_memory", gpu.FreeMemory).
-				Uint64("model_memory_requirement", modelMemoryRequirement).
-				Msg("Found GPU with sufficient memory for model")
-			return true
-		}
-	}
-
-	log.Debug().
-		Str("runner_id", runnerID).
-		Uint64("model_memory_requirement", modelMemoryRequirement).
-		Int("gpu_count", len(status.GPUs)).
-		Msg("No individual GPU has sufficient memory for model")
-
-	return false
-}
-
 // GetGPUMemoryInfo returns detailed per-GPU memory information for debugging
 func (c *RunnerController) GetGPUMemoryInfo(runnerID string) ([]*types.GPUStatus, error) {
 	status, err := c.GetStatus(runnerID)
@@ -444,61 +423,6 @@ func (c *RunnerController) GetGPUMemoryInfo(runnerID string) ([]*types.GPUStatus
 		return nil, err
 	}
 	return status.GPUs, nil
-}
-
-// CanFitModelOnMultipleGPUs checks if a model can be distributed across multiple GPUs
-// Returns the optimal GPU indices and whether allocation is possible
-func (c *RunnerController) CanFitModelOnMultipleGPUs(runnerID string, modelMemoryRequirement uint64, minGPUs int) ([]int, bool) {
-	status, err := c.GetStatus(runnerID)
-	if err != nil {
-		log.Error().Err(err).Msg("error getting runner status for multi-GPU check")
-		return nil, false
-	}
-
-	if len(status.GPUs) < minGPUs {
-		log.Debug().
-			Str("runner_id", runnerID).
-			Int("available_gpus", len(status.GPUs)).
-			Int("min_required_gpus", minGPUs).
-			Msg("Not enough GPUs available for multi-GPU model")
-		return nil, false
-	}
-
-	// For multi-GPU models, VLLM distributes the model roughly equally across GPUs
-	// Each GPU needs approximately modelMemoryRequirement / numGPUs
-	memoryPerGPU := modelMemoryRequirement / uint64(minGPUs)
-
-	// Add 10% overhead for tensor parallelism communication and other overhead
-	memoryPerGPU = uint64(float64(memoryPerGPU) * 1.1)
-
-	var selectedGPUs []int
-	for _, gpu := range status.GPUs {
-		if gpu.FreeMemory >= memoryPerGPU {
-			selectedGPUs = append(selectedGPUs, gpu.Index)
-			if len(selectedGPUs) >= minGPUs {
-				break
-			}
-		}
-	}
-
-	if len(selectedGPUs) < minGPUs {
-		log.Debug().
-			Str("runner_id", runnerID).
-			Uint64("memory_per_gpu_required", memoryPerGPU).
-			Int("found_suitable_gpus", len(selectedGPUs)).
-			Int("min_required_gpus", minGPUs).
-			Msg("Not enough GPUs with sufficient memory for multi-GPU model")
-		return nil, false
-	}
-
-	log.Debug().
-		Str("runner_id", runnerID).
-		Ints("selected_gpu_indices", selectedGPUs).
-		Uint64("model_memory_requirement", modelMemoryRequirement).
-		Uint64("memory_per_gpu", memoryPerGPU).
-		Msg("Found suitable GPUs for multi-GPU model")
-
-	return selectedGPUs, true
 }
 
 // GetOptimalGPUAllocation determines the best GPU allocation strategy for a model
@@ -510,15 +434,22 @@ func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryR
 		return nil, nil, 0
 	}
 
+	// Calculate allocated memory per GPU based on existing slots
+	allocatedMemoryPerGPU := c.calculateAllocatedMemoryPerGPU(runnerID)
+
 	// First, try to fit the model on a single GPU
-	if c.CanFitModelOnAnyGPU(runnerID, modelMemoryRequirement) {
-		// Find the best single GPU
+	if c.CanFitModelOnAnyGPUAllocated(runnerID, modelMemoryRequirement, allocatedMemoryPerGPU) {
+		// Find the GPU with the most free memory (based on allocated memory, not real-time memory)
 		var bestGPU *int
 		var maxFreeMemory uint64
 
 		for _, gpu := range status.GPUs {
-			if gpu.FreeMemory >= modelMemoryRequirement && gpu.FreeMemory > maxFreeMemory {
-				maxFreeMemory = gpu.FreeMemory
+			allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
+			freeMemory := gpu.TotalMemory - allocatedMemory
+
+			// Check if this GPU has enough free memory for the model and has more free memory than current best
+			if freeMemory >= modelMemoryRequirement && freeMemory > maxFreeMemory {
+				maxFreeMemory = freeMemory
 				idx := gpu.Index
 				bestGPU = &idx
 			}
@@ -529,7 +460,9 @@ func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryR
 				Str("runner_id", runnerID).
 				Int("selected_gpu", *bestGPU).
 				Uint64("model_memory_requirement", modelMemoryRequirement).
-				Msg("Selected single GPU for model")
+				Uint64("gpu_allocated_memory", allocatedMemoryPerGPU[*bestGPU]).
+				Uint64("gpu_free_memory", maxFreeMemory).
+				Msg("Selected GPU with most free memory based on allocated memory")
 			return bestGPU, nil, 1
 		}
 	}
@@ -537,13 +470,13 @@ func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryR
 	// If single GPU doesn't work, try multi-GPU allocation
 	// Start with 2 GPUs and scale up as needed
 	for numGPUs := 2; numGPUs <= len(status.GPUs); numGPUs++ {
-		if gpuIndices, canFit := c.CanFitModelOnMultipleGPUs(runnerID, modelMemoryRequirement, numGPUs); canFit {
+		if gpuIndices, canFit := c.CanFitModelOnMultipleGPUsAllocated(runnerID, modelMemoryRequirement, numGPUs, allocatedMemoryPerGPU); canFit {
 			log.Debug().
 				Str("runner_id", runnerID).
 				Ints("selected_gpus", gpuIndices).
 				Int("tensor_parallel_size", numGPUs).
 				Uint64("model_memory_requirement", modelMemoryRequirement).
-				Msg("Selected multi-GPU allocation for model")
+				Msg("Selected multi-GPU allocation for model based on allocated memory")
 			return nil, gpuIndices, numGPUs
 		}
 	}
@@ -564,6 +497,165 @@ func (c *RunnerController) Version(runnerID string) string {
 		return ""
 	}
 	return status.Version
+}
+
+// calculateAllocatedMemoryPerGPU calculates how much memory is allocated to each GPU based on existing slots
+// This method needs to be called from the scheduler context to access model information
+func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) map[int]uint64 {
+	allocatedMemoryPerGPU := make(map[int]uint64)
+
+	slots, err := c.GetSlots(runnerID)
+	if err != nil {
+		log.Debug().Err(err).Str("runner_id", runnerID).Msg("Failed to get slots for allocated memory calculation")
+		return allocatedMemoryPerGPU
+	}
+
+	for _, slot := range slots {
+		if !slot.Active || slot.Model == "" {
+			continue
+		}
+
+		// Get authoritative model memory from the scheduler
+		var modelMemory uint64
+		if c.getModelMemoryFn != nil {
+			modelMemory = c.getModelMemoryFn(slot.Model)
+		}
+
+		// If we still can't determine model memory, skip this slot to prevent over-scheduling
+		if modelMemory == 0 {
+			log.Error().
+				Str("runner_id", runnerID).
+				Str("slot_id", slot.ID.String()).
+				Str("model", slot.Model).
+				Msg("CRITICAL: Cannot determine model memory requirements - skipping slot to prevent over-scheduling")
+
+			// Skip this slot entirely rather than guessing - this prevents over-scheduling
+			continue
+		}
+
+		log.Debug().
+			Str("runner_id", runnerID).
+			Str("slot_id", slot.ID.String()).
+			Str("model", slot.Model).
+			Uint64("model_memory_gb", modelMemory/(1024*1024*1024)).
+			Msg("Using authoritative model memory from scheduler")
+
+		// Allocate memory to the appropriate GPU(s)
+		if len(slot.GPUIndices) > 1 {
+			// Multi-GPU model: distribute memory across GPUs
+			memoryPerGPU := modelMemory / uint64(len(slot.GPUIndices))
+			for _, gpuIndex := range slot.GPUIndices {
+				allocatedMemoryPerGPU[gpuIndex] += memoryPerGPU
+			}
+		} else if slot.GPUIndex != nil {
+			// Single GPU model: allocate full memory to this GPU
+			allocatedMemoryPerGPU[*slot.GPUIndex] += modelMemory
+		}
+		// CPU-only slots (GPUIndex == nil && len(GPUIndices) == 0) don't count toward GPU memory
+	}
+
+	log.Debug().
+		Str("runner_id", runnerID).
+		Interface("allocated_memory_per_gpu", allocatedMemoryPerGPU).
+		Msg("Calculated allocated memory per GPU (skipped slots with unknown memory requirements)")
+
+	return allocatedMemoryPerGPU
+}
+
+// CanFitModelOnAnyGPUAllocated checks if any individual GPU has enough free memory for the model based on allocated memory
+func (c *RunnerController) CanFitModelOnAnyGPUAllocated(runnerID string, modelMemoryRequirement uint64, allocatedMemoryPerGPU map[int]uint64) bool {
+	status, err := c.GetStatus(runnerID)
+	if err != nil {
+		log.Error().Err(err).Msg("error getting runner status for GPU check")
+		return false
+	}
+
+	// Check each individual GPU
+	for _, gpu := range status.GPUs {
+		allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
+		freeMemory := gpu.TotalMemory - allocatedMemory
+
+		if freeMemory >= modelMemoryRequirement {
+			log.Debug().
+				Str("runner_id", runnerID).
+				Int("gpu_index", gpu.Index).
+				Uint64("gpu_total_memory", gpu.TotalMemory).
+				Uint64("gpu_allocated_memory", allocatedMemory).
+				Uint64("gpu_free_memory", freeMemory).
+				Uint64("model_memory_requirement", modelMemoryRequirement).
+				Msg("Found GPU with sufficient free memory for model (allocated-based)")
+			return true
+		}
+	}
+
+	log.Debug().
+		Str("runner_id", runnerID).
+		Uint64("model_memory_requirement", modelMemoryRequirement).
+		Int("gpu_count", len(status.GPUs)).
+		Interface("allocated_memory_per_gpu", allocatedMemoryPerGPU).
+		Msg("No individual GPU has sufficient free memory for model (allocated-based)")
+
+	return false
+}
+
+// CanFitModelOnMultipleGPUsAllocated checks if a model can be distributed across multiple GPUs
+// based on allocated memory (not real-time memory) to prevent race conditions
+func (c *RunnerController) CanFitModelOnMultipleGPUsAllocated(runnerID string, modelMemoryRequirement uint64, minGPUs int, allocatedMemoryPerGPU map[int]uint64) ([]int, bool) {
+	status, err := c.GetStatus(runnerID)
+	if err != nil {
+		log.Error().Err(err).Msg("error getting runner status for multi-GPU check")
+		return nil, false
+	}
+
+	if len(status.GPUs) < minGPUs {
+		log.Debug().
+			Str("runner_id", runnerID).
+			Int("available_gpus", len(status.GPUs)).
+			Int("min_required_gpus", minGPUs).
+			Msg("Not enough GPUs available for multi-GPU model")
+		return nil, false
+	}
+
+	// For multi-GPU models, VLLM distributes the model roughly equally across GPUs
+	// Each GPU needs approximately modelMemoryRequirement / numGPUs
+	memoryPerGPU := modelMemoryRequirement / uint64(minGPUs)
+
+	// Removed 10% overhead buffer for simplicity - keeping system predictable
+	// until we're confident the core allocation logic is solid
+
+	var selectedGPUs []int
+	for _, gpu := range status.GPUs {
+		allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
+		freeMemory := gpu.TotalMemory - allocatedMemory
+
+		if freeMemory >= memoryPerGPU {
+			selectedGPUs = append(selectedGPUs, gpu.Index)
+			if len(selectedGPUs) >= minGPUs {
+				break
+			}
+		}
+	}
+
+	if len(selectedGPUs) < minGPUs {
+		log.Debug().
+			Str("runner_id", runnerID).
+			Uint64("memory_per_gpu_required", memoryPerGPU).
+			Int("found_suitable_gpus", len(selectedGPUs)).
+			Int("min_required_gpus", minGPUs).
+			Interface("allocated_memory_per_gpu", allocatedMemoryPerGPU).
+			Msg("Not enough GPUs with sufficient free memory for multi-GPU model (allocated-based)")
+		return nil, false
+	}
+
+	log.Debug().
+		Str("runner_id", runnerID).
+		Ints("selected_gpu_indices", selectedGPUs).
+		Uint64("model_memory_requirement", modelMemoryRequirement).
+		Uint64("memory_per_gpu", memoryPerGPU).
+		Interface("allocated_memory_per_gpu", allocatedMemoryPerGPU).
+		Msg("Found suitable GPUs for multi-GPU model (allocated-based)")
+
+	return selectedGPUs, true
 }
 
 func (c *RunnerController) GetSlots(runnerID string) ([]*types.RunnerSlot, error) {

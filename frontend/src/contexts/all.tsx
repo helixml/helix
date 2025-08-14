@@ -41,6 +41,11 @@ import {
   FloatingRunnerStateProvider,
 } from './floatingRunnerState'
 
+// Import the FloatingModalProvider
+import {
+  FloatingModalProvider,
+} from './floatingModal'
+
 const AllContextProvider = ({ children }: { children: ReactNode }) => {
   return (
     <RouterContextProvider>
@@ -52,7 +57,9 @@ const AllContextProvider = ({ children }: { children: ReactNode }) => {
                 <AppsContextProvider>
                   <StreamingContextProvider>
                     <FloatingRunnerStateProvider>
-                      {children}
+                      <FloatingModalProvider>
+                        {children}
+                      </FloatingModalProvider>
                     </FloatingRunnerStateProvider>
                   </StreamingContextProvider>
                 </AppsContextProvider>

@@ -1,3 +1,71 @@
+// Package scheduler implements the Helix workload scheduler.
+//
+// CRITICAL SCHEDULING INVARIANT:
+// ===============================
+// The scheduler MUST NEVER over-allocate GPU memory. This means that the sum of all
+// allocated memory on any GPU must never exceed the total memory available on that GPU.
+//
+// To maintain this invariant, ALL GPU allocation decisions MUST be based on allocated
+// memory (memory already assigned to slots), NOT real-time memory usage from nvidia-smi.
+// Real-time memory queries have a ~500ms delay which can cause race conditions where
+// multiple allocation decisions are made before the memory tracking catches up.
+//
+// The scheduler is single-threaded, but allocation decisions are cached and reused,
+// so we must ensure that:
+// 1. calculateAllocatedMemoryPerGPU() always reflects the current scheduler state
+// 2. All GPU selection (single and multi-GPU) uses allocated memory calculations
+// 3. Memory allocations are immediately reflected in slot tracking
+//
+// This invariant is CRITICAL for system stability - violating it can cause GPU
+// out-of-memory errors that crash model processes.
+//
+// MATHEMATICAL PROOF OF INVARIANT:
+// =================================
+// Let:
+//   - G = set of all GPUs in a runner
+//   - C_i = total memory capacity of GPU i ∈ G
+//   - S = set of all active slots in the scheduler
+//   - M_s = memory requirement of slot s ∈ S
+//   - gpu(s) = GPU(s) assigned to slot s (for single-GPU slots)
+//   - gpus(s) = set of GPUs assigned to slot s (for multi-GPU slots)
+//   - |gpus(s)| = number of GPUs in multi-GPU slot s
+//
+// INVARIANT: ∀i ∈ G, ∑(s∈S: i∈allocated_gpus(s)) allocated_memory(s,i) ≤ C_i
+//
+// Where allocated_memory(s,i) = M_s if single-GPU slot on GPU i
+//
+//	= M_s/|gpus(s)| if multi-GPU slot using GPU i
+//
+// PROOF BY INDUCTION:
+// Base case: Initially S = ∅, so ∑ = 0 ≤ C_i ✓
+//
+// Inductive step: Assume invariant holds for current state S.
+// When adding new slot s_new with memory M_new:
+//
+// 1. Single-GPU allocation to GPU j:
+//   - Current allocated: A_j = ∑(s∈S: j∈allocated_gpus(s)) allocated_memory(s,j)
+//   - Free memory: F_j = C_j - A_j
+//   - Allocation condition: F_j ≥ M_new ⟹ A_j + M_new ≤ C_j
+//   - New total: A_j + M_new ≤ C_j ✓
+//
+// 2. Multi-GPU allocation to GPUs J = {j₁, j₂, ..., j_k}:
+//
+//   - For each j_i ∈ J: F_jᵢ = C_jᵢ - A_jᵢ
+//
+//   - Allocation condition: ∀j_i ∈ J, F_jᵢ ≥ M_new/k ⟹ A_jᵢ + M_new/k ≤ C_jᵢ
+//
+//   - New total for each GPU: A_jᵢ + M_new/k ≤ C_jᵢ ✓
+//
+//     3. Atomicity: The scheduler is single-threaded, so allocation decisions
+//     and slot creation are atomic operations. No interleaving is possible.
+//
+//     4. Consistency: calculateAllocatedMemoryPerGPU() computes exact values:
+//     A_i = ∑(s∈S: i∈allocated_gpus(s)) allocated_memory(s,i)
+//     This is computed fresh for each allocation decision.
+//
+// Therefore, the invariant is maintained after each allocation. QED.
+//
+// COROLLARY: Over-allocation is mathematically impossible under this scheme.
 package scheduler
 
 import (
@@ -156,6 +224,9 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 
 	// Start the runner reconciler
 	go s.reconcileRunners(ctx)
+
+	// Set up the model memory callback so RunnerController can get authoritative model memory
+	s.controller.setModelMemoryCallback(s.getModelMemory)
 
 	return s, nil
 }
