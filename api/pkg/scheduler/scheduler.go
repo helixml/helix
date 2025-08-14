@@ -597,7 +597,7 @@ func (s *Scheduler) reconcileActivityOnce() {
 
 	// Only log when there's actual activity to report (skip empty reconciliations)
 	if activeCount > 0 || releasedCount > 0 {
-		log.Debug().
+		log.Trace().
 			Int("checked", checkedCount).
 			Int("active", activeCount).
 			Int("released", releasedCount).

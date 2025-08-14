@@ -27,7 +27,8 @@ func abs64(x uint64) uint64 {
 //
 // This test will FAIL until the inconsistency is fixed.
 func TestMemoryCalculationInconsistency(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -236,7 +237,8 @@ func TestMemoryCalculationInconsistency(t *testing.T) {
 // gracefully when it cannot determine model memory requirements, rather than
 // falling back to unreliable heuristics.
 func TestHeuristicFailureWhenModelMemoryUnknown(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 

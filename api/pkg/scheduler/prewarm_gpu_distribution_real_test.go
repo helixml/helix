@@ -18,7 +18,8 @@ import (
 // TestRealPrewarmGPUDistribution tests the actual pre-warm model distribution
 // using the real scheduler code, not simulated concurrent processing.
 func TestRealPrewarmGPUDistribution(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -257,7 +258,8 @@ func TestRealPrewarmGPUDistribution(t *testing.T) {
 // TestRealPrewarmWithLargerGPUs tests pre-warm distribution with larger GPUs
 // that can fit all the models to see if distribution still works
 func TestRealPrewarmWithLargerGPUs(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 

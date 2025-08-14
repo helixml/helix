@@ -24,7 +24,8 @@ import (
 // The test focuses on actual slot creation (not just enqueuing) and verifies that
 // no single GPU ever gets allocated more memory than it physically has.
 func TestOverSchedulingPrevention(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -236,7 +237,8 @@ func TestOverSchedulingPrevention(t *testing.T) {
 // TestOverSchedulingPreventionMultiGPU verifies overscheduling prevention works correctly
 // with multi-GPU systems and tensor parallelism
 func TestOverSchedulingPreventionMultiGPU(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
