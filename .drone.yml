@@ -324,6 +324,7 @@ steps:
   #     - success
   #     - failure
   #   depends_on: [oauth-gmail-integration-test]
+
   - name: oauth-outlook-integration-test
     image: golang:1.24
     volumes:
@@ -1001,7 +1002,7 @@ steps:
         # Runner with no baked models = empty
         # See https://github.com/helixml/base-images
         # and https://github.com/helixml/base-images/releases
-        - TAG=2025-08-06a-empty
+        - TAG=2025-08-13c-empty
         - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
       username: admin
       password:
@@ -1049,7 +1050,7 @@ steps:
         # Runner with small models = small
         # See https://github.com/helixml/base-images
         # and https://github.com/helixml/base-images/releases
-        - TAG=2025-08-06a-small
+        - TAG=2025-08-13c-small
         - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
       username: admin
       password:
@@ -1078,7 +1079,7 @@ steps:
         # Runner with small models = small
         # See https://github.com/helixml/base-images
         # and https://github.com/helixml/base-images/releases
-        - TAG=2025-08-06a-small
+        - TAG=2025-08-13c-small
         - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
       username: admin
       password:
@@ -1125,7 +1126,7 @@ steps:
         # Runner with large models = large
         # See https://github.com/helixml/base-images
         # and https://github.com/helixml/base-images/releases
-        - TAG=2025-08-06a-large
+        - TAG=2025-08-13c-large
         - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
       username: admin
       password:
@@ -1154,7 +1155,7 @@ steps:
         # Runner with large models = large
         # See https://github.com/helixml/base-images
         # and https://github.com/helixml/base-images/releases
-        - TAG=2025-08-06a-large
+        - TAG=2025-08-13c-large
         - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
       username: admin
       password:

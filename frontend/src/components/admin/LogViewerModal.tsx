@@ -65,9 +65,10 @@ interface LogViewerModalProps {
   onClose: () => void
   runner: TypesDashboardRunner
   runnerUrl?: string
+  isFloating?: boolean
 }
 
-const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, runnerUrl = 'http://localhost:8080' }) => {
+const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, runnerUrl = 'http://localhost:8080', isFloating = false }) => {
   const [selectedSlot, setSelectedSlot] = useState<string>('')
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [metadata, setMetadata] = useState<LogMetadata | null>(null)
@@ -262,6 +263,310 @@ const LogViewerModal: FC<LogViewerModalProps> = ({ open, onClose, runner, runner
     }
   }, [open])
 
+  // If floating, render content only (title bar is handled by FloatingModal wrapper)
+  if (isFloating) {
+    return (
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        {/* Controls */}
+        <Box sx={{ p: 2, borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}>
+            <FormControl size="small" sx={{ minWidth: 250 }}>
+              <InputLabel sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>Select Slot</InputLabel>
+              <Select
+                value={selectedSlot}
+                onChange={(e) => setSelectedSlot(e.target.value)}
+                label="Select Slot"
+                sx={{ 
+                  color: '#ffffff',
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: 'rgba(255, 255, 255, 0.3)'
+                  }
+                }}
+              >
+                {availableSlots.map((slot) => (
+                  <MenuItem key={slot.id} value={slot.id || ''}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography>{slot.model}</Typography>
+                      <Chip 
+                        size="small" 
+                        label={slot.id?.substring(0, 8)} 
+                        sx={{ height: 18, fontSize: '0.6rem' }}
+                      />
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <FormControl size="small" sx={{ minWidth: 120 }}>
+              <InputLabel sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>Level</InputLabel>
+              <Select
+                value={logLevel}
+                onChange={(e) => setLogLevel(e.target.value)}
+                label="Level"
+                sx={{ 
+                  color: '#ffffff',
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: 'rgba(255, 255, 255, 0.3)'
+                  }
+                }}
+              >
+                <MenuItem value="all">All</MenuItem>
+                <MenuItem value="error">Error</MenuItem>
+                <MenuItem value="warn">Warning</MenuItem>
+                <MenuItem value="info">Info</MenuItem>
+                <MenuItem value="debug">Debug</MenuItem>
+              </Select>
+            </FormControl>
+
+            <TextField
+              size="small"
+              type="number"
+              label="Max Lines"
+              value={maxLines}
+              onChange={(e) => setMaxLines(parseInt(e.target.value) || 500)}
+              sx={{ 
+                width: 100,
+                '& .MuiInputLabel-root': { color: 'rgba(255, 255, 255, 0.7)' },
+                '& .MuiOutlinedInput-root': { 
+                  color: '#ffffff',
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: 'rgba(255, 255, 255, 0.3)'
+                  }
+                }
+              }}
+            />
+          </Box>
+
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button
+              variant="outlined"
+              onClick={handleRefresh}
+              disabled={loading || tailMode}
+              startIcon={loading ? <CircularProgress size={16} /> : <RefreshIcon />}
+            >
+              Refresh
+            </Button>
+
+            <Button
+              variant={tailMode ? "contained" : "outlined"}
+              onClick={tailMode ? stopTailMode : startTailMode}
+              disabled={!selectedSlot}
+              startIcon={tailMode ? <StopIcon /> : <PlayIcon />}
+              color={tailMode ? "error" : "primary"}
+            >
+              {tailMode ? 'Stop Tail' : 'Start Tail'}
+            </Button>
+
+            {logs.length > 0 && (
+              <Button
+                variant="outlined"
+                onClick={exportLogs}
+                startIcon={<DownloadIcon />}
+              >
+                Export
+              </Button>
+            )}
+
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={autoScroll}
+                  onChange={(e) => setAutoScroll(e.target.checked)}
+                  size="small"
+                />
+              }
+              label="Auto Scroll"
+              sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
+            />
+
+            <IconButton
+              onClick={scrollToBottom}
+              size="small"
+              sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
+            >
+              <ScrollDownIcon />
+            </IconButton>
+
+            {tailMode && (
+              <Chip
+                size="small"
+                label="LIVE"
+                color="success"
+                sx={{ 
+                  animation: 'pulse 1.5s infinite',
+                  '@keyframes pulse': {
+                    '0%': { opacity: 1 },
+                    '50%': { opacity: 0.5 },
+                    '100%': { opacity: 1 }
+                  }
+                }}
+              />
+            )}
+          </Box>
+        </Box>
+
+        {/* Command Line Display */}
+        {selectedSlot && (
+          (() => {
+            const slot = availableSlots.find(s => s.id === selectedSlot)
+            if (slot?.command_line && slot.runtime === 'vllm') {
+              return (
+                <Paper sx={{ m: 2, p: 1.5, backgroundColor: 'rgba(0, 0, 0, 0.3)' }}>
+                  <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', display: 'block', mb: 1 }}>
+                    Calculated Command Line
+                  </Typography>
+                  <Box sx={{ 
+                    backgroundColor: 'rgba(0, 0, 0, 0.5)', 
+                    p: 1, 
+                    borderRadius: 1, 
+                    fontFamily: 'monospace',
+                    fontSize: '0.8rem',
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    wordBreak: 'break-all',
+                    whiteSpace: 'pre-wrap'
+                  }}>
+                    {slot.command_line}
+                  </Box>
+                </Paper>
+              )
+            }
+            return null
+          })()
+        )}
+
+        {/* Metadata */}
+        {metadata && (
+          <Paper sx={{ m: 2, p: 1.5, backgroundColor: 'rgba(0, 0, 0, 0.3)' }}>
+            <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.6)', display: 'block', mb: 1 }}>
+              Instance Metadata
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <Chip size="small" label={`Model: ${metadata.model_id}`} />
+              <Chip 
+                size="small" 
+                label={`Status: ${metadata.status}`} 
+                color={metadata.status === 'errored' ? 'error' : metadata.status === 'running' ? 'success' : 'default'} 
+              />
+              <Chip size="small" label={`Created: ${new Date(metadata.created_at).toLocaleString()}`} />
+              {metadata.last_error && (
+                <Chip size="small" label={`Last Error: ${metadata.last_error.substring(0, 50)}...`} color="error" />
+              )}
+            </Box>
+          </Paper>
+        )}
+
+        {/* Error Display */}
+        {error && (
+          <Alert severity="error" sx={{ m: 2 }} onClose={() => setError(null)}>
+            {error}
+          </Alert>
+        )}
+
+        {/* Logs Display */}
+        <Box sx={{ flex: 1, overflow: 'hidden', mx: 2, mb: 2 }}>
+          <Paper 
+            ref={logContainerRef}
+            sx={{ 
+              height: '100%',
+              overflow: 'auto', 
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              '&::-webkit-scrollbar': {
+                width: '8px',
+              },
+              '&::-webkit-scrollbar-track': {
+                background: 'rgba(255, 255, 255, 0.1)',
+              },
+              '&::-webkit-scrollbar-thumb': {
+                background: 'rgba(255, 255, 255, 0.3)',
+                borderRadius: '4px',
+              },
+            }}
+          >
+            {logs.length === 0 && !loading ? (
+              <Box sx={{ p: 3, textAlign: 'center', color: 'rgba(255, 255, 255, 0.6)' }}>
+                {selectedSlot ? 'No logs available for this slot' : 'Select a slot to view logs'}
+              </Box>
+            ) : (
+              <List dense sx={{ py: 0 }}>
+                {logs.map((log, index) => (
+                  <ListItem 
+                    key={`${log.timestamp}-${index}`} 
+                    sx={{ 
+                      py: 0.25, 
+                      px: 1,
+                      borderBottom: index < logs.length - 1 ? '1px solid rgba(255, 255, 255, 0.05)' : 'none',
+                      '&:hover': {
+                        backgroundColor: 'rgba(255, 255, 255, 0.02)'
+                      }
+                    }}
+                  >
+                    <ListItemText
+                      primary={
+                        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, fontFamily: 'monospace' }}>
+                          <Typography 
+                            variant="caption" 
+                            sx={{ 
+                              color: 'rgba(255, 255, 255, 0.4)', 
+                              minWidth: 80,
+                              fontSize: '0.7rem',
+                              lineHeight: 1.2
+                            }}
+                          >
+                            {new Date(log.timestamp).toLocaleTimeString()}
+                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 50 }}>
+                            {getLogLevelIcon(log.level)}
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                color: getLogLevelColor(log.level),
+                                fontWeight: 600,
+                                fontSize: '0.65rem'
+                              }}
+                            >
+                              {log.level.toUpperCase()}
+                            </Typography>
+                          </Box>
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              color: '#ffffff',
+                              fontFamily: 'monospace',
+                              fontSize: '0.75rem',
+                              flex: 1,
+                              wordBreak: 'break-word',
+                              lineHeight: 1.3
+                            }}
+                          >
+                            {log.message}
+                          </Typography>
+                        </Box>
+                      }
+                    />
+                  </ListItem>
+                ))}
+              </List>
+            )}
+          </Paper>
+        </Box>
+        
+        {/* Footer */}
+        <Box sx={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>
+            {logs.length > 0 && `${logs.length} log entries`}
+            {tailMode && ' • Live tail active'}
+          </Typography>
+          <Button onClick={onClose} variant="outlined">
+            Close
+          </Button>
+        </Box>
+      </Box>
+    )
+  }
+
+  // Regular Dialog mode
   return (
     <Dialog
       open={open}

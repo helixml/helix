@@ -14,20 +14,31 @@ import (
 )
 
 func TestPrewarmNewRunner_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
+	// Use default hardcoded models to match production behavior
+	testModels := GetDefaultTestModels()
+
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
+	// Mock GetModel calls for each model
+	for _, model := range testModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
+
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -37,11 +48,44 @@ func TestPrewarmNewRunner_Success(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Set up the test runner with proper status so memory calculation works
+	runnerID := "test-runner-1"
+	totalMemory := uint64(80 * 1024 * 1024 * 1024) // 80GB
+
+	// Set up the cache BEFORE connecting the runner (important for tests)
+	runnerCtrl.statusCache.Set(runnerID, NewCache(ctx, func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			ID:          runnerID,
+			TotalMemory: totalMemory,
+			GPUCount:    1,
+			GPUs: []*types.GPUStatus{
+				{
+					Index:       0,
+					TotalMemory: totalMemory,
+					FreeMemory:  totalMemory, // Initially all free
+					UsedMemory:  0,
+					ModelName:   "Test GPU",
+				},
+			},
+			Models: []*types.RunnerModelStatus{
+				// Mock that the runner has the models we want to test
+				{ModelID: "gpt-oss:20b", Runtime: types.RuntimeOllama, DownloadInProgress: false},
+				{ModelID: "qwen3:8b", Runtime: types.RuntimeOllama, DownloadInProgress: false},
+				{ModelID: "Qwen/Qwen2.5-VL-7B-Instruct", Runtime: types.RuntimeVLLM, DownloadInProgress: false},
+				{ModelID: "MrLight/dse-qwen2-2b-mrl-v1", Runtime: types.RuntimeVLLM, DownloadInProgress: false},
+			},
+		}, nil
+	}, CacheConfig{updateInterval: time.Second}))
+
+	// Also set up slots cache to return empty slots initially
+	runnerCtrl.slotsCache.Set(runnerID, NewCache(ctx, func() (types.ListRunnerSlotsResponse, error) {
+		return types.ListRunnerSlotsResponse{Slots: []*types.RunnerSlot{}}, nil
+	}, CacheConfig{updateInterval: time.Second}))
+
 	// Track the initial queue size
 	initialQueueSize := len(scheduler.queue.Queue())
 
-	// Call PrewarmNewRunner directly
-	runnerID := "test-runner-1"
+	// Call PrewarmNewRunner directly (don't use OnConnectedHandler as it clears caches)
 	scheduler.PrewarmNewRunner(runnerID)
 
 	// Give some time for async processing
@@ -76,7 +120,8 @@ func TestPrewarmNewRunner_Success(t *testing.T) {
 }
 
 func TestPrewarmNewRunner_VerifyWorkloadCreation(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -88,8 +133,10 @@ func TestPrewarmNewRunner_VerifyWorkloadCreation(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -120,7 +167,8 @@ func TestPrewarmNewRunner_VerifyWorkloadCreation(t *testing.T) {
 }
 
 func TestOnRunnerConnectedCallback(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -132,8 +180,10 @@ func TestOnRunnerConnectedCallback(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -166,7 +216,8 @@ func TestOnRunnerConnectedCallback(t *testing.T) {
 }
 
 func TestOnRunnerReconnectedCallback(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -178,8 +229,10 @@ func TestOnRunnerReconnectedCallback(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -220,7 +273,8 @@ func TestOnRunnerReconnectedCallback(t *testing.T) {
 }
 
 func TestPrewarmWorkloadProperties(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -232,8 +286,10 @@ func TestPrewarmWorkloadProperties(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -288,7 +344,8 @@ func TestPrewarmWorkloadProperties(t *testing.T) {
 }
 
 func TestMultipleRunnerConnections(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -300,8 +357,10 @@ func TestMultipleRunnerConnections(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -343,7 +402,8 @@ func TestMultipleRunnerConnections(t *testing.T) {
 // TestPrewarmingMemoryAwareSelection tests the memory-first prewarming algorithm
 // which prioritizes filling GPU memory while improving model distribution
 func TestPrewarmingMemoryAwareSelection(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -355,8 +415,10 @@ func TestPrewarmingMemoryAwareSelection(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -419,7 +481,8 @@ func TestPrewarmingMemoryAwareSelection(t *testing.T) {
 // TestPrewarmingMemoryConstrainedSelection tests memory-constrained scenarios
 // where the algorithm must choose a subset of models based on available GPU memory
 func TestPrewarmingMemoryConstrainedSelection(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -431,8 +494,10 @@ func TestPrewarmingMemoryConstrainedSelection(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -496,7 +561,8 @@ func TestPrewarmingMemoryConstrainedSelection(t *testing.T) {
 
 // TestMemoryAwarePrewarming tests that prewarming prioritizes filling available GPU memory
 func TestMemoryAwarePrewarming(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -508,8 +574,10 @@ func TestMemoryAwarePrewarming(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  NewMockRunnerClient(80, 1), // 80GB total memory, 1 GPU as test expects
 	})
 	require.NoError(t, err)
 
@@ -521,21 +589,7 @@ func TestMemoryAwarePrewarming(t *testing.T) {
 
 	// Test runner with specific memory constraints
 	testRunnerID := "memory-test-runner"
-
-	// Mock the runner to have specific total memory - let's say 80GB total (enough for current prewarm models ~73GB)
-	totalMemory := uint64(80 * 1024 * 1024 * 1024) // 80GB
-	runnerCtrl.statusCache.Set(testRunnerID, NewCache(ctx, func() (types.RunnerStatus, error) {
-		return types.RunnerStatus{
-			TotalMemory: totalMemory,
-			Models: []*types.RunnerModelStatus{
-				{
-					ModelID:            "test-model",
-					DownloadInProgress: false,
-					Runtime:            types.RuntimeOllama,
-				},
-			},
-		}, nil
-	}, CacheConfig{updateInterval: time.Second}))
+	totalMemory := uint64(80 * 1024 * 1024 * 1024) // 80GB - matches our MockRunnerClient configuration
 
 	// Connect the test runner
 	runnerCtrl.OnConnectedHandler(testRunnerID)

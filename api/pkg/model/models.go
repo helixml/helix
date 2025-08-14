@@ -188,7 +188,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "gpt-oss:20b", // https://ollama.com/library/gpt-oss:20b
 			Name:          "GPT-OSS 20B",
-			Memory:        GB * 16, // Based on OpenAI specs, ~16GB memory requirement
+			Memory:        GB * 48, // Based on OpenAI specs, ~48GB memory requirement
 			ContextLength: 131072,  // Assuming 128K context window (standard for recent models)
 			Description:   "Open-weight reasoning model with agentic capabilities, from OpenAI - optimized for consumer hardware, ~20B parameters",
 			Hide:          false,

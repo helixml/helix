@@ -21,7 +21,7 @@ import {
   ISlot,
   SESSION_MODE_INFERENCE
 } from '../../types'
-import LogViewerModal from '../admin/LogViewerModal'
+import { useFloatingModal } from '../../contexts/floatingModal'
 
 import { TypesRunnerSlot, TypesRunnerModelStatus } from '../../api/api'
 
@@ -45,7 +45,7 @@ export const ModelInstanceSummary: FC<{
   models = [],
   onViewSession,
 }) => {
-  const [logModalOpen, setLogModalOpen] = useState(false)
+  const floatingModal = useFloatingModal()
 
   const [ historyViewing, setHistoryViewing ] = useState(false)
 
@@ -265,7 +265,20 @@ export const ModelInstanceSummary: FC<{
           <Button
             variant="outlined"
             size="small"
-            onClick={() => setLogModalOpen(true)}
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect()
+              const clickPosition = {
+                x: rect.left - 500, // Position floating window to the left of button
+                y: rect.top - 300   // Position above the button
+              }
+              floatingModal.showFloatingModal({
+                type: 'logs',
+                runner: {
+                  id: `runner-for-${slot.id}`,
+                  slots: [slot]
+                }
+              }, clickPosition)
+            }}
             startIcon={<ViewListIcon />}
             sx={{
               fontSize: '0.7rem',
@@ -308,18 +321,7 @@ export const ModelInstanceSummary: FC<{
           )}
         </Box>
       </Box>
-      
-      {/* Log Viewer Modal */}
-      <LogViewerModal
-        open={logModalOpen}
-        onClose={() => setLogModalOpen(false)}
-        runner={{
-          id: `runner-for-${slot.id}`,
-          slots: [slot],
-          // Add minimal runner properties needed by the modal
-        } as any} // Type assertion since we're creating a minimal runner object
-        runnerUrl="http://localhost:8080" // TODO: Get this from configuration
-      />
+
     </Paper>
   )
 }
