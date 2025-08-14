@@ -37,6 +37,7 @@ func TestPrewarmNewRunner_Success(t *testing.T) {
 		PubSub:        ps,
 		Store:         mockStore,
 		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -133,6 +134,7 @@ func TestPrewarmNewRunner_VerifyWorkloadCreation(t *testing.T) {
 		PubSub:        ps,
 		Store:         mockStore,
 		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -178,6 +180,7 @@ func TestOnRunnerConnectedCallback(t *testing.T) {
 		PubSub:        ps,
 		Store:         mockStore,
 		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -225,6 +228,7 @@ func TestOnRunnerReconnectedCallback(t *testing.T) {
 		PubSub:        ps,
 		Store:         mockStore,
 		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -280,6 +284,7 @@ func TestPrewarmWorkloadProperties(t *testing.T) {
 		PubSub:        ps,
 		Store:         mockStore,
 		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -349,6 +354,7 @@ func TestMultipleRunnerConnections(t *testing.T) {
 		PubSub:        ps,
 		Store:         mockStore,
 		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -405,6 +411,7 @@ func TestPrewarmingMemoryAwareSelection(t *testing.T) {
 		PubSub:        ps,
 		Store:         mockStore,
 		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -482,6 +489,7 @@ func TestPrewarmingMemoryConstrainedSelection(t *testing.T) {
 		PubSub:        ps,
 		Store:         mockStore,
 		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -560,6 +568,7 @@ func TestMemoryAwarePrewarming(t *testing.T) {
 		PubSub:        ps,
 		Store:         mockStore,
 		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  NewMockRunnerClient(80, 1), // 80GB total memory, 1 GPU as test expects
 	})
 	require.NoError(t, err)
 
@@ -571,21 +580,7 @@ func TestMemoryAwarePrewarming(t *testing.T) {
 
 	// Test runner with specific memory constraints
 	testRunnerID := "memory-test-runner"
-
-	// Mock the runner to have specific total memory - let's say 80GB total (enough for current prewarm models ~73GB)
-	totalMemory := uint64(80 * 1024 * 1024 * 1024) // 80GB
-	runnerCtrl.statusCache.Set(testRunnerID, NewCache(ctx, func() (types.RunnerStatus, error) {
-		return types.RunnerStatus{
-			TotalMemory: totalMemory,
-			Models: []*types.RunnerModelStatus{
-				{
-					ModelID:            "test-model",
-					DownloadInProgress: false,
-					Runtime:            types.RuntimeOllama,
-				},
-			},
-		}, nil
-	}, CacheConfig{updateInterval: time.Second}))
+	totalMemory := uint64(80 * 1024 * 1024 * 1024) // 80GB - matches our MockRunnerClient configuration
 
 	// Connect the test runner
 	runnerCtrl.OnConnectedHandler(testRunnerID)

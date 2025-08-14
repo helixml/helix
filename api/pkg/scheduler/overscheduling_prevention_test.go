@@ -50,7 +50,8 @@ func TestOverSchedulingPrevention(t *testing.T) {
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub:        ps,
 		Store:         mockStore,
-		HealthChecker: &MockHealthChecker{}, // Use mock health checker for tests
+		HealthChecker: &MockHealthChecker{},      // Use mock health checker for tests
+		RunnerClient:  DefaultMockRunnerClient(), // Use mock runner client for tests
 	})
 	require.NoError(t, err)
 
@@ -278,7 +279,8 @@ func TestOverSchedulingPreventionMultiGPU(t *testing.T) {
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub:        ps,
 		Store:         mockStore,
-		HealthChecker: &MockHealthChecker{}, // Use mock health checker for tests
+		HealthChecker: &MockHealthChecker{},      // Use mock health checker for tests
+		RunnerClient:  DefaultMockRunnerClient(), // Use mock runner client for tests
 	})
 	require.NoError(t, err)
 

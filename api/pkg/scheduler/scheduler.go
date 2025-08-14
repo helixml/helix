@@ -520,9 +520,9 @@ func (s *Scheduler) reconcileSlots(ctx context.Context) {
 			case <-time.After(s.runnerReconcileInterval):
 				s.updateHeartbeat("reconcileSlots")
 				s.updateHeartbeatStatus("reconcileSlots", "starting reconcile cycle")
-						// log.Debug().
-		//	Str("SLOT_RECONCILE_DEBUG", "starting_reconcile").
-		//	Msg("SLOT_RECONCILE_DEBUG: Starting reconcileSlots cycle")
+				// log.Debug().
+				//	Str("SLOT_RECONCILE_DEBUG", "starting_reconcile").
+				//	Msg("SLOT_RECONCILE_DEBUG: Starting reconcileSlots cycle")
 				s.reconcileSlotsOnce(ctx)
 				// log.Debug().
 				//	Str("SLOT_RECONCILE_DEBUG", "finished_reconcile").
@@ -712,14 +712,14 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 			slotsToCreateThisCycle := 1
 			slotsToCreate += slotsToCreateThisCycle
 
-							// log.Info().
-				//	Str("model", req.Model.String()).
-				//	Str("runtime", string(req.Runtime)).
-				//	Int("existing", existingCount).
-				//	Int("required", req.Count).
-				//	Int("needed_total", slotsNeeded).
-				//	Int("creating_this_cycle", slotsToCreateThisCycle).
-				//	Msg("SLOT_RECONCILE_DEBUG: Creating one slot per cycle for proper GPU distribution")
+			// log.Info().
+			//	Str("model", req.Model.String()).
+			//	Str("runtime", string(req.Runtime)).
+			//	Int("existing", existingCount).
+			//	Int("required", req.Count).
+			//	Int("needed_total", slotsNeeded).
+			//	Int("creating_this_cycle", slotsToCreateThisCycle).
+			//	Msg("SLOT_RECONCILE_DEBUG: Creating one slot per cycle for proper GPU distribution")
 
 			// log.Debug().
 			//	Str("SLOT_RECONCILE_DEBUG", "calling_ensure_slots").
@@ -980,11 +980,11 @@ func (s *Scheduler) getModelMemory(modelID string) uint64 {
 }
 
 func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
-	log.Info().
-		Str("model", req.Model.String()).
-		Str("runtime", string(req.Runtime)).
-		Int("count", count).
-		Msg("SLOT_RECONCILE_DEBUG: Starting ensureSlots")
+	// log.Info().
+	//	Str("model", req.Model.String()).
+	//	Str("runtime", string(req.Runtime)).
+	//	Int("count", count).
+	//	Msg("SLOT_RECONCILE_DEBUG: Starting ensureSlots")
 
 	for i := 0; i < count; i++ {
 		startTime := time.Now()
@@ -992,9 +992,9 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 		// Get all runners sorted by preference
 		sortedRunners, err := s.getSortedRunners(req.ExampleWorkload)
 		if err != nil {
-			log.Error().Err(err).
-				Str("model", req.Model.String()).
-				Msg("SLOT_RECONCILE_DEBUG: Failed to get sorted runners")
+			// log.Error().Err(err).
+			//	Str("model", req.Model.String()).
+			//	Msg("SLOT_RECONCILE_DEBUG: Failed to get sorted runners")
 
 			// Log scheduling rejection - no specific runner info available
 			s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeRejected, false,
@@ -1002,20 +1002,20 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 
 			retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
 			if retry {
-				log.Info().Err(err).Interface("requirement", req).Msg("SLOT_RECONCILE_DEBUG: failed to get runners for requirement, retrying...")
+				// log.Info().Err(err).Interface("requirement", req).Msg("SLOT_RECONCILE_DEBUG: failed to get runners for requirement, retrying...")
 				return
 			}
-			log.Warn().Err(err).Interface("requirement", req).Msg("SLOT_RECONCILE_DEBUG: failed to get runners for requirement, skipping...")
+			// log.Warn().Err(err).Interface("requirement", req).Msg("SLOT_RECONCILE_DEBUG: failed to get runners for requirement, skipping...")
 			s.onSchedulingErr(req.ExampleWorkload, err)
 			s.queue.Remove(req.ExampleWorkload)
 			return
 		}
 
-		log.Info().
-			Str("model", req.Model.String()).
-			Strs("sorted_runners", sortedRunners).
-			Int("runner_count", len(sortedRunners)).
-			Msg("SLOT_RECONCILE_DEBUG: Got sorted runners for slot creation")
+		// log.Info().
+		//	Str("model", req.Model.String()).
+		//	Strs("sorted_runners", sortedRunners).
+		//	Int("runner_count", len(sortedRunners)).
+		//	Msg("SLOT_RECONCILE_DEBUG: Got sorted runners for slot creation")
 
 		// Try each runner in order of preference until one succeeds
 		var lastErr error

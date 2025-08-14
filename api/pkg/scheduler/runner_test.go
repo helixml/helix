@@ -19,6 +19,7 @@ func TestSendToRunner(t *testing.T) {
 	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
 		PubSub:        ps,
 		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -69,6 +70,7 @@ func TestSendNoRunner(t *testing.T) {
 	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
 		PubSub:        ps,
 		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
