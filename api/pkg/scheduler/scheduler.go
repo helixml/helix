@@ -78,6 +78,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog"
@@ -674,7 +675,8 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	mismatchedRunnerCount := 0
 
 	s.updateHeartbeatStatus("reconcileSlots", "processing slot requirements")
-	// For each requirement, ensure we have enough slots for that work right now
+	// Process slot requirements one at a time to prevent GPU allocation race conditions
+	// This ensures each new slot sees the updated GPU state from previous allocations
 	for _, req := range requiredSlots {
 		// Check if we have enough slots for this work right now
 		existingCount := 0
@@ -692,32 +694,42 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 
 		existingSlotCount += existingCount
 
-		// If we need more slots, start creating them
+		// If we need more slots, create only ONE slot per reconciliation cycle
+		// This prevents race conditions where multiple models see the same GPU state
 		slotsNeeded := req.Count - existingCount
 		if slotsNeeded > 0 {
-			slotsToCreate += slotsNeeded
+			// Create only one slot per cycle to ensure proper GPU distribution
+			slotsToCreateThisCycle := 1
+			slotsToCreate += slotsToCreateThisCycle
+
 			log.Info().
 				Str("model", req.Model.String()).
 				Str("runtime", string(req.Runtime)).
 				Int("existing", existingCount).
 				Int("required", req.Count).
-				Int("to_create", slotsNeeded).
-				Msg("SLOT_RECONCILE_DEBUG: Creating new slots for requirement")
+				Int("needed_total", slotsNeeded).
+				Int("creating_this_cycle", slotsToCreateThisCycle).
+				Msg("SLOT_RECONCILE_DEBUG: Creating one slot per cycle for proper GPU distribution")
 
 			log.Debug().
 				Str("SLOT_RECONCILE_DEBUG", "calling_ensure_slots").
 				Str("model", req.Model.String()).
-				Int("slots_needed", slotsNeeded).
+				Int("slots_needed", slotsToCreateThisCycle).
 				Msg("SLOT_RECONCILE_DEBUG: About to call ensureSlots")
 
-			s.updateHeartbeatStatus("reconcileSlots", fmt.Sprintf("creating %d slots for model %s", slotsNeeded, req.Model.String()))
-			s.ensureSlots(req, slotsNeeded)
+			s.updateHeartbeatStatus("reconcileSlots", fmt.Sprintf("creating 1 slot for model %s (%d more needed)", req.Model.String(), slotsNeeded-1))
+			s.ensureSlots(req, slotsToCreateThisCycle)
 
 			log.Debug().
 				Str("SLOT_RECONCILE_DEBUG", "ensure_slots_returned").
 				Str("model", req.Model.String()).
-				Int("slots_needed", slotsNeeded).
-				Msg("SLOT_RECONCILE_DEBUG: ensureSlots returned")
+				Int("slots_created", slotsToCreateThisCycle).
+				Int("remaining_needed", slotsNeeded-1).
+				Msg("SLOT_RECONCILE_DEBUG: ensureSlots returned - remaining slots will be created in next cycle")
+
+			// Exit early after creating one slot to allow GPU state to update
+			// The reconciler runs every 5 seconds, so remaining slots will be created in subsequent cycles
+			break
 		} else {
 			log.Info().
 				Str("model", req.Model.String()).
@@ -883,29 +895,24 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 }
 
 // calculateRunnerMemory calculates the total, allocated, and free memory for a runner
-func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint64) {
+// Returns error if runner status or memory information is unavailable - NO DEFAULTS
+func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint64, error) {
 	// Get runner status
 	runnerStatus, err := s.controller.GetStatus(runnerID)
 	if err != nil {
-		log.Debug().
+		log.Error().
 			Str("runner_id", runnerID).
 			Err(err).
-			Msg("failed to get runner status for memory calculation")
-
-		// Fallback: assume reasonable default memory for testing/when runner not fully initialized
-		// This ensures prewarming works even when runner status is temporarily unavailable
-		defaultMemory := uint64(80 * 1024 * 1024 * 1024) // 80GB default
-		return defaultMemory, 0, defaultMemory
+			Msg("CRITICAL: failed to get runner status for memory calculation - cannot proceed without real data")
+		return 0, 0, 0, fmt.Errorf("runner %s status unavailable: %w", runnerID, err)
 	}
 
 	totalMemory := runnerStatus.TotalMemory
 	if totalMemory == 0 {
-		// Fallback: assume reasonable default memory
-		totalMemory = uint64(80 * 1024 * 1024 * 1024) // 80GB default
-		log.Debug().
+		log.Error().
 			Str("runner_id", runnerID).
-			Uint64("default_memory", totalMemory).
-			Msg("runner has no memory info, using default memory for prewarming")
+			Msg("CRITICAL: runner reports zero total memory - cannot proceed without real memory data")
+		return 0, 0, 0, fmt.Errorf("runner %s reports zero total memory", runnerID)
 	}
 
 	// Calculate allocated memory from active models
@@ -929,17 +936,36 @@ func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint
 		freeMemory = 0 // Over-allocated
 	}
 
-	return totalMemory, allocatedMemory, freeMemory
+	return totalMemory, allocatedMemory, freeMemory, nil
 }
 
-// getModelMemory returns the memory requirement for a model from our prewarm models list
+// getModelMemory returns the memory requirement for a model from the model registry
 func (s *Scheduler) getModelMemory(modelID string) uint64 {
-	prewarmModels := s.getAllConfiguredPrewarmModels()
-	for _, model := range prewarmModels {
+	// First try to get from the model registry (the authoritative source)
+	models, err := s.controller.store.ListModels(context.Background(), &store.ListModelsQuery{})
+	if err != nil {
+		log.Error().
+			Str("model_id", modelID).
+			Err(err).
+			Msg("CRITICAL: failed to list models from store - cannot get model memory")
+		return 0
+	}
+
+	for _, model := range models {
 		if model.ID == modelID {
+			if model.Memory == 0 {
+				log.Error().
+					Str("model_id", modelID).
+					Msg("CRITICAL: model has zero memory requirement - invalid configuration")
+				return 0
+			}
 			return model.Memory
 		}
 	}
+
+	log.Error().
+		Str("model_id", modelID).
+		Msg("CRITICAL: model not found in model registry - cannot determine memory requirement")
 	return 0
 }
 
@@ -1071,7 +1097,11 @@ func (s *Scheduler) processQueueOnce() {
 	slot := s.pickBestWarmSlot(warmSlots)
 
 	// Calculate memory info for the runner
-	totalMemory, _, freeMemory := s.calculateRunnerMemory(slot.RunnerID)
+	totalMemory, _, freeMemory, memErr := s.calculateRunnerMemory(slot.RunnerID)
+	if memErr != nil {
+		log.Warn().Err(memErr).Str("runner_id", slot.RunnerID).Msg("failed to get runner memory info for logging")
+		totalMemory, freeMemory = 0, 0 // Use defaults for logging
+	}
 
 	err := s.allocateSlot(slot.ID, work)
 	if err != nil {
@@ -1162,28 +1192,43 @@ func (s *Scheduler) getSortedRunners(work *Workload) ([]string, error) {
 // DeleteMostStaleStrategy iteratively deletes allocated work from stale slots until there is enough
 // memory to allocate the new workload. Returns the final memory state used for the decision.
 func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (totalMemory, allocatedMemory, freeMemory uint64, err error) {
-	totalMem := s.controller.TotalMemory(runnerID)
+	// CRITICAL FIX: Use the same memory calculation as calculateRunnerMemory to avoid overscheduling
+	// This properly accounts for both scheduler slots AND existing runner memory usage
+	totalMem, currentAllocatedMem, currentFreeMem, err := s.calculateRunnerMemory(runnerID)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
 	var finalAllocatedMem uint64
 	var finalFreeMem uint64
 
 	for {
+		// Recalculate memory state after each potential slot deletion
+		totalMem, currentAllocatedMem, currentFreeMem, err = s.calculateRunnerMemory(runnerID)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+
 		var allSlots []*Slot
-		allocatedMem := uint64(0)
 		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 			if slot.RunnerID == runnerID {
 				allSlots = append(allSlots, slot)
-				allocatedMem += slot.Memory()
 			}
 			return true
 		})
 
 		requiredMem := work.model.Memory
-		freeMem := int64(totalMem) - int64(allocatedMem) - int64(requiredMem)
-		log.Trace().Interface("slots", allSlots).Int64("freeMem", freeMem).Msg("checking if we can allocate")
+		freeMem := int64(currentFreeMem) - int64(requiredMem)
+		log.Trace().Interface("slots", allSlots).
+			Uint64("current_allocated_mem", currentAllocatedMem).
+			Uint64("current_free_mem", currentFreeMem).
+			Uint64("required_mem", requiredMem).
+			Int64("free_after_allocation", freeMem).
+			Msg("checking if we can allocate using calculateRunnerMemory")
 
 		// Store the final memory state used for the decision
-		finalAllocatedMem = allocatedMem
-		finalFreeMem = totalMem - allocatedMem
+		finalAllocatedMem = currentAllocatedMem
+		finalFreeMem = currentFreeMem
 
 		// If there is enough free space on the runner, break out of the loop.
 		if freeMem > 0 {
@@ -1217,7 +1262,7 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (to
 			Str("reason", "memory_pressure").
 			Uint64("required_memory_mb", requiredMem/1024/1024).
 			Uint64("total_memory_mb", totalMem/1024/1024).
-			Uint64("allocated_memory_mb", allocatedMem/1024/1024).
+			Uint64("allocated_memory_mb", finalAllocatedMem/1024/1024).
 			Int64("free_memory_mb", freeMem/1024/1024).
 			Dur("slot_age", time.Since(evictedSlot.LastActivityTime)).
 			Int("stale_slots_available", len(staleSlots)).
@@ -1814,7 +1859,11 @@ func (s *Scheduler) getPrewarmModels(runnerID string) []*types.Model {
 	}
 
 	// Get available memory on the target runner
-	totalMemory, allocatedMemory, freeMemory := s.calculateRunnerMemory(runnerID)
+	totalMemory, allocatedMemory, freeMemory, err := s.calculateRunnerMemory(runnerID)
+	if err != nil {
+		log.Warn().Err(err).Str("runner_id", runnerID).Msg("failed to get runner memory for prewarming")
+		return nil
+	}
 
 	log.Debug().
 		Str("runner_id", runnerID).

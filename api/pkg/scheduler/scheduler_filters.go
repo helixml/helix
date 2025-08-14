@@ -59,7 +59,7 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 				Interface("single_gpu", singleGPU).
 				Ints("multi_gpus", multiGPUs).
 				Bool("gpu_compatible", runnerGPUCompatible[runnerID]).
-				Msg("GPU allocation check")
+				Msg("GPU allocation check with pending allocations")
 
 			// Store the allocation decision for this workload-runner combination
 			if runnerGPUCompatible[runnerID] {

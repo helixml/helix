@@ -106,7 +106,8 @@ func TestMemoryCalculationInconsistency(t *testing.T) {
 	}
 
 	// STEP 1: Calculate initial memory state using scheduler method
-	schedulerTotalMem, schedulerAllocatedMem, schedulerFreeMem := scheduler.calculateRunnerMemory(testRunnerID)
+	schedulerTotalMem, schedulerAllocatedMem, schedulerFreeMem, err := scheduler.calculateRunnerMemory(testRunnerID)
+	require.NoError(t, err, "Should be able to calculate runner memory")
 
 	t.Logf("BEFORE slot creation - Scheduler calculation:")
 	t.Logf("  Total: %d GB, Allocated: %d GB, Free: %d GB",
@@ -151,7 +152,8 @@ func TestMemoryCalculationInconsistency(t *testing.T) {
 	}, CacheConfig{updateInterval: time.Second}))
 
 	// STEP 4: Calculate memory after slot creation using both methods
-	schedulerTotalMem2, schedulerAllocatedMem2, schedulerFreeMem2 := scheduler.calculateRunnerMemory(testRunnerID)
+	schedulerTotalMem2, schedulerAllocatedMem2, schedulerFreeMem2, err := scheduler.calculateRunnerMemory(testRunnerID)
+	require.NoError(t, err, "Should be able to calculate runner memory after slot creation")
 
 	t.Logf("AFTER slot creation - Scheduler calculation:")
 	t.Logf("  Total: %d GB, Allocated: %d GB, Free: %d GB",

@@ -148,7 +148,8 @@ func TestOverSchedulingPrevention(t *testing.T) {
 		t.Logf("Scheduling attempt %d/%d", attempt, maxSchedulingAttempts)
 
 		// Check current state before scheduling
-		_, allocatedBefore, freeBefore := scheduler.calculateRunnerMemory(testRunnerID)
+		_, allocatedBefore, freeBefore, err := scheduler.calculateRunnerMemory(testRunnerID)
+		require.NoError(t, err, "Should be able to calculate runner memory")
 		queueSizeBefore := len(scheduler.queue.Queue())
 
 		t.Logf("  Before: allocated=%d GB, free=%d GB, queue_size=%d",
@@ -164,7 +165,8 @@ func TestOverSchedulingPrevention(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		// Check state after scheduling
-		_, allocatedAfter, freeAfter := scheduler.calculateRunnerMemory(testRunnerID)
+		_, allocatedAfter, freeAfter, err := scheduler.calculateRunnerMemory(testRunnerID)
+		require.NoError(t, err, "Should be able to calculate runner memory")
 		queueSizeAfter := len(scheduler.queue.Queue())
 
 		t.Logf("  After:  allocated=%d GB, free=%d GB, queue_size=%d",
@@ -201,7 +203,8 @@ func TestOverSchedulingPrevention(t *testing.T) {
 
 	finalQueueSize := len(scheduler.queue.Queue())
 	finalAllocatedPerGPU := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
-	_, finalAllocated, finalFree := scheduler.calculateRunnerMemory(testRunnerID)
+	_, finalAllocated, finalFree, err := scheduler.calculateRunnerMemory(testRunnerID)
+	require.NoError(t, err, "Should be able to calculate final runner memory")
 
 	t.Logf("Final state:")
 	t.Logf("  Queue size: %d items remaining", finalQueueSize)
