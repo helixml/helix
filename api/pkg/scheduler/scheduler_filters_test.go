@@ -16,12 +16,16 @@ func Test_filterRunnersByMemory_NoRunners(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
-	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
-		PubSub: ps,
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub:        ps,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
-	scheduler, err := NewScheduler(context.Background(), &config.ServerConfig{}, &Params{
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
 	})
 	require.NoError(t, err)
@@ -47,12 +51,16 @@ func Test_filterRunnersByMemory_SomeRunnersSufficient(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
-	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
-		PubSub: ps,
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub:        ps,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
-	scheduler, err := NewScheduler(context.Background(), &config.ServerConfig{}, &Params{
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
 	})
 	require.NoError(t, err)
@@ -117,12 +125,16 @@ func Test_filterRunnersByMemory_NoRunnersSufficient(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
-	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
-		PubSub: ps,
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub:        ps,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
-	scheduler, err := NewScheduler(context.Background(), &config.ServerConfig{}, &Params{
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
 	})
 	require.NoError(t, err)
@@ -186,12 +198,16 @@ func Test_filterRunnersByModel_NoRunners(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
-	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
-		PubSub: ps,
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub:        ps,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
-	scheduler, err := NewScheduler(context.Background(), &config.ServerConfig{}, &Params{
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
 	})
 	require.NoError(t, err)
@@ -217,12 +233,16 @@ func Test_filterRunnersByModel_RuntimeNotOllama(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
-	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
-		PubSub: ps,
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub:        ps,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
-	scheduler, err := NewScheduler(context.Background(), &config.ServerConfig{}, &Params{
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
 	})
 	require.NoError(t, err)
@@ -250,12 +270,16 @@ func Test_filterRunnersByModel_AllRunnersHaveModel(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
-	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
-		PubSub: ps,
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub:        ps,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
-	scheduler, err := NewScheduler(context.Background(), &config.ServerConfig{}, &Params{
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
 	})
 	require.NoError(t, err)
@@ -301,12 +325,16 @@ func Test_filterRunnersByModel_OneRunnerHasModel(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
-	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
-		PubSub: ps,
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub:        ps,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
-	scheduler, err := NewScheduler(context.Background(), &config.ServerConfig{}, &Params{
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
 	})
 	require.NoError(t, err)
@@ -378,12 +406,16 @@ func Test_filterRunnersByModel_NoRunnerHasModel(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
-	ctrl, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
-		PubSub: ps,
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub:        ps,
+		HealthChecker: &MockHealthChecker{},
 	})
 	require.NoError(t, err)
 
-	scheduler, err := NewScheduler(context.Background(), &config.ServerConfig{}, &Params{
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
 	})
 	require.NoError(t, err)

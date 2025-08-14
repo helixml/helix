@@ -103,8 +103,9 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	providerManager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(suite.openAiClient, nil).Times(1)
 
 	runnerController, err := scheduler.NewRunnerController(context.Background(), &scheduler.RunnerControllerConfig{
-		PubSub: suite.pubsub,
-		FS:     filestoreMock,
+		PubSub:        suite.pubsub,
+		FS:            filestoreMock,
+		HealthChecker: &scheduler.MockHealthChecker{},
 	})
 	suite.NoError(err)
 	schedulerParams := &scheduler.Params{

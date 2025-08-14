@@ -40,8 +40,43 @@ HELIX_VERSION=""
 CLI_INSTALL_PATH="/usr/local/bin/helix"
 EMBEDDINGS_PROVIDER="helix"
 
-# Determine OS and architecture
-OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+# Enhanced environment detection
+detect_environment() {
+    case "$OSTYPE" in
+        msys*|cygwin*)
+            # Git Bash or Cygwin on Windows
+            ENVIRONMENT="gitbash"
+            OS="windows"
+            ;;
+        linux*)
+            # Check if we're in WSL by examining /proc/version
+            if [[ -f /proc/version ]] && grep -qEi "(Microsoft|WSL)" /proc/version 2>/dev/null; then
+                ENVIRONMENT="wsl2"
+                OS="linux"
+            else
+                ENVIRONMENT="linux"
+                OS="linux"
+            fi
+            ;;
+        darwin*)
+            ENVIRONMENT="macos"
+            OS="darwin"
+            ;;
+        *)
+            # Fallback to linux for unknown environments
+            ENVIRONMENT="linux"
+            OS="linux"
+            ;;
+    esac
+}
+
+# Call environment detection
+detect_environment
+
+# Determine OS and architecture (keeping existing logic for compatibility)
+if [ "$ENVIRONMENT" != "gitbash" ]; then
+    OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+fi
 ARCH=$(uname -m)
 case $ARCH in
     x86_64) ARCH="amd64" ;;
@@ -49,18 +84,43 @@ case $ARCH in
     *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
-# Set binary name
-BINARY_NAME="helix-${OS}-${ARCH}"
-
-# Set installation directory
-if [ "$OS" = "linux" ]; then
-    INSTALL_DIR="/opt/HelixML"
-elif [ "$OS" = "darwin" ]; then
-    INSTALL_DIR="$HOME/HelixML"
+# Set binary name based on environment
+if [ "$ENVIRONMENT" = "gitbash" ]; then
+    BINARY_NAME="helix-windows-${ARCH}.exe"
+else
+    BINARY_NAME="helix-${OS}-${ARCH}"
 fi
+
+# Set installation directory based on environment
+case $ENVIRONMENT in
+    "gitbash")
+        INSTALL_DIR="$HOME/HelixML"
+        CLI_INSTALL_PATH="$HOME/bin/helix.exe"
+        ;;
+    "linux"|"wsl2")
+        INSTALL_DIR="/opt/HelixML"
+        # CLI_INSTALL_PATH keeps default: /usr/local/bin/helix
+        ;;
+    "macos")
+        INSTALL_DIR="$HOME/HelixML"
+        # CLI_INSTALL_PATH keeps default: /usr/local/bin/helix
+        ;;
+esac
 
 # Function to check if docker works without sudo
 check_docker_sudo() {
+    # Git Bash doesn't use sudo
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        if docker ps >/dev/null 2>&1; then
+            echo "false"
+        else
+            echo "Docker is not running or not installed. Please start Docker Desktop!" >&2
+            exit 1
+        fi
+        return
+    fi
+    
+    # Original logic for other environments
     # Try without sudo first
     if docker ps >/dev/null 2>&1; then
         echo "false"
@@ -81,7 +141,7 @@ display_help() {
 Usage: ./install.sh [OPTIONS]
 
 Options:
-  --cli                    Install the CLI (binary in /usr/local/bin)
+  --cli                    Install the CLI (binary in /usr/local/bin on Linux/macOS, ~/bin/helix.exe on Git Bash)
   --controlplane           Install the controlplane (API, Postgres etc in Docker Compose in $INSTALL_DIR)
   --runner                 Install the runner (single container with runner.sh script to start it in $INSTALL_DIR)
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
@@ -128,6 +188,9 @@ Examples:
 
 9. Install CLI and controlplane with custom embeddings provider:
    ./install.sh --cli --controlplane --embeddings-provider openai
+
+10. Install on Windows Git Bash (requires Docker Desktop):
+   ./install.sh --cli --controlplane
 
 EOF
 }
@@ -270,6 +333,22 @@ check_wsl2_docker() {
 # Function to install Docker and Docker Compose plugin
 install_docker() {
     if ! command -v docker &> /dev/null; then
+        # Git Bash: assume Docker Desktop should be installed manually
+        if [ "$ENVIRONMENT" = "gitbash" ]; then
+            echo "Docker not found. Please install Docker Desktop for Windows."
+            echo "Download from: https://docs.docker.com/desktop/windows/install/"
+            echo "Make sure to enable WSL 2 integration if you plan to use WSL 2 as well."
+            exit 1
+        fi
+        
+        # Skip Docker installation for WSL2 (should use Docker Desktop)
+        if [ "$ENVIRONMENT" = "wsl2" ]; then
+            echo "Detected WSL2 environment. Please install Docker Desktop for Windows."
+            echo "Download from: https://docs.docker.com/desktop/windows/install/"
+            echo "Make sure to enable WSL 2 integration in Docker Desktop settings."
+            exit 1
+        fi
+        
         check_wsl2_docker
         echo "Docker not found. Installing Docker..."
         if [ -f /etc/os-release ]; then
@@ -303,7 +382,8 @@ install_docker() {
         fi
     fi
 
-    if ! docker compose version &> /dev/null; then
+    # Skip Docker Compose plugin installation for Git Bash (assume Docker Desktop includes it)
+    if [ "$ENVIRONMENT" != "gitbash" ] && ! docker compose version &> /dev/null; then
         echo "Docker Compose plugin not found. Installing Docker Compose plugin..."
         sudo apt-get update
         sudo apt-get install -y docker-compose-plugin
@@ -319,10 +399,15 @@ if [ "$CLI" = true ] && [ "$CONTROLPLANE" = false ] && [ "$RUNNER" = false ]; th
 else
     # Install docker if not present, if we're going to
     install_docker
-    # Determine if we need sudo for docker commands
-    NEED_SUDO=$(check_docker_sudo)
-    if [ "$NEED_SUDO" = "true" ]; then
-        DOCKER_CMD="sudo docker"
+    # Determine if we need sudo for docker commands (Git Bash never needs sudo)
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        NEED_SUDO="false"
+        DOCKER_CMD="docker"
+    else
+        NEED_SUDO=$(check_docker_sudo)
+        if [ "$NEED_SUDO" = "true" ]; then
+            DOCKER_CMD="sudo docker"
+        fi
     fi
 fi
 
@@ -470,24 +555,46 @@ ask_for_approval() {
 # Ask for user approval before proceeding
 ask_for_approval
 
-sudo mkdir -p $INSTALL_DIR
-# Change the owner of the installation directory to the current user
-sudo chown -R $(id -un):$(id -gn) $INSTALL_DIR
-mkdir -p $INSTALL_DIR/data/helix-{postgres,filestore,pgvector}
-mkdir -p $INSTALL_DIR/scripts/postgres/
+# Create installation directories (platform-specific)
+if [ "$ENVIRONMENT" = "gitbash" ]; then
+    mkdir -p "$INSTALL_DIR"
+    mkdir -p "$INSTALL_DIR/data/helix-"{postgres,filestore,pgvector}
+    mkdir -p "$INSTALL_DIR/scripts/postgres/"
+else
+    sudo mkdir -p $INSTALL_DIR
+    # Change the owner of the installation directory to the current user
+    sudo chown -R $(id -un):$(id -gn) $INSTALL_DIR
+    mkdir -p $INSTALL_DIR/data/helix-{postgres,filestore,pgvector}
+    mkdir -p $INSTALL_DIR/scripts/postgres/
+fi
 
 # Install CLI if requested or in AUTO mode
 if [ "$CLI" = true ]; then
     echo -e "\nDownloading Helix CLI..."
-    sudo mkdir -p "$(dirname "$CLI_INSTALL_PATH")"
-    sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/${BINARY_NAME}" -o "$CLI_INSTALL_PATH"
-    sudo chmod +x "$CLI_INSTALL_PATH"
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        mkdir -p "$(dirname "$CLI_INSTALL_PATH")"
+        curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/${BINARY_NAME}" -o "$CLI_INSTALL_PATH"
+        chmod +x "$CLI_INSTALL_PATH"
+    else
+        sudo mkdir -p "$(dirname "$CLI_INSTALL_PATH")"
+        sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/${BINARY_NAME}" -o "$CLI_INSTALL_PATH"
+        sudo chmod +x "$CLI_INSTALL_PATH"
+    fi
     echo "Helix CLI has been installed to $CLI_INSTALL_PATH"
 fi
 
 # Function to generate random alphanumeric password
 generate_password() {
-    openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 16
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        # Try PowerShell if available, fallback to date-based
+        if command -v powershell.exe &> /dev/null; then
+            powershell.exe -Command "[System.Web.Security.Membership]::GeneratePassword(16, 0)" 2>/dev/null | tr -d '\r\n' || echo "helix$(date +%s)" | head -c 16
+        else
+            echo "helix$(date +%s)" | head -c 16
+        fi
+    else
+        openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 16
+    fi
 }
 
 # Function to install NVIDIA Docker runtime
@@ -497,7 +604,29 @@ install_nvidia_docker() {
         return
     fi
 
+    # Git Bash: assume Docker Desktop handles NVIDIA support
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        if ! timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null; then
+            echo "NVIDIA Docker runtime not detected in Docker Desktop."
+            echo "Please ensure:"
+            echo "1. NVIDIA drivers are installed on Windows"
+            echo "2. Docker Desktop is configured with WSL 2 backend"
+            echo "3. GPU support is enabled in Docker Desktop settings"
+            echo ""
+            echo "For more information, see: https://docs.docker.com/desktop/gpu/"
+            exit 1
+        fi
+        return
+    fi
+
     if ! timeout 10 $DOCKER_CMD info 2>/dev/null | grep -i nvidia &> /dev/null && ! command -v nvidia-container-toolkit &> /dev/null; then
+        # Skip NVIDIA Docker installation for WSL2 (should use Docker Desktop)
+        if [ "$ENVIRONMENT" = "wsl2" ]; then
+            echo "WSL2 detected. Please ensure NVIDIA Docker support is enabled in Docker Desktop."
+            echo "See: https://docs.docker.com/desktop/gpu/"
+            return
+        fi
+        
         check_wsl2_docker
         echo "NVIDIA Docker runtime not found. Installing NVIDIA Docker runtime..."
         if [ -f /etc/os-release ]; then
@@ -533,7 +662,11 @@ install_nvidia_docker() {
 if [ "$CONTROLPLANE" = true ]; then
     install_docker
     echo -e "\nDownloading docker-compose.yaml..."
-    sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/docker-compose.yaml" -o $INSTALL_DIR/docker-compose.yaml
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/docker-compose.yaml" -o $INSTALL_DIR/docker-compose.yaml
+    else
+        sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/docker-compose.yaml" -o $INSTALL_DIR/docker-compose.yaml
+    fi
     echo "docker-compose.yaml has been downloaded to $INSTALL_DIR/docker-compose.yaml"
 
     # Create database creation script
@@ -783,7 +916,10 @@ EOF
     CADDY=false
     # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu
     if [[ "$API_HOST" == https* ]]; then
-        if [[ "$OS" != "linux" ]]; then
+        if [[ "$ENVIRONMENT" = "gitbash" ]]; then
+            echo "Caddy installation is not supported in Git Bash. Please install and configure Caddy manually on Windows."
+            echo "For Windows installation, see: https://caddyserver.com/docs/install#windows"
+        elif [[ "$OS" != "linux" ]]; then
             echo "Caddy installation is only supported on Ubuntu. Please install and configure Caddy manually (check the install.sh script for details)."
         else
             CADDY=true
@@ -939,7 +1075,11 @@ docker run --privileged --gpus all --shm-size=10g \\
     --runner-id \$(hostname)
 EOF
 
-    sudo chmod +x $INSTALL_DIR/runner.sh
+    if [ "$ENVIRONMENT" = "gitbash" ]; then
+        chmod +x $INSTALL_DIR/runner.sh
+    else
+        sudo chmod +x $INSTALL_DIR/runner.sh
+    fi
     echo "Runner script has been created at $INSTALL_DIR/runner.sh"
     echo "┌───────────────────────────────────────────────────────────────────────────"
     echo "│ To start the runner, run:"

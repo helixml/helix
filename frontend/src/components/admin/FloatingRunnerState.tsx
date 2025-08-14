@@ -20,6 +20,7 @@ import { useGetDashboardData } from '../../services/dashboardService'
 import { TypesDashboardRunner, TypesGPUStatus } from '../../api/api'
 import useRouter from '../../hooks/useRouter'
 import { useFloatingRunnerState } from '../../contexts/floatingRunnerState'
+import { useResize } from '../../hooks/useResize'
 
 
 
@@ -49,20 +50,36 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
   const [position, setPosition] = useState(getInitialPosition)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   
+  const { size, setSize, isResizing, getResizeHandles } = useResize({
+    initialSize: { width: 340, height: 420 },
+    minSize: { width: 280, height: 200 },
+    maxSize: { width: 600, height: window.innerHeight - 40 },
+    onResize: (newSize, direction, delta) => {
+      // Adjust position when resizing from top or left edges
+      if (direction.includes('w') || direction.includes('n')) {
+        setPosition(prev => ({
+          x: direction.includes('w') ? prev.x + (size.width - newSize.width) : prev.x,
+          y: direction.includes('n') ? prev.y + (size.height - newSize.height) : prev.y
+        }))
+      }
+    }
+  })
+  
   // Update position when click position changes
   useEffect(() => {
     if (floatingRunnerState.clickPosition) {
       setPosition({
-        x: Math.max(0, Math.min(floatingRunnerState.clickPosition.x, window.innerWidth - 340)),
-        y: Math.max(0, Math.min(floatingRunnerState.clickPosition.y, window.innerHeight - 420))
+        x: Math.max(0, Math.min(floatingRunnerState.clickPosition.x, window.innerWidth - size.width)),
+        y: Math.max(0, Math.min(floatingRunnerState.clickPosition.y, window.innerHeight - size.height))
       })
     }
-  }, [floatingRunnerState.clickPosition])
+  }, [floatingRunnerState.clickPosition, size.width, size.height])
   
   const { data: dashboardData, isLoading } = useGetDashboardData()
   const router = useRouter()
   
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (isResizing) return // Don't allow dragging when resizing
     setIsDragging(true)
     setDragOffset({
       x: e.clientX - position.x,
@@ -76,10 +93,17 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (isDragging) {
+      if (isDragging && !isResizing) {
+        const newX = e.clientX - dragOffset.x
+        const newY = e.clientY - dragOffset.y
+        
+        // Keep within bounds
+        const boundedX = Math.max(0, Math.min(newX, window.innerWidth - size.width))
+        const boundedY = Math.max(0, Math.min(newY, window.innerHeight - size.height))
+        
         setPosition({
-          x: e.clientX - dragOffset.x,
-          y: e.clientY - dragOffset.y
+          x: boundedX,
+          y: boundedY
         })
       }
     }
@@ -97,7 +121,7 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isDragging, dragOffset])
+  }, [isDragging, dragOffset, isResizing, size])
 
   const GPUDisplay: FC<{ gpu: TypesGPUStatus, allocatedMemory: number, allocatedModels: Array<{ model: string, memory: number, isMultiGPU: boolean }> }> = ({ gpu, allocatedMemory, allocatedModels }) => {
     const total_memory = gpu.total_memory || 1
@@ -569,8 +593,8 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
         position: 'fixed',
         left: position.x,
         top: position.y,
-        width: isMinimized ? 200 : 320,
-        maxHeight: isMinimized ? 50 : 400,
+        width: isMinimized ? 200 : size.width,
+        height: isMinimized ? 'auto' : size.height,
         backgroundColor: 'rgba(20, 20, 23, 0.95)',
         backdropFilter: 'blur(12px)',
         borderRadius: 2,
@@ -578,10 +602,23 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
         boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.05)',
         zIndex: 9999,
         cursor: isDragging ? 'grabbing' : 'default',
-        transition: 'width 0.3s ease, max-height 0.3s ease',
+        transition: isMinimized ? 'width 0.3s ease, height 0.3s ease' : 'none',
         overflow: 'hidden',
       }}
     >
+      {/* Resize Handles */}
+      {!isMinimized && getResizeHandles().map((handle) => (
+        <Box
+          key={handle.direction}
+          onMouseDown={handle.onMouseDown}
+          sx={{
+            ...handle.style,
+            '&:hover': {
+              backgroundColor: 'rgba(0, 200, 255, 0.1)',
+            },
+          }}
+        />
+      ))}
       <Box
         sx={{
           display: 'flex',
@@ -664,7 +701,11 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
       </Box>
 
       <Collapse in={!isMinimized}>
-        <Box sx={{ p: 1.5, maxHeight: 350, overflowY: 'auto' }}>
+        <Box sx={{ 
+          p: 1.5, 
+          height: `calc(${size.height}px - 60px)`, // Subtract header height
+          overflowY: 'auto' 
+        }}>
           {isLoading ? (
             <Box sx={{ textAlign: 'center', py: 2 }}>
               <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>

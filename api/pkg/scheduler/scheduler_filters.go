@@ -23,7 +23,7 @@ func (s *Scheduler) filterRunners(work *Workload, runnerIDs []string) ([]string,
 }
 
 func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([]string, error) {
-	log.Debug().
+	log.Trace().
 		Strs("runner_ids", runnerIDs).
 		Str("model", work.ModelName().String()).
 		Uint64("model_memory", work.model.Memory).
@@ -53,13 +53,13 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 			singleGPU, multiGPUs, _ := s.controller.GetOptimalGPUAllocation(runnerID, work.model.Memory)
 			runnerGPUCompatible[runnerID] = (singleGPU != nil) || (len(multiGPUs) > 0)
 
-			log.Debug().
+			log.Trace().
 				Str("runner_id", runnerID).
 				Str("runtime", string(work.Runtime())).
 				Interface("single_gpu", singleGPU).
 				Ints("multi_gpus", multiGPUs).
 				Bool("gpu_compatible", runnerGPUCompatible[runnerID]).
-				Msg("GPU allocation check")
+				Msg("GPU allocation check with pending allocations")
 
 			// Store the allocation decision for this workload-runner combination
 			if runnerGPUCompatible[runnerID] {
@@ -69,13 +69,13 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 			// For other runtimes, use traditional total memory check
 			runnerGPUCompatible[runnerID] = runnerMemory[runnerID] >= work.model.Memory
 
-			log.Info().
-				Str("runner_id", runnerID).
-				Str("runtime", string(work.Runtime())).
-				Uint64("runner_memory", runnerMemory[runnerID]).
-				Uint64("model_memory", work.model.Memory).
-				Bool("memory_compatible", runnerGPUCompatible[runnerID]).
-				Msg("SLOT_RECONCILE_DEBUG: Traditional memory check")
+			// log.Info().
+			//	Str("runner_id", runnerID).
+			//	Str("runtime", string(work.Runtime())).
+			//	Uint64("runner_memory", runnerMemory[runnerID]).
+			//	Uint64("model_memory", work.model.Memory).
+			//	Bool("memory_compatible", runnerGPUCompatible[runnerID]).
+			//	Msg("SLOT_RECONCILE_DEBUG: Traditional memory check")
 		}
 	}
 
@@ -108,7 +108,7 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 		}
 	}
 
-	withWorkContext(&log.Logger, work).Debug().
+	withWorkContext(&log.Logger, work).Trace().
 		Interface("filtered_runners", filteredRunners).
 		Int("total_memory_failures", numRunnersWithNotEnoughTotalMemory).
 		Int("gpu_fragmentation_failures", numRunnersWithGPUFragmentation).

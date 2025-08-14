@@ -38,14 +38,206 @@ type RunnerController struct {
 	slotsCache          *LockingRunnerMap[types.ListRunnerSlotsResponse]
 	statusCache         *LockingRunnerMap[types.RunnerStatus]
 	store               store.Store
-	onRunnerConnectedFn func(runnerID string) // Callback for when a new runner connects
+	onRunnerConnectedFn func(runnerID string)       // Callback for when a new runner connects
+	getModelMemoryFn    func(modelID string) uint64 // Callback to get authoritative model memory from scheduler
+	getSchedulerSlotsFn func() map[uuid.UUID]*Slot  // Callback to get scheduler's desired state slots
+	healthChecker       HealthChecker               // Interface for health checking, allows mocking in tests
+	runnerClient        RunnerClient                // Interface for runner requests, allows mocking in tests
+}
+
+// HealthChecker interface allows for mocking health checks in tests
+type HealthChecker interface {
+	GetHealthz(runnerID string) error
+	SetModels(runnerID string) error
+}
+
+// RunnerClient interface allows for mocking runner requests in tests
+type RunnerClient interface {
+	CreateSlot(runnerID string, slotID uuid.UUID, req *types.CreateRunnerSlotRequest) error
+	DeleteSlot(runnerID string, slotID uuid.UUID) error
+	FetchSlot(runnerID string, slotID uuid.UUID) (types.RunnerSlot, error)
+	FetchSlots(runnerID string) (types.ListRunnerSlotsResponse, error)
+	FetchStatus(runnerID string) (types.RunnerStatus, error)
+	SyncSystemSettings(runnerID string, settings *types.RunnerSystemConfigRequest) error
+	SubmitChatCompletionRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error
+	SubmitEmbeddingRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error
+	SubmitImageGenerationRequest(slot *Slot, session *types.Session) error
+}
+
+// NATSHealthChecker implements HealthChecker using NATS communication
+type NATSHealthChecker struct {
+	controller *RunnerController
+}
+
+// NATSRunnerClient implements RunnerClient using NATS communication
+type NATSRunnerClient struct {
+	controller *RunnerController
+}
+
+func (r *NATSRunnerClient) CreateSlot(runnerID string, _ uuid.UUID, req *types.CreateRunnerSlotRequest) error {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+
+	resp, err := r.controller.Send(r.controller.ctx, runnerID, nil, &types.Request{
+		Method: "POST",
+		URL:    "/api/v1/slots",
+		Body:   body,
+	}, 30*time.Minute)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("error creating slot: %s", resp.Body)
+	}
+	return nil
+}
+
+func (r *NATSRunnerClient) DeleteSlot(runnerID string, slotID uuid.UUID) error {
+	resp, err := r.controller.Send(r.controller.ctx, runnerID, nil, &types.Request{
+		Method: "DELETE",
+		URL:    fmt.Sprintf("/api/v1/slots/%s", slotID.String()),
+	}, defaultRequestTimeout)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("error deleting slot: %s", resp.Body)
+	}
+	return nil
+}
+
+func (r *NATSRunnerClient) FetchSlot(runnerID string, slotID uuid.UUID) (types.RunnerSlot, error) {
+	resp, err := r.controller.Send(r.controller.ctx, runnerID, nil, &types.Request{
+		Method: "GET",
+		URL:    fmt.Sprintf("/api/v1/slots/%s", slotID.String()),
+	}, defaultRequestTimeout)
+	if err != nil {
+		return types.RunnerSlot{}, fmt.Errorf("error getting slot: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return types.RunnerSlot{}, fmt.Errorf("error getting slot (status %d): %s", resp.StatusCode, resp.Body)
+	}
+
+	var slot types.RunnerSlot
+	if err := json.Unmarshal(resp.Body, &slot); err != nil {
+		return types.RunnerSlot{}, fmt.Errorf("error unmarshalling slot: %w", err)
+	}
+	return slot, nil
+}
+
+func (r *NATSRunnerClient) FetchSlots(runnerID string) (types.ListRunnerSlotsResponse, error) {
+	resp, err := r.controller.Send(r.controller.ctx, runnerID, nil, &types.Request{
+		Method: "GET",
+		URL:    "/api/v1/slots",
+	}, defaultRequestTimeout)
+	if err != nil {
+		return types.ListRunnerSlotsResponse{}, err
+	}
+	var slots types.ListRunnerSlotsResponse
+	if err := json.Unmarshal(resp.Body, &slots); err != nil {
+		return types.ListRunnerSlotsResponse{}, err
+	}
+	return slots, nil
+}
+
+func (r *NATSRunnerClient) FetchStatus(runnerID string) (types.RunnerStatus, error) {
+	resp, err := r.controller.Send(r.controller.ctx, runnerID, nil, &types.Request{
+		Method: "GET",
+		URL:    "/api/v1/status",
+	}, defaultRequestTimeout)
+	if err != nil {
+		return types.RunnerStatus{}, err
+	}
+
+	var status types.RunnerStatus
+	if err := json.Unmarshal(resp.Body, &status); err != nil {
+		return types.RunnerStatus{}, err
+	}
+	return status, nil
+}
+
+func (r *NATSRunnerClient) SyncSystemSettings(runnerID string, settings *types.RunnerSystemConfigRequest) error {
+	reqBody, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("failed to marshal system config request: %w", err)
+	}
+
+	req := &types.Request{
+		Method: "PUT",
+		URL:    "/api/v1/system/config",
+		Body:   reqBody,
+	}
+
+	resp, err := r.controller.Send(r.controller.ctx, runnerID, nil, req, 30*time.Second)
+	if err != nil {
+		return fmt.Errorf("failed to send system config to runner %s: %w", runnerID, err)
+	}
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("runner %s returned non-200 status for system config: %d", runnerID, resp.StatusCode)
+	}
+	return nil
+}
+
+func (h *NATSHealthChecker) GetHealthz(runnerID string) error {
+	resp, err := h.controller.Send(h.controller.ctx, runnerID, nil, &types.Request{
+		Method: "GET",
+		URL:    "/api/v1/healthz",
+	}, defaultRequestTimeout)
+	if err != nil {
+		return fmt.Errorf("error getting healthz: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("runner %s is not healthy", runnerID)
+	}
+	return nil
+}
+
+func (h *NATSHealthChecker) SetModels(runnerID string) error {
+	// If no store is configured (e.g., in tests), skip model synchronization
+	if h.controller.store == nil {
+		log.Debug().Str("runner_id", runnerID).Msg("no store configured, skipping model synchronization")
+		return nil
+	}
+
+	enabled := true
+	// Fetch all enabled models
+	models, err := h.controller.store.ListModels(context.Background(), &store.ListModelsQuery{
+		Enabled: &enabled,
+	})
+	if err != nil {
+		return fmt.Errorf("error listing models: %w", err)
+	}
+
+	bts, err := json.Marshal(models)
+	if err != nil {
+		return fmt.Errorf("error marshalling models: %w", err)
+	}
+
+	resp, err := h.controller.Send(h.controller.ctx, runnerID, nil, &types.Request{
+		Method: "POST",
+		URL:    "/api/v1/helix-models",
+		Body:   bts,
+	}, defaultRequestTimeout)
+	if err != nil {
+		return fmt.Errorf("error setting models: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("runner %s is not healthy", runnerID)
+	}
+	return nil
 }
 
 type RunnerControllerConfig struct {
 	PubSub              pubsub.PubSub
 	FS                  filestore.FileStore
 	Store               store.Store
-	OnRunnerConnectedFn func(runnerID string) // Optional callback for when a new runner connects
+	OnRunnerConnectedFn func(runnerID string)       // Optional callback for when a new runner connects
+	GetModelMemoryFn    func(modelID string) uint64 // Optional callback to get authoritative model memory
+	HealthChecker       HealthChecker               // Optional: for testing, defaults to NATS-based implementation
+	RunnerClient        RunnerClient                // Optional: for testing, defaults to NATS-based implementation
 }
 
 func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*RunnerController, error) {
@@ -60,6 +252,21 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 		slotsCache:          NewLockingRunnerMap[types.ListRunnerSlotsResponse](),
 		statusCache:         NewLockingRunnerMap[types.RunnerStatus](),
 		onRunnerConnectedFn: cfg.OnRunnerConnectedFn,
+		getModelMemoryFn:    cfg.GetModelMemoryFn,
+	}
+
+	// Set up health checker - use provided one or default to NATS-based
+	if cfg.HealthChecker != nil {
+		controller.healthChecker = cfg.HealthChecker
+	} else {
+		controller.healthChecker = &NATSHealthChecker{controller: controller}
+	}
+
+	// Set up runner client - use provided one or default to NATS-based
+	if cfg.RunnerClient != nil {
+		controller.runnerClient = cfg.RunnerClient
+	} else {
+		controller.runnerClient = &NATSRunnerClient{controller: controller}
 	}
 
 	sub, err := cfg.PubSub.SubscribeWithCtx(controller.ctx, pubsub.GetRunnerConnectedQueue("*"), func(_ context.Context, msg *nats.Msg) error {
@@ -88,11 +295,30 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 	return controller, nil
 }
 
+// RunnerClient returns the runner client interface
+func (c *RunnerController) RunnerClient() RunnerClient {
+	return c.runnerClient
+}
+
 // SetOnRunnerConnectedCallback sets the callback function for when a new runner connects
 func (c *RunnerController) SetOnRunnerConnectedCallback(fn func(runnerID string)) {
 	c.callbackMu.Lock()
 	defer c.callbackMu.Unlock()
 	c.onRunnerConnectedFn = fn
+}
+
+// setModelMemoryCallback sets the callback function to get authoritative model memory from scheduler
+func (c *RunnerController) setModelMemoryCallback(fn func(modelID string) uint64) {
+	c.callbackMu.Lock()
+	defer c.callbackMu.Unlock()
+	c.getModelMemoryFn = fn
+}
+
+// setSchedulerSlotsCallback sets the callback function to get scheduler's desired state slots
+func (c *RunnerController) setSchedulerSlotsCallback(fn func() map[uuid.UUID]*Slot) {
+	c.callbackMu.Lock()
+	defer c.callbackMu.Unlock()
+	c.getSchedulerSlotsFn = fn
 }
 
 func (c *RunnerController) reconcileCaches(ctx context.Context) {
@@ -208,34 +434,14 @@ func (c *RunnerController) SyncSystemSettings(ctx context.Context, runnerID stri
 		HuggingFaceToken: hfToken,
 	}
 
-	reqBody, err := json.Marshal(configReq)
-	if err != nil {
-		return fmt.Errorf("failed to marshal system config request: %w", err)
-	}
-
-	// Send system config to runner
-	req := &types.Request{
-		Method: "PUT",
-		URL:    "/api/v1/system/config",
-		Body:   reqBody,
-	}
-
-	resp, err := c.Send(ctx, runnerID, nil, req, 30*time.Second)
+	// Use RunnerClient interface for system settings sync
+	err = c.runnerClient.SyncSystemSettings(runnerID, &configReq)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("runner_id", runnerID).
 			Msg("failed to sync system settings to runner")
-		return fmt.Errorf("failed to send system config to runner %s: %w", runnerID, err)
-	}
-
-	if resp.StatusCode != 200 {
-		log.Error().
-			Int("status_code", resp.StatusCode).
-			Str("runner_id", runnerID).
-			Str("response_body", string(resp.Body)).
-			Msg("runner rejected system settings update")
-		return fmt.Errorf("runner %s rejected system settings with status %d", runnerID, resp.StatusCode)
+		return err
 	}
 
 	log.Info().
@@ -406,37 +612,6 @@ func (c *RunnerController) PerGPUMemory(runnerID string) uint64 {
 	return perGPUMemory
 }
 
-// CanFitModelOnAnyGPU checks if any individual GPU has enough free memory for the model
-// This is critical for single-GPU VLLM models to avoid memory fragmentation issues
-func (c *RunnerController) CanFitModelOnAnyGPU(runnerID string, modelMemoryRequirement uint64) bool {
-	status, err := c.GetStatus(runnerID)
-	if err != nil {
-		log.Error().Err(err).Msg("error getting runner status for GPU check")
-		return false
-	}
-
-	// Check each individual GPU
-	for _, gpu := range status.GPUs {
-		if gpu.FreeMemory >= modelMemoryRequirement {
-			log.Debug().
-				Str("runner_id", runnerID).
-				Int("gpu_index", gpu.Index).
-				Uint64("gpu_free_memory", gpu.FreeMemory).
-				Uint64("model_memory_requirement", modelMemoryRequirement).
-				Msg("Found GPU with sufficient memory for model")
-			return true
-		}
-	}
-
-	log.Debug().
-		Str("runner_id", runnerID).
-		Uint64("model_memory_requirement", modelMemoryRequirement).
-		Int("gpu_count", len(status.GPUs)).
-		Msg("No individual GPU has sufficient memory for model")
-
-	return false
-}
-
 // GetGPUMemoryInfo returns detailed per-GPU memory information for debugging
 func (c *RunnerController) GetGPUMemoryInfo(runnerID string) ([]*types.GPUStatus, error) {
 	status, err := c.GetStatus(runnerID)
@@ -444,61 +619,6 @@ func (c *RunnerController) GetGPUMemoryInfo(runnerID string) ([]*types.GPUStatus
 		return nil, err
 	}
 	return status.GPUs, nil
-}
-
-// CanFitModelOnMultipleGPUs checks if a model can be distributed across multiple GPUs
-// Returns the optimal GPU indices and whether allocation is possible
-func (c *RunnerController) CanFitModelOnMultipleGPUs(runnerID string, modelMemoryRequirement uint64, minGPUs int) ([]int, bool) {
-	status, err := c.GetStatus(runnerID)
-	if err != nil {
-		log.Error().Err(err).Msg("error getting runner status for multi-GPU check")
-		return nil, false
-	}
-
-	if len(status.GPUs) < minGPUs {
-		log.Debug().
-			Str("runner_id", runnerID).
-			Int("available_gpus", len(status.GPUs)).
-			Int("min_required_gpus", minGPUs).
-			Msg("Not enough GPUs available for multi-GPU model")
-		return nil, false
-	}
-
-	// For multi-GPU models, VLLM distributes the model roughly equally across GPUs
-	// Each GPU needs approximately modelMemoryRequirement / numGPUs
-	memoryPerGPU := modelMemoryRequirement / uint64(minGPUs)
-
-	// Add 10% overhead for tensor parallelism communication and other overhead
-	memoryPerGPU = uint64(float64(memoryPerGPU) * 1.1)
-
-	var selectedGPUs []int
-	for _, gpu := range status.GPUs {
-		if gpu.FreeMemory >= memoryPerGPU {
-			selectedGPUs = append(selectedGPUs, gpu.Index)
-			if len(selectedGPUs) >= minGPUs {
-				break
-			}
-		}
-	}
-
-	if len(selectedGPUs) < minGPUs {
-		log.Debug().
-			Str("runner_id", runnerID).
-			Uint64("memory_per_gpu_required", memoryPerGPU).
-			Int("found_suitable_gpus", len(selectedGPUs)).
-			Int("min_required_gpus", minGPUs).
-			Msg("Not enough GPUs with sufficient memory for multi-GPU model")
-		return nil, false
-	}
-
-	log.Debug().
-		Str("runner_id", runnerID).
-		Ints("selected_gpu_indices", selectedGPUs).
-		Uint64("model_memory_requirement", modelMemoryRequirement).
-		Uint64("memory_per_gpu", memoryPerGPU).
-		Msg("Found suitable GPUs for multi-GPU model")
-
-	return selectedGPUs, true
 }
 
 // GetOptimalGPUAllocation determines the best GPU allocation strategy for a model
@@ -510,26 +630,35 @@ func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryR
 		return nil, nil, 0
 	}
 
+	// Calculate allocated memory per GPU based on existing slots
+	allocatedMemoryPerGPU := c.calculateAllocatedMemoryPerGPU(runnerID)
+
 	// First, try to fit the model on a single GPU
-	if c.CanFitModelOnAnyGPU(runnerID, modelMemoryRequirement) {
-		// Find the best single GPU
+	if c.CanFitModelOnAnyGPUAllocated(runnerID, modelMemoryRequirement, allocatedMemoryPerGPU) {
+		// Find the GPU with the most free memory (based on allocated memory, not real-time memory)
 		var bestGPU *int
 		var maxFreeMemory uint64
 
 		for _, gpu := range status.GPUs {
-			if gpu.FreeMemory >= modelMemoryRequirement && gpu.FreeMemory > maxFreeMemory {
-				maxFreeMemory = gpu.FreeMemory
+			allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
+			freeMemory := gpu.TotalMemory - allocatedMemory
+
+			// Check if this GPU has enough free memory for the model and has more free memory than current best
+			if freeMemory >= modelMemoryRequirement && freeMemory > maxFreeMemory {
+				maxFreeMemory = freeMemory
 				idx := gpu.Index
 				bestGPU = &idx
 			}
 		}
 
 		if bestGPU != nil {
-			log.Debug().
+			log.Trace().
 				Str("runner_id", runnerID).
 				Int("selected_gpu", *bestGPU).
 				Uint64("model_memory_requirement", modelMemoryRequirement).
-				Msg("Selected single GPU for model")
+				Uint64("gpu_allocated_memory", allocatedMemoryPerGPU[*bestGPU]).
+				Uint64("gpu_free_memory", maxFreeMemory).
+				Msg("Selected GPU with most free memory based on allocated memory")
 			return bestGPU, nil, 1
 		}
 	}
@@ -537,13 +666,13 @@ func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryR
 	// If single GPU doesn't work, try multi-GPU allocation
 	// Start with 2 GPUs and scale up as needed
 	for numGPUs := 2; numGPUs <= len(status.GPUs); numGPUs++ {
-		if gpuIndices, canFit := c.CanFitModelOnMultipleGPUs(runnerID, modelMemoryRequirement, numGPUs); canFit {
+		if gpuIndices, canFit := c.CanFitModelOnMultipleGPUsAllocated(runnerID, modelMemoryRequirement, numGPUs, allocatedMemoryPerGPU); canFit {
 			log.Debug().
 				Str("runner_id", runnerID).
 				Ints("selected_gpus", gpuIndices).
 				Int("tensor_parallel_size", numGPUs).
 				Uint64("model_memory_requirement", modelMemoryRequirement).
-				Msg("Selected multi-GPU allocation for model")
+				Msg("Selected multi-GPU allocation for model based on allocated memory")
 			return nil, gpuIndices, numGPUs
 		}
 	}
@@ -566,6 +695,176 @@ func (c *RunnerController) Version(runnerID string) string {
 	return status.Version
 }
 
+// calculateAllocatedMemoryPerGPU calculates how much memory is allocated to each GPU based on scheduler's desired state
+// ARCHITECTURAL CHANGE: This now uses the scheduler's desired state instead of actual runner state
+// This prevents overscheduling by making decisions based on what we intend to create, not what currently exists
+func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) map[int]uint64 {
+	allocatedMemoryPerGPU := make(map[int]uint64)
+
+	// CRITICAL: Use scheduler's desired state slots instead of actual runner slots
+	// This prevents race conditions and cache invalidation issues in rapid scheduling scenarios
+	if c.getSchedulerSlotsFn == nil {
+		log.Error().Str("runner_id", runnerID).Msg("CRITICAL: No scheduler slots callback available - this is a programming error")
+		return allocatedMemoryPerGPU
+	}
+
+	// Get scheduler's desired state slots
+	schedulerSlots := c.getSchedulerSlotsFn()
+
+	log.Trace().
+		Str("runner_id", runnerID).
+		Int("total_scheduler_slots", len(schedulerSlots)).
+		Msg("Using scheduler's desired state for memory calculation")
+
+	for slotID, slot := range schedulerSlots {
+		// Only consider slots for this specific runner
+		if slot.RunnerID != runnerID {
+			continue
+		}
+
+		// Get authoritative model memory from the scheduler
+		var modelMemory uint64
+		if c.getModelMemoryFn != nil {
+			modelMemory = c.getModelMemoryFn(slot.InitialWork().ModelName().String())
+		}
+
+		// If we still can't determine model memory, skip this slot to prevent over-scheduling
+		if modelMemory == 0 {
+			log.Error().
+				Str("runner_id", runnerID).
+				Str("slot_id", slotID.String()).
+				Str("model", slot.InitialWork().ModelName().String()).
+				Msg("CRITICAL: Cannot determine model memory requirements - skipping slot to prevent over-scheduling")
+
+			// Skip this slot entirely rather than guessing - this prevents over-scheduling
+			continue
+		}
+
+		log.Trace().
+			Str("runner_id", runnerID).
+			Str("slot_id", slotID.String()).
+			Str("model", slot.InitialWork().ModelName().String()).
+			Uint64("model_memory_gb", modelMemory/(1024*1024*1024)).
+			Msg("Using authoritative model memory from scheduler (desired state)")
+
+		// Allocate memory to the appropriate GPU(s) based on slot's GPU allocation
+		if slot.GPUAllocation != nil && len(slot.GPUAllocation.MultiGPUs) > 1 {
+			// Multi-GPU model: distribute memory across GPUs
+			memoryPerGPU := modelMemory / uint64(len(slot.GPUAllocation.MultiGPUs))
+			for _, gpuIndex := range slot.GPUAllocation.MultiGPUs {
+				allocatedMemoryPerGPU[gpuIndex] += memoryPerGPU
+			}
+		} else if slot.GPUAllocation != nil && slot.GPUAllocation.SingleGPU != nil {
+			// Single GPU model: allocate full memory to this GPU
+			allocatedMemoryPerGPU[*slot.GPUAllocation.SingleGPU] += modelMemory
+		}
+		// CPU-only slots (no GPU allocation) don't count toward GPU memory
+	}
+
+	log.Trace().
+		Str("runner_id", runnerID).
+		Interface("allocated_memory_per_gpu", allocatedMemoryPerGPU).
+		Msg("Calculated allocated memory per GPU (skipped slots with unknown memory requirements)")
+
+	return allocatedMemoryPerGPU
+}
+
+// CanFitModelOnAnyGPUAllocated checks if any individual GPU has enough free memory for the model based on allocated memory
+func (c *RunnerController) CanFitModelOnAnyGPUAllocated(runnerID string, modelMemoryRequirement uint64, allocatedMemoryPerGPU map[int]uint64) bool {
+	status, err := c.GetStatus(runnerID)
+	if err != nil {
+		log.Error().Err(err).Msg("error getting runner status for GPU check")
+		return false
+	}
+
+	// Check each individual GPU
+	for _, gpu := range status.GPUs {
+		allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
+		freeMemory := gpu.TotalMemory - allocatedMemory
+
+		if freeMemory >= modelMemoryRequirement {
+			log.Trace().
+				Str("runner_id", runnerID).
+				Int("gpu_index", gpu.Index).
+				Uint64("gpu_total_memory", gpu.TotalMemory).
+				Uint64("gpu_allocated_memory", allocatedMemory).
+				Uint64("gpu_free_memory", freeMemory).
+				Uint64("model_memory_requirement", modelMemoryRequirement).
+				Msg("Found GPU with sufficient free memory for model (allocated-based)")
+			return true
+		}
+	}
+
+	log.Debug().
+		Str("runner_id", runnerID).
+		Uint64("model_memory_requirement", modelMemoryRequirement).
+		Int("gpu_count", len(status.GPUs)).
+		Interface("allocated_memory_per_gpu", allocatedMemoryPerGPU).
+		Msg("No individual GPU has sufficient free memory for model (allocated-based)")
+
+	return false
+}
+
+// CanFitModelOnMultipleGPUsAllocated checks if a model can be distributed across multiple GPUs
+// based on allocated memory (not real-time memory) to prevent race conditions
+func (c *RunnerController) CanFitModelOnMultipleGPUsAllocated(runnerID string, modelMemoryRequirement uint64, minGPUs int, allocatedMemoryPerGPU map[int]uint64) ([]int, bool) {
+	status, err := c.GetStatus(runnerID)
+	if err != nil {
+		log.Error().Err(err).Msg("error getting runner status for multi-GPU check")
+		return nil, false
+	}
+
+	if len(status.GPUs) < minGPUs {
+		log.Debug().
+			Str("runner_id", runnerID).
+			Int("available_gpus", len(status.GPUs)).
+			Int("min_required_gpus", minGPUs).
+			Msg("Not enough GPUs available for multi-GPU model")
+		return nil, false
+	}
+
+	// For multi-GPU models, VLLM distributes the model roughly equally across GPUs
+	// Each GPU needs approximately modelMemoryRequirement / numGPUs
+	memoryPerGPU := modelMemoryRequirement / uint64(minGPUs)
+
+	// Removed 10% overhead buffer for simplicity - keeping system predictable
+	// until we're confident the core allocation logic is solid
+
+	var selectedGPUs []int
+	for _, gpu := range status.GPUs {
+		allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
+		freeMemory := gpu.TotalMemory - allocatedMemory
+
+		if freeMemory >= memoryPerGPU {
+			selectedGPUs = append(selectedGPUs, gpu.Index)
+			if len(selectedGPUs) >= minGPUs {
+				break
+			}
+		}
+	}
+
+	if len(selectedGPUs) < minGPUs {
+		log.Debug().
+			Str("runner_id", runnerID).
+			Uint64("memory_per_gpu_required", memoryPerGPU).
+			Int("found_suitable_gpus", len(selectedGPUs)).
+			Int("min_required_gpus", minGPUs).
+			Interface("allocated_memory_per_gpu", allocatedMemoryPerGPU).
+			Msg("Not enough GPUs with sufficient free memory for multi-GPU model (allocated-based)")
+		return nil, false
+	}
+
+	log.Debug().
+		Str("runner_id", runnerID).
+		Ints("selected_gpu_indices", selectedGPUs).
+		Uint64("model_memory_requirement", modelMemoryRequirement).
+		Uint64("memory_per_gpu", memoryPerGPU).
+		Interface("allocated_memory_per_gpu", allocatedMemoryPerGPU).
+		Msg("Found suitable GPUs for multi-GPU model (allocated-based)")
+
+	return selectedGPUs, true
+}
+
 func (c *RunnerController) GetSlots(runnerID string) ([]*types.RunnerSlot, error) {
 	// Get the slots from the runner.
 	slots, err := c.getSlots(runnerID)
@@ -573,6 +872,10 @@ func (c *RunnerController) GetSlots(runnerID string) ([]*types.RunnerSlot, error
 		return nil, err
 	}
 	return slots.Slots, nil
+}
+
+func (r *NATSRunnerClient) SubmitChatCompletionRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error {
+	return r.controller.SubmitChatCompletionRequest(slot, req)
 }
 
 func (c *RunnerController) SubmitChatCompletionRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error {
@@ -612,6 +915,10 @@ func (c *RunnerController) SubmitChatCompletionRequest(slot *Slot, req *types.Ru
 }
 
 // SubmitEmbeddingRequest submits an embedding request to the runner
+func (r *NATSRunnerClient) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error {
+	return r.controller.SubmitEmbeddingRequest(slot, req)
+}
+
 func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error {
 	headers := map[string]string{}
 	headers[pubsub.HelixNatsReplyHeader] = pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID)
@@ -826,6 +1133,10 @@ func (c *RunnerController) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerL
 		Msg("✅ Embedding request successfully submitted to runner")
 
 	return nil
+}
+
+func (r *NATSRunnerClient) SubmitImageGenerationRequest(slot *Slot, session *types.Session) error {
+	return r.controller.SubmitImageGenerationRequest(slot, session)
 }
 
 func (c *RunnerController) SubmitImageGenerationRequest(slot *Slot, session *types.Session) error {
@@ -1099,29 +1410,13 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 		Interface("runtime_args", runtimeArgs).
 		Msg("Sending CreateRunnerSlotRequest to runner with RuntimeArgs")
 
-	body, err := json.Marshal(req)
-	if err != nil {
-		return err
-	}
-
-	// Log the serialized JSON for debugging
+	// Log the request for debugging
 	log.Debug().
 		Str("runner_id", slot.RunnerID).
-		Str("json_body", string(body)).
-		Msg("JSON body being sent to runner")
+		Interface("request", req).
+		Msg("Sending CreateRunnerSlotRequest to runner")
 
-	resp, err := c.Send(c.ctx, slot.RunnerID, nil, &types.Request{
-		Method: "POST",
-		URL:    "/api/v1/slots",
-		Body:   body,
-	}, 30*time.Minute) // Increased from 1 minute to allow enough time for model downloads
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("error creating slot: %s", resp.Body)
-	}
-	return nil
+	return c.runnerClient.CreateSlot(slot.RunnerID, slot.ID, req)
 }
 
 func (c *RunnerController) DeleteSlot(runnerID string, slotID uuid.UUID) error {
@@ -1129,17 +1424,7 @@ func (c *RunnerController) DeleteSlot(runnerID string, slotID uuid.UUID) error {
 		Str("runner_id", runnerID).
 		Str("slot_id", slotID.String()).
 		Msg("deleting slot")
-	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
-		Method: "DELETE",
-		URL:    fmt.Sprintf("/api/v1/slots/%s", slotID.String()),
-	}, defaultRequestTimeout)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("error deleting slot: %s", resp.Body)
-	}
-	return nil
+	return c.runnerClient.DeleteSlot(runnerID, slotID)
 }
 
 func (c *RunnerController) GetStatus(runnerID string) (*types.RunnerStatus, error) {
@@ -1158,87 +1443,19 @@ func (c *RunnerController) GetStatus(runnerID string) (*types.RunnerStatus, erro
 }
 
 func (c *RunnerController) GetHealthz(runnerID string) error {
-	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
-		Method: "GET",
-		URL:    "/api/v1/healthz",
-	}, defaultRequestTimeout)
-	if err != nil {
-		return fmt.Errorf("error getting healthz: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("runner %s is not healthy", runnerID)
-	}
-	return nil
+	return c.healthChecker.GetHealthz(runnerID)
 }
 
 func (c *RunnerController) SetModels(runnerID string) error {
-	// If no store is configured (e.g., in tests), skip model synchronization
-	if c.store == nil {
-		log.Debug().Str("runner_id", runnerID).Msg("no store configured, skipping model synchronization")
-		return nil
-	}
-
-	enabled := true
-	// Fetch all enabled models
-	models, err := c.store.ListModels(context.Background(), &store.ListModelsQuery{
-		Enabled: &enabled,
-	})
-	if err != nil {
-		return fmt.Errorf("error listing models: %w", err)
-	}
-
-	bts, err := json.Marshal(models)
-	if err != nil {
-		return fmt.Errorf("error marshalling models: %w", err)
-	}
-
-	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
-		Method: "POST",
-		URL:    "/api/v1/helix-models",
-		Body:   bts,
-	}, defaultRequestTimeout)
-	if err != nil {
-		return fmt.Errorf("error setting models: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("runner %s is not healthy", runnerID)
-	}
-	return nil
+	return c.healthChecker.SetModels(runnerID)
 }
 
 func (c *RunnerController) fetchSlot(runnerID string, slotID uuid.UUID) (types.RunnerSlot, error) {
-	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
-		Method: "GET",
-		URL:    fmt.Sprintf("/api/v1/slots/%s", slotID.String()),
-	}, defaultRequestTimeout)
-	if err != nil {
-		return types.RunnerSlot{}, fmt.Errorf("error getting slot: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return types.RunnerSlot{}, fmt.Errorf("error getting slot (status %d): %s", resp.StatusCode, resp.Body)
-	}
-
-	var slot types.RunnerSlot
-	if err := json.Unmarshal(resp.Body, &slot); err != nil {
-		return types.RunnerSlot{}, fmt.Errorf("error unmarshalling slot: %w", err)
-	}
-	return slot, nil
+	return c.runnerClient.FetchSlot(runnerID, slotID)
 }
 
 func (c *RunnerController) fetchStatus(runnerID string) (types.RunnerStatus, error) {
-	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
-		Method: "GET",
-		URL:    "/api/v1/status",
-	}, defaultRequestTimeout)
-	if err != nil {
-		return types.RunnerStatus{}, err
-	}
-
-	var status types.RunnerStatus
-	if err := json.Unmarshal(resp.Body, &status); err != nil {
-		return types.RunnerStatus{}, err
-	}
-	return status, nil
+	return c.runnerClient.FetchStatus(runnerID)
 }
 
 func (c *RunnerController) getSlots(runnerID string) (*types.ListRunnerSlotsResponse, error) {
@@ -1256,16 +1473,5 @@ func (c *RunnerController) getSlots(runnerID string) (*types.ListRunnerSlotsResp
 }
 
 func (c *RunnerController) fetchSlots(runnerID string) (types.ListRunnerSlotsResponse, error) {
-	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
-		Method: "GET",
-		URL:    "/api/v1/slots",
-	}, defaultRequestTimeout)
-	if err != nil {
-		return types.ListRunnerSlotsResponse{}, err
-	}
-	var slots types.ListRunnerSlotsResponse
-	if err := json.Unmarshal(resp.Body, &slots); err != nil {
-		return types.ListRunnerSlotsResponse{}, err
-	}
-	return slots, nil
+	return c.runnerClient.FetchSlots(runnerID)
 }
