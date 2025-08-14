@@ -3,13 +3,40 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"os"
+	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog"
 	openai "github.com/sashabaranov/go-openai"
 )
+
+// init runs before any tests and forcefully sets log level to reduce noise
+func init() {
+	// Forcefully disable all logging during tests
+	os.Setenv("LOG_LEVEL", "none")
+	zerolog.SetGlobalLevel(zerolog.Disabled)
+}
+
+// TestMain sets up logging configuration for all scheduler tests
+func TestMain(m *testing.M) {
+	// Disable all logging during tests to reduce noise
+	os.Setenv("LOG_LEVEL", "none")
+
+	// Initialize logging with the configured level
+	system.SetupLogging()
+
+	// Additionally set global log level to disabled to ensure it takes effect
+	zerolog.SetGlobalLevel(zerolog.Disabled)
+
+	// Run the tests
+	code := m.Run()
+	os.Exit(code)
+}
 
 // MockHealthChecker implements HealthChecker for testing - always reports healthy
 type MockHealthChecker struct{}
@@ -155,6 +182,21 @@ func (m *MockRunnerClient) FetchStatus(runnerID string) (types.RunnerStatus, err
 
 func (m *MockRunnerClient) SyncSystemSettings(runnerID string, settings *types.RunnerSystemConfigRequest) error {
 	// In tests, always succeed with system settings sync
+	return nil
+}
+
+func (m *MockRunnerClient) SubmitChatCompletionRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error {
+	// In tests, always succeed with chat completion requests
+	return nil
+}
+
+func (m *MockRunnerClient) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error {
+	// In tests, always succeed with embedding requests
+	return nil
+}
+
+func (m *MockRunnerClient) SubmitImageGenerationRequest(slot *Slot, session *types.Session) error {
+	// In tests, always succeed with image generation requests
 	return nil
 }
 
