@@ -110,8 +110,6 @@ func TestOverSchedulingPrevention(t *testing.T) {
 	// Test Case 1: Enqueue models and let the scheduler actually try to schedule them
 	t.Logf("\n=== TEST CASE 1: Enqueue models and trigger real scheduling ===")
 
-	var enqueuedWorkloads []*Workload
-
 	for i, model := range realModels { // All 3 models: qwen3:8b, gpt-oss:20b, qwen2.5vl:32b
 		t.Logf("Enqueuing model %d: %s (%d GB)", i+1, model.ID, model.Memory/(1024*1024*1024))
 
@@ -134,7 +132,6 @@ func TestOverSchedulingPrevention(t *testing.T) {
 		// Enqueue the workload
 		err := scheduler.Enqueue(workload)
 		require.NoError(t, err, "Should be able to enqueue workload for %s", model.ID)
-		enqueuedWorkloads = append(enqueuedWorkloads, workload)
 
 		t.Logf("  ✅ Successfully enqueued %s", model.ID)
 	}
