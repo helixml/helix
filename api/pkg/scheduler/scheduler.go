@@ -238,7 +238,7 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 
 	// Set up the model memory callback so RunnerController can get authoritative model memory
 	s.controller.setModelMemoryCallback(s.getModelMemory)
-	
+
 	// Set up the scheduler slots callback so RunnerController can use desired state for scheduling decisions
 	s.controller.setSchedulerSlotsCallback(s.getSchedulerSlots)
 
