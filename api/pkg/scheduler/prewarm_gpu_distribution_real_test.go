@@ -32,9 +32,10 @@ func TestRealPrewarmGPUDistribution(t *testing.T) {
 	// - "Qwen/Qwen2.5-VL-7B-Instruct" with 39GB memory, Prewarm: true (VLLM)
 	// - "MrLight/dse-qwen2-2b-mrl-v1" with 8GB memory, Prewarm: true (VLLM)
 	realPrewarmModels := []*types.Model{
-		{ID: "qwen3:8b", Memory: 10 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: true},                 // 10GB
-		{ID: "gpt-oss:20b", Memory: 48 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: true},              // 48GB
-		{ID: "MrLight/dse-qwen2-2b-mrl-v1", Memory: 8 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: true}, // 8GB
+		{ID: "qwen3:8b", Memory: 10 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: true},                  // 10GB
+		{ID: "gpt-oss:20b", Memory: 48 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: true},               // 48GB
+		{ID: "MrLight/dse-qwen2-2b-mrl-v1", Memory: 8 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: true},  // 8GB
+		{ID: "Qwen/Qwen2.5-VL-7B-Instruct", Memory: 39 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: true}, // 39GB
 	}
 
 	mockStore := store.NewMockStore(ctrl)
