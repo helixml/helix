@@ -14,7 +14,8 @@ import (
 )
 
 func TestIntelligentPrewarming_WithDefaultPrewarmModels(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -65,7 +66,8 @@ func TestIntelligentPrewarming_WithDefaultPrewarmModels(t *testing.T) {
 }
 
 func TestIntelligentPrewarming_UnevenDistribution(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -150,7 +152,8 @@ func TestIntelligentPrewarming_UnevenDistribution(t *testing.T) {
 }
 
 func TestIntelligentPrewarming_BalancedDistribution(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -219,7 +222,8 @@ func TestIntelligentPrewarming_BalancedDistribution(t *testing.T) {
 }
 
 func TestIntelligentPrewarming_EmptyCluster(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -269,7 +273,8 @@ func TestIntelligentPrewarming_EmptyCluster(t *testing.T) {
 }
 
 func TestAnalyzeGlobalModelDistribution(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -346,7 +351,8 @@ func TestAnalyzeGlobalModelDistribution(t *testing.T) {
 }
 
 func TestSelectModelsForBalancing(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 

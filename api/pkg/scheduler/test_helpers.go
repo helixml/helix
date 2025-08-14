@@ -19,8 +19,8 @@ import (
 func init() {
 	// Set a reasonable log level for tests if not already set
 	if os.Getenv("LOG_LEVEL") == "" {
-		os.Setenv("LOG_LEVEL", "debug")
-		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		os.Setenv("LOG_LEVEL", "error")
+		zerolog.SetGlobalLevel(zerolog.ErrorLevel)
 	}
 }
 

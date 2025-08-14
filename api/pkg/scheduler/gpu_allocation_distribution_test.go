@@ -18,7 +18,8 @@ import (
 // TestGPUAllocationDistribution tests that the one-slot-per-cycle fix properly distributes
 // GPU allocations across multiple GPUs by checking the allocation decisions stored by the scheduler
 func TestGPUAllocationDistribution(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 

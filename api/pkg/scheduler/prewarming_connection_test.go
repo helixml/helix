@@ -14,7 +14,8 @@ import (
 )
 
 func TestPrewarmNewRunner_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -119,7 +120,8 @@ func TestPrewarmNewRunner_Success(t *testing.T) {
 }
 
 func TestPrewarmNewRunner_VerifyWorkloadCreation(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -165,7 +167,8 @@ func TestPrewarmNewRunner_VerifyWorkloadCreation(t *testing.T) {
 }
 
 func TestOnRunnerConnectedCallback(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -213,7 +216,8 @@ func TestOnRunnerConnectedCallback(t *testing.T) {
 }
 
 func TestOnRunnerReconnectedCallback(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -269,7 +273,8 @@ func TestOnRunnerReconnectedCallback(t *testing.T) {
 }
 
 func TestPrewarmWorkloadProperties(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -339,7 +344,8 @@ func TestPrewarmWorkloadProperties(t *testing.T) {
 }
 
 func TestMultipleRunnerConnections(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -396,7 +402,8 @@ func TestMultipleRunnerConnections(t *testing.T) {
 // TestPrewarmingMemoryAwareSelection tests the memory-first prewarming algorithm
 // which prioritizes filling GPU memory while improving model distribution
 func TestPrewarmingMemoryAwareSelection(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -474,7 +481,8 @@ func TestPrewarmingMemoryAwareSelection(t *testing.T) {
 // TestPrewarmingMemoryConstrainedSelection tests memory-constrained scenarios
 // where the algorithm must choose a subset of models based on available GPU memory
 func TestPrewarmingMemoryConstrainedSelection(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -553,7 +561,8 @@ func TestPrewarmingMemoryConstrainedSelection(t *testing.T) {
 
 // TestMemoryAwarePrewarming tests that prewarming prioritizes filling available GPU memory
 func TestMemoryAwarePrewarming(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 

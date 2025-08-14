@@ -19,7 +19,8 @@ import (
 // TestTensorParallelismLargeModelSplitting tests that large models get properly
 // split across multiple GPUs using tensor parallelism when they don't fit on a single GPU
 func TestTensorParallelismLargeModelSplitting(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -219,7 +220,8 @@ func TestTensorParallelismLargeModelSplitting(t *testing.T) {
 // TestFragmentationPrevention tests that small models scheduled first don't
 // prevent large models from using tensor parallelism effectively
 func TestFragmentationPrevention(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -451,7 +453,8 @@ func TestFragmentationPrevention(t *testing.T) {
 // TestOptimalTensorParallelismScheduling tests various combinations of models
 // to ensure optimal scheduling decisions with tensor parallelism
 func TestOptimalTensorParallelismScheduling(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 

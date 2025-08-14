@@ -16,7 +16,8 @@ import (
 // TestInsufficientMemoryPrewarming tests the scenario where there isn't enough memory
 // to fit all prewarm models, and the scheduler should select a subset that fits
 func TestInsufficientMemoryPrewarming(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
