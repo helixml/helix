@@ -624,11 +624,9 @@ func TestOptimalTensorParallelismScheduling(t *testing.T) {
 	allocationCount := 0
 
 	// Check mega model allocation
-	if megaAllocation != nil {
-		allocationCount++
-		t.Logf("  ✅ Mega model (175GB): %d GPUs, tensor parallel size %d",
-			len(megaAllocation.MultiGPUs), megaAllocation.TensorParallelSize)
-	}
+	allocationCount++
+	t.Logf("  ✅ Mega model (175GB): %d GPUs, tensor parallel size %d",
+		len(megaAllocation.MultiGPUs), megaAllocation.TensorParallelSize)
 
 	// Check large model allocation
 	largeAllocation := scheduler.getGPUAllocation("large-model-request", testRunnerID)
