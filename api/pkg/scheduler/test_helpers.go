@@ -37,12 +37,12 @@ func TestMain(m *testing.M) {
 // MockHealthChecker implements HealthChecker for testing - always reports healthy
 type MockHealthChecker struct{}
 
-func (m *MockHealthChecker) GetHealthz(runnerID string) error {
+func (m *MockHealthChecker) GetHealthz(_ string) error {
 	// In tests, always return healthy
 	return nil
 }
 
-func (m *MockHealthChecker) SetModels(runnerID string) error {
+func (m *MockHealthChecker) SetModels(_ string) error {
 	// In tests, always return success for model setting
 	return nil
 }
@@ -176,22 +176,22 @@ func (m *MockRunnerClient) FetchStatus(runnerID string) (types.RunnerStatus, err
 	}, nil
 }
 
-func (m *MockRunnerClient) SyncSystemSettings(runnerID string, settings *types.RunnerSystemConfigRequest) error {
+func (m *MockRunnerClient) SyncSystemSettings(_ string, _ *types.RunnerSystemConfigRequest) error {
 	// In tests, always succeed with system settings sync
 	return nil
 }
 
-func (m *MockRunnerClient) SubmitChatCompletionRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error {
+func (m *MockRunnerClient) SubmitChatCompletionRequest(_ *Slot, _ *types.RunnerLLMInferenceRequest) error {
 	// In tests, always succeed with chat completion requests
 	return nil
 }
 
-func (m *MockRunnerClient) SubmitEmbeddingRequest(slot *Slot, req *types.RunnerLLMInferenceRequest) error {
+func (m *MockRunnerClient) SubmitEmbeddingRequest(_ *Slot, _ *types.RunnerLLMInferenceRequest) error {
 	// In tests, always succeed with embedding requests
 	return nil
 }
 
-func (m *MockRunnerClient) SubmitImageGenerationRequest(slot *Slot, session *types.Session) error {
+func (m *MockRunnerClient) SubmitImageGenerationRequest(_ *Slot, _ *types.Session) error {
 	// In tests, always succeed with image generation requests
 	return nil
 }
