@@ -414,18 +414,18 @@ func (g *GPUManager) getActualTotalMemoryAndCount() (uint64, int) {
 					}
 				}
 			}
-			log.Error().Msg("Failed to read system memory on macOS, using 16GB default")
-			return 16 * 1024 * 1024 * 1024, 1 // 16GB default as fallback, CPU mode simulates 1 GPU
+			log.Error().Msg("CRITICAL: Failed to read system memory on macOS - cannot proceed without real memory data")
+			return 0, 0
 
 		case "windows":
-			// Use a simple default for Windows - we don't develop on Windows
-			log.Info().Msg("Windows platform detected, using 16GB default for development CPU-only mode")
-			return 16 * 1024 * 1024 * 1024, 1 // 16GB default, CPU mode simulates 1 GPU
+			// Windows is not supported for production - fail explicitly
+			log.Error().Msg("CRITICAL: Windows platform detected but GPU memory detection is not implemented")
+			return 0, 0
 		}
 
-		// Fallback if we couldn't determine the system memory
-		log.Warn().Msg("Could not determine system memory, using 16GB default for development CPU-only mode")
-		return 16 * 1024 * 1024 * 1024, 1 // 16GB default, CPU mode simulates 1 GPU
+		// CRITICAL: Could not determine system memory - fail explicitly instead of using defaults
+		log.Error().Msg("CRITICAL: Could not determine system memory - cannot proceed without real memory data")
+		return 0, 0
 	}
 
 	switch runtime.GOOS {
@@ -754,9 +754,16 @@ func (g *GPUManager) getCUDAVersion() string {
 }
 
 // initializeFallbackGPUMap creates a fallback GPU memory map when nvidia-smi is not available
+// CRITICAL: Only use when we have REAL memory data - no assumptions about GPU count
 func (g *GPUManager) initializeFallbackGPUMap() {
 	if g.gpuCount == 0 {
-		g.gpuCount = 1 // Assume at least one GPU
+		log.Error().Msg("CRITICAL: Cannot initialize GPU map with zero GPU count - real GPU detection failed")
+		return
+	}
+
+	if g.gpuMemory == 0 {
+		log.Error().Msg("CRITICAL: Cannot initialize GPU map with zero total memory - real memory detection failed")
+		return
 	}
 
 	perGPUMemory := g.gpuMemory / uint64(g.gpuCount)
@@ -775,7 +782,7 @@ func (g *GPUManager) initializeFallbackGPUMap() {
 	log.Debug().
 		Int("gpu_count", g.gpuCount).
 		Uint64("per_gpu_memory", perGPUMemory).
-		Msg("Initialized fallback GPU memory map")
+		Msg("Initialized fallback GPU memory map with REAL detected memory")
 }
 
 // updateGPUMemoryMap refreshes the free/used memory for each GPU
