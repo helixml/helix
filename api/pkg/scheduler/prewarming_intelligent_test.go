@@ -37,6 +37,7 @@ func TestIntelligentPrewarming_WithDefaultPrewarmModels(t *testing.T) {
 		PubSub:        ps,
 		Store:         mockStore,
 		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -87,6 +88,7 @@ func TestIntelligentPrewarming_UnevenDistribution(t *testing.T) {
 		PubSub:        ps,
 		Store:         mockStore,
 		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -171,6 +173,7 @@ func TestIntelligentPrewarming_BalancedDistribution(t *testing.T) {
 		PubSub:        ps,
 		Store:         mockStore,
 		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -239,6 +242,7 @@ func TestIntelligentPrewarming_EmptyCluster(t *testing.T) {
 		PubSub:        ps,
 		Store:         mockStore,
 		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -288,6 +292,7 @@ func TestAnalyzeGlobalModelDistribution(t *testing.T) {
 		PubSub:        ps,
 		Store:         mockStore,
 		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
@@ -364,6 +369,7 @@ func TestSelectModelsForBalancing(t *testing.T) {
 		PubSub:        ps,
 		Store:         mockStore,
 		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 

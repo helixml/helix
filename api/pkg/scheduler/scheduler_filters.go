@@ -69,13 +69,13 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 			// For other runtimes, use traditional total memory check
 			runnerGPUCompatible[runnerID] = runnerMemory[runnerID] >= work.model.Memory
 
-			log.Info().
-				Str("runner_id", runnerID).
-				Str("runtime", string(work.Runtime())).
-				Uint64("runner_memory", runnerMemory[runnerID]).
-				Uint64("model_memory", work.model.Memory).
-				Bool("memory_compatible", runnerGPUCompatible[runnerID]).
-				Msg("SLOT_RECONCILE_DEBUG: Traditional memory check")
+			// log.Info().
+			//	Str("runner_id", runnerID).
+			//	Str("runtime", string(work.Runtime())).
+			//	Uint64("runner_memory", runnerMemory[runnerID]).
+			//	Uint64("model_memory", work.model.Memory).
+			//	Bool("memory_compatible", runnerGPUCompatible[runnerID]).
+			//	Msg("SLOT_RECONCILE_DEBUG: Traditional memory check")
 		}
 	}
 

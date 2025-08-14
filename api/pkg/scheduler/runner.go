@@ -41,6 +41,7 @@ type RunnerController struct {
 	onRunnerConnectedFn func(runnerID string)       // Callback for when a new runner connects
 	getModelMemoryFn    func(modelID string) uint64 // Callback to get authoritative model memory from scheduler
 	healthChecker       HealthChecker               // Interface for health checking, allows mocking in tests
+	runnerClient        RunnerClient                // Interface for runner requests, allows mocking in tests
 }
 
 // HealthChecker interface allows for mocking health checks in tests
@@ -49,9 +50,111 @@ type HealthChecker interface {
 	SetModels(runnerID string) error
 }
 
+// RunnerClient interface allows for mocking runner requests in tests
+type RunnerClient interface {
+	CreateSlot(runnerID string, slotID uuid.UUID, req *types.CreateRunnerSlotRequest) error
+	DeleteSlot(runnerID string, slotID uuid.UUID) error
+	FetchSlots(runnerID string) (types.ListRunnerSlotsResponse, error)
+	FetchStatus(runnerID string) (types.RunnerStatus, error)
+	SyncSystemSettings(runnerID string, settings *types.RunnerSystemConfigRequest) error
+}
+
 // NATSHealthChecker implements HealthChecker using NATS communication
 type NATSHealthChecker struct {
 	controller *RunnerController
+}
+
+// NATSRunnerClient implements RunnerClient using NATS communication
+type NATSRunnerClient struct {
+	controller *RunnerController
+}
+
+func (r *NATSRunnerClient) CreateSlot(runnerID string, slotID uuid.UUID, req *types.CreateRunnerSlotRequest) error {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+
+	resp, err := r.controller.Send(r.controller.ctx, runnerID, nil, &types.Request{
+		Method: "POST",
+		URL:    "/api/v1/slots",
+		Body:   body,
+	}, 30*time.Minute)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("error creating slot: %s", resp.Body)
+	}
+	return nil
+}
+
+func (r *NATSRunnerClient) DeleteSlot(runnerID string, slotID uuid.UUID) error {
+	resp, err := r.controller.Send(r.controller.ctx, runnerID, nil, &types.Request{
+		Method: "DELETE",
+		URL:    fmt.Sprintf("/api/v1/slots/%s", slotID.String()),
+	}, defaultRequestTimeout)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("error deleting slot: %s", resp.Body)
+	}
+	return nil
+}
+
+func (r *NATSRunnerClient) FetchSlots(runnerID string) (types.ListRunnerSlotsResponse, error) {
+	resp, err := r.controller.Send(r.controller.ctx, runnerID, nil, &types.Request{
+		Method: "GET",
+		URL:    "/api/v1/slots",
+	}, defaultRequestTimeout)
+	if err != nil {
+		return types.ListRunnerSlotsResponse{}, err
+	}
+	var slots types.ListRunnerSlotsResponse
+	if err := json.Unmarshal(resp.Body, &slots); err != nil {
+		return types.ListRunnerSlotsResponse{}, err
+	}
+	return slots, nil
+}
+
+func (r *NATSRunnerClient) FetchStatus(runnerID string) (types.RunnerStatus, error) {
+	resp, err := r.controller.Send(r.controller.ctx, runnerID, nil, &types.Request{
+		Method: "GET",
+		URL:    "/api/v1/status",
+	}, defaultRequestTimeout)
+	if err != nil {
+		return types.RunnerStatus{}, err
+	}
+
+	var status types.RunnerStatus
+	if err := json.Unmarshal(resp.Body, &status); err != nil {
+		return types.RunnerStatus{}, err
+	}
+	return status, nil
+}
+
+func (r *NATSRunnerClient) SyncSystemSettings(runnerID string, settings *types.RunnerSystemConfigRequest) error {
+	reqBody, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("failed to marshal system config request: %w", err)
+	}
+
+	req := &types.Request{
+		Method: "PUT",
+		URL:    "/api/v1/system/config",
+		Body:   reqBody,
+	}
+
+	resp, err := r.controller.Send(r.controller.ctx, runnerID, nil, req, 30*time.Second)
+	if err != nil {
+		return fmt.Errorf("failed to send system config to runner %s: %w", runnerID, err)
+	}
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("runner %s returned non-200 status for system config: %d", runnerID, resp.StatusCode)
+	}
+	return nil
 }
 
 func (h *NATSHealthChecker) GetHealthz(runnerID string) error {
@@ -110,6 +213,7 @@ type RunnerControllerConfig struct {
 	OnRunnerConnectedFn func(runnerID string)       // Optional callback for when a new runner connects
 	GetModelMemoryFn    func(modelID string) uint64 // Optional callback to get authoritative model memory
 	HealthChecker       HealthChecker               // Optional: for testing, defaults to NATS-based implementation
+	RunnerClient        RunnerClient                // Optional: for testing, defaults to NATS-based implementation
 }
 
 func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*RunnerController, error) {
@@ -132,6 +236,13 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 		controller.healthChecker = cfg.HealthChecker
 	} else {
 		controller.healthChecker = &NATSHealthChecker{controller: controller}
+	}
+
+	// Set up runner client - use provided one or default to NATS-based
+	if cfg.RunnerClient != nil {
+		controller.runnerClient = cfg.RunnerClient
+	} else {
+		controller.runnerClient = &NATSRunnerClient{controller: controller}
 	}
 
 	sub, err := cfg.PubSub.SubscribeWithCtx(controller.ctx, pubsub.GetRunnerConnectedQueue("*"), func(_ context.Context, msg *nats.Msg) error {
@@ -287,34 +398,14 @@ func (c *RunnerController) SyncSystemSettings(ctx context.Context, runnerID stri
 		HuggingFaceToken: hfToken,
 	}
 
-	reqBody, err := json.Marshal(configReq)
-	if err != nil {
-		return fmt.Errorf("failed to marshal system config request: %w", err)
-	}
-
-	// Send system config to runner
-	req := &types.Request{
-		Method: "PUT",
-		URL:    "/api/v1/system/config",
-		Body:   reqBody,
-	}
-
-	resp, err := c.Send(ctx, runnerID, nil, req, 30*time.Second)
+	// Use RunnerClient interface for system settings sync
+	err = c.runnerClient.SyncSystemSettings(runnerID, &configReq)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("runner_id", runnerID).
 			Msg("failed to sync system settings to runner")
-		return fmt.Errorf("failed to send system config to runner %s: %w", runnerID, err)
-	}
-
-	if resp.StatusCode != 200 {
-		log.Error().
-			Int("status_code", resp.StatusCode).
-			Str("runner_id", runnerID).
-			Str("response_body", string(resp.Body)).
-			Msg("runner rejected system settings update")
-		return fmt.Errorf("runner %s rejected system settings with status %d", runnerID, resp.StatusCode)
+		return err
 	}
 
 	log.Info().
@@ -1260,29 +1351,13 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 		Interface("runtime_args", runtimeArgs).
 		Msg("Sending CreateRunnerSlotRequest to runner with RuntimeArgs")
 
-	body, err := json.Marshal(req)
-	if err != nil {
-		return err
-	}
-
-	// Log the serialized JSON for debugging
+	// Log the request for debugging
 	log.Debug().
 		Str("runner_id", slot.RunnerID).
-		Str("json_body", string(body)).
-		Msg("JSON body being sent to runner")
+		Interface("request", req).
+		Msg("Sending CreateRunnerSlotRequest to runner")
 
-	resp, err := c.Send(c.ctx, slot.RunnerID, nil, &types.Request{
-		Method: "POST",
-		URL:    "/api/v1/slots",
-		Body:   body,
-	}, 30*time.Minute) // Increased from 1 minute to allow enough time for model downloads
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("error creating slot: %s", resp.Body)
-	}
-	return nil
+	return c.runnerClient.CreateSlot(slot.RunnerID, slot.ID, req)
 }
 
 func (c *RunnerController) DeleteSlot(runnerID string, slotID uuid.UUID) error {
@@ -1290,17 +1365,7 @@ func (c *RunnerController) DeleteSlot(runnerID string, slotID uuid.UUID) error {
 		Str("runner_id", runnerID).
 		Str("slot_id", slotID.String()).
 		Msg("deleting slot")
-	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
-		Method: "DELETE",
-		URL:    fmt.Sprintf("/api/v1/slots/%s", slotID.String()),
-	}, defaultRequestTimeout)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("error deleting slot: %s", resp.Body)
-	}
-	return nil
+	return c.runnerClient.DeleteSlot(runnerID, slotID)
 }
 
 func (c *RunnerController) GetStatus(runnerID string) (*types.RunnerStatus, error) {
@@ -1346,19 +1411,7 @@ func (c *RunnerController) fetchSlot(runnerID string, slotID uuid.UUID) (types.R
 }
 
 func (c *RunnerController) fetchStatus(runnerID string) (types.RunnerStatus, error) {
-	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
-		Method: "GET",
-		URL:    "/api/v1/status",
-	}, defaultRequestTimeout)
-	if err != nil {
-		return types.RunnerStatus{}, err
-	}
-
-	var status types.RunnerStatus
-	if err := json.Unmarshal(resp.Body, &status); err != nil {
-		return types.RunnerStatus{}, err
-	}
-	return status, nil
+	return c.runnerClient.FetchStatus(runnerID)
 }
 
 func (c *RunnerController) getSlots(runnerID string) (*types.ListRunnerSlotsResponse, error) {
@@ -1376,16 +1429,5 @@ func (c *RunnerController) getSlots(runnerID string) (*types.ListRunnerSlotsResp
 }
 
 func (c *RunnerController) fetchSlots(runnerID string) (types.ListRunnerSlotsResponse, error) {
-	resp, err := c.Send(c.ctx, runnerID, nil, &types.Request{
-		Method: "GET",
-		URL:    "/api/v1/slots",
-	}, defaultRequestTimeout)
-	if err != nil {
-		return types.ListRunnerSlotsResponse{}, err
-	}
-	var slots types.ListRunnerSlotsResponse
-	if err := json.Unmarshal(resp.Body, &slots); err != nil {
-		return types.ListRunnerSlotsResponse{}, err
-	}
-	return slots, nil
+	return c.runnerClient.FetchSlots(runnerID)
 }
