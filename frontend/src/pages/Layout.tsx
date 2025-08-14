@@ -20,6 +20,8 @@ import { LicenseKeyPrompt } from '../components/LicenseKeyPrompt'
 
 import FloatingRunnerState from '../components/admin/FloatingRunnerState'
 import { useFloatingRunnerState } from '../contexts/floatingRunnerState'
+import FloatingModal from '../components/admin/FloatingModal'
+import { useFloatingModal } from '../contexts/floatingModal'
 import Tooltip from '@mui/material/Tooltip'
 import IconButton from '@mui/material/IconButton'
 import DnsIcon from '@mui/icons-material/Dns'
@@ -48,6 +50,7 @@ const Layout: FC<{
   const account = useAccount()
   const apps = useApps()
   const floatingRunnerState = useFloatingRunnerState()
+  const floatingModal = useFloatingModal()
   const [showVersionBanner, setShowVersionBanner] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const userMenuHeight = useUserMenuHeight()
@@ -385,6 +388,11 @@ const Layout: FC<{
         {
           account.admin && floatingRunnerState.isVisible && (
             <FloatingRunnerState onClose={floatingRunnerState.hideFloatingRunnerState} />
+          )
+        }
+        {
+          account.admin && floatingModal.isVisible && (
+            <FloatingModal onClose={floatingModal.hideFloatingModal} />
           )
         }
         {

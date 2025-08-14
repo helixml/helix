@@ -64,7 +64,7 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak, store store.Store) (*Keycloa
 	}, nil
 }
 
-// isRetryableKeycloakError checks if an error is retryable based on 409 conflicts and optimistic lock exceptions
+// isRetryableKeycloakError checks if an error is retryable based on 409 conflicts, optimistic lock exceptions, and 500 internal server errors
 func isRetryableKeycloakError(err error) bool {
 	if err == nil {
 		return false
@@ -83,6 +83,11 @@ func isRetryableKeycloakError(err error) bool {
 
 	// Check for 400 Bad Request with OptimisticLockException
 	if strings.Contains(errStr, "400 Bad Request") && strings.Contains(errStr, "OptimisticLockException") {
+		return true
+	}
+
+	// Check for 500 Internal Server Error (common during Keycloak startup/initialization)
+	if strings.Contains(errStr, "500 Internal Server Error") {
 		return true
 	}
 
