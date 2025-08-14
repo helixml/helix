@@ -74,7 +74,7 @@ type NATSRunnerClient struct {
 	controller *RunnerController
 }
 
-func (r *NATSRunnerClient) CreateSlot(runnerID string, slotID uuid.UUID, req *types.CreateRunnerSlotRequest) error {
+func (r *NATSRunnerClient) CreateSlot(runnerID string, _ uuid.UUID, req *types.CreateRunnerSlotRequest) error {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return err

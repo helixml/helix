@@ -743,14 +743,13 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 			// Exit early after creating one slot to allow GPU state to update
 			// The reconciler runs every 5 seconds, so remaining slots will be created in subsequent cycles
 			break
-		} else {
-			// log.Info().
-			//	Str("model", req.Model.String()).
-			//	Str("runtime", string(req.Runtime)).
-			//	Int("existing", existingCount).
-			//	Int("required", req.Count).
-			//	Msg("SLOT_RECONCILE_DEBUG: No new slots needed for requirement")
 		}
+		// log.Info().
+		//	Str("model", req.Model.String()).
+		//	Str("runtime", string(req.Runtime)).
+		//	Int("existing", existingCount).
+		//	Int("required", req.Count).
+		//	Msg("SLOT_RECONCILE_DEBUG: No new slots needed for requirement")
 	}
 
 	// Build a complete map of all actual slots across all runners
@@ -1217,13 +1216,9 @@ func (s *Scheduler) getSortedRunners(work *Workload) ([]string, error) {
 func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (totalMemory, allocatedMemory, freeMemory uint64, err error) {
 	// CRITICAL FIX: Use the same memory calculation as calculateRunnerMemory to avoid overscheduling
 	// This properly accounts for both scheduler slots AND existing runner memory usage
-	totalMem, currentAllocatedMem, currentFreeMem, err := s.calculateRunnerMemory(runnerID)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-
 	var finalAllocatedMem uint64
 	var finalFreeMem uint64
+	var totalMem, currentAllocatedMem, currentFreeMem uint64
 
 	for {
 		// Recalculate memory state after each potential slot deletion

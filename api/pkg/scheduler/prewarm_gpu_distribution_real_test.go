@@ -142,7 +142,7 @@ func TestRealPrewarmGPUDistribution(t *testing.T) {
 		GPUs     []int
 	}
 
-	scheduler.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
+	scheduler.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 		if slot.RunnerID == testRunnerID {
 			slotsCreated++
 			modelName := slot.InitialWork().ModelName().String()
@@ -319,7 +319,7 @@ func TestRealPrewarmWithLargerGPUs(t *testing.T) {
 	slotsCreated := 0
 	gpuUsageCount := make(map[int]int)
 
-	scheduler.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
+	scheduler.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 		if slot.RunnerID == testRunnerID {
 			slotsCreated++
 
