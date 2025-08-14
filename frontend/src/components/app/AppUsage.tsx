@@ -739,7 +739,7 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
                   </TableCell>
                   <TableCell>
                     <Tooltip
-                      placement='right'
+                      placement='top'
                       enterDelay={50}
                       enterNextDelay={50}
                       title={
@@ -764,7 +764,7 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
                   </TableCell>
                   <TableCell>
                     <Tooltip 
-                      placement='right'
+                      placement='top'
                       enterDelay={50}
                       enterNextDelay={50}
                       title={
