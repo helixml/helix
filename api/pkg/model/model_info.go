@@ -14,6 +14,8 @@ import (
 //go:embed model_info.json
 var modelInfo embed.FS
 
+//go:generate mockgen -source $GOFILE -destination model_info_mocks.go -package $GOPACKAGE
+
 type ModelInfoProvider interface { //nolint:revive
 	GetModelInfo(ctx context.Context, request *ModelInfoRequest) (*types.ModelInfo, error)
 }
