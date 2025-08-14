@@ -270,13 +270,24 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 	}
 
 	sub, err := cfg.PubSub.SubscribeWithCtx(controller.ctx, pubsub.GetRunnerConnectedQueue("*"), func(_ context.Context, msg *nats.Msg) error {
-		log.Debug().Str("subject", msg.Subject).Str("data", string(msg.Data)).Msg("runner ping")
+		log.Debug().Str("subject", msg.Subject).Str("data", string(msg.Data)).Msg("runner message")
 		runnerID, err := pubsub.ParseRunnerID(msg.Subject)
 		if err != nil {
 			log.Error().Err(err).Str("subject", msg.Subject).Msg("error parsing runner ID")
 			return err
 		}
-		controller.OnConnectedHandler(runnerID)
+
+		// Only trigger full connection handling (including prewarming) for actual connections, not pings
+		messageData := string(msg.Data)
+		if messageData == "connected" {
+			controller.OnConnectedHandler(runnerID)
+		} else if messageData == "ping" {
+			// For pings, just update the runner list without triggering prewarming
+			controller.handleRunnerPing(runnerID)
+		} else {
+			// Log unknown message types but don't trigger any action
+			log.Debug().Str("runner_id", runnerID).Str("message_type", messageData).Msg("ignoring unknown runner message type")
+		}
 		return nil
 	})
 	if err != nil {
@@ -469,6 +480,21 @@ func (c *RunnerController) SyncSystemSettingsToAllRunners(ctx context.Context) {
 			}
 		}(runnerID)
 	}
+}
+
+// handleRunnerPing handles periodic ping messages from runners without triggering prewarming
+func (c *RunnerController) handleRunnerPing(id string) {
+	// Only update the runner list to keep it alive, don't trigger prewarming or other expensive operations
+	c.runnersMu.Lock()
+	defer c.runnersMu.Unlock()
+
+	if !slices.Contains(c.runners, id) {
+		// If this is a new runner sending pings before the "connected" message,
+		// add it to the list but don't trigger prewarming yet
+		c.runners = append(c.runners, id)
+		log.Debug().Str("runner_id", id).Msg("added new runner from ping message")
+	}
+	// For existing runners, this ping just confirms they're still alive
 }
 
 func (c *RunnerController) OnConnectedHandler(id string) {
