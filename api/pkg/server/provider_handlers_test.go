@@ -64,10 +64,11 @@ func (s *ProviderHandlersSuite) SetupTest() {
 func (s *ProviderHandlersSuite) TestListProviders() {
 	s.store.EXPECT().ListProviderEndpoints(gomock.Any(), gomock.Any()).Return([]*types.ProviderEndpoint{
 		{
-			Name:    "openai",
-			Models:  []string{"gpt-4o", "gpt-4o-mini"},
-			BaseURL: "https://openai.com",
-			Owner:   "user_id",
+			Name:           "openai",
+			Models:         []string{"gpt-4o", "gpt-4o-mini"},
+			BaseURL:        "https://openai.com",
+			Owner:          "user_id",
+			BillingEnabled: true,
 		},
 	}, nil)
 
@@ -125,6 +126,8 @@ func (s *ProviderHandlersSuite) TestListProviders() {
 	s.Require().NoError(err)
 
 	s.Require().Len(resp, 1)
+
+	s.Require().Equal(true, resp[0].BillingEnabled)
 
 	s.Require().Equal("gpt-4o", resp[0].AvailableModels[0].ID)
 	s.Require().Equal("0.0004", resp[0].AvailableModels[0].ModelInfo.Pricing.Prompt)
