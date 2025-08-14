@@ -34,13 +34,17 @@ func TestMemoryCalculationInconsistency(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
+	// Use default hardcoded models to match production behavior
+	testModels := GetDefaultTestModels()
+
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{}, // Use mock health checker for tests
 	})
 	require.NoError(t, err)
 
@@ -235,8 +239,9 @@ func TestHeuristicFailureWhenModelMemoryUnknown(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{}, // Use mock health checker for tests
 	})
 	require.NoError(t, err)
 

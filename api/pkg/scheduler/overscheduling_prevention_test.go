@@ -48,14 +48,17 @@ func TestOverSchedulingPrevention(t *testing.T) {
 	}
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{}, // Use mock health checker for tests
 	})
 	require.NoError(t, err)
 
+	fastInterval := 100 * time.Millisecond
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		QueueSize:        50,
+		RunnerController:        runnerCtrl,
+		QueueSize:               50,
+		RunnerReconcileInterval: &fastInterval, // Fast reconciliation for tests
 	})
 	require.NoError(t, err)
 
@@ -273,14 +276,17 @@ func TestOverSchedulingPreventionMultiGPU(t *testing.T) {
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{}, // Use mock health checker for tests
 	})
 	require.NoError(t, err)
 
+	fastInterval := 100 * time.Millisecond
 	_, err = NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		QueueSize:        50,
+		RunnerController:        runnerCtrl,
+		QueueSize:               50,
+		RunnerReconcileInterval: &fastInterval, // Fast reconciliation for tests
 	})
 	require.NoError(t, err)
 

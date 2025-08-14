@@ -88,10 +88,10 @@ import (
 )
 
 const (
-	pendingSlotsBufferSize    = 1 // The number of slot creation requests to buffer
-	runnerReconcileInterval   = 5 * time.Second
-	activityReconcileInterval = 100 * time.Millisecond
-	queueReconcileInterval    = 100 * time.Millisecond
+	pendingSlotsBufferSize         = 1 // The number of slot creation requests to buffer
+	defaultRunnerReconcileInterval = 5 * time.Second
+	activityReconcileInterval      = 100 * time.Millisecond
+	queueReconcileInterval         = 100 * time.Millisecond
 )
 
 // TimeoutFunc defines a function type that determines if a runner has timed out based on the last activity.
@@ -115,14 +115,15 @@ func NewTimeoutFunc(ttl time.Duration) TimeoutFunc {
 }
 
 type Scheduler struct {
-	ctx              context.Context
-	controller       *RunnerController
-	queue            *WorkQueue
-	onSchedulingErr  func(work *Workload, err error)
-	slots            *xsync.MapOf[uuid.UUID, *Slot]
-	modelStaleFunc   TimeoutFunc                 // Function to check if models are stale
-	slotTimeoutFunc  TimeoutFunc                 // Function to check if slots have timed out due to error
-	decisionsTracker *SchedulingDecisionsTracker // Tracks scheduling decisions for dashboard
+	ctx                     context.Context
+	controller              *RunnerController
+	queue                   *WorkQueue
+	onSchedulingErr         func(work *Workload, err error)
+	slots                   *xsync.MapOf[uuid.UUID, *Slot]
+	modelStaleFunc          TimeoutFunc                 // Function to check if models are stale
+	slotTimeoutFunc         TimeoutFunc                 // Function to check if slots have timed out due to error
+	decisionsTracker        *SchedulingDecisionsTracker // Tracks scheduling decisions for dashboard
+	runnerReconcileInterval time.Duration               // Configurable reconcile interval
 
 	// GPU allocation tracking - maps workload+runner to specific GPU allocation
 	gpuAllocations *xsync.MapOf[string, *GPUAllocation]
@@ -153,10 +154,11 @@ type GPUAllocation struct {
 }
 
 type Params struct {
-	RunnerController  *RunnerController
-	QueueSize         int
-	OnSchedulingErr   func(work *Workload, err error)
-	OnResponseHandler func(ctx context.Context, resp *types.RunnerLLMInferenceResponse) error
+	RunnerController        *RunnerController
+	QueueSize               int
+	OnSchedulingErr         func(work *Workload, err error)
+	OnResponseHandler       func(ctx context.Context, resp *types.RunnerLLMInferenceResponse) error
+	RunnerReconcileInterval *time.Duration // Optional: defaults to 5 seconds, set to 100ms for fast tests
 }
 
 func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params *Params) (*Scheduler, error) {
@@ -179,9 +181,16 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		queueSize = params.QueueSize
 	}
 
+	// Set reconcile interval - default to 5 seconds, allow override for fast tests
+	reconcileInterval := defaultRunnerReconcileInterval
+	if params.RunnerReconcileInterval != nil {
+		reconcileInterval = *params.RunnerReconcileInterval
+	}
+
 	log.Info().
 		Dur("model_stale_time", modelTTL).
 		Dur("slot_timeout", slotTTL).
+		Dur("runner_reconcile_interval", reconcileInterval).
 		Msg("slot timeouts configured")
 
 	modelStaleFunc := NewTimeoutFunc(modelTTL)
@@ -201,17 +210,18 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 	}
 
 	s := &Scheduler{
-		ctx:              ctx,
-		controller:       params.RunnerController,
-		queue:            NewWorkQueue(queueSize),
-		onSchedulingErr:  params.OnSchedulingErr,
-		slots:            xsync.NewMapOf[uuid.UUID, *Slot](),
-		modelStaleFunc:   modelStaleFunc,
-		slotTimeoutFunc:  slotTimeoutFunc,
-		decisionsTracker: NewSchedulingDecisionsTracker(100), // Keep last 100 decisions
-		gpuAllocations:   xsync.NewMapOf[string, *GPUAllocation](),
-		queueTrigger:     make(chan struct{}, 1), // Buffered channel to avoid blocking
-		heartbeats:       xsync.NewMapOf[string, *GoroutineHeartbeat](),
+		ctx:                     ctx,
+		controller:              params.RunnerController,
+		queue:                   NewWorkQueue(queueSize),
+		onSchedulingErr:         params.OnSchedulingErr,
+		slots:                   xsync.NewMapOf[uuid.UUID, *Slot](),
+		modelStaleFunc:          modelStaleFunc,
+		slotTimeoutFunc:         slotTimeoutFunc,
+		decisionsTracker:        NewSchedulingDecisionsTracker(100), // Keep last 100 decisions
+		runnerReconcileInterval: reconcileInterval,
+		gpuAllocations:          xsync.NewMapOf[string, *GPUAllocation](),
+		queueTrigger:            make(chan struct{}, 1), // Buffered channel to avoid blocking
+		heartbeats:              xsync.NewMapOf[string, *GoroutineHeartbeat](),
 	}
 
 	// Start the queue processor
@@ -507,16 +517,16 @@ func (s *Scheduler) reconcileSlots(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(runnerReconcileInterval):
+			case <-time.After(s.runnerReconcileInterval):
 				s.updateHeartbeat("reconcileSlots")
 				s.updateHeartbeatStatus("reconcileSlots", "starting reconcile cycle")
-				log.Debug().
-					Str("SLOT_RECONCILE_DEBUG", "starting_reconcile").
-					Msg("SLOT_RECONCILE_DEBUG: Starting reconcileSlots cycle")
+						// log.Debug().
+		//	Str("SLOT_RECONCILE_DEBUG", "starting_reconcile").
+		//	Msg("SLOT_RECONCILE_DEBUG: Starting reconcileSlots cycle")
 				s.reconcileSlotsOnce(ctx)
-				log.Debug().
-					Str("SLOT_RECONCILE_DEBUG", "finished_reconcile").
-					Msg("SLOT_RECONCILE_DEBUG: Finished reconcileSlots cycle")
+				// log.Debug().
+				//	Str("SLOT_RECONCILE_DEBUG", "finished_reconcile").
+				//	Msg("SLOT_RECONCILE_DEBUG: Finished reconcileSlots cycle")
 				s.updateHeartbeatStatus("reconcileSlots", "idle - waiting for next cycle")
 			}
 		}
@@ -599,7 +609,7 @@ func (s *Scheduler) reconcileRunners(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(runnerReconcileInterval):
+			case <-time.After(s.runnerReconcileInterval):
 				s.updateHeartbeat("reconcileRunners")
 				s.reconcileRunnersOnce()
 			}
@@ -659,13 +669,13 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	s.updateHeartbeatStatus("reconcileSlots", "getting runner list")
 	// Get all runners
 	runnerIDs := s.controller.RunnerIDs()
-	log.Info().Strs("runner_ids", runnerIDs).Msg("SLOT_RECONCILE_DEBUG: Starting slot reconciliation")
+	// log.Info().Strs("runner_ids", runnerIDs).Msg("SLOT_RECONCILE_DEBUG: Starting slot reconciliation")
 
 	s.updateHeartbeatStatus("reconcileSlots", "getting required slots from queue")
 
 	// Ensure new slots are created and ready to take work
 	requiredSlots := s.queue.GetRequiredSlots()
-	log.Info().Interface("required_slots", requiredSlots).Msg("SLOT_RECONCILE_DEBUG: Required slots for current workload")
+	// log.Info().Interface("required_slots", requiredSlots).Msg("SLOT_RECONCILE_DEBUG: Required slots for current workload")
 
 	// Track slot stats
 	existingSlotCount := 0
@@ -702,41 +712,41 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 			slotsToCreateThisCycle := 1
 			slotsToCreate += slotsToCreateThisCycle
 
-			log.Info().
-				Str("model", req.Model.String()).
-				Str("runtime", string(req.Runtime)).
-				Int("existing", existingCount).
-				Int("required", req.Count).
-				Int("needed_total", slotsNeeded).
-				Int("creating_this_cycle", slotsToCreateThisCycle).
-				Msg("SLOT_RECONCILE_DEBUG: Creating one slot per cycle for proper GPU distribution")
+							// log.Info().
+				//	Str("model", req.Model.String()).
+				//	Str("runtime", string(req.Runtime)).
+				//	Int("existing", existingCount).
+				//	Int("required", req.Count).
+				//	Int("needed_total", slotsNeeded).
+				//	Int("creating_this_cycle", slotsToCreateThisCycle).
+				//	Msg("SLOT_RECONCILE_DEBUG: Creating one slot per cycle for proper GPU distribution")
 
-			log.Debug().
-				Str("SLOT_RECONCILE_DEBUG", "calling_ensure_slots").
-				Str("model", req.Model.String()).
-				Int("slots_needed", slotsToCreateThisCycle).
-				Msg("SLOT_RECONCILE_DEBUG: About to call ensureSlots")
+			// log.Debug().
+			//	Str("SLOT_RECONCILE_DEBUG", "calling_ensure_slots").
+			//	Str("model", req.Model.String()).
+			//	Int("slots_needed", slotsToCreateThisCycle).
+			//	Msg("SLOT_RECONCILE_DEBUG: About to call ensureSlots")
 
 			s.updateHeartbeatStatus("reconcileSlots", fmt.Sprintf("creating 1 slot for model %s (%d more needed)", req.Model.String(), slotsNeeded-1))
 			s.ensureSlots(req, slotsToCreateThisCycle)
 
-			log.Debug().
-				Str("SLOT_RECONCILE_DEBUG", "ensure_slots_returned").
-				Str("model", req.Model.String()).
-				Int("slots_created", slotsToCreateThisCycle).
-				Int("remaining_needed", slotsNeeded-1).
-				Msg("SLOT_RECONCILE_DEBUG: ensureSlots returned - remaining slots will be created in next cycle")
+			// log.Debug().
+			//	Str("SLOT_RECONCILE_DEBUG", "ensure_slots_returned").
+			//	Str("model", req.Model.String()).
+			//	Int("slots_created", slotsToCreateThisCycle).
+			//	Int("remaining_needed", slotsNeeded-1).
+			//	Msg("SLOT_RECONCILE_DEBUG: ensureSlots returned - remaining slots will be created in next cycle")
 
 			// Exit early after creating one slot to allow GPU state to update
 			// The reconciler runs every 5 seconds, so remaining slots will be created in subsequent cycles
 			break
 		} else {
-			log.Info().
-				Str("model", req.Model.String()).
-				Str("runtime", string(req.Runtime)).
-				Int("existing", existingCount).
-				Int("required", req.Count).
-				Msg("SLOT_RECONCILE_DEBUG: No new slots needed for requirement")
+			// log.Info().
+			//	Str("model", req.Model.String()).
+			//	Str("runtime", string(req.Runtime)).
+			//	Int("existing", existingCount).
+			//	Int("required", req.Count).
+			//	Msg("SLOT_RECONCILE_DEBUG: No new slots needed for requirement")
 		}
 	}
 
@@ -836,22 +846,22 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 				Bool("is_running", slot.IsRunning()).
 				Msg("found slot on the scheduler that doesn't exist on the runner, creating...")
 
-			log.Debug().
-				Str("SLOT_RECONCILE_DEBUG", "calling_create_new_slot").
-				Str("runner_id", slot.RunnerID).
-				Str("slot_id", slot.ID.String()).
-				Str("model", slot.InitialWork().ModelName().String()).
-				Msg("SLOT_RECONCILE_DEBUG: About to call createNewSlot for orphaned slot")
+			// log.Debug().
+			//	Str("SLOT_RECONCILE_DEBUG", "calling_create_new_slot").
+			//	Str("runner_id", slot.RunnerID).
+			//	Str("slot_id", slot.ID.String()).
+			//	Str("model", slot.InitialWork().ModelName().String()).
+			//	Msg("SLOT_RECONCILE_DEBUG: About to call createNewSlot for orphaned slot")
 
 			err := s.createNewSlot(ctx, slot)
 
-			log.Debug().
-				Str("SLOT_RECONCILE_DEBUG", "create_new_slot_returned").
-				Str("runner_id", slot.RunnerID).
-				Str("slot_id", slot.ID.String()).
-				Str("model", slot.InitialWork().ModelName().String()).
-				Bool("had_error", err != nil).
-				Msg("SLOT_RECONCILE_DEBUG: createNewSlot returned for orphaned slot")
+			// log.Debug().
+			//	Str("SLOT_RECONCILE_DEBUG", "create_new_slot_returned").
+			//	Str("runner_id", slot.RunnerID).
+			//	Str("slot_id", slot.ID.String()).
+			//	Str("model", slot.InitialWork().ModelName().String()).
+			//	Bool("had_error", err != nil).
+			//	Msg("SLOT_RECONCILE_DEBUG: createNewSlot returned for orphaned slot")
 
 			if err != nil {
 				// Then see if we can retry
