@@ -44,9 +44,9 @@ func TestTensorParallelismLargeModelSplitting(t *testing.T) {
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub:        ps,
 		Store:         mockStore,
-		HealthChecker: &MockHealthChecker{},      // Use mock health checker for tests
-	// Create custom MockRunnerClient with 2x80GB GPUs (160GB total) to match test expectations
-		RunnerClient:  NewMockRunnerClient(160, 2), // Use mock runner client for tests
+		HealthChecker: &MockHealthChecker{}, // Use mock health checker for tests
+		// Create custom MockRunnerClient with 2x80GB GPUs (160GB total) to match test expectations
+		RunnerClient: NewMockRunnerClient(160, 2), // Use mock runner client for tests
 	})
 	require.NoError(t, err)
 
