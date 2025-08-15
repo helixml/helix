@@ -42,7 +42,7 @@ func (ss *SlotStore) Store(id uuid.UUID, slot *Slot) {
 	ss.cache[id] = slot
 
 	// Save to database
-	go ss.saveToDatabase(slot)
+	ss.saveToDatabase(slot)
 }
 
 // Load retrieves a slot from cache
@@ -63,7 +63,7 @@ func (ss *SlotStore) Delete(id uuid.UUID) {
 	delete(ss.cache, id)
 
 	// Remove from database
-	go ss.deleteFromDatabase(id)
+	ss.deleteFromDatabase(id)
 }
 
 // Range iterates over all slots in cache
@@ -247,6 +247,6 @@ func (ss *SlotStore) UpdateSlotActivity(id uuid.UUID, active, running bool) {
 	ss.mu.Unlock()
 
 	if exists {
-		go ss.saveToDatabase(slot)
+		ss.saveToDatabase(slot)
 	}
 }
