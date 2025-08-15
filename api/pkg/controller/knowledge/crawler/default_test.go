@@ -16,6 +16,11 @@ import (
 )
 
 func TestDefault_Crawl(t *testing.T) {
+	// Skip test if Chrome service is not available (e.g., in local development)
+	if testing.Short() {
+		t.Skip("Skipping crawler test in short mode")
+	}
+
 	k := &types.Knowledge{
 		Source: types.KnowledgeSource{
 			Web: &types.KnowledgeSourceWeb{
@@ -78,6 +83,10 @@ func TestDefault_Crawl(t *testing.T) {
 }
 
 func TestDefault_CrawlSingle(t *testing.T) {
+	// Skip test if Chrome service is not available (e.g., in local development)
+	if testing.Short() {
+		t.Skip("Skipping crawler test in short mode")
+	}
 	k := &types.Knowledge{
 		Source: types.KnowledgeSource{
 			Web: &types.KnowledgeSourceWeb{
@@ -109,6 +118,10 @@ func TestDefault_CrawlSingle(t *testing.T) {
 }
 
 func TestDefault_CrawlSingle_Slow(t *testing.T) {
+	// Skip test if Chrome service is not available (e.g., in local development)
+	if testing.Short() {
+		t.Skip("Skipping crawler test in short mode")
+	}
 	k := &types.Knowledge{
 		Source: types.KnowledgeSource{
 			Web: &types.KnowledgeSourceWeb{
@@ -147,6 +160,10 @@ func TestDefault_CrawlSingle_Slow(t *testing.T) {
 }
 
 func TestDefault_ParseWithCodeBlock_WithReadability(t *testing.T) {
+	// Skip test if Chrome service is not available (e.g., in local development)
+	if testing.Short() {
+		t.Skip("Skipping crawler test in short mode")
+	}
 	k := &types.Knowledge{
 		Source: types.KnowledgeSource{
 			Web: &types.KnowledgeSourceWeb{
@@ -185,6 +202,10 @@ func TestDefault_ParseWithCodeBlock_WithReadability(t *testing.T) {
 }
 
 func TestDefault_ConvertHTMLToMarkdown(t *testing.T) {
+	// Skip test if Chrome service is not available (e.g., in local development)
+	if testing.Short() {
+		t.Skip("Skipping crawler test in short mode")
+	}
 	k := &types.Knowledge{
 		Source: types.KnowledgeSource{
 			Web: &types.KnowledgeSourceWeb{

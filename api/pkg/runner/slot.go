@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -24,8 +25,13 @@ type Slot struct {
 	RuntimeArgs            map[string]any // Runtime-specific arguments
 	Active                 bool           // True if the slot is active
 	Ready                  bool           // True if the slot is ready to be used
+	GPUIndex               *int           // Primary GPU for single-GPU models (nil for CPU-only)
+	GPUIndices             []int          // All GPUs used for multi-GPU models
+	TensorParallelSize     int            // Number of GPUs for tensor parallelism (1 = single GPU, 0 = CPU-only)
+	CommandLine            string         // The actual command line executed for this slot
 	runnerOptions          *Options
 	runningRuntime         Runtime
+	apiServer              *HelixRunnerAPIServer // Reference to API server for system config
 }
 
 type PullProgress struct {
@@ -44,6 +50,7 @@ type Runtime interface {
 	Status(ctx context.Context) string // To hold general status information like ollama ps output
 	Runtime() types.Runtime
 	URL() string
+	CommandLine() string // Returns the actual command line executed (if available)
 }
 
 type CreateSlotParams struct {
@@ -52,8 +59,15 @@ type CreateSlotParams struct {
 	Runtime                types.Runtime
 	Model                  string
 	ModelMemoryRequirement uint64
-	ContextLength          int64          // Optional context length override
-	RuntimeArgs            map[string]any // Runtime-specific arguments
+	ContextLength          int64                 // Optional context length override
+	RuntimeArgs            map[string]any        // Runtime-specific arguments
+	APIServer              *HelixRunnerAPIServer // Reference to API server for system config
+
+	// GPU allocation from scheduler - authoritative allocation decision
+	GPUIndex           *int  // Primary GPU for single-GPU models
+	GPUIndices         []int // All GPUs used for multi-GPU models
+	TensorParallelSize int   // Number of GPUs for tensor parallelism (1 = single GPU)
+
 	// RuntimeArgs can include:
 	// - "model": string - Override the model to use
 	// - "args": []string - Additional command line arguments to pass to the runtime
@@ -72,8 +86,15 @@ func NewEmptySlot(params CreateSlotParams) *Slot {
 		RuntimeArgs:            params.RuntimeArgs,
 		Active:                 false,
 		Ready:                  false,
-		runnerOptions:          params.RunnerOptions,
-		runningRuntime:         nil, // This is set during creation
+
+		// GPU allocation from scheduler - set during slot creation
+		GPUIndex:           params.GPUIndex,
+		GPUIndices:         params.GPUIndices,
+		TensorParallelSize: params.TensorParallelSize,
+
+		runnerOptions:  params.RunnerOptions,
+		runningRuntime: nil, // This is set during creation
+		apiServer:      params.APIServer,
 	}
 }
 
@@ -117,10 +138,17 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 		}
 	}()
 
+	// Create log buffer for this slot (for all runtime types)
+	var logBuffer *system.ModelInstanceLogBuffer
+	if s.apiServer != nil {
+		logBuffer = s.apiServer.logManager.CreateBuffer(s.ID.String(), s.Model)
+	}
+
 	switch s.IntendedRuntime {
 	case types.RuntimeOllama:
 		runtimeParams := OllamaRuntimeParams{
-			CacheDir: &s.runnerOptions.CacheDir,
+			CacheDir:  &s.runnerOptions.CacheDir,
+			LogBuffer: logBuffer,
 		}
 
 		// Only set ContextLength if it's non-zero
@@ -128,31 +156,108 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 			runtimeParams.ContextLength = &s.ContextLength
 		}
 
+		// Use GPU allocation from scheduler (authoritative decision)
+		// The scheduler has already made the optimal GPU allocation decision
+		if s.GPUIndex != nil {
+			runtimeParams.GPUIndex = s.GPUIndex
+			s.TensorParallelSize = 1
+			log.Info().
+				Str("slot_id", s.ID.String()).
+				Str("model", s.Model).
+				Int("selected_gpu", *s.GPUIndex).
+				Uint64("model_memory_requirement", s.ModelMemoryRequirement).
+				Msg("Using single GPU allocation from scheduler for Ollama model")
+		} else if len(s.GPUIndices) > 0 {
+			runtimeParams.GPUIndices = s.GPUIndices
+			s.TensorParallelSize = len(s.GPUIndices)
+			log.Info().
+				Str("slot_id", s.ID.String()).
+				Str("model", s.Model).
+				Ints("selected_gpus", s.GPUIndices).
+				Int("tensor_parallel_size", s.TensorParallelSize).
+				Uint64("model_memory_requirement", s.ModelMemoryRequirement).
+				Msg("Using multi-GPU allocation from scheduler for Ollama model")
+		} else {
+			// No specific allocation - let Ollama use all available GPUs
+			s.TensorParallelSize = 0 // Indicates auto mode
+			log.Info().
+				Str("slot_id", s.ID.String()).
+				Str("model", s.Model).
+				Uint64("model_memory_requirement", s.ModelMemoryRequirement).
+				Msg("No specific GPU allocation from scheduler, using all available GPUs for Ollama model")
+		}
+
 		// Note, we don't pass through RuntimeArgs for Ollama because model
 		// params are defined by ollama model pulls rather than in commandline
 		// flags like vLLM
 
+		log.Debug().
+			Str("model", s.Model).
+			Interface("runtime_params", runtimeParams).
+			Interface("gpu_index", s.GPUIndex).
+			Ints("gpu_indices", s.GPUIndices).
+			Int("tensor_parallel_size", s.TensorParallelSize).
+			Msg("Creating Ollama runtime with scheduler GPU allocation")
+
 		s.runningRuntime, err = NewOllamaRuntime(ctx, runtimeParams)
 		if err != nil {
+			log.Error().
+				Err(err).
+				Str("model", s.Model).
+				Interface("runtime_params", runtimeParams).
+				Msg("Failed to create Ollama runtime")
 			return
 		}
 	case types.RuntimeDiffusers:
+		// Get effective HF token from API server (with fallback to env)
+		// Same token resolution hierarchy as VLLM (see VLLM case for details)
+		var hfToken *string
+		if s.apiServer != nil {
+			effectiveToken := s.apiServer.GetEffectiveHuggingFaceToken()
+			if effectiveToken != "" {
+				hfToken = &effectiveToken
+			}
+		}
+
 		s.runningRuntime, err = NewDiffusersRuntime(ctx, DiffusersRuntimeParams{
-			CacheDir: &s.runnerOptions.CacheDir,
-		}) // TODO(phil): Add params
+			CacheDir:         &s.runnerOptions.CacheDir,
+			HuggingFaceToken: hfToken,
+			LogBuffer:        logBuffer,
+		})
 		if err != nil {
 			return
 		}
 	case types.RuntimeAxolotl:
 		s.runningRuntime, err = NewAxolotlRuntime(ctx, AxolotlRuntimeParams{
 			RunnerOptions: s.runnerOptions,
+			LogBuffer:     logBuffer,
 		}) // TODO(phil): Add params
 		if err != nil {
 			return
 		}
 	case types.RuntimeVLLM:
+		// Get effective HF token from API server (with fallback to env)
+		// Current: Uses global system token
+		// Future: Will resolve in priority order:
+		//   1. Model-specific token (from RuntimeArgs)
+		//   2. User-specific token (from session context)
+		//   3. Organization-specific token (from user's org)
+		//   4. Global system token (current implementation)
+		//   5. Environment variable (backward compatibility)
+		var hfToken *string
+		if s.apiServer != nil {
+			effectiveToken := s.apiServer.GetEffectiveHuggingFaceToken()
+			if effectiveToken != "" {
+				hfToken = &effectiveToken
+			}
+		}
+
+		// Log buffer was already created above for all runtime types
+
 		runtimeParams := VLLMRuntimeParams{
-			CacheDir: &s.runnerOptions.CacheDir,
+			CacheDir:         &s.runnerOptions.CacheDir,
+			HuggingFaceToken: hfToken,
+			LogBuffer:        logBuffer,
 		}
 
 		// Only set ContextLength if it's non-zero
@@ -175,46 +280,51 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 			}
 
 			// Handle vLLM command line arguments
+			// Support both flattened format (runtime_args as direct array) and nested format (runtime_args.args)
+			var parsedArgs []string
+
+			// Check if runtime_args contains a direct "args" key (nested format)
 			if args, ok := s.RuntimeArgs["args"].([]string); ok && len(args) > 0 {
+				parsedArgs = args
 				log.Debug().
-					Strs("args", args).
+					Strs("nested_args", parsedArgs).
 					Str("model", modelStr).
-					Msg("Using string array arguments for vLLM")
-				runtimeParams.Args = args
+					Msg("Using nested runtime_args.args (string array) for vLLM")
 			} else if argsIface, ok := s.RuntimeArgs["args"].([]interface{}); ok && len(argsIface) > 0 {
 				// Convert []interface{} to []string (common after JSON deserialization)
-				args := make([]string, len(argsIface))
+				parsedArgs = make([]string, len(argsIface))
 				for i, v := range argsIface {
-					args[i] = fmt.Sprintf("%v", v)
+					parsedArgs[i] = fmt.Sprintf("%v", v)
 				}
-
 				log.Debug().
-					Strs("converted_args", args).
+					Strs("nested_converted_args", parsedArgs).
 					Str("model", modelStr).
-					Msg("Converted []interface{} to []string for vLLM args")
-				runtimeParams.Args = args
+					Msg("Converted nested []interface{} to []string for vLLM args")
 			} else if argsMap, ok := s.RuntimeArgs["args"].(map[string]interface{}); ok && len(argsMap) > 0 {
 				// Convert map to array of args in the format ["--key1", "value1", "--key2", "value2"]
-				args := []string{}
+				parsedArgs = []string{}
 				for k, v := range argsMap {
 					if !strings.HasPrefix(k, "--") {
 						k = "--" + k
 					}
-					args = append(args, k, fmt.Sprintf("%v", v))
+					parsedArgs = append(parsedArgs, k, fmt.Sprintf("%v", v))
 				}
 				log.Debug().
 					Interface("args_map", argsMap).
-					Strs("converted_args", args).
+					Strs("nested_converted_args", parsedArgs).
 					Str("model", modelStr).
-					Msg("Using map arguments for vLLM")
-				runtimeParams.Args = args
+					Msg("Using nested map arguments for vLLM")
 			} else if argsVal, ok := s.RuntimeArgs["args"]; ok {
-				// Log when we can't parse the args
+				// Log when we can't parse the nested args
 				log.Warn().
-					Interface("args_value", argsVal).
+					Interface("nested_args_value", argsVal).
 					Str("args_type", fmt.Sprintf("%T", argsVal)).
 					Str("model", modelStr).
-					Msg("Could not parse args of unexpected type")
+					Msg("Could not parse nested args of unexpected type")
+			}
+
+			if len(parsedArgs) > 0 {
+				runtimeParams.Args = parsedArgs
 			}
 		}
 
@@ -227,11 +337,48 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 		// Set the model parameter
 		runtimeParams.Model = &modelStr
 
+		// Use GPU allocation from scheduler (authoritative decision)
+		// The scheduler has already made the optimal GPU allocation decision
+		if s.GPUIndex != nil {
+			runtimeParams.GPUIndex = s.GPUIndex
+			s.TensorParallelSize = 1
+			log.Info().
+				Str("slot_id", s.ID.String()).
+				Str("model", modelStr).
+				Int("selected_gpu", *s.GPUIndex).
+				Uint64("model_memory_requirement", s.ModelMemoryRequirement).
+				Msg("Using single GPU allocation from scheduler for VLLM model")
+		} else if len(s.GPUIndices) > 0 {
+			runtimeParams.GPUIndices = s.GPUIndices
+			runtimeParams.TensorParallelSize = &s.TensorParallelSize
+			log.Info().
+				Str("slot_id", s.ID.String()).
+				Str("model", modelStr).
+				Ints("selected_gpus", s.GPUIndices).
+				Int("tensor_parallel_size", s.TensorParallelSize).
+				Uint64("model_memory_requirement", s.ModelMemoryRequirement).
+				Msg("Using multi-GPU allocation from scheduler for VLLM model")
+		} else {
+			// Fallback to default GPU 0 if no allocation provided
+			defaultGPU := 0
+			runtimeParams.GPUIndex = &defaultGPU
+			s.GPUIndex = &defaultGPU
+			s.TensorParallelSize = 1
+			log.Warn().
+				Str("slot_id", s.ID.String()).
+				Str("model", modelStr).
+				Uint64("model_memory_requirement", s.ModelMemoryRequirement).
+				Msg("No GPU allocation from scheduler, using default GPU 0 for VLLM model")
+		}
+
 		log.Debug().
 			Str("model", modelStr).
 			Interface("runtime_params", runtimeParams).
 			Strs("args", runtimeParams.Args).
-			Msg("Creating vLLM runtime with args")
+			Interface("gpu_index", s.GPUIndex).
+			Ints("gpu_indices", s.GPUIndices).
+			Int("tensor_parallel_size", s.TensorParallelSize).
+			Msg("Creating vLLM runtime with scheduler GPU allocation")
 
 		s.runningRuntime, err = NewVLLMRuntime(ctx, runtimeParams)
 		if err != nil {
@@ -263,6 +410,16 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 			Str("slot_id", s.ID.String()).
 			Msg("Failed to start runtime for slot")
 		return
+	}
+
+	// Capture the command line after successful start
+	s.CommandLine = s.runningRuntime.CommandLine()
+	if s.CommandLine != "" {
+		log.Debug().
+			Str("model", s.Model).
+			Str("slot_id", s.ID.String()).
+			Str("command_line", s.CommandLine).
+			Msg("Captured runtime command line")
 	}
 
 	// Create OpenAI Client
@@ -340,6 +497,11 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 }
 
 func (s *Slot) Delete() error {
+	// Clean up log buffer
+	if s.apiServer != nil {
+		s.apiServer.logManager.RemoveBuffer(s.ID.String())
+	}
+
 	if s.runningRuntime != nil {
 		return s.runningRuntime.Stop()
 	}

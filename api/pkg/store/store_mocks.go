@@ -1130,6 +1130,21 @@ func (mr *MockStoreMockRecorder) GetDynamicModelInfo(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDynamicModelInfo", reflect.TypeOf((*MockStore)(nil).GetDynamicModelInfo), ctx, id)
 }
 
+// GetEffectiveSystemSettings mocks base method.
+func (m *MockStore) GetEffectiveSystemSettings(ctx context.Context) (*types.SystemSettings, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEffectiveSystemSettings", ctx)
+	ret0, _ := ret[0].(*types.SystemSettings)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEffectiveSystemSettings indicates an expected call of GetEffectiveSystemSettings.
+func (mr *MockStoreMockRecorder) GetEffectiveSystemSettings(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEffectiveSystemSettings", reflect.TypeOf((*MockStore)(nil).GetEffectiveSystemSettings), ctx)
+}
+
 // GetInteraction mocks base method.
 func (m *MockStore) GetInteraction(ctx context.Context, id string) (*types.Interaction, error) {
 	m.ctrl.T.Helper()
@@ -1443,6 +1458,21 @@ func (m *MockStore) GetSlackThread(ctx context.Context, appID, channel, threadKe
 func (mr *MockStoreMockRecorder) GetSlackThread(ctx, appID, channel, threadKey any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSlackThread", reflect.TypeOf((*MockStore)(nil).GetSlackThread), ctx, appID, channel, threadKey)
+}
+
+// GetSystemSettings mocks base method.
+func (m *MockStore) GetSystemSettings(ctx context.Context) (*types.SystemSettings, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSystemSettings", ctx)
+	ret0, _ := ret[0].(*types.SystemSettings)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSystemSettings indicates an expected call of GetSystemSettings.
+func (mr *MockStoreMockRecorder) GetSystemSettings(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSystemSettings", reflect.TypeOf((*MockStore)(nil).GetSystemSettings), ctx)
 }
 
 // GetTeam mocks base method.
@@ -2047,6 +2077,20 @@ func (mr *MockStoreMockRecorder) SearchUsers(ctx, query any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SearchUsers", reflect.TypeOf((*MockStore)(nil).SearchUsers), ctx, query)
 }
 
+// SeedModelsFromEnvironment mocks base method.
+func (m *MockStore) SeedModelsFromEnvironment(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SeedModelsFromEnvironment", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SeedModelsFromEnvironment indicates an expected call of SeedModelsFromEnvironment.
+func (mr *MockStoreMockRecorder) SeedModelsFromEnvironment(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SeedModelsFromEnvironment", reflect.TypeOf((*MockStore)(nil).SeedModelsFromEnvironment), ctx)
+}
+
 // SetLicenseKey mocks base method.
 func (m *MockStore) SetLicenseKey(ctx context.Context, licenseKey string) error {
 	m.ctrl.T.Helper()
@@ -2312,6 +2356,21 @@ func (m *MockStore) UpdateSessionName(ctx context.Context, sessionID, name strin
 func (mr *MockStoreMockRecorder) UpdateSessionName(ctx, sessionID, name any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSessionName", reflect.TypeOf((*MockStore)(nil).UpdateSessionName), ctx, sessionID, name)
+}
+
+// UpdateSystemSettings mocks base method.
+func (m *MockStore) UpdateSystemSettings(ctx context.Context, req *types.SystemSettingsRequest) (*types.SystemSettings, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateSystemSettings", ctx, req)
+	ret0, _ := ret[0].(*types.SystemSettings)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateSystemSettings indicates an expected call of UpdateSystemSettings.
+func (mr *MockStoreMockRecorder) UpdateSystemSettings(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateSystemSettings", reflect.TypeOf((*MockStore)(nil).UpdateSystemSettings), ctx, req)
 }
 
 // UpdateTeam mocks base method.

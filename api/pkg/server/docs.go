@@ -1533,6 +1533,77 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/logs/{slot_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieve logs for a specific slot by proxying the request to the runner",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "logs"
+                ],
+                "summary": "Get logs for a specific slot",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Slot ID",
+                        "name": "slot_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum number of lines to return (default: 500)",
+                        "name": "lines",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Return logs since this timestamp (RFC3339 format)",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by log level (ERROR, WARN, INFO, DEBUG)",
+                        "name": "level",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/model-info": {
             "get": {
                 "security": [
@@ -2658,6 +2729,29 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/scheduler/heartbeats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the health status of all scheduler goroutines",
+                "tags": [
+                    "dashboard"
+                ],
+                "summary": "Get scheduler goroutine heartbeat status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/search": {
             "get": {
                 "security": [
@@ -3186,6 +3280,89 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "Subscription session URL",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/system/settings": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get global system settings. Requires admin privileges.",
+                "tags": [
+                    "system"
+                ],
+                "summary": "Get system settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SystemSettingsResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update global system settings. Requires admin privileges.",
+                "tags": [
+                    "system"
+                ],
+                "summary": "Update system settings",
+                "parameters": [
+                    {
+                        "description": "System settings update",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SystemSettingsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SystemSettingsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
                         "schema": {
                             "type": "string"
                         }
@@ -4490,6 +4667,32 @@ const docTemplate = `{
                 }
             }
         },
+        "server.LogsSummary": {
+            "type": "object",
+            "properties": {
+                "active_instances": {
+                    "type": "integer"
+                },
+                "error_retention_hours": {
+                    "type": "integer"
+                },
+                "instances_with_errors": {
+                    "type": "integer"
+                },
+                "max_lines_per_buffer": {
+                    "type": "integer"
+                },
+                "recent_errors": {
+                    "type": "integer"
+                },
+                "slots": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.SlotLogSummary"
+                    }
+                }
+            }
+        },
         "server.ModelSubstitution": {
             "type": "object",
             "properties": {
@@ -4509,6 +4712,23 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.SlotLogSummary": {
+            "type": "object",
+            "properties": {
+                "has_logs": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "runner_id": {
                     "type": "string"
                 }
             }
@@ -5446,6 +5666,17 @@ const docTemplate = `{
                 "free_memory": {
                     "type": "integer"
                 },
+                "gpu_count": {
+                    "description": "Number of GPUs detected",
+                    "type": "integer"
+                },
+                "gpus": {
+                    "description": "Per-GPU memory status",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.GPUStatus"
+                    }
+                },
                 "id": {
                     "type": "string"
                 },
@@ -5632,6 +5863,39 @@ const docTemplate = `{
                 },
                 "valid_until": {
                     "type": "string"
+                }
+            }
+        },
+        "types.GPUStatus": {
+            "type": "object",
+            "properties": {
+                "cuda_version": {
+                    "description": "CUDA version",
+                    "type": "string"
+                },
+                "driver_version": {
+                    "description": "NVIDIA driver version",
+                    "type": "string"
+                },
+                "free_memory": {
+                    "description": "Free memory in bytes",
+                    "type": "integer"
+                },
+                "index": {
+                    "description": "GPU index (0, 1, 2, etc.)",
+                    "type": "integer"
+                },
+                "model_name": {
+                    "description": "GPU model name (e.g., \"NVIDIA H100 PCIe\", \"NVIDIA GeForce RTX 4090\")",
+                    "type": "string"
+                },
+                "total_memory": {
+                    "description": "Total memory in bytes",
+                    "type": "integer"
+                },
+                "used_memory": {
+                    "description": "Used memory in bytes",
+                    "type": "integer"
                 }
             }
         },
@@ -6300,6 +6564,11 @@ const docTemplate = `{
                 },
                 "runtime": {
                     "$ref": "#/definitions/types.Runtime"
+                },
+                "runtime_args": {
+                    "description": "Runtime-specific arguments (e.g., VLLM command line args)",
+                    "type": "object",
+                    "additionalProperties": true
                 },
                 "sort_order": {
                     "description": "Order for sorting models in UI (lower numbers appear first)",
@@ -7279,9 +7548,24 @@ const docTemplate = `{
                 "active": {
                     "type": "boolean"
                 },
+                "command_line": {
+                    "description": "The actual command line executed for this slot",
+                    "type": "string"
+                },
                 "context_length": {
                     "description": "Context length used for the model, if specified",
                     "type": "integer"
+                },
+                "gpu_index": {
+                    "description": "Primary GPU for single-GPU models (for VLLM)",
+                    "type": "integer"
+                },
+                "gpu_indices": {
+                    "description": "All GPUs used for multi-GPU models",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 },
                 "id": {
                     "type": "string"
@@ -7302,6 +7586,10 @@ const docTemplate = `{
                 },
                 "status": {
                     "type": "string"
+                },
+                "tensor_parallel_size": {
+                    "description": "Number of GPUs for tensor parallelism (1 = single GPU)",
+                    "type": "integer"
                 },
                 "version": {
                     "type": "string"
@@ -8097,6 +8385,36 @@ const docTemplate = `{
                 "arguments": {
                     "type": "object",
                     "additionalProperties": true
+                }
+            }
+        },
+        "types.SystemSettingsRequest": {
+            "type": "object",
+            "properties": {
+                "huggingface_token": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SystemSettingsResponse": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "string"
+                },
+                "huggingface_token_set": {
+                    "description": "Sensitive fields are masked",
+                    "type": "boolean"
+                },
+                "huggingface_token_source": {
+                    "description": "\"database\", \"environment\", or \"none\"",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "updated": {
+                    "type": "string"
                 }
             }
         },

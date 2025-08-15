@@ -2,7 +2,9 @@ import React, { FC, useState, useMemo } from 'react'
 import Box from '@mui/material/Box'
 import { prettyBytes } from '../../utils/format'
 import IconButton from '@mui/material/IconButton'
+import Button from '@mui/material/Button'
 import VisibilityIcon from '@mui/icons-material/Visibility'
+import ViewListIcon from '@mui/icons-material/ViewList'
 import Typography from '@mui/material/Typography'
 import SessionBadge from './SessionBadge'
 import JsonWindowLink from '../widgets/JsonWindowLink'
@@ -19,6 +21,7 @@ import {
   ISlot,
   SESSION_MODE_INFERENCE
 } from '../../types'
+import { useFloatingModal } from '../../contexts/floatingModal'
 
 import { TypesRunnerSlot, TypesRunnerModelStatus } from '../../api/api'
 
@@ -42,6 +45,7 @@ export const ModelInstanceSummary: FC<{
   models = [],
   onViewSession,
 }) => {
+  const floatingModal = useFloatingModal()
 
   const [ historyViewing, setHistoryViewing ] = useState(false)
 
@@ -153,6 +157,47 @@ export const ModelInstanceSummary: FC<{
                   {prettyBytes(modelMemory)}
                 </Typography>
               )}
+              {/* Multi-GPU allocation display */}
+              {slot.gpu_indices && slot.gpu_indices.length > 1 && (
+                <Typography 
+                  variant="caption" 
+                  sx={{ 
+                    ml: 1,
+                    color: 'rgba(255, 255, 255, 0.8)',
+                    backgroundColor: 'rgba(0, 200, 255, 0.1)',
+                    border: '1px solid rgba(0, 200, 255, 0.3)',
+                    px: 1,
+                    py: 0.3,
+                    borderRadius: '3px',
+                    fontFamily: 'monospace',
+                    fontSize: '0.7rem'
+                  }}
+                >
+                  GPUs: {slot.gpu_indices.join(',')}
+                  {slot.tensor_parallel_size && slot.tensor_parallel_size > 1 && (
+                    <> (TP:{slot.tensor_parallel_size})</>
+                  )}
+                </Typography>
+              )}
+              {/* Single GPU allocation display */}
+              {slot.gpu_index !== undefined && (!slot.gpu_indices || slot.gpu_indices.length <= 1) && (
+                <Typography 
+                  variant="caption" 
+                  sx={{ 
+                    ml: 1,
+                    color: 'rgba(255, 255, 255, 0.7)',
+                    backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                    border: '1px solid rgba(156, 39, 176, 0.3)',
+                    px: 1,
+                    py: 0.3,
+                    borderRadius: '3px',
+                    fontFamily: 'monospace',
+                    fontSize: '0.7rem'
+                  }}
+                >
+                  GPU: {slot.gpu_index}
+                </Typography>
+              )}
             </Typography>
           </Grid>
           <Grid item>
@@ -171,6 +216,83 @@ export const ModelInstanceSummary: FC<{
             </Typography>
           </Grid>
         </Grid>
+        
+        {/* Runtime Arguments Display for VLLM */}
+        {slot.runtime?.toLowerCase().includes('vllm') && slot.runtime_args && slot.runtime_args.args && (
+          <Box sx={{ mt: 1.5 }}>
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.8)',
+                fontWeight: 500,
+                mb: 0.5,
+                display: 'block'
+              }}
+            >
+              VLLM Arguments:
+            </Typography>
+            <Box 
+              sx={{ 
+                backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                border: '1px solid rgba(114, 201, 154, 0.2)',
+                borderRadius: '3px',
+                p: 1,
+                maxHeight: '100px',
+                overflowY: 'auto'
+              }}
+            >
+              <Typography 
+                variant="caption" 
+                sx={{ 
+                  fontFamily: 'monospace',
+                  fontSize: '0.65rem',
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  wordBreak: 'break-all',
+                  lineHeight: 1.2
+                }}
+              >
+                {Array.isArray(slot.runtime_args.args) 
+                  ? slot.runtime_args.args.join(' ')
+                  : JSON.stringify(slot.runtime_args.args)
+                }
+              </Typography>
+            </Box>
+          </Box>
+        )}
+
+        {/* View Logs Button */}
+        <Box sx={{ mt: 1 }}>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect()
+              const clickPosition = {
+                x: rect.left - 500, // Position floating window to the left of button
+                y: rect.top - 300   // Position above the button
+              }
+              floatingModal.showFloatingModal({
+                type: 'logs',
+                runner: {
+                  id: `runner-for-${slot.id}`,
+                  slots: [slot]
+                }
+              }, clickPosition)
+            }}
+            startIcon={<ViewListIcon />}
+            sx={{
+              fontSize: '0.7rem',
+              borderColor: 'rgba(255, 255, 255, 0.2)',
+              color: 'rgba(255, 255, 255, 0.7)',
+              '&:hover': {
+                borderColor: 'rgba(255, 255, 255, 0.4)',
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+              }
+            }}
+          >
+            View Logs
+          </Button>
+        </Box>
         
         <Box sx={{ display: 'flex', alignItems: 'center', mt: 1.5, gap: 1 }}>
           <Typography 
@@ -199,6 +321,7 @@ export const ModelInstanceSummary: FC<{
           )}
         </Box>
       </Box>
+
     </Paper>
   )
 }

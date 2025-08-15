@@ -202,19 +202,23 @@ const SchedulingDecisionsTable: FC<SchedulingDecisionsTableProps> = ({ decisions
                 )}
               </TableCell>
               <TableCell sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
-                <Typography variant="body2" sx={{ 
+                <Box sx={{ 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
                   maxWidth: 300,
                   wordBreak: 'break-word',
                   whiteSpace: 'normal'
                 }}>
-                  {decision.reason}
+                  <Typography variant="body2" component="span">
+                    {decision.reason}
+                  </Typography>
                   {decision.repeat_count && decision.repeat_count > 0 && (
                     <Chip 
                       label={`×${decision.repeat_count + 1}`}
                       size="small"
                       color="warning"
                       sx={{ 
-                        ml: 1, 
                         height: 20, 
                         '& .MuiChip-label': { 
                           fontSize: '0.7rem',
@@ -223,7 +227,7 @@ const SchedulingDecisionsTable: FC<SchedulingDecisionsTableProps> = ({ decisions
                       }}
                     />
                   )}
-                </Typography>
+                </Box>
               </TableCell>
               <TableCell sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
                 <Typography variant="body2">

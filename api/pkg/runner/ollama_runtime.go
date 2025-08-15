@@ -40,6 +40,9 @@ type OllamaRuntime struct {
 	ollamaClient  *api.Client
 	cmd           *exec.Cmd
 	cancel        context.CancelFunc
+	gpuIndex      int                            // Primary GPU index for single-GPU models
+	gpuIndices    []int                          // All GPU indices for multi-GPU models
+	logBuffer     *system.ModelInstanceLogBuffer // Log buffer for this instance
 
 	// GPU allocation restart tracking
 	restartAttempts   int                // Number of restart attempts due to GPU allocation issues
@@ -63,12 +66,15 @@ type Model struct {
 }
 
 type OllamaRuntimeParams struct {
-	CacheDir      *string        // Where to store the models
-	Port          *int           // If nil, will be assigned a random port
-	StartTimeout  *time.Duration // How long to wait for ollama to start, if nil, will use default
-	ContextLength *int64         // Optional: Context length to use for the model
-	Model         *string        // Optional: Model to use
-	Args          []string       // Optional: Additional arguments to pass to Ollama
+	CacheDir      *string                        // Where to store the models
+	Port          *int                           // If nil, will be assigned a random port
+	StartTimeout  *time.Duration                 // How long to wait for ollama to start, if nil, will use default
+	ContextLength *int64                         // Optional: Context length to use for the model
+	Model         *string                        // Optional: Model to use
+	Args          []string                       // Optional: Additional arguments to pass to Ollama
+	GPUIndex      *int                           // Optional: Primary GPU index for single-GPU models
+	GPUIndices    []int                          // Optional: GPU indices for multi-GPU models (overrides GPUIndex)
+	LogBuffer     *system.ModelInstanceLogBuffer // Optional: Log buffer for capturing logs
 }
 
 func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRuntime, error) {
@@ -106,6 +112,28 @@ func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRun
 		log.Debug().Str("model", model).Msg("Using model")
 	}
 
+	// Extract GPU configuration
+	var gpuIndex int
+	var gpuIndices []int
+
+	// Multi-GPU setup takes precedence over single-GPU
+	if len(params.GPUIndices) > 0 {
+		gpuIndices = params.GPUIndices
+		gpuIndex = gpuIndices[0] // Use first GPU as primary
+	} else if params.GPUIndex != nil {
+		gpuIndex = *params.GPUIndex
+		gpuIndices = []int{gpuIndex}
+	}
+
+	// Log GPU configuration
+	log.Debug().
+		Str("model", model).
+		Int64("context_length", contextLength).
+		Strs("args", params.Args).
+		Int("gpu_index", gpuIndex).
+		Ints("gpu_indices", gpuIndices).
+		Msg("NewOllamaRuntime GPU configuration")
+
 	return &OllamaRuntime{
 		version:       "unknown",
 		cacheDir:      *params.CacheDir,
@@ -114,6 +142,9 @@ func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRun
 		contextLength: contextLength,
 		model:         model,
 		args:          params.Args,
+		gpuIndex:      gpuIndex,
+		gpuIndices:    gpuIndices,
+		logBuffer:     params.LogBuffer,
 	}, nil
 }
 
@@ -158,7 +189,7 @@ func (i *OllamaRuntime) Start(ctx context.Context) error {
 	}()
 
 	// Start ollama cmd
-	cmd, err := startOllamaCmd(ctx, ollamaCommander, i.port, i.cacheDir, i.contextLength)
+	cmd, err := startOllamaCmd(ctx, ollamaCommander, i.port, i.cacheDir, i.contextLength, i.gpuIndex, i.gpuIndices, i.logBuffer)
 	if err != nil {
 		return fmt.Errorf("error building ollama cmd: %w", err)
 	}
@@ -345,6 +376,12 @@ func (i *OllamaRuntime) Status(ctx context.Context) string {
 	return buf.String()
 }
 
+func (i *OllamaRuntime) CommandLine() string {
+	// Ollama doesn't expose the command line in a structured way
+	// Return a placeholder for now
+	return "ollama serve (command line not captured)"
+}
+
 // CheckGPUAllocation checks if the model is fully allocated to GPU.
 // Returns true if fully allocated (CPU% == 0), false otherwise.
 func (i *OllamaRuntime) CheckGPUAllocation(ctx context.Context) (bool, error) {
@@ -458,7 +495,7 @@ func (i *OllamaRuntime) waitUntilOllamaIsReady(ctx context.Context, startTimeout
 	}
 }
 
-func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64) (*exec.Cmd, error) {
+func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, _ int, gpuIndices []int, logBuffer *system.ModelInstanceLogBuffer) (*exec.Cmd, error) {
 	// Find ollama on the path
 	ollamaPath, err := commander.LookPath("ollama")
 	if err != nil {
@@ -485,6 +522,25 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 		"OLLAMA_MODELS=" + cacheDir, // Where to store the models
 	}
 
+	// Add GPU configuration for multi-GPU scheduling
+	if len(gpuIndices) > 0 {
+		cudaDevices := formatGPUIndicesForOllama(gpuIndices)
+		env = append(env, "CUDA_VISIBLE_DEVICES="+cudaDevices)
+		log.Info().
+			Ints("gpu_indices", gpuIndices).
+			Str("cuda_visible_devices", cudaDevices).
+			Msg("Configuring Ollama with selected GPUs")
+	} else {
+		// CPU-only mode or development mode
+		if os.Getenv("DEVELOPMENT_CPU_ONLY") == "true" {
+			env = append(env, "CUDA_VISIBLE_DEVICES=-1")
+			log.Info().Msg("Configuring Ollama for CPU-only mode")
+		} else {
+			// Default to all available GPUs if no specific selection
+			log.Debug().Msg("Ollama will use all available GPUs (no CUDA_VISIBLE_DEVICES set)")
+		}
+	}
+
 	// Add context length configuration if provided
 	if contextLength > 0 {
 		env = append(env, fmt.Sprintf("OLLAMA_CONTEXT_LENGTH=%d", contextLength))
@@ -501,6 +557,11 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 	// there is an error we can send it to the api
 	stderrBuf := system.NewLimitedBuffer(1024 * 10)
 	stderrWriters := []io.Writer{os.Stderr, stderrBuf}
+
+	// If we have a log buffer for this instance, add it to the writers
+	if logBuffer != nil {
+		stderrWriters = append(stderrWriters, logBuffer)
+	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
 		return nil, err
@@ -573,4 +634,17 @@ func (i *OllamaRuntime) checkAndRestartIfNeeded(ctx context.Context) {
 	if restarted {
 		log.Info().Msg("Ollama runtime was restarted due to improper GPU allocation")
 	}
+}
+
+// formatGPUIndicesForOllama converts a slice of GPU indices to a comma-separated string for CUDA_VISIBLE_DEVICES
+func formatGPUIndicesForOllama(gpuIndices []int) string {
+	if len(gpuIndices) == 0 {
+		return "0" // Default to GPU 0
+	}
+
+	var indices []string
+	for _, idx := range gpuIndices {
+		indices = append(indices, fmt.Sprintf("%d", idx))
+	}
+	return strings.Join(indices, ",")
 }

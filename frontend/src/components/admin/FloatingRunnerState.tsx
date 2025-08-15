@@ -3,6 +3,7 @@ import Box from '@mui/material/Box'
 import Paper from '@mui/material/Paper'
 import Typography from '@mui/material/Typography'
 import IconButton from '@mui/material/IconButton'
+
 import Collapse from '@mui/material/Collapse'
 import LinearProgress from '@mui/material/LinearProgress'
 import Chip from '@mui/material/Chip'
@@ -13,11 +14,15 @@ import MaximizeIcon from '@mui/icons-material/CropFree'
 import CloseIcon from '@mui/icons-material/Close'
 import DnsIcon from '@mui/icons-material/Dns'
 import LaunchIcon from '@mui/icons-material/Launch'
+
 import { prettyBytes } from '../../utils/format'
 import { useGetDashboardData } from '../../services/dashboardService'
-import { TypesDashboardRunner } from '../../api/api'
+import { TypesDashboardRunner, TypesGPUStatus } from '../../api/api'
 import useRouter from '../../hooks/useRouter'
 import { useFloatingRunnerState } from '../../contexts/floatingRunnerState'
+import { useResize } from '../../hooks/useResize'
+
+
 
 interface FloatingRunnerStateProps {
   onClose?: () => void
@@ -45,20 +50,36 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
   const [position, setPosition] = useState(getInitialPosition)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   
+  const { size, setSize, isResizing, getResizeHandles } = useResize({
+    initialSize: { width: 340, height: 420 },
+    minSize: { width: 280, height: 200 },
+    maxSize: { width: 600, height: window.innerHeight - 40 },
+    onResize: (newSize, direction, delta) => {
+      // Adjust position when resizing from top or left edges
+      if (direction.includes('w') || direction.includes('n')) {
+        setPosition(prev => ({
+          x: direction.includes('w') ? prev.x + (size.width - newSize.width) : prev.x,
+          y: direction.includes('n') ? prev.y + (size.height - newSize.height) : prev.y
+        }))
+      }
+    }
+  })
+  
   // Update position when click position changes
   useEffect(() => {
     if (floatingRunnerState.clickPosition) {
       setPosition({
-        x: Math.max(0, Math.min(floatingRunnerState.clickPosition.x, window.innerWidth - 340)),
-        y: Math.max(0, Math.min(floatingRunnerState.clickPosition.y, window.innerHeight - 420))
+        x: Math.max(0, Math.min(floatingRunnerState.clickPosition.x, window.innerWidth - size.width)),
+        y: Math.max(0, Math.min(floatingRunnerState.clickPosition.y, window.innerHeight - size.height))
       })
     }
-  }, [floatingRunnerState.clickPosition])
+  }, [floatingRunnerState.clickPosition, size.width, size.height])
   
   const { data: dashboardData, isLoading } = useGetDashboardData()
   const router = useRouter()
   
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (isResizing) return // Don't allow dragging when resizing
     setIsDragging(true)
     setDragOffset({
       x: e.clientX - position.x,
@@ -72,10 +93,17 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (isDragging) {
+      if (isDragging && !isResizing) {
+        const newX = e.clientX - dragOffset.x
+        const newY = e.clientY - dragOffset.y
+        
+        // Keep within bounds
+        const boundedX = Math.max(0, Math.min(newX, window.innerWidth - size.width))
+        const boundedY = Math.max(0, Math.min(newY, window.innerHeight - size.height))
+        
         setPosition({
-          x: e.clientX - dragOffset.x,
-          y: e.clientY - dragOffset.y
+          x: boundedX,
+          y: boundedY
         })
       }
     }
@@ -93,7 +121,242 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isDragging, dragOffset])
+  }, [isDragging, dragOffset, isResizing, size])
+
+  const GPUDisplay: FC<{ gpu: TypesGPUStatus, allocatedMemory: number, allocatedModels: Array<{ model: string, memory: number, isMultiGPU: boolean }> }> = ({ gpu, allocatedMemory, allocatedModels }) => {
+    const total_memory = gpu.total_memory || 1
+    const used_memory = gpu.used_memory || 0
+    const free_memory = gpu.free_memory || 0
+    
+    const usedPercent = Math.round((used_memory / total_memory) * 100)
+    const allocatedPercent = Math.round((allocatedMemory / total_memory) * 100)
+    
+    // Create tooltip content for allocated models
+    const allocatedTooltip = allocatedModels.length > 0 ? (
+      <Box>
+        <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 0.5 }}>
+          Allocated Models:
+        </Typography>
+        {allocatedModels.map((modelInfo, idx) => (
+          <Typography key={idx} variant="caption" sx={{ display: 'block', fontSize: '0.6rem' }}>
+            • {modelInfo.model} ({prettyBytes(modelInfo.memory)})
+            {modelInfo.isMultiGPU && <span style={{ color: '#7986cb' }}> [Multi-GPU]</span>}
+          </Typography>
+        ))}
+      </Box>
+    ) : null
+    
+    // Simplify GPU model name for display
+    const getSimpleModelName = (fullName: string) => {
+      if (!fullName || fullName === 'unknown') return 'Unknown'
+      
+      // Extract key parts: NVIDIA H100, RTX 4090, etc.
+      const name = fullName.replace(/^NVIDIA\s+/, '').replace(/\s+PCIe.*$/, '').replace(/\s+SXM.*$/, '')
+      return name.length > 12 ? name.substring(0, 12) + '...' : name
+    }
+    
+    return (
+      <Box sx={{ 
+        mb: 0.5, 
+        p: 0.75, 
+        backgroundColor: 'rgba(0, 0, 0, 0.15)', 
+        borderRadius: 0.5,
+        border: '1px solid rgba(255, 255, 255, 0.05)'
+      }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+          <Box>
+            <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.65rem', color: '#00c8ff', display: 'block', lineHeight: 1 }}>
+              GPU {gpu.index}
+            </Typography>
+            <Tooltip title={`${gpu.model_name || 'Unknown GPU'} • Driver: ${gpu.driver_version || 'unknown'} • CUDA: ${gpu.cuda_version || 'unknown'}`}>
+              <Typography variant="caption" sx={{ fontSize: '0.55rem', color: 'rgba(255, 255, 255, 0.5)', cursor: 'help' }}>
+                {getSimpleModelName(gpu.model_name || '')}
+              </Typography>
+            </Tooltip>
+          </Box>
+          <Chip 
+            size="small" 
+            label={`${usedPercent}%`}
+            sx={{ 
+              height: 14, 
+              fontSize: '0.55rem',
+              backgroundColor: usedPercent > 80 ? 'rgba(255, 0, 0, 0.2)' : 'rgba(0, 200, 255, 0.2)',
+              color: usedPercent > 80 ? '#ff6b6b' : '#00c8ff',
+              border: `1px solid ${usedPercent > 80 ? 'rgba(255, 0, 0, 0.3)' : 'rgba(0, 200, 255, 0.3)'}`,
+            }}
+          />
+        </Box>
+        
+        <Box sx={{ position: 'relative', height: 8, mb: 0.5 }}>
+          <Box sx={{ 
+            position: 'absolute',
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(255, 255, 255, 0.03)',
+            borderRadius: '2px',
+            boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.3)',
+          }} />
+          
+          {/* Allocated memory bar */}
+          <Tooltip title={allocatedTooltip || 'No models allocated'}>
+            <LinearProgress
+              variant="determinate"
+              value={allocatedPercent}
+              sx={{ 
+                width: '100%',
+                height: '100%',
+                borderRadius: '2px',
+                backgroundColor: 'transparent',
+                cursor: allocatedTooltip ? 'help' : 'default',
+                '& .MuiLinearProgress-bar': {
+                  background: 'linear-gradient(90deg, rgba(121,134,203,0.9) 0%, rgba(121,134,203,0.7) 100%)',
+                  borderRadius: '2px',
+                  transition: 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                  boxShadow: '0 0 4px rgba(121,134,203,0.5)'
+                }
+              }}
+            />
+          </Tooltip>
+          
+          {/* Used memory bar */}
+          <LinearProgress
+            variant="determinate"
+            value={usedPercent}
+            sx={{ 
+              position: 'absolute', 
+              width: '100%', 
+              height: 5,
+              top: 1.5,
+              borderRadius: '2px',
+              backgroundColor: 'transparent',
+              '& .MuiLinearProgress-bar': {
+                background: usedPercent > 80 
+                  ? 'linear-gradient(90deg, rgba(255,107,107,1) 0%, rgba(255,107,107,0.8) 100%)'
+                  : 'linear-gradient(90deg, rgba(0,200,255,1) 0%, rgba(0,200,255,0.8) 100%)',
+                borderRadius: '2px',
+                boxShadow: usedPercent > 80 
+                  ? '0 0 6px rgba(255,107,107,0.7)'
+                  : '0 0 6px rgba(0,200,255,0.7)',
+                transition: 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+              }
+            }}
+          />
+        </Box>
+        
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.125 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Typography variant="caption" sx={{ fontSize: '0.55rem', color: '#00c8ff', fontWeight: 600 }}>
+              Used: {prettyBytes(used_memory)}
+            </Typography>
+          </Box>
+          {allocatedMemory > 0 && (
+            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+              <Typography variant="caption" sx={{ fontSize: '0.55rem', color: '#7986cb', fontWeight: 600 }}>
+                Allocated: {prettyBytes(allocatedMemory)}
+              </Typography>
+            </Box>
+          )}
+          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Typography variant="caption" sx={{ fontSize: '0.55rem', color: 'rgba(255, 255, 255, 0.4)' }}>
+              Total: {prettyBytes(total_memory)}
+            </Typography>
+          </Box>
+        </Box>
+      </Box>
+    )
+  }
+
+  // Calculate allocated memory per GPU based on running slots
+  const calculateGPUAllocatedMemory = (runner: TypesDashboardRunner): Map<number, number> => {
+    const gpuAllocatedMemory = new Map<number, number>()
+    
+    if (!runner.slots || !runner.models) {
+      return gpuAllocatedMemory
+    }
+    
+    // Create a map of model ID to memory requirement
+    const modelMemoryMap = new Map<string, number>()
+    runner.models.forEach(model => {
+      if (model.model_id && model.memory) {
+        modelMemoryMap.set(model.model_id, model.memory)
+      }
+    })
+    
+    // Calculate allocated memory per GPU
+    runner.slots.forEach(slot => {
+      if (!slot.model) return
+      
+      const modelMemory = modelMemoryMap.get(slot.model)
+      if (!modelMemory) return
+      
+      if (slot.gpu_indices && slot.gpu_indices.length > 1) {
+        // Multi-GPU model: distribute memory across GPUs
+        const memoryPerGPU = modelMemory / slot.gpu_indices.length
+        slot.gpu_indices.forEach(gpuIndex => {
+          const current = gpuAllocatedMemory.get(gpuIndex) || 0
+          gpuAllocatedMemory.set(gpuIndex, current + memoryPerGPU)
+        })
+      } else if (slot.gpu_index !== undefined) {
+        // Single GPU model: allocate full memory to this GPU
+        const current = gpuAllocatedMemory.get(slot.gpu_index) || 0
+        gpuAllocatedMemory.set(slot.gpu_index, current + modelMemory)
+      }
+    })
+    
+    return gpuAllocatedMemory
+  }
+
+  // Calculate which models are allocated to each GPU
+  const calculateGPUAllocatedModels = (runner: TypesDashboardRunner): Map<number, Array<{ model: string, memory: number, isMultiGPU: boolean }>> => {
+    const gpuAllocatedModels = new Map<number, Array<{ model: string, memory: number, isMultiGPU: boolean }>>()
+    
+    if (!runner.slots || !runner.models) {
+      return gpuAllocatedModels
+    }
+    
+    // Create a map of model ID to memory requirement
+    const modelMemoryMap = new Map<string, number>()
+    runner.models.forEach(model => {
+      if (model.model_id && model.memory) {
+        modelMemoryMap.set(model.model_id, model.memory)
+      }
+    })
+    
+    // Track models per GPU
+    runner.slots.forEach(slot => {
+      if (!slot.model) return
+      
+      const modelMemory = modelMemoryMap.get(slot.model)
+      if (!modelMemory) return
+      
+      if (slot.gpu_indices && slot.gpu_indices.length > 1) {
+        // Multi-GPU model: add to all GPUs
+        const memoryPerGPU = modelMemory / slot.gpu_indices.length
+        slot.gpu_indices.forEach(gpuIndex => {
+          if (!gpuAllocatedModels.has(gpuIndex)) {
+            gpuAllocatedModels.set(gpuIndex, [])
+          }
+          gpuAllocatedModels.get(gpuIndex)!.push({
+            model: slot.model!,
+            memory: memoryPerGPU,
+            isMultiGPU: true
+          })
+        })
+      } else if (slot.gpu_index !== undefined) {
+        // Single GPU model: add to specific GPU
+        if (!gpuAllocatedModels.has(slot.gpu_index)) {
+          gpuAllocatedModels.set(slot.gpu_index, [])
+        }
+        gpuAllocatedModels.get(slot.gpu_index)!.push({
+          model: slot.model,
+          memory: modelMemory,
+          isMultiGPU: false
+        })
+      }
+    })
+    
+    return gpuAllocatedModels
+  }
 
   const CompactRunnerDisplay: FC<{ runner: TypesDashboardRunner }> = ({ runner }) => {
     const total_memory = runner.total_memory || 1
@@ -116,6 +379,9 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
       return matchingModel?.memory
     }
     
+    // Check if we have per-GPU data
+    const hasPerGPUData = runner.gpus && runner.gpus.length > 0
+    
     return (
       <Box sx={{ mb: 1, p: 1, backgroundColor: 'rgba(0, 0, 0, 0.1)', borderRadius: 1 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
@@ -123,79 +389,116 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
           <Typography variant="caption" sx={{ fontWeight: 600, mr: 1, fontSize: '0.7rem' }}>
             {runner.id?.slice(0, 8)}...
           </Typography>
-          <Chip 
-            size="small" 
-            label={`${actualPercent}%`}
-            sx={{ 
-              height: 16, 
-              fontSize: '0.6rem',
-              backgroundColor: actualPercent > 80 ? 'rgba(255, 0, 0, 0.2)' : 'rgba(0, 200, 255, 0.2)',
-              color: actualPercent > 80 ? '#ff6b6b' : '#00c8ff',
-              border: `1px solid ${actualPercent > 80 ? 'rgba(255, 0, 0, 0.3)' : 'rgba(0, 200, 255, 0.3)'}`,
-            }}
-          />
+          {hasPerGPUData ? (
+            <Chip 
+              size="small" 
+              label={`${runner.gpus?.length || 0} GPUs`}
+              sx={{ 
+                height: 16, 
+                fontSize: '0.6rem',
+                backgroundColor: 'rgba(0, 200, 255, 0.2)',
+                color: '#00c8ff',
+                border: '1px solid rgba(0, 200, 255, 0.3)',
+              }}
+            />
+          ) : (
+            <Chip 
+              size="small" 
+              label={`${actualPercent}%`}
+              sx={{ 
+                height: 16, 
+                fontSize: '0.6rem',
+                backgroundColor: actualPercent > 80 ? 'rgba(255, 0, 0, 0.2)' : 'rgba(0, 200, 255, 0.2)',
+                color: actualPercent > 80 ? '#ff6b6b' : '#00c8ff',
+                border: `1px solid ${actualPercent > 80 ? 'rgba(255, 0, 0, 0.3)' : 'rgba(0, 200, 255, 0.3)'}`,
+              }}
+            />
+          )}
         </Box>
         
-        <Box sx={{ position: 'relative', height: 12, mb: 0.5 }}>
-          <Box sx={{ 
-            position: 'absolute',
-            width: '100%',
-            height: '100%',
-            backgroundColor: 'rgba(255, 255, 255, 0.03)',
-            borderRadius: '4px',
-            boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.3)',
-          }} />
-          
-          <LinearProgress
-            variant="determinate"
-            value={allocatedPercent}
-            sx={{ 
-              width: '100%',
-              height: '100%',
-              borderRadius: '4px',
-              backgroundColor: 'transparent',
-              '& .MuiLinearProgress-bar': {
-                background: 'linear-gradient(90deg, rgba(121,134,203,0.9) 0%, rgba(121,134,203,0.7) 100%)',
+        {hasPerGPUData ? (
+          // Show per-GPU visualization
+          <Box>
+            {(() => {
+              const gpuAllocatedMemory = calculateGPUAllocatedMemory(runner)
+              const gpuAllocatedModels = calculateGPUAllocatedModels(runner)
+              // Sort GPUs by index to ensure consistent ordering (GPU 0, GPU 1, etc.)
+              const sortedGPUs = [...(runner.gpus || [])].sort((a, b) => (a.index || 0) - (b.index || 0))
+              return sortedGPUs.map((gpu) => (
+                <GPUDisplay 
+                  key={gpu.index} 
+                  gpu={gpu} 
+                  allocatedMemory={gpuAllocatedMemory.get(gpu.index || 0) || 0}
+                  allocatedModels={gpuAllocatedModels.get(gpu.index || 0) || []}
+                />
+              ))
+            })()}
+          </Box>
+        ) : (
+          // Fallback to aggregated memory display
+          <>
+            <Box sx={{ position: 'relative', height: 12, mb: 0.5 }}>
+              <Box sx={{ 
+                position: 'absolute',
+                width: '100%',
+                height: '100%',
+                backgroundColor: 'rgba(255, 255, 255, 0.03)',
                 borderRadius: '4px',
-                transition: 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
-                boxShadow: '0 0 10px rgba(121,134,203,0.5)'
-              }
-            }}
-          />
-          
-          <LinearProgress
-            variant="determinate"
-            value={actualPercent}
-            sx={{ 
-              position: 'absolute', 
-              width: '100%', 
-              height: 6,
-              top: 3,
-              borderRadius: '4px',
-              backgroundColor: 'transparent',
-              '& .MuiLinearProgress-bar': {
-                background: 'linear-gradient(90deg, rgba(0,200,255,1) 0%, rgba(0,200,255,0.8) 100%)',
-                borderRadius: '4px',
-                boxShadow: '0 0 10px rgba(0,200,255,0.7)',
-                transition: 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
-              }
-            }}
-          />
-        </Box>
-        
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-          <Typography variant="caption" sx={{ fontSize: '0.6rem', color: 'rgba(255, 255, 255, 0.6)' }}>
-            Used: {prettyBytes(used_memory)} ({actualPercent}%)
-          </Typography>
-          <Typography variant="caption" sx={{ fontSize: '0.6rem', color: 'rgba(255, 255, 255, 0.4)' }}>
-            Total: {prettyBytes(total_memory)}
-          </Typography>
-        </Box>
-        
-        {allocated_memory > 0 && (
-          <Typography variant="caption" sx={{ fontSize: '0.6rem', color: '#7986cb', display: 'block', mb: 0.5 }}>
-            Allocated: {prettyBytes(allocated_memory)} ({allocatedPercent}%)
-          </Typography>
+                boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.3)',
+              }} />
+              
+              <LinearProgress
+                variant="determinate"
+                value={allocatedPercent}
+                sx={{ 
+                  width: '100%',
+                  height: '100%',
+                  borderRadius: '4px',
+                  backgroundColor: 'transparent',
+                  '& .MuiLinearProgress-bar': {
+                    background: 'linear-gradient(90deg, rgba(121,134,203,0.9) 0%, rgba(121,134,203,0.7) 100%)',
+                    borderRadius: '4px',
+                    transition: 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                    boxShadow: '0 0 10px rgba(121,134,203,0.5)'
+                  }
+                }}
+              />
+              
+              <LinearProgress
+                variant="determinate"
+                value={actualPercent}
+                sx={{ 
+                  position: 'absolute', 
+                  width: '100%', 
+                  height: 6,
+                  top: 3,
+                  borderRadius: '4px',
+                  backgroundColor: 'transparent',
+                  '& .MuiLinearProgress-bar': {
+                    background: 'linear-gradient(90deg, rgba(0,200,255,1) 0%, rgba(0,200,255,0.8) 100%)',
+                    borderRadius: '4px',
+                    boxShadow: '0 0 10px rgba(0,200,255,0.7)',
+                    transition: 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                  }
+                }}
+              />
+            </Box>
+            
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+              <Typography variant="caption" sx={{ fontSize: '0.6rem', color: 'rgba(255, 255, 255, 0.6)' }}>
+                Used: {prettyBytes(used_memory)} ({actualPercent}%)
+              </Typography>
+              <Typography variant="caption" sx={{ fontSize: '0.6rem', color: 'rgba(255, 255, 255, 0.4)' }}>
+                Total: {prettyBytes(total_memory)}
+              </Typography>
+            </Box>
+            
+            {allocated_memory > 0 && (
+              <Typography variant="caption" sx={{ fontSize: '0.6rem', color: '#7986cb', display: 'block', mb: 0.5 }}>
+                Allocated: {prettyBytes(allocated_memory)} ({allocatedPercent}%)
+              </Typography>
+            )}
+          </>
         )}
         
         {runner.slots && runner.slots.length > 0 && (
@@ -208,13 +511,25 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
                 const modelMemory = getModelMemory(slot.model || '')
                 const modelName = slot.model?.split(':')[0] || slot.runtime || 'unknown'
                 const memoryDisplay = modelMemory ? ` (${prettyBytes(modelMemory)})` : ''
+                
+                // GPU allocation display
+                let gpuDisplay = ''
+                if (slot.gpu_indices && slot.gpu_indices.length > 1) {
+                  gpuDisplay = ` [GPUs:${slot.gpu_indices.join(',')}]`
+                  if (slot.tensor_parallel_size && slot.tensor_parallel_size > 1) {
+                    gpuDisplay += ` TP:${slot.tensor_parallel_size}`
+                  }
+                } else if (slot.gpu_index !== undefined) {
+                  gpuDisplay = ` [GPU:${slot.gpu_index}]`
+                }
+                
                 const isLoading = !slot.ready && !slot.active
                 
                 return (
                   <Box key={slot.id || index} sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
                     <Chip 
                       size="small"
-                      label={`${modelName}${memoryDisplay}`}
+                      label={`${modelName}${memoryDisplay}${gpuDisplay}`}
                       sx={{ 
                         height: 14, 
                         fontSize: '0.55rem',
@@ -278,8 +593,8 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
         position: 'fixed',
         left: position.x,
         top: position.y,
-        width: isMinimized ? 200 : 320,
-        maxHeight: isMinimized ? 50 : 400,
+        width: isMinimized ? 200 : size.width,
+        height: isMinimized ? 'auto' : size.height,
         backgroundColor: 'rgba(20, 20, 23, 0.95)',
         backdropFilter: 'blur(12px)',
         borderRadius: 2,
@@ -287,10 +602,23 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
         boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.05)',
         zIndex: 9999,
         cursor: isDragging ? 'grabbing' : 'default',
-        transition: 'width 0.3s ease, max-height 0.3s ease',
+        transition: isMinimized ? 'width 0.3s ease, height 0.3s ease' : 'none',
         overflow: 'hidden',
       }}
     >
+      {/* Resize Handles */}
+      {!isMinimized && getResizeHandles().map((handle) => (
+        <Box
+          key={handle.direction}
+          onMouseDown={handle.onMouseDown}
+          sx={{
+            ...handle.style,
+            '&:hover': {
+              backgroundColor: 'rgba(0, 200, 255, 0.1)',
+            },
+          }}
+        />
+      ))}
       <Box
         sx={{
           display: 'flex',
@@ -373,7 +701,11 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
       </Box>
 
       <Collapse in={!isMinimized}>
-        <Box sx={{ p: 1.5, maxHeight: 350, overflowY: 'auto' }}>
+        <Box sx={{ 
+          p: 1.5, 
+          height: `calc(${size.height}px - 60px)`, // Subtract header height
+          overflowY: 'auto' 
+        }}>
           {isLoading ? (
             <Box sx={{ textAlign: 'center', py: 2 }}>
               <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.5)' }}>

@@ -76,8 +76,9 @@ func (suite *ControllerSuite) SetupSuite() {
 	cfg.Inference.Provider = string(types.ProviderTogetherAI)
 
 	runnerController, err := scheduler.NewRunnerController(suite.ctx, &scheduler.RunnerControllerConfig{
-		PubSub: suite.pubsub,
-		FS:     filestoreMock,
+		PubSub:        suite.pubsub,
+		FS:            filestoreMock,
+		HealthChecker: &scheduler.MockHealthChecker{},
 	})
 	suite.NoError(err)
 	schedulerParams := &scheduler.Params{
