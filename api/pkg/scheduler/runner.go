@@ -276,7 +276,14 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 			log.Error().Err(err).Str("subject", msg.Subject).Msg("error parsing runner ID")
 			return err
 		}
-		controller.OnConnectedHandler(runnerID)
+
+		// Only trigger prewarming on actual connection, not periodic pings
+		if string(msg.Data) == "connected" {
+			log.Info().Str("runner_id", runnerID).Msg("new runner connected")
+			controller.OnConnectedHandler(runnerID)
+		} else {
+			log.Trace().Str("runner_id", runnerID).Str("data", string(msg.Data)).Msg("runner ping received")
+		}
 		return nil
 	})
 	if err != nil {
