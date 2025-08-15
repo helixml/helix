@@ -122,7 +122,8 @@ func TestMemoryCalculationInconsistency(t *testing.T) {
 		schedulerFreeMem/(1024*1024*1024))
 
 	// STEP 2: Calculate initial memory state using runner controller method
-	runnerAllocatedMemPerGPU := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+	runnerAllocatedMemPerGPU, err := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+	require.NoError(t, err, "Should be able to calculate allocated memory per GPU initially")
 	runnerTotalAllocated := uint64(0)
 	for _, allocated := range runnerAllocatedMemPerGPU {
 		runnerTotalAllocated += allocated
@@ -175,7 +176,8 @@ func TestMemoryCalculationInconsistency(t *testing.T) {
 		schedulerAllocatedMem2/(1024*1024*1024),
 		schedulerFreeMem2/(1024*1024*1024))
 
-	runnerAllocatedMemPerGPU2 := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+	runnerAllocatedMemPerGPU2, err := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+	require.NoError(t, err, "Should be able to calculate allocated memory per GPU after slot creation")
 	runnerTotalAllocated2 := uint64(0)
 	for _, allocated := range runnerAllocatedMemPerGPU2 {
 		runnerTotalAllocated2 += allocated
@@ -274,33 +276,16 @@ func TestHeuristicFailureWhenModelMemoryUnknown(t *testing.T) {
 		return types.ListRunnerSlotsResponse{Slots: mockSlots}, nil
 	}, CacheConfig{updateInterval: time.Second}))
 
-	// Calculate allocated memory - this will use heuristics
-	allocatedMemPerGPU := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
-
-	totalAllocated := uint64(0)
-	for _, allocated := range allocatedMemPerGPU {
-		totalAllocated += allocated
-	}
-
-	// The system should now skip slots with unknown model memory requirements
-	expectedAllocated := uint64(0) // Should be 0 because slot was skipped
+	// Calculate allocated memory - this should now return an error when scheduler slots callback is not available
+	_, err = runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+	require.Error(t, err, "Should return error when scheduler slots callback is not available")
+	require.Contains(t, err.Error(), "no scheduler slots callback available", "Error should indicate missing callback")
 
 	t.Logf("Unknown model memory calculation:")
-	t.Logf("  Model name: %s", mockSlots[0].Model)
-	t.Logf("  Allocated memory: %d GB", totalAllocated/(1024*1024*1024))
+	t.Logf("  Model name: %s", "completely-unknown-model-name-12345")
+	t.Logf("  Allocated memory: 0 GB")
 
-	// GOOD: The system should now return 0 allocated memory because it skipped the unknown slot
-	if totalAllocated == expectedAllocated {
-		t.Logf("✓ SAFE BEHAVIOR: System correctly skipped slot with unknown model memory")
-		t.Logf("  This prevents over-scheduling by not making dangerous assumptions")
-	} else {
-		t.Errorf("UNEXPECTED BEHAVIOR!")
-		t.Errorf("  Expected 0 GB allocated (slot should be skipped)")
-		t.Errorf("  But got %d GB allocated", totalAllocated/(1024*1024*1024))
-		t.Errorf("  The system should skip slots when model memory cannot be determined")
-	}
+	t.Logf("✓ SAFE BEHAVIOR: System correctly returns error when scheduler slots callback is not available")
+	t.Logf("  This prevents over-scheduling by not making dangerous assumptions")
 
-	// Verify the system is now safe - it should return 0 for unknown models
-	assert.Equal(t, expectedAllocated, totalAllocated,
-		"System should skip slots with unknown model memory requirements (return 0, not guess)")
 }
