@@ -908,17 +908,24 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 			//	Msg("SLOT_RECONCILE_DEBUG: createNewSlot returned for orphaned slot")
 
 			if err != nil {
+				// Check for nil work before proceeding
+				work := slot.InitialWork()
+				if work == nil {
+					log.Warn().Err(err).Str("slot_id", slot.ID.String()).Msg("failed to create slot with nil work, skipping error handling")
+					return true
+				}
+
 				// Then see if we can retry
-				retry, err := ErrorHandlingStrategy(err, slot.InitialWork())
+				retry, err := ErrorHandlingStrategy(err, work)
 				if retry {
-					withWorkContext(&log.Logger, slot.InitialWork()).Debug().Err(err).Msg("failed to create slot, but retrying later...")
+					withWorkContext(&log.Logger, work).Debug().Err(err).Msg("failed to create slot, but retrying later...")
 				} else {
-					withWorkContext(&log.Logger, slot.InitialWork()).Warn().Err(err).Msg("failed to create slot, calling error handler")
+					withWorkContext(&log.Logger, work).Warn().Err(err).Msg("failed to create slot, calling error handler")
 
 					// Don't delete immediately - collect for deletion after Range completes to avoid deadlock
 					failedSlots = append(failedSlots, failedSlotInfo{
 						slotID: slot.ID,
-						work:   slot.InitialWork(),
+						work:   work,
 						err:    err,
 					})
 				}
