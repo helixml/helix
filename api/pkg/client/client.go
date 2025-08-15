@@ -81,6 +81,10 @@ type Client interface {
 	CreateHelixModel(ctx context.Context, model *types.Model) (*types.Model, error)
 	UpdateHelixModel(ctx context.Context, id string, model *types.Model) (*types.Model, error)
 	DeleteHelixModel(ctx context.Context, id string) error
+
+	// System Settings
+	GetSystemSettings(ctx context.Context) (*types.SystemSettingsResponse, error)
+	UpdateSystemSettings(ctx context.Context, settings *types.SystemSettingsRequest) (*types.SystemSettingsResponse, error)
 }
 
 type SessionFilter struct {
@@ -185,4 +189,29 @@ func (c *HelixClient) makeRequest(ctx context.Context, method, path string, body
 			return strings.Contains(err.Error(), "connection refused")
 		}),
 	)
+}
+
+// GetSystemSettings retrieves the current system settings
+func (c *HelixClient) GetSystemSettings(ctx context.Context) (*types.SystemSettingsResponse, error) {
+	var settings types.SystemSettingsResponse
+	err := c.makeRequest(ctx, http.MethodGet, "/system/settings", nil, &settings)
+	if err != nil {
+		return nil, err
+	}
+	return &settings, nil
+}
+
+// UpdateSystemSettings updates the system settings
+func (c *HelixClient) UpdateSystemSettings(ctx context.Context, settings *types.SystemSettingsRequest) (*types.SystemSettingsResponse, error) {
+	reqBody, err := json.Marshal(settings)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	var response types.SystemSettingsResponse
+	err = c.makeRequest(ctx, http.MethodPut, "/system/settings", strings.NewReader(string(reqBody)), &response)
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
 }

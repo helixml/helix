@@ -888,6 +888,8 @@ type DashboardRunner struct {
 	FreeMemory      uint64               `json:"free_memory"`
 	UsedMemory      uint64               `json:"used_memory"`
 	AllocatedMemory uint64               `json:"allocated_memory"`
+	GPUCount        int                  `json:"gpu_count"` // Number of GPUs detected
+	GPUs            []*GPUStatus         `json:"gpus"`      // Per-GPU memory status
 	Labels          map[string]string    `json:"labels"`
 	Slots           []*RunnerSlot        `json:"slots"`
 	Models          []*RunnerModelStatus `json:"models"`

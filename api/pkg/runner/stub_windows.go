@@ -20,7 +20,10 @@ type AxolotlRuntime struct{}
 var _ Runtime = &AxolotlRuntime{}
 
 type AxolotlRuntimeParams struct {
+	Port          *int           // If nil, will be assigned a random port
+	StartTimeout  *time.Duration // How long to wait for axolotl to start
 	RunnerOptions *Options
+	LogBuffer     interface{} // Optional: Log buffer for capturing logs (using interface{} to avoid import issues)
 }
 
 func NewAxolotlRuntime(_ context.Context, _ AxolotlRuntimeParams) (*AxolotlRuntime, error) {
@@ -59,6 +62,10 @@ func (a *AxolotlRuntime) Status(_ context.Context) string {
 	panic("unimplemented")
 }
 
+func (a *AxolotlRuntime) CommandLine() string {
+	panic("unimplemented")
+}
+
 func (a *AxolotlRuntime) ListModels(_ context.Context) ([]string, error) {
 	return nil, fmt.Errorf("axolotl runtime is not supported on windows")
 }
@@ -69,7 +76,11 @@ type DiffusersRuntime struct {
 }
 
 type DiffusersRuntimeParams struct {
-	CacheDir *string
+	CacheDir         *string        // Where to store the models
+	Port             *int           // If nil, will be assigned a random port
+	StartTimeout     *time.Duration // How long to wait for diffusers to start
+	HuggingFaceToken *string        // Optional: Hugging Face token for model access
+	LogBuffer        interface{}    // Optional: Log buffer for capturing logs (using interface{} to avoid import issues)
 }
 
 func NewDiffusersRuntime(_ context.Context, _ DiffusersRuntimeParams) (*DiffusersRuntime, error) {
@@ -108,6 +119,10 @@ func (d *DiffusersRuntime) Status(_ context.Context) string {
 	panic("unimplemented")
 }
 
+func (d *DiffusersRuntime) CommandLine() string {
+	panic("unimplemented")
+}
+
 func (d *DiffusersRuntime) ListModels(_ context.Context) ([]string, error) {
 	return nil, fmt.Errorf("diffusers runtime is not supported on windows")
 }
@@ -132,6 +147,9 @@ type OllamaRuntimeParams struct {
 	ContextLength *int64         // Optional: Context length to use for the model
 	Model         *string        // Optional: Model to use
 	Args          []string       // Optional: Additional arguments to pass to Ollama
+	GPUIndex      *int           // Optional: Primary GPU index for single-GPU models
+	GPUIndices    []int          // Optional: GPU indices for multi-GPU models (overrides GPUIndex)
+	LogBuffer     interface{}    // Optional: Log buffer for capturing logs (using interface{} to avoid import issues)
 }
 
 var _ Runtime = &OllamaRuntime{}
@@ -172,6 +190,10 @@ func (a *OllamaRuntime) Status(_ context.Context) string {
 	panic("unimplemented")
 }
 
+func (a *OllamaRuntime) CommandLine() string {
+	panic("unimplemented")
+}
+
 func (a *OllamaRuntime) ListModels(_ context.Context) ([]string, error) {
 	return nil, fmt.Errorf("ollama runtime is not supported on windows")
 }
@@ -186,15 +208,21 @@ type VLLMRuntime struct {
 	args          []string
 	cmd           interface{} // Using interface{} instead of *exec.Cmd to avoid import issues
 	cancel        context.CancelFunc
+	ready         bool // True when vLLM is ready to handle requests
 }
 
 type VLLMRuntimeParams struct {
-	CacheDir      *string
-	Port          *int           // If nil, will be assigned a random port
-	StartTimeout  *time.Duration // How long to wait for vLLM to start, if nil, will use default
-	ContextLength *int64         // Optional: Context length to use for the model
-	Model         *string        // Optional: Model to use
-	Args          []string       // Optional: Additional arguments to pass to vLLM
+	CacheDir           *string
+	Port               *int           // If nil, will be assigned a random port
+	StartTimeout       *time.Duration // How long to wait for vLLM to start, if nil, will use default
+	ContextLength      *int64         // Optional: Context length to use for the model
+	Model              *string        // Optional: Model to use
+	Args               []string       // Optional: Additional arguments to pass to vLLM
+	HuggingFaceToken   *string        // Optional: Hugging Face token for model access
+	GPUIndex           *int           // Optional: Primary GPU index for single-GPU models
+	GPUIndices         []int          // Optional: GPU indices for multi-GPU models (overrides GPUIndex)
+	TensorParallelSize *int           // Optional: Number of GPUs for tensor parallelism (default 1)
+	LogBuffer          interface{}    // Optional: Log buffer for capturing logs (using interface{} to avoid import issues)
 }
 
 var _ Runtime = &VLLMRuntime{}
@@ -228,6 +256,10 @@ func (v *VLLMRuntime) Version() string {
 }
 
 func (v *VLLMRuntime) Warm(_ context.Context, _ string) error {
+	panic("unimplemented")
+}
+
+func (v *VLLMRuntime) CommandLine() string {
 	panic("unimplemented")
 }
 

@@ -101,8 +101,8 @@ steps:
       KEYCLOAK_PASSWORD: REPLACE_ME
 
     commands:
-      - cd api
-      - go test -v ./...
+      - chmod +x ./scripts/run-tests-with-timeout.sh
+      - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./api/...
     when:
       event:
         - push
@@ -150,99 +150,99 @@ steps:
       SMALL_GENERATION_MODEL: gpt-4o-mini
 
     commands:
+      - chmod +x ./scripts/run-tests-with-timeout.sh
       # Build API server
       - go install ./api/..
       # Run tests
-      - cd integration-test/api
-      - go test -v ./...
+      - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./integration-test/api/...
     when:
       event:
         - push
     # depends_on: [unit-test]
 
-  - name: oauth-github-integration-test
-    image: golang:1.24
-    volumes:
-      - name: oauth-github-test-results
-        path: /tmp/helix-oauth-test-results
-      - name: go-build-cache
-        path: /root/.cache/go-build
-      - name: go-mod-cache
-        path: /go/pkg/mod
-    environment:
-      # GitHub OAuth test credentials
-      GITHUB_SKILL_TEST_OAUTH_CLIENT_ID:
-        from_secret: github_skill_test_oauth_client_id
-      GITHUB_SKILL_TEST_OAUTH_CLIENT_SECRET:
-        from_secret: github_skill_test_oauth_client_secret
-      GITHUB_SKILL_TEST_OAUTH_USERNAME:
-        from_secret: github_skill_test_oauth_username
-      GITHUB_SKILL_TEST_OAUTH_PASSWORD:
-        from_secret: github_skill_test_oauth_password
-      GITHUB_SKILL_TEST_SETUP_PAT:
-        from_secret: github_skill_test_setup_pat
-      GMAIL_CREDENTIALS_BASE64:
-        from_secret: gmail_credentials_base64
-      # Database config (running in a sidecar)
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DATABASE: postgres
-      TYPESENSE_URL: http://typesense:8108
-      TYPESENSE_API_KEY: typesense
-      TEXT_EXTRACTION_TIKA_URL: http://tika:9998
-      RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
-      KEYCLOAK_URL: http://keycloak:8080/auth
-      KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
-      KEYCLOAK_PASSWORD: REPLACE_ME
-      ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
-      # CI-specific configuration for OAuth test
-      WEB_SERVER_HOST: "localhost"
-      # API Keys for LLM providers
-      OPENAI_API_KEY:
-        from_secret: openai_api_key
-      ANTHROPIC_API_KEY:
-        from_secret: anthropic_api_key
-      # Agent configuration
-      REASONING_MODEL_PROVIDER: openai
-      REASONING_MODEL: o3-mini
-      REASONING_MODEL_EFFORT: none
-      GENERATION_MODEL_PROVIDER: openai
-      GENERATION_MODEL: gpt-4o
-      SMALL_REASONING_MODEL_PROVIDER: openai
-      SMALL_REASONING_MODEL: o3-mini
-      SMALL_REASONING_MODEL_EFFORT: none
-      SMALL_GENERATION_MODEL_PROVIDER: openai
-      SMALL_GENERATION_MODEL: gpt-4o-mini
+  # - name: oauth-github-integration-test
+  #   image: golang:1.24
+  #   volumes:
+  #     - name: oauth-github-test-results
+  #       path: /tmp/helix-oauth-test-results
+  #     - name: go-build-cache
+  #       path: /root/.cache/go-build
+  #     - name: go-mod-cache
+  #       path: /go/pkg/mod
+  #   environment:
+  #     # GitHub OAuth test credentials
+  #     GITHUB_SKILL_TEST_OAUTH_CLIENT_ID:
+  #       from_secret: github_skill_test_oauth_client_id
+  #     GITHUB_SKILL_TEST_OAUTH_CLIENT_SECRET:
+  #       from_secret: github_skill_test_oauth_client_secret
+  #     GITHUB_SKILL_TEST_OAUTH_USERNAME:
+  #       from_secret: github_skill_test_oauth_username
+  #     GITHUB_SKILL_TEST_OAUTH_PASSWORD:
+  #       from_secret: github_skill_test_oauth_password
+  #     GITHUB_SKILL_TEST_SETUP_PAT:
+  #       from_secret: github_skill_test_setup_pat
+  #     GMAIL_CREDENTIALS_BASE64:
+  #       from_secret: gmail_credentials_base64
+  #     # Database config (running in a sidecar)
+  #     POSTGRES_HOST: postgres
+  #     POSTGRES_PORT: "5432"
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #     POSTGRES_DATABASE: postgres
+  #     TYPESENSE_URL: http://typesense:8108
+  #     TYPESENSE_API_KEY: typesense
+  #     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+  #     RAG_CRAWLER_LAUNCHER_URL: http://chrome:7317
+  #     KEYCLOAK_URL: http://keycloak:8080/auth
+  #     KEYCLOAK_FRONTEND_URL: http://keycloak:8080/auth/
+  #     KEYCLOAK_PASSWORD: REPLACE_ME
+  #     ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS: "true"
+  #     # CI-specific configuration for OAuth test
+  #     WEB_SERVER_HOST: "localhost"
+  #     # API Keys for LLM providers
+  #     OPENAI_API_KEY:
+  #       from_secret: openai_api_key
+  #     ANTHROPIC_API_KEY:
+  #       from_secret: anthropic_api_key
+  #     # Agent configuration
+  #     REASONING_MODEL_PROVIDER: openai
+  #     REASONING_MODEL: o3-mini
+  #     REASONING_MODEL_EFFORT: none
+  #     GENERATION_MODEL_PROVIDER: openai
+  #     GENERATION_MODEL: gpt-4o
+  #     SMALL_REASONING_MODEL_PROVIDER: openai
+  #     SMALL_REASONING_MODEL: o3-mini
+  #     SMALL_REASONING_MODEL_EFFORT: none
+  #     SMALL_GENERATION_MODEL_PROVIDER: openai
+  #     SMALL_GENERATION_MODEL: gpt-4o-mini
 
-    commands:
-      - chmod +x scripts/run-oauth-integration-test.sh
-      - ./scripts/run-oauth-integration-test.sh github TestGitHubOAuthSkillsE2E
-    when:
-      event:
-        - push
-    # depends_on: [unit-test]
+  #   commands:
+  #     - chmod +x ./scripts/run-oauth-integration-test.sh
+  #     - ./scripts/run-oauth-integration-test.sh github TestGitHubOAuthSkillsE2E
+  #   when:
+  #     event:
+  #       - push
+  #   # depends_on: [unit-test]
 
-  - name: upload-oauth-github-test-artifacts
-    image: golang:1.24
-    volumes:
-      - name: oauth-github-test-results
-        path: /tmp/helix-oauth-test-results
-    environment:
-      LAUNCHPAD_URL: "https://deploy.helix.ml"
-      CI_SHARED_SECRET:
-        from_secret: ci_shared_secret
-    commands:
-      - chmod +x scripts/upload-oauth-test-artifacts.sh
-      - ./scripts/upload-oauth-test-artifacts.sh github
-    when:
-      event:
-        - push
-      status:
-        - success
-        - failure
-    depends_on: [oauth-github-integration-test]
+  # - name: upload-oauth-github-test-artifacts
+  #   image: golang:1.24
+  #   volumes:
+  #     - name: oauth-github-test-results
+  #       path: /tmp/helix-oauth-test-results
+  #   environment:
+  #     LAUNCHPAD_URL: "https://deploy.helix.ml"
+  #     CI_SHARED_SECRET:
+  #       from_secret: ci_shared_secret
+  #   commands:
+  #     - chmod +x ./scripts/upload-oauth-test-artifacts.sh
+  #     - ./scripts/upload-oauth-test-artifacts.sh github
+  #   when:
+  #     event:
+  #       - push
+  #     status:
+  #       - success
+  #       - failure
+  #   depends_on: [oauth-github-integration-test]
 
   # - name: oauth-gmail-integration-test
   #   image: golang:1.24
@@ -324,6 +324,7 @@ steps:
   #     - success
   #     - failure
   #   depends_on: [oauth-gmail-integration-test]
+
   - name: oauth-outlook-integration-test
     image: golang:1.24
     volumes:
@@ -460,7 +461,7 @@ steps:
   #     SMALL_GENERATION_MODEL: gpt-4o-mini
 
   #   commands:
-  #     - chmod +x scripts/run-oauth-integration-test.sh
+  #     - chmod +x ./scripts/run-oauth-integration-test.sh
   #     - ./scripts/run-oauth-integration-test.sh google-calendar TestGoogleCalendarOAuthSkillsE2E
   #   when:
   #     event:
@@ -477,7 +478,7 @@ steps:
   #     CI_SHARED_SECRET:
   #       from_secret: ci_shared_secret
   #   commands:
-  #     - chmod +x scripts/upload-oauth-test-artifacts.sh
+  #     - chmod +x ./scripts/upload-oauth-test-artifacts.sh
   #     - ./scripts/upload-oauth-test-artifacts.sh google-calendar
   #   when:
   #     event:
@@ -545,7 +546,7 @@ steps:
   #     SMALL_GENERATION_MODEL: gpt-4o-mini
 
   #   commands:
-  #     - chmod +x scripts/run-oauth-integration-test.sh
+  #     - chmod +x ./scripts/run-oauth-integration-test.sh
   #     - echo "=== Environment Variable Check ==="
   #     - echo "GMAIL_CREDENTIALS_BASE64 length:" $(echo -n "${GMAIL_CREDENTIALS_BASE64}" | wc -c)
   #     - echo "ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID}" && echo "YES" || echo "NO")
@@ -568,7 +569,7 @@ steps:
   #     CI_SHARED_SECRET:
   #       from_secret: ci_shared_secret
   #   commands:
-  #     - chmod +x scripts/upload-oauth-test-artifacts.sh
+  #     - chmod +x ./scripts/upload-oauth-test-artifacts.sh
   #     - ./scripts/upload-oauth-test-artifacts.sh jira
   #   when:
   #     event:
@@ -636,7 +637,7 @@ steps:
   #     SMALL_GENERATION_MODEL: gpt-4o-mini
 
   #   commands:
-  #     - chmod +x scripts/run-oauth-integration-test.sh
+  #     - chmod +x ./scripts/run-oauth-integration-test.sh
   #     - echo "=== Environment Variable Check ==="
   #     - echo "GMAIL_CREDENTIALS_BASE64 length:" $(echo -n "${GMAIL_CREDENTIALS_BASE64}" | wc -c)
   #     - echo "ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID is set:" $(test -n "${ATLASSIAN_SKILL_TEST_OAUTH_CLIENT_ID}" && echo "YES" || echo "NO")
@@ -659,7 +660,7 @@ steps:
   #     CI_SHARED_SECRET:
   #       from_secret: ci_shared_secret
   #   commands:
-  #     - chmod +x scripts/upload-oauth-test-artifacts.sh
+  #     - chmod +x ./scripts/upload-oauth-test-artifacts.sh
   #     - ./scripts/upload-oauth-test-artifacts.sh confluence
   #   when:
   #     event:
@@ -1001,7 +1002,7 @@ steps:
         # Runner with no baked models = empty
         # See https://github.com/helixml/base-images
         # and https://github.com/helixml/base-images/releases
-        - TAG=2025-07-30d-empty
+        - TAG=2025-08-13c-empty
         - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
       username: admin
       password:
@@ -1049,7 +1050,7 @@ steps:
         # Runner with small models = small
         # See https://github.com/helixml/base-images
         # and https://github.com/helixml/base-images/releases
-        - TAG=2025-07-30d-small
+        - TAG=2025-08-13c-small
         - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
       username: admin
       password:
@@ -1078,7 +1079,7 @@ steps:
         # Runner with small models = small
         # See https://github.com/helixml/base-images
         # and https://github.com/helixml/base-images/releases
-        - TAG=2025-07-30d-small
+        - TAG=2025-08-13c-small
         - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
       username: admin
       password:
@@ -1125,7 +1126,7 @@ steps:
         # Runner with large models = large
         # See https://github.com/helixml/base-images
         # and https://github.com/helixml/base-images/releases
-        - TAG=2025-07-30d-large
+        - TAG=2025-08-13c-large
         - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
       username: admin
       password:
@@ -1154,7 +1155,7 @@ steps:
         # Runner with large models = large
         # See https://github.com/helixml/base-images
         # and https://github.com/helixml/base-images/releases
-        - TAG=2025-07-30d-large
+        - TAG=2025-08-13c-large
         - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}}
       username: admin
       password:

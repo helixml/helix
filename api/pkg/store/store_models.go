@@ -301,6 +301,12 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 			continue
 		}
 
+		// Create RuntimeArgs from model.Args
+		runtimeArgs := map[string]interface{}{}
+		if len(model.Args) > 0 {
+			runtimeArgs["args"] = model.Args
+		}
+
 		// Create new model
 		m := &types.Model{
 			ID:            model.ID,
@@ -314,6 +320,7 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 			Enabled:       true,
 			SortOrder:     sortOrder,
 			Prewarm:       model.Prewarm,
+			RuntimeArgs:   runtimeArgs,
 			UserModified:  false, // New models are system-managed
 		}
 

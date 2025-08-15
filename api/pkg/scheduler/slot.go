@@ -16,12 +16,15 @@ type Slot struct {
 	isStaleFunc      TimeoutFunc
 	isErrorFunc      TimeoutFunc
 	isRunning        bool
+
+	// GPU allocation from scheduler - authoritative allocation decision
+	GPUAllocation *GPUAllocation
 }
 
 // NewSlot creates a new slot with the given runnerID and work
 // staleTimeout is a function that determines if a slot is stale
 // errorTimeout is a function that determines if a slot has errored
-func NewSlot(runnerID string, work *Workload, staleTimeout TimeoutFunc, errorTimeout TimeoutFunc) *Slot {
+func NewSlot(runnerID string, work *Workload, staleTimeout TimeoutFunc, errorTimeout TimeoutFunc, gpuAllocation *GPUAllocation) *Slot {
 	return &Slot{
 		ID:               uuid.New(),
 		RunnerID:         runnerID,
@@ -31,6 +34,7 @@ func NewSlot(runnerID string, work *Workload, staleTimeout TimeoutFunc, errorTim
 		isStaleFunc:      staleTimeout,
 		isErrorFunc:      errorTimeout,
 		isRunning:        false,
+		GPUAllocation:    gpuAllocation,
 	}
 }
 

@@ -140,6 +140,32 @@ func (c *Controller) Initialize() error {
 	return nil
 }
 
+// Close cleans up all resources used by the controller
+func (c *Controller) Close() error {
+	// Close browser if present
+	if c.Options.Browser != nil {
+		c.Options.Browser.Close()
+	}
+
+	// Close PubSub connections if present
+	if c.Options.PubSub != nil {
+		if natsClient, ok := c.Options.PubSub.(*pubsub.Nats); ok {
+			natsClient.Close()
+		}
+	}
+
+	// Close store connections if present
+	if c.Options.Store != nil {
+		if closer, ok := c.Options.Store.(interface{ Close() error }); ok {
+			if err := closer.Close(); err != nil {
+				return fmt.Errorf("failed to close store: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
 func (c *Controller) SetTriggerStatus(appID string, triggerType types.TriggerType, status types.TriggerStatus) {
 	c.triggerStatusesMu.Lock()
 	defer c.triggerStatusesMu.Unlock()

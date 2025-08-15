@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"reflect"
 	"strings"
@@ -138,6 +140,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.SlackThread{},
 		&types.TriggerConfiguration{},
 		&types.TriggerExecution{},
+		&types.SystemSettings{},
 		&types.Wallet{},
 		&types.Transaction{},
 		&types.TopUp{},
@@ -244,7 +247,9 @@ func createFK(db *gorm.DB, src, dst interface{}, fk, pk string, onDelete, onUpda
 	}
 
 	// Dealing with custom table names that contain schema in them
-	constraintName := "fk_" + strings.ReplaceAll(srcTableName, ".", "_") + "_" + strings.ReplaceAll(dstTableName, ".", "_")
+	// Use a hash-based approach to ensure constraint names stay under PostgreSQL's 63-character limit
+	// while remaining deterministic and avoiding collisions
+	constraintName := generateConstraintName(srcTableName, dstTableName, fk)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -263,6 +268,47 @@ func createFK(db *gorm.DB, src, dst interface{}, fk, pk string, onDelete, onUpda
 		}
 	}
 	return nil
+}
+
+// generateConstraintName creates a deterministic constraint name that stays under PostgreSQL's 63-character limit
+// It uses a hash-based approach to avoid collisions while keeping names readable
+func generateConstraintName(srcTableName, dstTableName, fkColumn string) string {
+	// Extract just the table names without schema prefixes for readability
+	srcTable := extractTableName(srcTableName)
+	dstTable := extractTableName(dstTableName)
+
+	// Create a base name that's human-readable
+	baseName := fmt.Sprintf("fk_%s_%s_%s", srcTable, dstTable, fkColumn)
+
+	// If the base name is short enough AND the table names don't contain schema prefixes, use it as-is
+	if len(baseName) <= 63 && !strings.Contains(srcTableName, ".") && !strings.Contains(dstTableName, ".") {
+		return baseName
+	}
+
+	// Otherwise, create a hash-based name that includes the full table names for uniqueness
+	// This ensures different schemas produce different constraint names
+	fullName := fmt.Sprintf("%s_%s_%s", srcTableName, dstTableName, fkColumn)
+	hash := sha256.Sum256([]byte(fullName))
+	hashStr := hex.EncodeToString(hash[:])[:16] // Use first 16 characters of hash
+
+	// Create a constraint name that's guaranteed to be under 63 characters
+	constraintName := fmt.Sprintf("fk_%s_%s_%s", srcTable, dstTable, hashStr)
+
+	// Final safety check - truncate if still too long (shouldn't happen with our format)
+	if len(constraintName) > 63 {
+		constraintName = constraintName[:63]
+	}
+
+	return constraintName
+}
+
+// extractTableName extracts the table name from a potentially schema-qualified table name
+func extractTableName(fullTableName string) string {
+	parts := strings.Split(fullTableName, ".")
+	if len(parts) > 1 {
+		return parts[len(parts)-1] // Return the last part (table name)
+	}
+	return fullTableName
 }
 
 type Scanner interface {

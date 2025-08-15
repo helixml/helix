@@ -47,6 +47,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - HF_TOKEN=${HF_TOKEN:-}
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
       - STRIPE_WEBHOOK_SIGNING_SECRET=${STRIPE_WEBHOOK_SIGNING_SECRET:-}
       - STRIPE_PRICE_LOOKUP_KEY=${STRIPE_PRICE_LOOKUP_KEY:-}
@@ -100,8 +101,8 @@ services:
   postgres:
     image: postgres:12.13-alpine
     restart: always
-    ports:
-     - 5432:5432
+    # ports:
+    #  - 5432:5432
     volumes:
       - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
       - ./scripts/postgres:/docker-entrypoint-initdb.d
@@ -120,8 +121,8 @@ services:
   pgvector:
     image: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.1.1
     restart: always
-    ports:
-     - 5433:5432
+    # ports:
+    #  - 5433:5432
     volumes:
       - ${PGVECTOR_DATA:-helix-pgvector-db}:/var/lib/postgresql/data
     environment:
@@ -157,8 +158,8 @@ services:
       timeout: 5s
       retries: 30
     command: ["start-dev"]
-    ports:
-      - 30080:8080
+    # ports:
+    #   - 30080:8080
   webhook_relay_stripe:
     image: webhookrelay/webhookrelayd
     environment:
@@ -167,12 +168,12 @@ services:
       - BUCKET=${WEBHOOK_RELAY_BUCKET:-}
   tika:
     image: apache/tika:2.9.2.1
-    ports:
-      - 9998:9998
+    # ports:
+    #   - 9998:9998
   searxng:
     image: searxng/searxng:latest
-    ports:
-      - 8112:8080
+    # ports:
+    #   - 8112:8080
     volumes:
       - ./searxng/settings.yml:/etc/searxng/settings.yml
       - ./searxng/limiter.toml:/etc/searxng/limiter.toml
@@ -184,8 +185,8 @@ services:
 
   typense-ui:
     image: ghcr.io/bfritscher/typesense-dashboard:latest
-    ports:
-      - 8877:80
+    # ports:
+    #   - 8877:80
     volumes:
       - ./scripts/config.json:/srv/config.json
     depends_on:
@@ -195,8 +196,8 @@ services:
       context: .
       dockerfile: Dockerfile.typesense
     command: ["--data-dir", "/data", "--api-key", "typesense"]
-    ports:
-      - 8108:8108
+    # ports:
+    #   - 8108:8108
     volumes:
       - ${TYPESENSE_DATA:-helix-typesense-db}:/data
   chrome:
@@ -204,8 +205,8 @@ services:
     restart: always
     volumes:
       - ./integration-test/data/smoke:/integration-test/data/smoke
-    ports:
-      - 7317:7317
+    # ports:
+    #   - 7317:7317
   gptscript_runner:
     build:
       context: .
@@ -230,7 +231,7 @@ services:
       context: .
       dockerfile: Dockerfile.runner
       args:
-        TAG: 2025-07-30d-small
+        TAG: 2025-08-13c-small
         # Builds vllm in CPU-only mode per https://github.com/vllm-project/vllm/discussions/8090
         DEVELOPMENT_CPU_ONLY: "true"
     environment:
@@ -250,7 +251,7 @@ services:
       context: .
       dockerfile: Dockerfile.runner
       args:
-        TAG: 2025-07-30d-large
+        TAG: 2025-08-13c-large
     environment:
       # Prevent toolchain downloads
       - GOTOOLCHAIN=local
@@ -281,8 +282,8 @@ services:
       - ./demos:/app/demos
 
   frontend:
-    ports:
-      - 8081:${FRONTEND_INTERNAL_PORT:-8081}
+    # ports:
+    #   - 8081:${FRONTEND_INTERNAL_PORT:-8081}
     build:
       context: .
       dockerfile: Dockerfile
@@ -299,8 +300,8 @@ services:
   haystack:
     build:
       context: ./haystack_service
-    ports:
-      - 8001:8000
+    # ports:
+    #   - 8001:8000
     restart: always
     environment:
       - PGVECTOR_DSN=postgresql://postgres:postgres@pgvector:5432/postgres
