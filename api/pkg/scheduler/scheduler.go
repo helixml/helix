@@ -148,7 +148,7 @@ type Scheduler struct {
 	controller              *RunnerController
 	queue                   *WorkQueue
 	onSchedulingErr         func(work *Workload, err error)
-	slots                   *xsync.MapOf[uuid.UUID, *Slot]
+	slots                   *SlotStore                  // Database-backed slot storage
 	modelStaleFunc          TimeoutFunc                 // Function to check if models are stale
 	slotTimeoutFunc         TimeoutFunc                 // Function to check if slots have timed out due to error
 	decisionsTracker        *SchedulingDecisionsTracker // Tracks scheduling decisions for dashboard
@@ -184,6 +184,7 @@ type GPUAllocation struct {
 
 type Params struct {
 	RunnerController        *RunnerController
+	Store                   store.Store // Required for slot persistence
 	QueueSize               int
 	OnSchedulingErr         func(work *Workload, err error)
 	OnResponseHandler       func(ctx context.Context, resp *types.RunnerLLMInferenceResponse) error
@@ -196,6 +197,9 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 	}
 	if params.RunnerController == nil {
 		return nil, fmt.Errorf("runner controller is required")
+	}
+	if params.Store == nil {
+		return nil, fmt.Errorf("store is required for slot persistence")
 	}
 	modelTTL := serverConfig.Providers.Helix.ModelTTL
 	if modelTTL == 0 {
@@ -243,7 +247,7 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		controller:              params.RunnerController,
 		queue:                   NewWorkQueue(queueSize),
 		onSchedulingErr:         params.OnSchedulingErr,
-		slots:                   xsync.NewMapOf[uuid.UUID, *Slot](),
+		slots:                   NewSlotStore(params.Store),
 		modelStaleFunc:          modelStaleFunc,
 		slotTimeoutFunc:         slotTimeoutFunc,
 		decisionsTracker:        NewSchedulingDecisionsTracker(100), // Keep last 100 decisions
