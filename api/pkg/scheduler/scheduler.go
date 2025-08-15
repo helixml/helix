@@ -1597,6 +1597,15 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 
 // createNewSlot creates a new slot for the given runner and workload.
 func (s *Scheduler) createNewSlot(ctx context.Context, slot *Slot) error {
+	// Check if slot has nil InitialWork - this can happen for slots loaded from database
+	if slot.InitialWork() == nil {
+		log.Warn().
+			Str("slot_id", slot.ID.String()).
+			Str("runner_id", slot.RunnerID).
+			Msg("cannot create slot with nil InitialWork, skipping")
+		return fmt.Errorf("slot %s has nil InitialWork", slot.ID.String())
+	}
+
 	withSlotContext(&log.Logger, slot).Info().
 		Str("SLOT_CREATION", "starting").
 		Msg("SLOT_CREATION: Starting createNewSlot")
