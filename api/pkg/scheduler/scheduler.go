@@ -881,11 +881,22 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	s.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
 		if runnerID, exists := allActualSlots[slotID]; !exists {
 			orphanedSlotCount++
+
+			// Safely handle potential nil InitialWork for logging
+			var modelName, runtime string
+			if work := slot.InitialWork(); work != nil {
+				modelName = work.ModelName().String()
+				runtime = string(work.Runtime())
+			} else {
+				modelName = "unknown"
+				runtime = "unknown"
+			}
+
 			log.Info().
 				Str("runner_id", slot.RunnerID).
 				Str("slot_id", slotID.String()).
-				Str("model", slot.InitialWork().ModelName().String()).
-				Str("runtime", string(slot.InitialWork().Runtime())).
+				Str("model", modelName).
+				Str("runtime", runtime).
 				Bool("is_active", slot.IsActive()).
 				Bool("is_running", slot.IsRunning()).
 				Msg("found slot on the scheduler that doesn't exist on the runner, creating...")
