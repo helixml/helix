@@ -19,7 +19,6 @@ import {
   Switch,
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
-import RefreshIcon from '@mui/icons-material/Refresh';
 import { TypesModel, TypesRuntime } from '../../api/api'; // Assuming TypesModel is the correct type
 import { useListHelixModels, useUpdateHelixModel } from '../../services/helixModelsService';
 import { useListModelInfos } from '../../services/modelInfoService';
@@ -388,18 +387,6 @@ const HelixModelsTable: FC = () => {
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="body1">No Helix models found.</Typography>
                   <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button 
-            variant="outlined" 
-            color="primary" 
-            startIcon={<RefreshIcon />} 
-            onClick={() => {
-              refetch();
-              refetchModelInfos();
-            }}
-            disabled={isLoading}
-          >
-            Refresh
-          </Button>
           <Button variant="outlined" color="secondary" startIcon={<AddIcon />} onClick={handleCreateClick}>
             Add Model
           </Button>
@@ -429,18 +416,6 @@ const HelixModelsTable: FC = () => {
            sx={{ width: '40%' }}
          />
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button 
-            variant="outlined" 
-            color="primary" 
-            startIcon={<RefreshIcon />} 
-            onClick={() => {
-              refetch();
-              refetchModelInfos();
-            }}
-            disabled={isLoading}
-          >
-            Refresh
-          </Button>
           <Button variant="outlined" color="secondary" startIcon={<AddIcon />} onClick={handleCreateClick}>
             Add Model
           </Button>
