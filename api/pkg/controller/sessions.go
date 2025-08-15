@@ -300,14 +300,14 @@ func (c *Controller) UpdateInteraction(ctx context.Context, session *types.Sessi
 
 	// 🔥🔥🔥 BIG FUCKING LOGGING FOR WEBSOCKET SESSION METADATA 🔥🔥🔥
 	log.Error().
-		Str("🚨 WEBSOCKET_EVENT", "UpdateInteraction").
-		Str("🚨 SESSION_ID", session.ID).
-		Interface("🚨 DOCUMENT_IDS", session.Metadata.DocumentIDs).
-		Bool("🚨 HAS_DOCUMENT_IDS", session.Metadata.DocumentIDs != nil && len(session.Metadata.DocumentIDs) > 0).
-		Int("🚨 DOCUMENT_IDS_COUNT", len(session.Metadata.DocumentIDs)).
-		Str("🚨 DOCUMENT_GROUP_ID", session.Metadata.DocumentGroupID).
-		Int("🚨 RAG_RESULTS_COUNT", len(session.Metadata.SessionRAGResults)).
-		Msg("🔥🔥🔥 SENDING WEBSOCKET SESSION UPDATE FROM UpdateInteraction 🔥🔥🔥")
+		Str("🚨 FUCK_WEBSOCKET_EVENT", "UpdateInteraction").
+		Str("🚨 FUCK_SESSION_ID", session.ID).
+		Interface("🚨 FUCK_DOCUMENT_IDS", session.Metadata.DocumentIDs).
+		Bool("🚨 FUCK_HAS_DOCUMENT_IDS", session.Metadata.DocumentIDs != nil && len(session.Metadata.DocumentIDs) > 0).
+		Int("🚨 FUCK_DOCUMENT_IDS_COUNT", len(session.Metadata.DocumentIDs)).
+		Str("🚨 FUCK_DOCUMENT_GROUP_ID", session.Metadata.DocumentGroupID).
+		Int("🚨 FUCK_RAG_RESULTS_COUNT", len(session.Metadata.SessionRAGResults)).
+		Msg("🔥🔥🔥 FUCK SENDING WEBSOCKET SESSION UPDATE FROM UpdateInteraction 🔥🔥🔥")
 
 	event := &types.WebsocketEvent{
 		Type:      types.WebsocketEventSessionUpdate,
@@ -424,14 +424,14 @@ func (c *Controller) WriteSession(ctx context.Context, session *types.Session) e
 
 	// 🔥🔥🔥 BIG FUCKING LOGGING FOR WEBSOCKET SESSION METADATA 🔥🔥🔥
 	log.Error().
-		Str("🚨 WEBSOCKET_EVENT", "WriteSession").
-		Str("🚨 SESSION_ID", session.ID).
-		Interface("🚨 DOCUMENT_IDS", session.Metadata.DocumentIDs).
-		Bool("🚨 HAS_DOCUMENT_IDS", session.Metadata.DocumentIDs != nil && len(session.Metadata.DocumentIDs) > 0).
-		Int("🚨 DOCUMENT_IDS_COUNT", len(session.Metadata.DocumentIDs)).
-		Str("🚨 DOCUMENT_GROUP_ID", session.Metadata.DocumentGroupID).
-		Int("🚨 RAG_RESULTS_COUNT", len(session.Metadata.SessionRAGResults)).
-		Msg("🔥🔥🔥 SENDING WEBSOCKET SESSION UPDATE FROM WriteSession 🔥🔥🔥")
+		Str("🚨 FUCK_WEBSOCKET_EVENT", "WriteSession").
+		Str("🚨 FUCK_SESSION_ID", session.ID).
+		Interface("🚨 FUCK_DOCUMENT_IDS", session.Metadata.DocumentIDs).
+		Bool("🚨 FUCK_HAS_DOCUMENT_IDS", session.Metadata.DocumentIDs != nil && len(session.Metadata.DocumentIDs) > 0).
+		Int("🚨 FUCK_DOCUMENT_IDS_COUNT", len(session.Metadata.DocumentIDs)).
+		Str("🚨 FUCK_DOCUMENT_GROUP_ID", session.Metadata.DocumentGroupID).
+		Int("🚨 FUCK_RAG_RESULTS_COUNT", len(session.Metadata.SessionRAGResults)).
+		Msg("🔥🔥🔥 FUCK SENDING WEBSOCKET SESSION UPDATE FROM WriteSession 🔥🔥🔥")
 
 	event := &types.WebsocketEvent{
 		Type:      types.WebsocketEventSessionUpdate,

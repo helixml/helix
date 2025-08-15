@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -104,19 +105,48 @@ func (ss *SlotStore) loadFromDatabase() {
 		slot := &Slot{
 			ID:               dbSlot.ID,
 			RunnerID:         dbSlot.RunnerID,
-			initialWork:      nil, // Will be set by reconciliation
 			LastActivityTime: dbSlot.Updated,
 			isActive:         dbSlot.Active,
 			isStaleFunc:      nil, // Will be set by scheduler
 			isErrorFunc:      nil, // Will be set by scheduler
 			isRunning:        dbSlot.Ready,
-			GPUAllocation: &GPUAllocation{
+		}
+
+		// Deserialize workload from JSONB if present
+		if dbSlot.WorkloadData != nil {
+			workloadBytes, err := json.Marshal(dbSlot.WorkloadData)
+			if err == nil {
+				var workload Workload
+				if err := json.Unmarshal(workloadBytes, &workload); err == nil {
+					slot.initialWork = &workload
+				} else {
+					log.Error().Err(err).Str("slot_id", dbSlot.ID.String()).Msg("failed to deserialize workload data")
+				}
+			}
+		}
+
+		// Deserialize GPU allocation from JSONB if present
+		if dbSlot.GPUAllocationData != nil {
+			gpuBytes, err := json.Marshal(dbSlot.GPUAllocationData)
+			if err == nil {
+				var gpuAlloc GPUAllocation
+				if err := json.Unmarshal(gpuBytes, &gpuAlloc); err == nil {
+					slot.GPUAllocation = &gpuAlloc
+				} else {
+					log.Error().Err(err).Str("slot_id", dbSlot.ID.String()).Msg("failed to deserialize GPU allocation data")
+				}
+			}
+		}
+
+		// Fallback to legacy fields if JSONB data is not available
+		if slot.GPUAllocation == nil {
+			slot.GPUAllocation = &GPUAllocation{
 				WorkloadID:         "", // Will be set by reconciliation
 				RunnerID:           dbSlot.RunnerID,
 				SingleGPU:          dbSlot.GPUIndex,
 				MultiGPUs:          dbSlot.GPUIndices,
 				TensorParallelSize: dbSlot.TensorParallelSize,
-			},
+			}
 		}
 
 		ss.cache[dbSlot.ID] = slot
@@ -141,22 +171,46 @@ func (ss *SlotStore) saveToDatabase(slot *Slot) {
 
 	// Convert scheduler.Slot to types.RunnerSlot
 	dbSlot := &types.RunnerSlot{
-		ID:                 slot.ID,
-		RunnerID:           slot.RunnerID,
-		Runtime:            types.RuntimeOllama, // Default, will be updated by reconciliation
-		Model:              "",                  // Will be updated by reconciliation
-		Active:             slot.isActive,
-		Ready:              slot.isRunning,
-		Status:             "scheduler_managed",
-		GPUIndex:           slot.GPUAllocation.SingleGPU,
-		GPUIndices:         slot.GPUAllocation.MultiGPUs,
-		TensorParallelSize: slot.GPUAllocation.TensorParallelSize,
+		ID:       slot.ID,
+		RunnerID: slot.RunnerID,
+		Active:   slot.isActive,
+		Ready:    slot.isRunning,
+		Status:   "scheduler_managed",
 	}
 
-	// Extract model and runtime from initialWork if available
+	// Serialize workload to JSONB if available
 	if slot.initialWork != nil {
+		workloadBytes, err := json.Marshal(slot.initialWork)
+		if err == nil {
+			var workloadData map[string]any
+			if err := json.Unmarshal(workloadBytes, &workloadData); err == nil {
+				dbSlot.WorkloadData = workloadData
+			}
+		}
+
+		// Also populate legacy fields for compatibility
 		dbSlot.Model = string(slot.initialWork.ModelName())
 		dbSlot.Runtime = slot.initialWork.Runtime()
+	} else {
+		// Default values for legacy fields
+		dbSlot.Runtime = types.RuntimeOllama
+		dbSlot.Model = ""
+	}
+
+	// Serialize GPU allocation to JSONB
+	if slot.GPUAllocation != nil {
+		gpuBytes, err := json.Marshal(slot.GPUAllocation)
+		if err == nil {
+			var gpuData map[string]any
+			if err := json.Unmarshal(gpuBytes, &gpuData); err == nil {
+				dbSlot.GPUAllocationData = gpuData
+			}
+		}
+
+		// Also populate legacy fields for compatibility
+		dbSlot.GPUIndex = slot.GPUAllocation.SingleGPU
+		dbSlot.GPUIndices = slot.GPUAllocation.MultiGPUs
+		dbSlot.TensorParallelSize = slot.GPUAllocation.TensorParallelSize
 	}
 
 	_, err := ss.store.CreateSlot(ctx, dbSlot)
