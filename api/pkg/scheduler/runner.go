@@ -38,11 +38,11 @@ type RunnerController struct {
 	slotsCache          *LockingRunnerMap[types.ListRunnerSlotsResponse]
 	statusCache         *LockingRunnerMap[types.RunnerStatus]
 	store               store.Store
-	onRunnerConnectedFn func(runnerID string)       // Callback for when a new runner connects
-	getModelMemoryFn    func(modelID string) uint64 // Callback to get authoritative model memory from scheduler
-	getSchedulerSlotsFn func() map[uuid.UUID]*Slot  // Callback to get scheduler's desired state slots
-	healthChecker       HealthChecker               // Interface for health checking, allows mocking in tests
-	runnerClient        RunnerClient                // Interface for runner requests, allows mocking in tests
+	onRunnerConnectedFn func(runnerID string)                // Callback for when a new runner connects
+	getModelMemoryFn    func(modelID string) (uint64, error) // Callback to get authoritative model memory from scheduler
+	getSchedulerSlotsFn func() map[uuid.UUID]*Slot           // Callback to get scheduler's desired state slots
+	healthChecker       HealthChecker                        // Interface for health checking, allows mocking in tests
+	runnerClient        RunnerClient                         // Interface for runner requests, allows mocking in tests
 }
 
 // HealthChecker interface allows for mocking health checks in tests
@@ -234,10 +234,10 @@ type RunnerControllerConfig struct {
 	PubSub              pubsub.PubSub
 	FS                  filestore.FileStore
 	Store               store.Store
-	OnRunnerConnectedFn func(runnerID string)       // Optional callback for when a new runner connects
-	GetModelMemoryFn    func(modelID string) uint64 // Optional callback to get authoritative model memory
-	HealthChecker       HealthChecker               // Optional: for testing, defaults to NATS-based implementation
-	RunnerClient        RunnerClient                // Optional: for testing, defaults to NATS-based implementation
+	OnRunnerConnectedFn func(runnerID string)                // Optional callback for when a new runner connects
+	GetModelMemoryFn    func(modelID string) (uint64, error) // Optional callback to get authoritative model memory
+	HealthChecker       HealthChecker                        // Optional: for testing, defaults to NATS-based implementation
+	RunnerClient        RunnerClient                         // Optional: for testing, defaults to NATS-based implementation
 }
 
 func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*RunnerController, error) {
@@ -308,7 +308,7 @@ func (c *RunnerController) SetOnRunnerConnectedCallback(fn func(runnerID string)
 }
 
 // setModelMemoryCallback sets the callback function to get authoritative model memory from scheduler
-func (c *RunnerController) setModelMemoryCallback(fn func(modelID string) uint64) {
+func (c *RunnerController) setModelMemoryCallback(fn func(modelID string) (uint64, error)) {
 	c.callbackMu.Lock()
 	defer c.callbackMu.Unlock()
 	c.getModelMemoryFn = fn
@@ -631,7 +631,11 @@ func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryR
 	}
 
 	// Calculate allocated memory per GPU based on existing slots
-	allocatedMemoryPerGPU := c.calculateAllocatedMemoryPerGPU(runnerID)
+	allocatedMemoryPerGPU, err := c.calculateAllocatedMemoryPerGPU(runnerID)
+	if err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Msg("error calculating allocated memory per GPU for allocation")
+		return nil, nil, 0
+	}
 
 	// First, try to fit the model on a single GPU
 	if c.CanFitModelOnAnyGPUAllocated(runnerID, modelMemoryRequirement, allocatedMemoryPerGPU) {
@@ -698,14 +702,15 @@ func (c *RunnerController) Version(runnerID string) string {
 // calculateAllocatedMemoryPerGPU calculates how much memory is allocated to each GPU based on scheduler's desired state
 // ARCHITECTURAL CHANGE: This now uses the scheduler's desired state instead of actual runner state
 // This prevents overscheduling by making decisions based on what we intend to create, not what currently exists
-func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) map[int]uint64 {
+func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) (map[int]uint64, error) {
 	allocatedMemoryPerGPU := make(map[int]uint64)
 
 	// CRITICAL: Use scheduler's desired state slots instead of actual runner slots
 	// This prevents race conditions and cache invalidation issues in rapid scheduling scenarios
 	if c.getSchedulerSlotsFn == nil {
-		log.Error().Str("runner_id", runnerID).Msg("CRITICAL: No scheduler slots callback available - this is a programming error")
-		return allocatedMemoryPerGPU
+		err := fmt.Errorf("no scheduler slots callback available for runner %s - this is a programming error", runnerID)
+		log.Error().Str("runner_id", runnerID).Err(err).Msg("CRITICAL: No scheduler slots callback available")
+		return allocatedMemoryPerGPU, err
 	}
 
 	// Get scheduler's desired state slots
@@ -725,19 +730,42 @@ func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) map[i
 		// Get authoritative model memory from the scheduler
 		var modelMemory uint64
 		if c.getModelMemoryFn != nil {
-			modelMemory = c.getModelMemoryFn(slot.InitialWork().ModelName().String())
-		}
-
-		// If we still can't determine model memory, skip this slot to prevent over-scheduling
-		if modelMemory == 0 {
+			var err error
+			modelMemory, err = c.getModelMemoryFn(slot.InitialWork().ModelName().String())
+			if err != nil {
+				err = fmt.Errorf("failed to get model memory for slot %s with model %s on runner %s: %w",
+					slotID.String(), slot.InitialWork().ModelName().String(), runnerID, err)
+				log.Error().
+					Str("runner_id", runnerID).
+					Str("slot_id", slotID.String()).
+					Str("model", slot.InitialWork().ModelName().String()).
+					Err(err).
+					Msg("CRITICAL: Failed to get model memory requirements - this could lead to over-scheduling")
+				return allocatedMemoryPerGPU, err
+			}
+		} else {
+			err := fmt.Errorf("no model memory callback available for slot %s with model %s on runner %s",
+				slotID.String(), slot.InitialWork().ModelName().String(), runnerID)
 			log.Error().
 				Str("runner_id", runnerID).
 				Str("slot_id", slotID.String()).
 				Str("model", slot.InitialWork().ModelName().String()).
-				Msg("CRITICAL: Cannot determine model memory requirements - skipping slot to prevent over-scheduling")
+				Err(err).
+				Msg("CRITICAL: No model memory callback available - this is a programming error")
+			return allocatedMemoryPerGPU, err
+		}
 
-			// Skip this slot entirely rather than guessing - this prevents over-scheduling
-			continue
+		// Verify we got valid memory value
+		if modelMemory == 0 {
+			err := fmt.Errorf("model memory callback returned zero for slot %s with model %s on runner %s",
+				slotID.String(), slot.InitialWork().ModelName().String(), runnerID)
+			log.Error().
+				Str("runner_id", runnerID).
+				Str("slot_id", slotID.String()).
+				Str("model", slot.InitialWork().ModelName().String()).
+				Err(err).
+				Msg("CRITICAL: Model memory callback returned zero - this could lead to over-scheduling")
+			return allocatedMemoryPerGPU, err
 		}
 
 		log.Trace().
@@ -766,7 +794,7 @@ func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) map[i
 		Interface("allocated_memory_per_gpu", allocatedMemoryPerGPU).
 		Msg("Calculated allocated memory per GPU (skipped slots with unknown memory requirements)")
 
-	return allocatedMemoryPerGPU
+	return allocatedMemoryPerGPU, nil
 }
 
 // CanFitModelOnAnyGPUAllocated checks if any individual GPU has enough free memory for the model based on allocated memory
