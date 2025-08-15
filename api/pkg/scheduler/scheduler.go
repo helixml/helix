@@ -100,6 +100,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"time"
@@ -314,6 +315,7 @@ func (s *Scheduler) runGoroutineWithRestart(ctx context.Context, name string, fn
 							log.Error().
 								Str("goroutine", name).
 								Interface("panic", r).
+								Str("stack", string(debug.Stack())).
 								Msg("goroutine panicked - restarting in 5 seconds")
 						}
 					}()
