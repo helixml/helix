@@ -53,17 +53,32 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 			singleGPU, multiGPUs, _ := s.controller.GetOptimalGPUAllocation(runnerID, work.model.Memory)
 
 			// TEMPORARY: Disable multi-GPU for Ollama due to timeout issues
-			if work.Runtime() == types.RuntimeOllama && len(multiGPUs) > 1 {
+			if work.Runtime() == types.RuntimeOllama && singleGPU == nil && len(multiGPUs) > 0 {
 				log.Info().
 					Str("runner_id", runnerID).
 					Str("model", work.ModelName().String()).
 					Ints("rejected_multi_gpus", multiGPUs).
-					Msg("TEMPORARY: Disabling multi-GPU allocation for Ollama model due to timeout issues - forcing single GPU only")
-				// Force single GPU allocation for Ollama by rejecting multi-GPU allocation
-				runnerGPUCompatible[runnerID] = (singleGPU != nil)
+					Uint64("model_memory_gb", work.model.Memory/(1024*1024*1024)).
+					Msg("TEMPORARY: Disabling multi-GPU allocation for Ollama model due to timeout issues - rejecting model that needs multi-GPU")
+				// Force rejection for Ollama models that need multi-GPU
+				runnerGPUCompatible[runnerID] = false
 				multiGPUs = nil // Clear multi-GPU allocation
 			} else {
-				runnerGPUCompatible[runnerID] = (singleGPU != nil) || (len(multiGPUs) > 0)
+				// Check if we have a valid GPU allocation
+				hasValidAllocation := (singleGPU != nil) || (len(multiGPUs) > 0)
+
+				// If no allocation but runner has enough total memory, allow it (eviction can make space)
+				if !hasValidAllocation && runnerMemory[runnerID] >= work.model.Memory {
+					runnerGPUCompatible[runnerID] = true
+					log.Debug().
+						Str("runner_id", runnerID).
+						Str("model", work.ModelName().String()).
+						Uint64("model_memory_gb", work.model.Memory/(1024*1024*1024)).
+						Uint64("runner_total_memory_gb", runnerMemory[runnerID]/(1024*1024*1024)).
+						Msg("No immediate GPU allocation available, but runner has enough total memory - allowing for potential eviction")
+				} else {
+					runnerGPUCompatible[runnerID] = hasValidAllocation
+				}
 			}
 
 			log.Trace().
@@ -75,15 +90,16 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 				Msg("GPU allocation check with pending allocations")
 
 			// Store the allocation decision for this workload-runner combination
-			if runnerGPUCompatible[runnerID] {
+			if runnerGPUCompatible[runnerID] && ((singleGPU != nil) || (len(multiGPUs) > 0)) {
 				s.storeGPUAllocation(work, runnerID, singleGPU, multiGPUs)
 			}
 		} else {
 			// For other runtimes, use traditional total memory check
 			runnerGPUCompatible[runnerID] = runnerMemory[runnerID] >= work.model.Memory
+		}
 
-			// log.Info().
-			//	Str("runner_id", runnerID).
+		// log.Info().
+		//	Str("runner_id", runnerID).
 			//	Str("runtime", string(work.Runtime())).
 			//	Uint64("runner_memory", runnerMemory[runnerID]).
 			//	Uint64("model_memory", work.model.Memory).
