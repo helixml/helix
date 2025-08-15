@@ -1751,12 +1751,22 @@ func withWorkContext(l *zerolog.Logger, w *Workload) *zerolog.Logger {
 
 // AddSlotFields adds standard slot-related fields to a log event
 func withSlotContext(l *zerolog.Logger, s *Slot) *zerolog.Logger {
-	nextLogger := l.With().
+	logBuilder := l.With().
 		Str("runner_id", s.RunnerID).
-		Str("slot_id", s.ID.String()).
-		Str("model_name", s.InitialWork().ModelName().String()).
-		Uint64("memory", s.Memory()).
-		Logger()
+		Str("slot_id", s.ID.String())
+
+	// Safely handle potential nil InitialWork
+	if work := s.InitialWork(); work != nil {
+		logBuilder = logBuilder.
+			Str("model_name", work.ModelName().String()).
+			Uint64("memory", s.Memory())
+	} else {
+		logBuilder = logBuilder.
+			Str("model_name", "unknown").
+			Uint64("memory", 0)
+	}
+
+	nextLogger := logBuilder.Logger()
 	return &nextLogger
 }
 
