@@ -631,7 +631,11 @@ func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryR
 	}
 
 	// Calculate allocated memory per GPU based on existing slots
-	allocatedMemoryPerGPU := c.calculateAllocatedMemoryPerGPU(runnerID)
+	allocatedMemoryPerGPU, err := c.calculateAllocatedMemoryPerGPU(runnerID)
+	if err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Msg("error calculating allocated memory per GPU for allocation")
+		return nil, nil, 0
+	}
 
 	// First, try to fit the model on a single GPU
 	if c.CanFitModelOnAnyGPUAllocated(runnerID, modelMemoryRequirement, allocatedMemoryPerGPU) {
@@ -698,14 +702,15 @@ func (c *RunnerController) Version(runnerID string) string {
 // calculateAllocatedMemoryPerGPU calculates how much memory is allocated to each GPU based on scheduler's desired state
 // ARCHITECTURAL CHANGE: This now uses the scheduler's desired state instead of actual runner state
 // This prevents overscheduling by making decisions based on what we intend to create, not what currently exists
-func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) map[int]uint64 {
+func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) (map[int]uint64, error) {
 	allocatedMemoryPerGPU := make(map[int]uint64)
 
 	// CRITICAL: Use scheduler's desired state slots instead of actual runner slots
 	// This prevents race conditions and cache invalidation issues in rapid scheduling scenarios
 	if c.getSchedulerSlotsFn == nil {
-		log.Error().Str("runner_id", runnerID).Msg("CRITICAL: No scheduler slots callback available - this is a programming error")
-		return allocatedMemoryPerGPU
+		err := fmt.Errorf("no scheduler slots callback available for runner %s - this is a programming error", runnerID)
+		log.Error().Str("runner_id", runnerID).Err(err).Msg("CRITICAL: No scheduler slots callback available")
+		return allocatedMemoryPerGPU, err
 	}
 
 	// Get scheduler's desired state slots
@@ -728,16 +733,17 @@ func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) map[i
 			modelMemory = c.getModelMemoryFn(slot.InitialWork().ModelName().String())
 		}
 
-		// If we still can't determine model memory, skip this slot to prevent over-scheduling
+		// If we still can't determine model memory, this is a critical error
 		if modelMemory == 0 {
+			err := fmt.Errorf("cannot determine model memory requirements for slot %s with model %s on runner %s",
+				slotID.String(), slot.InitialWork().ModelName().String(), runnerID)
 			log.Error().
 				Str("runner_id", runnerID).
 				Str("slot_id", slotID.String()).
 				Str("model", slot.InitialWork().ModelName().String()).
-				Msg("CRITICAL: Cannot determine model memory requirements - skipping slot to prevent over-scheduling")
-
-			// Skip this slot entirely rather than guessing - this prevents over-scheduling
-			continue
+				Err(err).
+				Msg("CRITICAL: Cannot determine model memory requirements - this could lead to over-scheduling")
+			return allocatedMemoryPerGPU, err
 		}
 
 		log.Trace().
@@ -766,7 +772,7 @@ func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) map[i
 		Interface("allocated_memory_per_gpu", allocatedMemoryPerGPU).
 		Msg("Calculated allocated memory per GPU (skipped slots with unknown memory requirements)")
 
-	return allocatedMemoryPerGPU
+	return allocatedMemoryPerGPU, nil
 }
 
 // CanFitModelOnAnyGPUAllocated checks if any individual GPU has enough free memory for the model based on allocated memory

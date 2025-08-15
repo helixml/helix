@@ -153,12 +153,14 @@ func TestGPUAllocationDistribution(t *testing.T) {
 		t.Logf("This suggests the GPU allocation logic is not considering existing allocations")
 
 		// Debug information
-		allocatedMemory := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+		allocatedMemory, err := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+		require.NoError(t, err, "Should be able to calculate allocated memory per GPU")
 		t.Logf("Debug - Allocated memory per GPU: %+v", allocatedMemory)
 	}
 
 	// Additional verification: check that the allocation decisions make sense
-	allocatedMemoryPerGPU := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+	allocatedMemoryPerGPU, err := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+	require.NoError(t, err, "Should be able to calculate allocated memory per GPU")
 
 	gpu0Memory := allocatedMemoryPerGPU[0]
 	gpu1Memory := allocatedMemoryPerGPU[1]

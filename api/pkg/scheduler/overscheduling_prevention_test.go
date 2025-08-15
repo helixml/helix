@@ -155,7 +155,8 @@ func TestOverSchedulingPrevention(t *testing.T) {
 		}
 
 		// Safety check: ensure we never over-allocate
-		finalAllocatedPerGPU := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+		finalAllocatedPerGPU, err := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+		require.NoError(t, err, "Should be able to calculate allocated memory per GPU")
 		for gpuIndex, allocatedOnGPU := range finalAllocatedPerGPU {
 			assert.LessOrEqual(t, allocatedOnGPU, gpuMemoryBytes,
 				"GPU %d should never exceed capacity during scheduling attempt %d", gpuIndex, attempt)
@@ -178,7 +179,8 @@ func TestOverSchedulingPrevention(t *testing.T) {
 	t.Logf("\n=== FINAL ANALYSIS ===")
 
 	finalQueueSize := len(scheduler.queue.Queue())
-	finalAllocatedPerGPU := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+	finalAllocatedPerGPU, err := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+	require.NoError(t, err, "Should be able to calculate final allocated memory per GPU")
 	_, finalAllocated, finalFree, err := scheduler.calculateRunnerMemory(testRunnerID)
 	require.NoError(t, err, "Should be able to calculate final runner memory")
 
