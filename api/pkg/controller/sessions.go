@@ -298,6 +298,17 @@ func (c *Controller) UpdateInteraction(ctx context.Context, session *types.Sessi
 		session.Interactions = append(session.Interactions, updated)
 	}
 
+	// 🔥🔥🔥 BIG FUCKING LOGGING FOR WEBSOCKET SESSION METADATA 🔥🔥🔥
+	log.Error().
+		Str("🚨 WEBSOCKET_EVENT", "UpdateInteraction").
+		Str("🚨 SESSION_ID", session.ID).
+		Interface("🚨 DOCUMENT_IDS", session.Metadata.DocumentIDs).
+		Bool("🚨 HAS_DOCUMENT_IDS", session.Metadata.DocumentIDs != nil && len(session.Metadata.DocumentIDs) > 0).
+		Int("🚨 DOCUMENT_IDS_COUNT", len(session.Metadata.DocumentIDs)).
+		Str("🚨 DOCUMENT_GROUP_ID", session.Metadata.DocumentGroupID).
+		Int("🚨 RAG_RESULTS_COUNT", len(session.Metadata.SessionRAGResults)).
+		Msg("🔥🔥🔥 SENDING WEBSOCKET SESSION UPDATE FROM UpdateInteraction 🔥🔥🔥")
+
 	event := &types.WebsocketEvent{
 		Type:      types.WebsocketEventSessionUpdate,
 		SessionID: interaction.SessionID,
@@ -410,6 +421,17 @@ func (c *Controller) WriteSession(ctx context.Context, session *types.Session) e
 		log.Printf("Error adding message: %s", err)
 		return err
 	}
+
+	// 🔥🔥🔥 BIG FUCKING LOGGING FOR WEBSOCKET SESSION METADATA 🔥🔥🔥
+	log.Error().
+		Str("🚨 WEBSOCKET_EVENT", "WriteSession").
+		Str("🚨 SESSION_ID", session.ID).
+		Interface("🚨 DOCUMENT_IDS", session.Metadata.DocumentIDs).
+		Bool("🚨 HAS_DOCUMENT_IDS", session.Metadata.DocumentIDs != nil && len(session.Metadata.DocumentIDs) > 0).
+		Int("🚨 DOCUMENT_IDS_COUNT", len(session.Metadata.DocumentIDs)).
+		Str("🚨 DOCUMENT_GROUP_ID", session.Metadata.DocumentGroupID).
+		Int("🚨 RAG_RESULTS_COUNT", len(session.Metadata.SessionRAGResults)).
+		Msg("🔥🔥🔥 SENDING WEBSOCKET SESSION UPDATE FROM WriteSession 🔥🔥🔥")
 
 	event := &types.WebsocketEvent{
 		Type:      types.WebsocketEventSessionUpdate,
