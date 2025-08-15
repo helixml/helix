@@ -9,6 +9,7 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -318,25 +319,37 @@ func TestAnalyzeGlobalModelDistribution(t *testing.T) {
 	runnerCtrl.OnConnectedHandler("runner-1")
 	runnerCtrl.OnConnectedHandler("runner-2")
 
-	mockSlots1 := []*types.RunnerSlot{
-		{Model: "model-a", Active: true},
-		{Model: "model-a", Active: true},
-		{Model: "model-b", Active: true},
-		{Model: "non-prewarm-model", Active: true}, // Should be ignored
-	}
-	mockSlots2 := []*types.RunnerSlot{
-		{Model: "model-a", Active: true},
-		{Model: "model-c", Active: true},
-		{Model: "model-inactive", Active: false}, // Should be ignored (inactive)
+	// Create local slots that match the expected distribution
+	// Since analyzeGlobalModelDistribution now uses local state
+	createSlot := func(runnerID, modelID string) {
+		workload := &Workload{
+			WorkloadType: WorkloadTypeLLMInferenceRequest,
+			llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+				RequestID: "test-request",
+				Request:   &openai.ChatCompletionRequest{Model: modelID},
+			},
+			model: &types.Model{ID: modelID, Name: modelID},
+		}
+		gpuAllocation := &GPUAllocation{
+			WorkloadID:         workload.ID(),
+			RunnerID:           runnerID,
+			SingleGPU:          func() *int { i := 0; return &i }(),
+			TensorParallelSize: 1,
+		}
+		slot := NewSlot(runnerID, workload, func(string, time.Time) bool { return false }, func(string, time.Time) bool { return false }, gpuAllocation)
+		scheduler.slots.Store(slot.ID, slot)
 	}
 
-	runnerCtrl.slotsCache.Set("runner-1", NewCache(ctx, func() (types.ListRunnerSlotsResponse, error) {
-		return types.ListRunnerSlotsResponse{Slots: mockSlots1}, nil
-	}, CacheConfig{updateInterval: time.Second}))
+	// Create slots for runner-1: 2x model-a, 1x model-b, 1x non-prewarm-model
+	createSlot("runner-1", "model-a")
+	createSlot("runner-1", "model-a")
+	createSlot("runner-1", "model-b")
+	createSlot("runner-1", "non-prewarm-model") // Should be ignored
 
-	runnerCtrl.slotsCache.Set("runner-2", NewCache(ctx, func() (types.ListRunnerSlotsResponse, error) {
-		return types.ListRunnerSlotsResponse{Slots: mockSlots2}, nil
-	}, CacheConfig{updateInterval: time.Second}))
+	// Create slots for runner-2: 1x model-a, 1x model-c
+	createSlot("runner-2", "model-a")
+	createSlot("runner-2", "model-c")
+	// Note: model-inactive is not created as a slot since inactive slots shouldn't exist in local state
 
 	// Test the analysis
 	modelCounts := scheduler.analyzeGlobalModelDistribution(prewarmModels)

@@ -409,7 +409,8 @@ func TestFragmentationPrevention(t *testing.T) {
 		t.Logf("⚠️  Large model was not scheduled - checking if this is due to fragmentation or insufficient memory")
 
 		// Check memory state
-		allocatedMemPerGPU := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+		allocatedMemPerGPU, err := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+		require.NoError(t, err, "Should be able to calculate allocated memory per GPU")
 		for gpuIndex := 0; gpuIndex < gpuCount; gpuIndex++ {
 			allocated := allocatedMemPerGPU[gpuIndex]
 			free := gpuMemoryBytes - allocated
@@ -437,7 +438,8 @@ func TestFragmentationPrevention(t *testing.T) {
 	// Test Case 4: Verify no over-allocation occurred
 	t.Logf("\n=== TEST CASE 4: Verify no GPU over-allocation ===")
 
-	finalAllocatedMemPerGPU := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+	finalAllocatedMemPerGPU, err := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+	require.NoError(t, err, "Should be able to calculate final allocated memory per GPU")
 	for gpuIndex := 0; gpuIndex < gpuCount; gpuIndex++ {
 		allocated := finalAllocatedMemPerGPU[gpuIndex]
 		t.Logf("  Final GPU %d: %d GB allocated out of %d GB capacity",
@@ -619,7 +621,8 @@ func TestOptimalTensorParallelismScheduling(t *testing.T) {
 	// Test Case 3: Analyze final allocation efficiency
 	t.Logf("\n=== TEST CASE 3: Analyze final memory utilization ===")
 
-	finalAllocatedMemPerGPU := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+	finalAllocatedMemPerGPU, err := runnerCtrl.calculateAllocatedMemoryPerGPU(testRunnerID)
+	require.NoError(t, err, "Should be able to calculate final allocated memory per GPU")
 	totalAllocated := uint64(0)
 	totalCapacity := gpuMemoryBytes * uint64(gpuCount)
 

@@ -19,6 +19,35 @@
 // This invariant is CRITICAL for system stability - violating it can cause GPU
 // out-of-memory errors that crash model processes.
 //
+// STATE CONSISTENCY ARCHITECTURE:
+// ================================
+// To work well in a distributed system (where runners may get disconnected, be slow, etc),
+// the scheduler operates on a single authoritative source of truth for scheduling decisions:
+// LOCAL STATE (s.slots). Remote state is used only for reconciliation and monitoring.
+//
+// | Operation                     | State Source                    | Rationale                      |
+// |-------------------------------|---------------------------------|--------------------------------|
+// | 🔥 HOT PATH (Scheduling)     |                                 |                                |
+// | Queue processing              | Local (s.slots)                | Fast decisions, no remote calls|
+// | Warm slot detection           | Local (s.slots)                | Consistent with scheduling     |
+// | Slot allocation               | Local (s.slots)                | Atomic local operations        |
+// | Memory calculations           | Local (s.slots) + Remote (total)| Consistent allocated memory   |
+// | Prewarming analysis           | Local (s.slots)                | Consistent with scheduling     |
+// |                               |                                 |                                |
+// | 🔄 RECONCILIATION             |                                 |                                |
+// | Slot reconciliation           | Remote (fetchSlots)             | Sync local with remote reality |
+// | Activity reconciliation       | Remote (fetchSlot)              | Check actual runner state      |
+// |                               |                                 |                                |
+// | 📊 MONITORING                 |                                 |                                |
+// | Runner status API             | Remote (GetStatus)              | Live monitoring data           |
+// | Runner slots API              | Remote (GetSlots)               | Live monitoring data           |
+//
+// KEY PRINCIPLES:
+// 1. Hot path operations use LOCAL state for performance and consistency
+// 2. Reconciliation processes sync local and remote state asynchronously
+// 3. Unknown model memory is treated as a CRITICAL ERROR, not silently ignored
+// 4. Memory calculations and scheduling decisions use the same source of truth
+//
 // MATHEMATICAL PROOF OF INVARIANT:
 // =================================
 // Let:
@@ -927,18 +956,31 @@ func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint
 		return 0, 0, 0, fmt.Errorf("runner %s reports zero total memory", runnerID)
 	}
 
-	// Calculate allocated memory from active models using LOCAL state for consistency
+	// Calculate allocated memory from all models using LOCAL state for consistency
+	// Memory is allocated to slots regardless of whether they're currently active
 	allocatedMemory := uint64(0)
+	var memoryCalculationError error
 	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 		// Only count slots on this specific runner
-		if slot.RunnerID == runnerID && slot.IsActive() {
-			// Get model memory from our prewarm models list
-			if modelMemory := s.getModelMemory(slot.InitialWork().ModelName().String()); modelMemory > 0 {
-				allocatedMemory += modelMemory
+		if slot.RunnerID == runnerID {
+			modelName := slot.InitialWork().ModelName().String()
+			modelMemory := s.getModelMemory(modelName)
+			if modelMemory == 0 {
+				memoryCalculationError = fmt.Errorf("unknown model memory for slot %s with model %s on runner %s - cannot calculate allocated memory safely", slot.ID.String(), modelName, runnerID)
+				return false // Stop iteration
 			}
+			allocatedMemory += modelMemory
 		}
 		return true
 	})
+
+	if memoryCalculationError != nil {
+		log.Error().
+			Str("runner_id", runnerID).
+			Err(memoryCalculationError).
+			Msg("CRITICAL: Cannot calculate runner memory due to unknown model memory - this could lead to over-scheduling")
+		return 0, 0, 0, memoryCalculationError
+	}
 
 	var freeMemory uint64
 	if allocatedMemory < totalMemory {
@@ -1993,9 +2035,10 @@ func (s *Scheduler) analyzeGlobalModelDistribution(prewarmModels []*types.Model)
 	availableRunners := 0
 
 	// Count running instances using local state for consistency with scheduling decisions
+	// Include both active and starting slots since they represent allocated models
 	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 		// Only count runners that are in our runner list
-		if slices.Contains(runners, slot.RunnerID) && slot.IsActive() {
+		if slices.Contains(runners, slot.RunnerID) {
 			modelName := slot.InitialWork().ModelName().String()
 			if _, isPrewarmModel := modelCounts[modelName]; isPrewarmModel {
 				modelCounts[modelName]++
