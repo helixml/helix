@@ -927,19 +927,18 @@ func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint
 		return 0, 0, 0, fmt.Errorf("runner %s reports zero total memory", runnerID)
 	}
 
-	// Calculate allocated memory from active models
+	// Calculate allocated memory from active models using LOCAL state for consistency
 	allocatedMemory := uint64(0)
-	slots, err := s.controller.GetSlots(runnerID)
-	if err == nil {
-		for _, slot := range slots {
-			if slot.Active && slot.Model != "" {
-				// Get model memory from our prewarm models list
-				if modelMemory := s.getModelMemory(slot.Model); modelMemory > 0 {
-					allocatedMemory += modelMemory
-				}
+	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		// Only count slots on this specific runner
+		if slot.RunnerID == runnerID && slot.IsActive() {
+			// Get model memory from our prewarm models list
+			if modelMemory := s.getModelMemory(slot.InitialWork().ModelName().String()); modelMemory > 0 {
+				allocatedMemory += modelMemory
 			}
 		}
-	}
+		return true
+	})
 
 	var freeMemory uint64
 	if allocatedMemory < totalMemory {
@@ -953,7 +952,7 @@ func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint
 
 // getModelMemory returns the memory requirement for a model from the model registry
 func (s *Scheduler) getModelMemory(modelID string) uint64 {
-	// First try to get from the model registry (the authoritative source)
+	// try to get from the model registry (the authoritative source)
 	models, err := s.controller.store.ListModels(context.Background(), &store.ListModelsQuery{})
 	if err != nil {
 		log.Error().
