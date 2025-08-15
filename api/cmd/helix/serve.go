@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"time"
 
 	// Register file driver
 	"gocloud.dev/blob/fileblob"
@@ -341,6 +342,13 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	// Set up prewarming callback now that both components exist
 	runnerController.SetOnRunnerConnectedCallback(scheduler.PrewarmNewRunner)
 	log.Info().Msg("Prewarming enabled - new runners will be prewarmed with configured models")
+
+	// Trigger initial prewarming for any runners that are already connected
+	go func() {
+		// Run in a goroutine to avoid blocking server startup
+		time.Sleep(1 * time.Second) // Give time for any existing runners to register
+		runnerController.PrewarmAllConnectedRunners()
+	}()
 
 	helixInference := openai.NewInternalHelixServer(cfg, postgresStore, ps, scheduler)
 

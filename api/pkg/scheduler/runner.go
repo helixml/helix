@@ -30,8 +30,10 @@ const (
 
 type RunnerController struct {
 	runners             []string
-	runnersMu           *sync.RWMutex // Dedicated mutex for runners list only
-	callbackMu          *sync.RWMutex // Dedicated mutex for callback function only
+	runnersMu           *sync.RWMutex        // Dedicated mutex for runners list only
+	callbackMu          *sync.RWMutex        // Dedicated mutex for callback function only
+	lastPrewarmedTime   map[string]time.Time // Track when each runner was last prewarmed
+	lastPrewarmedMu     *sync.RWMutex        // Mutex for lastPrewarmedTime map
 	ps                  pubsub.PubSub
 	ctx                 context.Context
 	fs                  filestore.FileStore
@@ -249,6 +251,8 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 		runners:             []string{},
 		runnersMu:           &sync.RWMutex{}, // Dedicated mutex for runners list
 		callbackMu:          &sync.RWMutex{}, // Dedicated mutex for callback
+		lastPrewarmedTime:   make(map[string]time.Time),
+		lastPrewarmedMu:     &sync.RWMutex{},
 		slotsCache:          NewLockingRunnerMap[types.ListRunnerSlotsResponse](),
 		statusCache:         NewLockingRunnerMap[types.RunnerStatus](),
 		onRunnerConnectedFn: cfg.OnRunnerConnectedFn,
@@ -276,18 +280,7 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 			log.Error().Err(err).Str("subject", msg.Subject).Msg("error parsing runner ID")
 			return err
 		}
-
-		// Only trigger full connection handling (including prewarming) for actual connections, not pings
-		messageData := string(msg.Data)
-		if messageData == "connected" {
-			controller.OnConnectedHandler(runnerID)
-		} else if messageData == "ping" {
-			// For pings, just update the runner list without triggering prewarming
-			controller.handleRunnerPing(runnerID)
-		} else {
-			// Log unknown message types but don't trigger any action
-			log.Debug().Str("runner_id", runnerID).Str("message_type", messageData).Msg("ignoring unknown runner message type")
-		}
+		controller.OnConnectedHandler(runnerID)
 		return nil
 	})
 	if err != nil {
@@ -350,6 +343,85 @@ func (c *RunnerController) reconcileCaches(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// shouldPrewarmExistingRunner checks if an existing runner should be prewarmed again
+// Returns true if the runner hasn't been prewarmed recently
+func (c *RunnerController) shouldPrewarmExistingRunner(runnerID string) bool {
+	c.lastPrewarmedMu.RLock()
+	defer c.lastPrewarmedMu.RUnlock()
+
+	lastPrewarmed, exists := c.lastPrewarmedTime[runnerID]
+	if !exists {
+		return true // Never prewarmed before
+	}
+
+	// Only prewarm again if it's been more than 2 minutes since last prewarming
+	// This prevents spam from frequent pings but allows re-prewarming when needed
+	return time.Since(lastPrewarmed) > 2*time.Minute
+}
+
+// updateLastPrewarmedTime updates the last prewarmed timestamp for a runner
+func (c *RunnerController) updateLastPrewarmedTime(runnerID string) {
+	c.lastPrewarmedMu.Lock()
+	defer c.lastPrewarmedMu.Unlock()
+	c.lastPrewarmedTime[runnerID] = time.Now()
+}
+
+// PrewarmAllConnectedRunners triggers prewarming for all currently connected runners
+// This should be called when the API server starts up to ensure existing runners are prewarmed
+func (c *RunnerController) PrewarmAllConnectedRunners() {
+	c.callbackMu.RLock()
+	callback := c.onRunnerConnectedFn
+	c.callbackMu.RUnlock()
+
+	if callback == nil {
+		log.Debug().Msg("no prewarming callback set, skipping initial prewarming")
+		return
+	}
+
+	c.runnersMu.RLock()
+	runners := make([]string, len(c.runners))
+	copy(runners, c.runners)
+	c.runnersMu.RUnlock()
+
+	if len(runners) == 0 {
+		log.Debug().Msg("no runners connected, skipping initial prewarming")
+		return
+	}
+
+	log.Info().Int("runner_count", len(runners)).Msg("triggering initial prewarming for all connected runners")
+
+	for _, runnerID := range runners {
+		go func(id string) {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error().
+						Str("runner_id", id).
+						Interface("panic", r).
+						Msg("panic recovered in initial prewarming callback")
+				}
+			}()
+
+			log.Info().Str("runner_id", id).Msg("triggering initial prewarming for existing runner")
+			callback(id)
+			c.updateLastPrewarmedTime(id)
+		}(runnerID)
+	}
+}
+
+// handleRunnerPing handles periodic ping messages from runners without triggering prewarming
+// This method is mainly used for testing scenarios where we need to simulate existing runners
+func (c *RunnerController) handleRunnerPing(id string) {
+	c.runnersMu.Lock()
+	defer c.runnersMu.Unlock()
+
+	if !slices.Contains(c.runners, id) {
+		// Add runner to list without triggering prewarming
+		c.runners = append(c.runners, id)
+		log.Debug().Str("runner_id", id).Msg("added runner from ping message")
+	}
+	// For existing runners, this ping just confirms they're still alive
 }
 
 func (c *RunnerController) Send(ctx context.Context, runnerID string, headers map[string]string, req *types.Request, timeout time.Duration) (*types.Response, error) {
@@ -482,21 +554,6 @@ func (c *RunnerController) SyncSystemSettingsToAllRunners(ctx context.Context) {
 	}
 }
 
-// handleRunnerPing handles periodic ping messages from runners without triggering prewarming
-func (c *RunnerController) handleRunnerPing(id string) {
-	// Only update the runner list to keep it alive, don't trigger prewarming or other expensive operations
-	c.runnersMu.Lock()
-	defer c.runnersMu.Unlock()
-
-	if !slices.Contains(c.runners, id) {
-		// If this is a new runner sending pings before the "connected" message,
-		// add it to the list but don't trigger prewarming yet
-		c.runners = append(c.runners, id)
-		log.Debug().Str("runner_id", id).Msg("added new runner from ping message")
-	}
-	// For existing runners, this ping just confirms they're still alive
-}
-
 func (c *RunnerController) OnConnectedHandler(id string) {
 	// Check if runner is new and add to list if needed - minimal lock scope with panic safety
 	isNewRunner := func() bool {
@@ -537,30 +594,42 @@ func (c *RunnerController) OnConnectedHandler(id string) {
 		}
 	}()
 
-	// Always call the prewarming callback (for both new and reconnected runners)
-	// This ensures that models get prewarmed when runners restart
+	// Call the prewarming callback with intelligent deduplication
+	// For new runners: always prewarm
+	// For existing runners: only prewarm if it hasn't been done recently
 	c.callbackMu.RLock()
 	callback := c.onRunnerConnectedFn
 	c.callbackMu.RUnlock()
 
 	if callback != nil {
-		go func() {
-			// Run in a goroutine to avoid blocking runner registration
-			defer func() {
-				if r := recover(); r != nil {
-					log.Error().
-						Str("runner_id", id).
-						Interface("panic", r).
-						Msg("panic recovered in prewarming callback - this indicates a bug in the prewarming logic")
-				}
-			}()
+		shouldPrewarm := isNewRunner || c.shouldPrewarmExistingRunner(id)
 
-			log.Info().
+		if shouldPrewarm {
+			go func() {
+				// Run in a goroutine to avoid blocking runner registration
+				defer func() {
+					if r := recover(); r != nil {
+						log.Error().
+							Str("runner_id", id).
+							Interface("panic", r).
+							Msg("panic recovered in prewarming callback - this indicates a bug in the prewarming logic")
+					}
+				}()
+
+				log.Info().
+					Str("runner_id", id).
+					Bool("is_new_runner", isNewRunner).
+					Msg("triggering prewarming for connected runner")
+				callback(id)
+
+				// Update the last prewarmed time
+				c.updateLastPrewarmedTime(id)
+			}()
+		} else {
+			log.Debug().
 				Str("runner_id", id).
-				Bool("is_new_runner", isNewRunner).
-				Msg("triggering prewarming for connected runner")
-			callback(id)
-		}()
+				Msg("skipping prewarming for existing runner - recently prewarmed")
+		}
 	}
 }
 

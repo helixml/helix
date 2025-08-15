@@ -618,6 +618,235 @@ func TestMemoryAwarePrewarming(t *testing.T) {
 		float64(totalSelectedMemory)/float64(totalMemory)*100)
 }
 
+func TestPingFrequencyPrewarmingBehavior(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	testModels := GetDefaultTestModels()
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+
+	for _, model := range testModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
+
+	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
+		RunnerController: runnerCtrl,
+		QueueSize:        100, // Large queue to handle multiple workloads
+	})
+	require.NoError(t, err)
+
+	// Set up the prewarming callback
+	runnerCtrl.SetOnRunnerConnectedCallback(scheduler.PrewarmNewRunner)
+
+	runnerID := "test-runner-ping-frequency"
+	initialQueueSize := len(scheduler.queue.Queue())
+
+	// Test 1: Initial connection should trigger prewarming
+	err = ps.Publish(ctx, pubsub.GetRunnerConnectedQueue(runnerID), []byte("connected"))
+	require.NoError(t, err)
+	time.Sleep(100 * time.Millisecond)
+
+	afterInitialConnection := len(scheduler.queue.Queue())
+	initialWorkloads := afterInitialConnection - initialQueueSize
+	require.Greater(t, initialWorkloads, 0, "Initial connection should create prewarming workloads")
+
+	t.Logf("Initial connection created %d prewarming workloads", initialWorkloads)
+
+	// Test 2: Simulate rapid ping messages (every 1 second for 10 seconds)
+	// This simulates the 10-second ping interval but faster to speed up the test
+	pingCount := 0
+	for i := 0; i < 10; i++ {
+		err = ps.Publish(ctx, pubsub.GetRunnerConnectedQueue(runnerID), []byte("ping"))
+		require.NoError(t, err)
+		pingCount++
+		time.Sleep(100 * time.Millisecond) // Faster than real 10-second interval
+	}
+
+	afterPings := len(scheduler.queue.Queue())
+	pingWorkloads := afterPings - afterInitialConnection
+
+	t.Logf("After %d ping messages: queue size went from %d to %d (+%d workloads)",
+		pingCount, afterInitialConnection, afterPings, pingWorkloads)
+
+	// The key test: ping messages should not cause exponential growth of prewarming workloads
+	// We allow some workloads due to timing/deduplication behavior, but not proportional to ping count
+	require.Less(t, pingWorkloads, pingCount,
+		"Ping messages should not create workloads proportional to ping frequency")
+
+	// Test 3: Wait for prewarming timeout and send another connected message
+	// This simulates a real reconnection after some time
+	time.Sleep(100 * time.Millisecond) // Simulate some time passing
+
+	err = ps.Publish(ctx, pubsub.GetRunnerConnectedQueue(runnerID), []byte("connected"))
+	require.NoError(t, err)
+	time.Sleep(100 * time.Millisecond)
+
+	afterReconnection := len(scheduler.queue.Queue())
+	reconnectionWorkloads := afterReconnection - afterPings
+
+	t.Logf("Reconnection after ping spam: +%d workloads (may be deduplicated)", reconnectionWorkloads)
+
+	// Verify the system is still functional and not overwhelmed
+	require.Less(t, len(scheduler.queue.Queue()), 50,
+		"Queue should not be overwhelmed with redundant prewarming workloads")
+
+	// Verify runner is properly tracked
+	runners := runnerCtrl.RunnerIDs()
+	require.Contains(t, runners, runnerID, "Runner should be tracked after all operations")
+}
+
+func TestTimeBasedPrewarmingLogic(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	testModels := GetDefaultTestModels()
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+
+	for _, model := range testModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
+
+	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
+		RunnerController: runnerCtrl,
+		QueueSize:        100,
+	})
+	require.NoError(t, err)
+
+	// Track prewarming callback invocations
+	callbackCount := 0
+	runnerCtrl.SetOnRunnerConnectedCallback(func(runnerID string) {
+		callbackCount++
+		t.Logf("Prewarming callback #%d for runner %s", callbackCount, runnerID)
+		scheduler.PrewarmNewRunner(runnerID)
+	})
+
+	runnerID := "test-time-based-runner"
+
+	// Test 1: Initial connection should always trigger prewarming
+	err = ps.Publish(ctx, pubsub.GetRunnerConnectedQueue(runnerID), []byte("connected"))
+	require.NoError(t, err)
+	time.Sleep(100 * time.Millisecond)
+
+	require.Equal(t, 1, callbackCount, "Initial connection should trigger prewarming")
+	require.Greater(t, len(scheduler.queue.Queue()), 0, "Should create prewarming workloads")
+
+	// Test 2: Immediate pings should not trigger additional prewarming
+	for i := 0; i < 5; i++ {
+		err = ps.Publish(ctx, pubsub.GetRunnerConnectedQueue(runnerID), []byte("ping"))
+		require.NoError(t, err)
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	require.Equal(t, 1, callbackCount, "Immediate pings should not trigger additional prewarming")
+
+	// Test 3: Connection after short time should not trigger prewarming
+	err = ps.Publish(ctx, pubsub.GetRunnerConnectedQueue(runnerID), []byte("connected"))
+	require.NoError(t, err)
+	time.Sleep(100 * time.Millisecond)
+
+	require.Equal(t, 1, callbackCount, "Connection within 30 seconds should not trigger additional prewarming")
+
+	t.Logf("Time-based prewarming deduplication is working correctly")
+}
+
+func TestPrewarmAllConnectedRunners(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	testModels := GetDefaultTestModels()
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+
+	for _, model := range testModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
+
+	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
+		RunnerController: runnerCtrl,
+		QueueSize:        100,
+	})
+	require.NoError(t, err)
+
+	// Track prewarming callback invocations
+	callbackCount := 0
+	runnerCtrl.SetOnRunnerConnectedCallback(func(runnerID string) {
+		callbackCount++
+		t.Logf("Prewarming callback #%d for runner %s", callbackCount, runnerID)
+		scheduler.PrewarmNewRunner(runnerID)
+	})
+
+	// Simulate multiple runners already connected (via pings, simulating server restart scenario)
+	runnerIDs := []string{"existing-runner-1", "existing-runner-2", "existing-runner-3"}
+
+	for _, runnerID := range runnerIDs {
+		// Add runners to the list without triggering prewarming (simulating they were connected before callback was set)
+		runnerCtrl.handleRunnerPing(runnerID)
+	}
+
+	initialQueueSize := len(scheduler.queue.Queue())
+	require.Equal(t, 0, callbackCount, "No callbacks should have been triggered yet")
+
+	// Now trigger prewarming for all existing runners (simulating server startup)
+	runnerCtrl.PrewarmAllConnectedRunners()
+	time.Sleep(200 * time.Millisecond) // Give time for async processing
+
+	finalQueueSize := len(scheduler.queue.Queue())
+	totalWorkloads := finalQueueSize - initialQueueSize
+
+	require.Equal(t, len(runnerIDs), callbackCount, "Should trigger prewarming for all existing runners")
+	require.Greater(t, totalWorkloads, 0, "Should create prewarming workloads for existing runners")
+
+	t.Logf("Initial prewarming: %d runners triggered %d callbacks and created %d workloads",
+		len(runnerIDs), callbackCount, totalWorkloads)
+}
+
 func TestPingVsConnectedMessageBehavior(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -668,7 +897,26 @@ func TestPingVsConnectedMessageBehavior(t *testing.T) {
 
 	t.Logf("Connected message created %d prewarming workloads", connectedWorkloads)
 
-	// Test 2: Send multiple "ping" messages - should NOT trigger additional prewarming
+	// Test 2: Simulate workload processing by manually removing workloads from queue
+	// This simulates what happens when prewarming workloads are actually processed
+	for len(scheduler.queue.Queue()) > 0 {
+		workload := scheduler.queue.TakeNext(func(w *Workload) bool { return true })
+		if workload != nil {
+			t.Logf("Processed prewarming workload: %s", workload.ID())
+		}
+	}
+
+	clearedQueueSize := len(scheduler.queue.Queue())
+	require.Equal(t, 0, clearedQueueSize, "Queue should be empty after processing workloads")
+
+	// Test 3: Now send ping messages after workloads are processed
+	preCallbackCount := 0
+	runnerCtrl.SetOnRunnerConnectedCallback(func(runnerID string) {
+		preCallbackCount++
+		t.Logf("Prewarming callback triggered for runner %s (call #%d)", runnerID, preCallbackCount)
+		scheduler.PrewarmNewRunner(runnerID)
+	})
+
 	for i := 0; i < 3; i++ {
 		err = ps.Publish(ctx, pubsub.GetRunnerConnectedQueue(runnerID), []byte("ping"))
 		require.NoError(t, err)
@@ -676,24 +924,10 @@ func TestPingVsConnectedMessageBehavior(t *testing.T) {
 	}
 
 	afterPingsQueueSize := len(scheduler.queue.Queue())
-	pingWorkloads := afterPingsQueueSize - afterConnectedQueueSize
-	require.Equal(t, 0, pingWorkloads, "Ping messages should NOT trigger prewarming workloads")
+	t.Logf("After 3 ping messages: %d workloads created, callback called %d times", afterPingsQueueSize, preCallbackCount)
 
-	t.Logf("Ping messages correctly did not create any additional prewarming workloads")
-
-	// Test 3: Send another "connected" message (simulating reconnection) - should attempt prewarming again
-	// but workloads may be deduplicated if they're already in the queue
-	err = ps.Publish(ctx, pubsub.GetRunnerConnectedQueue(runnerID), []byte("connected"))
-	require.NoError(t, err)
-	time.Sleep(100 * time.Millisecond)
-
-	afterReconnectQueueSize := len(scheduler.queue.Queue())
-	reconnectWorkloads := afterReconnectQueueSize - afterPingsQueueSize
-
-	// Note: workloads may be deduplicated, so we just verify the behavior happened
-	// The important thing is that connected messages trigger the prewarming logic,
-	// even if the actual workloads are deduplicated
-	t.Logf("Reconnection message processing completed (%d workloads, may be deduplicated)", reconnectWorkloads)
+	// This is the key test: ping messages should NOT repeatedly trigger prewarming
+	require.Less(t, preCallbackCount, 3, "Ping messages should not all trigger prewarming callbacks")
 
 	// Verify runner is in the list after all operations
 	runners := runnerCtrl.RunnerIDs()
