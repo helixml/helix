@@ -14,6 +14,8 @@ import (
 //go:embed model_info.json
 var modelInfo embed.FS
 
+//go:generate mockgen -source $GOFILE -destination model_info_mocks.go -package $GOPACKAGE
+
 type ModelInfoProvider interface { //nolint:revive
 	GetModelInfo(ctx context.Context, request *ModelInfoRequest) (*types.ModelInfo, error)
 }
@@ -76,21 +78,23 @@ func (p *BaseModelInfoProvider) GetModelInfo(_ context.Context, request *ModelIn
 	p.dataMu.RLock()
 	defer p.dataMu.RUnlock()
 
+	modelName := request.Model
+
 	// Try to get directly
-	modelInfo, ok := p.data[request.Model]
+	modelInfo, ok := p.data[modelName]
 	if ok {
 		return &modelInfo, nil
 	}
 
 	// If it has "<prefix>/" strip it as we will be looking up by model name
-	if strings.Contains(request.Model, "/") {
+	if strings.Contains(modelName, "/") {
 		// Strip the prefix
-		parts := strings.SplitN(request.Model, "/", 2)
-		request.Model = parts[1]
+		parts := strings.SplitN(modelName, "/", 2)
+		modelName = parts[1]
 	}
 
 	// Try again
-	modelInfo, ok = p.data[request.Model]
+	modelInfo, ok = p.data[modelName]
 	if ok {
 		return &modelInfo, nil
 	}
@@ -100,11 +104,11 @@ func (p *BaseModelInfoProvider) GetModelInfo(_ context.Context, request *ModelIn
 		provider = request.Provider
 	}
 
-	slug := fmt.Sprintf("%s/%s", provider, request.Model)
+	slug := fmt.Sprintf("%s/%s", provider, modelName)
 
 	// Lookup by slug or model name
 	for _, model := range p.data {
-		if model.Name == request.Model {
+		if model.Name == modelName {
 			return &model, nil
 		}
 
@@ -115,7 +119,7 @@ func (p *BaseModelInfoProvider) GetModelInfo(_ context.Context, request *ModelIn
 		// Check if the provider URL matches
 	}
 
-	return nil, fmt.Errorf("model info not found for model: %s (%s)", request.Model, slug)
+	return nil, fmt.Errorf("model info not found for model: %s (%s)", modelName, slug)
 }
 
 func (p *BaseModelInfoProvider) getProvider(baseURL string) (string, bool) {

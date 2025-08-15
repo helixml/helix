@@ -1604,6 +1604,270 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/model-info": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all dynamic model infos. Requires admin privileges.",
+                "tags": [
+                    "model-info"
+                ],
+                "summary": "List dynamic model infos",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by provider (e.g., helix, openai)",
+                        "name": "provider",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by model name",
+                        "name": "name",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.DynamicModelInfo"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new dynamic model info configuration. Requires admin privileges.",
+                "tags": [
+                    "model-info"
+                ],
+                "summary": "Create a new dynamic model info",
+                "parameters": [
+                    {
+                        "description": "Dynamic model info configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.DynamicModelInfo"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.DynamicModelInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/model-info/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a specific dynamic model info by ID. Requires admin privileges.",
+                "tags": [
+                    "model-info"
+                ],
+                "summary": "Get a dynamic model info by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Dynamic model info ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.DynamicModelInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Missing ID",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Dynamic model info not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update an existing dynamic model info configuration. Requires admin privileges.",
+                "tags": [
+                    "model-info"
+                ],
+                "summary": "Update an existing dynamic model info",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Dynamic model info ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Updated dynamic model info configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.DynamicModelInfo"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.DynamicModelInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body or missing ID",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Dynamic model info not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a dynamic model info configuration. Requires admin privileges.",
+                "tags": [
+                    "model-info"
+                ],
+                "summary": "Delete a dynamic model info",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Dynamic model info ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Missing ID",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/oauth/connections": {
             "get": {
                 "security": [
@@ -5452,6 +5716,31 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "server_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.DynamicModelInfo": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "model_info": {
+                    "$ref": "#/definitions/types.ModelInfo"
+                },
+                "name": {
+                    "description": "Model name",
+                    "type": "string"
+                },
+                "provider": {
+                    "description": "helix, openai, etc. (Helix internal information)",
+                    "type": "string"
+                },
+                "updated": {
                     "type": "string"
                 }
             }

@@ -108,6 +108,16 @@ const (
 	ModalityFile  Modality = "file"
 )
 
+type DynamicModelInfo struct {
+	ID       string    `json:"id" gorm:"primaryKey"`
+	Created  time.Time `json:"created,omitempty"`
+	Updated  time.Time `json:"updated,omitempty"`
+	Provider string    `json:"provider"` // helix, openai, etc. (Helix internal information)
+	Name     string    `json:"name"`     // Model name
+
+	ModelInfo ModelInfo `json:"model_info" gorm:"type:jsonb;serializer:json"`
+}
+
 type ModelInfo struct { //nolint:revive
 	ProviderSlug        string     `json:"provider_slug"`
 	ProviderModelID     string     `json:"provider_model_id"`
@@ -132,6 +142,11 @@ type Pricing struct {
 	Request           string `json:"request"`
 	WebSearch         string `json:"web_search"`
 	InternalReasoning string `json:"internal_reasoning"`
+}
+
+type ListDynamicModelInfosQuery struct {
+	Provider string
+	Name     string
 }
 
 // Model CRD structures following the same pattern as App CRD

@@ -270,6 +270,13 @@ type Store interface {
 	ListModels(ctx context.Context, q *ListModelsQuery) ([]*types.Model, error)
 	DeleteModel(ctx context.Context, id string) error
 
+	// Model info for dynamic pricing
+	CreateDynamicModelInfo(ctx context.Context, modelInfo *types.DynamicModelInfo) (*types.DynamicModelInfo, error)
+	GetDynamicModelInfo(ctx context.Context, id string) (*types.DynamicModelInfo, error)
+	UpdateDynamicModelInfo(ctx context.Context, modelInfo *types.DynamicModelInfo) (*types.DynamicModelInfo, error)
+	DeleteDynamicModelInfo(ctx context.Context, id string) error
+	ListDynamicModelInfos(ctx context.Context, q *types.ListDynamicModelInfosQuery) ([]*types.DynamicModelInfo, error)
+
 	// OAuth Provider methods
 	// ListOAuthProvidersQuery contains filters for listing OAuth providers
 	// ListOAuthConnectionsQuery contains filters for listing OAuth connections

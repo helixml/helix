@@ -1294,6 +1294,23 @@ definitions:
       server_name:
         type: string
     type: object
+  types.DynamicModelInfo:
+    properties:
+      created:
+        type: string
+      id:
+        type: string
+      model_info:
+        $ref: '#/definitions/types.ModelInfo'
+      name:
+        description: Model name
+        type: string
+      provider:
+        description: helix, openai, etc. (Helix internal information)
+        type: string
+      updated:
+        type: string
+    type: object
   types.Effect:
     enum:
     - allow
@@ -4707,6 +4724,175 @@ paths:
       summary: Get logs for a specific slot
       tags:
       - logs
+  /api/v1/model-info:
+    get:
+      description: List all dynamic model infos. Requires admin privileges.
+      parameters:
+      - description: Filter by provider (e.g., helix, openai)
+        in: query
+        name: provider
+        type: string
+      - description: Filter by model name
+        in: query
+        name: name
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.DynamicModelInfo'
+            type: array
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: List dynamic model infos
+      tags:
+      - model-info
+    post:
+      description: Create a new dynamic model info configuration. Requires admin privileges.
+      parameters:
+      - description: Dynamic model info configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.DynamicModelInfo'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.DynamicModelInfo'
+        "400":
+          description: Invalid request body
+          schema:
+            type: string
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Create a new dynamic model info
+      tags:
+      - model-info
+  /api/v1/model-info/{id}:
+    delete:
+      description: Delete a dynamic model info configuration. Requires admin privileges.
+      parameters:
+      - description: Dynamic model info ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "400":
+          description: Missing ID
+          schema:
+            type: string
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Delete a dynamic model info
+      tags:
+      - model-info
+    get:
+      description: Get a specific dynamic model info by ID. Requires admin privileges.
+      parameters:
+      - description: Dynamic model info ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.DynamicModelInfo'
+        "400":
+          description: Missing ID
+          schema:
+            type: string
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "404":
+          description: Dynamic model info not found
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get a dynamic model info by ID
+      tags:
+      - model-info
+    put:
+      description: Update an existing dynamic model info configuration. Requires admin
+        privileges.
+      parameters:
+      - description: Dynamic model info ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated dynamic model info configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.DynamicModelInfo'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.DynamicModelInfo'
+        "400":
+          description: Invalid request body or missing ID
+          schema:
+            type: string
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "404":
+          description: Dynamic model info not found
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Update an existing dynamic model info
+      tags:
+      - model-info
   /api/v1/oauth/connections:
     get:
       description: List OAuth connections for the user.
