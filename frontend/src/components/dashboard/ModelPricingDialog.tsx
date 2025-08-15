@@ -18,7 +18,7 @@ interface ModelPricingDialogProps {
   open: boolean;
   model: TypesDynamicModelInfo | undefined;
   onClose: () => void;
-  refreshData: () => void;
+  refreshData: () => void; // Required to refresh the table after pricing updates
 }
 
 const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
@@ -35,6 +35,8 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
   });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasUserInput, setHasUserInput] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   const createModelInfo = useCreateModelInfo();
   const updateModelInfo = useUpdateModelInfo();
@@ -67,7 +69,7 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
     return perTokenPrice.toFixed(7);
   };
 
-  // Reset form when dialog opens/closes or model changes
+  // Reset form when dialog opens/closes, but not when model data changes
   useEffect(() => {
     if (open) {
       if (model) {
@@ -88,8 +90,24 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
         });
       }
       setError('');
+      setSuccessMessage('');
+      setHasUserInput(false); // Reset user input flag when dialog opens
     }
-  }, [open, model]);
+  }, [open]); // Only depend on 'open', not 'model'
+
+  // Handle model changes when dialog is already open, but only if user hasn't started typing
+  // This prevents the form from being reset when data is refetched during user input
+  useEffect(() => {
+    if (open && model && !hasUserInput) {
+      // Only update form if user hasn't started typing
+      setFormData({
+        provider: model.provider || '',
+        name: model.name || '',
+        prompt: convertToPerMillionDisplay(model.model_info?.pricing?.prompt || ''),
+        completion: convertToPerMillionDisplay(model.model_info?.pricing?.completion || ''),
+      });
+    }
+  }, [open, model, hasUserInput]);
 
   const validateForm = () => {
     if (!formData.provider.trim()) {
@@ -167,9 +185,16 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
       }
 
       // React Query will automatically invalidate and refetch the data
-      // But we also call refreshData to ensure immediate UI update
-      refreshData();
-      onClose();
+      // But we also call refreshData to ensure immediate UI update in the table
+      if (refreshData) {
+        refreshData();
+      }
+      
+      // Show success message briefly before closing
+      setSuccessMessage(isEditing ? 'Pricing updated successfully!' : 'Pricing created successfully!');
+      setTimeout(() => {
+        onClose();
+      }, 1500);
     } catch (err) {
       console.error('Failed to save model pricing:', err);
       setError(err instanceof Error ? err.message : 'Failed to save model pricing');
@@ -179,6 +204,8 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
   };
 
   const handleClose = () => {
+    setHasUserInput(false); // Reset user input flag when dialog closes
+    setSuccessMessage('');
     onClose();
   };
 
@@ -194,12 +221,20 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
               {error}
             </Alert>
           )}
+          {successMessage && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              {successMessage}
+            </Alert>
+          )}
           
           <TextField
             fullWidth
             label="Provider"
             value={formData.provider}
-            onChange={(e) => setFormData({ ...formData, provider: e.target.value })}
+            onChange={(e) => {
+              setFormData({ ...formData, provider: e.target.value });
+              setHasUserInput(true);
+            }}
             disabled={isEditing} // Cannot change provider in edit mode
             margin="normal"
             required
@@ -210,7 +245,10 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
             fullWidth
             label="Model Name"
             value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            onChange={(e) => {
+              setFormData({ ...formData, name: e.target.value });
+              setHasUserInput(true);
+            }}
             disabled={isEditing} // Cannot change model name in edit mode
             margin="normal"
             required
@@ -229,7 +267,10 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
             fullWidth
             label="Prompt Price"
             value={formData.prompt}
-            onChange={(e) => setFormData({ ...formData, prompt: e.target.value })}
+            onChange={(e) => {
+              setFormData({ ...formData, prompt: e.target.value });
+              setHasUserInput(true);
+            }}
             margin="normal"
             placeholder="e.g., 1.60"
             helperText="Price per 1M input/prompt tokens (e.g., 1.60 = $1.60 per 1M tokens). This will be stored as per-token price in the API."
@@ -243,7 +284,10 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
             fullWidth
             label="Completion Price"
             value={formData.completion}
-            onChange={(e) => setFormData({ ...formData, completion: e.target.value })}
+            onChange={(e) => {
+              setFormData({ ...formData, completion: e.target.value });
+              setHasUserInput(true);
+            }}
             margin="normal"
             placeholder="e.g., 3.20"
             helperText="Price per 1M output/completion tokens (e.g., 3.20 = $3.20 per 1M tokens). This will be stored as per-token price in the API."

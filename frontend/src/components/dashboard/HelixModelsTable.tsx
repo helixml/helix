@@ -19,6 +19,7 @@ import {
   Switch,
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { TypesModel, TypesRuntime } from '../../api/api'; // Assuming TypesModel is the correct type
 import { useListHelixModels, useUpdateHelixModel } from '../../services/helixModelsService';
 import { useListModelInfos } from '../../services/modelInfoService';
@@ -108,6 +109,7 @@ const HelixModelsTable: FC = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pricingDialogOpen, setPricingDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isRefreshingPricing, setIsRefreshingPricing] = useState(false);
 
   // TODO: Add filtering by runtime if needed, e.g., pass "gpu" or "cpu"
   const { data: helixModels = [], isLoading, refetch } = useListHelixModels();
@@ -169,6 +171,28 @@ const HelixModelsTable: FC = () => {
 
   const handlePricingDialogClose = () => {
     setPricingDialogOpen(false);
+  };
+
+  const handlePricingUpdateSuccess = () => {
+    setIsRefreshingPricing(true);
+    
+    // Refresh data when pricing is successfully updated
+    refetch();
+    refetchModelInfos();
+    
+    // Add a small delay and refresh again to handle any race conditions
+    // This ensures the updated pricing data is properly loaded
+    setTimeout(() => {
+      refetch();
+      refetchModelInfos();
+    }, 300);
+    
+    // Add another refresh after a longer delay to handle any backend sync delays
+    setTimeout(() => {
+      refetch();
+      refetchModelInfos();
+      setIsRefreshingPricing(false);
+    }, 1000);
   };
 
   // Placeholder for the API call to update the model's enabled status
@@ -363,11 +387,23 @@ const HelixModelsTable: FC = () => {
       <Paper sx={{ p: 2, width: '100%' }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="body1">No Helix models found.</Typography>
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button variant="outlined" color="secondary" startIcon={<AddIcon />} onClick={handleCreateClick}>
-              Add Model
-            </Button>
-          </Box>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button 
+            variant="outlined" 
+            color="primary" 
+            startIcon={<RefreshIcon />} 
+            onClick={() => {
+              refetch();
+              refetchModelInfos();
+            }}
+            disabled={isLoading}
+          >
+            Refresh
+          </Button>
+          <Button variant="outlined" color="secondary" startIcon={<AddIcon />} onClick={handleCreateClick}>
+            Add Model
+          </Button>
+        </Box>
         </Box>
         <EditHelixModel
           open={dialogOpen}
@@ -393,6 +429,18 @@ const HelixModelsTable: FC = () => {
            sx={{ width: '40%' }}
          />
         <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button 
+            variant="outlined" 
+            color="primary" 
+            startIcon={<RefreshIcon />} 
+            onClick={() => {
+              refetch();
+              refetchModelInfos();
+            }}
+            disabled={isLoading}
+          >
+            Refresh
+          </Button>
           <Button variant="outlined" color="secondary" startIcon={<AddIcon />} onClick={handleCreateClick}>
             Add Model
           </Button>
@@ -417,10 +465,7 @@ const HelixModelsTable: FC = () => {
         open={pricingDialogOpen}
         model={getModelInfoForPricing(selectedModel)}
         onClose={handlePricingDialogClose}
-        refreshData={() => {
-          refetch();
-          refetchModelInfos();
-        }}
+        refreshData={handlePricingUpdateSuccess}
       />
       <TableContainer>
         <Table stickyHeader aria-label="helix models table">
@@ -464,13 +509,24 @@ const HelixModelsTable: FC = () => {
                 <TableCell align="center">
                   <Tooltip title={'Price per 1M tokens'}>
                     <Box sx={{ width: 100 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
-                       {getModelPricing(model.id || '').prices}
-                      </Typography>
-                       {getModelPricing(model.id || '').labels && (
-                        <Typography variant="caption" color="text.secondary">
-                          {getModelPricing(model.id || '').labels}
-                        </Typography>
+                      {isRefreshingPricing ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                          <CircularProgress size={16} />
+                          <Typography variant="body2" color="text.secondary">
+                            Updating...
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <>
+                          <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
+                           {getModelPricing(model.id || '').prices}
+                          </Typography>
+                           {getModelPricing(model.id || '').labels && (
+                            <Typography variant="caption" color="text.secondary">
+                              {getModelPricing(model.id || '').labels}
+                            </Typography>
+                          )}
+                        </>
                       )}
                     </Box>
                   </Tooltip>
