@@ -51,7 +51,20 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 		if work.Runtime() == types.RuntimeVLLM || work.Runtime() == types.RuntimeOllama {
 			// Get concrete GPU allocation from scheduler - this is the authoritative decision
 			singleGPU, multiGPUs, _ := s.controller.GetOptimalGPUAllocation(runnerID, work.model.Memory)
-			runnerGPUCompatible[runnerID] = (singleGPU != nil) || (len(multiGPUs) > 0)
+
+			// TEMPORARY: Disable multi-GPU for Ollama due to timeout issues
+			if work.Runtime() == types.RuntimeOllama && len(multiGPUs) > 1 {
+				log.Info().
+					Str("runner_id", runnerID).
+					Str("model", work.ModelName().String()).
+					Ints("rejected_multi_gpus", multiGPUs).
+					Msg("TEMPORARY: Disabling multi-GPU allocation for Ollama model due to timeout issues - forcing single GPU only")
+				// Force single GPU allocation for Ollama by rejecting multi-GPU allocation
+				runnerGPUCompatible[runnerID] = (singleGPU != nil)
+				multiGPUs = nil // Clear multi-GPU allocation
+			} else {
+				runnerGPUCompatible[runnerID] = (singleGPU != nil) || (len(multiGPUs) > 0)
+			}
 
 			log.Trace().
 				Str("runner_id", runnerID).
