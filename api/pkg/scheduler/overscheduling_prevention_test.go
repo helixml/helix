@@ -59,6 +59,7 @@ func TestOverSchedulingPrevention(t *testing.T) {
 	fastInterval := 100 * time.Millisecond
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
 		QueueSize:               50,
 		RunnerReconcileInterval: &fastInterval, // Fast reconciliation for tests
 	})
@@ -262,6 +263,7 @@ func TestOverSchedulingPreventionMultiGPU(t *testing.T) {
 	fastInterval := 100 * time.Millisecond
 	_, err = NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
 		QueueSize:               50,
 		RunnerReconcileInterval: &fastInterval, // Fast reconciliation for tests
 	})

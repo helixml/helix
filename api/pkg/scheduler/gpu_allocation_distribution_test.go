@@ -51,6 +51,7 @@ func TestGPUAllocationDistribution(t *testing.T) {
 	fastInterval := 100 * time.Millisecond
 	_, err = NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
 		QueueSize:               50,
 		RunnerReconcileInterval: &fastInterval, // Fast reconciliation for tests
 	})
