@@ -731,7 +731,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		// Reload session to get any metadata updates that happened during streaming
 		// (e.g., document IDs from knowledge/RAG results). This prevents the WebSocket
 		// event from UpdateInteraction overriding the correct metadata sent earlier.
-		if updatedSession, err := s.Controller.Store.GetSession(ctx, session.ID); err != nil {
+		if updatedSession, err := s.Store.GetSession(ctx, session.ID); err != nil {
 			log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to reload session metadata for initial error update")
 		} else {
 			// Preserve the interactions array from the original session object
@@ -793,7 +793,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 			// Reload session to get any metadata updates that happened during streaming
 			// (e.g., document IDs from knowledge/RAG results). This prevents the WebSocket
 			// event from UpdateInteraction overriding the correct metadata sent earlier.
-			if updatedSession, err := s.Controller.Store.GetSession(ctx, session.ID); err != nil {
+			if updatedSession, err := s.Store.GetSession(ctx, session.ID); err != nil {
 				log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to reload session metadata for error update")
 			} else {
 				// Preserve the interactions array from the original session object
@@ -842,7 +842,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	// Reload session to get any metadata updates that happened during streaming
 	// (e.g., document IDs from knowledge/RAG results). This prevents the WebSocket
 	// event from UpdateInteraction overriding the correct metadata sent earlier.
-	if updatedSession, err := s.Controller.Store.GetSession(ctx, session.ID); err != nil {
+	if updatedSession, err := s.Store.GetSession(ctx, session.ID); err != nil {
 		log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to reload session metadata for final update")
 	} else {
 		// Preserve the interactions array from the original session object

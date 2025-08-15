@@ -95,19 +95,22 @@ type CreateRunnerSlotRequest struct {
 }
 
 type RunnerSlot struct {
-	ID                 uuid.UUID      `json:"id"`
-	Runtime            Runtime        `json:"runtime"`
-	Model              string         `json:"model"`
-	ContextLength      int64          `json:"context_length,omitempty"` // Context length used for the model, if specified
-	RuntimeArgs        map[string]any `json:"runtime_args,omitempty"`   // Runtime-specific arguments
+	ID                 uuid.UUID      `json:"id" gorm:"primaryKey;type:uuid"`
+	Created            time.Time      `json:"created" gorm:"autoCreateTime"`
+	Updated            time.Time      `json:"updated" gorm:"autoUpdateTime"`
+	RunnerID           string         `json:"runner_id" gorm:"index;not null"`
+	Runtime            Runtime        `json:"runtime" gorm:"not null"`
+	Model              string         `json:"model" gorm:"not null"`
+	ContextLength      int64          `json:"context_length,omitempty"`
+	RuntimeArgs        map[string]any `json:"runtime_args,omitempty" gorm:"type:jsonb;serializer:json"`
 	Version            string         `json:"version"`
-	Active             bool           `json:"active"`
-	Ready              bool           `json:"ready"`
+	Active             bool           `json:"active" gorm:"default:false"`
+	Ready              bool           `json:"ready" gorm:"default:false"`
 	Status             string         `json:"status"`
-	GPUIndex           *int           `json:"gpu_index,omitempty"`            // Primary GPU for single-GPU models (for VLLM)
-	GPUIndices         []int          `json:"gpu_indices,omitempty"`          // All GPUs used for multi-GPU models
-	TensorParallelSize int            `json:"tensor_parallel_size,omitempty"` // Number of GPUs for tensor parallelism (1 = single GPU)
-	CommandLine        string         `json:"command_line,omitempty"`         // The actual command line executed for this slot
+	GPUIndex           *int           `json:"gpu_index,omitempty"`
+	GPUIndices         []int          `json:"gpu_indices,omitempty" gorm:"type:jsonb;serializer:json"`
+	TensorParallelSize int            `json:"tensor_parallel_size,omitempty" gorm:"default:0"`
+	CommandLine        string         `json:"command_line,omitempty"`
 }
 
 type ListRunnerSlotsResponse struct {

@@ -136,6 +136,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.UsageMetric{},
 		&types.Model{},
 		&types.StepInfo{},
+		&types.RunnerSlot{},
 		&types.SlackThread{},
 		&types.TriggerConfiguration{},
 		&types.TriggerExecution{},
