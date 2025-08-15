@@ -21,12 +21,14 @@ import {
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { TypesModel, TypesRuntime } from '../../api/api'; // Assuming TypesModel is the correct type
 import { useListHelixModels, useUpdateHelixModel } from '../../services/helixModelsService';
+import { useListModelInfos } from '../../services/modelInfoService';
 import AddIcon from '@mui/icons-material/Add';
 import Button from '@mui/material/Button';
 
 import { OllamaIcon, VllmIcon, HuggingFaceIcon } from '../icons/ProviderIcons';
 import EditHelixModel from './EditHelixModel';
 import DeleteHelixModelDialog from './DeleteHelixModelDialog';
+import ModelPricingDialog from './ModelPricingDialog';
 
 // Helper function to format date for tooltip
 const formatFullDate = (dateString: string | undefined): string => {
@@ -104,10 +106,15 @@ const HelixModelsTable: FC = () => {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedModel, setSelectedModel] = useState<TypesModel | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pricingDialogOpen, setPricingDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isRefreshingPricing, setIsRefreshingPricing] = useState(false);
 
   // TODO: Add filtering by runtime if needed, e.g., pass "gpu" or "cpu"
   const { data: helixModels = [], isLoading, refetch } = useListHelixModels();
+  
+  // Fetch model infos for helix provider to get pricing information
+  const { data: modelInfos = [], refetch: refetchModelInfos } = useListModelInfos('helix');
 
   // Call the hook at the top level
   const { mutateAsync: updateModel, isPending: isUpdating } = useUpdateHelixModel();
@@ -151,6 +158,40 @@ const HelixModelsTable: FC = () => {
   const handleDeleteSuccess = () => {
     handleDeleteDialogClose();
     refetch();
+    refetchModelInfos();
+  };
+
+  const handleSetPriceClick = () => {
+    if (selectedModel) {
+      setPricingDialogOpen(true);
+      handleMenuClose();
+    }
+  };
+
+  const handlePricingDialogClose = () => {
+    setPricingDialogOpen(false);
+  };
+
+  const handlePricingUpdateSuccess = () => {
+    setIsRefreshingPricing(true);
+    
+    // Refresh data when pricing is successfully updated
+    refetch();
+    refetchModelInfos();
+    
+    // Add a small delay and refresh again to handle any race conditions
+    // This ensures the updated pricing data is properly loaded
+    setTimeout(() => {
+      refetch();
+      refetchModelInfos();
+    }, 300);
+    
+    // Add another refresh after a longer delay to handle any backend sync delays
+    setTimeout(() => {
+      refetch();
+      refetchModelInfos();
+      setIsRefreshingPricing(false);
+    }, 1000);
   };
 
   // Placeholder for the API call to update the model's enabled status
@@ -170,6 +211,7 @@ const HelixModelsTable: FC = () => {
     updateModel({ id: model.id, helixModel: updatedModel }, {
       onSuccess: () => {
         refetch();
+        refetchModelInfos();
         console.log(`Model ${model.id} enabled status updated successfully.`);
       },
       onError: (error) => {
@@ -194,6 +236,7 @@ const HelixModelsTable: FC = () => {
     updateModel({ id: model.id, helixModel: updatedModel }, {
       onSuccess: () => {
         refetch();
+        refetchModelInfos();
         console.log(`Model ${model.id} auto_pull status updated successfully.`);
       },
       onError: (error) => {
@@ -218,6 +261,7 @@ const HelixModelsTable: FC = () => {
     updateModel({ id: model.id, helixModel: updatedModel }, {
       onSuccess: () => {
         refetch();
+        refetchModelInfos();
         console.log(`Model ${model.id} prewarm status updated successfully.`);
       },
       onError: (error) => {
@@ -237,6 +281,98 @@ const HelixModelsTable: FC = () => {
     );
   });
 
+  // Helper function to get pricing for a model
+  const getModelPricing = (modelId: string) => {
+    // Find matching model info by name (model ID without provider prefix)
+    const modelName = modelId.replace(/^helix:/, '');
+    const modelInfo = modelInfos.find(info => info.name === modelName);
+    
+    if (!modelInfo || !modelInfo.model_info?.pricing) {
+      return { prices: '-', labels: '' };
+    }
+    
+    const pricing = modelInfo.model_info.pricing;
+    const promptPrice = pricing.prompt || 'N/A';
+    const completionPrice = pricing.completion || 'N/A';
+    
+    // Helper function to convert per-token price to per-million token price and format it
+    const formatPrice = (price: string) => {
+      if (price === 'N/A') return price;
+      
+      try {
+        // Convert per-token price to per-million token price
+        const perTokenPrice = parseFloat(price);
+        if (isNaN(perTokenPrice)) return price;
+        
+        const perMillionPrice = perTokenPrice * 1000000;
+        
+        // Format and remove trailing zeros
+        let formattedPrice: string;
+        if (perMillionPrice >= 1) {
+          formattedPrice = perMillionPrice.toFixed(2);
+        } else if (perMillionPrice >= 0.01) {
+          formattedPrice = perMillionPrice.toFixed(4);
+        } else {
+          formattedPrice = perMillionPrice.toFixed(6);
+        }
+        
+        // Remove trailing zeros after decimal point
+        formattedPrice = formattedPrice.replace(/\.?0+$/, '');
+        
+        return `$${formattedPrice}`;
+      } catch (error) {
+        console.error("Error formatting price:", price, error);
+        return price;
+      }
+    };
+    
+    // Create a two-line display format
+    if (promptPrice !== 'N/A' && completionPrice !== 'N/A') {
+      return {
+        prices: `${formatPrice(promptPrice)} • ${formatPrice(completionPrice)}`,
+        labels: 'Input • Output'
+      };
+    } else if (promptPrice !== 'N/A') {
+      return {
+        prices: formatPrice(promptPrice),
+        labels: 'Input'
+      };
+    } else if (completionPrice !== 'N/A') {
+      return {
+        prices: formatPrice(completionPrice),
+        labels: 'Output'
+      };
+    }
+    
+    return { prices: '-', labels: '' };
+  };
+
+  // Helper function to get model info for pricing dialog
+  const getModelInfoForPricing = (model: TypesModel | null) => {
+    if (!model) return undefined;
+    
+    // Find matching model info by name (model ID without provider prefix)
+    const modelName = model.id?.replace(/^helix:/, '');
+    if (!modelName) return undefined;
+    
+    const modelInfo = modelInfos.find(info => info.name === modelName);
+    
+    if (modelInfo) {
+      // We have existing pricing info - return for edit mode
+      return modelInfo;
+    } else {
+      // No pricing info - return a template for create mode
+      return {
+        provider: 'helix',
+        name: modelName,
+        model_info: {
+          name: modelName,
+          pricing: {},
+        },
+      };
+    }
+  };
+
   if (isLoading) {
     return (
       <Paper sx={{ p: 2, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
@@ -245,20 +381,25 @@ const HelixModelsTable: FC = () => {
     );
   }
 
-  if (!helixModels || helixModels.length === 0) {
+  if (!filteredModels || filteredModels.length === 0) {
     return (
       <Paper sx={{ p: 2, width: '100%' }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="body1">No Helix models found.</Typography>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
           <Button variant="outlined" color="secondary" startIcon={<AddIcon />} onClick={handleCreateClick}>
             Add Model
           </Button>
+        </Box>
         </Box>
         <EditHelixModel
           open={dialogOpen}
           model={selectedModel}
           onClose={handleDialogClose}
-          refreshData={refetch}
+          refreshData={() => {
+            refetch();
+            refetchModelInfos();
+          }}
         />
       </Paper>
     );
@@ -274,21 +415,32 @@ const HelixModelsTable: FC = () => {
            onChange={(e) => setSearchQuery(e.target.value)}
            sx={{ width: '40%' }}
          />
-        <Button variant="outlined" color="secondary" startIcon={<AddIcon />} onClick={handleCreateClick}>
-          Add Model
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button variant="outlined" color="secondary" startIcon={<AddIcon />} onClick={handleCreateClick}>
+            Add Model
+          </Button>
+        </Box>
       </Box>
       <EditHelixModel
         open={dialogOpen}
         model={selectedModel}
         onClose={handleDialogClose}
-        refreshData={refetch}
+        refreshData={() => {
+          refetch();
+          refetchModelInfos();
+        }}
       />
       <DeleteHelixModelDialog
         open={deleteDialogOpen}
         model={selectedModel}
         onClose={handleDeleteDialogClose}
         onDeleted={handleDeleteSuccess}
+      />
+      <ModelPricingDialog
+        open={pricingDialogOpen}
+        model={getModelInfoForPricing(selectedModel)}
+        onClose={handlePricingDialogClose}
+        refreshData={handlePricingUpdateSuccess}
       />
       <TableContainer>
         <Table stickyHeader aria-label="helix models table">
@@ -297,7 +449,7 @@ const HelixModelsTable: FC = () => {
               <TableCell>ID</TableCell>
               <TableCell>Name</TableCell>
               <TableCell>Context Length</TableCell>
-              <TableCell>Type</TableCell>
+              <TableCell align="center">Pricing</TableCell>
               <TableCell>Enabled</TableCell>
               <TableCell>Auto pull</TableCell>
               <TableCell>Prewarm</TableCell>
@@ -329,7 +481,31 @@ const HelixModelsTable: FC = () => {
                    </Box>
                 </TableCell>
                 <TableCell>{model.context_length || 'N/A'}</TableCell>
-                <TableCell>{model.type || 'N/A'}</TableCell>
+                <TableCell align="center">
+                  <Tooltip title={'Price per 1M tokens'}>
+                    <Box sx={{ width: 100 }}>
+                      {isRefreshingPricing ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                          <CircularProgress size={16} />
+                          <Typography variant="body2" color="text.secondary">
+                            Updating...
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <>
+                          <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
+                           {getModelPricing(model.id || '').prices}
+                          </Typography>
+                           {getModelPricing(model.id || '').labels && (
+                            <Typography variant="caption" color="text.secondary">
+                              {getModelPricing(model.id || '').labels}
+                            </Typography>
+                          )}
+                        </>
+                      )}
+                    </Box>
+                  </Tooltip>
+                </TableCell>
                 <TableCell>
                   <Switch
                     checked={model.enabled ?? false}
@@ -380,6 +556,7 @@ const HelixModelsTable: FC = () => {
         onClose={handleMenuClose}
       >
         <MenuItem onClick={handleEditClick}>Edit</MenuItem>
+        <MenuItem onClick={handleSetPriceClick}>Set Price</MenuItem>
         <MenuItem onClick={handleDeleteClick} sx={{ color: 'error.main' }}>Delete</MenuItem>
       </Menu>
     </Paper>

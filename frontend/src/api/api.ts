@@ -824,6 +824,17 @@ export interface TypesDiscordTrigger {
   server_name?: string;
 }
 
+export interface TypesDynamicModelInfo {
+  created?: string;
+  id?: string;
+  model_info?: TypesModelInfo;
+  /** Model name */
+  name?: string;
+  /** helix, openai, etc. (Helix internal information) */
+  provider?: string;
+  updated?: string;
+}
+
 export enum TypesEffect {
   EffectAllow = "allow",
   EffectDeny = "deny",
@@ -3313,6 +3324,104 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List all dynamic model infos. Requires admin privileges.
+     *
+     * @tags model-info
+     * @name V1ModelInfoList
+     * @summary List dynamic model infos
+     * @request GET:/api/v1/model-info
+     * @secure
+     */
+    v1ModelInfoList: (
+      query?: {
+        /** Filter by provider (e.g., helix, openai) */
+        provider?: string;
+        /** Filter by model name */
+        name?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesDynamicModelInfo[], string>({
+        path: `/api/v1/model-info`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a new dynamic model info configuration. Requires admin privileges.
+     *
+     * @tags model-info
+     * @name V1ModelInfoCreate
+     * @summary Create a new dynamic model info
+     * @request POST:/api/v1/model-info
+     * @secure
+     */
+    v1ModelInfoCreate: (request: TypesDynamicModelInfo, params: RequestParams = {}) =>
+      this.request<TypesDynamicModelInfo, string>({
+        path: `/api/v1/model-info`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Delete a dynamic model info configuration. Requires admin privileges.
+     *
+     * @tags model-info
+     * @name V1ModelInfoDelete
+     * @summary Delete a dynamic model info
+     * @request DELETE:/api/v1/model-info/{id}
+     * @secure
+     */
+    v1ModelInfoDelete: (id: string, params: RequestParams = {}) =>
+      this.request<string, string>({
+        path: `/api/v1/model-info/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get a specific dynamic model info by ID. Requires admin privileges.
+     *
+     * @tags model-info
+     * @name V1ModelInfoDetail
+     * @summary Get a dynamic model info by ID
+     * @request GET:/api/v1/model-info/{id}
+     * @secure
+     */
+    v1ModelInfoDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesDynamicModelInfo, string>({
+        path: `/api/v1/model-info/${id}`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Update an existing dynamic model info configuration. Requires admin privileges.
+     *
+     * @tags model-info
+     * @name V1ModelInfoUpdate
+     * @summary Update an existing dynamic model info
+     * @request PUT:/api/v1/model-info/{id}
+     * @secure
+     */
+    v1ModelInfoUpdate: (id: string, request: TypesDynamicModelInfo, params: RequestParams = {}) =>
+      this.request<TypesDynamicModelInfo, string>({
+        path: `/api/v1/model-info/${id}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
