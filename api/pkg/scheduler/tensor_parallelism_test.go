@@ -29,8 +29,8 @@ func TestTensorParallelismLargeModelSplitting(t *testing.T) {
 
 	// Define test models - large model that requires tensor parallelism
 	testModels := []*types.Model{
-		{ID: "giant-model:100b", Memory: 100 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: false}, // 100GB - requires 2x80GB GPUs
-		{ID: "embedding-model:7b", Memory: 7 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: false}, // 7GB - fits in gaps
+		{ID: "giant-model:100b", Memory: 100 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: false}, // 100GB - requires 2x80GB GPUs
+		{ID: "embedding-model:7b", Memory: 7 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: false}, // 7GB - fits in gaps
 	}
 
 	mockStore := store.NewMockStore(ctrl)
@@ -236,9 +236,9 @@ func TestFragmentationPrevention(t *testing.T) {
 
 	// Define test models - scenario where small models could fragment memory
 	testModels := []*types.Model{
-		{ID: "large-model:120b", Memory: 120 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: false}, // 120GB - needs 2 GPUs
-		{ID: "medium-model:40b", Memory: 40 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: false},  // 40GB - fits on 1 GPU
-		{ID: "small-model:20b", Memory: 20 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: false},   // 20GB - fits on 1 GPU
+		{ID: "large-model:120b", Memory: 120 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: false}, // 120GB - needs 2 GPUs
+		{ID: "medium-model:40b", Memory: 40 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: false},  // 40GB - fits on 1 GPU
+		{ID: "small-model:20b", Memory: 20 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: false},   // 20GB - fits on 1 GPU
 	}
 
 	mockStore := store.NewMockStore(ctrl)
@@ -477,11 +477,11 @@ func TestOptimalTensorParallelismScheduling(t *testing.T) {
 
 	// Define a comprehensive set of test models
 	testModels := []*types.Model{
-		{ID: "mega-model:175b", Memory: 175 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: false}, // 175GB - needs 3+ GPUs
-		{ID: "large-model:70b", Memory: 70 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: false},  // 70GB - fits on 1x80GB
-		{ID: "medium-model:35b", Memory: 35 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: false}, // 35GB - fits on 1x80GB
-		{ID: "small-model:7b", Memory: 7 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: false},    // 7GB - fits on 1x80GB
-		{ID: "tiny-embedding", Memory: 1 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: false},    // 1GB - fits anywhere
+		{ID: "mega-model:175b", Memory: 175 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: false}, // 175GB - needs 3+ GPUs
+		{ID: "large-model:70b", Memory: 70 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: false},  // 70GB - fits on 1x80GB
+		{ID: "medium-model:35b", Memory: 35 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: false}, // 35GB - fits on 1x80GB
+		{ID: "small-model:7b", Memory: 7 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: false},    // 7GB - fits on 1x80GB
+		{ID: "tiny-embedding", Memory: 1 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: false},    // 1GB - fits anywhere
 	}
 
 	mockStore := store.NewMockStore(ctrl)
@@ -704,3 +704,8 @@ func TestOptimalTensorParallelismScheduling(t *testing.T) {
 	t.Logf("  - Confirmed no GPU over-allocation")
 	t.Logf("  - Achieved %.1f%% overall GPU utilization", overallUtilization)
 }
+
+// NOTE: Multi-GPU allocation for Ollama has been temporarily disabled due to timeout issues.
+// Large Ollama models that require multi-GPU will be rejected during scheduling.
+// This restriction is implemented in scheduler_filters.go and only affects Ollama runtime.
+// VLLM models continue to support multi-GPU tensor parallelism as before.
