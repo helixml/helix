@@ -868,7 +868,14 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 		}
 	}
 
-	// Create new slots
+	// Create new slots - collect failed slots for deletion after Range completes to avoid deadlock
+	type failedSlotInfo struct {
+		slotID uuid.UUID
+		work   *Workload
+		err    error
+	}
+	var failedSlots []failedSlotInfo
+
 	s.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
 		if runnerID, exists := allActualSlots[slotID]; !exists {
 			orphanedSlotCount++
@@ -906,14 +913,12 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 				} else {
 					withWorkContext(&log.Logger, slot.InitialWork()).Warn().Err(err).Msg("failed to create slot, calling error handler")
 
-					// First remove that slot, since it was never created
-					s.slots.Delete(slot.ID)
-
-					// Then remove the work from the queue if it exists
-					s.queue.Remove(slot.InitialWork())
-
-					// Then notify the error handler
-					s.onSchedulingErr(slot.InitialWork(), err)
+					// Don't delete immediately - collect for deletion after Range completes to avoid deadlock
+					failedSlots = append(failedSlots, failedSlotInfo{
+						slotID: slot.ID,
+						work:   slot.InitialWork(),
+						err:    err,
+					})
 				}
 			}
 		} else if runnerID != slot.RunnerID {
@@ -928,6 +933,18 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 		}
 		return true
 	})
+
+	// Now safely delete the failed slots after Range has completed
+	for _, failed := range failedSlots {
+		// First remove that slot, since it was never created
+		s.slots.Delete(failed.slotID)
+
+		// Then remove the work from the queue if it exists
+		s.queue.Remove(failed.work)
+
+		// Then notify the error handler
+		s.onSchedulingErr(failed.work, failed.err)
+	}
 
 	log.Trace().
 		Int("existing_slots", existingSlotCount).
