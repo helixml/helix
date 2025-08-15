@@ -58,6 +58,7 @@ func TestRealPrewarmGPUDistribution(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		Store:            mockStore,
 		QueueSize:        50,
 	})
 	require.NoError(t, err)
@@ -294,8 +295,9 @@ func TestRealPrewarmWithLargerGPUs(t *testing.T) {
 	fastReconcileInterval := 100 * time.Millisecond
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
 		QueueSize:               50,
-		RunnerReconcileInterval: &fastReconcileInterval,
+		RunnerReconcileInterval: &fastReconcileInterval, // Fast reconciliation for GPU allocation testing
 	})
 	require.NoError(t, err)
 

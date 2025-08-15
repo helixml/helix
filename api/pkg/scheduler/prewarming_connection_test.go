@@ -44,6 +44,7 @@ func TestPrewarmNewRunner_Success(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		Store:            mockStore,
 		QueueSize:        10,
 	})
 	require.NoError(t, err)
@@ -142,6 +143,7 @@ func TestPrewarmNewRunner_VerifyWorkloadCreation(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		Store:            mockStore,
 		QueueSize:        10,
 	})
 	require.NoError(t, err)
@@ -189,6 +191,7 @@ func TestOnRunnerConnectedCallback(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		Store:            mockStore,
 		QueueSize:        10,
 	})
 	require.NoError(t, err)
@@ -238,6 +241,7 @@ func TestOnRunnerReconnectedCallback(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		Store:            mockStore,
 		QueueSize:        10,
 	})
 	require.NoError(t, err)
@@ -295,6 +299,7 @@ func TestPrewarmWorkloadProperties(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		Store:            mockStore,
 		QueueSize:        10,
 	})
 	require.NoError(t, err)
@@ -366,6 +371,7 @@ func TestMultipleRunnerConnections(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		Store:            mockStore,
 		QueueSize:        50, // Increase queue size for multiple runners
 	})
 	require.NoError(t, err)
@@ -424,6 +430,7 @@ func TestPrewarmingMemoryAwareSelection(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		Store:            mockStore,
 		QueueSize:        50,
 	})
 	require.NoError(t, err)
@@ -503,6 +510,7 @@ func TestPrewarmingMemoryConstrainedSelection(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		Store:            mockStore,
 		QueueSize:        50,
 	})
 	require.NoError(t, err)
@@ -583,6 +591,7 @@ func TestMemoryAwarePrewarming(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		Store:            mockStore,
 		QueueSize:        50,
 	})
 	require.NoError(t, err)

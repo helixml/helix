@@ -27,6 +27,7 @@ func Test_filterRunnersByMemory_NoRunners(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
+		Store:            mockStore,
 	})
 	require.NoError(t, err)
 
@@ -62,6 +63,7 @@ func Test_filterRunnersByMemory_SomeRunnersSufficient(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
+		Store:            mockStore,
 	})
 	require.NoError(t, err)
 
@@ -136,6 +138,7 @@ func Test_filterRunnersByMemory_NoRunnersSufficient(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
+		Store:            mockStore,
 	})
 	require.NoError(t, err)
 
@@ -209,6 +212,7 @@ func Test_filterRunnersByModel_NoRunners(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
+		Store:            mockStore,
 	})
 	require.NoError(t, err)
 
@@ -244,6 +248,7 @@ func Test_filterRunnersByModel_RuntimeNotOllama(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
+		Store:            mockStore,
 	})
 	require.NoError(t, err)
 
@@ -281,6 +286,7 @@ func Test_filterRunnersByModel_AllRunnersHaveModel(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
+		Store:            mockStore,
 	})
 	require.NoError(t, err)
 
@@ -336,6 +342,7 @@ func Test_filterRunnersByModel_OneRunnerHasModel(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
+		Store:            mockStore,
 	})
 	require.NoError(t, err)
 
@@ -417,6 +424,7 @@ func Test_filterRunnersByModel_NoRunnerHasModel(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
+		Store:            mockStore,
 	})
 	require.NoError(t, err)
 

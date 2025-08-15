@@ -45,6 +45,7 @@ func TestIntelligentPrewarming_WithDefaultPrewarmModels(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		Store:            mockStore,
 		QueueSize:        10,
 	})
 	require.NoError(t, err)
@@ -97,6 +98,7 @@ func TestIntelligentPrewarming_UnevenDistribution(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		Store:            mockStore,
 		QueueSize:        10,
 	})
 	require.NoError(t, err)
@@ -183,6 +185,7 @@ func TestIntelligentPrewarming_BalancedDistribution(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		Store:            mockStore,
 		QueueSize:        10,
 	})
 	require.NoError(t, err)
@@ -253,6 +256,7 @@ func TestIntelligentPrewarming_EmptyCluster(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		Store:            mockStore,
 		QueueSize:        10,
 	})
 	require.NoError(t, err)
@@ -304,6 +308,7 @@ func TestAnalyzeGlobalModelDistribution(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		Store:            mockStore,
 		QueueSize:        10,
 	})
 	require.NoError(t, err)
@@ -394,6 +399,7 @@ func TestSelectModelsForBalancing(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		Store:            mockStore,
 		QueueSize:        10,
 	})
 	require.NoError(t, err)

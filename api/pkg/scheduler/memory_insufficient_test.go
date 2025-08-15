@@ -37,6 +37,7 @@ func TestInsufficientMemoryPrewarming(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: runnerCtrl,
+		Store:            mockStore,
 		QueueSize:        50,
 	})
 	require.NoError(t, err)
