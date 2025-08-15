@@ -1992,23 +1992,27 @@ func (s *Scheduler) analyzeGlobalModelDistribution(prewarmModels []*types.Model)
 	runners := s.controller.RunnerIDs()
 	availableRunners := 0
 
-	for _, runnerID := range runners {
-		slots, err := s.controller.GetSlots(runnerID)
-		if err != nil {
-			log.Debug().Str("runner_id", runnerID).Err(err).Msg("failed to get slots for global model analysis (runner may not be ready yet)")
-			continue
-		}
-
-		availableRunners++
-		for _, slot := range slots {
-			// Count active slots running prewarm models
-			if slot.Active {
-				if _, isPrewarmModel := modelCounts[slot.Model]; isPrewarmModel {
-					modelCounts[slot.Model]++
-				}
+	// Count running instances using local state for consistency with scheduling decisions
+	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		// Only count runners that are in our runner list
+		if slices.Contains(runners, slot.RunnerID) && slot.IsActive() {
+			modelName := slot.InitialWork().ModelName().String()
+			if _, isPrewarmModel := modelCounts[modelName]; isPrewarmModel {
+				modelCounts[modelName]++
 			}
 		}
-	}
+		return true
+	})
+
+	// Count available runners from those that have slots
+	availableRunnersSet := make(map[string]bool)
+	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		if slices.Contains(runners, slot.RunnerID) {
+			availableRunnersSet[slot.RunnerID] = true
+		}
+		return true
+	})
+	availableRunners = len(availableRunnersSet)
 
 	log.Debug().
 		Int("total_runners", len(runners)).
