@@ -282,7 +282,17 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 			log.Info().Str("runner_id", runnerID).Msg("new runner connected")
 			controller.OnConnectedHandler(runnerID)
 		} else {
-			log.Trace().Str("runner_id", runnerID).Str("data", string(msg.Data)).Msg("runner ping received")
+			// For ping messages, register runner if not already registered (handles API restart case)
+			controller.runnersMu.RLock()
+			isRegistered := slices.Contains(controller.runners, runnerID)
+			controller.runnersMu.RUnlock()
+
+			if !isRegistered {
+				log.Info().Str("runner_id", runnerID).Msg("registering runner from ping (API restart recovery)")
+				controller.OnConnectedHandler(runnerID)
+			} else {
+				log.Trace().Str("runner_id", runnerID).Str("data", string(msg.Data)).Msg("runner ping received")
+			}
 		}
 		return nil
 	})
