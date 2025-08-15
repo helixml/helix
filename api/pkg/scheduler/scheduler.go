@@ -964,9 +964,9 @@ func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint
 		// Only count slots on this specific runner
 		if slot.RunnerID == runnerID {
 			modelName := slot.InitialWork().ModelName().String()
-			modelMemory := s.getModelMemory(modelName)
-			if modelMemory == 0 {
-				memoryCalculationError = fmt.Errorf("unknown model memory for slot %s with model %s on runner %s - cannot calculate allocated memory safely", slot.ID.String(), modelName, runnerID)
+			modelMemory, err := s.getModelMemory(modelName)
+			if err != nil {
+				memoryCalculationError = fmt.Errorf("failed to get model memory for slot %s with model %s on runner %s: %w", slot.ID.String(), modelName, runnerID, err)
 				return false // Stop iteration
 			}
 			allocatedMemory += modelMemory
@@ -993,7 +993,7 @@ func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint
 }
 
 // getModelMemory returns the memory requirement for a model from the model registry
-func (s *Scheduler) getModelMemory(modelID string) uint64 {
+func (s *Scheduler) getModelMemory(modelID string) (uint64, error) {
 	// try to get from the model registry (the authoritative source)
 	models, err := s.controller.store.ListModels(context.Background(), &store.ListModelsQuery{})
 	if err != nil {
@@ -1001,7 +1001,7 @@ func (s *Scheduler) getModelMemory(modelID string) uint64 {
 			Str("model_id", modelID).
 			Err(err).
 			Msg("CRITICAL: failed to list models from store - cannot get model memory")
-		return 0
+		return 0, fmt.Errorf("failed to list models from store for model %s: %w", modelID, err)
 	}
 
 	for _, model := range models {
@@ -1010,16 +1010,16 @@ func (s *Scheduler) getModelMemory(modelID string) uint64 {
 				log.Error().
 					Str("model_id", modelID).
 					Msg("CRITICAL: model has zero memory requirement - invalid configuration")
-				return 0
+				return 0, fmt.Errorf("model %s has zero memory requirement - invalid configuration", modelID)
 			}
-			return model.Memory
+			return model.Memory, nil
 		}
 	}
 
 	log.Error().
 		Str("model_id", modelID).
 		Msg("CRITICAL: model not found in model registry - cannot determine memory requirement")
-	return 0
+	return 0, fmt.Errorf("model %s not found in model registry", modelID)
 }
 
 // getSchedulerSlots returns the scheduler's desired state slots for use in memory calculations
