@@ -1552,7 +1552,7 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 		Str("🚨 FUCK_FUNCTION", "UpdateSessionWithKnowledgeResults").
 		Str("🚨 FUCK_SESSION_ID", session.ID).
 		Interface("🚨 FUCK_DOCUMENT_IDS", session.Metadata.DocumentIDs).
-		Bool("🚨 FUCK_HAS_DOCUMENT_IDS", session.Metadata.DocumentIDs != nil && len(session.Metadata.DocumentIDs) > 0).
+		Bool("🚨 FUCK_HAS_DOCUMENT_IDS", len(session.Metadata.DocumentIDs) > 0).
 		Int("🚨 FUCK_DOCUMENT_IDS_COUNT", len(session.Metadata.DocumentIDs)).
 		Str("🚨 FUCK_DOCUMENT_GROUP_ID", session.Metadata.DocumentGroupID).
 		Int("🚨 FUCK_RAG_RESULTS_COUNT", len(ragResults)).
