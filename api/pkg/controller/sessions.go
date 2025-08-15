@@ -303,7 +303,7 @@ func (c *Controller) UpdateInteraction(ctx context.Context, session *types.Sessi
 		Str("🚨 FUCK_WEBSOCKET_EVENT", "UpdateInteraction").
 		Str("🚨 FUCK_SESSION_ID", session.ID).
 		Interface("🚨 FUCK_DOCUMENT_IDS", session.Metadata.DocumentIDs).
-		Bool("🚨 FUCK_HAS_DOCUMENT_IDS", session.Metadata.DocumentIDs != nil && len(session.Metadata.DocumentIDs) > 0).
+		Bool("🚨 FUCK_HAS_DOCUMENT_IDS", len(session.Metadata.DocumentIDs) > 0).
 		Int("🚨 FUCK_DOCUMENT_IDS_COUNT", len(session.Metadata.DocumentIDs)).
 		Str("🚨 FUCK_DOCUMENT_GROUP_ID", session.Metadata.DocumentGroupID).
 		Int("🚨 FUCK_RAG_RESULTS_COUNT", len(session.Metadata.SessionRAGResults)).
@@ -427,7 +427,7 @@ func (c *Controller) WriteSession(ctx context.Context, session *types.Session) e
 		Str("🚨 FUCK_WEBSOCKET_EVENT", "WriteSession").
 		Str("🚨 FUCK_SESSION_ID", session.ID).
 		Interface("🚨 FUCK_DOCUMENT_IDS", session.Metadata.DocumentIDs).
-		Bool("🚨 FUCK_HAS_DOCUMENT_IDS", session.Metadata.DocumentIDs != nil && len(session.Metadata.DocumentIDs) > 0).
+		Bool("🚨 FUCK_HAS_DOCUMENT_IDS", len(session.Metadata.DocumentIDs) > 0).
 		Int("🚨 FUCK_DOCUMENT_IDS_COUNT", len(session.Metadata.DocumentIDs)).
 		Str("🚨 FUCK_DOCUMENT_GROUP_ID", session.Metadata.DocumentGroupID).
 		Int("🚨 FUCK_RAG_RESULTS_COUNT", len(session.Metadata.SessionRAGResults)).
