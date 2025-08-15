@@ -1549,14 +1549,14 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 	// Log the updated document IDs
 	// 🔥🔥🔥 BIG FUCKING LOGGING FOR DOCUMENT IDS BEING SAVED 🔥🔥🔥
 	log.Error().
-		Str("🚨 FUNCTION", "UpdateSessionWithKnowledgeResults").
-		Str("🚨 SESSION_ID", session.ID).
-		Interface("🚨 DOCUMENT_IDS", session.Metadata.DocumentIDs).
-		Bool("🚨 HAS_DOCUMENT_IDS", session.Metadata.DocumentIDs != nil && len(session.Metadata.DocumentIDs) > 0).
-		Int("🚨 DOCUMENT_IDS_COUNT", len(session.Metadata.DocumentIDs)).
-		Str("🚨 DOCUMENT_GROUP_ID", session.Metadata.DocumentGroupID).
-		Int("🚨 RAG_RESULTS_COUNT", len(ragResults)).
-		Msg("🔥🔥🔥 SAVING DOCUMENT IDS TO SESSION METADATA 🔥🔥🔥")
+		Str("🚨 FUCK_FUNCTION", "UpdateSessionWithKnowledgeResults").
+		Str("🚨 FUCK_SESSION_ID", session.ID).
+		Interface("🚨 FUCK_DOCUMENT_IDS", session.Metadata.DocumentIDs).
+		Bool("🚨 FUCK_HAS_DOCUMENT_IDS", session.Metadata.DocumentIDs != nil && len(session.Metadata.DocumentIDs) > 0).
+		Int("🚨 FUCK_DOCUMENT_IDS_COUNT", len(session.Metadata.DocumentIDs)).
+		Str("🚨 FUCK_DOCUMENT_GROUP_ID", session.Metadata.DocumentGroupID).
+		Int("🚨 FUCK_RAG_RESULTS_COUNT", len(ragResults)).
+		Msg("🔥🔥🔥 FUCK SAVING DOCUMENT IDS TO SESSION METADATA 🔥🔥🔥")
 
 	logCtx.Debug().
 		Str("session_id", session.ID).

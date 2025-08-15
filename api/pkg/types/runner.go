@@ -111,6 +111,8 @@ type RunnerSlot struct {
 	GPUIndices         []int          `json:"gpu_indices,omitempty" gorm:"type:jsonb;serializer:json"`
 	TensorParallelSize int            `json:"tensor_parallel_size,omitempty" gorm:"default:0"`
 	CommandLine        string         `json:"command_line,omitempty"`
+	WorkloadData       map[string]any `json:"workload_data,omitempty" gorm:"type:jsonb;serializer:json"`
+	GPUAllocationData  map[string]any `json:"gpu_allocation_data,omitempty" gorm:"type:jsonb;serializer:json"`
 }
 
 type ListRunnerSlotsResponse struct {
