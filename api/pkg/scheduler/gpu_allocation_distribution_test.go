@@ -35,6 +35,11 @@ func TestGPUAllocationDistribution(t *testing.T) {
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	for _, model := range testModels {
 		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
@@ -51,6 +56,7 @@ func TestGPUAllocationDistribution(t *testing.T) {
 	fastInterval := 100 * time.Millisecond
 	_, err = NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
 		QueueSize:               50,
 		RunnerReconcileInterval: &fastInterval, // Fast reconciliation for tests
 	})
@@ -116,7 +122,7 @@ func TestGPUAllocationDistribution(t *testing.T) {
 
 	// First allocation - should go to GPU 0 (both GPUs have equal free memory)
 	t.Logf("\n=== Testing First GPU Allocation (model-a) ===")
-	singleGPU1, multiGPUs1, _ := runnerCtrl.GetOptimalGPUAllocation(testRunnerID, testModels[0].Memory)
+	singleGPU1, multiGPUs1, _ := runnerCtrl.GetOptimalGPUAllocation(testRunnerID, testModels[0].Memory, types.RuntimeVLLM)
 
 	require.NotNil(t, singleGPU1, "First model should get a single GPU allocation")
 	assert.Equal(t, 0, *singleGPU1, "First model should be allocated to GPU 0 (or GPU 1, both are equal)")
@@ -135,7 +141,7 @@ func TestGPUAllocationDistribution(t *testing.T) {
 
 	// Second allocation - should now see the first allocation and choose the other GPU
 	t.Logf("\n=== Testing Second GPU Allocation (model-b) ===")
-	singleGPU2, multiGPUs2, _ := runnerCtrl.GetOptimalGPUAllocation(testRunnerID, testModels[1].Memory)
+	singleGPU2, multiGPUs2, _ := runnerCtrl.GetOptimalGPUAllocation(testRunnerID, testModels[1].Memory, types.RuntimeVLLM)
 
 	require.NotNil(t, singleGPU2, "Second model should get a single GPU allocation")
 	assert.Empty(t, multiGPUs2, "Second model should use single GPU, not multi-GPU")

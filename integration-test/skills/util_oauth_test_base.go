@@ -241,6 +241,7 @@ func (suite *BaseOAuthTestSuite) setupServerDependencies(cfg config.ServerConfig
 
 	schedulerParams := &scheduler.Params{
 		RunnerController: runnerController,
+		Store:            suite.store,
 	}
 	sched, err := scheduler.NewScheduler(suite.ctx, &cfg, schedulerParams)
 	if err != nil {

@@ -300,6 +300,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	scheduler, err := scheduler.NewScheduler(ctx, cfg, &scheduler.Params{
 		RunnerController: runnerController,
+		Store:            postgresStore,
 		QueueSize:        100,
 		OnSchedulingErr: func(work *scheduler.Workload, err error) {
 			if appController != nil {

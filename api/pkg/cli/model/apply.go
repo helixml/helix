@@ -48,11 +48,11 @@ AUTOMATIC GPU CONFIGURATION:
 Helix automatically handles all GPU-related configuration:
 
 • GPU Selection: Automatically selects optimal GPU(s) based on model memory requirements
-• Tensor Parallelism: Automatically sets --tensor-parallel-size for VLLM multi-GPU models  
+• Tensor Parallelism: Automatically sets --tensor-parallel-size for VLLM multi-GPU models
 • Memory Ratios: Automatically calculates --gpu-memory-utilization for VLLM (per-GPU basis)
 • CUDA Devices: Automatically sets CUDA_VISIBLE_DEVICES environment variable
 • Multi-GPU: Models > single GPU memory automatically use multiple GPUs
-• Ollama: Leverages native automatic multi-GPU tensor parallelism
+• Ollama: Single GPU only - evicts models to make room if needed
 • VLLM: Configures tensor parallel size based on selected GPU count
 
 You only need to specify the model's total memory requirement - all GPU allocation,
@@ -62,7 +62,7 @@ Examples:
   # Apply model from YAML file (recommended)
   helix model apply -f model.yaml
 
-  # Apply model from JSON file  
+  # Apply model from JSON file
   helix model apply -f model.json`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		filename, err := cmd.Flags().GetString("filename")

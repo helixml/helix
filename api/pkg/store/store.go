@@ -183,6 +183,14 @@ type Store interface {
 	UpdateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
 	DeleteInteraction(ctx context.Context, id string) error
 
+	// slots
+	CreateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error)
+	GetSlot(ctx context.Context, id string) (*types.RunnerSlot, error)
+	UpdateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error)
+	DeleteSlot(ctx context.Context, id string) error
+	ListSlots(ctx context.Context, runnerID string) ([]*types.RunnerSlot, error)
+	ListAllSlots(ctx context.Context) ([]*types.RunnerSlot, error)
+
 	// step infos
 	CreateStepInfo(ctx context.Context, stepInfo *types.StepInfo) (*types.StepInfo, error)
 	ListStepInfos(ctx context.Context, query *ListStepInfosQuery) ([]*types.StepInfo, error)

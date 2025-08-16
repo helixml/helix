@@ -126,6 +126,14 @@ func (g *GPUManager) GetUsedMemory() uint64 {
 	return g.usedMemory
 }
 
+// GetFreshUsedMemory forces a fresh nvidia-smi call to get current GPU memory usage
+// This is useful when you need real-time memory data rather than cached values
+func (g *GPUManager) GetFreshUsedMemory() uint64 {
+	// Force a fresh memory fetch which will update g.usedMemory
+	g.fetchFreeMemory()
+	return g.usedMemory
+}
+
 func (g *GPUManager) fetchFreeMemory() uint64 {
 	if !g.hasGPU && !g.runnerOptions.DevelopmentCPUOnly {
 		return 0

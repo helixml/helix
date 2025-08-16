@@ -42,6 +42,11 @@ func TestOverSchedulingPrevention(t *testing.T) {
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(realModels, nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	// Mock GetModel calls for slot creation
 	for _, model := range realModels {
@@ -59,6 +64,7 @@ func TestOverSchedulingPrevention(t *testing.T) {
 	fastInterval := 100 * time.Millisecond
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
 		QueueSize:               50,
 		RunnerReconcileInterval: &fastInterval, // Fast reconciliation for tests
 	})
@@ -250,6 +256,11 @@ func TestOverSchedulingPreventionMultiGPU(t *testing.T) {
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub:        ps,
@@ -262,6 +273,7 @@ func TestOverSchedulingPreventionMultiGPU(t *testing.T) {
 	fastInterval := 100 * time.Millisecond
 	_, err = NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
 		QueueSize:               50,
 		RunnerReconcileInterval: &fastInterval, // Fast reconciliation for tests
 	})
@@ -308,7 +320,7 @@ func TestOverSchedulingPreventionMultiGPU(t *testing.T) {
 
 	// First model: 70GB should use tensor parallelism across both GPUs
 	model1 := models[0]
-	singleGPU1, multiGPUs1, tensorParallelSize1 := runnerCtrl.GetOptimalGPUAllocation(testRunnerID, model1.Memory)
+	singleGPU1, multiGPUs1, tensorParallelSize1 := runnerCtrl.GetOptimalGPUAllocation(testRunnerID, model1.Memory, types.RuntimeVLLM)
 
 	t.Logf("Model 1 (%s, %d GB): single_gpu=%v, multi_gpus=%v, tensor_parallel_size=%d",
 		model1.ID, model1.Memory/(1024*1024*1024), singleGPU1, multiGPUs1, tensorParallelSize1)
