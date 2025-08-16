@@ -62,7 +62,8 @@ func (s *Stripe) GetCheckoutSessionURL(
 	}
 
 	checkoutParams := &stripe.CheckoutSessionParams{
-		Mode: stripe.String(string(stripe.CheckoutSessionModeSubscription)),
+		AllowPromotionCodes: stripe.Bool(true),
+		Mode:                stripe.String(string(stripe.CheckoutSessionModeSubscription)),
 		// this is how we link the subscription to our user
 		SubscriptionData: &stripe.CheckoutSessionSubscriptionDataParams{
 			Metadata: map[string]string{
