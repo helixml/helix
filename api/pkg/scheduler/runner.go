@@ -640,7 +640,7 @@ func (c *RunnerController) GetGPUMemoryInfo(runnerID string) ([]*types.GPUStatus
 
 // GetOptimalGPUAllocation determines the best GPU allocation strategy for a model
 // Returns single GPU index for single-GPU models, or multiple GPU indices for multi-GPU models
-func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryRequirement uint64) (singleGPU *int, multiGPUs []int, tensorParallelSize int) {
+func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryRequirement uint64, runtime types.Runtime) (singleGPU *int, multiGPUs []int, tensorParallelSize int) {
 	status, err := c.GetStatus(runnerID)
 	if err != nil {
 		log.Error().Err(err).Msg("error getting runner status for GPU allocation")
@@ -684,18 +684,28 @@ func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryR
 		}
 	}
 
-	// If single GPU doesn't work, try multi-GPU allocation
-	// Start with 2 GPUs and scale up as needed
-	for numGPUs := 2; numGPUs <= len(status.GPUs); numGPUs++ {
-		if gpuIndices, canFit := c.CanFitModelOnMultipleGPUsAllocated(runnerID, modelMemoryRequirement, numGPUs, allocatedMemoryPerGPU); canFit {
-			log.Debug().
-				Str("runner_id", runnerID).
-				Ints("selected_gpus", gpuIndices).
-				Int("tensor_parallel_size", numGPUs).
-				Uint64("model_memory_requirement", modelMemoryRequirement).
-				Msg("Selected multi-GPU allocation for model based on allocated memory")
-			return nil, gpuIndices, numGPUs
+	// Only try multi-GPU allocation for runtimes that support tensor parallelism
+	if runtime == types.RuntimeVLLM {
+		// If single GPU doesn't work, try multi-GPU allocation for VLLM
+		// Start with 2 GPUs and scale up as needed
+		for numGPUs := 2; numGPUs <= len(status.GPUs); numGPUs++ {
+			if gpuIndices, canFit := c.CanFitModelOnMultipleGPUsAllocated(runnerID, modelMemoryRequirement, numGPUs, allocatedMemoryPerGPU); canFit {
+				log.Debug().
+					Str("runner_id", runnerID).
+					Ints("selected_gpus", gpuIndices).
+					Int("tensor_parallel_size", numGPUs).
+					Uint64("model_memory_requirement", modelMemoryRequirement).
+					Str("runtime", string(runtime)).
+					Msg("Selected multi-GPU allocation for VLLM model based on allocated memory")
+				return nil, gpuIndices, numGPUs
+			}
 		}
+	} else {
+		log.Debug().
+			Str("runner_id", runnerID).
+			Str("runtime", string(runtime)).
+			Uint64("model_memory_requirement", modelMemoryRequirement).
+			Msg("Skipping multi-GPU allocation for non-VLLM runtime - will trigger eviction instead")
 	}
 
 	log.Debug().

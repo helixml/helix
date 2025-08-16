@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -256,6 +257,19 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 
 func (c *Controller) GetSchedulerHeartbeats(_ context.Context) (interface{}, error) {
 	return c.scheduler.GetGoroutineHeartbeats(), nil
+}
+
+// DeleteSlotFromScheduler removes a slot from the scheduler's desired state
+// This allows the reconciler to clean up the slot from the runner
+func (c *Controller) DeleteSlotFromScheduler(_ context.Context, slotID uuid.UUID) error {
+	log.Info().Str("slot_id", slotID.String()).Msg("DEBUG: Controller.DeleteSlotFromScheduler called")
+	err := c.scheduler.DeleteSlot(slotID)
+	if err != nil {
+		log.Error().Err(err).Str("slot_id", slotID.String()).Msg("DEBUG: scheduler.DeleteSlot failed")
+		return err
+	}
+	log.Info().Str("slot_id", slotID.String()).Msg("DEBUG: scheduler.DeleteSlot completed successfully")
+	return nil
 }
 
 func (c *Controller) updateSubscriptionUser(userID string, stripeCustomerID string, stripeSubscriptionID string, active bool) error {

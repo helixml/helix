@@ -49,47 +49,166 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 
 		// Check GPU compatibility based on runtime and memory requirements
 		if work.Runtime() == types.RuntimeVLLM || work.Runtime() == types.RuntimeOllama {
-			// First try standard allocation with current memory state
-			singleGPU, multiGPUs, _ := s.controller.GetOptimalGPUAllocation(runnerID, work.model.Memory)
+			var singleGPU *int
+			var multiGPUs []int
 
-			// If allocation failed, try with eviction potential
-			if singleGPU == nil && len(multiGPUs) == 0 {
-				log.Debug().
+			// For Ollama models, skip multi-GPU allocation entirely and focus on single-GPU + eviction
+			if work.Runtime() == types.RuntimeOllama {
+				log.Info().
+					Str("ORANGE_OLLAMA_SINGLE_ONLY", "allocation_attempt").
 					Str("runner_id", runnerID).
 					Str("model", work.ModelName().String()).
 					Uint64("model_memory_gb", work.model.Memory/(1024*1024*1024)).
-					Msg("Standard GPU allocation failed, trying with eviction potential")
+					Msg("ORANGE: Ollama model - trying single-GPU allocation only")
 
-				evictableMemoryPerGPU, err := s.calculateEvictableMemoryPerGPU(runnerID)
-				if err == nil {
-					singleGPU, multiGPUs, _ = s.getOptimalGPUAllocationWithEviction(runnerID, work.model.Memory, evictableMemoryPerGPU)
+				// Try single GPU allocation only
+				singleGPU, _, _ = s.controller.GetOptimalGPUAllocation(runnerID, work.model.Memory, work.Runtime())
 
-					if singleGPU != nil || len(multiGPUs) > 0 {
+				// If single GPU failed, try with eviction
+				if singleGPU == nil {
+					log.Info().
+						Str("ORANGE_EVICTION_TRYING", "calculating_evictable").
+						Str("runner_id", runnerID).
+						Str("model", work.ModelName().String()).
+						Uint64("model_memory_gb", work.model.Memory/(1024*1024*1024)).
+						Msg("ORANGE: Ollama single-GPU allocation failed, trying with eviction potential")
+
+					evictableMemoryPerGPU, err := s.calculateEvictableMemoryPerGPU(runnerID)
+					log.Info().
+						Str("ORANGE_EVICTION_CALCULATED", "evictable_memory").
+						Str("runner_id", runnerID).
+						Interface("evictable_memory_per_gpu_gb", func() map[int]uint64 {
+							result := make(map[int]uint64)
+							for gpu, mem := range evictableMemoryPerGPU {
+								result[gpu] = mem / (1024 * 1024 * 1024)
+							}
+							return result
+						}()).
+						Err(err).
+						Msg("ORANGE: Calculated evictable memory per GPU for Ollama")
+
+					if err == nil {
+						singleGPU, _, _ = s.getOptimalGPUAllocationWithEviction(runnerID, work.model.Memory, work.Runtime(), evictableMemoryPerGPU)
+
 						log.Info().
+							Str("ORANGE_EVICTION_RESULT", "allocation_with_eviction").
 							Str("runner_id", runnerID).
 							Str("model", work.ModelName().String()).
-							Interface("single_gpu", singleGPU).
-							Ints("multi_gpus", multiGPUs).
+							Interface("eviction_single_gpu", singleGPU).
 							Interface("evictable_memory_per_gpu", evictableMemoryPerGPU).
-							Msg("GPU allocation successful with eviction potential - stale slots can be evicted")
+							Msg("ORANGE: Ollama GPU allocation result with eviction potential")
+
+						if singleGPU != nil {
+							log.Info().
+								Str("ORANGE_EVICTION_SUCCESS", "can_allocate").
+								Str("runner_id", runnerID).
+								Str("model", work.ModelName().String()).
+								Interface("single_gpu", singleGPU).
+								Interface("evictable_memory_per_gpu", evictableMemoryPerGPU).
+								Msg("ORANGE: Ollama single-GPU allocation successful with eviction potential")
+						} else {
+							log.Info().
+								Str("ORANGE_EVICTION_FAILED", "cannot_allocate").
+								Str("runner_id", runnerID).
+								Str("model", work.ModelName().String()).
+								Interface("evictable_memory_per_gpu", evictableMemoryPerGPU).
+								Msg("ORANGE: Ollama allocation failed even with eviction potential")
+						}
+					} else {
+						log.Info().
+							Str("ORANGE_EVICTION_ERROR", "calc_failed").
+							Str("runner_id", runnerID).
+							Err(err).
+							Msg("ORANGE: Failed to calculate evictable memory for Ollama")
 					}
 				}
-			}
+				runnerGPUCompatible[runnerID] = (singleGPU != nil)
+			} else {
+				// For VLLM models, use the original logic with multi-GPU support
+				singleGPU, multiGPUs, _ = s.controller.GetOptimalGPUAllocation(runnerID, work.model.Memory, work.Runtime())
 
-			// TEMPORARY: Disable multi-GPU for Ollama due to timeout issues
-			if work.Runtime() == types.RuntimeOllama && singleGPU == nil && len(multiGPUs) > 0 {
 				log.Info().
+					Str("ORANGE_EVICTION_START", "allocation_attempt").
 					Str("runner_id", runnerID).
 					Str("model", work.ModelName().String()).
-					Ints("rejected_multi_gpus", multiGPUs).
+					Str("runtime", string(work.Runtime())).
 					Uint64("model_memory_gb", work.model.Memory/(1024*1024*1024)).
-					Msg("TEMPORARY: Disabling multi-GPU allocation for Ollama model due to timeout issues - rejecting model that needs multi-GPU")
-				// Force rejection for Ollama models that need multi-GPU
-				runnerGPUCompatible[runnerID] = false
-				multiGPUs = nil // Clear multi-GPU allocation
-			} else {
+					Interface("standard_single_gpu", singleGPU).
+					Ints("standard_multi_gpus", multiGPUs).
+					Msg("ORANGE: VLLM initial GPU allocation attempt")
+
+				// If allocation failed, try with eviction potential
+				if singleGPU == nil && len(multiGPUs) == 0 {
+					log.Info().
+						Str("ORANGE_EVICTION_TRYING", "calculating_evictable").
+						Str("runner_id", runnerID).
+						Str("model", work.ModelName().String()).
+						Uint64("model_memory_gb", work.model.Memory/(1024*1024*1024)).
+						Msg("ORANGE: VLLM standard GPU allocation failed, trying with eviction potential")
+
+					evictableMemoryPerGPU, err := s.calculateEvictableMemoryPerGPU(runnerID)
+					log.Info().
+						Str("ORANGE_EVICTION_CALCULATED", "evictable_memory").
+						Str("runner_id", runnerID).
+						Interface("evictable_memory_per_gpu_gb", func() map[int]uint64 {
+							result := make(map[int]uint64)
+							for gpu, mem := range evictableMemoryPerGPU {
+								result[gpu] = mem / (1024 * 1024 * 1024)
+							}
+							return result
+						}()).
+						Err(err).
+						Msg("ORANGE: Calculated evictable memory per GPU for VLLM")
+
+					if err == nil {
+						singleGPU, multiGPUs, _ = s.getOptimalGPUAllocationWithEviction(runnerID, work.model.Memory, work.Runtime(), evictableMemoryPerGPU)
+
+						log.Info().
+							Str("ORANGE_EVICTION_RESULT", "allocation_with_eviction").
+							Str("runner_id", runnerID).
+							Str("model", work.ModelName().String()).
+							Interface("eviction_single_gpu", singleGPU).
+							Ints("eviction_multi_gpus", multiGPUs).
+							Interface("evictable_memory_per_gpu", evictableMemoryPerGPU).
+							Msg("ORANGE: VLLM GPU allocation result with eviction potential")
+
+						if singleGPU != nil || len(multiGPUs) > 0 {
+							log.Info().
+								Str("ORANGE_EVICTION_SUCCESS", "can_allocate").
+								Str("runner_id", runnerID).
+								Str("model", work.ModelName().String()).
+								Interface("single_gpu", singleGPU).
+								Ints("multi_gpus", multiGPUs).
+								Interface("evictable_memory_per_gpu", evictableMemoryPerGPU).
+								Msg("ORANGE: VLLM allocation successful with eviction potential - stale slots can be evicted")
+						} else {
+							log.Info().
+								Str("ORANGE_EVICTION_FAILED", "cannot_allocate").
+								Str("runner_id", runnerID).
+								Str("model", work.ModelName().String()).
+								Interface("evictable_memory_per_gpu", evictableMemoryPerGPU).
+								Msg("ORANGE: VLLM allocation failed even with eviction potential")
+						}
+					} else {
+						log.Info().
+							Str("ORANGE_EVICTION_ERROR", "calc_failed").
+							Str("runner_id", runnerID).
+							Err(err).
+							Msg("ORANGE: Failed to calculate evictable memory for VLLM")
+					}
+				}
 				runnerGPUCompatible[runnerID] = (singleGPU != nil) || (len(multiGPUs) > 0)
 			}
+
+			log.Info().
+				Str("ORANGE_FINAL_DECISION", "gpu_compatibility").
+				Str("runner_id", runnerID).
+				Str("model", work.ModelName().String()).
+				Str("runtime", string(work.Runtime())).
+				Interface("final_single_gpu", singleGPU).
+				Ints("final_multi_gpus", multiGPUs).
+				Bool("runner_gpu_compatible", runnerGPUCompatible[runnerID]).
+				Msg("ORANGE: Final GPU compatibility decision")
 
 			log.Trace().
 				Str("runner_id", runnerID).

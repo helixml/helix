@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -51,12 +52,13 @@ func (c *InternalHelixServer) CreateChatCompletion(requestCtx context.Context, r
 	var (
 		resp      openai.ChatCompletionResponse
 		respError error
+		once      sync.Once
 	)
 
 	// Subscribe to the runner response from the runner
 	sub, err := c.pubsub.Subscribe(ctx, pubsub.GetRunnerResponsesQueue(vals.OwnerID, requestID), func(payload []byte) error {
 		log.Debug().Str("request_id", requestID).Msg("received runner response, closing channel")
-		defer close(doneCh)
+		defer once.Do(func() { close(doneCh) })
 
 		var runnerResp types.RunnerNatsReplyResponse
 		err := json.Unmarshal(payload, &runnerResp)
