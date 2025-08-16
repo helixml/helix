@@ -43,14 +43,6 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
 
   const isEditing = Boolean(model?.id);
 
-  // Helper function to convert per-million token price to display format
-  const convertToDisplayFormat = (price: string): string => {
-    if (!price.trim()) return '';
-    const numPrice = parseFloat(price);
-    if (isNaN(numPrice)) return price; // Return original if not a valid number
-    return `$${numPrice.toFixed(2)} per 1M tokens`;
-  };
-
   // Helper function to convert per-token price back to per-million token price for display
   const convertToPerMillionDisplay = (perTokenPrice: string): string => {
     if (!perTokenPrice.trim()) return '';
@@ -58,15 +50,16 @@ const ModelPricingDialog: FC<ModelPricingDialogProps> = ({
     if (isNaN(numPrice)) return perTokenPrice; // Return original if not a valid number
     // Convert per-token price to per-million token price for display
     const perMillionPrice = numPrice * 1000000;
-    return perMillionPrice.toFixed(2);
+    // Don't round - preserve exact precision for form input
+    return perMillionPrice.toString();
   };
 
   // Helper function to convert per-million token price to per-token price with proper decimal formatting
   const convertToPerTokenPrice = (perMillionPrice: number): string => {
     const perTokenPrice = perMillionPrice / 1000000;
-    // Use toFixed with enough precision to avoid scientific notation
-    // For prices like 0.4 per million, we want 0.0000004, not 4e-7
-    return perTokenPrice.toFixed(7);
+    // Don't round - preserve exact precision for storage
+    // Use toString() to avoid scientific notation while preserving exact values
+    return perTokenPrice.toString();
   };
 
   // Reset form when dialog opens/closes, but not when model data changes
