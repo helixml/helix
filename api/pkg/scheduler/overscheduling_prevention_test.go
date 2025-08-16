@@ -320,7 +320,7 @@ func TestOverSchedulingPreventionMultiGPU(t *testing.T) {
 
 	// First model: 70GB should use tensor parallelism across both GPUs
 	model1 := models[0]
-	singleGPU1, multiGPUs1, tensorParallelSize1 := runnerCtrl.GetOptimalGPUAllocation(testRunnerID, model1.Memory)
+	singleGPU1, multiGPUs1, tensorParallelSize1 := runnerCtrl.GetOptimalGPUAllocation(testRunnerID, model1.Memory, types.RuntimeVLLM)
 
 	t.Logf("Model 1 (%s, %d GB): single_gpu=%v, multi_gpus=%v, tensor_parallel_size=%d",
 		model1.ID, model1.Memory/(1024*1024*1024), singleGPU1, multiGPUs1, tensorParallelSize1)

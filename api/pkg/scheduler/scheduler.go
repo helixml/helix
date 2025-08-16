@@ -243,12 +243,14 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		}
 	}
 
+	slotStore := NewSlotStore(params.Store)
+
 	s := &Scheduler{
 		ctx:                     ctx,
 		controller:              params.RunnerController,
 		queue:                   NewWorkQueue(queueSize),
 		onSchedulingErr:         params.OnSchedulingErr,
-		slots:                   NewSlotStore(params.Store),
+		slots:                   slotStore,
 		modelStaleFunc:          modelStaleFunc,
 		slotTimeoutFunc:         slotTimeoutFunc,
 		decisionsTracker:        NewSchedulingDecisionsTracker(100), // Keep last 100 decisions
@@ -257,6 +259,9 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		queueTrigger:            make(chan struct{}, 1), // Buffered channel to avoid blocking
 		heartbeats:              xsync.NewMapOf[string, *GoroutineHeartbeat](),
 	}
+
+	// Set timeout functions on slots loaded from database
+	slotStore.SetTimeoutFunctions(modelStaleFunc, slotTimeoutFunc)
 
 	// Start the queue processor
 	go s.processQueue(ctx)
@@ -528,6 +533,16 @@ func (s *Scheduler) RunnerSlots(runnerID string) ([]*types.RunnerSlot, error) {
 	return s.controller.GetSlots(runnerID)
 }
 
+// DeleteSlot removes a slot from the scheduler's desired state
+// This allows the reconciler to clean up the slot from the runner
+func (s *Scheduler) DeleteSlot(slotID uuid.UUID) error {
+	log.Info().Str("slot_id", slotID.String()).Msg("DEBUG: Scheduler.DeleteSlot called")
+	log.Info().Str("slot_id", slotID.String()).Msg("DEBUG: about to call s.slots.Delete")
+	s.slots.Delete(slotID)
+	log.Info().Str("slot_id", slotID.String()).Msg("DEBUG: s.slots.Delete completed successfully")
+	return nil
+}
+
 // processQueue runs in a goroutine to processes the queue of requests.
 func (s *Scheduler) processQueue(ctx context.Context) {
 	s.runGoroutineWithRestart(ctx, "processQueue", func(ctx context.Context) {
@@ -788,8 +803,11 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	}
 
 	// Build a complete map of all actual slots across all runners
-	allActualSlots := make(map[uuid.UUID]string) // maps slot ID to runner ID
+	allActualSlots := make(map[uuid.UUID]string)                  // maps slot ID to runner ID
+	allActualSlotDetails := make(map[uuid.UUID]*types.RunnerSlot) // maps slot ID to slot details
 	for _, runnerID := range runnerIDs {
+		log.Info().Str("runner_id", runnerID).Msg("APPLE: Fetching actual slots from runner")
+
 		// We need a live view of the slots here, otherwise we might get stale data
 		actualSlots, err := s.controller.fetchSlots(runnerID)
 		if err != nil {
@@ -797,7 +815,20 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 			continue
 		}
 
+		log.Info().
+			Str("runner_id", runnerID).
+			Int("slot_count", len(actualSlots.Slots)).
+			Msg("APPLE: Got actual slots from runner")
+
 		for _, slot := range actualSlots.Slots {
+			log.Info().
+				Str("slot_id", slot.ID.String()).
+				Str("runner_id", slot.RunnerID).
+				Str("model", slot.Model).
+				Bool("active", slot.Active).
+				Bool("ready", slot.Ready).
+				Msg("APPLE: Processing actual slot from runner")
+
 			// If we find the same slot ID on multiple runners, delete from the duplicate runner
 			if existingRunnerID, exists := allActualSlots[slot.ID]; exists {
 				duplicateSlotCount++
@@ -813,6 +844,7 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 				continue
 			}
 			allActualSlots[slot.ID] = runnerID
+			allActualSlotDetails[slot.ID] = slot
 		}
 	}
 
@@ -870,6 +902,62 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 		}
 	}
 
+	// Sync slot status for existing slots that match between scheduler and runner
+	// Collect updates first to avoid holding the mutex during updates
+	type slotUpdate struct {
+		slotID     uuid.UUID
+		isActive   bool
+		isRunning  bool
+		runnerID   string
+		modelName  string
+		oldRunning bool
+		oldActive  bool
+	}
+	var updates []slotUpdate
+
+	s.slots.Range(func(slotID uuid.UUID, schedulerSlot *Slot) bool {
+		if runnerSlot, exists := allActualSlotDetails[slotID]; exists {
+			// Slot exists in both scheduler and on runner - sync the status
+			isRunning := runnerSlot.Ready && runnerSlot.Status != ""
+			isActive := runnerSlot.Active
+
+			// Only collect updates if status has changed
+			if schedulerSlot.IsRunning() != isRunning || schedulerSlot.IsActive() != isActive {
+				updates = append(updates, slotUpdate{
+					slotID:     slotID,
+					isActive:   isActive,
+					isRunning:  isRunning,
+					runnerID:   schedulerSlot.RunnerID,
+					modelName:  schedulerSlot.InitialWork().ModelName().String(),
+					oldRunning: schedulerSlot.IsRunning(),
+					oldActive:  schedulerSlot.IsActive(),
+				})
+			}
+		}
+		return true
+	})
+
+	// Apply updates after Range completes to avoid deadlock
+	syncedSlotCount := 0
+	for _, update := range updates {
+		s.slots.UpdateSlotActivity(update.slotID, update.isActive, update.isRunning)
+		syncedSlotCount++
+
+		log.Info().
+			Str("slot_id", update.slotID.String()).
+			Str("runner_id", update.runnerID).
+			Str("model", update.modelName).
+			Bool("old_running", update.oldRunning).
+			Bool("new_running", update.isRunning).
+			Bool("old_active", update.oldActive).
+			Bool("new_active", update.isActive).
+			Msg("APPLE: Synced slot status with runner state")
+	}
+
+	log.Info().
+		Int("synced_count", syncedSlotCount).
+		Msg("APPLE: Completed slot status synchronization")
+
 	// Create new slots - collect failed slots for deletion after Range completes to avoid deadlock
 	type failedSlotInfo struct {
 		slotID uuid.UUID
@@ -878,7 +966,14 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	}
 	var failedSlots []failedSlotInfo
 
+	log.Info().Int("desired_slots_count", s.slots.Size()).Msg("APPLE: Starting desired slot reconciliation")
+
 	s.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
+		log.Info().
+			Str("slot_id", slotID.String()).
+			Str("desired_runner_id", slot.RunnerID).
+			Msg("APPLE: Checking desired slot")
+
 		if runnerID, exists := allActualSlots[slotID]; !exists {
 			orphanedSlotCount++
 
@@ -899,7 +994,7 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 				Str("runtime", runtime).
 				Bool("is_active", slot.IsActive()).
 				Bool("is_running", slot.IsRunning()).
-				Msg("found slot on the scheduler that doesn't exist on the runner, creating...")
+				Msg("APPLE: found slot on the scheduler that doesn't exist on the runner, creating...")
 
 			// log.Debug().
 			//	Str("SLOT_RECONCILE_DEBUG", "calling_create_new_slot").
@@ -1133,9 +1228,31 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 				continue // Try next runner
 			}
 
-			// Success! Create slot on this runner with GPU allocation from scheduler
-			gpuAllocation := s.getGPUAllocation(req.ExampleWorkload.ID(), runnerID)
+			// Re-calculate GPU allocation after eviction to ensure accurate memory state
+			singleGPU, multiGPUs, tensorParallelSize := s.controller.GetOptimalGPUAllocation(runnerID, req.ExampleWorkload.model.Memory, req.ExampleWorkload.Runtime())
+
+			// Create GPU allocation object
+			var gpuAllocation *GPUAllocation
+			if singleGPU != nil || len(multiGPUs) > 0 {
+				gpuAllocation = &GPUAllocation{
+					WorkloadID:         req.ExampleWorkload.ID(),
+					RunnerID:           runnerID,
+					SingleGPU:          singleGPU,
+					MultiGPUs:          multiGPUs,
+					TensorParallelSize: tensorParallelSize,
+				}
+				// Store the fresh allocation for future reference
+				s.storeGPUAllocation(req.ExampleWorkload, runnerID, singleGPU, multiGPUs)
+			}
+
 			slot := NewSlot(runnerID, req.ExampleWorkload, s.modelStaleFunc, s.slotTimeoutFunc, gpuAllocation)
+
+			log.Info().
+				Str("slot_id", slot.ID.String()).
+				Str("runner_id", slot.RunnerID).
+				Str("model", req.ExampleWorkload.ModelName().String()).
+				Msg("APPLE: Created new slot in ensureSlots")
+
 			s.slots.Store(slot.ID, slot)
 
 			// Log successful new slot creation with memory info
@@ -1182,17 +1299,29 @@ func (s *Scheduler) TriggerQueueProcessing() {
 }
 
 func (s *Scheduler) processQueueOnce() {
+	log.Info().Msg("APPLE: Starting queue processing cycle")
+
 	// Try to take next work item that has a warm slot available
 	work := s.queue.TakeNext(func(w *Workload) bool {
 		warmSlots := s.warmSlots(w)
+		log.Info().
+			Str("model", w.ModelName().String()).
+			Int("warm_slots", len(warmSlots)).
+			Msg("APPLE: Checking warm slots for workload")
 		return len(warmSlots) > 0
 	})
 
 	if work == nil {
+		log.Info().Msg("APPLE: No work can be scheduled right now")
 		// Don't do expensive logging analysis in the hot path - it causes performance issues
 		// and prevents actual slot reconciliation from working properly
 		return // Nothing can be scheduled right now
 	}
+
+	log.Info().
+		Str("workload_id", work.ID()).
+		Str("model", work.ModelName().String()).
+		Msg("APPLE: Found schedulable work")
 
 	startTime := time.Now()
 
@@ -1306,40 +1435,163 @@ func (s *Scheduler) calculateEvictableMemoryPerGPU(runnerID string) (map[int]uin
 		return true
 	})
 
+	log.Info().
+		Str("ORANGE_SLOTS_FOUND", "all_runner_slots").
+		Str("runner_id", runnerID).
+		Int("total_slots_found", len(runnerSlots)).
+		Msg("ORANGE: Found slots for runner")
+
+	// Debug each slot's stale status
+	for i, slot := range runnerSlots {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Info().
+						Str("ORANGE_SLOT_ERROR", "panic_in_slot_check").
+						Str("runner_id", runnerID).
+						Int("slot_index", i).
+						Str("slot_id", slot.ID.String()).
+						Interface("panic", r).
+						Msg("ORANGE: Panic while checking slot")
+				}
+			}()
+
+			var modelName string
+			if slot.InitialWork() != nil {
+				modelName = slot.InitialWork().ModelName().String()
+			} else {
+				modelName = "<nil_work>"
+			}
+
+			isStale := slot.IsStale()
+			log.Info().
+				Str("ORANGE_SLOT_CHECK", "stale_status").
+				Str("runner_id", runnerID).
+				Int("slot_index", i).
+				Str("slot_id", slot.ID.String()).
+				Str("model", modelName).
+				Bool("is_stale", isStale).
+				Bool("is_active", slot.IsActive()).
+				Bool("is_running", slot.IsRunning()).
+				Time("last_activity", slot.LastActivityTime).
+				Dur("age", time.Since(slot.LastActivityTime)).
+				Msg("ORANGE: Slot stale check details")
+		}()
+	}
+
 	// Filter to only stale slots
 	staleSlots := Filter(runnerSlots, func(slot *Slot) bool {
 		return slot.IsStale()
 	})
 
+	log.Info().
+		Str("ORANGE_STALE_FILTERED", "stale_slots").
+		Str("runner_id", runnerID).
+		Int("total_slots", len(runnerSlots)).
+		Int("stale_slots", len(staleSlots)).
+		Msg("ORANGE: Filtered to stale slots")
+
 	// Calculate memory that could be freed per GPU from stale slots
 	for _, slot := range staleSlots {
-		if slot.GPUAllocation != nil {
-			// Get model memory for this slot
-			modelMemory, err := s.controller.getModelMemoryFn(slot.InitialWork().ModelName().String())
-			if err != nil {
-				log.Trace().Err(err).Str("model", slot.InitialWork().ModelName().String()).Msg("Could not get model memory for evictable calculation")
-				continue
-			}
-
-			if slot.GPUAllocation.SingleGPU != nil {
-				// Single GPU allocation
-				gpuIndex := *slot.GPUAllocation.SingleGPU
-				evictableMemoryPerGPU[gpuIndex] += modelMemory
-			} else if len(slot.GPUAllocation.MultiGPUs) > 0 {
-				// Multi-GPU allocation - distribute memory across GPUs
-				memoryPerGPU := modelMemory / uint64(len(slot.GPUAllocation.MultiGPUs))
-				for _, gpuIndex := range slot.GPUAllocation.MultiGPUs {
-					evictableMemoryPerGPU[gpuIndex] += memoryPerGPU
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Info().
+						Str("ORANGE_STALE_SLOT_ERROR", "panic_in_memory_calc").
+						Str("slot_id", slot.ID.String()).
+						Interface("panic", r).
+						Msg("ORANGE: Panic while calculating evictable memory for slot")
 				}
+			}()
+
+			if slot.GPUAllocation != nil {
+				// Get model memory for this slot - with error handling
+				var modelName string
+				if slot.InitialWork() != nil {
+					modelName = slot.InitialWork().ModelName().String()
+				} else {
+					log.Info().
+						Str("ORANGE_NO_WORK", "slot_skipped").
+						Str("slot_id", slot.ID.String()).
+						Msg("ORANGE: Stale slot has no initial work - skipping")
+					return
+				}
+
+				modelMemory, err := s.controller.getModelMemoryFn(modelName)
+				if err != nil {
+					log.Info().
+						Str("ORANGE_MEMORY_ERROR", "model_memory_lookup").
+						Err(err).
+						Str("model", modelName).
+						Str("slot_id", slot.ID.String()).
+						Msg("ORANGE: Could not get model memory for evictable calculation")
+					return
+				}
+
+				log.Info().
+					Str("ORANGE_STALE_MEMORY", "adding_evictable").
+					Str("slot_id", slot.ID.String()).
+					Str("model", modelName).
+					Uint64("model_memory_gb", modelMemory/(1024*1024*1024)).
+					Interface("gpu_allocation", slot.GPUAllocation).
+					Msg("ORANGE: Adding stale slot memory to evictable pool")
+
+				if slot.GPUAllocation.SingleGPU != nil {
+					// Single GPU allocation
+					gpuIndex := *slot.GPUAllocation.SingleGPU
+					evictableMemoryPerGPU[gpuIndex] += modelMemory
+					log.Info().
+						Str("ORANGE_SINGLE_GPU", "evictable_added").
+						Int("gpu_index", gpuIndex).
+						Uint64("added_memory_gb", modelMemory/(1024*1024*1024)).
+						Uint64("total_evictable_gb", evictableMemoryPerGPU[gpuIndex]/(1024*1024*1024)).
+						Msg("ORANGE: Added single GPU evictable memory")
+				} else if len(slot.GPUAllocation.MultiGPUs) > 0 {
+					// Multi-GPU allocation - distribute memory across GPUs
+					memoryPerGPU := modelMemory / uint64(len(slot.GPUAllocation.MultiGPUs))
+					for _, gpuIndex := range slot.GPUAllocation.MultiGPUs {
+						evictableMemoryPerGPU[gpuIndex] += memoryPerGPU
+					}
+					log.Info().
+						Str("ORANGE_MULTI_GPU", "evictable_added").
+						Ints("gpu_indices", slot.GPUAllocation.MultiGPUs).
+						Uint64("memory_per_gpu_gb", memoryPerGPU/(1024*1024*1024)).
+						Uint64("total_model_memory_gb", modelMemory/(1024*1024*1024)).
+						Msg("ORANGE: Added multi-GPU evictable memory")
+				}
+			} else {
+				var modelName string
+				if slot.InitialWork() != nil {
+					modelName = slot.InitialWork().ModelName().String()
+				} else {
+					modelName = "<nil_work>"
+				}
+				log.Info().
+					Str("ORANGE_NO_GPU_ALLOC", "slot_skipped").
+					Str("slot_id", slot.ID.String()).
+					Str("model", modelName).
+					Msg("ORANGE: Stale slot has no GPU allocation - skipping")
 			}
-		}
+		}()
 	}
+
+	log.Info().
+		Str("ORANGE_EVICTABLE_FINAL", "calculation_complete").
+		Str("runner_id", runnerID).
+		Interface("evictable_memory_per_gpu_gb", func() map[int]uint64 {
+			result := make(map[int]uint64)
+			for gpu, mem := range evictableMemoryPerGPU {
+				result[gpu] = mem / (1024 * 1024 * 1024)
+			}
+			return result
+		}()).
+		Msg("ORANGE: Final evictable memory calculation")
 
 	return evictableMemoryPerGPU, nil
 }
 
 // getOptimalGPUAllocationWithEviction determines GPU allocation considering potential eviction of stale slots
-func (s *Scheduler) getOptimalGPUAllocationWithEviction(runnerID string, modelMemoryRequirement uint64, evictableMemoryPerGPU map[int]uint64) (singleGPU *int, multiGPUs []int, tensorParallelSize int) {
+func (s *Scheduler) getOptimalGPUAllocationWithEviction(runnerID string, modelMemoryRequirement uint64, runtime types.Runtime, evictableMemoryPerGPU map[int]uint64) (singleGPU *int, multiGPUs []int, tensorParallelSize int) {
 	status, err := s.controller.GetStatus(runnerID)
 	if err != nil {
 		log.Error().Err(err).Msg("error getting runner status for eviction-aware GPU allocation")
@@ -1384,33 +1636,43 @@ func (s *Scheduler) getOptimalGPUAllocationWithEviction(runnerID string, modelMe
 		return bestGPU, nil, 1
 	}
 
-	// If single GPU doesn't work even with eviction, try multi-GPU allocation
-	for numGPUs := 2; numGPUs <= len(status.GPUs); numGPUs++ {
-		memoryPerGPU := modelMemoryRequirement / uint64(numGPUs)
-		var selectedGPUs []int
+	// Only try multi-GPU allocation for runtimes that support tensor parallelism
+	if runtime == types.RuntimeVLLM {
+		// If single GPU doesn't work even with eviction, try multi-GPU allocation for VLLM
+		for numGPUs := 2; numGPUs <= len(status.GPUs); numGPUs++ {
+			memoryPerGPU := modelMemoryRequirement / uint64(numGPUs)
+			var selectedGPUs []int
 
-		for _, gpu := range status.GPUs {
-			allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
-			evictableMemory := evictableMemoryPerGPU[gpu.Index]
-			availableMemory := gpu.TotalMemory - allocatedMemory + evictableMemory
+			for _, gpu := range status.GPUs {
+				allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
+				evictableMemory := evictableMemoryPerGPU[gpu.Index]
+				availableMemory := gpu.TotalMemory - allocatedMemory + evictableMemory
 
-			if availableMemory >= memoryPerGPU {
-				selectedGPUs = append(selectedGPUs, gpu.Index)
-				if len(selectedGPUs) >= numGPUs {
-					break
+				if availableMemory >= memoryPerGPU {
+					selectedGPUs = append(selectedGPUs, gpu.Index)
+					if len(selectedGPUs) >= numGPUs {
+						break
+					}
 				}
 			}
-		}
 
-		if len(selectedGPUs) >= numGPUs {
-			log.Debug().
-				Str("runner_id", runnerID).
-				Ints("selected_gpus", selectedGPUs[:numGPUs]).
-				Int("tensor_parallel_size", numGPUs).
-				Uint64("model_memory_requirement", modelMemoryRequirement).
-				Msg("Selected multi-GPU allocation with eviction potential")
-			return nil, selectedGPUs[:numGPUs], numGPUs
+			if len(selectedGPUs) >= numGPUs {
+				log.Debug().
+					Str("runner_id", runnerID).
+					Ints("selected_gpus", selectedGPUs[:numGPUs]).
+					Int("tensor_parallel_size", numGPUs).
+					Uint64("model_memory_requirement", modelMemoryRequirement).
+					Str("runtime", string(runtime)).
+					Msg("Selected multi-GPU allocation with eviction potential for VLLM")
+				return nil, selectedGPUs[:numGPUs], numGPUs
+			}
 		}
+	} else {
+		log.Debug().
+			Str("runner_id", runnerID).
+			Str("runtime", string(runtime)).
+			Uint64("model_memory_requirement", modelMemoryRequirement).
+			Msg("Skipping multi-GPU allocation with eviction for non-VLLM runtime")
 	}
 
 	log.Debug().
@@ -1426,6 +1688,13 @@ func (s *Scheduler) getOptimalGPUAllocationWithEviction(runnerID string, modelMe
 // DeleteMostStaleStrategy iteratively deletes allocated work from stale slots until there is enough
 // memory to allocate the new workload. Returns the final memory state used for the decision.
 func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (totalMemory, allocatedMemory, freeMemory uint64, err error) {
+	log.Info().
+		Str("ORANGE_DELETE_START", "eviction_strategy").
+		Str("runner_id", runnerID).
+		Str("model", work.ModelName().String()).
+		Uint64("required_memory_gb", work.model.Memory/(1024*1024*1024)).
+		Msg("ORANGE: Starting deleteMostStaleStrategy")
+
 	// CRITICAL FIX: Use the same memory calculation as calculateRunnerMemory to avoid overscheduling
 	// This properly accounts for both scheduler slots AND existing runner memory usage
 	var finalAllocatedMem uint64
@@ -1436,6 +1705,11 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (to
 		// Recalculate memory state after each potential slot deletion
 		totalMem, currentAllocatedMem, currentFreeMem, err = s.calculateRunnerMemory(runnerID)
 		if err != nil {
+			log.Info().
+				Str("ORANGE_DELETE_ERROR", "memory_calc_failed").
+				Str("runner_id", runnerID).
+				Err(err).
+				Msg("ORANGE: Failed to calculate runner memory")
 			return 0, 0, 0, err
 		}
 
@@ -1473,10 +1747,34 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (to
 				slot.InitialWork().LoraDir() != work.LoraDir()
 		})
 
+		log.Info().
+			Str("ORANGE_DELETE_CANDIDATES", "filtering_slots").
+			Str("runner_id", runnerID).
+			Int("total_slots", len(allSlots)).
+			Int("not_same_workload", len(notSameWorkload)).
+			Msg("ORANGE: Filtering slots for eviction candidates")
+
 		// Only keep the stale slots
 		staleSlots := Filter(notSameWorkload, func(slot *Slot) bool {
-			return slot.IsStale()
+			isStale := slot.IsStale()
+			log.Info().
+				Str("ORANGE_DELETE_STALE_CHECK", "slot_check").
+				Str("slot_id", slot.ID.String()).
+				Str("model", slot.InitialWork().ModelName().String()).
+				Bool("is_stale", isStale).
+				Bool("is_active", slot.IsActive()).
+				Bool("is_running", slot.IsRunning()).
+				Time("last_activity", slot.LastActivityTime).
+				Dur("age", time.Since(slot.LastActivityTime)).
+				Msg("ORANGE: Checking if slot is stale for deletion")
+			return isStale
 		})
+
+		log.Info().
+			Str("ORANGE_DELETE_STALE_RESULT", "stale_slots_found").
+			Str("runner_id", runnerID).
+			Int("stale_slots_count", len(staleSlots)).
+			Msg("ORANGE: Found stale slots for potential eviction")
 
 		// Sort the slots by last activity time
 		slices.SortFunc(staleSlots, func(i, j *Slot) int {
@@ -1484,10 +1782,24 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (to
 		})
 		log.Trace().Interface("stale_slots", staleSlots).Msg("stale slots")
 		if len(staleSlots) == 0 {
+			log.Info().
+				Str("ORANGE_DELETE_NO_STALE", "eviction_failed").
+				Str("runner_id", runnerID).
+				Msg("ORANGE: No stale slots found - runners are full")
 			return totalMem, finalAllocatedMem, finalFreeMem, ErrRunnersAreFull
 		}
 		// Then delete the most stale slot, allow the reconciler to mop up
 		evictedSlot := staleSlots[0]
+
+		log.Info().
+			Str("ORANGE_DELETE_EVICTING", "slot_eviction").
+			Str("runner_id", runnerID).
+			Str("evicted_slot_id", evictedSlot.ID.String()).
+			Str("evicted_model", evictedSlot.InitialWork().ModelName().String()).
+			Dur("slot_age", time.Since(evictedSlot.LastActivityTime)).
+			Int("total_stale_slots", len(staleSlots)).
+			Msg("ORANGE: Evicting most stale slot due to memory pressure")
+
 		withSlotContext(&log.Logger, evictedSlot).Info().
 			Str("reason", "memory_pressure").
 			Uint64("required_memory_mb", requiredMem/1024/1024).
@@ -1504,10 +1816,30 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (to
 				evictedSlot.ID.String(), evictedSlot.InitialWork().ModelName(), time.Since(evictedSlot.LastActivityTime)),
 			runnerID, evictedSlot.ID.String(), time.Now(), finalFreeMem/1024/1024, work.model.Memory/1024/1024, totalMem/1024/1024)
 
+		// CRITICAL: Synchronously delete the slot from the runner BEFORE continuing
+		// This ensures GPU memory is actually freed before allocating new models
+		err := s.controller.DeleteSlot(runnerID, evictedSlot.ID)
+		if err != nil {
+			log.Error().
+				Str("ORANGE_DELETE_ERROR", "runner_deletion_failed").
+				Str("runner_id", runnerID).
+				Str("slot_id", evictedSlot.ID.String()).
+				Err(err).
+				Msg("ORANGE: Failed to delete slot from runner - continuing anyway")
+			// Continue despite error to avoid infinite loop
+		}
+
 		s.slots.Delete(evictedSlot.ID)
 
 		// Clean up GPU allocation for evicted workload
 		s.clearGPUAllocation(evictedSlot.InitialWork().ID())
+
+		log.Info().
+			Str("ORANGE_DELETE_COMPLETED", "slot_deleted").
+			Str("runner_id", runnerID).
+			Str("deleted_slot_id", evictedSlot.ID.String()).
+			Str("deleted_model", evictedSlot.InitialWork().ModelName().String()).
+			Msg("ORANGE: Successfully deleted stale slot from both scheduler and runner, continuing memory check")
 	}
 	return totalMem, finalAllocatedMem, finalFreeMem, nil
 }
@@ -1517,6 +1849,11 @@ func (s *Scheduler) warmSlots(req *Workload) []*Slot {
 }
 
 func (s *Scheduler) warmSlotsWithReason(req *Workload, reasonOut *string) []*Slot {
+	log.Info().
+		Str("model", req.ModelName().String()).
+		Str("runtime", string(req.Runtime())).
+		Msg("APPLE: Looking for warm slots")
+
 	cosyWarm := make([]*Slot, 0, s.slots.Size())
 
 	// Track counts for detailed rejection reasons
@@ -1529,6 +1866,15 @@ func (s *Scheduler) warmSlotsWithReason(req *Workload, reasonOut *string) []*Slo
 
 	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 		totalSlots++
+
+		log.Info().
+			Str("slot_id", slot.ID.String()).
+			Str("slot_runner_id", slot.RunnerID).
+			Str("slot_model", slot.InitialWork().ModelName().String()).
+			Str("req_model", req.ModelName().String()).
+			Bool("is_running", slot.IsRunning()).
+			Bool("is_active", slot.IsActive()).
+			Msg("APPLE: Checking slot for warmth")
 
 		// If it's not the same model name, skip
 		if slot.InitialWork().ModelName() != req.ModelName() {
@@ -1601,8 +1947,23 @@ func (s *Scheduler) warmSlotsWithReason(req *Workload, reasonOut *string) []*Slo
 }
 
 func (s *Scheduler) pickBestWarmSlot(warmSlots []*Slot) *Slot {
+	log.Info().Int("warm_slots_count", len(warmSlots)).Msg("APPLE: Picking best warm slot")
+
+	for i, slot := range warmSlots {
+		log.Info().
+			Int("slot_index", i).
+			Str("slot_id", slot.ID.String()).
+			Str("runner_id", slot.RunnerID).
+			Str("model", slot.InitialWork().ModelName().String()).
+			Msg("APPLE: Available warm slot")
+	}
+
 	// If we only have one slot, return it
 	if len(warmSlots) == 1 {
+		log.Info().
+			Str("slot_id", warmSlots[0].ID.String()).
+			Str("runner_id", warmSlots[0].RunnerID).
+			Msg("APPLE: Selected single warm slot")
 		return warmSlots[0]
 	}
 

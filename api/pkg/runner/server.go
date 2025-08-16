@@ -383,6 +383,7 @@ func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, r *http.
 	apiServer.slots.Range(func(id uuid.UUID, slot *Slot) bool {
 		slotList = append(slotList, &types.RunnerSlot{
 			ID:                 id,
+			RunnerID:           apiServer.runnerOptions.ID,
 			Runtime:            slot.Runtime(),
 			Version:            slot.Version(),
 			Model:              slot.Model,
@@ -423,6 +424,7 @@ func (apiServer *HelixRunnerAPIServer) getSlot(w http.ResponseWriter, r *http.Re
 
 	response := &types.RunnerSlot{
 		ID:                 slotUUID,
+		RunnerID:           apiServer.runnerOptions.ID,
 		Runtime:            slot.Runtime(),
 		Version:            slot.Version(),
 		Model:              slot.Model,

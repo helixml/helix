@@ -58,6 +58,9 @@ func (s *PostgresStore) UpdateSlot(ctx context.Context, slot *types.RunnerSlot) 
 	if slot.ID == uuid.Nil {
 		return nil, errors.New("slot ID is required")
 	}
+	if slot.RunnerID == "" {
+		return nil, errors.New("runner ID is required")
+	}
 
 	db := s.gdb.WithContext(ctx)
 

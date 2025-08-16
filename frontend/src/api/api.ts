@@ -1567,24 +1567,23 @@ export interface TypesRunnerModelStatus {
 
 export interface TypesRunnerSlot {
   active?: boolean;
-  /** The actual command line executed for this slot */
   command_line?: string;
-  /** Context length used for the model, if specified */
   context_length?: number;
-  /** Primary GPU for single-GPU models (for VLLM) */
+  created?: string;
+  gpu_allocation_data?: Record<string, any>;
   gpu_index?: number;
-  /** All GPUs used for multi-GPU models */
   gpu_indices?: number[];
   id?: string;
   model?: string;
   ready?: boolean;
+  runner_id?: string;
   runtime?: TypesRuntime;
-  /** Runtime-specific arguments */
   runtime_args?: Record<string, any>;
   status?: string;
-  /** Number of GPUs for tensor parallelism (1 = single GPU) */
   tensor_parallel_size?: number;
+  updated?: string;
   version?: string;
+  workload_data?: Record<string, any>;
 }
 
 export enum TypesRuntime {
@@ -4174,6 +4173,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, string>, any>({
         path: `/api/v1/skills/reload`,
         method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Delete a slot from the scheduler's desired state, allowing reconciliation to clean it up from the runner
+     *
+     * @tags dashboard
+     * @name V1SlotsDelete
+     * @summary Delete a slot from scheduler state
+     * @request DELETE:/api/v1/slots/{slot_id}
+     * @secure
+     */
+    v1SlotsDelete: (slotId: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, any>({
+        path: `/api/v1/slots/${slotId}`,
+        method: "DELETE",
         secure: true,
         ...params,
       }),

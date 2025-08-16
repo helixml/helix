@@ -2963,6 +2963,38 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/slots/{slot_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a slot from the scheduler's desired state, allowing reconciliation to clean it up from the runner",
+                "tags": [
+                    "dashboard"
+                ],
+                "summary": "Delete a slot from scheduler state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Slot ID",
+                        "name": "slot_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/subscription/manage": {
             "post": {
                 "security": [
@@ -7260,19 +7292,22 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "command_line": {
-                    "description": "The actual command line executed for this slot",
                     "type": "string"
                 },
                 "context_length": {
-                    "description": "Context length used for the model, if specified",
                     "type": "integer"
                 },
+                "created": {
+                    "type": "string"
+                },
+                "gpu_allocation_data": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
                 "gpu_index": {
-                    "description": "Primary GPU for single-GPU models (for VLLM)",
                     "type": "integer"
                 },
                 "gpu_indices": {
-                    "description": "All GPUs used for multi-GPU models",
                     "type": "array",
                     "items": {
                         "type": "integer"
@@ -7287,11 +7322,13 @@ const docTemplate = `{
                 "ready": {
                     "type": "boolean"
                 },
+                "runner_id": {
+                    "type": "string"
+                },
                 "runtime": {
                     "$ref": "#/definitions/types.Runtime"
                 },
                 "runtime_args": {
-                    "description": "Runtime-specific arguments",
                     "type": "object",
                     "additionalProperties": {}
                 },
@@ -7299,11 +7336,17 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "tensor_parallel_size": {
-                    "description": "Number of GPUs for tensor parallelism (1 = single GPU)",
                     "type": "integer"
+                },
+                "updated": {
+                    "type": "string"
                 },
                 "version": {
                     "type": "string"
+                },
+                "workload_data": {
+                    "type": "object",
+                    "additionalProperties": {}
                 }
             }
         },

@@ -33,13 +33,51 @@ func NewSlotStore(store store.Store) *SlotStore {
 	return ss
 }
 
+// SetTimeoutFunctions sets the timeout functions on all cached slots
+// This should be called by the scheduler after creating the SlotStore
+func (ss *SlotStore) SetTimeoutFunctions(staleFunc TimeoutFunc, errorFunc TimeoutFunc) {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	for _, slot := range ss.cache {
+		if slot.isStaleFunc == nil {
+			slot.isStaleFunc = staleFunc
+		}
+		if slot.isErrorFunc == nil {
+			slot.isErrorFunc = errorFunc
+		}
+	}
+}
+
 // Store saves a slot to both cache and database
 func (ss *SlotStore) Store(id uuid.UUID, slot *Slot) {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
+	// Ensure timeout functions are set if they're nil
+	// This can happen when slots are created programmatically
+	if slot.isStaleFunc == nil || slot.isErrorFunc == nil {
+		// Try to get timeout functions from an existing slot in cache
+		for _, existingSlot := range ss.cache {
+			if existingSlot.isStaleFunc != nil && existingSlot.isErrorFunc != nil {
+				if slot.isStaleFunc == nil {
+					slot.isStaleFunc = existingSlot.isStaleFunc
+				}
+				if slot.isErrorFunc == nil {
+					slot.isErrorFunc = existingSlot.isErrorFunc
+				}
+				break
+			}
+		}
+	}
+
 	// Store in cache first
 	ss.cache[id] = slot
+
+	log.Info().
+		Str("slot_id", slot.ID.String()).
+		Str("runner_id", slot.RunnerID).
+		Msg("APPLE: Storing new slot with RunnerID")
 
 	// Save to database
 	ss.saveToDatabase(slot)
@@ -56,14 +94,18 @@ func (ss *SlotStore) Load(id uuid.UUID) (*Slot, bool) {
 
 // Delete removes a slot from cache and database
 func (ss *SlotStore) Delete(id uuid.UUID) {
+	log.Info().Str("slot_id", id.String()).Msg("DEBUG: SlotStore.Delete called")
+	// Remove from cache first while holding the lock
+	log.Info().Str("slot_id", id.String()).Msg("DEBUG: about to acquire mutex lock")
 	ss.mu.Lock()
-	defer ss.mu.Unlock()
-
-	// Remove from cache
+	log.Info().Str("slot_id", id.String()).Msg("DEBUG: mutex lock acquired, deleting from cache")
 	delete(ss.cache, id)
+	ss.mu.Unlock()
+	log.Info().Str("slot_id", id.String()).Msg("DEBUG: mutex lock released, about to delete from database")
 
-	// Remove from database
+	// Remove from database without holding the lock to avoid deadlock
 	ss.deleteFromDatabase(id)
+	log.Info().Str("slot_id", id.String()).Msg("DEBUG: deleteFromDatabase completed, Delete method finished")
 }
 
 // Range iterates over all slots in cache
@@ -97,20 +139,33 @@ func (ss *SlotStore) loadFromDatabase() {
 		return
 	}
 
+	log.Info().Int("slot_count", len(dbSlots)).Msg("APPLE: Loading slots from database")
+
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
 	for _, dbSlot := range dbSlots {
+		log.Info().
+			Str("slot_id", dbSlot.ID.String()).
+			Str("runner_id", dbSlot.RunnerID).
+			Str("model", dbSlot.Model).
+			Msg("APPLE: Loading slot from database")
+
 		// Convert types.RunnerSlot to scheduler.Slot
 		slot := &Slot{
 			ID:               dbSlot.ID,
 			RunnerID:         dbSlot.RunnerID,
 			LastActivityTime: dbSlot.Updated,
 			isActive:         dbSlot.Active,
-			isStaleFunc:      nil, // Will be set by scheduler
-			isErrorFunc:      nil, // Will be set by scheduler
+			isStaleFunc:      nil, // Will be set by SetTimeoutFunctions
+			isErrorFunc:      nil, // Will be set by SetTimeoutFunctions
 			isRunning:        dbSlot.Ready,
 		}
+
+		log.Info().
+			Str("slot_id", slot.ID.String()).
+			Str("runner_id", slot.RunnerID).
+			Msg("APPLE: Created scheduler slot with RunnerID")
 
 		// Deserialize workload from JSONB if present
 		if dbSlot.WorkloadData != nil {
@@ -169,6 +224,19 @@ func (ss *SlotStore) saveToDatabase(slot *Slot) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// Validate RunnerID before saving
+	if slot.RunnerID == "" {
+		log.Error().
+			Str("slot_id", slot.ID.String()).
+			Msg("APPLE: refusing to save slot with empty RunnerID to database")
+		return
+	}
+
+	log.Info().
+		Str("slot_id", slot.ID.String()).
+		Str("runner_id", slot.RunnerID).
+		Msg("APPLE: Saving slot to database with RunnerID")
+
 	// Convert scheduler.Slot to types.RunnerSlot
 	dbSlot := &types.RunnerSlot{
 		ID:       slot.ID,
@@ -224,14 +292,18 @@ func (ss *SlotStore) saveToDatabase(slot *Slot) {
 
 // deleteFromDatabase removes a slot from the database asynchronously
 func (ss *SlotStore) deleteFromDatabase(id uuid.UUID) {
+	log.Info().Str("slot_id", id.String()).Msg("DEBUG: deleteFromDatabase called")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	log.Info().Str("slot_id", id.String()).Msg("DEBUG: about to call store.DeleteSlot")
 	err := ss.store.DeleteSlot(ctx, id.String())
 	if err != nil {
 		log.Error().Err(err).
 			Str("slot_id", id.String()).
 			Msg("failed to delete scheduler slot from database")
+	} else {
+		log.Info().Str("slot_id", id.String()).Msg("DEBUG: store.DeleteSlot completed successfully")
 	}
 }
 
@@ -247,6 +319,12 @@ func (ss *SlotStore) UpdateSlotActivity(id uuid.UUID, active, running bool) {
 	ss.mu.Unlock()
 
 	if exists {
+		log.Info().
+			Str("slot_id", id.String()).
+			Str("runner_id", slot.RunnerID).
+			Bool("active", active).
+			Bool("running", running).
+			Msg("APPLE: Updating slot activity with RunnerID")
 		ss.saveToDatabase(slot)
 	}
 }

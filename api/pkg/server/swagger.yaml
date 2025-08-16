@@ -2561,16 +2561,17 @@ definitions:
       active:
         type: boolean
       command_line:
-        description: The actual command line executed for this slot
         type: string
       context_length:
-        description: Context length used for the model, if specified
         type: integer
+      created:
+        type: string
+      gpu_allocation_data:
+        additionalProperties: {}
+        type: object
       gpu_index:
-        description: Primary GPU for single-GPU models (for VLLM)
         type: integer
       gpu_indices:
-        description: All GPUs used for multi-GPU models
         items:
           type: integer
         type: array
@@ -2580,19 +2581,24 @@ definitions:
         type: string
       ready:
         type: boolean
+      runner_id:
+        type: string
       runtime:
         $ref: '#/definitions/types.Runtime'
       runtime_args:
         additionalProperties: {}
-        description: Runtime-specific arguments
         type: object
       status:
         type: string
       tensor_parallel_size:
-        description: Number of GPUs for tensor parallelism (1 = single GPU)
         type: integer
+      updated:
+        type: string
       version:
         type: string
+      workload_data:
+        additionalProperties: {}
+        type: object
     type: object
   types.Runtime:
     enum:
@@ -5540,6 +5546,27 @@ paths:
       summary: Reload skills
       tags:
       - skills
+  /api/v1/slots/{slot_id}:
+    delete:
+      description: Delete a slot from the scheduler's desired state, allowing reconciliation
+        to clean it up from the runner
+      parameters:
+      - description: Slot ID
+        in: path
+        name: slot_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete a slot from scheduler state
+      tags:
+      - dashboard
   /api/v1/subscription/manage:
     post:
       description: Manage a subscription

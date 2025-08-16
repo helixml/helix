@@ -774,6 +774,47 @@ func (apiServer *HelixAPIServer) getSchedulerHeartbeats(_ http.ResponseWriter, r
 	return apiServer.Controller.GetSchedulerHeartbeats(req.Context())
 }
 
+// deleteSlot godoc
+// @Summary Delete a slot from scheduler state
+// @Description Delete a slot from the scheduler's desired state, allowing reconciliation to clean it up from the runner
+// @Tags    dashboard
+// @Param   slot_id path string true "Slot ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/slots/{slot_id} [delete]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) deleteSlot(_ http.ResponseWriter, req *http.Request) (interface{}, error) {
+	log.Info().Msg("DEBUG: deleteSlot handler started")
+
+	vars := mux.Vars(req)
+	slotID := vars["slot_id"]
+	log.Info().Str("slot_id", slotID).Msg("DEBUG: extracted slot_id from request")
+
+	if slotID == "" {
+		return nil, fmt.Errorf("slot_id is required")
+	}
+
+	// Parse slot ID as UUID
+	slotUUID, err := uuid.Parse(slotID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid slot_id format: %w", err)
+	}
+	log.Info().Str("slot_uuid", slotUUID.String()).Msg("DEBUG: parsed UUID successfully")
+
+	// Delete the slot from scheduler's desired state
+	log.Info().Msg("DEBUG: about to call DeleteSlotFromScheduler")
+	err = apiServer.Controller.DeleteSlotFromScheduler(req.Context(), slotUUID)
+	if err != nil {
+		log.Error().Err(err).Msg("DEBUG: DeleteSlotFromScheduler failed")
+		return nil, fmt.Errorf("failed to delete slot: %w", err)
+	}
+	log.Info().Msg("DEBUG: DeleteSlotFromScheduler completed successfully")
+
+	return map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Slot %s deleted from scheduler state", slotID),
+	}, nil
+}
+
 // deleteSession godoc
 // @Summary Delete a session by ID
 // @Description Delete a session by ID

@@ -1,22 +1,37 @@
-import { useQuery } from '@tanstack/react-query'
-import useApi from '../hooks/useApi';
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import useApi from "../hooks/useApi";
 
-export const dashboardQueryKey = () => [
-  "dashboard"
-];
+export const dashboardQueryKey = () => ["dashboard"];
 
 export function useGetDashboardData() {
-  const api = useApi()
-  const apiClient = api.getApiClient()  
+    const api = useApi();
+    const apiClient = api.getApiClient();
 
-  return useQuery({
-    queryKey: dashboardQueryKey(),
-    queryFn: async () => {
-      const result = await apiClient.v1DashboardList()
-      return result.data
-    },
-    enabled: true,
-    staleTime: 1000, // 1 second - matches backend update intervals
-    refetchInterval: 1000, // Refetch every 1 second - matches backend runner cache and reconcile intervals
-  });
+    return useQuery({
+        queryKey: dashboardQueryKey(),
+        queryFn: async () => {
+            const result = await apiClient.v1DashboardList();
+            return result.data;
+        },
+        enabled: true,
+        staleTime: 1000, // 1 second - matches backend update intervals
+        refetchInterval: 1000, // Refetch every 1 second - matches backend runner cache and reconcile intervals
+    });
+}
+
+export function useDeleteSlot() {
+    const api = useApi();
+    const apiClient = api.getApiClient();
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (slotId: string) => {
+            const response = await apiClient.v1SlotsDelete(slotId);
+            return response.data;
+        },
+        onSuccess: () => {
+            // Invalidate dashboard data to refresh the UI
+            queryClient.invalidateQueries({ queryKey: dashboardQueryKey() });
+        },
+    });
 }
