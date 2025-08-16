@@ -49,8 +49,32 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 
 		// Check GPU compatibility based on runtime and memory requirements
 		if work.Runtime() == types.RuntimeVLLM || work.Runtime() == types.RuntimeOllama {
-			// Get concrete GPU allocation from scheduler - this is the authoritative decision
+			// First try standard allocation with current memory state
 			singleGPU, multiGPUs, _ := s.controller.GetOptimalGPUAllocation(runnerID, work.model.Memory)
+
+			// If allocation failed, try with eviction potential
+			if singleGPU == nil && len(multiGPUs) == 0 {
+				log.Debug().
+					Str("runner_id", runnerID).
+					Str("model", work.ModelName().String()).
+					Uint64("model_memory_gb", work.model.Memory/(1024*1024*1024)).
+					Msg("Standard GPU allocation failed, trying with eviction potential")
+
+				evictableMemoryPerGPU, err := s.calculateEvictableMemoryPerGPU(runnerID)
+				if err == nil {
+					singleGPU, multiGPUs, _ = s.getOptimalGPUAllocationWithEviction(runnerID, work.model.Memory, evictableMemoryPerGPU)
+
+					if singleGPU != nil || len(multiGPUs) > 0 {
+						log.Info().
+							Str("runner_id", runnerID).
+							Str("model", work.ModelName().String()).
+							Interface("single_gpu", singleGPU).
+							Ints("multi_gpus", multiGPUs).
+							Interface("evictable_memory_per_gpu", evictableMemoryPerGPU).
+							Msg("GPU allocation successful with eviction potential - stale slots can be evicted")
+					}
+				}
+			}
 
 			// TEMPORARY: Disable multi-GPU for Ollama due to timeout issues
 			if work.Runtime() == types.RuntimeOllama && singleGPU == nil && len(multiGPUs) > 0 {
@@ -64,21 +88,7 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 				runnerGPUCompatible[runnerID] = false
 				multiGPUs = nil // Clear multi-GPU allocation
 			} else {
-				// Check if we have a valid GPU allocation
-				hasValidAllocation := (singleGPU != nil) || (len(multiGPUs) > 0)
-
-				// If no allocation but runner has enough total memory, allow it (eviction can make space)
-				if !hasValidAllocation && runnerMemory[runnerID] >= work.model.Memory {
-					runnerGPUCompatible[runnerID] = true
-					log.Debug().
-						Str("runner_id", runnerID).
-						Str("model", work.ModelName().String()).
-						Uint64("model_memory_gb", work.model.Memory/(1024*1024*1024)).
-						Uint64("runner_total_memory_gb", runnerMemory[runnerID]/(1024*1024*1024)).
-						Msg("No immediate GPU allocation available, but runner has enough total memory - allowing for potential eviction")
-				} else {
-					runnerGPUCompatible[runnerID] = hasValidAllocation
-				}
+				runnerGPUCompatible[runnerID] = (singleGPU != nil) || (len(multiGPUs) > 0)
 			}
 
 			log.Trace().
@@ -90,7 +100,7 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 				Msg("GPU allocation check with pending allocations")
 
 			// Store the allocation decision for this workload-runner combination
-			if runnerGPUCompatible[runnerID] && ((singleGPU != nil) || (len(multiGPUs) > 0)) {
+			if runnerGPUCompatible[runnerID] {
 				s.storeGPUAllocation(work, runnerID, singleGPU, multiGPUs)
 			}
 		} else {
@@ -100,12 +110,11 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 
 		// log.Info().
 		//	Str("runner_id", runnerID).
-			//	Str("runtime", string(work.Runtime())).
-			//	Uint64("runner_memory", runnerMemory[runnerID]).
-			//	Uint64("model_memory", work.model.Memory).
-			//	Bool("memory_compatible", runnerGPUCompatible[runnerID]).
-			//	Msg("SLOT_RECONCILE_DEBUG: Traditional memory check")
-		}
+		//	Str("runtime", string(work.Runtime())).
+		//	Uint64("runner_memory", runnerMemory[runnerID]).
+		//	Uint64("model_memory", work.model.Memory).
+		//	Bool("memory_compatible", runnerGPUCompatible[runnerID]).
+		//	Msg("SLOT_RECONCILE_DEBUG: Traditional memory check")
 	}
 
 	numRunnersWithNotEnoughTotalMemory := 0

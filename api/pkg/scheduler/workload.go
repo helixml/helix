@@ -124,6 +124,11 @@ func (w *Workload) Mode() types.SessionMode {
 }
 
 func (w *Workload) Runtime() types.Runtime {
+	// First check if we have a model with explicit runtime
+	if w.model != nil && w.model.Runtime != "" {
+		return w.model.Runtime
+	}
+
 	switch w.WorkloadType {
 	case WorkloadTypeLLMInferenceRequest:
 		// Check if this is a VLLM model first before defaulting to Ollama
