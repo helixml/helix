@@ -360,6 +360,21 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 	})
 	apiServer.slots.Store(slotRequest.ID, s)
 
+	// Before starting GPU-based runtimes, wait for GPU memory to stabilize
+	if needsGPU(slotRequest.Attributes.Runtime) {
+		log.Info().
+			Str("slot_id", slotRequest.ID.String()).
+			Str("runtime", string(slotRequest.Attributes.Runtime)).
+			Msg("Waiting for GPU memory to stabilize before starting GPU runtime")
+
+		if err := apiServer.waitForGPUMemoryStabilization(15); err != nil {
+			log.Warn().
+				Err(err).
+				Str("slot_id", slotRequest.ID.String()).
+				Msg("GPU memory did not stabilize within timeout, proceeding anyway")
+		}
+	}
+
 	// Must pass the context from the cli to ensure that the underlying runtime continues to run so
 	// long as the cli is running
 	err = s.Create(apiServer.cliContext)
@@ -376,6 +391,80 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 
 	// TODO(Phil): Return some representation of the slot
 	w.WriteHeader(http.StatusCreated)
+}
+
+// needsGPU returns true if the runtime requires GPU resources
+func needsGPU(runtime types.Runtime) bool {
+	switch runtime {
+	case types.RuntimeVLLM, types.RuntimeOllama:
+		return true
+	case types.RuntimeAxolotl, types.RuntimeDiffusers:
+		return true
+	default:
+		return false
+	}
+}
+
+// waitForGPUMemoryStabilization waits for GPU memory usage to stabilize
+// before starting new GPU processes. This prevents race conditions where
+// new processes start before old processes have fully released GPU memory.
+func (apiServer *HelixRunnerAPIServer) waitForGPUMemoryStabilization(timeoutSeconds int) error {
+	if apiServer.gpuManager == nil {
+		return nil // No GPU manager, skip stabilization
+	}
+
+	const (
+		pollIntervalMs = 2500             // 2.5s between polls - give GPU and nvidia-smi time to reflect memory changes
+		memoryDeltaMB  = 50 * 1024 * 1024 // 50MB threshold
+		stablePolls    = 3                // Need 3 consecutive stable readings
+	)
+
+	var lastMemory uint64
+	stableCount := 0
+	maxPolls := timeoutSeconds * 1000 / pollIntervalMs
+
+	log.Debug().
+		Int("timeout_seconds", timeoutSeconds).
+		Uint64("memory_delta_bytes", memoryDeltaMB).
+		Int("required_stable_polls", stablePolls).
+		Msg("Starting GPU memory stabilization wait")
+
+	for i := 0; i < maxPolls; i++ {
+		currentMemory := apiServer.gpuManager.GetUsedMemory()
+
+		if i > 0 { // Skip first reading to establish baseline
+			memoryDelta := int64(currentMemory) - int64(lastMemory)
+			if memoryDelta < 0 {
+				memoryDelta = -memoryDelta
+			}
+
+			log.Trace().
+				Uint64("current_memory", currentMemory).
+				Uint64("last_memory", lastMemory).
+				Int64("delta", memoryDelta).
+				Int("stable_count", stableCount).
+				Msg("GPU memory check")
+
+			if uint64(memoryDelta) < memoryDeltaMB {
+				stableCount++
+				if stableCount >= stablePolls {
+					log.Info().
+						Uint64("stabilized_memory", currentMemory).
+						Int("polls_taken", i+1).
+						Msg("GPU memory stabilized successfully")
+					return nil
+				}
+			} else {
+				stableCount = 0 // Reset counter if memory changed significantly
+			}
+		}
+
+		lastMemory = currentMemory
+		time.Sleep(time.Duration(pollIntervalMs) * time.Millisecond)
+	}
+
+	return fmt.Errorf("GPU memory did not stabilize within %d seconds (last memory: %d bytes)",
+		timeoutSeconds, lastMemory)
 }
 
 func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, r *http.Request) {
