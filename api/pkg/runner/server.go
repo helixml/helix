@@ -430,7 +430,7 @@ func (apiServer *HelixRunnerAPIServer) waitForGPUMemoryStabilization(timeoutSeco
 		Msg("Starting GPU memory stabilization wait")
 
 	for i := 0; i < maxPolls; i++ {
-		currentMemory := apiServer.gpuManager.GetUsedMemory()
+		currentMemory := apiServer.gpuManager.GetFreshUsedMemory()
 
 		if i > 0 { // Skip first reading to establish baseline
 			memoryDelta := int64(currentMemory) - int64(lastMemory)
