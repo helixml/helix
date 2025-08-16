@@ -1293,6 +1293,136 @@ func (s *Scheduler) getSortedRunners(work *Workload) ([]string, error) {
 	return filteredRunners, nil
 }
 
+// calculateEvictableMemoryPerGPU calculates how much memory could be freed per GPU by evicting stale slots
+func (s *Scheduler) calculateEvictableMemoryPerGPU(runnerID string) (map[int]uint64, error) {
+	evictableMemoryPerGPU := make(map[int]uint64)
+
+	// Get all slots for this runner
+	var runnerSlots []*Slot
+	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+		if slot.RunnerID == runnerID {
+			runnerSlots = append(runnerSlots, slot)
+		}
+		return true
+	})
+
+	// Filter to only stale slots
+	staleSlots := Filter(runnerSlots, func(slot *Slot) bool {
+		return slot.IsStale()
+	})
+
+	// Calculate memory that could be freed per GPU from stale slots
+	for _, slot := range staleSlots {
+		if slot.GPUAllocation != nil {
+			// Get model memory for this slot
+			modelMemory, err := s.controller.getModelMemoryFn(slot.InitialWork().ModelName().String())
+			if err != nil {
+				log.Trace().Err(err).Str("model", slot.InitialWork().ModelName().String()).Msg("Could not get model memory for evictable calculation")
+				continue
+			}
+
+			if slot.GPUAllocation.SingleGPU != nil {
+				// Single GPU allocation
+				gpuIndex := *slot.GPUAllocation.SingleGPU
+				evictableMemoryPerGPU[gpuIndex] += modelMemory
+			} else if len(slot.GPUAllocation.MultiGPUs) > 0 {
+				// Multi-GPU allocation - distribute memory across GPUs
+				memoryPerGPU := modelMemory / uint64(len(slot.GPUAllocation.MultiGPUs))
+				for _, gpuIndex := range slot.GPUAllocation.MultiGPUs {
+					evictableMemoryPerGPU[gpuIndex] += memoryPerGPU
+				}
+			}
+		}
+	}
+
+	return evictableMemoryPerGPU, nil
+}
+
+// getOptimalGPUAllocationWithEviction determines GPU allocation considering potential eviction of stale slots
+func (s *Scheduler) getOptimalGPUAllocationWithEviction(runnerID string, modelMemoryRequirement uint64, evictableMemoryPerGPU map[int]uint64) (singleGPU *int, multiGPUs []int, tensorParallelSize int) {
+	status, err := s.controller.GetStatus(runnerID)
+	if err != nil {
+		log.Error().Err(err).Msg("error getting runner status for eviction-aware GPU allocation")
+		return nil, nil, 0
+	}
+
+	// Calculate current allocated memory per GPU
+	allocatedMemoryPerGPU, err := s.controller.calculateAllocatedMemoryPerGPU(runnerID)
+	if err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Msg("error calculating allocated memory per GPU for eviction-aware allocation")
+		return nil, nil, 0
+	}
+
+	// First, try to fit the model on a single GPU considering eviction potential
+	var bestGPU *int
+	var maxAvailableMemory uint64
+
+	for _, gpu := range status.GPUs {
+		allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
+		evictableMemory := evictableMemoryPerGPU[gpu.Index]
+
+		// Calculate memory that would be available after evicting stale slots
+		availableMemory := gpu.TotalMemory - allocatedMemory + evictableMemory
+
+		// Check if this GPU has enough available memory for the model
+		if availableMemory >= modelMemoryRequirement && availableMemory > maxAvailableMemory {
+			maxAvailableMemory = availableMemory
+			idx := gpu.Index
+			bestGPU = &idx
+		}
+	}
+
+	if bestGPU != nil {
+		log.Debug().
+			Str("runner_id", runnerID).
+			Int("selected_gpu", *bestGPU).
+			Uint64("model_memory_requirement", modelMemoryRequirement).
+			Uint64("gpu_allocated_memory", allocatedMemoryPerGPU[*bestGPU]).
+			Uint64("gpu_evictable_memory", evictableMemoryPerGPU[*bestGPU]).
+			Uint64("gpu_available_memory", maxAvailableMemory).
+			Msg("Selected GPU with eviction potential for single-GPU allocation")
+		return bestGPU, nil, 1
+	}
+
+	// If single GPU doesn't work even with eviction, try multi-GPU allocation
+	for numGPUs := 2; numGPUs <= len(status.GPUs); numGPUs++ {
+		memoryPerGPU := modelMemoryRequirement / uint64(numGPUs)
+		var selectedGPUs []int
+
+		for _, gpu := range status.GPUs {
+			allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
+			evictableMemory := evictableMemoryPerGPU[gpu.Index]
+			availableMemory := gpu.TotalMemory - allocatedMemory + evictableMemory
+
+			if availableMemory >= memoryPerGPU {
+				selectedGPUs = append(selectedGPUs, gpu.Index)
+				if len(selectedGPUs) >= numGPUs {
+					break
+				}
+			}
+		}
+
+		if len(selectedGPUs) >= numGPUs {
+			log.Debug().
+				Str("runner_id", runnerID).
+				Ints("selected_gpus", selectedGPUs[:numGPUs]).
+				Int("tensor_parallel_size", numGPUs).
+				Uint64("model_memory_requirement", modelMemoryRequirement).
+				Msg("Selected multi-GPU allocation with eviction potential")
+			return nil, selectedGPUs[:numGPUs], numGPUs
+		}
+	}
+
+	log.Debug().
+		Str("runner_id", runnerID).
+		Uint64("model_memory_requirement", modelMemoryRequirement).
+		Int("available_gpus", len(status.GPUs)).
+		Interface("evictable_memory_per_gpu", evictableMemoryPerGPU).
+		Msg("Could not find suitable GPU allocation even with eviction potential")
+
+	return nil, nil, 0
+}
+
 // DeleteMostStaleStrategy iteratively deletes allocated work from stale slots until there is enough
 // memory to allocate the new workload. Returns the final memory state used for the decision.
 func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (totalMemory, allocatedMemory, freeMemory uint64, err error) {
