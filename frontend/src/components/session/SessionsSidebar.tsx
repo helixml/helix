@@ -44,11 +44,14 @@ export const SessionsSidebar: FC<{
   onOpenSession,
 }) => {
   const account = useAccount()
+  const router = useRouter()
   const [currentPage, setCurrentPage] = useState(0)
   const [allSessions, setAllSessions] = useState<TypesSessionSummary[]>([])
   const [hasMore, setHasMore] = useState(true)
   const [totalCount, setTotalCount] = useState(0)
   const [totalPages, setTotalPages] = useState(0)
+
+  const orgId = router.params.org_id
 
   const {
     data: sessionsData,
@@ -56,7 +59,7 @@ export const SessionsSidebar: FC<{
     isFetching: isLoadingMore,
     error
   } = useListSessions(
-    account.organizationTools.organization?.id, 
+    orgId, 
     undefined, 
     currentPage, 
     PAGE_SIZE
@@ -94,7 +97,7 @@ export const SessionsSidebar: FC<{
   // Reset pagination when organization changes
   useEffect(() => {
     resetPagination()
-  }, [account.organizationTools.organization?.id, resetPagination])
+  }, [orgId, resetPagination])
   
   const lightTheme = useLightTheme()
   const {
