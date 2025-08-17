@@ -760,7 +760,19 @@ func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
 // @Router /api/v1/dashboard [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) dashboard(_ http.ResponseWriter, req *http.Request) (*types.DashboardData, error) {
-	return apiServer.Controller.GetDashboardData(req.Context())
+	data, err := apiServer.Controller.GetDashboardData(req.Context())
+	if err != nil {
+		return nil, err
+	}
+	
+	// DEBUG: Log the process stats from the first runner
+	if len(data.Runners) > 0 {
+		log.Info().
+			Interface("process_stats", data.Runners[0].ProcessStats).
+			Msg("DEBUG: Dashboard API returning ProcessStats")
+	}
+	
+	return data, nil
 }
 
 // getSchedulerHeartbeats godoc
