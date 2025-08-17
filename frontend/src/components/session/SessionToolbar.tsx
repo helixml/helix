@@ -22,6 +22,9 @@ import MenuItem from '@mui/material/MenuItem'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 
+// Lucide
+import { Info, Trash, Pencil } from 'lucide-react'
+
 import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../../hooks/useThemeConfig'
 
@@ -203,7 +206,7 @@ export const SessionToolbar: FC<{
                   size="small"
                   sx={{ ml: 1 }}
                 >
-                  <EditIcon />
+                  <Pencil size={18} />
                 </IconButton>
               </>
             )}
@@ -241,56 +244,9 @@ export const SessionToolbar: FC<{
         isBigScreen ? (
           <Box sx={{ alignItems: 'center' }}>
             <Row>
-              {/* TODO: reenable once implemented */}
-              {/* "Share Session" is the first item if `isOwner` is true */}
-              {/* {isOwner && (
-                <Cell>
-                  <Tooltip title="Share Session">
-                    <IconButton
-                      onClick={(e) => {
-                        e.preventDefault();
-                        onShare();
-                      }}
-                      size="small"
-                      sx={{
-                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                        '&:hover': {
-                          color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
-                        },
-                      }}
-                    >
-                      <ShareIcon />
-                    </IconButton>
-                  </Tooltip>
-                </Cell>
-              )} */}
-            
-              {/* The rest of the icons follow */}
-              {/* TODO: reenable once implemented (file sharing) */}
-              {/* <Cell>
-                <Tooltip title="Files">
-                  <IconButton
-                    onClick={(e) => {
-                      e.preventDefault();
-                      navigate('files', {
-                        path: `/sessions/${session?.id}`
-                      });
-                    }}
-                    size="small"
-                    sx={{
-                      color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                      '&:hover': {
-                        color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
-                      },
-                    }}
-                  >
-                    <FolderOpenIcon />
-                  </IconButton>
-                </Tooltip>
-              </Cell> */}
               <Cell>
                 <JsonWindowLink data={session}>
-                  <Tooltip title="Show Info">
+                  <Tooltip title="Show Info">                    
                     <IconButton
                       size="small"
                       sx={{
@@ -300,7 +256,7 @@ export const SessionToolbar: FC<{
                         },
                       }}
                     >
-                      <InfoIcon />
+                      <Info size={18} />
                     </IconButton>
                   </Tooltip>
                 </JsonWindowLink>
@@ -320,7 +276,7 @@ export const SessionToolbar: FC<{
                       },
                     }}
                   >
-                    <DeleteIcon />
+                    <Trash size={18} />
                   </IconButton>
                 </Tooltip>
               </Cell>
