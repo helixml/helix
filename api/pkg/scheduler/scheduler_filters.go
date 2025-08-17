@@ -325,6 +325,25 @@ func (s *Scheduler) wouldOllamaUseTensorParallel(runnerID string, modelMemoryReq
 		return false, nil
 	}
 
+	log.Info().
+		Str("OLLAMA_TP_DEBUG", "gpu_memory_state").
+		Str("runner_id", runnerID).
+		Interface("gpu_total_memory_gb", func() map[int]float64 {
+			result := make(map[int]float64)
+			for _, gpu := range status.GPUs {
+				result[gpu.Index] = float64(gpu.TotalMemory) / (1024 * 1024 * 1024)
+			}
+			return result
+		}()).
+		Interface("gpu_allocated_memory_gb", func() map[int]float64 {
+			result := make(map[int]float64)
+			for gpuIndex, allocated := range allocatedMemoryPerGPU {
+				result[gpuIndex] = float64(allocated) / (1024 * 1024 * 1024)
+			}
+			return result
+		}()).
+		Msg("OLLAMA_TP_DEBUG: GPU memory state before TP calculation")
+
 	// Create a sorted list of GPUs by free memory (descending order, like Ollama does)
 	type gpuInfo struct {
 		index      int
@@ -362,6 +381,12 @@ func (s *Scheduler) wouldOllamaUseTensorParallel(runnerID string, modelMemoryReq
 
 	layerSize := modelMemoryRequirement / uint64(estimatedLayers)
 
+	// Apply Ollama-like safety margins to account for:
+	// - GPU overhead (graph allocation, KV cache, etc.)
+	// - Memory fragmentation
+	// - Safety buffers that Ollama uses
+	const safetyMarginPercent = 0.15 // 15% safety margin - will tune based on debug data
+
 	// Simulate greedy assignment starting from the GPU with most free memory
 	assignedGPUs := []int{}
 	currentGPUIndex := 0
@@ -369,7 +394,8 @@ func (s *Scheduler) wouldOllamaUseTensorParallel(runnerID string, modelMemoryReq
 
 	// Start with the first GPU if it has any free memory
 	if len(gpus) > 0 && gpus[currentGPUIndex].freeMemory > 0 {
-		remainingMemory := gpus[currentGPUIndex].freeMemory
+
+		remainingMemory := uint64(float64(gpus[currentGPUIndex].freeMemory) * (1.0 - safetyMarginPercent))
 
 		for layersAssigned < estimatedLayers && currentGPUIndex < len(gpus) {
 			if remainingMemory >= layerSize {
@@ -385,8 +411,9 @@ func (s *Scheduler) wouldOllamaUseTensorParallel(runnerID string, modelMemoryReq
 				// Current GPU is full, move to next GPU
 				currentGPUIndex++
 				if currentGPUIndex < len(gpus) {
-					remainingMemory = gpus[currentGPUIndex].freeMemory
-					// Only add GPU if it has free memory
+					// Apply safety margin to next GPU too
+					remainingMemory = uint64(float64(gpus[currentGPUIndex].freeMemory) * (1.0 - safetyMarginPercent))
+					// Only add GPU if it has free memory after safety margin
 					if remainingMemory > 0 {
 						assignedGPUs = append(assignedGPUs, gpus[currentGPUIndex].index)
 					}
@@ -399,14 +426,31 @@ func (s *Scheduler) wouldOllamaUseTensorParallel(runnerID string, modelMemoryReq
 	wouldUseTensorParallel := len(assignedGPUs) > 1
 
 	log.Info().
+		Str("OLLAMA_TP_DEBUG", "memory_calculation").
 		Str("runner_id", runnerID).
 		Uint64("model_memory_gb", modelMemoryRequirement/(1024*1024*1024)).
+		Interface("gpu_free_memory_gb", func() []float64 {
+			result := make([]float64, len(gpus))
+			for i, gpu := range gpus {
+				result[i] = float64(gpu.freeMemory) / (1024 * 1024 * 1024)
+			}
+			return result
+		}()).
+		Interface("gpu_effective_memory_gb", func() []float64 {
+			result := make([]float64, len(gpus))
+			for i, gpu := range gpus {
+				effective := float64(gpu.freeMemory) * (1.0 - safetyMarginPercent)
+				result[i] = effective / (1024 * 1024 * 1024)
+			}
+			return result
+		}()).
 		Int("estimated_layers", estimatedLayers).
 		Uint64("layer_size_mb", layerSize/(1024*1024)).
 		Int("layers_assigned", layersAssigned).
 		Ints("assigned_gpus", assignedGPUs).
 		Bool("would_use_tensor_parallel", wouldUseTensorParallel).
-		Msg("Ollama tensor parallelism prediction")
+		Float64("safety_margin_percent", safetyMarginPercent*100).
+		Msg("OLLAMA_TP_DEBUG: Tensor parallelism prediction with detailed memory analysis")
 
 	return wouldUseTensorParallel, assignedGPUs
 }
