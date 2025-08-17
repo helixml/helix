@@ -19,13 +19,14 @@ type OwnerQuery struct {
 	OwnerType types.OwnerType `json:"owner_type"`
 }
 
-type GetSessionsQuery struct {
+type ListSessionsQuery struct {
 	Owner          string          `json:"owner"`
 	OwnerType      types.OwnerType `json:"owner_type"`
 	ParentSession  string          `json:"parent_session"`
 	OrganizationID string          `json:"organization_id"` // The organization this session belongs to, if any
-	Offset         int             `json:"offset"`
-	Limit          int             `json:"limit"`
+	Page           int             `json:"page"`
+	PerPage        int             `json:"per_page"`
+	Search         string          `json:"search"`
 }
 
 type ListAPIKeysQuery struct {
@@ -167,8 +168,7 @@ type Store interface {
 
 	// sessions
 	GetSession(ctx context.Context, id string) (*types.Session, error)
-	GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error)
-	GetSessionsCounter(ctx context.Context, query GetSessionsQuery) (*types.Counter, error)
+	ListSessions(ctx context.Context, query ListSessionsQuery) ([]*types.Session, int64, error)
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionName(ctx context.Context, sessionID, name string) error
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -112,4 +113,83 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_DeleteSession() {
 
 	// Assert that the deleted session matches the original session
 	suite.Equal(session.ID, deletedSession.ID)
+}
+
+func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSessionsPagination() {
+	// Create 100 sessions with sequential names
+	const totalSessions = 100
+	sessionIDs := make([]string, totalSessions)
+
+	for i := 1; i <= totalSessions; i++ {
+		session := types.Session{
+			ID:        system.GenerateSessionID(),
+			Name:      fmt.Sprintf("session-%d", i),
+			Owner:     "user_id",
+			OwnerType: types.OwnerTypeUser,
+			Created:   time.Now(),
+			Updated:   time.Now(),
+		}
+
+		createdSession, err := suite.db.CreateSession(context.Background(), session)
+		suite.NoError(err)
+		sessionIDs[i-1] = createdSession.ID
+	}
+
+	// Cleanup all created sessions
+	suite.T().Cleanup(func() {
+		for _, id := range sessionIDs {
+			_, _ = suite.db.DeleteSession(context.Background(), id)
+		}
+	})
+
+	// Test pagination with different page sizes
+	testCases := []struct {
+		name     string
+		page     int
+		perPage  int
+		expected int
+	}{
+		{"first page with 10 items", 1, 10, 10},
+		{"second page with 10 items", 2, 10, 10},
+		{"last page with 10 items", 10, 10, 10},
+		{"page with 25 items", 1, 25, 25},
+		{"page with 50 items", 1, 50, 50},
+		{"page with 100 items", 1, 100, 100},
+		{"page beyond available data", 15, 10, 0},
+		{"page with 0 per page (should return all)", 1, 0, totalSessions},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(tc.name, func() {
+			query := ListSessionsQuery{
+				Owner:     "user_id",
+				OwnerType: types.OwnerTypeUser,
+				Page:      tc.page,
+				PerPage:   tc.perPage,
+			}
+
+			sessions, totalCount, err := suite.db.ListSessions(context.Background(), query)
+			suite.NoError(err)
+
+			suite.Equal(totalCount, int64(totalSessions))
+
+			if tc.page == 1 && tc.perPage == 0 {
+				// When perPage is 0, it should return all sessions
+				suite.Equal(totalSessions, len(sessions))
+			} else if tc.page > (totalSessions/tc.perPage)+1 {
+				// Page beyond available data should return empty
+				suite.Equal(0, len(sessions))
+			} else {
+				// Regular pagination
+				suite.Equal(tc.expected, len(sessions))
+			}
+
+			// Verify sessions are ordered by created DESC (newest first)
+			if len(sessions) > 1 {
+				for i := 0; i < len(sessions)-1; i++ {
+					suite.True(sessions[i].Created.After(sessions[i+1].Created) || sessions[i].Created.Equal(sessions[i+1].Created))
+				}
+			}
+		})
+	}
 }
