@@ -62,8 +62,31 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 					Uint64("model_memory_gb", work.model.Memory/(1024*1024*1024)).
 					Msg("Ollama model - checking if tensor parallelism would be used")
 
-				// First try single GPU allocation
-				singleGPU, _, _ = s.controller.GetOptimalGPUAllocation(runnerID, work.model.Memory, work.Runtime())
+				// Calculate effective memory requirement with potential TP overhead
+				effectiveMemoryRequirement := work.model.Memory
+
+				// Check if Ollama would use tensor parallelism for this model
+				wouldUseTensorParallel, multiGPUs := s.wouldOllamaUseTensorParallel(runnerID, work.model.Memory)
+				if wouldUseTensorParallel && len(multiGPUs) > 1 {
+					// Apply TP overhead: base model memory + (10GB per GPU)
+					const fixedOverheadPerGPU = uint64(10 * 1024 * 1024 * 1024) // 10GB per GPU
+					tpOverhead := uint64(len(multiGPUs)) * fixedOverheadPerGPU
+					effectiveMemoryRequirement = work.model.Memory + tpOverhead
+
+					log.Info().
+						Str("OLLAMA_TP_MEMORY", "overhead_applied").
+						Str("runner_id", runnerID).
+						Str("model", work.ModelName().String()).
+						Uint64("base_memory_gb", work.model.Memory/(1024*1024*1024)).
+						Uint64("tp_overhead_gb", tpOverhead/(1024*1024*1024)).
+						Uint64("effective_memory_gb", effectiveMemoryRequirement/(1024*1024*1024)).
+						Int("tensor_parallel_gpus", len(multiGPUs)).
+						Ints("assigned_gpus", multiGPUs).
+						Msg("Applied Ollama tensor parallelism memory overhead")
+				}
+
+				// First try single GPU allocation with effective memory requirement
+				singleGPU, _, _ = s.controller.GetOptimalGPUAllocation(runnerID, effectiveMemoryRequirement, work.Runtime())
 
 				// If single GPU failed, check if Ollama would actually use tensor parallelism
 				if singleGPU == nil {
@@ -73,15 +96,12 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 						Str("model", work.ModelName().String()).
 						Msg("Ollama single-GPU allocation failed, checking if tensor parallelism would be used")
 
-					// Check if Ollama would actually allocate layers across multiple GPUs
-					wouldUseTensorParallel, multiGPUs := s.wouldOllamaUseTensorParallel(runnerID, work.model.Memory)
-
 					if wouldUseTensorParallel {
 						log.Info().
 							Str("OLLAMA_TP_DEBUG", "tp_approved_multi_gpu").
 							Str("runner_id", runnerID).
 							Str("model", work.ModelName().String()).
-							Uint64("model_memory_gb", work.model.Memory/(1024*1024*1024)).
+							Uint64("effective_memory_gb", effectiveMemoryRequirement/(1024*1024*1024)).
 							Ints("assigned_gpus", multiGPUs).
 							Msg("OLLAMA_TP_DEBUG: TP prediction approved - allowing multi-GPU allocation")
 
@@ -92,7 +112,7 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 							Str("OLLAMA_TP_DEBUG", "tp_rejected_trying_eviction").
 							Str("runner_id", runnerID).
 							Str("model", work.ModelName().String()).
-							Uint64("model_memory_gb", work.model.Memory/(1024*1024*1024)).
+							Uint64("effective_memory_gb", effectiveMemoryRequirement/(1024*1024*1024)).
 							Msg("OLLAMA_TP_DEBUG: TP prediction rejected - attempting eviction fallback")
 
 						// Try with eviction since multi-GPU wouldn't help
@@ -118,7 +138,7 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 								}()).
 								Msg("OLLAMA_TP_DEBUG: Calculated evictable memory per GPU")
 
-							singleGPU, _, _ = s.getOptimalGPUAllocationWithEviction(runnerID, work.model.Memory, work.Runtime(), evictableMemoryPerGPU)
+							singleGPU, _, _ = s.getOptimalGPUAllocationWithEviction(runnerID, effectiveMemoryRequirement, work.Runtime(), evictableMemoryPerGPU)
 
 							if singleGPU != nil {
 								log.Info().
@@ -126,14 +146,14 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 									Str("runner_id", runnerID).
 									Str("model", work.ModelName().String()).
 									Int("allocated_gpu", *singleGPU).
-									Uint64("model_memory_gb", work.model.Memory/(1024*1024*1024)).
+									Uint64("effective_memory_gb", effectiveMemoryRequirement/(1024*1024*1024)).
 									Msg("OLLAMA_TP_DEBUG: Eviction-based allocation successful")
 							} else {
 								log.Info().
 									Str("OLLAMA_TP_DEBUG", "eviction_allocation_failed").
 									Str("runner_id", runnerID).
 									Str("model", work.ModelName().String()).
-									Uint64("model_memory_gb", work.model.Memory/(1024*1024*1024)).
+									Uint64("effective_memory_gb", effectiveMemoryRequirement/(1024*1024*1024)).
 									Interface("evictable_memory_per_gpu_gb", func() map[int]float64 {
 										result := make(map[int]float64)
 										for gpuIndex, evictable := range evictableMemoryPerGPU {
@@ -151,7 +171,7 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 						Str("OLLAMA_TP_DEBUG", "single_gpu_success").
 						Str("runner_id", runnerID).
 						Str("model", work.ModelName().String()).
-						Uint64("model_memory_gb", work.model.Memory/(1024*1024*1024)).
+						Uint64("effective_memory_gb", effectiveMemoryRequirement/(1024*1024*1024)).
 						Interface("allocated_gpu", singleGPU).
 						Msg("OLLAMA_TP_DEBUG: Single GPU allocation successful - no TP needed")
 					runnerGPUCompatible[runnerID] = true

@@ -5439,7 +5439,12 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "gpu_memory_stats": {
-                    "description": "GPU memory stabilization statistics"
+                    "description": "GPU memory stabilization statistics",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.GPUMemoryStats"
+                        }
+                    ]
                 },
                 "gpus": {
                     "description": "Per-GPU memory status",
@@ -5456,6 +5461,9 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "string"
                     }
+                },
+                "memory_string": {
+                    "type": "string"
                 },
                 "models": {
                     "type": "array",
@@ -5612,6 +5620,151 @@ const docTemplate = `{
                 },
                 "valid_until": {
                     "type": "string"
+                }
+            }
+        },
+        "types.GPUMemoryDataPoint": {
+            "type": "object",
+            "properties": {
+                "actual_free_mb": {
+                    "description": "Actual free memory (from nvidia-smi)",
+                    "type": "integer"
+                },
+                "actual_total_mb": {
+                    "description": "Total GPU memory",
+                    "type": "integer"
+                },
+                "actual_used_mb": {
+                    "description": "Actual memory used (from nvidia-smi)",
+                    "type": "integer"
+                },
+                "allocated_mb": {
+                    "description": "Memory allocated by Helix scheduler",
+                    "type": "integer"
+                },
+                "gpu_index": {
+                    "type": "integer"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.GPUMemoryReading": {
+            "type": "object",
+            "properties": {
+                "delta_mb": {
+                    "type": "integer"
+                },
+                "is_stable": {
+                    "type": "boolean"
+                },
+                "memory_mb": {
+                    "type": "integer"
+                },
+                "poll_number": {
+                    "type": "integer"
+                },
+                "stable_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.GPUMemoryStabilizationEvent": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "description": "\"startup\" or \"deletion\"",
+                    "type": "string"
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "memory_delta_threshold_mb": {
+                    "type": "integer"
+                },
+                "memory_readings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.GPUMemoryReading"
+                    }
+                },
+                "poll_interval_ms": {
+                    "type": "integer"
+                },
+                "polls_taken": {
+                    "type": "integer"
+                },
+                "required_stable_polls": {
+                    "type": "integer"
+                },
+                "runtime": {
+                    "type": "string"
+                },
+                "slot_id": {
+                    "type": "string"
+                },
+                "stabilized_memory_mb": {
+                    "type": "integer"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "timeout_seconds": {
+                    "type": "integer"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "total_wait_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.GPUMemoryStats": {
+            "type": "object",
+            "properties": {
+                "average_wait_time_seconds": {
+                    "type": "number"
+                },
+                "failed_stabilizations": {
+                    "type": "integer"
+                },
+                "last_stabilization": {
+                    "type": "string"
+                },
+                "max_wait_time_seconds": {
+                    "type": "integer"
+                },
+                "memory_time_series": {
+                    "description": "Last 10 minutes of memory data",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.GPUMemoryDataPoint"
+                    }
+                },
+                "min_wait_time_seconds": {
+                    "type": "integer"
+                },
+                "recent_events": {
+                    "description": "Last 20 events",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.GPUMemoryStabilizationEvent"
+                    }
+                },
+                "scheduling_events": {
+                    "description": "Last 10 minutes of scheduling events",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SchedulingEvent"
+                    }
+                },
+                "successful_stabilizations": {
+                    "type": "integer"
+                },
+                "total_stabilizations": {
+                    "type": "integer"
                 }
             }
         },
@@ -7465,6 +7618,39 @@ const docTemplate = `{
                 "SchedulingDecisionTypeError",
                 "SchedulingDecisionTypeUnschedulable"
             ]
+        },
+        "types.SchedulingEvent": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "description": "\"slot_created\", \"slot_deleted\", \"eviction\", \"stabilization_start\", \"stabilization_end\"",
+                    "type": "string"
+                },
+                "gpu_indices": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "memory_mb": {
+                    "type": "integer"
+                },
+                "model_name": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "type": "string"
+                },
+                "slot_id": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            }
         },
         "types.Secret": {
             "type": "object",
