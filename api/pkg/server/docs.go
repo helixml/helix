@@ -2936,11 +2936,37 @@ const docTemplate = `{
                     "sessions"
                 ],
                 "summary": "List sessions",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search sessions by name",
+                        "name": "search",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/types.SessionsList"
+                            "$ref": "#/definitions/types.PaginatedSessionsList"
                         }
                     }
                 }
@@ -3007,6 +3033,44 @@ const docTemplate = `{
                     }
                 }
             },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update a session by ID",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Update a session by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Session to update",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.Session"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Session"
+                        }
+                    }
+                }
+            },
             "delete": {
                 "security": [
                     {
@@ -3059,6 +3123,18 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -5547,14 +5623,6 @@ const docTemplate = `{
                 }
             }
         },
-        "types.Counter": {
-            "type": "object",
-            "properties": {
-                "count": {
-                    "type": "integer"
-                }
-            }
-        },
         "types.CrawledSources": {
             "type": "object",
             "properties": {
@@ -7169,6 +7237,29 @@ const docTemplate = `{
                 }
             }
         },
+        "types.PaginatedSessionsList": {
+            "type": "object",
+            "properties": {
+                "page": {
+                    "type": "integer"
+                },
+                "pageSize": {
+                    "type": "integer"
+                },
+                "sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionSummary"
+                    }
+                },
+                "totalCount": {
+                    "type": "integer"
+                },
+                "totalPages": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.Pricing": {
             "type": "object",
             "properties": {
@@ -8166,26 +8257,6 @@ const docTemplate = `{
                 "SessionTypeText",
                 "SessionTypeImage"
             ]
-        },
-        "types.SessionsList": {
-            "type": "object",
-            "properties": {
-                "counter": {
-                    "description": "the total number of sessions that match the query",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.Counter"
-                        }
-                    ]
-                },
-                "sessions": {
-                    "description": "the list of sessions",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.SessionSummary"
-                    }
-                }
-            }
         },
         "types.SkillDefinition": {
             "type": "object",
