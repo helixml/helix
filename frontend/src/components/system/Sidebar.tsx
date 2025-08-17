@@ -16,8 +16,8 @@ import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 import useApp from '../../hooks/useApp'
-import useSessions from '../../hooks/useSessions'
 import useApi from '../../hooks/useApi'
+import { useListSessions } from '../../services/sessionService'
 
 import SlideMenuContainer from './SlideMenuContainer'
 import SidebarContextHeader from './SidebarContextHeader'
@@ -97,10 +97,12 @@ const SidebarContentInner: React.FC<{
   const router = useRouter()
   const api = useApi()
   const account = useAccount()
-  const sessions = useSessions()
+  const { data: sessions } = useListSessions(account.organizationTools.organization?.id)
   const appTools = useApp(params.app_id)
 
   const apiClient = api.getApiClient()
+
+
 
   // Ensure apps are loaded when apps tab is selected
   useEffect(() => {
@@ -109,9 +111,8 @@ const SidebarContentInner: React.FC<{
         const authResponse = await apiClient.v1AuthAuthenticatedList()
         if (!authResponse.data.authenticated) {
           return
-        }              
+        }        
         
-        sessions.loadSessions()
       } catch (error) {
         console.error('[SIDEBAR] Error checking authentication:', error)
       }
