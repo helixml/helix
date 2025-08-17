@@ -1415,36 +1415,6 @@ func (mr *MockStoreMockRecorder) GetSession(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSession", reflect.TypeOf((*MockStore)(nil).GetSession), ctx, id)
 }
 
-// GetSessions mocks base method.
-func (m *MockStore) GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetSessions", ctx, query)
-	ret0, _ := ret[0].([]*types.Session)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetSessions indicates an expected call of GetSessions.
-func (mr *MockStoreMockRecorder) GetSessions(ctx, query any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSessions", reflect.TypeOf((*MockStore)(nil).GetSessions), ctx, query)
-}
-
-// GetSessionsCounter mocks base method.
-func (m *MockStore) GetSessionsCounter(ctx context.Context, query GetSessionsQuery) (*types.Counter, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetSessionsCounter", ctx, query)
-	ret0, _ := ret[0].(*types.Counter)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetSessionsCounter indicates an expected call of GetSessionsCounter.
-func (mr *MockStoreMockRecorder) GetSessionsCounter(ctx, query any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSessionsCounter", reflect.TypeOf((*MockStore)(nil).GetSessionsCounter), ctx, query)
-}
-
 // GetSlackThread mocks base method.
 func (m *MockStore) GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error) {
 	m.ctrl.T.Helper()
@@ -1910,6 +1880,22 @@ func (m *MockStore) ListSecrets(ctx context.Context, q *ListSecretsQuery) ([]*ty
 func (mr *MockStoreMockRecorder) ListSecrets(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSecrets", reflect.TypeOf((*MockStore)(nil).ListSecrets), ctx, q)
+}
+
+// ListSessions mocks base method.
+func (m *MockStore) ListSessions(ctx context.Context, query ListSessionsQuery) ([]*types.Session, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSessions", ctx, query)
+	ret0, _ := ret[0].([]*types.Session)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListSessions indicates an expected call of ListSessions.
+func (mr *MockStoreMockRecorder) ListSessions(ctx, query any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessions", reflect.TypeOf((*MockStore)(nil).ListSessions), ctx, query)
 }
 
 // ListStepInfos mocks base method.
