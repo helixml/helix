@@ -292,7 +292,6 @@ export const ModelInstanceSummary: FC<{
 
                 {/* Action Buttons */}
                 <Box sx={{ mt: 1, display: "flex", gap: 1 }}>
-                    {console.log("Rendering action buttons for slot:", slot.id)}
                     <Button
                         variant="outlined"
                         size="small"
