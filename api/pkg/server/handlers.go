@@ -764,14 +764,7 @@ func (apiServer *HelixAPIServer) dashboard(_ http.ResponseWriter, req *http.Requ
 	if err != nil {
 		return nil, err
 	}
-	
-	// DEBUG: Log the process stats from the first runner
-	if len(data.Runners) > 0 {
-		log.Info().
-			Interface("process_stats", data.Runners[0].ProcessStats).
-			Msg("DEBUG: Dashboard API returning ProcessStats")
-	}
-	
+
 	return data, nil
 }
 

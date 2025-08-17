@@ -809,11 +809,12 @@ export interface TypesDashboardRunner {
   /** Number of GPUs detected */
   gpu_count?: number;
   /** GPU memory stabilization statistics */
-  gpu_memory_stats?: any;
+  gpu_memory_stats?: TypesGPUMemoryStats;
   /** Per-GPU memory status */
   gpus?: TypesGPUStatus[];
   id?: string;
   labels?: Record<string, string>;
+  memory_string?: string;
   models?: TypesRunnerModelStatus[];
   /** Process tracking and cleanup statistics */
   process_stats?: any;
@@ -873,6 +874,61 @@ export interface TypesFrontendLicenseInfo {
   organization?: string;
   valid?: boolean;
   valid_until?: string;
+}
+
+export interface TypesGPUMemoryDataPoint {
+  /** Actual free memory (from nvidia-smi) */
+  actual_free_mb?: number;
+  /** Total GPU memory */
+  actual_total_mb?: number;
+  /** Actual memory used (from nvidia-smi) */
+  actual_used_mb?: number;
+  /** Memory allocated by Helix scheduler */
+  allocated_mb?: number;
+  gpu_index?: number;
+  timestamp?: string;
+}
+
+export interface TypesGPUMemoryReading {
+  delta_mb?: number;
+  is_stable?: boolean;
+  memory_mb?: number;
+  poll_number?: number;
+  stable_count?: number;
+}
+
+export interface TypesGPUMemoryStabilizationEvent {
+  /** "startup" or "deletion" */
+  context?: string;
+  error_message?: string;
+  memory_delta_threshold_mb?: number;
+  memory_readings?: TypesGPUMemoryReading[];
+  poll_interval_ms?: number;
+  polls_taken?: number;
+  required_stable_polls?: number;
+  runtime?: string;
+  slot_id?: string;
+  stabilized_memory_mb?: number;
+  success?: boolean;
+  timeout_seconds?: number;
+  timestamp?: string;
+  total_wait_seconds?: number;
+}
+
+export interface TypesGPUMemoryStats {
+  average_wait_time_seconds?: number;
+  failed_stabilizations?: number;
+  last_stabilization?: string;
+  max_wait_time_seconds?: number;
+  /** Last 10 minutes of memory data */
+  memory_time_series?: TypesGPUMemoryDataPoint[];
+  min_wait_time_seconds?: number;
+  /** Last 20 events */
+  recent_events?: TypesGPUMemoryStabilizationEvent[];
+  /** Last 10 minutes of scheduling events */
+  scheduling_events?: TypesSchedulingEvent[];
+  successful_stabilizations?: number;
+  total_stabilizations?: number;
 }
 
 export interface TypesGPUStatus {
@@ -1627,6 +1683,18 @@ export enum TypesSchedulingDecisionType {
   SchedulingDecisionTypeRejected = "rejected",
   SchedulingDecisionTypeError = "error",
   SchedulingDecisionTypeUnschedulable = "unschedulable",
+}
+
+export interface TypesSchedulingEvent {
+  description?: string;
+  /** "slot_created", "slot_deleted", "eviction", "stabilization_start", "stabilization_end" */
+  event_type?: string;
+  gpu_indices?: number[];
+  memory_mb?: number;
+  model_name?: string;
+  runtime?: string;
+  slot_id?: string;
+  timestamp?: string;
 }
 
 export interface TypesSecret {

@@ -54,11 +54,11 @@ export const ModelInstanceSummary: FC<{
     const [historyViewing, setHistoryViewing] = useState(false);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-    console.log(
-        "ModelInstanceSummary rendering for slot:",
-        slot.id,
-        "with delete button",
-    );
+    // console.log(
+    //     "ModelInstanceSummary rendering for slot:",
+    //     slot.id,
+    //     "with delete button",
+    // );
 
     const statusColor = useMemo(() => {
         if (slot.active) {

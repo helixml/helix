@@ -255,7 +255,25 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 	// Convert per-GPU info to status format
 	var gpuStatuses []*types.GPUStatus
 	gpuInfo := apiServer.gpuManager.GetGPUInfo()
-	for _, gpu := range gpuInfo {
+
+	// Collect GPU indices and sort them to ensure consistent ordering
+	var gpuIndices []int
+	for gpuIndex := range gpuInfo {
+		gpuIndices = append(gpuIndices, gpuIndex)
+	}
+
+	// Sort indices to prevent randomness from Go map iteration
+	for i := 0; i < len(gpuIndices); i++ {
+		for j := i + 1; j < len(gpuIndices); j++ {
+			if gpuIndices[i] > gpuIndices[j] {
+				gpuIndices[i], gpuIndices[j] = gpuIndices[j], gpuIndices[i]
+			}
+		}
+	}
+
+	// Add GPU statuses in sorted order
+	for _, gpuIndex := range gpuIndices {
+		gpu := gpuInfo[gpuIndex]
 		gpuStatuses = append(gpuStatuses, &types.GPUStatus{
 			Index:         gpu.Index,
 			TotalMemory:   gpu.TotalMemory,
@@ -281,7 +299,7 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 		Labels:          apiServer.runnerOptions.Labels,
 		Models:          apiServer.listHelixModelsStatus(),
 		ProcessStats:    apiServer.processTracker.GetStats(),
-		GPUMemoryStats:  apiServer.gpuMemoryTracker.GetStats(),
+		GPUMemoryStats:  func() *types.GPUMemoryStats { stats := apiServer.gpuMemoryTracker.GetStats(); return &stats }(),
 	}
 
 	// Add debug logging to see memory values
@@ -379,7 +397,7 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 			Str("runtime", string(slotRequest.Attributes.Runtime)).
 			Msg("Waiting for GPU memory to stabilize before starting GPU runtime")
 
-		if err := apiServer.waitForGPUMemoryStabilizationWithContext(15, "startup", slotRequest.ID.String(), string(slotRequest.Attributes.Runtime)); err != nil {
+		if err := apiServer.waitForGPUMemoryStabilizationWithContext(30, "startup", slotRequest.ID.String(), string(slotRequest.Attributes.Runtime)); err != nil {
 			log.Warn().
 				Err(err).
 				Str("slot_id", slotRequest.ID.String()).
@@ -742,7 +760,7 @@ func (apiServer *HelixRunnerAPIServer) deleteSlot(w http.ResponseWriter, r *http
 			Str("runtime", string(slot.Runtime())).
 			Msg("SLOT_DELETE: Waiting for GPU memory to stabilize after deletion")
 
-		if err := apiServer.waitForGPUMemoryStabilizationWithContext(15, "deletion", slotUUID.String(), string(slot.Runtime())); err != nil {
+		if err := apiServer.waitForGPUMemoryStabilizationWithContext(30, "deletion", slotUUID.String(), string(slot.Runtime())); err != nil {
 			log.Warn().
 				Err(err).
 				Str("slot_id", slotUUID.String()).

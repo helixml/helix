@@ -1262,6 +1262,8 @@ definitions:
         description: Number of GPUs detected
         type: integer
       gpu_memory_stats:
+        allOf:
+        - $ref: '#/definitions/types.GPUMemoryStats'
         description: GPU memory stabilization statistics
       gpus:
         description: Per-GPU memory status
@@ -1274,6 +1276,8 @@ definitions:
         additionalProperties:
           type: string
         type: object
+      memory_string:
+        type: string
       models:
         items:
           $ref: '#/definitions/types.RunnerModelStatus'
@@ -1376,6 +1380,104 @@ definitions:
         type: boolean
       valid_until:
         type: string
+    type: object
+  types.GPUMemoryDataPoint:
+    properties:
+      actual_free_mb:
+        description: Actual free memory (from nvidia-smi)
+        type: integer
+      actual_total_mb:
+        description: Total GPU memory
+        type: integer
+      actual_used_mb:
+        description: Actual memory used (from nvidia-smi)
+        type: integer
+      allocated_mb:
+        description: Memory allocated by Helix scheduler
+        type: integer
+      gpu_index:
+        type: integer
+      timestamp:
+        type: string
+    type: object
+  types.GPUMemoryReading:
+    properties:
+      delta_mb:
+        type: integer
+      is_stable:
+        type: boolean
+      memory_mb:
+        type: integer
+      poll_number:
+        type: integer
+      stable_count:
+        type: integer
+    type: object
+  types.GPUMemoryStabilizationEvent:
+    properties:
+      context:
+        description: '"startup" or "deletion"'
+        type: string
+      error_message:
+        type: string
+      memory_delta_threshold_mb:
+        type: integer
+      memory_readings:
+        items:
+          $ref: '#/definitions/types.GPUMemoryReading'
+        type: array
+      poll_interval_ms:
+        type: integer
+      polls_taken:
+        type: integer
+      required_stable_polls:
+        type: integer
+      runtime:
+        type: string
+      slot_id:
+        type: string
+      stabilized_memory_mb:
+        type: integer
+      success:
+        type: boolean
+      timeout_seconds:
+        type: integer
+      timestamp:
+        type: string
+      total_wait_seconds:
+        type: integer
+    type: object
+  types.GPUMemoryStats:
+    properties:
+      average_wait_time_seconds:
+        type: number
+      failed_stabilizations:
+        type: integer
+      last_stabilization:
+        type: string
+      max_wait_time_seconds:
+        type: integer
+      memory_time_series:
+        description: Last 10 minutes of memory data
+        items:
+          $ref: '#/definitions/types.GPUMemoryDataPoint'
+        type: array
+      min_wait_time_seconds:
+        type: integer
+      recent_events:
+        description: Last 20 events
+        items:
+          $ref: '#/definitions/types.GPUMemoryStabilizationEvent'
+        type: array
+      scheduling_events:
+        description: Last 10 minutes of scheduling events
+        items:
+          $ref: '#/definitions/types.SchedulingEvent'
+        type: array
+      successful_stabilizations:
+        type: integer
+      total_stabilizations:
+        type: integer
     type: object
   types.GPUStatus:
     properties:
@@ -2685,6 +2787,29 @@ definitions:
     - SchedulingDecisionTypeRejected
     - SchedulingDecisionTypeError
     - SchedulingDecisionTypeUnschedulable
+  types.SchedulingEvent:
+    properties:
+      description:
+        type: string
+      event_type:
+        description: '"slot_created", "slot_deleted", "eviction", "stabilization_start",
+          "stabilization_end"'
+        type: string
+      gpu_indices:
+        items:
+          type: integer
+        type: array
+      memory_mb:
+        type: integer
+      model_name:
+        type: string
+      runtime:
+        type: string
+      slot_id:
+        type: string
+      timestamp:
+        type: string
+    type: object
   types.Secret:
     properties:
       app_id:

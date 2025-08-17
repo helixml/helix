@@ -879,6 +879,69 @@ type DashboardData struct {
 	SchedulingDecisions []*SchedulingDecision `json:"scheduling_decisions"`
 }
 
+// GPUMemoryDataPoint represents a single point in time for GPU memory tracking
+type GPUMemoryDataPoint struct {
+	Timestamp     time.Time `json:"timestamp"`
+	GPUIndex      int       `json:"gpu_index"`
+	AllocatedMB   uint64    `json:"allocated_mb"`    // Memory allocated by Helix scheduler
+	ActualUsedMB  uint64    `json:"actual_used_mb"`  // Actual memory used (from nvidia-smi)
+	ActualFreeMB  uint64    `json:"actual_free_mb"`  // Actual free memory (from nvidia-smi)
+	ActualTotalMB uint64    `json:"actual_total_mb"` // Total GPU memory
+}
+
+// SchedulingEvent represents a scheduling event for correlation with memory usage
+type SchedulingEvent struct {
+	Timestamp   time.Time `json:"timestamp"`
+	EventType   string    `json:"event_type"` // "slot_created", "slot_deleted", "eviction", "stabilization_start", "stabilization_end"
+	SlotID      string    `json:"slot_id,omitempty"`
+	ModelName   string    `json:"model_name,omitempty"`
+	Runtime     string    `json:"runtime,omitempty"`
+	GPUIndices  []int     `json:"gpu_indices,omitempty"`
+	MemoryMB    uint64    `json:"memory_mb,omitempty"`
+	Description string    `json:"description,omitempty"`
+}
+
+// GPUMemoryReading represents a single memory reading during stabilization
+type GPUMemoryReading struct {
+	PollNumber  int    `json:"poll_number"`
+	MemoryMB    uint64 `json:"memory_mb"`
+	DeltaMB     int64  `json:"delta_mb"`
+	StableCount int    `json:"stable_count"`
+	IsStable    bool   `json:"is_stable"`
+}
+
+// GPUMemoryStabilizationEvent represents a single GPU memory stabilization event
+type GPUMemoryStabilizationEvent struct {
+	Timestamp              time.Time          `json:"timestamp"`
+	Context                string             `json:"context"` // "startup" or "deletion"
+	SlotID                 string             `json:"slot_id,omitempty"`
+	Runtime                string             `json:"runtime,omitempty"`
+	TimeoutSeconds         int                `json:"timeout_seconds"`
+	PollIntervalMs         int                `json:"poll_interval_ms"`
+	RequiredStablePolls    int                `json:"required_stable_polls"`
+	MemoryDeltaThresholdMB uint64             `json:"memory_delta_threshold_mb"`
+	Success                bool               `json:"success"`
+	PollsTaken             int                `json:"polls_taken"`
+	TotalWaitSeconds       int                `json:"total_wait_seconds"`
+	StabilizedMemoryMB     uint64             `json:"stabilized_memory_mb,omitempty"`
+	ErrorMessage           string             `json:"error_message,omitempty"`
+	MemoryReadings         []GPUMemoryReading `json:"memory_readings,omitempty"`
+}
+
+// GPUMemoryStats tracks GPU memory stabilization statistics
+type GPUMemoryStats struct {
+	TotalStabilizations      int                           `json:"total_stabilizations"`
+	SuccessfulStabilizations int                           `json:"successful_stabilizations"`
+	FailedStabilizations     int                           `json:"failed_stabilizations"`
+	LastStabilization        *time.Time                    `json:"last_stabilization,omitempty"`
+	RecentEvents             []GPUMemoryStabilizationEvent `json:"recent_events"` // Last 20 events
+	AverageWaitTimeSeconds   float64                       `json:"average_wait_time_seconds"`
+	MaxWaitTimeSeconds       int                           `json:"max_wait_time_seconds"`
+	MinWaitTimeSeconds       int                           `json:"min_wait_time_seconds"`
+	MemoryTimeSeries         []GPUMemoryDataPoint          `json:"memory_time_series"` // Last 10 minutes of memory data
+	SchedulingEvents         []SchedulingEvent             `json:"scheduling_events"`  // Last 10 minutes of scheduling events
+}
+
 type DashboardRunner struct {
 	ID              string               `json:"id"`
 	Created         time.Time            `json:"created"`
@@ -892,9 +955,10 @@ type DashboardRunner struct {
 	GPUs            []*GPUStatus         `json:"gpus"`      // Per-GPU memory status
 	Labels          map[string]string    `json:"labels"`
 	Slots           []*RunnerSlot        `json:"slots"`
+	MemoryString    string               `json:"memory_string"`
 	Models          []*RunnerModelStatus `json:"models"`
 	ProcessStats    interface{}          `json:"process_stats,omitempty"`    // Process tracking and cleanup statistics
-	GPUMemoryStats  interface{}          `json:"gpu_memory_stats,omitempty"` // GPU memory stabilization statistics
+	GPUMemoryStats  *GPUMemoryStats      `json:"gpu_memory_stats,omitempty"` // GPU memory stabilization statistics
 }
 
 type GlobalSchedulingDecision struct {

@@ -6,71 +6,19 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog/log"
 )
 
-// GPUMemoryStabilizationEvent represents a single GPU memory stabilization event
-type GPUMemoryStabilizationEvent struct {
-	Timestamp              time.Time `json:"timestamp"`
-	Context                string    `json:"context"` // "startup" or "deletion"
-	SlotID                 string    `json:"slot_id,omitempty"`
-	Runtime                string    `json:"runtime,omitempty"`
-	TimeoutSeconds         int       `json:"timeout_seconds"`
-	PollIntervalMs         int       `json:"poll_interval_ms"`
-	RequiredStablePolls    int       `json:"required_stable_polls"`
-	MemoryDeltaThresholdMB uint64    `json:"memory_delta_threshold_mb"`
-
-	// Results
-	Success            bool   `json:"success"`
-	PollsTaken         int    `json:"polls_taken"`
-	TotalWaitSeconds   int    `json:"total_wait_seconds"`
-	StabilizedMemoryMB uint64 `json:"stabilized_memory_mb,omitempty"`
-	ErrorMessage       string `json:"error_message,omitempty"`
-
-	// Memory readings during stabilization
-	MemoryReadings []GPUMemoryReading `json:"memory_readings,omitempty"`
-}
-
-// GPUMemoryReading represents a single memory reading during stabilization
-type GPUMemoryReading struct {
-	PollNumber  int    `json:"poll_number"`
-	MemoryMB    uint64 `json:"memory_mb"`
-	DeltaMB     int64  `json:"delta_mb"`
-	StableCount int    `json:"stable_count"`
-	IsStable    bool   `json:"is_stable"`
-}
-
-// GPUMemoryDataPoint represents a single point in time for GPU memory tracking
-type GPUMemoryDataPoint struct {
-	Timestamp     time.Time `json:"timestamp"`
-	GPUIndex      int       `json:"gpu_index"`
-	AllocatedMB   uint64    `json:"allocated_mb"`    // Memory allocated by Helix scheduler
-	ActualUsedMB  uint64    `json:"actual_used_mb"`  // Actual memory used (from nvidia-smi)
-	ActualFreeMB  uint64    `json:"actual_free_mb"`  // Actual free memory (from nvidia-smi)
-	ActualTotalMB uint64    `json:"actual_total_mb"` // Total GPU memory
-}
-
-// SchedulingEvent represents a scheduling event for correlation with memory usage
-type SchedulingEvent struct {
-	Timestamp   time.Time `json:"timestamp"`
-	EventType   string    `json:"event_type"` // "slot_created", "slot_deleted", "eviction", "stabilization_start", "stabilization_end"
-	SlotID      string    `json:"slot_id,omitempty"`
-	ModelName   string    `json:"model_name,omitempty"`
-	Runtime     string    `json:"runtime,omitempty"`
-	GPUIndices  []int     `json:"gpu_indices,omitempty"`
-	MemoryMB    uint64    `json:"memory_mb,omitempty"`
-	Description string    `json:"description,omitempty"`
-}
-
-// GPUMemoryStats tracks GPU memory stabilization statistics
-type GPUMemoryStats struct {
+// GPUMemoryStatsInternal tracks GPU memory stabilization statistics with mutex for internal use
+type GPUMemoryStatsInternal struct {
 	mu                       sync.RWMutex
-	TotalStabilizations      int                           `json:"total_stabilizations"`
-	SuccessfulStabilizations int                           `json:"successful_stabilizations"`
-	FailedStabilizations     int                           `json:"failed_stabilizations"`
-	LastStabilization        *time.Time                    `json:"last_stabilization,omitempty"`
-	RecentEvents             []GPUMemoryStabilizationEvent `json:"recent_events"` // Last 20 events
+	TotalStabilizations      int                                 `json:"total_stabilizations"`
+	SuccessfulStabilizations int                                 `json:"successful_stabilizations"`
+	FailedStabilizations     int                                 `json:"failed_stabilizations"`
+	LastStabilization        *time.Time                          `json:"last_stabilization,omitempty"`
+	RecentEvents             []types.GPUMemoryStabilizationEvent `json:"recent_events"` // Last 20 events
 
 	// Statistics
 	AverageWaitTimeSeconds float64 `json:"average_wait_time_seconds"`
@@ -78,13 +26,13 @@ type GPUMemoryStats struct {
 	MinWaitTimeSeconds     int     `json:"min_wait_time_seconds"`
 
 	// Time-series data (last 10 minutes)
-	MemoryTimeSeries []GPUMemoryDataPoint `json:"memory_time_series"` // Last 10 minutes of memory data
-	SchedulingEvents []SchedulingEvent    `json:"scheduling_events"`  // Last 10 minutes of scheduling events
+	MemoryTimeSeries []types.GPUMemoryDataPoint `json:"memory_time_series"` // Last 10 minutes of memory data
+	SchedulingEvents []types.SchedulingEvent    `json:"scheduling_events"`  // Last 10 minutes of scheduling events
 }
 
 // GPUMemoryTracker manages GPU memory stabilization tracking
 type GPUMemoryTracker struct {
-	stats      GPUMemoryStats
+	stats      GPUMemoryStatsInternal
 	gpuManager *GPUManager
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -98,10 +46,10 @@ func NewGPUMemoryTracker(ctx context.Context, gpuManager *GPUManager, slots *xsy
 	trackerCtx, cancel := context.WithCancel(ctx)
 
 	tracker := &GPUMemoryTracker{
-		stats: GPUMemoryStats{
-			RecentEvents:     make([]GPUMemoryStabilizationEvent, 0, 20),
-			MemoryTimeSeries: make([]GPUMemoryDataPoint, 0),
-			SchedulingEvents: make([]SchedulingEvent, 0),
+		stats: GPUMemoryStatsInternal{
+			RecentEvents:     make([]types.GPUMemoryStabilizationEvent, 0, 20),
+			MemoryTimeSeries: make([]types.GPUMemoryDataPoint, 0),
+			SchedulingEvents: make([]types.SchedulingEvent, 0),
 		},
 		gpuManager: gpuManager,
 		ctx:        trackerCtx,
@@ -172,11 +120,28 @@ func (gmt *GPUMemoryTracker) collectMemoryDataPoint() {
 		return true
 	})
 
-	// Add data points for each GPU
-	for _, gpu := range gpuInfo {
+	// Add data points for each GPU in sorted order to prevent randomness
+	// First collect all GPU indices and sort them
+	var gpuIndices []int
+	for gpuIndex := range gpuInfo {
+		gpuIndices = append(gpuIndices, gpuIndex)
+	}
+
+	// Sort indices to ensure consistent ordering
+	for i := 0; i < len(gpuIndices); i++ {
+		for j := i + 1; j < len(gpuIndices); j++ {
+			if gpuIndices[i] > gpuIndices[j] {
+				gpuIndices[i], gpuIndices[j] = gpuIndices[j], gpuIndices[i]
+			}
+		}
+	}
+
+	// Add data points in sorted order
+	for _, gpuIndex := range gpuIndices {
+		gpu := gpuInfo[gpuIndex]
 		allocated := allocatedPerGPU[gpu.Index]
 
-		dataPoint := GPUMemoryDataPoint{
+		dataPoint := types.GPUMemoryDataPoint{
 			Timestamp:     now,
 			GPUIndex:      gpu.Index,
 			AllocatedMB:   allocated / (1024 * 1024),
@@ -196,7 +161,7 @@ func (gmt *GPUMemoryTracker) collectMemoryDataPoint() {
 // pruneOldData removes data older than the cutoff time
 func (gmt *GPUMemoryTracker) pruneOldData(cutoff time.Time) {
 	// Prune memory time series
-	var newTimeSeries []GPUMemoryDataPoint
+	var newTimeSeries []types.GPUMemoryDataPoint
 	for _, point := range gmt.stats.MemoryTimeSeries {
 		if point.Timestamp.After(cutoff) {
 			newTimeSeries = append(newTimeSeries, point)
@@ -205,7 +170,7 @@ func (gmt *GPUMemoryTracker) pruneOldData(cutoff time.Time) {
 	gmt.stats.MemoryTimeSeries = newTimeSeries
 
 	// Prune scheduling events
-	var newEvents []SchedulingEvent
+	var newEvents []types.SchedulingEvent
 	for _, event := range gmt.stats.SchedulingEvents {
 		if event.Timestamp.After(cutoff) {
 			newEvents = append(newEvents, event)
@@ -215,8 +180,8 @@ func (gmt *GPUMemoryTracker) pruneOldData(cutoff time.Time) {
 }
 
 // StartStabilization begins tracking a new stabilization event
-func (gmt *GPUMemoryTracker) StartStabilization(context, slotID, runtime string, timeoutSeconds, pollIntervalMs, requiredStablePolls int, memoryDeltaThresholdMB uint64) *GPUMemoryStabilizationEvent {
-	event := &GPUMemoryStabilizationEvent{
+func (gmt *GPUMemoryTracker) StartStabilization(context, slotID, runtime string, timeoutSeconds, pollIntervalMs, requiredStablePolls int, memoryDeltaThresholdMB uint64) *types.GPUMemoryStabilizationEvent {
+	event := &types.GPUMemoryStabilizationEvent{
 		Timestamp:              time.Now(),
 		Context:                context,
 		SlotID:                 slotID,
@@ -225,15 +190,15 @@ func (gmt *GPUMemoryTracker) StartStabilization(context, slotID, runtime string,
 		PollIntervalMs:         pollIntervalMs,
 		RequiredStablePolls:    requiredStablePolls,
 		MemoryDeltaThresholdMB: memoryDeltaThresholdMB,
-		MemoryReadings:         make([]GPUMemoryReading, 0),
+		MemoryReadings:         make([]types.GPUMemoryReading, 0),
 	}
 
 	return event
 }
 
 // AddMemoryReading adds a memory reading to the current stabilization event
-func (gmt *GPUMemoryTracker) AddMemoryReading(event *GPUMemoryStabilizationEvent, pollNumber int, memoryMB uint64, deltaMB int64, stableCount int, isStable bool) {
-	reading := GPUMemoryReading{
+func (gmt *GPUMemoryTracker) AddMemoryReading(event *types.GPUMemoryStabilizationEvent, pollNumber int, memoryMB uint64, deltaMB int64, stableCount int, isStable bool) {
+	reading := types.GPUMemoryReading{
 		PollNumber:  pollNumber,
 		MemoryMB:    memoryMB,
 		DeltaMB:     deltaMB,
@@ -245,7 +210,7 @@ func (gmt *GPUMemoryTracker) AddMemoryReading(event *GPUMemoryStabilizationEvent
 }
 
 // CompleteStabilization completes a stabilization event and updates statistics
-func (gmt *GPUMemoryTracker) CompleteStabilization(event *GPUMemoryStabilizationEvent, success bool, pollsTaken int, stabilizedMemoryMB uint64, errorMessage string) {
+func (gmt *GPUMemoryTracker) CompleteStabilization(event *types.GPUMemoryStabilizationEvent, success bool, pollsTaken int, stabilizedMemoryMB uint64, errorMessage string) {
 	gmt.stats.mu.Lock()
 	defer gmt.stats.mu.Unlock()
 
@@ -298,7 +263,7 @@ func (gmt *GPUMemoryTracker) AddSchedulingEvent(eventType, slotID, modelName, ru
 	gmt.stats.mu.Lock()
 	defer gmt.stats.mu.Unlock()
 
-	event := SchedulingEvent{
+	event := types.SchedulingEvent{
 		Timestamp:   time.Now(),
 		EventType:   eventType,
 		SlotID:      slotID,
@@ -327,20 +292,21 @@ func (gmt *GPUMemoryTracker) AddSchedulingEvent(eventType, slotID, modelName, ru
 }
 
 // GetStats returns the current GPU memory statistics
-func (gmt *GPUMemoryTracker) GetStats() map[string]interface{} {
+func (gmt *GPUMemoryTracker) GetStats() types.GPUMemoryStats {
 	gmt.stats.mu.RLock()
 	defer gmt.stats.mu.RUnlock()
 
-	return map[string]interface{}{
-		"total_stabilizations":      gmt.stats.TotalStabilizations,
-		"successful_stabilizations": gmt.stats.SuccessfulStabilizations,
-		"failed_stabilizations":     gmt.stats.FailedStabilizations,
-		"last_stabilization":        gmt.stats.LastStabilization,
-		"recent_events":             gmt.stats.RecentEvents,
-		"average_wait_time_seconds": gmt.stats.AverageWaitTimeSeconds,
-		"max_wait_time_seconds":     gmt.stats.MaxWaitTimeSeconds,
-		"min_wait_time_seconds":     gmt.stats.MinWaitTimeSeconds,
-		"memory_time_series":        gmt.stats.MemoryTimeSeries,
-		"scheduling_events":         gmt.stats.SchedulingEvents,
+	// Return a copy of the stats to avoid data races
+	return types.GPUMemoryStats{
+		TotalStabilizations:      gmt.stats.TotalStabilizations,
+		SuccessfulStabilizations: gmt.stats.SuccessfulStabilizations,
+		FailedStabilizations:     gmt.stats.FailedStabilizations,
+		LastStabilization:        gmt.stats.LastStabilization,
+		RecentEvents:             append([]types.GPUMemoryStabilizationEvent{}, gmt.stats.RecentEvents...),
+		AverageWaitTimeSeconds:   gmt.stats.AverageWaitTimeSeconds,
+		MaxWaitTimeSeconds:       gmt.stats.MaxWaitTimeSeconds,
+		MinWaitTimeSeconds:       gmt.stats.MinWaitTimeSeconds,
+		MemoryTimeSeries:         append([]types.GPUMemoryDataPoint{}, gmt.stats.MemoryTimeSeries...),
+		SchedulingEvents:         append([]types.SchedulingEvent{}, gmt.stats.SchedulingEvents...),
 	}
 }
