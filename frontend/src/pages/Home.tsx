@@ -29,11 +29,12 @@ import { useAccount } from '../contexts/account'
 import useLightTheme from '../hooks/useLightTheme'
 import useIsBigScreen from '../hooks/useIsBigScreen'
 import useSnackbar from '../hooks/useSnackbar'
-import useSessions from '../hooks/useSessions'
 import useApps from '../hooks/useApps'
 import { useStreaming } from '../contexts/streaming'
 import { useListUserCronTriggers } from '../services/appService'
 import { generateCronShortSummary } from '../utils/cronUtils'
+import { invalidateSessionsQuery } from '../services/sessionService'
+import { useQueryClient } from '@tanstack/react-query'
 
 const getTimeAgo = (date: Date) => {
   const now = new Date()
@@ -99,10 +100,10 @@ const Home: FC = () => {
   const isBigScreen = useIsBigScreen()
   const lightTheme = useLightTheme()
   const snackbar = useSnackbar()
-  const sessions = useSessions()
   const account = useAccount()
   const apps = useApps()
   const { NewInference } = useStreaming()
+  const queryClient = useQueryClient()
   const [currentPrompt, setCurrentPrompt] = useState('')
   const [currentType, setCurrentType] = useState<ISessionType>(SESSION_TYPE_TEXT)
   const [currentModel, setCurrentModel] = useState<string>('')
@@ -187,7 +188,7 @@ const Home: FC = () => {
         orgId,        
       })
       if (!session) return
-      await sessions.loadSessions()
+      invalidateSessionsQuery(queryClient)
       setLoading(false)
       setSelectedImage(null)
       setSelectedImageName(null)
