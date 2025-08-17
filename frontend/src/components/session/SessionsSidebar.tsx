@@ -1,4 +1,4 @@
-import { FC, Fragment } from 'react'
+import { FC, Fragment, useState, useCallback, useEffect } from 'react'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
@@ -17,38 +17,91 @@ import Cell from '../widgets/Cell'
 import ClickLink from '../widgets/ClickLink'
 import SlideMenuContainer from '../system/SlideMenuContainer'
 
-import useSessions from '../../hooks/useSessions'
 import useRouter from '../../hooks/useRouter'
 import useLightTheme from '../../hooks/useLightTheme'
 import useApps from '../../hooks/useApps'
 import useAccount from '../../hooks/useAccount'
+import { useListSessions } from '../../services/sessionService'
 import {  
   SESSION_TYPE_IMAGE,
   SESSION_TYPE_TEXT,
   IApp,
-  ISessionSummary,
 } from '../../types'
 
-import { TypesSession } from '../../api/api'
+import { TypesSessionSummary } from '../../api/api'
 
 import Avatar from '@mui/material/Avatar'
 
 // Menu identifier constant
 const MENU_TYPE = 'chat'
 
+// Pagination constants
+const PAGE_SIZE = 20
+
 export const SessionsSidebar: FC<{
   onOpenSession: () => void,
 }> = ({
   onOpenSession,
 }) => {
-  const sessions = useSessions()
-  const lightTheme = useLightTheme()
   const account = useAccount()
+  const [currentPage, setCurrentPage] = useState(0)
+  const [allSessions, setAllSessions] = useState<TypesSessionSummary[]>([])
+  const [hasMore, setHasMore] = useState(true)
+  const [totalCount, setTotalCount] = useState(0)
+  const [totalPages, setTotalPages] = useState(0)
+
+  const {
+    data: sessionsData,
+    isLoading: isLoadingSessions,
+    isFetching: isLoadingMore,
+    error
+  } = useListSessions(
+    account.organizationTools.organization?.id, 
+    undefined, 
+    currentPage, 
+    PAGE_SIZE
+  )
+
+  // Update state when sessions data changes
+  useEffect(() => {
+    if (sessionsData?.data) {
+      if (currentPage === 0) {
+        // First page - replace all sessions
+        setAllSessions(sessionsData.data.sessions || [])
+      } else {
+        // Subsequent pages - append sessions
+        setAllSessions(prev => [...prev, ...(sessionsData.data.sessions || [])])
+      }
+      
+      setTotalCount(sessionsData.data.totalCount || 0)
+      setTotalPages(sessionsData.data.totalPages || 0)
+      setHasMore((sessionsData.data.totalPages || 0) > currentPage + 1)
+    }
+  }, [sessionsData, currentPage])
+
+  const loadMore = useCallback(() => {
+    if (hasMore && !isLoadingMore) {
+      setCurrentPage(prev => prev + 1)
+    }
+  }, [hasMore, isLoadingMore])
+
+  const resetPagination = useCallback(() => {
+    setCurrentPage(0)
+    setAllSessions([])
+    setHasMore(true)
+  }, [])
+
+  // Reset pagination when organization changes
+  useEffect(() => {
+    resetPagination()
+  }, [account.organizationTools.organization?.id, resetPagination])
+  
+  const lightTheme = useLightTheme()
   const {
     params,
   } = useRouter()
   const {apps} = useApps()
-  const getSessionIcon = (session: TypesSession | ISessionSummary) => {
+  const getSessionIcon = (session: TypesSessionSummary) => {
     if ('app_id' in session && session.app_id && apps) {
       const app = apps.find((app: IApp) => app.id === session.app_id)
       if (app && app.config.helix.avatar) {
@@ -72,7 +125,7 @@ export const SessionsSidebar: FC<{
     )
   }
 
-  const groupSessionsByTime = (sessions: (TypesSession | ISessionSummary)[]) => {
+  const groupSessionsByTime = (sessions: (TypesSessionSummary)[]) => {
     const now = new Date()
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     const sevenDaysAgo = new Date(today)
@@ -93,14 +146,14 @@ export const SessionsSidebar: FC<{
       }
       return acc
     }, {
-      today: [] as (TypesSession | ISessionSummary)[],
-      last7Days: [] as (TypesSession | ISessionSummary)[],
-      last30Days: [] as (TypesSession | ISessionSummary)[],
-      older: [] as (TypesSession | ISessionSummary)[],
+      today: [] as (TypesSessionSummary)[],
+      last7Days: [] as (TypesSessionSummary)[],
+      last30Days: [] as (TypesSessionSummary)[],
+      older: [] as (TypesSessionSummary)[],
     })
   }
 
-  const renderSessionGroup = (sessions: (TypesSession | ISessionSummary)[], title: string, isFirst: boolean = false) => {
+  const renderSessionGroup = (sessions: (TypesSessionSummary)[], title: string, isFirst: boolean = false) => {
     if (sessions.length === 0) return null
 
     return (
@@ -119,7 +172,7 @@ export const SessionsSidebar: FC<{
           </Typography>
         </ListItem>
         {sessions.map((session) => {
-          const sessionId = 'session_id' in session ? session.session_id : session.id
+          const sessionId = session.session_id
           const isActive = sessionId === params["session_id"]
           return (
             <ListItem
@@ -174,7 +227,35 @@ export const SessionsSidebar: FC<{
     )
   }
 
-  const groupedSessions = groupSessionsByTime(sessions.sessions)
+  const groupedSessions = groupSessionsByTime(allSessions || [])
+
+  // Show loading state for initial load
+  if (isLoadingSessions && currentPage === 0) {
+    return (
+      <SlideMenuContainer menuType={MENU_TYPE}>
+        <Row center sx={{ py: 4 }}>
+          <Cell>
+            <CircularProgress size={24} />
+          </Cell>
+        </Row>
+      </SlideMenuContainer>
+    )
+  }
+
+  // Show error state if there's an error
+  if (error) {
+    return (
+      <SlideMenuContainer menuType={MENU_TYPE}>
+        <Row center sx={{ py: 4 }}>
+          <Cell>
+            <Typography color="error" variant="body2">
+              Failed to load sessions
+            </Typography>
+          </Cell>
+        </Row>
+      </SlideMenuContainer>
+    )
+  }
 
   return (
     <SlideMenuContainer menuType={MENU_TYPE}>
@@ -193,7 +274,7 @@ export const SessionsSidebar: FC<{
         {renderSessionGroup(groupedSessions.older, "Older")}
       </List>
       {
-        sessions.pagination.total > sessions.pagination.limit && (
+        totalCount > 0 && totalCount > PAGE_SIZE && (
           <Row
             sx={{
               mt: 2,
@@ -206,21 +287,26 @@ export const SessionsSidebar: FC<{
               fontSize: '0.8em'
             }}>
               {
-                sessions.loading && (
+                isLoadingMore && (
                   <CircularProgress
                     size={ 20 }
                   />
                 )
               }
               {
-                !sessions.loading && sessions.hasMoreSessions && (
+                !isLoadingMore && hasMore && (
                   <ClickLink
-                    onClick={ () => {
-                      sessions.advancePage()
-                    }}
+                    onClick={ loadMore }
                   >
                     Load More...
                   </ClickLink>
+                )
+              }
+              {
+                !isLoadingMore && !hasMore && totalCount > PAGE_SIZE && (
+                  <Typography variant="caption" color="text.secondary">
+                    All sessions loaded
+                  </Typography>
                 )
               }
             </Cell>
