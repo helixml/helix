@@ -208,6 +208,14 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 				Msg("Failed to create Ollama runtime")
 			return
 		}
+
+		// Set up process tracking for Ollama runtime
+		if ollamaRuntime, ok := s.runningRuntime.(*OllamaRuntime); ok && s.apiServer != nil {
+			ollamaRuntime.SetProcessTracker(s.apiServer.processTracker, s.ID)
+			log.Debug().
+				Str("slot_id", s.ID.String()).
+				Msg("PROCESS_TRACKER: Set up process tracking for Ollama runtime")
+		}
 	case types.RuntimeDiffusers:
 		// Get effective HF token from API server (with fallback to env)
 		// Same token resolution hierarchy as VLLM (see VLLM case for details)
@@ -388,6 +396,14 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 				Interface("runtime_params", runtimeParams).
 				Msg("Failed to create vLLM runtime")
 			return
+		}
+
+		// Set up process tracking for VLLM runtime
+		if vllmRuntime, ok := s.runningRuntime.(*VLLMRuntime); ok && s.apiServer != nil {
+			vllmRuntime.SetProcessTracker(s.apiServer.processTracker, s.ID)
+			log.Debug().
+				Str("slot_id", s.ID.String()).
+				Msg("PROCESS_TRACKER: Set up process tracking for VLLM runtime")
 		}
 	default:
 		err = fmt.Errorf("unknown runtime: %s", s.IntendedRuntime)

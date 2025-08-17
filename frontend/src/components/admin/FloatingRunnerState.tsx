@@ -501,6 +501,55 @@ const FloatingRunnerState: FC<FloatingRunnerStateProps> = ({ onClose }) => {
           </>
         )}
         
+        {/* Process Cleanup Stats */}
+        {runner.process_stats && (
+          <Box sx={{ mt: 0.5, mb: 0.5 }}>
+            <Typography variant="caption" sx={{ fontSize: '0.6rem', color: 'rgba(255, 255, 255, 0.4)', mb: 0.25, display: 'block' }}>
+              Process Cleanup:
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.25, alignItems: 'center' }}>
+              <Chip 
+                size="small"
+                label={`${runner.process_stats.cleanup_stats?.total_cleaned || 0} cleaned`}
+                sx={{ 
+                  height: 14, 
+                  fontSize: '0.55rem',
+                  backgroundColor: (runner.process_stats.cleanup_stats?.total_cleaned || 0) > 0 ? 'rgba(255, 152, 0, 0.15)' : 'rgba(76, 175, 80, 0.15)',
+                  color: (runner.process_stats.cleanup_stats?.total_cleaned || 0) > 0 ? '#FF9800' : '#4CAF50',
+                  border: `1px solid ${(runner.process_stats.cleanup_stats?.total_cleaned || 0) > 0 ? 'rgba(255, 152, 0, 0.3)' : 'rgba(76, 175, 80, 0.3)'}`,
+                  '& .MuiChip-label': { px: 0.5 }
+                }}
+              />
+              <Chip 
+                size="small"
+                label={`${runner.process_stats.total_tracked_processes || 0} tracked`}
+                sx={{ 
+                  height: 14, 
+                  fontSize: '0.55rem',
+                  backgroundColor: 'rgba(0, 200, 255, 0.15)',
+                  color: '#00c8ff',
+                  border: '1px solid rgba(0, 200, 255, 0.3)',
+                  '& .MuiChip-label': { px: 0.5 }
+                }}
+              />
+              {runner.process_stats.cleanup_stats?.last_cleanup_time && (
+                <Typography variant="caption" sx={{ fontSize: '0.5rem', color: 'rgba(255, 255, 255, 0.3)' }}>
+                  Last: {new Date(runner.process_stats.cleanup_stats.last_cleanup_time).toLocaleTimeString()}
+                </Typography>
+              )}
+            </Box>
+            {runner.process_stats.cleanup_stats?.recent_cleanups && runner.process_stats.cleanup_stats.recent_cleanups.length > 0 && (
+              <Box sx={{ mt: 0.25 }}>
+                <Typography variant="caption" sx={{ fontSize: '0.5rem', color: 'rgba(255, 255, 255, 0.3)', display: 'block' }}>
+                  Recent: {runner.process_stats.cleanup_stats.recent_cleanups.slice(-3).map((cleanup: any) => 
+                    `PID ${cleanup.pid} (${cleanup.method})`
+                  ).join(', ')}
+                </Typography>
+              </Box>
+            )}
+          </Box>
+        )}
+        
         {runner.slots && runner.slots.length > 0 && (
           <Box sx={{ mt: 0.5 }}>
             <Typography variant="caption" sx={{ fontSize: '0.6rem', color: 'rgba(255, 255, 255, 0.4)', mb: 0.25, display: 'block' }}>

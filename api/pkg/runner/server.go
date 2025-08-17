@@ -31,11 +31,12 @@ var (
 )
 
 type HelixRunnerAPIServer struct {
-	runnerOptions *Options
-	cliContext    context.Context
-	slots         *xsync.MapOf[uuid.UUID, *Slot]
-	gpuManager    *GPUManager
-	logManager    *system.LogManager
+	runnerOptions  *Options
+	cliContext     context.Context
+	slots          *xsync.MapOf[uuid.UUID, *Slot]
+	gpuManager     *GPUManager
+	logManager     *system.LogManager
+	processTracker *ProcessTracker
 
 	modelStatusMu sync.Mutex
 	modelStatus   map[string]*types.RunnerModelStatus
@@ -63,16 +64,20 @@ func NewHelixRunnerAPIServer(
 		runnerOptions.WebServer.Port = 8080
 	}
 
+	processTracker := NewProcessTracker(ctx)
+	processTracker.StartOrphanMonitor()
+
 	return &HelixRunnerAPIServer{
-		runnerOptions: runnerOptions,
-		slots:         xsync.NewMapOf[uuid.UUID, *Slot](),
-		cliContext:    ctx,
-		gpuManager:    NewGPUManager(ctx, runnerOptions),
-		logManager:    system.NewLogManager(1000, 14*24*time.Hour), // 1000 lines, 14 days error retention
-		modelStatusMu: sync.Mutex{},
-		modelStatus:   make(map[string]*types.RunnerModelStatus),
-		modelsMu:      sync.Mutex{},
-		models:        []*types.Model{},
+		runnerOptions:  runnerOptions,
+		slots:          xsync.NewMapOf[uuid.UUID, *Slot](),
+		cliContext:     ctx,
+		gpuManager:     NewGPUManager(ctx, runnerOptions),
+		logManager:     system.NewLogManager(1000, 14*24*time.Hour), // 1000 lines, 14 days error retention
+		processTracker: processTracker,
+		modelStatusMu:  sync.Mutex{},
+		modelStatus:    make(map[string]*types.RunnerModelStatus),
+		modelsMu:       sync.Mutex{},
+		models:         []*types.Model{},
 	}, nil
 }
 
@@ -270,6 +275,7 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 		GPUs:            gpuStatuses,
 		Labels:          apiServer.runnerOptions.Labels,
 		Models:          apiServer.listHelixModelsStatus(),
+		ProcessStats:    apiServer.processTracker.GetStats(),
 	}
 
 	// Add debug logging to see memory values
@@ -553,13 +559,38 @@ func (apiServer *HelixRunnerAPIServer) deleteSlot(w http.ResponseWriter, r *http
 	// Delete slot first to ensure it is not used while we are stopping it
 	apiServer.slots.Delete(slotUUID)
 
+	// Unregister processes from tracker before deletion
+	apiServer.processTracker.UnregisterSlot(slotUUID)
+
 	// Then delete the slot (to stop the runtime)
+	log.Info().
+		Str("slot_id", slotUUID.String()).
+		Msg("SLOT_DELETE: Starting slot deletion and runtime cleanup")
+
 	err = slot.Delete()
 	if err != nil {
-		log.Error().Err(err).Msg("error stopping slot, potential gpu memory leak")
+		log.Error().
+			Err(err).
+			Str("slot_id", slotUUID.String()).
+			Msg("SLOT_DELETE: CRITICAL - Error stopping slot, potential GPU memory leak!")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	log.Info().
+		Str("slot_id", slotUUID.String()).
+		Msg("SLOT_DELETE: Slot deletion completed successfully")
+
+	// Run synchronous orphan cleanup to catch any stray processes
+	log.Info().
+		Str("slot_id", slotUUID.String()).
+		Msg("SLOT_DELETE: Starting synchronous orphan cleanup")
+
+	apiServer.processTracker.RunSynchronousCleanup()
+
+	log.Info().
+		Str("slot_id", slotUUID.String()).
+		Msg("SLOT_DELETE: Synchronous orphan cleanup completed")
 
 	w.WriteHeader(http.StatusNoContent)
 }
