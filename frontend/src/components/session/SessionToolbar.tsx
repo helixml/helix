@@ -13,9 +13,7 @@ import EditIcon from '@mui/icons-material/Edit'
 import MenuIcon from '@mui/icons-material/Menu'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
-import Chip from '@mui/material/Chip'
 import ShareIcon from '@mui/icons-material/Share'
-import AutoStoriesIcon from '@mui/icons-material/AutoStories'
 import TextField from '@mui/material/TextField'
 import SaveIcon from '@mui/icons-material/Save'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
@@ -32,7 +30,6 @@ import {
 } from '../../api/api'
 
 import useRouter from '../../hooks/useRouter'
-import useSessions from '../../hooks/useSessions'
 import useSnackbar from '../../hooks/useSnackbar'
 import useLoading from '../../hooks/useLoading'
 import useAccount from '../../hooks/useAccount'
@@ -43,6 +40,7 @@ import { getAppName } from '../../utils/apps'
 import {
   TOOLBAR_HEIGHT,
 } from '../../config'
+import { useDeleteSession, useUpdateSession } from '../../services/sessionService'
 
 export const SessionToolbar: FC<{
   session: TypesSession,
@@ -57,7 +55,6 @@ export const SessionToolbar: FC<{
     navigate,
     setParams,
   } = useRouter()
-  const sessions = useSessions()
   const snackbar = useSnackbar()
   const loading = useLoading()
   const theme = useTheme()
@@ -65,8 +62,10 @@ export const SessionToolbar: FC<{
   const account = useAccount()
   const isBigScreen = useIsBigScreen()
   const { apps } = useApps()
+  const { mutate: deleteSession } = useDeleteSession(session.id || '')
+  const { mutate: updateSession } = useUpdateSession(session.id || '')
 
-  const isOwner = account.user?.id === session.owner
+  const isOwner = account.user?.id === session.owner  
   
   // Find the app if this session belongs to one
   const app = session.parent_app ? apps?.find(a => a.id === session.parent_app) : undefined
@@ -82,9 +81,7 @@ export const SessionToolbar: FC<{
   const onDeleteSessionConfirm = useCallback(async (session_id: string) => {
     loading.setLoading(true)
     try {
-      const result = await sessions.deleteSession(session_id)
-      if(!result) return
-      setDeletingSession(undefined)
+      await deleteSession()
       snackbar.success(`Session deleted`)
       navigate('home')
     } catch(e) {}
@@ -108,7 +105,10 @@ export const SessionToolbar: FC<{
     if (sessionName !== session.name) {
       loading.setLoading(true)
       try {
-        await sessions.renameSession(session.id || '', sessionName || '')
+        await updateSession({
+          id: session.id,
+          name: sessionName,
+        })
         if (onReload) {
           onReload()
         }
