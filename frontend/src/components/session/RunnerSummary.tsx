@@ -12,6 +12,10 @@ import Chip from '@mui/material/Chip'
 import Grid from '@mui/material/Grid'
 import Tooltip from '@mui/material/Tooltip'
 import CircularProgress from '@mui/material/CircularProgress'
+import Accordion from '@mui/material/Accordion'
+import AccordionSummary from '@mui/material/AccordionSummary'
+import AccordionDetails from '@mui/material/AccordionDetails'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 
 
 import {
@@ -278,9 +282,6 @@ export const RunnerSummary: FC<{
   const actualPercent = isFinite(Math.round((used_memory / total_memory) * 100)) 
     ? Math.round((used_memory / total_memory) * 100) 
     : 0
-  
-  // DEBUG: Log the entire runner object
-  console.log('DEBUG: Full runner object:', runner)
     
   const allocatedPercent = isFinite(Math.round((allocated_memory / total_memory) * 100))
     ? Math.round((allocated_memory / total_memory) * 100)
@@ -418,13 +419,41 @@ export const RunnerSummary: FC<{
         }} />
         
         {/* Process Cleanup Stats Section */}
-        {console.log('DEBUG: runner.process_stats =', runner.process_stats) || runner.process_stats && (
-          <>
-            <Box sx={{ mb: 3 }}>
+        {runner.process_stats && (
+          <Accordion 
+            sx={{ 
+              mb: 3,
+              backgroundColor: 'rgba(255, 255, 255, 0.02)',
+              border: '1px solid rgba(255, 255, 255, 0.06)',
+              borderRadius: 2,
+              '&:before': {
+                display: 'none',
+              },
+              '& .MuiAccordionSummary-root': {
+                minHeight: 48,
+                '&.Mui-expanded': {
+                  minHeight: 48,
+                },
+              },
+              '& .MuiAccordionDetails-root': {
+                paddingTop: 0,
+              },
+            }}
+          >
+            <AccordionSummary
+              expandIcon={<ExpandMoreIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />}
+              sx={{
+                '& .MuiAccordionSummary-content': {
+                  margin: '12px 0',
+                  '&.Mui-expanded': {
+                    margin: '12px 0',
+                  },
+                },
+              }}
+            >
               <Typography 
                 variant="subtitle2" 
                 sx={{ 
-                  mb: 2,
                   color: 'rgba(255, 255, 255, 0.8)',
                   fontWeight: 600,
                   display: 'flex',
@@ -445,6 +474,8 @@ export const RunnerSummary: FC<{
                   }}
                 />
               </Typography>
+            </AccordionSummary>
+            <AccordionDetails>
               
               <Grid container spacing={2}>
                 <Grid item xs={12} md={6}>
@@ -577,14 +608,8 @@ export const RunnerSummary: FC<{
                   </Grid>
                 )}
               </Grid>
-            </Box>
-            
-            <Divider sx={{ 
-              my: 2, 
-              borderColor: 'rgba(255, 255, 255, 0.06)',
-              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)', 
-            }} />
-          </>
+            </AccordionDetails>
+          </Accordion>
         )}
         
         {/* GPU Memory Section */}
