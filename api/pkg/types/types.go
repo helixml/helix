@@ -893,6 +893,7 @@ type DashboardRunner struct {
 	Labels          map[string]string    `json:"labels"`
 	Slots           []*RunnerSlot        `json:"slots"`
 	Models          []*RunnerModelStatus `json:"models"`
+	ProcessStats    interface{}          `json:"process_stats,omitempty"` // Process tracking and cleanup statistics
 }
 
 type GlobalSchedulingDecision struct {

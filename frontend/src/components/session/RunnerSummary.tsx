@@ -278,6 +278,9 @@ export const RunnerSummary: FC<{
   const actualPercent = isFinite(Math.round((used_memory / total_memory) * 100)) 
     ? Math.round((used_memory / total_memory) * 100) 
     : 0
+  
+  // DEBUG: Log the entire runner object
+  console.log('DEBUG: Full runner object:', runner)
     
   const allocatedPercent = isFinite(Math.round((allocated_memory / total_memory) * 100))
     ? Math.round((allocated_memory / total_memory) * 100)
@@ -413,6 +416,176 @@ export const RunnerSummary: FC<{
           borderColor: 'rgba(255, 255, 255, 0.06)',
           boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)', 
         }} />
+        
+        {/* Process Cleanup Stats Section */}
+        {console.log('DEBUG: runner.process_stats =', runner.process_stats) || runner.process_stats && (
+          <>
+            <Box sx={{ mb: 3 }}>
+              <Typography 
+                variant="subtitle2" 
+                sx={{ 
+                  mb: 2,
+                  color: 'rgba(255, 255, 255, 0.8)',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                }}
+              >
+                Process Management
+                <Chip 
+                  size="small" 
+                  label={`${runner.process_stats.total_tracked_processes || 0} tracked`}
+                  sx={{ 
+                    height: 20, 
+                    fontSize: '0.65rem',
+                    backgroundColor: 'rgba(0, 200, 255, 0.2)',
+                    color: '#00c8ff',
+                    border: '1px solid rgba(0, 200, 255, 0.3)',
+                  }}
+                />
+              </Typography>
+              
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={6}>
+                  <Box sx={{ 
+                    p: 2, 
+                    backgroundColor: 'rgba(0, 0, 0, 0.2)', 
+                    borderRadius: '6px',
+                    border: '1px solid rgba(255, 255, 255, 0.05)',
+                  }}>
+                    <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', mb: 1 }}>
+                      Cleanup Statistics
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                      <Chip 
+                        size="small"
+                        label={`${runner.process_stats.cleanup_stats?.total_cleaned || 0} processes cleaned`}
+                        sx={{ 
+                          height: 24, 
+                          fontSize: '0.7rem',
+                          backgroundColor: (runner.process_stats.cleanup_stats?.total_cleaned || 0) > 0 
+                            ? 'rgba(255, 152, 0, 0.15)' 
+                            : 'rgba(76, 175, 80, 0.15)',
+                          color: (runner.process_stats.cleanup_stats?.total_cleaned || 0) > 0 
+                            ? '#FF9800' 
+                            : '#4CAF50',
+                          border: `1px solid ${(runner.process_stats.cleanup_stats?.total_cleaned || 0) > 0 
+                            ? 'rgba(255, 152, 0, 0.3)' 
+                            : 'rgba(76, 175, 80, 0.3)'}`,
+                        }}
+                      />
+                      <Chip 
+                        size="small"
+                        label={`${runner.process_stats.cleanup_stats?.synchronous_runs || 0} sync runs`}
+                        sx={{ 
+                          height: 24, 
+                          fontSize: '0.7rem',
+                          backgroundColor: 'rgba(156, 39, 176, 0.15)',
+                          color: '#9C27B0',
+                          border: '1px solid rgba(156, 39, 176, 0.3)',
+                        }}
+                      />
+                      <Chip 
+                        size="small"
+                        label={`${runner.process_stats.cleanup_stats?.asynchronous_runs || 0} async runs`}
+                        sx={{ 
+                          height: 24, 
+                          fontSize: '0.7rem',
+                          backgroundColor: 'rgba(63, 81, 181, 0.15)',
+                          color: '#3F51B5',
+                          border: '1px solid rgba(63, 81, 181, 0.3)',
+                        }}
+                      />
+                    </Box>
+                    {runner.process_stats.cleanup_stats?.last_cleanup_time && (
+                      <Typography variant="caption" sx={{ 
+                        color: 'rgba(255, 255, 255, 0.5)', 
+                        fontSize: '0.7rem',
+                        display: 'block'
+                      }}>
+                        Last cleanup: {new Date(runner.process_stats.cleanup_stats.last_cleanup_time).toLocaleString()}
+                      </Typography>
+                    )}
+                  </Box>
+                </Grid>
+                
+                {runner.process_stats.cleanup_stats?.recent_cleanups && 
+                 runner.process_stats.cleanup_stats.recent_cleanups.length > 0 && (
+                  <Grid item xs={12} md={6}>
+                    <Box sx={{ 
+                      p: 2, 
+                      backgroundColor: 'rgba(0, 0, 0, 0.2)', 
+                      borderRadius: '6px',
+                      border: '1px solid rgba(255, 255, 255, 0.05)',
+                    }}>
+                      <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', mb: 1 }}>
+                        Recent Cleanups ({runner.process_stats.cleanup_stats.recent_cleanups.length})
+                      </Typography>
+                      <Box sx={{ maxHeight: '120px', overflowY: 'auto' }}>
+                        {runner.process_stats.cleanup_stats.recent_cleanups.slice(-5).reverse().map((cleanup: any, index: number) => (
+                          <Box key={index} sx={{ 
+                            mb: 1, 
+                            p: 1, 
+                            backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                            borderRadius: '4px',
+                            border: '1px solid rgba(255, 255, 255, 0.05)',
+                          }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                              <Typography variant="caption" sx={{ 
+                                color: '#00c8ff', 
+                                fontWeight: 600,
+                                fontSize: '0.7rem'
+                              }}>
+                                PID {cleanup.pid}
+                              </Typography>
+                              <Chip 
+                                size="small"
+                                label={cleanup.method}
+                                sx={{ 
+                                  height: 16, 
+                                  fontSize: '0.6rem',
+                                  backgroundColor: cleanup.method === 'graceful' 
+                                    ? 'rgba(76, 175, 80, 0.2)' 
+                                    : 'rgba(244, 67, 54, 0.2)',
+                                  color: cleanup.method === 'graceful' ? '#4CAF50' : '#F44336',
+                                  border: `1px solid ${cleanup.method === 'graceful' 
+                                    ? 'rgba(76, 175, 80, 0.3)' 
+                                    : 'rgba(244, 67, 54, 0.3)'}`,
+                                }}
+                              />
+                            </Box>
+                            <Typography variant="caption" sx={{ 
+                              color: 'rgba(255, 255, 255, 0.4)', 
+                              fontSize: '0.65rem',
+                              display: 'block',
+                              mb: 0.5,
+                              wordBreak: 'break-all'
+                            }}>
+                              {cleanup.command.length > 60 ? `${cleanup.command.substring(0, 60)}...` : cleanup.command}
+                            </Typography>
+                            <Typography variant="caption" sx={{ 
+                              color: 'rgba(255, 255, 255, 0.3)', 
+                              fontSize: '0.6rem'
+                            }}>
+                              {new Date(cleanup.cleaned_at).toLocaleString()}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    </Box>
+                  </Grid>
+                )}
+              </Grid>
+            </Box>
+            
+            <Divider sx={{ 
+              my: 2, 
+              borderColor: 'rgba(255, 255, 255, 0.06)',
+              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)', 
+            }} />
+          </>
+        )}
         
         {/* GPU Memory Section */}
         {runner.gpus && runner.gpus.length > 0 ? (

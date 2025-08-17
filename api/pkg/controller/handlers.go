@@ -238,6 +238,7 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 			Labels:          runnerStatus.Labels,
 			Slots:           runnerSlots,
 			Models:          modelsWithMemory, // Use models with memory info (now includes slot models)
+			ProcessStats:    runnerStatus.ProcessStats,
 		})
 	}
 	queue, err := c.scheduler.Queue()

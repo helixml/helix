@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/system"
@@ -30,19 +31,21 @@ var (
 )
 
 type OllamaRuntime struct {
-	version       string
-	cacheDir      string
-	port          int
-	startTimeout  time.Duration
-	contextLength int64
-	model         string
-	args          []string
-	ollamaClient  *api.Client
-	cmd           *exec.Cmd
-	cancel        context.CancelFunc
-	gpuIndex      int                            // Primary GPU index for single-GPU models
-	gpuIndices    []int                          // All GPU indices for multi-GPU models
-	logBuffer     *system.ModelInstanceLogBuffer // Log buffer for this instance
+	version        string
+	cacheDir       string
+	port           int
+	startTimeout   time.Duration
+	contextLength  int64
+	model          string
+	args           []string
+	ollamaClient   *api.Client
+	cmd            *exec.Cmd
+	cancel         context.CancelFunc
+	gpuIndex       int                            // Primary GPU index for single-GPU models
+	gpuIndices     []int                          // All GPU indices for multi-GPU models
+	logBuffer      *system.ModelInstanceLogBuffer // Log buffer for this instance
+	processTracker *ProcessTracker                // Process tracker for monitoring
+	slotID         *uuid.UUID                     // Associated slot ID
 
 	// GPU allocation restart tracking
 	restartAttempts   int                // Number of restart attempts due to GPU allocation issues
@@ -195,6 +198,16 @@ func (i *OllamaRuntime) Start(ctx context.Context) error {
 	}
 	i.cmd = cmd
 
+	// Register the process with the tracker if available
+	if i.processTracker != nil && i.slotID != nil && i.cmd != nil && i.cmd.Process != nil {
+		i.processTracker.RegisterProcess(i.cmd.Process.Pid, *i.slotID, i.model, fmt.Sprintf("ollama serve (port %d)", i.port))
+		log.Info().
+			Int("pid", i.cmd.Process.Pid).
+			Str("slot_id", i.slotID.String()).
+			Str("model", i.model).
+			Msg("PROCESS_TRACKER: Registered Ollama process")
+	}
+
 	// Create ollama client
 	url, err := url.Parse(fmt.Sprintf("http://localhost:%d", i.port))
 	if err != nil {
@@ -235,6 +248,12 @@ func (i *OllamaRuntime) Start(ctx context.Context) error {
 
 func (i *OllamaRuntime) URL() string {
 	return fmt.Sprintf("http://localhost:%d", i.port)
+}
+
+// SetProcessTracker sets the process tracker for monitoring
+func (i *OllamaRuntime) SetProcessTracker(tracker *ProcessTracker, slotID uuid.UUID) {
+	i.processTracker = tracker
+	i.slotID = &slotID
 }
 
 func (i *OllamaRuntime) Stop() error {
