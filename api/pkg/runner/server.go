@@ -31,12 +31,13 @@ var (
 )
 
 type HelixRunnerAPIServer struct {
-	runnerOptions  *Options
-	cliContext     context.Context
-	slots          *xsync.MapOf[uuid.UUID, *Slot]
-	gpuManager     *GPUManager
-	logManager     *system.LogManager
-	processTracker *ProcessTracker
+	runnerOptions    *Options
+	cliContext       context.Context
+	slots            *xsync.MapOf[uuid.UUID, *Slot]
+	gpuManager       *GPUManager
+	logManager       *system.LogManager
+	processTracker   *ProcessTracker
+	gpuMemoryTracker *GPUMemoryTracker
 
 	modelStatusMu sync.Mutex
 	modelStatus   map[string]*types.RunnerModelStatus
@@ -67,17 +68,21 @@ func NewHelixRunnerAPIServer(
 	processTracker := NewProcessTracker(ctx)
 	processTracker.StartOrphanMonitor()
 
+	slots := xsync.NewMapOf[uuid.UUID, *Slot]()
+	gpuManager := NewGPUManager(ctx, runnerOptions)
+
 	return &HelixRunnerAPIServer{
-		runnerOptions:  runnerOptions,
-		slots:          xsync.NewMapOf[uuid.UUID, *Slot](),
-		cliContext:     ctx,
-		gpuManager:     NewGPUManager(ctx, runnerOptions),
-		logManager:     system.NewLogManager(1000, 14*24*time.Hour), // 1000 lines, 14 days error retention
-		processTracker: processTracker,
-		modelStatusMu:  sync.Mutex{},
-		modelStatus:    make(map[string]*types.RunnerModelStatus),
-		modelsMu:       sync.Mutex{},
-		models:         []*types.Model{},
+		runnerOptions:    runnerOptions,
+		slots:            slots,
+		cliContext:       ctx,
+		gpuManager:       gpuManager,
+		logManager:       system.NewLogManager(1000, 14*24*time.Hour), // 1000 lines, 14 days error retention
+		processTracker:   processTracker,
+		gpuMemoryTracker: NewGPUMemoryTracker(ctx, gpuManager, slots),
+		modelStatusMu:    sync.Mutex{},
+		modelStatus:      make(map[string]*types.RunnerModelStatus),
+		modelsMu:         sync.Mutex{},
+		models:           []*types.Model{},
 	}, nil
 }
 
@@ -276,6 +281,7 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 		Labels:          apiServer.runnerOptions.Labels,
 		Models:          apiServer.listHelixModelsStatus(),
 		ProcessStats:    apiServer.processTracker.GetStats(),
+		GPUMemoryStats:  apiServer.gpuMemoryTracker.GetStats(),
 	}
 
 	// Add debug logging to see memory values
@@ -373,7 +379,7 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 			Str("runtime", string(slotRequest.Attributes.Runtime)).
 			Msg("Waiting for GPU memory to stabilize before starting GPU runtime")
 
-		if err := apiServer.waitForGPUMemoryStabilization(15); err != nil {
+		if err := apiServer.waitForGPUMemoryStabilizationWithContext(15, "startup", slotRequest.ID.String(), string(slotRequest.Attributes.Runtime)); err != nil {
 			log.Warn().
 				Err(err).
 				Str("slot_id", slotRequest.ID.String()).
@@ -381,11 +387,41 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		}
 	}
 
+	// Track slot creation event
+	var gpuIndices []int
+	if slotRequest.Attributes.GPUIndices != nil {
+		gpuIndices = slotRequest.Attributes.GPUIndices
+	} else if slotRequest.Attributes.GPUIndex != nil {
+		gpuIndices = []int{*slotRequest.Attributes.GPUIndex}
+	}
+
+	apiServer.gpuMemoryTracker.AddSchedulingEvent(
+		"slot_creation_start",
+		slotRequest.ID.String(),
+		slotRequest.Attributes.Model,
+		string(slotRequest.Attributes.Runtime),
+		gpuIndices,
+		slotRequest.Attributes.ModelMemoryRequirement/(1024*1024),
+		fmt.Sprintf("Starting slot creation for %s", slotRequest.Attributes.Model),
+	)
+
 	// Must pass the context from the cli to ensure that the underlying runtime continues to run so
 	// long as the cli is running
 	err = s.Create(apiServer.cliContext)
 	if err != nil {
 		log.Error().Err(err).Msg("error creating slot, deleting...")
+
+		// Track failed slot creation
+		apiServer.gpuMemoryTracker.AddSchedulingEvent(
+			"slot_creation_failed",
+			slotRequest.ID.String(),
+			slotRequest.Attributes.Model,
+			string(slotRequest.Attributes.Runtime),
+			gpuIndices,
+			slotRequest.Attributes.ModelMemoryRequirement/(1024*1024),
+			fmt.Sprintf("Slot creation failed: %v", err),
+		)
+
 		apiServer.slots.Delete(slotRequest.ID)
 		if strings.Contains(err.Error(), "pull model manifest: file does not exist") {
 			http.Error(w, err.Error(), http.StatusNotFound)
@@ -394,6 +430,17 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		}
 		return
 	}
+
+	// Track successful slot creation
+	apiServer.gpuMemoryTracker.AddSchedulingEvent(
+		"slot_created",
+		slotRequest.ID.String(),
+		slotRequest.Attributes.Model,
+		string(slotRequest.Attributes.Runtime),
+		gpuIndices,
+		slotRequest.Attributes.ModelMemoryRequirement/(1024*1024),
+		fmt.Sprintf("Successfully created slot for %s", slotRequest.Attributes.Model),
+	)
 
 	// TODO(Phil): Return some representation of the slot
 	w.WriteHeader(http.StatusCreated)
@@ -415,6 +462,11 @@ func needsGPU(runtime types.Runtime) bool {
 // before starting new GPU processes. This prevents race conditions where
 // new processes start before old processes have fully released GPU memory.
 func (apiServer *HelixRunnerAPIServer) waitForGPUMemoryStabilization(timeoutSeconds int) error {
+	return apiServer.waitForGPUMemoryStabilizationWithContext(timeoutSeconds, "", "", "")
+}
+
+// waitForGPUMemoryStabilizationWithContext waits for GPU memory to stabilize with tracking context
+func (apiServer *HelixRunnerAPIServer) waitForGPUMemoryStabilizationWithContext(timeoutSeconds int, context, slotID, runtime string) error {
 	if apiServer.gpuManager == nil {
 		return nil // No GPU manager, skip stabilization
 	}
@@ -429,11 +481,29 @@ func (apiServer *HelixRunnerAPIServer) waitForGPUMemoryStabilization(timeoutSeco
 	stableCount := 0
 	maxPolls := timeoutSeconds * 1000 / pollIntervalMs
 
-	log.Debug().
+	// Start tracking this stabilization event
+	event := apiServer.gpuMemoryTracker.StartStabilization(context, slotID, runtime, timeoutSeconds, pollIntervalMs, stablePolls, memoryDeltaMB/(1024*1024))
+
+	// Track stabilization start event
+	apiServer.gpuMemoryTracker.AddSchedulingEvent(
+		"stabilization_start",
+		slotID,
+		"",
+		runtime,
+		nil,
+		0,
+		fmt.Sprintf("Starting GPU memory stabilization (%s)", context),
+	)
+
+	log.Info().
 		Int("timeout_seconds", timeoutSeconds).
-		Uint64("memory_delta_bytes", memoryDeltaMB).
+		Uint64("memory_delta_mb", memoryDeltaMB/(1024*1024)).
 		Int("required_stable_polls", stablePolls).
-		Msg("Starting GPU memory stabilization wait")
+		Int("poll_interval_ms", pollIntervalMs).
+		Str("context", context).
+		Str("slot_id", slotID).
+		Str("runtime", runtime).
+		Msg("GPU_MEMORY_STABILIZATION: Starting GPU memory stabilization wait")
 
 	for i := 0; i < maxPolls; i++ {
 		currentMemory := apiServer.gpuManager.GetFreshUsedMemory()
@@ -444,24 +514,47 @@ func (apiServer *HelixRunnerAPIServer) waitForGPUMemoryStabilization(timeoutSeco
 				memoryDelta = -memoryDelta
 			}
 
-			log.Trace().
-				Uint64("current_memory", currentMemory).
-				Uint64("last_memory", lastMemory).
-				Int64("delta", memoryDelta).
-				Int("stable_count", stableCount).
-				Msg("GPU memory check")
-
-			if uint64(memoryDelta) < memoryDeltaMB {
+			isStable := uint64(memoryDelta) < memoryDeltaMB
+			if isStable {
 				stableCount++
-				if stableCount >= stablePolls {
-					log.Info().
-						Uint64("stabilized_memory", currentMemory).
-						Int("polls_taken", i+1).
-						Msg("GPU memory stabilized successfully")
-					return nil
-				}
 			} else {
 				stableCount = 0 // Reset counter if memory changed significantly
+			}
+
+			// Add memory reading to tracker
+			apiServer.gpuMemoryTracker.AddMemoryReading(event, i+1, currentMemory/(1024*1024), memoryDelta/(1024*1024), stableCount, isStable)
+
+			log.Info().
+				Uint64("current_memory_mb", currentMemory/(1024*1024)).
+				Uint64("last_memory_mb", lastMemory/(1024*1024)).
+				Int64("delta_mb", memoryDelta/(1024*1024)).
+				Int("stable_count", stableCount).
+				Int("poll_number", i+1).
+				Int("max_polls", maxPolls).
+				Bool("is_stable", isStable).
+				Msg("GPU_MEMORY_STABILIZATION: Memory check")
+
+			if stableCount >= stablePolls {
+				// Complete the tracking event
+				apiServer.gpuMemoryTracker.CompleteStabilization(event, true, i+1, currentMemory/(1024*1024), "")
+
+				// Track stabilization success event
+				apiServer.gpuMemoryTracker.AddSchedulingEvent(
+					"stabilization_success",
+					slotID,
+					"",
+					runtime,
+					nil,
+					currentMemory/(1024*1024),
+					fmt.Sprintf("GPU memory stabilized successfully (%s) in %d polls", context, i+1),
+				)
+
+				log.Info().
+					Uint64("stabilized_memory_mb", currentMemory/(1024*1024)).
+					Int("polls_taken", i+1).
+					Int("total_wait_seconds", (i+1)*pollIntervalMs/1000).
+					Msg("GPU_MEMORY_STABILIZATION: Memory stabilized successfully")
+				return nil
 			}
 		}
 
@@ -469,8 +562,29 @@ func (apiServer *HelixRunnerAPIServer) waitForGPUMemoryStabilization(timeoutSeco
 		time.Sleep(time.Duration(pollIntervalMs) * time.Millisecond)
 	}
 
-	return fmt.Errorf("GPU memory did not stabilize within %d seconds (last memory: %d bytes)",
-		timeoutSeconds, lastMemory)
+	// Complete the tracking event with failure
+	errorMsg := fmt.Sprintf("GPU memory did not stabilize within %d seconds", timeoutSeconds)
+	apiServer.gpuMemoryTracker.CompleteStabilization(event, false, maxPolls, lastMemory/(1024*1024), errorMsg)
+
+	// Track stabilization failure event
+	apiServer.gpuMemoryTracker.AddSchedulingEvent(
+		"stabilization_failed",
+		slotID,
+		"",
+		runtime,
+		nil,
+		lastMemory/(1024*1024),
+		fmt.Sprintf("GPU memory stabilization failed (%s) after %d polls", context, maxPolls),
+	)
+
+	log.Warn().
+		Uint64("last_memory_mb", lastMemory/(1024*1024)).
+		Int("timeout_seconds", timeoutSeconds).
+		Int("polls_completed", maxPolls).
+		Msg("GPU_MEMORY_STABILIZATION: Memory did not stabilize within timeout")
+
+	return fmt.Errorf("GPU memory did not stabilize within %d seconds (last memory: %d MB)",
+		timeoutSeconds, lastMemory/(1024*1024))
 }
 
 func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, r *http.Request) {
@@ -559,6 +673,24 @@ func (apiServer *HelixRunnerAPIServer) deleteSlot(w http.ResponseWriter, r *http
 	// Delete slot first to ensure it is not used while we are stopping it
 	apiServer.slots.Delete(slotUUID)
 
+	// Track slot deletion event
+	var gpuIndices []int
+	if slot.GPUIndices != nil {
+		gpuIndices = slot.GPUIndices
+	} else if slot.GPUIndex != nil {
+		gpuIndices = []int{*slot.GPUIndex}
+	}
+
+	apiServer.gpuMemoryTracker.AddSchedulingEvent(
+		"slot_deletion_start",
+		slotUUID.String(),
+		slot.Model,
+		string(slot.Runtime()),
+		gpuIndices,
+		slot.ModelMemoryRequirement/(1024*1024),
+		fmt.Sprintf("Starting deletion of slot for %s", slot.Model),
+	)
+
 	// Unregister processes from tracker before deletion
 	apiServer.processTracker.UnregisterSlot(slotUUID)
 
@@ -581,6 +713,17 @@ func (apiServer *HelixRunnerAPIServer) deleteSlot(w http.ResponseWriter, r *http
 		Str("slot_id", slotUUID.String()).
 		Msg("SLOT_DELETE: Slot deletion completed successfully")
 
+	// Track successful slot deletion
+	apiServer.gpuMemoryTracker.AddSchedulingEvent(
+		"slot_deleted",
+		slotUUID.String(),
+		slot.Model,
+		string(slot.Runtime()),
+		gpuIndices,
+		slot.ModelMemoryRequirement/(1024*1024),
+		fmt.Sprintf("Successfully deleted slot for %s", slot.Model),
+	)
+
 	// Run synchronous orphan cleanup to catch any stray processes
 	log.Info().
 		Str("slot_id", slotUUID.String()).
@@ -591,6 +734,25 @@ func (apiServer *HelixRunnerAPIServer) deleteSlot(w http.ResponseWriter, r *http
 	log.Info().
 		Str("slot_id", slotUUID.String()).
 		Msg("SLOT_DELETE: Synchronous orphan cleanup completed")
+
+	// Wait for GPU memory to stabilize after deletion
+	if needsGPU(slot.Runtime()) {
+		log.Info().
+			Str("slot_id", slotUUID.String()).
+			Str("runtime", string(slot.Runtime())).
+			Msg("SLOT_DELETE: Waiting for GPU memory to stabilize after deletion")
+
+		if err := apiServer.waitForGPUMemoryStabilizationWithContext(15, "deletion", slotUUID.String(), string(slot.Runtime())); err != nil {
+			log.Warn().
+				Err(err).
+				Str("slot_id", slotUUID.String()).
+				Msg("SLOT_DELETE: GPU memory did not stabilize after deletion within timeout")
+		} else {
+			log.Info().
+				Str("slot_id", slotUUID.String()).
+				Msg("SLOT_DELETE: GPU memory stabilized successfully after deletion")
+		}
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }

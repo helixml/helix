@@ -41,7 +41,8 @@ type RunnerStatus struct {
 	GPUs            []*GPUStatus         `json:"gpus"`             // Per-GPU memory status
 	Labels          map[string]string    `json:"labels"`
 	Models          []*RunnerModelStatus `json:"models"`
-	ProcessStats    interface{}          `json:"process_stats,omitempty"` // Process tracking and cleanup statistics
+	ProcessStats    interface{}          `json:"process_stats,omitempty"`    // Process tracking and cleanup statistics
+	GPUMemoryStats  interface{}          `json:"gpu_memory_stats,omitempty"` // GPU memory stabilization statistics
 }
 
 // GPUStatus represents the status of an individual GPU

@@ -5438,6 +5438,9 @@ const docTemplate = `{
                     "description": "Number of GPUs detected",
                     "type": "integer"
                 },
+                "gpu_memory_stats": {
+                    "description": "GPU memory stabilization statistics"
+                },
                 "gpus": {
                     "description": "Per-GPU memory status",
                     "type": "array",
@@ -5459,6 +5462,9 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/types.RunnerModelStatus"
                     }
+                },
+                "process_stats": {
+                    "description": "Process tracking and cleanup statistics"
                 },
                 "slots": {
                     "type": "array",
