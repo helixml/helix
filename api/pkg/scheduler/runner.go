@@ -684,9 +684,9 @@ func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryR
 		}
 	}
 
-	// Only try multi-GPU allocation for runtimes that support tensor parallelism
-	if runtime == types.RuntimeVLLM {
-		// If single GPU doesn't work, try multi-GPU allocation for VLLM
+	// Try multi-GPU allocation for runtimes that support tensor parallelism
+	if runtime == types.RuntimeVLLM || runtime == types.RuntimeOllama {
+		// If single GPU doesn't work, try multi-GPU allocation
 		// Start with 2 GPUs and scale up as needed
 		for numGPUs := 2; numGPUs <= len(status.GPUs); numGPUs++ {
 			if gpuIndices, canFit := c.CanFitModelOnMultipleGPUsAllocated(runnerID, modelMemoryRequirement, numGPUs, allocatedMemoryPerGPU); canFit {
@@ -696,7 +696,7 @@ func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryR
 					Int("tensor_parallel_size", numGPUs).
 					Uint64("model_memory_requirement", modelMemoryRequirement).
 					Str("runtime", string(runtime)).
-					Msg("Selected multi-GPU allocation for VLLM model based on allocated memory")
+					Msg("Selected multi-GPU allocation for model based on allocated memory")
 				return nil, gpuIndices, numGPUs
 			}
 		}
@@ -705,7 +705,7 @@ func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryR
 			Str("runner_id", runnerID).
 			Str("runtime", string(runtime)).
 			Uint64("model_memory_requirement", modelMemoryRequirement).
-			Msg("Skipping multi-GPU allocation for non-VLLM runtime - will trigger eviction instead")
+			Msg("Skipping multi-GPU allocation for runtime that doesn't support tensor parallelism")
 	}
 
 	log.Debug().

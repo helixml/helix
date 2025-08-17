@@ -95,10 +95,18 @@ func TestBasicGPUAllocation(t *testing.T) {
 		}, nil
 	}, CacheConfig{updateInterval: time.Second}))
 
+	runnerCtrl.slotsCache.Set(testRunnerID, NewCache(ctx, func() (types.ListRunnerSlotsResponse, error) {
+		return types.ListRunnerSlotsResponse{Slots: []*types.RunnerSlot{}}, nil
+	}, CacheConfig{updateInterval: time.Second}))
+
+	runnerCtrl.runnersMu.Lock()
+	runnerCtrl.runners = append(runnerCtrl.runners, testRunnerID)
+	runnerCtrl.runnersMu.Unlock()
+
 	// Simulate runner connection
 	err = ps.Publish(ctx, pubsub.GetRunnerConnectedQueue(testRunnerID), []byte("connected"))
 	require.NoError(t, err)
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond) // Longer sleep to ensure runner is registered
 
 	t.Logf("Testing basic GPU allocation with 2x%d GB GPUs (%d GB total)",
 		gpuMemoryBytes/(1024*1024*1024), (gpuMemoryBytes*uint64(gpuCount))/(1024*1024*1024))
@@ -132,8 +140,8 @@ func TestBasicGPUAllocation(t *testing.T) {
 	require.NotNil(t, vllmAllocation, "VLLM model should be allocated")
 	t.Logf("✅ VLLM model successfully allocated to GPU %v", vllmAllocation.SingleGPU)
 
-	// Test Case 2: Large Ollama model - should be rejected due to multi-GPU restriction
-	t.Logf("\n=== TEST CASE 2: Schedule large Ollama model (90GB) - should be rejected ===")
+	// Test Case 2: Large Ollama model - should be scheduled when tensor parallelism is needed
+	t.Logf("\n=== TEST CASE 2: Schedule large Ollama model (90GB) - should succeed with tensor parallelism ===")
 
 	ollamaWorkload := &Workload{
 		WorkloadType: WorkloadTypeLLMInferenceRequest,
@@ -158,13 +166,13 @@ func TestBasicGPUAllocation(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	ollamaAllocation := scheduler.getGPUAllocation("ollama-model-request", testRunnerID)
-	require.Nil(t, ollamaAllocation, "Large Ollama model should be rejected (multi-GPU disabled)")
-	t.Logf("✅ Large Ollama model correctly rejected - multi-GPU restriction working")
+	require.NotNil(t, ollamaAllocation, "Large Ollama model should be scheduled when tensor parallelism is needed")
+	t.Logf("✅ Large Ollama model successfully scheduled with tensor parallelism: GPUs %v", ollamaAllocation.MultiGPUs)
 
 	t.Logf("\n✅ Basic GPU allocation test completed successfully")
 	t.Logf("  - VLLM model (50GB) allocated to single GPU")
-	t.Logf("  - Large Ollama model (90GB) correctly rejected")
-	t.Logf("  - Multi-GPU restriction for Ollama is working")
+	t.Logf("  - Large Ollama model (90GB) allocated with tensor parallelism")
+	t.Logf("  - Intelligent Ollama tensor parallelism detection is working")
 }
 
 // TestFragmentationPrevention tests that small models scheduled first don't
@@ -732,7 +740,7 @@ func TestOllamaMultiGPURestriction(t *testing.T) {
 	t.Logf("✅ Ollama multi-GPU restriction test shows basic functionality works")
 }
 
-// NOTE: Multi-GPU allocation for Ollama has been temporarily disabled due to timeout issues.
-// Large Ollama models that require multi-GPU will be rejected during scheduling.
-// This restriction is implemented in scheduler_filters.go and only affects Ollama runtime.
-// VLLM models continue to support multi-GPU tensor parallelism as before.
+// NOTE: Ollama multi-GPU allocation is now intelligently enabled based on tensor parallelism needs.
+// Large Ollama models are scheduled on multiple GPUs only when Ollama would actually use tensor parallelism.
+// This intelligent detection is implemented in scheduler_filters.go via wouldOllamaUseTensorParallel().
+// Both VLLM and Ollama models now support multi-GPU tensor parallelism when appropriate.
