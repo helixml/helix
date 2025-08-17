@@ -808,30 +808,15 @@ export interface TypesDashboardRunner {
   free_memory?: number;
   /** Number of GPUs detected */
   gpu_count?: number;
+  /** GPU memory stabilization statistics */
+  gpu_memory_stats?: any;
   /** Per-GPU memory status */
   gpus?: TypesGPUStatus[];
   id?: string;
   labels?: Record<string, string>;
   models?: TypesRunnerModelStatus[];
   /** Process tracking and cleanup statistics */
-  process_stats?: {
-    total_tracked_processes?: number;
-    total_slots?: number;
-    slot_process_counts?: Record<string, number>;
-    cleanup_stats?: {
-      total_cleaned?: number;
-      last_cleanup_time?: string;
-      recent_cleanups?: Array<{
-        pid: number;
-        command: string;
-        cleaned_at: string;
-        method: string;
-      }>;
-      synchronous_runs?: number;
-      asynchronous_runs?: number;
-      concurrent_skips?: number;
-    };
-  };
+  process_stats?: any;
   slots?: TypesRunnerSlot[];
   total_memory?: number;
   updated?: string;

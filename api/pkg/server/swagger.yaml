@@ -1261,6 +1261,8 @@ definitions:
       gpu_count:
         description: Number of GPUs detected
         type: integer
+      gpu_memory_stats:
+        description: GPU memory stabilization statistics
       gpus:
         description: Per-GPU memory status
         items:
@@ -1276,6 +1278,8 @@ definitions:
         items:
           $ref: '#/definitions/types.RunnerModelStatus'
         type: array
+      process_stats:
+        description: Process tracking and cleanup statistics
       slots:
         items:
           $ref: '#/definitions/types.RunnerSlot'
