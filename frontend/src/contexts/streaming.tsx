@@ -2,10 +2,10 @@ import React, { createContext, useContext, ReactNode, useState, useCallback, use
 import ReconnectingWebSocket from 'reconnecting-websocket';
 import { IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, ISessionChatRequest, ISessionType } from '../types';
 import useAccount from '../hooks/useAccount';
-import useSessions from '../hooks/useSessions';
 import { TypesInteraction, TypesMessage, TypesSession } from '../api/api';
 import { sessionStepsQueryKey } from '../services/sessionService';
 import { useQueryClient } from '@tanstack/react-query';
+import { invalidateSessionsQuery } from '../services/sessionService';
 
 interface NewInferenceParams {
   regenerate?: boolean;
@@ -44,7 +44,6 @@ export const useStreaming = (): StreamingContextType => {
 
 export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const account = useAccount();
-  const sessions = useSessions()
   const queryClient = useQueryClient();
   const [currentResponses, setCurrentResponses] = useState<Map<string, Partial<TypesInteraction>>>(new Map());
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -201,7 +200,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       queryClient.invalidateQueries({ queryKey: sessionStepsQueryKey(currentSessionId) });
       
       // Reload all sessions to refresh the name in the sidebar
-      sessions.loadSessions()
+      invalidateSessionsQuery(queryClient)
     };
 
     rws.addEventListener('message', messageHandler);

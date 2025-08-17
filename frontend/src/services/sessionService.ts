@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import useApi from '../hooks/useApi';
-import { TypesSession, TypesSessionSummary } from '../api/api';
-import { useState, useEffect, useCallback } from 'react';
+import { TypesSession } from '../api/api';
+import { QueryClient } from '@tanstack/react-query';
 
 export const sessionStepsQueryKey = (id: string) => [
   "session-steps",
@@ -93,7 +93,6 @@ export function useDeleteSession(sessionId: string, options?: { enabled?: boolea
   })
 }
 
-export function invalidateSessionsQuery() {
-  const queryClient = useQueryClient()
+export function invalidateSessionsQuery(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: ["sessions"] })
 }
