@@ -760,10 +760,6 @@ export interface TypesContextMenuResponse {
   data?: TypesContextMenuAction[];
 }
 
-export interface TypesCounter {
-  count?: number;
-}
-
 export interface TypesCrawledSources {
   urls?: TypesCrawledURL[];
 }
@@ -1423,6 +1419,14 @@ export interface TypesPaginatedLLMCalls {
   totalPages?: number;
 }
 
+export interface TypesPaginatedSessionsList {
+  page?: number;
+  pageSize?: number;
+  sessions?: TypesSessionSummary[];
+  totalCount?: number;
+  totalPages?: number;
+}
+
 export interface TypesPricing {
   audio?: string;
   completion?: string;
@@ -1839,13 +1843,6 @@ export enum TypesSessionType {
   SessionTypeNone = "",
   SessionTypeText = "text",
   SessionTypeImage = "image",
-}
-
-export interface TypesSessionsList {
-  /** the total number of sessions that match the query */
-  counter?: TypesCounter;
-  /** the list of sessions */
-  sessions?: TypesSessionSummary[];
 }
 
 export interface TypesSkillDefinition {
@@ -4115,10 +4112,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/sessions
      * @secure
      */
-    v1SessionsList: (params: RequestParams = {}) =>
-      this.request<TypesSessionsList, any>({
+    v1SessionsList: (
+      query?: {
+        /** Page number */
+        page?: number;
+        /** Page size */
+        page_size?: number;
+        /** Organization slug or ID */
+        org_id?: string;
+        /** Search sessions by name */
+        search?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPaginatedSessionsList, any>({
         path: `/api/v1/sessions`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),
@@ -4158,6 +4168,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Update a session by ID
+     *
+     * @tags sessions
+     * @name V1SessionsUpdate
+     * @summary Update a session by ID
+     * @request PUT:/api/v1/sessions/{id}
+     * @secure
+     */
+    v1SessionsUpdate: (id: string, request: TypesSession, params: RequestParams = {}) =>
+      this.request<TypesSession, any>({
+        path: `/api/v1/sessions/${id}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * @description List interactions for a session
      *
      * @tags interactions
@@ -4166,10 +4195,20 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/sessions/{id}/interactions
      * @secure
      */
-    v1SessionsInteractionsDetail: (id: string, params: RequestParams = {}) =>
+    v1SessionsInteractionsDetail: (
+      id: string,
+      query?: {
+        /** Page number */
+        page?: number;
+        /** Page size */
+        page_size?: number;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesInteraction[], any>({
         path: `/api/v1/sessions/${id}/interactions`,
         method: "GET",
+        query: query,
         secure: true,
         format: "json",
         ...params,

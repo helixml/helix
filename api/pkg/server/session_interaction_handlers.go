@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/system"
@@ -15,6 +16,8 @@ import (
 // @Tags    interactions
 // @Produce json
 // @Param   id path string true "Session ID"
+// @Param   page query int false "Page number"
+// @Param   page_size query int false "Page size"
 // @Success 200 {array} types.Interaction
 // @Router /api/v1/sessions/{id}/interactions [get]
 // @Security BearerAuth
@@ -22,6 +25,15 @@ func (s *HelixAPIServer) listInteractions(_ http.ResponseWriter, req *http.Reque
 	ctx := req.Context()
 	user := getRequestUser(req)
 	id := mux.Vars(req)["id"]
+
+	page, err := strconv.Atoi(req.URL.Query().Get("page"))
+	if err != nil || page < 1 {
+		page = 0
+	}
+	perPage, err := strconv.Atoi(req.URL.Query().Get("per_page"))
+	if err != nil || perPage < 1 {
+		perPage = 100
+	}
 
 	session, err := s.Store.GetSession(ctx, id)
 	if err != nil {
@@ -35,6 +47,8 @@ func (s *HelixAPIServer) listInteractions(_ http.ResponseWriter, req *http.Reque
 	interactions, _, err := s.Store.ListInteractions(ctx, &types.ListInteractionsQuery{
 		SessionID:    id,
 		GenerationID: session.GenerationID,
+		Page:         page,
+		PerPage:      perPage,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(fmt.Sprintf("failed to get interactions for session %s, error: %s", id, err))

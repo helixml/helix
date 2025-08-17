@@ -1180,11 +1180,6 @@ definitions:
           $ref: '#/definitions/types.ContextMenuAction'
         type: array
     type: object
-  types.Counter:
-    properties:
-      count:
-        type: integer
-    type: object
   types.CrawledSources:
     properties:
       urls:
@@ -2306,6 +2301,21 @@ definitions:
       totalPages:
         type: integer
     type: object
+  types.PaginatedSessionsList:
+    properties:
+      page:
+        type: integer
+      pageSize:
+        type: integer
+      sessions:
+        items:
+          $ref: '#/definitions/types.SessionSummary'
+        type: array
+      totalCount:
+        type: integer
+      totalPages:
+        type: integer
+    type: object
   types.Pricing:
     properties:
       audio:
@@ -3028,18 +3038,6 @@ definitions:
     - SessionTypeNone
     - SessionTypeText
     - SessionTypeImage
-  types.SessionsList:
-    properties:
-      counter:
-        allOf:
-        - $ref: '#/definitions/types.Counter'
-        description: the total number of sessions that match the query
-      sessions:
-        description: the list of sessions
-        items:
-          $ref: '#/definitions/types.SessionSummary'
-        type: array
-    type: object
   types.SkillDefinition:
     properties:
       baseUrl:
@@ -5545,11 +5543,28 @@ paths:
   /api/v1/sessions:
     get:
       description: List sessions
+      parameters:
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
+      - description: Organization slug or ID
+        in: query
+        name: org_id
+        type: string
+      - description: Search sessions by name
+        in: query
+        name: search
+        type: string
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/types.SessionsList'
+            $ref: '#/definitions/types.PaginatedSessionsList'
       security:
       - BearerAuth: []
       summary: List sessions
@@ -5594,6 +5609,30 @@ paths:
       summary: Get a session by ID
       tags:
       - sessions
+    put:
+      description: Update a session by ID
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session to update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.Session'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Session'
+      security:
+      - BearerAuth: []
+      summary: Update a session by ID
+      tags:
+      - sessions
   /api/v1/sessions/{id}/interactions:
     get:
       description: List interactions for a session
@@ -5603,6 +5642,14 @@ paths:
         name: id
         required: true
         type: string
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
       produces:
       - application/json
       responses:

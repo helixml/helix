@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -105,57 +106,61 @@ func (apiServer *HelixAPIServer) getSession(_ http.ResponseWriter, req *http.Req
 // @Summary List sessions
 // @Description List sessions
 // @Tags    sessions
-// @Success 200 {object} types.SessionsList
+// @Param   page            query    int     false  "Page number"
+// @Param   page_size       query    int     false  "Page size"
+// @Param   org_id				  query    string  false  "Organization slug or ID"
+// @Param   search          query    string  false  "Search sessions by name"
+// @Success 200 {object} types.PaginatedSessionsList
 // @Router /api/v1/sessions [get]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.Request) (*types.SessionsList, error) {
+func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.Request) (*types.PaginatedSessionsList, error) {
 	ctx := req.Context()
 	user := getRequestUser(req)
 
-	query := store.GetSessionsQuery{}
+	query := store.ListSessionsQuery{
+		Search: req.URL.Query().Get("search"),
+	}
 	query.Owner = user.ID
 	query.OwnerType = user.Type
 
 	// Extract organization_id query parameter if present
-	organizationID := req.URL.Query().Get("organization_id")
-	if organizationID != "" {
-		// Verify the user has access to the organization
-		_, err := apiServer.authorizeOrgMember(ctx, user, organizationID)
+	orgID := req.URL.Query().Get("org_id")
+	if orgID != "" {
+		// Lookup org
+		org, err := apiServer.lookupOrg(ctx, orgID)
 		if err != nil {
-			return nil, fmt.Errorf("unauthorized: %w", err)
+			return nil, system.NewHTTPError404(err.Error())
 		}
 
-		query.OrganizationID = organizationID
+		orgID = org.ID
+
+		_, err = apiServer.authorizeOrgMember(ctx, user, orgID)
+		if err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+
+		query.OrganizationID = orgID
 	} else {
 		// When no organization is specified, we only want personal sessions
 		// Setting empty string explicitly ensures we only get sessions with no organization
 		query.OrganizationID = ""
 	}
 
-	// Extract offset and limit values from query parameters
-	offsetStr := req.URL.Query().Get("offset")
-	limitStr := req.URL.Query().Get("limit")
-
-	// Convert offset and limit values to integers
-	offset, err := strconv.Atoi(offsetStr)
-	if err != nil {
-		offset = 0 // Default value if offset is not provided or conversion fails
+	// Parse query parameters
+	page, err := strconv.Atoi(req.URL.Query().Get("page"))
+	if err != nil || page < 1 {
+		page = 0
 	}
 
-	limit, err := strconv.Atoi(limitStr)
-	if err != nil {
-		limit = 0 // Default value if limit is not provided or conversion fails
+	pageSize, err := strconv.Atoi(req.URL.Query().Get("page_size"))
+	if err != nil || pageSize < 1 {
+		pageSize = 50 // Default page size
 	}
 
-	query.Offset = offset
-	query.Limit = limit
+	query.Page = page
+	query.PerPage = pageSize
 
-	sessions, err := apiServer.Store.GetSessions(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	counter, err := apiServer.Store.GetSessionsCounter(ctx, query)
+	sessions, totalCount, err := apiServer.Store.ListSessions(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -170,9 +175,12 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 		sessionSummaries = append(sessionSummaries, summary)
 	}
 
-	return &types.SessionsList{
-		Sessions: sessionSummaries,
-		Counter:  counter,
+	return &types.PaginatedSessionsList{
+		Sessions:   sessionSummaries,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalCount: totalCount,
+		TotalPages: int(math.Ceil(float64(totalCount) / float64(pageSize))),
 	}, nil
 }
 
@@ -789,6 +797,38 @@ func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.
 	}
 
 	return system.DefaultController(apiServer.Store.DeleteSession(req.Context(), session.ID))
+}
+
+// updateSession godoc
+// @Summary Update a session by ID
+// @Description Update a session by ID
+// @Tags    sessions
+// @Param id path string true "Session ID"
+// @Param request body types.Session true "Session to update"
+// @Success 200 {object} types.Session
+// @Router /api/v1/sessions/{id} [put]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+	session, httpError := apiServer.sessionLoader(req, true)
+	if httpError != nil {
+		return nil, httpError
+	}
+
+	var update *types.Session
+
+	err := json.NewDecoder(req.Body).Decode(&update)
+	if err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
+
+	session.Name = update.Name
+
+	err = apiServer.Store.UpdateSessionName(req.Context(), session.ID, session.Name)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return session, nil
 }
 
 // createAPIKey godoc
