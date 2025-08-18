@@ -1139,15 +1139,6 @@ export const RunnerSummary: FC<{
                                                           b.index ?? 999;
                                                       return indexA - indexB;
                                                   });
-                                                  console.log(
-                                                      "GPU Chart Order:",
-                                                      sortedGPUs
-                                                          .map(
-                                                              (g) =>
-                                                                  `GPU ${g.index}`,
-                                                          )
-                                                          .join(", "),
-                                                  );
                                                   return sortedGPUs.map(
                                                       (gpu) => (
                                                           <Grid
@@ -1838,12 +1829,6 @@ export const RunnerSummary: FC<{
                                     const indexB = b.index ?? 999;
                                     return indexA - indexB;
                                 },
-                            );
-                            console.log(
-                                "GPU Card Order:",
-                                sortedGPUs
-                                    .map((g) => `GPU ${g.index}`)
-                                    .join(", "),
                             );
                             return sortedGPUs.map((gpu) => (
                                 <Grid
