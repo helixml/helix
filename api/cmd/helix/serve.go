@@ -367,12 +367,15 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		logStores = append(logStores, logger.NewUsageLogger(postgresStore))
 	}
 
-	modelInfoProvider, err := model.NewBaseModelInfoProvider()
+	baseInfoProvider, err := model.NewBaseModelInfoProvider()
 	if err != nil {
 		return fmt.Errorf("failed to create model info provider: %w", err)
 	}
 
-	providerManager := manager.NewProviderManager(cfg, postgresStore, helixInference, modelInfoProvider, logStores...)
+	// Dynamic info providers allows overriding the base model prices and model information (defining Helix LLM prices)
+	dynamicInfoProvider := model.NewDynamicModelInfoProvider(postgresStore, baseInfoProvider)
+
+	providerManager := manager.NewProviderManager(cfg, postgresStore, helixInference, dynamicInfoProvider, logStores...)
 
 	// Connect the runner controller to the provider manager
 	providerManager.SetRunnerController(runnerController)
@@ -501,7 +504,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		ps,
 		gse,
 		providerManager,
-		modelInfoProvider,
+		dynamicInfoProvider,
 		helixInference,
 		keycloakAuthenticator,
 		stripe,

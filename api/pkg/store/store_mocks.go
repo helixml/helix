@@ -133,6 +133,21 @@ func (mr *MockStoreMockRecorder) CreateDataEntity(ctx, dataEntity any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDataEntity", reflect.TypeOf((*MockStore)(nil).CreateDataEntity), ctx, dataEntity)
 }
 
+// CreateDynamicModelInfo mocks base method.
+func (m *MockStore) CreateDynamicModelInfo(ctx context.Context, modelInfo *types.DynamicModelInfo) (*types.DynamicModelInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateDynamicModelInfo", ctx, modelInfo)
+	ret0, _ := ret[0].(*types.DynamicModelInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateDynamicModelInfo indicates an expected call of CreateDynamicModelInfo.
+func (mr *MockStoreMockRecorder) CreateDynamicModelInfo(ctx, modelInfo any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDynamicModelInfo", reflect.TypeOf((*MockStore)(nil).CreateDynamicModelInfo), ctx, modelInfo)
+}
+
 // CreateInteraction mocks base method.
 func (m *MockStore) CreateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error) {
 	m.ctrl.T.Helper()
@@ -610,6 +625,20 @@ func (m *MockStore) DeleteDataEntity(ctx context.Context, id string) error {
 func (mr *MockStoreMockRecorder) DeleteDataEntity(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDataEntity", reflect.TypeOf((*MockStore)(nil).DeleteDataEntity), ctx, id)
+}
+
+// DeleteDynamicModelInfo mocks base method.
+func (m *MockStore) DeleteDynamicModelInfo(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteDynamicModelInfo", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteDynamicModelInfo indicates an expected call of DeleteDynamicModelInfo.
+func (mr *MockStoreMockRecorder) DeleteDynamicModelInfo(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDynamicModelInfo", reflect.TypeOf((*MockStore)(nil).DeleteDynamicModelInfo), ctx, id)
 }
 
 // DeleteInteraction mocks base method.
@@ -1115,6 +1144,21 @@ func (mr *MockStoreMockRecorder) GetDecodedLicense(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDecodedLicense", reflect.TypeOf((*MockStore)(nil).GetDecodedLicense), ctx)
 }
 
+// GetDynamicModelInfo mocks base method.
+func (m *MockStore) GetDynamicModelInfo(ctx context.Context, id string) (*types.DynamicModelInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDynamicModelInfo", ctx, id)
+	ret0, _ := ret[0].(*types.DynamicModelInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDynamicModelInfo indicates an expected call of GetDynamicModelInfo.
+func (mr *MockStoreMockRecorder) GetDynamicModelInfo(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDynamicModelInfo", reflect.TypeOf((*MockStore)(nil).GetDynamicModelInfo), ctx, id)
+}
+
 // GetEffectiveSystemSettings mocks base method.
 func (m *MockStore) GetEffectiveSystemSettings(ctx context.Context) (*types.SystemSettings, error) {
 	m.ctrl.T.Helper()
@@ -1398,36 +1442,6 @@ func (m *MockStore) GetSession(ctx context.Context, id string) (*types.Session, 
 func (mr *MockStoreMockRecorder) GetSession(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSession", reflect.TypeOf((*MockStore)(nil).GetSession), ctx, id)
-}
-
-// GetSessions mocks base method.
-func (m *MockStore) GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetSessions", ctx, query)
-	ret0, _ := ret[0].([]*types.Session)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetSessions indicates an expected call of GetSessions.
-func (mr *MockStoreMockRecorder) GetSessions(ctx, query any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSessions", reflect.TypeOf((*MockStore)(nil).GetSessions), ctx, query)
-}
-
-// GetSessionsCounter mocks base method.
-func (m *MockStore) GetSessionsCounter(ctx context.Context, query GetSessionsQuery) (*types.Counter, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetSessionsCounter", ctx, query)
-	ret0, _ := ret[0].(*types.Counter)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetSessionsCounter indicates an expected call of GetSessionsCounter.
-func (mr *MockStoreMockRecorder) GetSessionsCounter(ctx, query any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSessionsCounter", reflect.TypeOf((*MockStore)(nil).GetSessionsCounter), ctx, query)
 }
 
 // GetSlackThread mocks base method.
@@ -1715,6 +1729,21 @@ func (mr *MockStoreMockRecorder) ListDataEntities(ctx, q any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDataEntities", reflect.TypeOf((*MockStore)(nil).ListDataEntities), ctx, q)
 }
 
+// ListDynamicModelInfos mocks base method.
+func (m *MockStore) ListDynamicModelInfos(ctx context.Context, q *types.ListDynamicModelInfosQuery) ([]*types.DynamicModelInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDynamicModelInfos", ctx, q)
+	ret0, _ := ret[0].([]*types.DynamicModelInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListDynamicModelInfos indicates an expected call of ListDynamicModelInfos.
+func (mr *MockStoreMockRecorder) ListDynamicModelInfos(ctx, q any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDynamicModelInfos", reflect.TypeOf((*MockStore)(nil).ListDynamicModelInfos), ctx, q)
+}
+
 // ListInteractions mocks base method.
 func (m *MockStore) ListInteractions(ctx context.Context, query *types.ListInteractionsQuery) ([]*types.Interaction, int64, error) {
 	m.ctrl.T.Helper()
@@ -1910,6 +1939,22 @@ func (m *MockStore) ListSecrets(ctx context.Context, q *ListSecretsQuery) ([]*ty
 func (mr *MockStoreMockRecorder) ListSecrets(ctx, q any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSecrets", reflect.TypeOf((*MockStore)(nil).ListSecrets), ctx, q)
+}
+
+// ListSessions mocks base method.
+func (m *MockStore) ListSessions(ctx context.Context, query ListSessionsQuery) ([]*types.Session, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSessions", ctx, query)
+	ret0, _ := ret[0].([]*types.Session)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListSessions indicates an expected call of ListSessions.
+func (mr *MockStoreMockRecorder) ListSessions(ctx, query any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessions", reflect.TypeOf((*MockStore)(nil).ListSessions), ctx, query)
 }
 
 // ListSlots mocks base method.
@@ -2148,6 +2193,21 @@ func (m *MockStore) UpdateDataEntity(ctx context.Context, dataEntity *types.Data
 func (mr *MockStoreMockRecorder) UpdateDataEntity(ctx, dataEntity any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDataEntity", reflect.TypeOf((*MockStore)(nil).UpdateDataEntity), ctx, dataEntity)
+}
+
+// UpdateDynamicModelInfo mocks base method.
+func (m *MockStore) UpdateDynamicModelInfo(ctx context.Context, modelInfo *types.DynamicModelInfo) (*types.DynamicModelInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateDynamicModelInfo", ctx, modelInfo)
+	ret0, _ := ret[0].(*types.DynamicModelInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateDynamicModelInfo indicates an expected call of UpdateDynamicModelInfo.
+func (mr *MockStoreMockRecorder) UpdateDynamicModelInfo(ctx, modelInfo any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDynamicModelInfo", reflect.TypeOf((*MockStore)(nil).UpdateDynamicModelInfo), ctx, modelInfo)
 }
 
 // UpdateInteraction mocks base method.

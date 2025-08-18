@@ -363,6 +363,14 @@ type SessionsList struct {
 	Sessions []*SessionSummary `json:"sessions"`
 }
 
+type PaginatedSessionsList struct {
+	Sessions   []*SessionSummary `json:"sessions"`
+	Page       int               `json:"page"`
+	PageSize   int               `json:"pageSize"`
+	TotalCount int64             `json:"totalCount"`
+	TotalPages int               `json:"totalPages"`
+}
+
 // this is the incoming REST api struct sent from the outside world
 // the user wants to do inference against a model
 // we turn this into a InternalSessionRequest
