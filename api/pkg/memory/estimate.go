@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // EstimateGPULayers estimates how many layers can be loaded on the given GPUs
@@ -48,13 +50,44 @@ func calculateKVCachePerLayer(metadata *ModelMetadata, opts EstimateOptions) uin
 	// Determine bytes per element based on KV cache type
 	bytesPerElement := getKVCacheBytesPerElement(opts.KVCacheType)
 
-	return uint64(float64(context*(embeddingHeadsK+embeddingHeadsV)*headsKV) * bytesPerElement)
+	kvCacheSize := uint64(float64(context*(embeddingHeadsK+embeddingHeadsV)*headsKV) * bytesPerElement)
+
+	// Debug logging for large context windows
+	if opts.NumCtx > 32768 {
+		log.Warn().
+			Str("KV_CACHE_DEBUG", "large_context").
+			Int("num_ctx", opts.NumCtx).
+			Uint64("context_tokens", context).
+			Uint64("embedding_heads_k", embeddingHeadsK).
+			Uint64("embedding_heads_v", embeddingHeadsV).
+			Uint64("heads_kv", headsKV).
+			Float64("bytes_per_element", bytesPerElement).
+			Str("kv_cache_type", opts.KVCacheType).
+			Uint64("kv_cache_per_layer_mb", kvCacheSize/(1024*1024)).
+			Msg("KV cache calculation for large context window")
+	}
+
+	return kvCacheSize
 }
 
 // calculateKVCache calculates the total KV cache memory requirements (legacy function)
 func calculateKVCache(metadata *ModelMetadata, opts EstimateOptions) uint64 {
 	kvPerLayer := calculateKVCachePerLayer(metadata, opts)
-	return kvPerLayer * metadata.BlockCount
+	totalKVCache := kvPerLayer * metadata.BlockCount
+
+	// Debug logging for large context windows
+	if opts.NumCtx > 32768 {
+		log.Warn().
+			Str("KV_CACHE_DEBUG", "total_calculation").
+			Int("num_ctx", opts.NumCtx).
+			Uint64("kv_per_layer_mb", kvPerLayer/(1024*1024)).
+			Uint64("block_count", metadata.BlockCount).
+			Uint64("total_kv_cache_mb", totalKVCache/(1024*1024)).
+			Uint64("total_kv_cache_gb", totalKVCache/(1024*1024*1024)).
+			Msg("Total KV cache calculation for large context window")
+	}
+
+	return totalKVCache
 }
 
 // calculateGraphMemory calculates graph memory requirements based on architecture

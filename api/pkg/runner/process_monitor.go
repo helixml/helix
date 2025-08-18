@@ -413,6 +413,16 @@ func (pt *ProcessTracker) isProcessOrphaned(pid int, tree *ProcessTree) bool {
 		return false
 	}
 
+	// Grace period check: Don't kill recently spawned processes to avoid race conditions
+	// during VLLM/model startup where workers are spawning rapidly
+	if pt.isProcessTooYoung(pid) {
+		log.Debug().
+			Int("pid", pid).
+			Str("command", node.Command).
+			Msg("PROCESS_TREE: Process too young, skipping orphan check")
+		return false
+	}
+
 	// Check if this process or any of its ancestors are tracked
 	current := node
 	visitedPIDs := make(map[int]bool) // Prevent infinite loops
@@ -516,6 +526,40 @@ func (pt *ProcessTracker) hasTrackedDescendants(node *ProcessTreeNode) bool {
 
 		// Add children to queue
 		queue = append(queue, current.Children...)
+	}
+
+	return false
+}
+
+// isProcessTooYoung checks if a process is too young to be considered for orphan cleanup
+// This prevents race conditions during model startup where workers are spawning rapidly
+func (pt *ProcessTracker) isProcessTooYoung(pid int) bool {
+	// Use /proc to get process start time for more accuracy
+	cmd := exec.Command("stat", "-c", "%Y", fmt.Sprintf("/proc/%d", pid))
+	output, err := cmd.Output()
+	if err != nil {
+		// If we can't get the process start time, err on the side of caution
+		log.Debug().Err(err).Int("pid", pid).Msg("PROCESS_TREE: Could not get process start time, assuming not too young")
+		return false
+	}
+
+	startTimeStr := strings.TrimSpace(string(output))
+	startTime, err := strconv.ParseInt(startTimeStr, 10, 64)
+	if err != nil {
+		log.Debug().Err(err).Int("pid", pid).Msg("PROCESS_TREE: Could not parse process start time, assuming not too young")
+		return false
+	}
+
+	// Grace period: don't kill processes younger than 60 seconds
+	const gracePeriodSeconds = 60
+	processAge := time.Now().Unix() - startTime
+
+	if processAge < gracePeriodSeconds {
+		log.Debug().
+			Int("pid", pid).
+			Int64("process_age_seconds", processAge).
+			Msg("PROCESS_TREE: Process is within grace period, not eligible for orphan cleanup")
+		return true
 	}
 
 	return false

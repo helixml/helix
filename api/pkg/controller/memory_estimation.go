@@ -220,6 +220,18 @@ func (s *MemoryEstimationService) EstimateModelMemoryFromRequest(ctx context.Con
 
 // EstimateModelMemory estimates memory requirements for a model
 func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, modelName string, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
+	// Debug logging for context length tracing
+	log.Debug().
+		Str("MEMORY_ESTIMATION_DEBUG", "entry_point").
+		Str("model_name", modelName).
+		Int("num_ctx", opts.NumCtx).
+		Int("num_batch", opts.NumBatch).
+		Int("num_parallel", opts.NumParallel).
+		Int("num_gpu", opts.NumGPU).
+		Str("kv_cache_type", opts.KVCacheType).
+		Int("gpu_config_count", len(gpuConfig)).
+		Msg("EstimateModelMemory called with parameters")
+
 	// Check if this is an Ollama model - only Ollama models support GGUF-based estimation
 	models, err := s.modelProvider.ListModels(ctx)
 	if err != nil {
@@ -269,6 +281,27 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 
 	// Do memory calculation in API using Ollama's algorithm
 	result := s.calculateMemoryEstimateLocally(metadata, gpuConfig, opts)
+
+	// Debug logging for memory estimation results
+	log.Debug().
+		Str("MEMORY_ESTIMATION_DEBUG", "result").
+		Str("model_name", modelName).
+		Str("runner_id", runnerID).
+		Str("recommendation", result.Recommendation).
+		Int("num_ctx_used", opts.NumCtx).
+		Uint64("single_gpu_total_mb", func() uint64 {
+			if result.SingleGPU != nil {
+				return result.SingleGPU.TotalSize / (1024 * 1024)
+			}
+			return 0
+		}()).
+		Uint64("single_gpu_kv_cache_mb", func() uint64 {
+			if result.SingleGPU != nil {
+				return result.SingleGPU.KVCache / (1024 * 1024)
+			}
+			return 0
+		}()).
+		Msg("memory estimation result details")
 
 	// Cache the result
 	s.cache.set(cacheKey, result)
@@ -521,6 +554,16 @@ func (s *MemoryEstimationService) getModelMetadataFromRunner(ctx context.Context
 
 // calculateMemoryEstimateLocally performs memory calculation in the API using metadata from runner
 func (s *MemoryEstimationService) calculateMemoryEstimateLocally(metadata *memory.ModelMetadata, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) *memory.EstimationResult {
+	// Debug logging for local calculation entry
+	log.Debug().
+		Str("MEMORY_ESTIMATION_DEBUG", "local_calculation").
+		Str("architecture", metadata.Architecture).
+		Uint64("block_count", metadata.BlockCount).
+		Int("num_ctx", opts.NumCtx).
+		Str("kv_cache_type", opts.KVCacheType).
+		Int("gpu_count", len(gpuConfig)).
+		Msg("calculateMemoryEstimateLocally called")
+
 	// Convert types for our Ollama-based calculation
 	gpuInfos := make([]memory.GPUInfo, len(gpuConfig))
 	for i, gpu := range gpuConfig {
@@ -532,6 +575,15 @@ func (s *MemoryEstimationService) calculateMemoryEstimateLocally(metadata *memor
 			TotalMemory:   gpu.TotalMemory,
 			MinimumMemory: gpu.MinimumMemory,
 		}
+
+		// Debug GPU info
+		log.Debug().
+			Str("MEMORY_ESTIMATION_DEBUG", "gpu_info").
+			Int("gpu_index", i).
+			Str("gpu_id", gpu.ID).
+			Uint64("free_memory_mb", gpu.FreeMemory/(1024*1024)).
+			Uint64("total_memory_mb", gpu.TotalMemory/(1024*1024)).
+			Msg("GPU configuration for estimation")
 	}
 
 	// Use our Ollama-based memory estimation logic
