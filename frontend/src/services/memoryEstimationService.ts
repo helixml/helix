@@ -10,18 +10,29 @@ export const memoryEstimationQueryKey = (modelId: string, numGpu?: number) => [
 
 export function useModelMemoryEstimation(modelId: string, numGpu?: number, options?: { enabled?: boolean }) {
   const api = useApi()
-  const apiClient = api.getApiClient()
 
   return useQuery({
     queryKey: memoryEstimationQueryKey(modelId, numGpu),
     queryFn: async () => {
-      const query: { num_gpu?: number; context_length?: number; batch_size?: number } = {}
+      const url = new URL('/api/v1/helix-models/memory-estimate', window.location.origin);
+      url.searchParams.set('model_id', modelId);
       if (numGpu !== undefined) {
-        query.num_gpu = numGpu
+        url.searchParams.set('num_gpu', numGpu.toString());
       }
+
+      const token = api.getToken()
+      const response = await fetch(url.toString(), {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
       
-      const response = await apiClient.v1HelixModelsMemoryEstimateDetail(modelId, query)
-      return response.data
+      if (!response.ok) {
+        throw new Error(`Failed to fetch memory estimation: ${response.statusText}`)
+      }
+
+      return await response.json()
     },
     enabled: options?.enabled !== false && !!modelId,
     staleTime: 5 * 60 * 1000, // 5 minutes

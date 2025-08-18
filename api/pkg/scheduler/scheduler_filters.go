@@ -1,9 +1,11 @@
 package scheduler
 
 import (
+	"context"
 	"fmt"
 	"sort"
 
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -23,7 +25,94 @@ func (s *Scheduler) filterRunners(work *Workload, runnerIDs []string) ([]string,
 	return filteredRunners, nil
 }
 
+// getEffectiveMemoryRequirement gets the memory requirement for a model, preferring GGUF-based estimates for Ollama models
+func (s *Scheduler) getEffectiveMemoryRequirement(ctx context.Context, work *Workload, runnerID string, numGPUs int) (uint64, bool) {
+	// For Ollama models, try to get GGUF-based memory estimate
+	if work.Runtime() == types.RuntimeOllama && s.memoryEstimationService != nil {
+		// Convert runner's GPU info for estimation
+		gpuInfo, err := s.controller.GetGPUMemoryInfo(runnerID)
+		if err != nil || len(gpuInfo) == 0 {
+			log.Debug().
+				Str("runner_id", runnerID).
+				Str("model", work.ModelName().String()).
+				Msg("no GPU info available for GGUF estimation, falling back to hardcoded value")
+			return work.model.Memory, false
+		}
+
+		// Convert to estimation format
+		var estimationGPUs []types.GPUInfoForEstimation
+		for _, gpu := range gpuInfo {
+			estimationGPUs = append(estimationGPUs, types.GPUInfoForEstimation{
+				ID:            fmt.Sprintf("%s-gpu-%d", runnerID, gpu.Index), // Generate ID from runner and index
+				Index:         gpu.Index,
+				Library:       "cuda", // Assume CUDA for now
+				FreeMemory:    gpu.FreeMemory,
+				TotalMemory:   gpu.TotalMemory,
+				MinimumMemory: gpu.FreeMemory, // Use free memory as minimum
+				Name:          gpu.ModelName,
+			})
+		}
+
+		// Limit to requested number of GPUs
+		if numGPUs > 0 && numGPUs < len(estimationGPUs) {
+			estimationGPUs = estimationGPUs[:numGPUs]
+		}
+
+		// Get memory estimate with model's context length
+		opts := memory.EstimateOptions{
+			NumCtx:      int(work.model.ContextLength), // Use model's configured context length
+			NumBatch:    512,
+			NumParallel: 1,
+			NumGPU:      numGPUs,
+			KVCacheType: "q8_0",
+		}
+
+		result, err := s.memoryEstimationService.EstimateModelMemory(ctx, work.model.ID, estimationGPUs, opts)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("runner_id", runnerID).
+				Str("model", work.ModelName().String()).
+				Msg("failed to get GGUF memory estimate - will skip scheduling this Ollama model until estimate is available")
+			// Return 0 to indicate this model should be skipped
+			return 0, false
+		}
+
+		// Select appropriate estimate based on GPU count
+		var estimate *memory.MemoryEstimate
+		if numGPUs <= 1 && result.SingleGPU != nil {
+			estimate = result.SingleGPU
+		} else if numGPUs > 1 && result.TensorParallel != nil {
+			estimate = result.TensorParallel
+		} else if result.SingleGPU != nil {
+			estimate = result.SingleGPU
+		} else {
+			log.Debug().
+				Str("runner_id", runnerID).
+				Str("model", work.ModelName().String()).
+				Int("num_gpus", numGPUs).
+				Msg("no suitable GGUF estimate found, falling back to hardcoded value")
+			return work.model.Memory, false
+		}
+
+		log.Info().
+			Str("GGUF_MEMORY_ESTIMATE", "used").
+			Str("runner_id", runnerID).
+			Str("model", work.ModelName().String()).
+			Int("num_gpus", numGPUs).
+			Uint64("gguf_memory_gb", estimate.TotalSize/(1024*1024*1024)).
+			Uint64("hardcoded_memory_gb", work.model.Memory/(1024*1024*1024)).
+			Msg("using GGUF-based memory estimate instead of hardcoded value")
+
+		return estimate.TotalSize, true
+	}
+
+	// For non-Ollama models or when GGUF estimation is not available, use hardcoded value
+	return work.model.Memory, false
+}
+
 func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([]string, error) {
+	ctx := s.ctx // Use scheduler's context
 	log.Trace().
 		Strs("runner_ids", runnerIDs).
 		Str("model", work.ModelName().String()).
@@ -56,33 +145,42 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 			// For Ollama models, check if tensor parallelism would actually be used
 			if work.Runtime() == types.RuntimeOllama {
 				log.Info().
-					Str("OLLAMA_TP_CHECK", "allocation_attempt").
+					Str("OLLAMA_GGUF_CHECK", "allocation_attempt").
 					Str("runner_id", runnerID).
 					Str("model", work.ModelName().String()).
-					Uint64("model_memory_gb", work.model.Memory/(1024*1024*1024)).
-					Msg("Ollama model - checking if tensor parallelism would be used")
+					Uint64("hardcoded_memory_gb", work.model.Memory/(1024*1024*1024)).
+					Msg("Ollama model - using GGUF-based memory estimation")
 
-				// Calculate effective memory requirement with potential TP overhead
-				effectiveMemoryRequirement := work.model.Memory
-
-				// Check if Ollama would use tensor parallelism for this model
-				wouldUseTensorParallel, multiGPUs := s.wouldOllamaUseTensorParallel(runnerID, work.model.Memory)
-				if wouldUseTensorParallel && len(multiGPUs) > 1 {
-					// Apply TP overhead: base model memory + (10GB per GPU)
-					const fixedOverheadPerGPU = uint64(10 * 1024 * 1024 * 1024) // 10GB per GPU
-					tpOverhead := uint64(len(multiGPUs)) * fixedOverheadPerGPU
-					effectiveMemoryRequirement = work.model.Memory + tpOverhead
-
+				// Get GGUF-based memory estimate for single GPU
+				singleGPUMemory, usedGGUF := s.getEffectiveMemoryRequirement(ctx, work, runnerID, 1)
+				if singleGPUMemory == 0 {
+					// Skip this runner - no GGUF estimate available
 					log.Info().
-						Str("OLLAMA_TP_MEMORY", "overhead_applied").
 						Str("runner_id", runnerID).
 						Str("model", work.ModelName().String()).
-						Uint64("base_memory_gb", work.model.Memory/(1024*1024*1024)).
-						Uint64("tp_overhead_gb", tpOverhead/(1024*1024*1024)).
-						Uint64("effective_memory_gb", effectiveMemoryRequirement/(1024*1024*1024)).
+						Msg("Skipping runner - no GGUF memory estimate available for Ollama model")
+					continue
+				}
+				effectiveMemoryRequirement := singleGPUMemory
+
+				// Check if Ollama would use tensor parallelism for this model
+				wouldUseTensorParallel, multiGPUs := s.wouldOllamaUseTensorParallel(runnerID, singleGPUMemory)
+				if wouldUseTensorParallel && len(multiGPUs) > 1 {
+					// Get GGUF-based memory estimate for multi-GPU
+					multiGPUMemory, _ := s.getEffectiveMemoryRequirement(ctx, work, runnerID, len(multiGPUs))
+					effectiveMemoryRequirement = multiGPUMemory
+
+					log.Info().
+						Str("OLLAMA_GGUF_TP", "gguf_estimates_used").
+						Str("runner_id", runnerID).
+						Str("model", work.ModelName().String()).
+						Uint64("single_gpu_memory_gb", singleGPUMemory/(1024*1024*1024)).
+						Uint64("multi_gpu_memory_gb", multiGPUMemory/(1024*1024*1024)).
+						Uint64("hardcoded_memory_gb", work.model.Memory/(1024*1024*1024)).
 						Int("tensor_parallel_gpus", len(multiGPUs)).
 						Ints("assigned_gpus", multiGPUs).
-						Msg("Applied Ollama tensor parallelism memory overhead")
+						Bool("used_gguf", usedGGUF).
+						Msg("Using GGUF-based memory estimates for tensor parallelism")
 				}
 
 				// First try single GPU allocation with effective memory requirement

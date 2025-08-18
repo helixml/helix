@@ -22,6 +22,7 @@ import {
 // Use actual types from the API definition
 import { TypesModel, TypesModelType, TypesRuntime } from '../../api/api';
 import { useCreateHelixModel, useUpdateHelixModel } from '../../services/helixModelsService';
+import MemoryEstimationWidget from './MemoryEstimationWidget';
 
 interface EditHelixModelDialogProps {
   open: boolean;
@@ -353,6 +354,16 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                       }
                   }}
               />
+           )}
+
+           {/* Memory Estimation Widget for Ollama models */}
+           {formData.runtime === TypesRuntime.RuntimeOllama && formData.id && formData.type === TypesModelType.ModelTypeChat && (
+             <MemoryEstimationWidget
+               modelId={formData.id}
+               currentContextLength={formData.context_length}
+               onContextLengthChange={(value) => setFormData(prev => ({ ...prev, context_length: value }))}
+               disabled={loading}
+             />
            )}
 
            {/* Conditionally render Runtime Args field for VLLM runtime */}
