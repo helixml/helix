@@ -158,6 +158,12 @@ const MemoryEstimateCell: FC<MemoryEstimateCellProps> = ({ model }) => {
             <Typography>4 GPUs</Typography>
           </Box>
         </MenuItem>
+        <MenuItem onClick={() => handleGPUCountSelect(8)}>
+          <Box display="flex" alignItems="center" gap={1}>
+            <MemoryIcon fontSize="small" />
+            <Typography>8 GPUs</Typography>
+          </Box>
+        </MenuItem>
       </Menu>
     </TableCell>
   )

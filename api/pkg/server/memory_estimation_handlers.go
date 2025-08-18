@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -15,7 +14,7 @@ import (
 // @Summary Estimate model memory requirements
 // @Description Estimate memory requirements for a model on different GPU configurations
 // @Tags models
-// @Param model_id path string true "Model ID"
+// @Param model_id query string true "Model ID"
 // @Param num_gpu query int false "Number of GPUs (default: auto-detect)"
 // @Param context_length query int false "Context length (default: model default)"
 // @Param batch_size query int false "Batch size (default: 512)"
@@ -23,14 +22,13 @@ import (
 // @Failure 400 {string} string "Invalid request parameters"
 // @Failure 404 {string} string "Model not found"
 // @Failure 500 {string} string "Internal server error"
-// @Router /api/v1/helix-models/{model_id}/memory-estimate [get]
+// @Router /api/v1/helix-models/memory-estimate [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) estimateModelMemory(rw http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	modelID := vars["model_id"]
+	modelID := r.URL.Query().Get("model_id")
 
 	if modelID == "" {
-		http.Error(rw, "model_id is required", http.StatusBadRequest)
+		http.Error(rw, "model_id query parameter is required", http.StatusBadRequest)
 		return
 	}
 

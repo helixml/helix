@@ -220,6 +220,29 @@ func (s *MemoryEstimationService) EstimateModelMemoryFromRequest(ctx context.Con
 
 // EstimateModelMemory estimates memory requirements for a model
 func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, modelName string, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
+	// Check if this is an Ollama model - only Ollama models support GGUF-based estimation
+	models, err := s.modelProvider.ListModels(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list models: %w", err)
+	}
+
+	var targetModel *types.Model
+	for _, model := range models {
+		if model.ID == modelName {
+			targetModel = model
+			break
+		}
+	}
+
+	if targetModel == nil {
+		return nil, fmt.Errorf("model %s not found", modelName)
+	}
+
+	// Only provide GGUF-based estimates for Ollama models
+	if targetModel.Runtime != types.RuntimeOllama {
+		return nil, fmt.Errorf("GGUF-based memory estimation is only available for Ollama models, model %s uses runtime %s", modelName, targetModel.Runtime)
+	}
+
 	// Generate cache key
 	cacheKey := s.generateCacheKey(modelName, gpuConfig, opts)
 
@@ -238,11 +261,14 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 		return nil, fmt.Errorf("failed to find runner with model %s: %w", modelName, err)
 	}
 
-	// Call runner API for estimation via NATS
-	result, err := s.callRunnerForEstimation(ctx, runnerID, modelName, gpuConfig, opts)
+	// Get model metadata from runner via NATS
+	metadata, err := s.getModelMetadataFromRunner(ctx, runnerID, modelName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get estimation from runner %s: %w", runnerID, err)
+		return nil, fmt.Errorf("failed to get model metadata from runner %s: %w", runnerID, err)
 	}
+
+	// Do memory calculation in API using Ollama's algorithm
+	result := s.calculateMemoryEstimateLocally(metadata, gpuConfig, opts)
 
 	// Cache the result
 	s.cache.set(cacheKey, result)
@@ -433,41 +459,38 @@ func (s *MemoryEstimationService) findRunnerWithModel(ctx context.Context, model
 	return "", fmt.Errorf("no runner found with model %s", modelName)
 }
 
-// RunnerMemoryEstimationRequest represents a request for memory estimation sent to runner (duplicated to avoid import cycle)
-type RunnerMemoryEstimationRequest struct {
-	ModelName    string                       `json:"model_name"`
-	GPUConfig    []types.GPUInfoForEstimation `json:"gpu_config"`
-	Options      memory.EstimateOptions       `json:"options"`
-	UseModelPath string                       `json:"use_model_path,omitempty"` // Optional: use specific model path
+// RunnerModelMetadataRequest represents a request for model metadata from runner
+type RunnerModelMetadataRequest struct {
+	ModelName    string `json:"model_name"`
+	UseModelPath string `json:"use_model_path,omitempty"` // Optional: use specific model path
 }
 
-// RunnerMemoryEstimationResponse represents the response from memory estimation (duplicated to avoid import cycle)
-type RunnerMemoryEstimationResponse struct {
-	Success        bool                     `json:"success"`
-	Result         *memory.EstimationResult `json:"result,omitempty"`
-	Error          string                   `json:"error,omitempty"`
-	RunnerID       string                   `json:"runner_id"`
-	EstimationTime int64                    `json:"estimation_time_ms"`
+// RunnerModelMetadataResponse represents the response with GGUF metadata from runner
+type RunnerModelMetadataResponse struct {
+	Success      bool                  `json:"success"`
+	Metadata     *memory.ModelMetadata `json:"metadata,omitempty"`
+	Error        string                `json:"error,omitempty"`
+	RunnerID     string                `json:"runner_id"`
+	ModelPath    string                `json:"model_path"`
+	ResponseTime int64                 `json:"response_time_ms"`
 }
 
-// callRunnerForEstimation calls a runner's memory estimation API via NATS
-func (s *MemoryEstimationService) callRunnerForEstimation(ctx context.Context, runnerID, modelName string, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
-	// Prepare request
-	request := RunnerMemoryEstimationRequest{
+// getModelMetadataFromRunner gets GGUF metadata from a runner via NATS
+func (s *MemoryEstimationService) getModelMetadataFromRunner(ctx context.Context, runnerID, modelName string) (*memory.ModelMetadata, error) {
+	// Prepare metadata request
+	request := RunnerModelMetadataRequest{
 		ModelName: modelName,
-		GPUConfig: gpuConfig,
-		Options:   opts,
 	}
 
 	requestBody, err := json.Marshal(request)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, fmt.Errorf("failed to marshal metadata request: %w", err)
 	}
 
 	// Create NATS request
 	req := &types.Request{
 		Method: "POST",
-		URL:    "/api/v1/memory-estimation",
+		URL:    "/api/v1/model-metadata",
 		Body:   requestBody,
 	}
 
@@ -476,24 +499,66 @@ func (s *MemoryEstimationService) callRunnerForEstimation(ctx context.Context, r
 		"Content-Type": "application/json",
 	}, req, 30*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request to runner: %w", err)
+		return nil, fmt.Errorf("failed to send metadata request to runner: %w", err)
 	}
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("runner returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("runner returned status %d for metadata request", resp.StatusCode)
 	}
 
 	// Parse response
-	var response RunnerMemoryEstimationResponse
+	var response RunnerModelMetadataResponse
 	if err := json.Unmarshal(resp.Body, &response); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+		return nil, fmt.Errorf("failed to decode metadata response: %w", err)
 	}
 
 	if !response.Success {
-		return nil, fmt.Errorf("estimation failed: %s", response.Error)
+		return nil, fmt.Errorf("metadata extraction failed: %s", response.Error)
 	}
 
-	return response.Result, nil
+	return response.Metadata, nil
+}
+
+// calculateMemoryEstimateLocally performs memory calculation in the API using metadata from runner
+func (s *MemoryEstimationService) calculateMemoryEstimateLocally(metadata *memory.ModelMetadata, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) *memory.EstimationResult {
+	// Convert types for our Ollama-based calculation
+	gpuInfos := make([]memory.GPUInfo, len(gpuConfig))
+	for i, gpu := range gpuConfig {
+		gpuInfos[i] = memory.GPUInfo{
+			ID:            gpu.ID,
+			Index:         gpu.Index,
+			Library:       gpu.Library,
+			FreeMemory:    gpu.FreeMemory,
+			TotalMemory:   gpu.TotalMemory,
+			MinimumMemory: gpu.MinimumMemory,
+		}
+	}
+
+	// Use our Ollama-based memory estimation logic
+	estimate := memory.EstimateGPULayers(gpuInfos, metadata, opts)
+
+	// Convert to EstimationResult format
+	result := &memory.EstimationResult{
+		ModelName:      metadata.Architecture, // Use architecture as model name
+		Metadata:       metadata,
+		SingleGPU:      estimate,
+		Recommendation: "single_gpu",
+		EstimatedAt:    time.Now(),
+	}
+
+	// If multiple GPUs, also calculate tensor parallel
+	if len(gpuConfig) > 1 {
+		result.TensorParallel = estimate
+		result.Recommendation = "tensor_parallel"
+	}
+
+	// Determine final recommendation
+	if estimate.RequiresFallback {
+		result.Recommendation = "cpu_only"
+		result.CPUOnly = estimate
+	}
+
+	return result
 }
 
 // generateCacheKey generates a cache key for the given parameters

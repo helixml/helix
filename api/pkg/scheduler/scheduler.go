@@ -107,6 +107,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -116,6 +117,11 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 	"golang.org/x/exp/rand"
 )
+
+// MemoryEstimationService interface for getting dynamic memory estimates
+type MemoryEstimationService interface {
+	EstimateModelMemory(ctx context.Context, modelName string, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) (*memory.EstimationResult, error)
+}
 
 const (
 	pendingSlotsBufferSize         = 1 // The number of slot creation requests to buffer
@@ -148,6 +154,7 @@ type Scheduler struct {
 	ctx                     context.Context
 	controller              *RunnerController
 	queue                   *WorkQueue
+	memoryEstimationService MemoryEstimationService // For GGUF-based memory estimates
 	onSchedulingErr         func(work *Workload, err error)
 	slots                   *SlotStore                  // Database-backed slot storage
 	modelStaleFunc          TimeoutFunc                 // Function to check if models are stale
@@ -185,7 +192,8 @@ type GPUAllocation struct {
 
 type Params struct {
 	RunnerController        *RunnerController
-	Store                   store.Store // Required for slot persistence
+	Store                   store.Store             // Required for slot persistence
+	MemoryEstimationService MemoryEstimationService // For GGUF-based memory estimates
 	QueueSize               int
 	OnSchedulingErr         func(work *Workload, err error)
 	OnResponseHandler       func(ctx context.Context, resp *types.RunnerLLMInferenceResponse) error
@@ -249,6 +257,7 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		ctx:                     ctx,
 		controller:              params.RunnerController,
 		queue:                   NewWorkQueue(queueSize),
+		memoryEstimationService: params.MemoryEstimationService,
 		onSchedulingErr:         params.OnSchedulingErr,
 		slots:                   slotStore,
 		modelStaleFunc:          modelStaleFunc,
