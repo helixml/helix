@@ -251,10 +251,11 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
 
           {/* Preset Buttons */}
           <Box 
-            display="grid" 
-            gridTemplateColumns="repeat(auto-fit, minmax(60px, 1fr))"
+            display="flex" 
+            flexWrap="wrap"
+            justifyContent="center"
             gap={0.5}
-            sx={{ maxWidth: '700px', mx: 'auto' }}
+            sx={{ maxWidth: '1000px', mx: 'auto' }}
           >
             {CONTEXT_PRESETS.map(preset => (
               <Chip
@@ -267,7 +268,6 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
                 onClick={() => handlePresetClick(preset)}
                 sx={{ 
                   minWidth: '60px',
-                  justifySelf: 'center',
                   fontSize: '0.75rem',
                   '& .MuiChip-label': {
                     whiteSpace: 'nowrap',
