@@ -9,7 +9,6 @@ import InferenceTextField from './InferenceTextField'
 import SessionTypeButton from './SessionTypeButton'
 import Toolbar from './Toolbar'
 import FileDrawer from '../finetune/FileDrawer'
-import { AccountContext } from '../../contexts/account'
 import Cell from '../widgets/Cell'
 import Disclaimer from '../widgets/Disclaimer'
 import Row from '../widgets/Row'
@@ -21,7 +20,6 @@ import useCreateInputs from '../../hooks/useCreateInputs'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
-import useSessions from '../../hooks/useSessions'
 import useSnackbar from '../../hooks/useSnackbar'
 import useTracking from '../../hooks/useTracking'
 import useUserAppAccess from '../../hooks/useUserAppAccess'
@@ -29,6 +27,8 @@ import { useStreaming } from '../../contexts/streaming'
 import ConversationStarters from './ConversationStarters'
 import Container from '@mui/material/Container'
 import Stack from '@mui/material/Stack'
+import { invalidateSessionsQuery } from '../../services/sessionService'
+import { useQueryClient } from '@tanstack/react-query'
 
 import {
   ISessionMode,
@@ -78,11 +78,12 @@ const CreateContent: FC<CreateContentProps> = ({
   const account = useAccount()
   const api = useApi()
   const tracking = useTracking()
-  const sessions = useSessions()
+  // const sessions = useSessions()
   const isBigScreen = useIsBigScreen()
   const apps = useApps()
   const { NewInference } = useStreaming()
-
+  const queryClient = useQueryClient()
+  
   const [showConfigWindow, setShowConfigWindow] = useState(false)
   const [showFileDrawer, setShowFileDrawer] = useState(false)  
   const [focusInput, setFocusInput] = useState(false)
@@ -143,8 +144,11 @@ const CreateContent: FC<CreateContentProps> = ({
       tracking.emitEvent({
         name: 'inference',
         session,
-      })
-      await sessions.loadSessions()
+      })      
+      
+      // Reload sessions
+      invalidateSessionsQuery(queryClient)
+
       setLoading(false)
       account.orgNavigate('session', { session_id: session.id })
     } catch (error) {

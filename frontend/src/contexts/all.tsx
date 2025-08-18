@@ -22,9 +22,6 @@ import {
 
 // all of these contexts MUST be below the account context
 // because they rely on it
-import {
-  SessionsContextProvider,
-} from './sessions'
 
 // Import the new AppsContextProvider
 import {
@@ -53,7 +50,6 @@ const AllContextProvider = ({ children }: { children: ReactNode }) => {
         <LoadingContextProvider>
           <ThemeProviderWrapper>
             <AccountContextProvider>
-              <SessionsContextProvider>
                 <AppsContextProvider>
                   <StreamingContextProvider>
                     <FloatingRunnerStateProvider>
@@ -63,7 +59,6 @@ const AllContextProvider = ({ children }: { children: ReactNode }) => {
                     </FloatingRunnerStateProvider>
                   </StreamingContextProvider>
                 </AppsContextProvider>
-              </SessionsContextProvider>
             </AccountContextProvider>
           </ThemeProviderWrapper>
         </LoadingContextProvider>
