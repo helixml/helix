@@ -1177,6 +1177,57 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/helix-models/memory-estimates": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get memory estimates for multiple models with different GPU configurations",
+                "tags": [
+                    "models"
+                ],
+                "summary": "List memory estimates for multiple models",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Comma-separated list of model IDs",
+                        "name": "model_ids",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of GPUs (default: auto-detect)",
+                        "name": "num_gpu",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/controller.MemoryEstimationResponse"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request parameters",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/helix-models/{id}": {
             "put": {
                 "security": [
@@ -1275,6 +1326,73 @@ const docTemplate = `{
                     },
                     "403": {
                         "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/helix-models/{model_id}/memory-estimate": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Estimate memory requirements for a model on different GPU configurations",
+                "tags": [
+                    "models"
+                ],
+                "summary": "Estimate model memory requirements",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Model ID",
+                        "name": "model_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of GPUs (default: auto-detect)",
+                        "name": "num_gpu",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Context length (default: model default)",
+                        "name": "context_length",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Batch size (default: 512)",
+                        "name": "batch_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/controller.MemoryEstimationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request parameters",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Model not found",
                         "schema": {
                             "type": "string"
                         }
@@ -3684,6 +3802,29 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "controller.MemoryEstimationResponse": {
+            "type": "object",
+            "properties": {
+                "cached": {
+                    "type": "boolean"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "estimate": {
+                    "$ref": "#/definitions/memory.MemoryEstimate"
+                },
+                "gpu_config": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.GPUInfoForEstimation"
+                    }
+                },
+                "model_id": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_helixml_helix_api_pkg_types.Config": {
             "type": "object",
             "properties": {
@@ -4294,6 +4435,176 @@ const docTemplate = `{
                 "valid": {
                     "description": "Valid is true if Time is not NULL",
                     "type": "boolean"
+                }
+            }
+        },
+        "memory.EstimateOptions": {
+            "type": "object",
+            "properties": {
+                "flash_attention": {
+                    "description": "Advanced options",
+                    "type": "boolean"
+                },
+                "kv_cache_type": {
+                    "description": "\"f16\", \"q8_0\", \"q4_0\"",
+                    "type": "string"
+                },
+                "num_batch": {
+                    "description": "Batch size",
+                    "type": "integer"
+                },
+                "num_ctx": {
+                    "description": "Context size",
+                    "type": "integer"
+                },
+                "num_gpu": {
+                    "description": "Number of layers to offload (-1 for auto)",
+                    "type": "integer"
+                },
+                "num_parallel": {
+                    "description": "Number of parallel sequences",
+                    "type": "integer"
+                }
+            }
+        },
+        "memory.GPUInfo": {
+            "type": "object",
+            "properties": {
+                "compute": {
+                    "type": "string"
+                },
+                "dependency_path": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "driver_major": {
+                    "type": "integer"
+                },
+                "driver_minor": {
+                    "type": "integer"
+                },
+                "env_workarounds": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "free_memory": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "library": {
+                    "description": "\"cuda\", \"rocm\", \"metal\", \"cpu\"",
+                    "type": "string"
+                },
+                "minimum_memory": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "total_memory": {
+                    "type": "integer"
+                },
+                "unreliable_free_memory": {
+                    "type": "boolean"
+                },
+                "variant": {
+                    "description": "Additional fields for compatibility with Ollama's estimation",
+                    "type": "string"
+                }
+            }
+        },
+        "memory.MemoryEstimate": {
+            "type": "object",
+            "properties": {
+                "architecture": {
+                    "description": "Metadata",
+                    "type": "string"
+                },
+                "estimated_at": {
+                    "type": "string"
+                },
+                "fully_loaded": {
+                    "description": "Whether all layers fit on GPU",
+                    "type": "boolean"
+                },
+                "gpu_sizes": {
+                    "description": "Memory allocation per GPU",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "gpus": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/memory.GPUInfo"
+                    }
+                },
+                "graph": {
+                    "description": "Graph memory requirement",
+                    "type": "integer"
+                },
+                "graph_mem": {
+                    "description": "Graph computation memory",
+                    "type": "integer"
+                },
+                "kv_cache": {
+                    "description": "Breakdown for analysis",
+                    "type": "integer"
+                },
+                "layers": {
+                    "description": "Core results",
+                    "type": "integer"
+                },
+                "model_path": {
+                    "type": "string"
+                },
+                "options": {
+                    "description": "Configuration used for estimation",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/memory.EstimateOptions"
+                        }
+                    ]
+                },
+                "projectors": {
+                    "description": "Projector weights (for multimodal)",
+                    "type": "integer"
+                },
+                "requires_fallback": {
+                    "description": "Whether CPU fallback is needed",
+                    "type": "boolean"
+                },
+                "tensor_split": {
+                    "description": "Layers per GPU for tensor parallel",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "total_size": {
+                    "description": "Total memory requirement",
+                    "type": "integer"
+                },
+                "vram_size": {
+                    "description": "Total VRAM usage",
+                    "type": "integer"
+                },
+                "weights": {
+                    "description": "Model weights memory",
+                    "type": "integer"
                 }
             }
         },
@@ -5620,6 +5931,37 @@ const docTemplate = `{
                 },
                 "valid_until": {
                     "type": "string"
+                }
+            }
+        },
+        "types.GPUInfoForEstimation": {
+            "type": "object",
+            "properties": {
+                "free_memory": {
+                    "description": "Free memory in bytes",
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "library": {
+                    "description": "\"cuda\", \"rocm\", \"metal\", \"cpu\"",
+                    "type": "string"
+                },
+                "minimum_memory": {
+                    "description": "Minimum memory to reserve",
+                    "type": "integer"
+                },
+                "name": {
+                    "description": "GPU model name",
+                    "type": "string"
+                },
+                "total_memory": {
+                    "description": "Total memory in bytes",
+                    "type": "integer"
                 }
             }
         },

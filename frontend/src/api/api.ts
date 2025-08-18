@@ -9,6 +9,14 @@
  * ---------------------------------------------------------------
  */
 
+export interface ControllerMemoryEstimationResponse {
+  cached?: boolean;
+  error?: string;
+  estimate?: MemoryMemoryEstimate;
+  gpu_config?: TypesGPUInfoForEstimation[];
+  model_id?: string;
+}
+
 export interface GithubComHelixmlHelixApiPkgTypesConfig {
   rules?: TypesRule[];
 }
@@ -308,6 +316,74 @@ export interface GormDeletedAt {
   time?: string;
   /** Valid is true if Time is not NULL */
   valid?: boolean;
+}
+
+export interface MemoryEstimateOptions {
+  /** Advanced options */
+  flash_attention?: boolean;
+  /** "f16", "q8_0", "q4_0" */
+  kv_cache_type?: string;
+  /** Batch size */
+  num_batch?: number;
+  /** Context size */
+  num_ctx?: number;
+  /** Number of layers to offload (-1 for auto) */
+  num_gpu?: number;
+  /** Number of parallel sequences */
+  num_parallel?: number;
+}
+
+export interface MemoryGPUInfo {
+  compute?: string;
+  dependency_path?: string[];
+  driver_major?: number;
+  driver_minor?: number;
+  env_workarounds?: string[][];
+  free_memory?: number;
+  id?: string;
+  index?: number;
+  /** "cuda", "rocm", "metal", "cpu" */
+  library?: string;
+  minimum_memory?: number;
+  name?: string;
+  total_memory?: number;
+  unreliable_free_memory?: boolean;
+  /** Additional fields for compatibility with Ollama's estimation */
+  variant?: string;
+}
+
+export interface MemoryMemoryEstimate {
+  /** Metadata */
+  architecture?: string;
+  estimated_at?: string;
+  /** Whether all layers fit on GPU */
+  fully_loaded?: boolean;
+  /** Memory allocation per GPU */
+  gpu_sizes?: number[];
+  gpus?: MemoryGPUInfo[];
+  /** Graph memory requirement */
+  graph?: number;
+  /** Graph computation memory */
+  graph_mem?: number;
+  /** Breakdown for analysis */
+  kv_cache?: number;
+  /** Core results */
+  layers?: number;
+  model_path?: string;
+  /** Configuration used for estimation */
+  options?: MemoryEstimateOptions;
+  /** Projector weights (for multimodal) */
+  projectors?: number;
+  /** Whether CPU fallback is needed */
+  requires_fallback?: boolean;
+  /** Layers per GPU for tensor parallel */
+  tensor_split?: number[];
+  /** Total memory requirement */
+  total_size?: number;
+  /** Total VRAM usage */
+  vram_size?: number;
+  /** Model weights memory */
+  weights?: number;
 }
 
 export interface OpenaiChatCompletionResponseFormatJSONSchema {
@@ -874,6 +950,21 @@ export interface TypesFrontendLicenseInfo {
   organization?: string;
   valid?: boolean;
   valid_until?: string;
+}
+
+export interface TypesGPUInfoForEstimation {
+  /** Free memory in bytes */
+  free_memory?: number;
+  id?: string;
+  index?: number;
+  /** "cuda", "rocm", "metal", "cpu" */
+  library?: string;
+  /** Minimum memory to reserve */
+  minimum_memory?: number;
+  /** GPU model name */
+  name?: string;
+  /** Total memory in bytes */
+  total_memory?: number;
 }
 
 export interface TypesGPUMemoryDataPoint {
@@ -3174,6 +3265,61 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Estimate memory requirements for a model on different GPU configurations
+     *
+     * @tags models
+     * @name V1HelixModelsMemoryEstimateDetail
+     * @summary Estimate model memory requirements
+     * @request GET:/api/v1/helix-models/{model_id}/memory-estimate
+     * @secure
+     */
+    v1HelixModelsMemoryEstimateDetail: (
+      modelId: string,
+      query?: {
+        /** Number of GPUs (default: auto-detect) */
+        num_gpu?: number;
+        /** Context length (default: model default) */
+        context_length?: number;
+        /** Batch size (default: 512) */
+        batch_size?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ControllerMemoryEstimationResponse, string>({
+        path: `/api/v1/helix-models/${modelId}/memory-estimate`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get memory estimates for multiple models with different GPU configurations
+     *
+     * @tags models
+     * @name V1HelixModelsMemoryEstimatesList
+     * @summary List memory estimates for multiple models
+     * @request GET:/api/v1/helix-models/memory-estimates
+     * @secure
+     */
+    v1HelixModelsMemoryEstimatesList: (
+      query?: {
+        /** Comma-separated list of model IDs */
+        model_ids?: string;
+        /** Number of GPUs (default: auto-detect) */
+        num_gpu?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ControllerMemoryEstimationResponse[], string>({
+        path: `/api/v1/helix-models/memory-estimates`,
+        method: "GET",
+        query: query,
+        secure: true,
         ...params,
       }),
 

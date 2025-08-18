@@ -430,20 +430,23 @@ func (s *PostgresStore) ListModels(ctx context.Context, q *ListModelsQuery) ([]*
 
 	query := s.gdb.WithContext(ctx)
 
-	if q.Type != "" {
-		query = query.Where("type = ?", q.Type)
-	}
+	// Handle nil query gracefully
+	if q != nil {
+		if q.Type != "" {
+			query = query.Where("type = ?", q.Type)
+		}
 
-	if q.Name != "" {
-		query = query.Where("name = ?", q.Name)
-	}
+		if q.Name != "" {
+			query = query.Where("name = ?", q.Name)
+		}
 
-	if q.Runtime != "" {
-		query = query.Where("runtime = ?", q.Runtime)
-	}
+		if q.Runtime != "" {
+			query = query.Where("runtime = ?", q.Runtime)
+		}
 
-	if q.Enabled != nil {
-		query = query.Where("enabled = ?", *q.Enabled)
+		if q.Enabled != nil {
+			query = query.Where("enabled = ?", *q.Enabled)
+		}
 	}
 
 	err := query.Order("sort_order ASC, created DESC").Find(&models).Error
