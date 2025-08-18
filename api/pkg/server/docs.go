@@ -1177,6 +1177,73 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/helix-models/memory-estimate": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Estimate memory requirements for a model on different GPU configurations",
+                "tags": [
+                    "models"
+                ],
+                "summary": "Estimate model memory requirements",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Model ID",
+                        "name": "model_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of GPUs (default: auto-detect)",
+                        "name": "num_gpu",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Context length (default: model default)",
+                        "name": "context_length",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Batch size (default: 512)",
+                        "name": "batch_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/controller.MemoryEstimationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request parameters",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Model not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/helix-models/memory-estimates": {
             "get": {
                 "security": [
@@ -1326,73 +1393,6 @@ const docTemplate = `{
                     },
                     "403": {
                         "description": "Forbidden - Admin required",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/helix-models/{model_id}/memory-estimate": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Estimate memory requirements for a model on different GPU configurations",
-                "tags": [
-                    "models"
-                ],
-                "summary": "Estimate model memory requirements",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Model ID",
-                        "name": "model_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Number of GPUs (default: auto-detect)",
-                        "name": "num_gpu",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Context length (default: model default)",
-                        "name": "context_length",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Batch size (default: 512)",
-                        "name": "batch_size",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/controller.MemoryEstimationResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid request parameters",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "404": {
-                        "description": "Model not found",
                         "schema": {
                             "type": "string"
                         }
