@@ -56,6 +56,17 @@ type GPUStatus struct {
 	CUDAVersion   string `json:"cuda_version"`   // CUDA version
 }
 
+// GPUInfoForEstimation represents GPU information sent from controlplane for memory estimation
+type GPUInfoForEstimation struct {
+	ID            string `json:"id"`
+	Index         int    `json:"index"`
+	Library       string `json:"library"`        // "cuda", "rocm", "metal", "cpu"
+	FreeMemory    uint64 `json:"free_memory"`    // Free memory in bytes
+	TotalMemory   uint64 `json:"total_memory"`   // Total memory in bytes
+	MinimumMemory uint64 `json:"minimum_memory"` // Minimum memory to reserve
+	Name          string `json:"name,omitempty"` // GPU model name
+}
+
 type RunnerModelStatus struct {
 	ModelID            string  `json:"model_id"`
 	Runtime            Runtime `json:"runtime"`

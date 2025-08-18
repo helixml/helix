@@ -489,6 +489,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// Helix models
 	authRouter.HandleFunc("/helix-models", apiServer.listHelixModels).Methods(http.MethodGet)
+	// Memory estimation endpoints
+	authRouter.HandleFunc("/helix-models/{model_id}/memory-estimate", apiServer.estimateModelMemory).Methods(http.MethodGet)
+	authRouter.HandleFunc("/helix-models/memory-estimates", apiServer.listModelMemoryEstimates).Methods(http.MethodGet)
 	// only admins can create, update, or delete helix models
 	adminRouter.HandleFunc("/helix-models", apiServer.createHelixModel).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/helix-models/{id:.*}", apiServer.updateHelixModel).Methods(http.MethodPut)

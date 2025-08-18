@@ -27,6 +27,7 @@ import Button from '@mui/material/Button';
 import { OllamaIcon, VllmIcon, HuggingFaceIcon } from '../icons/ProviderIcons';
 import EditHelixModel from './EditHelixModel';
 import DeleteHelixModelDialog from './DeleteHelixModelDialog';
+import MemoryEstimateCell from './MemoryEstimateCell';
 
 // Helper function to format date for tooltip
 const formatFullDate = (dateString: string | undefined): string => {
@@ -298,6 +299,7 @@ const HelixModelsTable: FC = () => {
               <TableCell>Name</TableCell>
               <TableCell>Context Length</TableCell>
               <TableCell>Type</TableCell>
+              <TableCell>Memory Estimate</TableCell>
               <TableCell>Enabled</TableCell>
               <TableCell>Auto pull</TableCell>
               <TableCell>Prewarm</TableCell>
@@ -330,6 +332,7 @@ const HelixModelsTable: FC = () => {
                 </TableCell>
                 <TableCell>{model.context_length || 'N/A'}</TableCell>
                 <TableCell>{model.type || 'N/A'}</TableCell>
+                <MemoryEstimateCell model={model} />
                 <TableCell>
                   <Switch
                     checked={model.enabled ?? false}

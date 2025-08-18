@@ -136,6 +136,10 @@ func (apiServer *HelixRunnerAPIServer) registerRoutes(_ context.Context) (*mux.R
 	// Log endpoints
 	subRouter.HandleFunc("/logs", apiServer.getLogsSummary).Methods(http.MethodGet)
 	subRouter.HandleFunc("/logs/{slot_id}", apiServer.getSlotLogs).Methods(http.MethodGet)
+	
+	// Memory estimation endpoints
+	subRouter.HandleFunc("/memory-estimation", apiServer.estimateModelMemoryHandler).Methods(http.MethodPost)
+	subRouter.HandleFunc("/memory-estimation/models", apiServer.getAvailableModelsForEstimationHandler).Methods(http.MethodGet)
 
 	// register pprof routes
 	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)

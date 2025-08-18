@@ -70,6 +70,9 @@ type Controller struct {
 	// this is done in-memory to ensure the status is always live
 	triggerStatuses   map[TriggerStatusKey]types.TriggerStatus
 	triggerStatusesMu *sync.RWMutex
+
+	// Memory estimation service for calculating model memory requirements
+	memoryEstimationService *MemoryEstimationService
 }
 
 type TriggerStatusKey struct {
@@ -133,6 +136,19 @@ func NewController(
 	// Initialize OAuth manager and stores for the ChainStrategy planner
 	tools.InitChainStrategyOAuth(planner, options.OAuthManager, options.Store, options.Store)
 
+	// Initialize memory estimation service
+	if options.RunnerController != nil {
+		modelProvider := NewStoreModelProvider(options.Store)
+		controller.memoryEstimationService = NewMemoryEstimationService(
+			options.RunnerController, // Implements RunnerSender interface
+			modelProvider,            // Wrapped store implementing ModelProvider interface
+		)
+		
+		// Start background cache refresh
+		controller.memoryEstimationService.StartBackgroundCacheRefresh(ctx)
+		controller.memoryEstimationService.StartCacheCleanup(ctx)
+	}
+
 	return controller, nil
 }
 
@@ -142,6 +158,11 @@ func (c *Controller) Initialize() error {
 
 // Close cleans up all resources used by the controller
 func (c *Controller) Close() error {
+	// Stop memory estimation service
+	if c.memoryEstimationService != nil {
+		c.memoryEstimationService.StopBackgroundCacheRefresh()
+	}
+
 	// Close browser if present
 	if c.Options.Browser != nil {
 		c.Options.Browser.Close()
@@ -164,6 +185,11 @@ func (c *Controller) Close() error {
 	}
 
 	return nil
+}
+
+// GetMemoryEstimationService returns the memory estimation service
+func (c *Controller) GetMemoryEstimationService() *MemoryEstimationService {
+	return c.memoryEstimationService
 }
 
 func (c *Controller) SetTriggerStatus(appID string, triggerType types.TriggerType, status types.TriggerStatus) {
