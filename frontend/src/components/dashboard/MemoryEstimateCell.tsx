@@ -78,12 +78,20 @@ const MemoryEstimateCell: FC<MemoryEstimateCellProps> = ({ model }) => {
     return (
       <Box display="flex" alignItems="center" gap={1}>
         <Box>
-          <Typography variant="body2" fontWeight="medium">
-            {formatMemorySize(estimate.total_size || 0)}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {estimate.layers || 0} layers
-          </Typography>
+          {selectedGPUCount === 1 ? (
+            <Typography variant="body2" fontWeight="medium">
+              {formatMemorySize(estimate.total_size || 0)}
+            </Typography>
+          ) : (
+            <>
+              <Typography variant="body2" fontWeight="medium">
+                {formatMemorySize((estimate.total_size || 0) / selectedGPUCount)} per GPU
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                ({formatMemorySize(estimate.total_size || 0)} total)
+              </Typography>
+            </>
+          )}
         </Box>
         
         {isCached && (
@@ -98,7 +106,12 @@ const MemoryEstimateCell: FC<MemoryEstimateCellProps> = ({ model }) => {
         
         <Tooltip title={
           <Box>
-            <Typography variant="body2" fontWeight="medium">Memory Breakdown:</Typography>
+            <Typography variant="body2" fontWeight="medium">
+              Memory Breakdown ({selectedGPUCount} GPU{selectedGPUCount > 1 ? 's' : ''}):
+            </Typography>
+            {selectedGPUCount > 1 && (
+              <Typography variant="body2">Per GPU Memory: {formatMemorySize((estimate.total_size || 0) / selectedGPUCount)}</Typography>
+            )}
             <Typography variant="body2">Total GPU Memory: {formatMemorySize(estimate.total_size || 0)}</Typography>
             <Typography variant="body2">VRAM Allocated: {formatMemorySize(estimate.vram_size || 0)}</Typography>
             <Typography variant="body2">Weights: {formatMemorySize(estimate.weights || 0)}</Typography>

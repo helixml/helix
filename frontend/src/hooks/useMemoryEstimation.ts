@@ -1,13 +1,14 @@
 import { useState, useCallback } from 'react';
+import useApi from './useApi';
 
 interface MemoryEstimate {
-  vram_size: number;
-  total_size: number;
-  weights: number;
-  kv_cache: number;
-  graph: number;
-  architecture: string;
-  requires_fallback: boolean;
+  vram_size?: number;
+  total_size?: number;
+  weights?: number;
+  kv_cache?: number;
+  graph?: number;
+  architecture?: string;
+  requires_fallback?: boolean;
   error?: string;
 }
 
@@ -31,6 +32,8 @@ const GPU_SCENARIOS: GPUScenario[] = [
 ];
 
 export const useMemoryEstimation = () => {
+  const api = useApi();
+  const apiClient = api.getApiClient();
   const [estimates, setEstimates] = useState<Record<number, MemoryEstimate>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,21 +45,16 @@ export const useMemoryEstimation = () => {
     setError(null);
 
     try {
-      // Create a temporary URL with query parameters to get estimates for this specific context length
-      const url = new URL('/api/v1/helix-models/memory-estimate', window.location.origin);
-      url.searchParams.set('model_id', modelId);
-      url.searchParams.set('context_length', contextLength.toString());
-      url.searchParams.set('num_gpu', gpuCount.toString());
+      const query = {
+        model_id: modelId,
+        context_length: contextLength,
+        num_gpu: gpuCount,
+      };
 
-      const response = await fetch(url.toString());
+      const response = await apiClient.v1HelixModelsMemoryEstimateList(query);
+      const data = response.data;
       
-      if (!response.ok) {
-        throw new Error(`Failed to fetch memory estimation: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      
-      // The new API returns a single estimate object, not a map
+      // The API returns a single estimate object
       if (data && data.estimate) {
         setEstimates(prev => ({ ...prev, [gpuCount]: data.estimate }));
       } else if (data && data.error) {
@@ -70,7 +68,7 @@ export const useMemoryEstimation = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [apiClient]);
 
   const fetchMultipleEstimates = useCallback(async (modelId: string, contextLength: number) => {
     if (!modelId || contextLength <= 0) return;
@@ -80,9 +78,26 @@ export const useMemoryEstimation = () => {
     
     try {
       // Fetch estimates for all GPU scenarios in parallel
-      const promises = GPU_SCENARIOS.map(scenario => 
-        fetchEstimate(modelId, contextLength, scenario.gpuCount)
-      );
+      const promises = GPU_SCENARIOS.map(async (scenario) => {
+        try {
+          const query = {
+            model_id: modelId,
+            context_length: contextLength,
+            num_gpu: scenario.gpuCount,
+          };
+
+          const response = await apiClient.v1HelixModelsMemoryEstimateList(query);
+          const data = response.data;
+          
+          if (data && data.estimate) {
+            setEstimates(prev => ({ ...prev, [scenario.gpuCount]: data.estimate }));
+          } else if (data && data.error) {
+            console.warn(`Error for ${scenario.gpuCount} GPUs:`, data.error);
+          }
+        } catch (err) {
+          console.warn(`Failed to fetch estimate for ${scenario.gpuCount} GPUs:`, err);
+        }
+      });
       
       await Promise.all(promises);
     } catch (err) {
@@ -90,16 +105,20 @@ export const useMemoryEstimation = () => {
     } finally {
       setLoading(false);
     }
-  }, [fetchEstimate]);
+  }, [apiClient]);
 
-  const formatMemorySize = useCallback((bytes: number): string => {
-    if (bytes === 0) return '0 B';
+  const formatMemorySize = useCallback((bytes: number | undefined): string => {
+    if (!bytes || bytes === 0) return '0 B';
     
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+  }, []);
+
+  const clearEstimates = useCallback(() => {
+    setEstimates({});
   }, []);
 
   return {
@@ -110,6 +129,6 @@ export const useMemoryEstimation = () => {
     fetchMultipleEstimates,
     formatMemorySize,
     GPU_SCENARIOS,
-    clearEstimates: () => setEstimates({}),
+    clearEstimates,
   };
 };

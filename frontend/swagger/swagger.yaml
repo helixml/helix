@@ -4803,12 +4803,12 @@ paths:
       summary: Update an existing Helix model
       tags:
       - models
-  /api/v1/helix-models/{model_id}/memory-estimate:
+  /api/v1/helix-models/memory-estimate:
     get:
       description: Estimate memory requirements for a model on different GPU configurations
       parameters:
       - description: Model ID
-        in: path
+        in: query
         name: model_id
         required: true
         type: string

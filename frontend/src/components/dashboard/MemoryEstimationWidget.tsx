@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Card,
@@ -37,33 +37,68 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
   onContextLengthChange,
   disabled = false,
 }) => {
-  const [sliderValue, setSliderValue] = useState(currentContextLength / 1000); // Convert to K
+  // Convert context length to logarithmic scale for better distribution
+  const contextToLogScale = (contextK: number) => Math.log10(contextK);
+  const logScaleToContext = (logValue: number) => Math.pow(10, logValue);
+  
+  const [sliderValue, setSliderValue] = useState(contextToLogScale(currentContextLength / 1000));
   const [expanded, setExpanded] = useState(false);
   const { estimates, loading, error, fetchMultipleEstimates, formatMemorySize, GPU_SCENARIOS, clearEstimates } = useMemoryEstimation();
+  
+  // Debounce timer ref
+  const debounceTimerRef = useRef<NodeJS.Timeout>();
 
   // Update slider when external context length changes
   useEffect(() => {
-    setSliderValue(currentContextLength / 1000);
+    setSliderValue(contextToLogScale(currentContextLength / 1000));
   }, [currentContextLength]);
 
-  // Fetch estimates when model or context length changes
+  // Debounced fetch estimates when model or context length changes
   useEffect(() => {
-    if (modelId && currentContextLength > 0) {
-      fetchMultipleEstimates(modelId, currentContextLength);
-    } else {
-      clearEstimates();
+    // Clear existing timer
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
     }
-  }, [modelId, currentContextLength, fetchMultipleEstimates, clearEstimates]);
+
+    // Set new timer
+    debounceTimerRef.current = setTimeout(() => {
+      if (modelId && currentContextLength > 0) {
+        fetchMultipleEstimates(modelId, currentContextLength);
+      } else {
+        clearEstimates();
+      }
+    }, 300); // 300ms debounce
+
+    // Cleanup timer on unmount
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [modelId, currentContextLength]);
 
   const handleSliderChange = useCallback((_: Event, value: number | number[]) => {
-    const newValue = Array.isArray(value) ? value[0] : value;
-    setSliderValue(newValue);
-    const contextLength = newValue * 1000; // Convert K back to tokens
+    const logValue = Array.isArray(value) ? value[0] : value;
+    const contextK = logScaleToContext(logValue);
+    
+    // Snap to preset if close enough, otherwise use the exact value
+    const snapThreshold = contextK * 0.1; // 10% threshold for snapping
+    const closestPreset = CONTEXT_PRESETS.reduce((closest, preset) => {
+      const distance = Math.abs(contextK - preset);
+      const closestDistance = Math.abs(contextK - closest);
+      return distance < closestDistance ? preset : closest;
+    });
+    
+    const shouldSnap = Math.abs(contextK - closestPreset) <= snapThreshold;
+    const finalContextK = shouldSnap ? closestPreset : Math.round(contextK);
+    
+    setSliderValue(contextToLogScale(finalContextK));
+    const contextLength = finalContextK * 1000; // Convert K back to tokens
     onContextLengthChange(contextLength);
   }, [onContextLengthChange]);
 
   const handlePresetClick = useCallback((preset: number) => {
-    setSliderValue(preset);
+    setSliderValue(contextToLogScale(preset));
     onContextLengthChange(preset * 1000);
   }, [onContextLengthChange]);
 
@@ -90,9 +125,20 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
               </Box>
             ) : estimate ? (
               <Box>
-                <Typography variant="h6" color="text.primary" gutterBottom>
-                  {formatMemorySize(estimate.total_size)}
-                </Typography>
+                {scenario.gpuCount === 1 ? (
+                  <Typography variant="h6" color="text.primary" gutterBottom>
+                    {formatMemorySize(estimate.total_size)}
+                  </Typography>
+                ) : (
+                  <Box>
+                    <Typography variant="h6" color="text.primary" gutterBottom>
+                      {formatMemorySize(estimate.total_size / scenario.gpuCount)} per GPU
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      ({formatMemorySize(estimate.total_size)} total)
+                    </Typography>
+                  </Box>
+                )}
                 
                 <Box sx={{ mt: 1 }}>
                   <Typography variant="caption" display="block" color="text.secondary">
@@ -165,24 +211,51 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
         {/* Context Length Slider */}
         <Box mb={3}>
           <Typography variant="subtitle2" gutterBottom>
-            Context Length: {(sliderValue * 1000).toLocaleString()} tokens ({sliderValue}K)
+            Context Length: {(logScaleToContext(sliderValue) * 1000).toLocaleString()} tokens ({Math.round(logScaleToContext(sliderValue))}K)
           </Typography>
           
-          <Slider
-            value={sliderValue}
-            onChange={handleSliderChange}
-            min={4}
-            max={1000}
-            step={1}
-            marks={CONTEXT_PRESETS.map(value => ({ value, label: `${value}K` }))}
-            valueLabelDisplay="auto"
-            valueLabelFormat={(value) => `${value}K`}
-            disabled={disabled}
-            sx={{ mb: 2 }}
-          />
+          <Box px={1}>
+            <Slider
+              value={sliderValue}
+              onChange={handleSliderChange}
+              min={contextToLogScale(4)}
+              max={contextToLogScale(1000)}
+              step={0.01}
+              marks={CONTEXT_PRESETS.map(value => ({ 
+                value: contextToLogScale(value), 
+                label: `${value}K` 
+              }))}
+              valueLabelDisplay="auto"
+              valueLabelFormat={(logValue) => `${Math.round(logScaleToContext(logValue))}K`}
+              disabled={disabled}
+              sx={{ 
+                mb: 3,
+                '& .MuiSlider-markLabel': {
+                  fontSize: '0.7rem',
+                  transform: 'translateX(-50%)',
+                  whiteSpace: 'nowrap',
+                },
+                '& .MuiSlider-mark': {
+                  height: 8,
+                  backgroundColor: 'primary.main',
+                },
+                '& .MuiSlider-rail': {
+                  opacity: 0.3,
+                },
+                '& .MuiSlider-track': {
+                  border: 'none',
+                }
+              }}
+            />
+          </Box>
 
           {/* Preset Buttons */}
-          <Box display="flex" flexWrap="wrap" gap={0.5}>
+          <Box 
+            display="grid" 
+            gridTemplateColumns="repeat(auto-fit, minmax(60px, 1fr))"
+            gap={0.5}
+            sx={{ maxWidth: '700px', mx: 'auto' }}
+          >
             {CONTEXT_PRESETS.map(preset => (
               <Chip
                 key={preset}
@@ -190,8 +263,17 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
                 size="small"
                 clickable
                 disabled={disabled}
-                color={Math.abs(sliderValue - preset) < 0.1 ? 'primary' : 'default'}
+                color={Math.abs(sliderValue - contextToLogScale(preset)) < 0.01 ? 'primary' : 'default'}
                 onClick={() => handlePresetClick(preset)}
+                sx={{ 
+                  minWidth: '60px',
+                  justifySelf: 'center',
+                  fontSize: '0.75rem',
+                  '& .MuiChip-label': {
+                    whiteSpace: 'nowrap',
+                    overflow: 'visible'
+                  }
+                }}
               />
             ))}
           </Box>
@@ -210,11 +292,11 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
 
         {!expanded && Object.keys(estimates).length > 0 && (
           <Box>
-            <Typography variant="body2" color="text.secondary">
-              Single GPU: {estimates[1] ? formatMemorySize(estimates[1].total_size) : 'Calculating...'}
-              {estimates[2] && ` • 2 GPUs: ${formatMemorySize(estimates[2].total_size)}`}
-              {estimates[4] && ` • 4 GPUs: ${formatMemorySize(estimates[4].total_size)}`}
-              {estimates[8] && ` • 8 GPUs: ${formatMemorySize(estimates[8].total_size)}`}
+            <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+              {estimates[1] && `1 GPU: ${formatMemorySize(estimates[1].total_size)}`}
+              {estimates[2] && ` • 2 GPUs: ${formatMemorySize(estimates[2].total_size / 2)} each (${formatMemorySize(estimates[2].total_size)} total)`}
+              {estimates[4] && ` • 4 GPUs: ${formatMemorySize(estimates[4].total_size / 4)} each (${formatMemorySize(estimates[4].total_size)} total)`}
+              {estimates[8] && ` • 8 GPUs: ${formatMemorySize(estimates[8].total_size / 8)} each (${formatMemorySize(estimates[8].total_size)} total)`}
             </Typography>
           </Box>
         )}

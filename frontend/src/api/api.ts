@@ -3272,14 +3272,15 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @description Estimate memory requirements for a model on different GPU configurations
      *
      * @tags models
-     * @name V1HelixModelsMemoryEstimateDetail
+     * @name V1HelixModelsMemoryEstimateList
      * @summary Estimate model memory requirements
-     * @request GET:/api/v1/helix-models/{model_id}/memory-estimate
+     * @request GET:/api/v1/helix-models/memory-estimate
      * @secure
      */
-    v1HelixModelsMemoryEstimateDetail: (
-      modelId: string,
-      query?: {
+    v1HelixModelsMemoryEstimateList: (
+      query: {
+        /** Model ID */
+        model_id: string;
         /** Number of GPUs (default: auto-detect) */
         num_gpu?: number;
         /** Context length (default: model default) */
@@ -3290,7 +3291,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       params: RequestParams = {},
     ) =>
       this.request<ControllerMemoryEstimationResponse, string>({
-        path: `/api/v1/helix-models/${modelId}/memory-estimate`,
+        path: `/api/v1/helix-models/memory-estimate`,
         method: "GET",
         query: query,
         secure: true,
