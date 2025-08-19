@@ -7,6 +7,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/jsonschema"
+	"github.com/sourcegraph/go-diff/diff"
 
 	"github.com/jfrog/froggit-go/vcsclient"
 	"github.com/jfrog/froggit-go/vcsutils"
@@ -98,11 +99,7 @@ func (t *AzureDevOpsPullRequestDiffTool) Execute(ctx context.Context, _ agent.Me
 	response += fmt.Sprintf("Author: %s\n", diffResult.PullRequest.Author)
 
 	for _, change := range diffResult.Changes {
-		response += fmt.Sprintf("Path: %s\n", change.Path)
-		response += fmt.Sprintf("Change Type: %s\n", change.ChangeType)
 		response += fmt.Sprintf("Content: %s\n", change.Content)
-		response += fmt.Sprintf("Content Length: %d\n", change.ContentLength)
-		response += fmt.Sprintf("Content Type: %s\n", change.ContentType)
 	}
 
 	return response, nil
@@ -115,16 +112,14 @@ type PullRequestDiffResult struct {
 }
 
 type PullRequestChange struct {
-	Path          string      `json:"path"`
-	ChangeType    string      `json:"change_type"`
-	Content       string      `json:"content"`
-	ContentLength int         `json:"content_length"`
-	ContentType   string      `json:"content_type"`
-	Encoding      string      `json:"encoding"`
-	IsBinary      bool        `json:"is_binary"`
-	Hunks         []*DiffHunk `json:"hunks,omitempty"`
-	LinesAdded    int         `json:"lines_added"`
-	LinesDeleted  int         `json:"lines_deleted"`
+	Path          string       `json:"path"`
+	ChangeType    string       `json:"change_type"`
+	Content       string       `json:"content"`
+	ContentLength int          `json:"content_length"`
+	ContentType   string       `json:"content_type"`
+	Encoding      string       `json:"encoding"`
+	IsBinary      bool         `json:"is_binary"`
+	Hunks         []*diff.Hunk `json:"hunks,omitempty"`
 }
 
 type DiffHunk struct {

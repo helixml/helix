@@ -2,10 +2,10 @@ package azuredevops
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -36,5 +36,5 @@ func Test_GetDiff(t *testing.T) {
 	response, err := skill.Tools[0].Execute(ctx, agent.Meta{}, map[string]interface{}{})
 	require.NoError(t, err)
 
-	spew.Dump(response)
+	fmt.Println(response)
 }
