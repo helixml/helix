@@ -31,6 +31,7 @@ func NewPullRequestDiffSkill(organizationURL string, personalAccessToken string)
 		Name:        "AzureDevOpsPullRequestDiff",
 		Description: pullRequestDiffSkillDescription,
 		Parameters:  pullRequestDiffParameters,
+		Direct:      true,
 		Tools: []agent.Tool{
 			&AzureDevOpsPullRequestDiffTool{
 				orgURL: organizationURL,
