@@ -12,6 +12,8 @@ import (
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/transport/http"
 	"github.com/rs/zerolog/log"
+
+	"github.com/sourcegraph/go-diff/diff"
 )
 
 type GitManager struct {
@@ -145,7 +147,7 @@ func (g *GitManager) parseGitStatusOutput(output string) ([]fileChange, error) {
 
 // getFileDiff gets the detailed diff for a single file
 func (g *GitManager) getFileDiff(ctx context.Context, filePath, changeType, targetCommit, sourceCommit string) (*PullRequestChange, error) {
-	logger := log.Ctx(ctx)
+	// logger := log.Ctx(ctx)
 
 	// Get the detailed diff for this file
 	diffCmd := exec.CommandContext(ctx, "git", "diff", "--unified=0", "--no-renames", targetCommit, sourceCommit, "--", filePath)
@@ -154,11 +156,8 @@ func (g *GitManager) getFileDiff(ctx context.Context, filePath, changeType, targ
 		return nil, fmt.Errorf("git diff command failed for file %s: %w", filePath, err)
 	}
 
-	// Parse the diff output to extract hunks and line changes
-	hunks, linesAdded, linesDeleted, err := g.parseGitDiffOutput(string(diffOutput))
+	fileDiff, err := diff.ParseFileDiff(diffOutput)
 	if err != nil {
-		logger.Warn().Err(err).Str("file_path", filePath).Msg("failed to parse diff output, creating basic change")
-		// Return a basic change if parsing fails
 		return &PullRequestChange{
 			Path:          filePath,
 			ChangeType:    changeType,
@@ -167,6 +166,22 @@ func (g *GitManager) getFileDiff(ctx context.Context, filePath, changeType, targ
 			IsBinary:      false,
 		}, nil
 	}
+	// Note: This is more complicated but we can get line numbers. However with diff.ParseFileDiff
+	// we can get the hunks with almost no effort
+
+	// Parse the diff output to extract hunks and line changes
+	// hunks, linesAdded, linesDeleted, err := g.parseGitDiffOutput(string(diffOutput))
+	// if err != nil {
+	// 	logger.Warn().Err(err).Str("file_path", filePath).Msg("failed to parse diff output, creating basic change")
+	// 	// Return a basic change if parsing fails
+	// 	return &PullRequestChange{
+	// 		Path:          filePath,
+	// 		ChangeType:    changeType,
+	// 		Content:       string(diffOutput),
+	// 		ContentLength: len(diffOutput),
+	// 		IsBinary:      false,
+	// 	}, nil
+	// }
 
 	return &PullRequestChange{
 		Path:          filePath,
@@ -174,9 +189,7 @@ func (g *GitManager) getFileDiff(ctx context.Context, filePath, changeType, targ
 		Content:       string(diffOutput),
 		ContentLength: len(diffOutput),
 		IsBinary:      false,
-		Hunks:         hunks,
-		LinesAdded:    linesAdded,
-		LinesDeleted:  linesDeleted,
+		Hunks:         fileDiff.Hunks,
 	}, nil
 }
 

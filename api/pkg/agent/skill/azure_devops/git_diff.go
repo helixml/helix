@@ -24,12 +24,12 @@ func GetPullRequestChange(ctx context.Context, token string, opts GetPullRequest
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
-	fmt.Println("TEMP PATH:", gitRepoTempPath)
-	// defer func() {
-	// 	if cleanupErr := os.RemoveAll(gitRepoTempPath); cleanupErr != nil {
-	// 		logger.Warn().Err(cleanupErr).Str("temp_path", gitRepoTempPath).Msg("failed to cleanup temp directory")
-	// 	}
-	// }()
+
+	defer func() {
+		if cleanupErr := os.RemoveAll(gitRepoTempPath); cleanupErr != nil {
+			logger.Warn().Err(cleanupErr).Str("temp_path", gitRepoTempPath).Msg("failed to cleanup temp directory")
+		}
+	}()
 
 	manager := NewGitManager(opts.RemoteURL, token)
 
