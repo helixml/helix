@@ -405,6 +405,10 @@ func (s *Scheduler) GetRunnerController() *RunnerController {
 	return s.controller
 }
 
+func (s *Scheduler) GetMemoryEstimationService() MemoryEstimationService {
+	return s.memoryEstimationService
+}
+
 // storeGPUAllocation stores the GPU allocation decision for a workload-runner combination
 func (s *Scheduler) storeGPUAllocation(work *Workload, runnerID string, singleGPU *int, multiGPUs []int) {
 	var tensorParallelSize int
@@ -815,7 +819,7 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	allActualSlots := make(map[uuid.UUID]string)                  // maps slot ID to runner ID
 	allActualSlotDetails := make(map[uuid.UUID]*types.RunnerSlot) // maps slot ID to slot details
 	for _, runnerID := range runnerIDs {
-		log.Info().Str("runner_id", runnerID).Msg("APPLE: Fetching actual slots from runner")
+		// log.Info().Str("runner_id", runnerID).Msg("APPLE: Fetching actual slots from runner")
 
 		// We need a live view of the slots here, otherwise we might get stale data
 		actualSlots, err := s.controller.fetchSlots(runnerID)
@@ -824,19 +828,19 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 			continue
 		}
 
-		log.Info().
-			Str("runner_id", runnerID).
-			Int("slot_count", len(actualSlots.Slots)).
-			Msg("APPLE: Got actual slots from runner")
+		// log.Info().
+		// 	Str("runner_id", runnerID).
+		// 	Int("slot_count", len(actualSlots.Slots)).
+		// 	Msg("APPLE: Got actual slots from runner")
 
 		for _, slot := range actualSlots.Slots {
-			log.Info().
-				Str("slot_id", slot.ID.String()).
-				Str("runner_id", slot.RunnerID).
-				Str("model", slot.Model).
-				Bool("active", slot.Active).
-				Bool("ready", slot.Ready).
-				Msg("APPLE: Processing actual slot from runner")
+			// 	log.Info().
+			// 		Str("slot_id", slot.ID.String()).
+			// 		Str("runner_id", slot.RunnerID).
+			// 		Str("model", slot.Model).
+			// 		Bool("active", slot.Active).
+			// 		Bool("ready", slot.Ready).
+			// 		Msg("APPLE: Processing actual slot from runner")
 
 			// If we find the same slot ID on multiple runners, delete from the duplicate runner
 			if existingRunnerID, exists := allActualSlots[slot.ID]; exists {
@@ -952,20 +956,20 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 		s.slots.UpdateSlotActivity(update.slotID, update.isActive, update.isRunning)
 		syncedSlotCount++
 
-		log.Info().
-			Str("slot_id", update.slotID.String()).
-			Str("runner_id", update.runnerID).
-			Str("model", update.modelName).
-			Bool("old_running", update.oldRunning).
-			Bool("new_running", update.isRunning).
-			Bool("old_active", update.oldActive).
-			Bool("new_active", update.isActive).
-			Msg("APPLE: Synced slot status with runner state")
+		// log.Info().
+		// 	Str("slot_id", update.slotID.String()).
+		// 	Str("runner_id", update.runnerID).
+		// 	Str("model", update.modelName).
+		// 	Bool("old_running", update.oldRunning).
+		// 	Bool("new_running", update.isRunning).
+		// 	Bool("old_active", update.oldActive).
+		// 	Bool("new_active", update.isActive).
+		// 	Msg("APPLE: Synced slot status with runner state")
 	}
 
-	log.Info().
-		Int("synced_count", syncedSlotCount).
-		Msg("APPLE: Completed slot status synchronization")
+	// log.Info().
+	// 	Int("synced_count", syncedSlotCount).
+	// 	Msg("APPLE: Completed slot status synchronization")
 
 	// Create new slots - collect failed slots for deletion after Range completes to avoid deadlock
 	type failedSlotInfo struct {
@@ -975,35 +979,35 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	}
 	var failedSlots []failedSlotInfo
 
-	log.Info().Int("desired_slots_count", s.slots.Size()).Msg("APPLE: Starting desired slot reconciliation")
+	// log.Info().Int("desired_slots_count", s.slots.Size()).Msg("APPLE: Starting desired slot reconciliation")
 
 	s.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
-		log.Info().
-			Str("slot_id", slotID.String()).
-			Str("desired_runner_id", slot.RunnerID).
-			Msg("APPLE: Checking desired slot")
+		// log.Info().
+		// 	Str("slot_id", slotID.String()).
+		// 	Str("desired_runner_id", slot.RunnerID).
+		// 	Msg("APPLE: Checking desired slot")
 
 		if runnerID, exists := allActualSlots[slotID]; !exists {
 			orphanedSlotCount++
 
 			// Safely handle potential nil InitialWork for logging
-			var modelName, runtime string
-			if work := slot.InitialWork(); work != nil {
-				modelName = work.ModelName().String()
-				runtime = string(work.Runtime())
-			} else {
-				modelName = "unknown"
-				runtime = "unknown"
-			}
+			// var modelName, runtime string
+			// if work := slot.InitialWork(); work != nil {
+			// 	modelName = work.ModelName().String()
+			// 	runtime = string(work.Runtime())
+			// } else {
+			// 	modelName = "unknown"
+			// 	runtime = "unknown"
+			// }
 
-			log.Info().
-				Str("runner_id", slot.RunnerID).
-				Str("slot_id", slotID.String()).
-				Str("model", modelName).
-				Str("runtime", runtime).
-				Bool("is_active", slot.IsActive()).
-				Bool("is_running", slot.IsRunning()).
-				Msg("APPLE: found slot on the scheduler that doesn't exist on the runner, creating...")
+			// log.Info().
+			// 	Str("runner_id", slot.RunnerID).
+			// 	Str("slot_id", slotID.String()).
+			// 	Str("model", modelName).
+			// 	Str("runtime", runtime).
+			// 	Bool("is_active", slot.IsActive()).
+			// 	Bool("is_running", slot.IsRunning()).
+			// 	Msg("APPLE: found slot on the scheduler that doesn't exist on the runner, creating...")
 
 			// log.Debug().
 			//	Str("SLOT_RECONCILE_DEBUG", "calling_create_new_slot").
@@ -1104,27 +1108,32 @@ func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint
 	// Calculate allocated memory from all models using LOCAL state for consistency
 	// Memory is allocated to slots regardless of whether they're currently active
 	allocatedMemory := uint64(0)
-	var memoryCalculationError error
+	skippedSlots := 0
 	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 		// Only count slots on this specific runner
 		if slot.RunnerID == runnerID {
 			modelName := slot.InitialWork().ModelName().String()
 			modelMemory, err := s.getModelMemory(modelName)
 			if err != nil {
-				memoryCalculationError = fmt.Errorf("failed to get model memory for slot %s with model %s on runner %s: %w", slot.ID.String(), modelName, runnerID, err)
-				return false // Stop iteration
+				log.Warn().
+					Str("runner_id", runnerID).
+					Str("slot_id", slot.ID.String()).
+					Str("model_name", modelName).
+					Err(err).
+					Msg("WARNING: Cannot get memory for slot - Ollama model without GGUF data. This slot will not be counted in memory calculations.")
+				skippedSlots++
+				return true // Continue iteration, skip this slot
 			}
 			allocatedMemory += modelMemory
 		}
 		return true
 	})
 
-	if memoryCalculationError != nil {
-		log.Error().
+	if skippedSlots > 0 {
+		log.Warn().
 			Str("runner_id", runnerID).
-			Err(memoryCalculationError).
-			Msg("CRITICAL: Cannot calculate runner memory due to unknown model memory - this could lead to over-scheduling")
-		return 0, 0, 0, memoryCalculationError
+			Int("skipped_slots", skippedSlots).
+			Msg("WARNING: Some slots were skipped in memory calculation due to missing GGUF data for Ollama models")
 	}
 
 	var freeMemory uint64
@@ -1137,34 +1146,146 @@ func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint
 	return totalMemory, allocatedMemory, freeMemory, nil
 }
 
-// getModelMemory returns the memory requirement for a model from the model registry
+// getModelMemory returns the memory requirement for a model
 func (s *Scheduler) getModelMemory(modelID string) (uint64, error) {
-	// try to get from the model registry (the authoritative source)
+	// Get model info first to determine runtime
 	models, err := s.controller.store.ListModels(context.Background(), &store.ListModelsQuery{})
 	if err != nil {
 		log.Error().
 			Str("model_id", modelID).
 			Err(err).
-			Msg("CRITICAL: failed to list models from store - cannot get model memory")
+			Msg("CRITICAL: failed to list models from store - cannot get model info")
 		return 0, fmt.Errorf("failed to list models from store for model %s: %w", modelID, err)
 	}
 
+	var targetModel *types.Model
 	for _, model := range models {
 		if model.ID == modelID {
-			if model.Memory == 0 {
-				log.Error().
-					Str("model_id", modelID).
-					Msg("CRITICAL: model has zero memory requirement - invalid configuration")
-				return 0, fmt.Errorf("model %s has zero memory requirement - invalid configuration", modelID)
-			}
-			return model.Memory, nil
+			targetModel = model
+			break
 		}
 	}
 
-	log.Error().
+	if targetModel == nil {
+		log.Error().
+			Str("model_id", modelID).
+			Msg("CRITICAL: model not found in model registry - cannot determine memory requirement")
+		return 0, fmt.Errorf("model %s not found in model registry", modelID)
+	}
+
+	// For Ollama models, ONLY use GGUF-based memory estimate - never fall back to store values
+	if targetModel.Runtime == types.RuntimeOllama {
+		if s.memoryEstimationService == nil {
+			log.Error().
+				Str("model_id", modelID).
+				Msg("CRITICAL: memory estimation service required for Ollama models but not available")
+			return 0, fmt.Errorf("memory estimation service required for Ollama model %s but not available", modelID)
+		}
+
+		ggufMemory, err := s.getGGUFBasedMemoryEstimate(modelID)
+		if err != nil {
+			log.Error().
+				Str("model_id", modelID).
+				Err(err).
+				Msg("CRITICAL: GGUF estimation failed for Ollama model - cannot schedule without GGUF data")
+			return 0, fmt.Errorf("GGUF estimation failed for Ollama model %s: %w", modelID, err)
+		}
+
+		log.Debug().
+			Str("model_id", modelID).
+			Uint64("gguf_memory_bytes", ggufMemory).
+			Msg("Using GGUF-based memory estimate for scheduling")
+		return ggufMemory, nil
+	}
+
+	// For non-Ollama models, use store values
+	if targetModel.Memory == 0 {
+		log.Error().
+			Str("model_id", modelID).
+			Msg("CRITICAL: model has zero memory requirement - invalid configuration")
+		return 0, fmt.Errorf("model %s has zero memory requirement - invalid configuration", modelID)
+	}
+
+	log.Debug().
 		Str("model_id", modelID).
-		Msg("CRITICAL: model not found in model registry - cannot determine memory requirement")
-	return 0, fmt.Errorf("model %s not found in model registry", modelID)
+		Str("runtime", string(targetModel.Runtime)).
+		Uint64("store_memory_bytes", targetModel.Memory).
+		Msg("Using store-based memory value for non-Ollama model")
+	return targetModel.Memory, nil
+}
+
+// getGGUFBasedMemoryEstimate attempts to get GGUF-based memory estimate for Ollama models
+func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
+	// Check if this is an Ollama model first
+	models, err := s.controller.store.ListModels(context.Background(), &store.ListModelsQuery{})
+	if err != nil {
+		return 0, fmt.Errorf("failed to list models from store: %w", err)
+	}
+
+	var targetModel *types.Model
+	for _, model := range models {
+		if model.ID == modelID {
+			targetModel = model
+			break
+		}
+	}
+
+	if targetModel == nil {
+		return 0, fmt.Errorf("model %s not found in store", modelID)
+	}
+
+	if targetModel.Runtime != types.RuntimeOllama {
+		return 0, fmt.Errorf("GGUF-based estimation only available for Ollama models, model %s uses runtime %s", modelID, targetModel.Runtime)
+	}
+
+	// Use default GPU configuration for estimation (single GPU with large memory)
+	gpuConfig := []types.GPUInfoForEstimation{
+		{
+			TotalMemory: 80 * 1024 * 1024 * 1024, // 80GB - large enough for any model
+			Index:       0,
+		},
+	}
+
+	// Use default estimation options similar to memory estimation service
+	opts := memory.EstimateOptions{
+		NumCtx:      4096,
+		NumBatch:    512,
+		NumParallel: 1,
+		NumGPU:      1,
+		KVCacheType: "f16",
+	}
+
+	// Get memory estimation
+	result, err := s.memoryEstimationService.EstimateModelMemory(context.Background(), modelID, gpuConfig, opts)
+	if err != nil {
+		return 0, fmt.Errorf("failed to estimate model memory: %w", err)
+	}
+
+	// Select the appropriate estimate based on recommendation
+	var estimate *memory.MemoryEstimate
+	switch result.Recommendation {
+	case "single_gpu":
+		estimate = result.SingleGPU
+	case "tensor_parallel":
+		estimate = result.TensorParallel
+	case "cpu_only", "insufficient_memory":
+		// For scheduling purposes, prefer GPU estimates to show actual VRAM requirements
+		if result.SingleGPU != nil && result.SingleGPU.VRAMSize > 0 {
+			estimate = result.SingleGPU
+		} else if result.TensorParallel != nil && result.TensorParallel.VRAMSize > 0 {
+			estimate = result.TensorParallel
+		} else {
+			return 0, fmt.Errorf("no GPU-based estimate available for model %s", modelID)
+		}
+	default:
+		return 0, fmt.Errorf("unknown recommendation %s for model %s", result.Recommendation, modelID)
+	}
+
+	if estimate == nil || estimate.VRAMSize == 0 {
+		return 0, fmt.Errorf("invalid memory estimate for model %s", modelID)
+	}
+
+	return estimate.VRAMSize, nil
 }
 
 // getSchedulerSlots returns the scheduler's desired state slots for use in memory calculations
@@ -1256,11 +1377,11 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 
 			slot := NewSlot(runnerID, req.ExampleWorkload, s.modelStaleFunc, s.slotTimeoutFunc, gpuAllocation)
 
-			log.Info().
-				Str("slot_id", slot.ID.String()).
-				Str("runner_id", slot.RunnerID).
-				Str("model", req.ExampleWorkload.ModelName().String()).
-				Msg("APPLE: Created new slot in ensureSlots")
+			// log.Info().
+			// 	Str("slot_id", slot.ID.String()).
+			// 	Str("runner_id", slot.RunnerID).
+			// 	Str("model", req.ExampleWorkload.ModelName().String()).
+			// 	Msg("APPLE: Created new slot in ensureSlots")
 
 			s.slots.Store(slot.ID, slot)
 
@@ -1308,29 +1429,29 @@ func (s *Scheduler) TriggerQueueProcessing() {
 }
 
 func (s *Scheduler) processQueueOnce() {
-	log.Info().Msg("APPLE: Starting queue processing cycle")
+	// log.Info().Msg("APPLE: Starting queue processing cycle")
 
 	// Try to take next work item that has a warm slot available
 	work := s.queue.TakeNext(func(w *Workload) bool {
 		warmSlots := s.warmSlots(w)
-		log.Info().
-			Str("model", w.ModelName().String()).
-			Int("warm_slots", len(warmSlots)).
-			Msg("APPLE: Checking warm slots for workload")
+		// log.Info().
+		// 	Str("model", w.ModelName().String()).
+		// 	Int("warm_slots", len(warmSlots)).
+		// 	Msg("APPLE: Checking warm slots for workload")
 		return len(warmSlots) > 0
 	})
 
 	if work == nil {
-		log.Info().Msg("APPLE: No work can be scheduled right now")
+		// log.Info().Msg("APPLE: No work can be scheduled right now")
 		// Don't do expensive logging analysis in the hot path - it causes performance issues
 		// and prevents actual slot reconciliation from working properly
 		return // Nothing can be scheduled right now
 	}
 
-	log.Info().
-		Str("workload_id", work.ID()).
-		Str("model", work.ModelName().String()).
-		Msg("APPLE: Found schedulable work")
+	// log.Info().
+	// 	Str("workload_id", work.ID()).
+	// 	Str("model", work.ModelName().String()).
+	// 	Msg("APPLE: Found schedulable work")
 
 	startTime := time.Now()
 
@@ -1858,10 +1979,10 @@ func (s *Scheduler) warmSlots(req *Workload) []*Slot {
 }
 
 func (s *Scheduler) warmSlotsWithReason(req *Workload, reasonOut *string) []*Slot {
-	log.Info().
-		Str("model", req.ModelName().String()).
-		Str("runtime", string(req.Runtime())).
-		Msg("APPLE: Looking for warm slots")
+	// log.Info().
+	// 	Str("model", req.ModelName().String()).
+	// 	Str("runtime", string(req.Runtime())).
+	// 	Msg("APPLE: Looking for warm slots")
 
 	cosyWarm := make([]*Slot, 0, s.slots.Size())
 
@@ -1876,14 +1997,14 @@ func (s *Scheduler) warmSlotsWithReason(req *Workload, reasonOut *string) []*Slo
 	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 		totalSlots++
 
-		log.Info().
-			Str("slot_id", slot.ID.String()).
-			Str("slot_runner_id", slot.RunnerID).
-			Str("slot_model", slot.InitialWork().ModelName().String()).
-			Str("req_model", req.ModelName().String()).
-			Bool("is_running", slot.IsRunning()).
-			Bool("is_active", slot.IsActive()).
-			Msg("APPLE: Checking slot for warmth")
+		// log.Info().
+		// 	Str("slot_id", slot.ID.String()).
+		// 	Str("slot_runner_id", slot.RunnerID).
+		// 	Str("slot_model", slot.InitialWork().ModelName().String()).
+		// 	Str("req_model", req.ModelName().String()).
+		// 	Bool("is_running", slot.IsRunning()).
+		// 	Bool("is_active", slot.IsActive()).
+		// 	Msg("APPLE: Checking slot for warmth")
 
 		// If it's not the same model name, skip
 		if slot.InitialWork().ModelName() != req.ModelName() {
@@ -1956,23 +2077,23 @@ func (s *Scheduler) warmSlotsWithReason(req *Workload, reasonOut *string) []*Slo
 }
 
 func (s *Scheduler) pickBestWarmSlot(warmSlots []*Slot) *Slot {
-	log.Info().Int("warm_slots_count", len(warmSlots)).Msg("APPLE: Picking best warm slot")
+	// log.Info().Int("warm_slots_count", len(warmSlots)).Msg("APPLE: Picking best warm slot")
 
-	for i, slot := range warmSlots {
-		log.Info().
-			Int("slot_index", i).
-			Str("slot_id", slot.ID.String()).
-			Str("runner_id", slot.RunnerID).
-			Str("model", slot.InitialWork().ModelName().String()).
-			Msg("APPLE: Available warm slot")
-	}
+	// for i, slot := range warmSlots {
+	// 	log.Info().
+	// 		Int("slot_index", i).
+	// 		Str("slot_id", slot.ID.String()).
+	// 		Str("runner_id", slot.RunnerID).
+	// 		Str("model", slot.InitialWork().ModelName().String()).
+	// 		Msg("APPLE: Available warm slot")
+	// }
 
 	// If we only have one slot, return it
 	if len(warmSlots) == 1 {
-		log.Info().
-			Str("slot_id", warmSlots[0].ID.String()).
-			Str("runner_id", warmSlots[0].RunnerID).
-			Msg("APPLE: Selected single warm slot")
+		// log.Info().
+		// 	Str("slot_id", warmSlots[0].ID.String()).
+		// 	Str("runner_id", warmSlots[0].RunnerID).
+		// 	Msg("APPLE: Selected single warm slot")
 		return warmSlots[0]
 	}
 

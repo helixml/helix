@@ -1443,12 +1443,43 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 			Msg("Using GPU allocation from scheduler")
 	}
 
+	// Get authoritative model memory from scheduler (uses GGUF estimates for Ollama models)
+	var modelMemoryRequirement uint64
+	if c.getModelMemoryFn != nil {
+		var err error
+		modelMemoryRequirement, err = c.getModelMemoryFn(slot.InitialWork().ModelName().String())
+		if err != nil {
+			log.Error().
+				Str("runner_id", slot.RunnerID).
+				Str("slot_id", slot.ID.String()).
+				Str("model", slot.InitialWork().ModelName().String()).
+				Err(err).
+				Msg("Failed to get authoritative model memory, falling back to slot memory")
+			modelMemoryRequirement = slot.Memory()
+		} else {
+			log.Debug().
+				Str("runner_id", slot.RunnerID).
+				Str("slot_id", slot.ID.String()).
+				Str("model", slot.InitialWork().ModelName().String()).
+				Uint64("authoritative_memory_bytes", modelMemoryRequirement).
+				Uint64("slot_memory_bytes", slot.Memory()).
+				Msg("Using authoritative model memory from scheduler")
+		}
+	} else {
+		log.Warn().
+			Str("runner_id", slot.RunnerID).
+			Str("slot_id", slot.ID.String()).
+			Str("model", slot.InitialWork().ModelName().String()).
+			Msg("No model memory callback available, using slot memory")
+		modelMemoryRequirement = slot.Memory()
+	}
+
 	req := &types.CreateRunnerSlotRequest{
 		ID: slot.ID,
 		Attributes: types.CreateRunnerSlotAttributes{
 			Runtime:                slot.InitialWork().Runtime(),
 			Model:                  slot.InitialWork().ModelName().String(),
-			ModelMemoryRequirement: slot.Memory(),
+			ModelMemoryRequirement: modelMemoryRequirement,
 			ContextLength:          contextLength,
 			RuntimeArgs:            runtimeArgs,
 			GPUIndex:               gpuIndex,

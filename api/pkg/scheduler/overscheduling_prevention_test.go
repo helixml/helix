@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -16,6 +17,40 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+// SimpleMemoryEstimationService provides simple mock memory estimates for testing
+type SimpleMemoryEstimationService struct {
+	modelMemory map[string]uint64
+}
+
+func NewSimpleMemoryEstimationService() *SimpleMemoryEstimationService {
+	return &SimpleMemoryEstimationService{
+		modelMemory: map[string]uint64{
+			"qwen3:8b":      10 * 1024 * 1024 * 1024, // 10GB (GGUF estimate)
+			"gpt-oss:20b":   48 * 1024 * 1024 * 1024, // 48GB (GGUF estimate)
+			"qwen2.5vl:32b": 32 * 1024 * 1024 * 1024, // 32GB (GGUF estimate)
+			"qwen3:30b":     55 * 1024 * 1024 * 1024, // 55GB (GGUF estimate)
+		},
+	}
+}
+
+func (m *SimpleMemoryEstimationService) EstimateModelMemory(ctx context.Context, modelName string, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
+	memSize, ok := m.modelMemory[modelName]
+	if !ok {
+		return nil, fmt.Errorf("model %s not found in mock", modelName)
+	}
+
+	estimate := &memory.MemoryEstimate{
+		Layers:    36, // Mock value
+		VRAMSize:  memSize,
+		TotalSize: memSize,
+	}
+
+	return &memory.EstimationResult{
+		Recommendation: "single_gpu",
+		SingleGPU:      estimate,
+	}, nil
+}
 
 // TestOverSchedulingPrevention verifies that the scheduler prevents GPU memory over-allocation
 // by attempting to create slots that would exceed GPU capacity and ensuring the system
@@ -65,6 +100,7 @@ func TestOverSchedulingPrevention(t *testing.T) {
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController:        runnerCtrl,
 		Store:                   mockStore,
+		MemoryEstimationService: NewSimpleMemoryEstimationService(), // Add simple mock memory estimation service
 		QueueSize:               50,
 		RunnerReconcileInterval: &fastInterval, // Fast reconciliation for tests
 	})
