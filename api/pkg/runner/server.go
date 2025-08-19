@@ -137,7 +137,7 @@ func (apiServer *HelixRunnerAPIServer) registerRoutes(_ context.Context) (*mux.R
 	subRouter.HandleFunc("/logs", apiServer.getLogsSummary).Methods(http.MethodGet)
 	subRouter.HandleFunc("/logs/{slot_id}", apiServer.getSlotLogs).Methods(http.MethodGet)
 
-		// Model metadata endpoint
+	// Model metadata endpoint
 	subRouter.HandleFunc("/model-metadata", apiServer.getModelMetadataHandler).Methods(http.MethodPost)
 
 	// register pprof routes

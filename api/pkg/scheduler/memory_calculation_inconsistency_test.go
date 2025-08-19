@@ -2,11 +2,13 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -15,6 +17,35 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+// SimpleMemoryEstimationServiceForTest provides simple mock memory estimates for testing
+type SimpleMemoryEstimationServiceForTest struct{}
+
+func (m *SimpleMemoryEstimationServiceForTest) EstimateModelMemory(ctx context.Context, modelName string, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
+	// Return appropriate memory values for different models
+	var memSize uint64
+	switch modelName {
+	case "qwen3:8b":
+		memSize = 10 * 1024 * 1024 * 1024 // 10GB
+	case "gpt-oss:20b":
+		memSize = 48 * 1024 * 1024 * 1024 // 48GB
+	case "qwen3:30b":
+		memSize = 55 * 1024 * 1024 * 1024 // 55GB (GGUF estimate)
+	default:
+		return nil, fmt.Errorf("model %s not found in test mock", modelName)
+	}
+
+	estimate := &memory.MemoryEstimate{
+		Layers:    36, // Mock value
+		VRAMSize:  memSize,
+		TotalSize: memSize,
+	}
+
+	return &memory.EstimationResult{
+		Recommendation: "single_gpu",
+		SingleGPU:      estimate,
+	}, nil
+}
 
 // Helper function for absolute difference
 func abs64(x uint64) uint64 {
@@ -56,9 +87,10 @@ func TestMemoryCalculationInconsistency(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		Store:            mockStore,
-		QueueSize:        50,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: &SimpleMemoryEstimationServiceForTest{}, // Add mock memory estimation service
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 

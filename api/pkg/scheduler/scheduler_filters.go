@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/types"
@@ -35,8 +36,8 @@ func (s *Scheduler) getEffectiveMemoryRequirement(ctx context.Context, work *Wor
 			log.Debug().
 				Str("runner_id", runnerID).
 				Str("model", work.ModelName().String()).
-				Msg("no GPU info available for GGUF estimation, falling back to hardcoded value")
-			return work.model.Memory, false
+				Msg("no GPU info available for GGUF estimation - will skip scheduling this Ollama model")
+			return 0, false
 		}
 
 		// Convert to estimation format
@@ -91,8 +92,8 @@ func (s *Scheduler) getEffectiveMemoryRequirement(ctx context.Context, work *Wor
 				Str("runner_id", runnerID).
 				Str("model", work.ModelName().String()).
 				Int("num_gpus", numGPUs).
-				Msg("no suitable GGUF estimate found, falling back to hardcoded value")
-			return work.model.Memory, false
+				Msg("no suitable GGUF estimate found - will skip scheduling this Ollama model")
+			return 0, false
 		}
 
 		log.Info().
@@ -390,7 +391,31 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 	numRunnersWithNotEnoughTotalMemory := 0
 	numRunnersWithGPUFragmentation := 0
 	largestRunnerMemory := uint64(0)
-	requiredMemory := work.model.Memory
+
+	// For Ollama models, ONLY use GGUF-based memory estimate - never use store values
+	var requiredMemory uint64
+	if work.Runtime() == types.RuntimeOllama {
+		if s.memoryEstimationService == nil {
+			return nil, fmt.Errorf("memory estimation service required for Ollama model %s but not available: %w", work.ModelName().String(), ErrModelWontFit)
+		}
+		// Use a representative runner to get GGUF estimate for error message
+		found := false
+		for runnerID := range runnerMemory {
+			if ggufMemory, _ := s.getEffectiveMemoryRequirement(ctx, work, runnerID, 1); ggufMemory > 0 {
+				requiredMemory = ggufMemory
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("GGUF memory estimation failed for Ollama model %s: %w", work.ModelName().String(), ErrModelWontFit)
+		}
+	} else {
+		// For non-Ollama models, use store values
+		requiredMemory = work.model.Memory
+	}
+
+	evictionAttempts := make(map[string]string) // runnerID -> eviction status
 
 	for runnerID, memory := range runnerMemory {
 		// Check both total memory and GPU compatibility
@@ -402,8 +427,17 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 		} else {
 			if !hasEnoughTotalMemory {
 				numRunnersWithNotEnoughTotalMemory++
+				evictionAttempts[runnerID] = "SKIPPED - insufficient total memory"
 			} else if !hasGPUCompatibility {
 				numRunnersWithGPUFragmentation++
+				// Check if eviction was attempted for this runner
+				if work.Runtime() == types.RuntimeVLLM {
+					evictionAttempts[runnerID] = "ATTEMPTED - failed to find suitable GPU allocation even with eviction"
+				} else if work.Runtime() == types.RuntimeOllama {
+					evictionAttempts[runnerID] = "ATTEMPTED - GGUF estimation found no valid single/multi-GPU allocation"
+				} else {
+					evictionAttempts[runnerID] = "ATTEMPTED - traditional memory check failed"
+				}
 				withWorkContext(&log.Logger, work).Debug().
 					Str("runner_id", runnerID).
 					Uint64("total_memory", memory).
@@ -423,10 +457,73 @@ func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([
 		Msg("filtered runners with GPU-aware memory checking")
 
 	if len(filteredRunners) == 0 {
+		// Build detailed error message with runner status information
+		var errorDetails strings.Builder
+		errorDetails.WriteString(fmt.Sprintf("Model '%s' (%s runtime) cannot be scheduled", work.ModelName().String(), work.Runtime()))
+		errorDetails.WriteString(fmt.Sprintf(" - requires %d GB memory\n", requiredMemory/(1024*1024*1024)))
+
 		if numRunnersWithGPUFragmentation > 0 {
-			return nil, fmt.Errorf("no runner can fit model on available GPU(s) - tried single and multi-GPU allocation (desired: %d, largest total: %d): %w", requiredMemory, largestRunnerMemory, ErrModelWontFit)
+			errorDetails.WriteString("Scheduling attempted but failed:\n")
+			errorDetails.WriteString("• Single-GPU allocation: FAILED\n")
+			errorDetails.WriteString("• Multi-GPU allocation: FAILED\n")
+			if work.Runtime() == types.RuntimeOllama {
+				errorDetails.WriteString("• GGUF-based memory estimation: USED\n")
+			}
+			errorDetails.WriteString("• Eviction attempts: ATTEMPTED\n\n")
+
+			errorDetails.WriteString("Runner status breakdown:\n")
+			for runnerID, memory := range runnerMemory {
+				hasEnoughTotalMemory := memory >= requiredMemory
+				hasGPUCompatibility := runnerGPUCompatible[runnerID]
+				evictionStatus := evictionAttempts[runnerID]
+
+				if hasEnoughTotalMemory && !hasGPUCompatibility {
+					// Get runner status for detailed GPU info
+					if status, err := s.controller.GetStatus(runnerID); err == nil {
+						totalMemGB := memory / (1024 * 1024 * 1024)
+						freeMemGB := status.FreeMemory / (1024 * 1024 * 1024)
+						allocatedMemGB := (status.TotalMemory - status.FreeMemory) / (1024 * 1024 * 1024)
+
+						errorDetails.WriteString(fmt.Sprintf("• Runner %s: %d GPUs, %d GB total (%d GB free, %d GB allocated)\n",
+							runnerID, len(status.GPUs), totalMemGB, freeMemGB, allocatedMemGB))
+
+						if evictionStatus != "" {
+							errorDetails.WriteString(fmt.Sprintf("  Eviction status: %s\n", evictionStatus))
+						}
+
+						// Show per-GPU details
+						for i, gpu := range status.GPUs {
+							gpuFreeGB := gpu.FreeMemory / (1024 * 1024 * 1024)
+							gpuTotalGB := gpu.TotalMemory / (1024 * 1024 * 1024)
+							gpuAllocatedGB := gpuTotalGB - gpuFreeGB
+							errorDetails.WriteString(fmt.Sprintf("  - GPU %d: %d GB total (%d GB free, %d GB allocated)\n",
+								i, gpuTotalGB, gpuFreeGB, gpuAllocatedGB))
+						}
+					}
+				} else if !hasEnoughTotalMemory && evictionStatus != "" {
+					memoryGB := memory / (1024 * 1024 * 1024)
+					errorDetails.WriteString(fmt.Sprintf("• Runner %s: %d GB total memory - %s\n", runnerID, memoryGB, evictionStatus))
+				}
+			}
+
+			return nil, fmt.Errorf("%s: %w", errorDetails.String(), ErrModelWontFit)
 		}
-		return nil, fmt.Errorf("no runner has enough GPU memory for this workload (desired: %d, largest: %d): %w", requiredMemory, largestRunnerMemory, ErrModelWontFit)
+
+		// Not enough total memory case
+		errorDetails.WriteString("No runners have sufficient total memory:\n")
+		for runnerID, memory := range runnerMemory {
+			memoryGB := memory / (1024 * 1024 * 1024)
+			evictionStatus := evictionAttempts[runnerID]
+			if evictionStatus != "" {
+				errorDetails.WriteString(fmt.Sprintf("• Runner %s: %d GB total memory - %s\n", runnerID, memoryGB, evictionStatus))
+			} else {
+				errorDetails.WriteString(fmt.Sprintf("• Runner %s: %d GB total memory\n", runnerID, memoryGB))
+			}
+		}
+		errorDetails.WriteString(fmt.Sprintf("Largest runner has %d GB, but model requires %d GB",
+			largestRunnerMemory/(1024*1024*1024), requiredMemory/(1024*1024*1024)))
+
+		return nil, fmt.Errorf("%s: %w", errorDetails.String(), ErrModelWontFit)
 	}
 
 	return filteredRunners, nil

@@ -3,8 +3,10 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -113,15 +115,42 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 		allModels = []*types.Model{} // Continue with empty list
 	}
 
-	// Create a map for fast model memory lookups
+	// Create a map for fast model memory lookups with GGUF-based estimates for Ollama models
 	modelMemoryMap := make(map[string]uint64)
 	for _, model := range allModels {
-		modelMemoryMap[model.ID] = model.Memory
+		memory := model.Memory
+
+		// For Ollama models, only use GGUF-based memory estimate - skip if not available
+		if model.Runtime == types.RuntimeOllama {
+			if c.scheduler == nil {
+				log.Debug().
+					Str("model_id", model.ID).
+					Msg("📋 scheduler not available for GGUF estimation, skipping model")
+				continue // Skip this model entirely
+			} else {
+				ggufMemory, err := c.getGGUFBasedMemoryEstimateForDashboard(ctx, model.ID)
+				if err != nil {
+					log.Debug().
+						Str("model_id", model.ID).
+						Err(err).
+						Msg("📋 GGUF estimation failed, skipping model")
+					continue // Skip this model entirely
+				} else {
+					memory = ggufMemory
+					log.Debug().
+						Str("model_id", model.ID).
+						Uint64("gguf_memory_bytes", ggufMemory).
+						Msg("📋 Using GGUF-based memory estimate for dashboard")
+				}
+			}
+		}
+
+		modelMemoryMap[model.ID] = memory
 		log.Trace().
 			Str("model_id", model.ID).
 			Str("model_type", string(model.Type)).
 			Str("runtime", string(model.Runtime)).
-			Uint64("memory_bytes", model.Memory).
+			Uint64("memory_bytes", memory).
 			Bool("enabled", model.Enabled).
 			Msg("📋 Loaded model from store")
 	}
@@ -154,35 +183,26 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 				Msg("🏃 Runner model")
 		}
 
-		// Add memory information to the models from our store lookup
-		modelsWithMemory := make([]*types.RunnerModelStatus, len(runnerStatus.Models))
-		for i, model := range runnerStatus.Models {
-			// Copy the model and add memory from store
-			modelWithMemory := *model // Copy the struct
+		// Only include models that have GGUF estimates (no fallback to store values)
+		var modelsWithMemory []*types.RunnerModelStatus
+		for _, model := range runnerStatus.Models {
 			if memory, exists := modelMemoryMap[model.ModelID]; exists {
+				// Copy the model and add GGUF memory estimate
+				modelWithMemory := *model // Copy the struct
 				modelWithMemory.Memory = memory
+				modelsWithMemory = append(modelsWithMemory, &modelWithMemory)
 				log.Debug().
 					Str("runner_id", runnerStatus.ID).
 					Str("model_id", model.ModelID).
-					Uint64("memory_bytes", memory).
-					Msg("✅ Found memory for model")
+					Uint64("gguf_memory_bytes", memory).
+					Msg("✅ Using GGUF-based memory estimate for runner model")
 			} else {
-				// Get a sample of available model IDs for debugging
-				var availableIDs []string
-				for id := range modelMemoryMap {
-					availableIDs = append(availableIDs, id)
-					if len(availableIDs) >= 5 { // Limit to first 5 for readability
-						availableIDs = append(availableIDs, "...")
-						break
-					}
-				}
-				log.Warn().
+				// Skip models without GGUF estimates entirely (for Ollama models)
+				log.Debug().
 					Str("runner_id", runnerStatus.ID).
 					Str("model_id", model.ModelID).
-					Interface("available_models", availableIDs).
-					Msg("❌ No memory found for model - ID mismatch?")
+					Msg("⏭️ Skipping model without GGUF estimate from dashboard")
 			}
-			modelsWithMemory[i] = &modelWithMemory
 		}
 
 		// Also create model entries for any running slots that aren't in the runner's model list
@@ -195,7 +215,7 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 		// Add models from running slots that aren't already in the models list
 		for _, slot := range runnerSlots {
 			if !slotModelMap[slot.Model] {
-				// This slot model isn't in the runner's reported models, so add it
+				// Only add slot models that have GGUF estimates (no fallback to store values)
 				if memory, exists := modelMemoryMap[slot.Model]; exists {
 					slotModel := &types.RunnerModelStatus{
 						ModelID: slot.Model,
@@ -212,14 +232,15 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 						Str("runner_id", runnerStatus.ID).
 						Str("slot_id", slot.ID.String()).
 						Str("model", slot.Model).
-						Uint64("memory_bytes", memory).
-						Msg("✅ Added slot model to models list with memory")
+						Uint64("gguf_memory_bytes", memory).
+						Msg("✅ Added slot model with GGUF estimate to models list")
 				} else {
+					// Skip slot models without GGUF estimates entirely (for Ollama models)
 					log.Debug().
 						Str("runner_id", runnerStatus.ID).
 						Str("slot_id", slot.ID.String()).
 						Str("model", slot.Model).
-						Msg("⚠️ No memory found for slot model")
+						Msg("⏭️ Skipping slot model without GGUF estimate from dashboard")
 				}
 			}
 		}
@@ -255,6 +276,63 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 		Queue:               queue,
 		SchedulingDecisions: schedulingDecisions,
 	}, nil
+}
+
+// getGGUFBasedMemoryEstimateForDashboard attempts to get GGUF-based memory estimate for Ollama models for dashboard display
+func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context, modelID string) (uint64, error) {
+	// Access memory estimation service through scheduler
+	memEstService := c.scheduler.GetMemoryEstimationService()
+	if memEstService == nil {
+		return 0, fmt.Errorf("memory estimation service not available")
+	}
+	// Use default GPU configuration for estimation (single GPU with large memory)
+	gpuConfig := []types.GPUInfoForEstimation{
+		{
+			TotalMemory: 80 * 1024 * 1024 * 1024, // 80GB - large enough for any model
+			Index:       0,
+		},
+	}
+
+	// Use default estimation options similar to memory estimation service
+	opts := memory.EstimateOptions{
+		NumCtx:      4096,
+		NumBatch:    512,
+		NumParallel: 1,
+		NumGPU:      1,
+		KVCacheType: "f16",
+	}
+
+	// Get memory estimation
+	result, err := memEstService.EstimateModelMemory(ctx, modelID, gpuConfig, opts)
+	if err != nil {
+		return 0, fmt.Errorf("failed to estimate model memory: %w", err)
+	}
+
+	// Select the appropriate estimate based on recommendation
+	var estimate *memory.MemoryEstimate
+	switch result.Recommendation {
+	case "single_gpu":
+		estimate = result.SingleGPU
+	case "tensor_parallel":
+		estimate = result.TensorParallel
+	case "cpu_only", "insufficient_memory":
+		// For UI display, prefer GPU estimates to show actual VRAM requirements
+		if result.SingleGPU != nil && result.SingleGPU.VRAMSize > 0 {
+			estimate = result.SingleGPU
+		} else if result.TensorParallel != nil && result.TensorParallel.VRAMSize > 0 {
+			estimate = result.TensorParallel
+		} else {
+			return 0, fmt.Errorf("no GPU-based estimate available for model %s", modelID)
+		}
+	default:
+		return 0, fmt.Errorf("unknown recommendation %s for model %s", result.Recommendation, modelID)
+	}
+
+	if estimate == nil || estimate.VRAMSize == 0 {
+		return 0, fmt.Errorf("invalid memory estimate for model %s", modelID)
+	}
+
+	return estimate.VRAMSize, nil
 }
 
 func (c *Controller) GetSchedulerHeartbeats(_ context.Context) (interface{}, error) {
