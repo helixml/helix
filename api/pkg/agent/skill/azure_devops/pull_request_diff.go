@@ -81,7 +81,7 @@ func (t *AzureDevOpsPullRequestDiffTool) OpenAI() []openai.Tool {
 	}
 }
 
-func (t *AzureDevOpsPullRequestDiffTool) Execute(ctx context.Context, _ agent.Meta, args map[string]interface{}) (string, error) {
+func (t *AzureDevOpsPullRequestDiffTool) Execute(ctx context.Context, _ agent.Meta, _ map[string]interface{}) (string, error) {
 	azureCtx, ok := types.GetAzureDevopsRepositoryContext(ctx)
 	if !ok {
 		return "", fmt.Errorf("azure devops repository context not found")
