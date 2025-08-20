@@ -194,7 +194,7 @@ func (g *GitManager) getFileDiff(ctx context.Context, filePath, changeType, targ
 }
 
 // parseGitDiffOutput parses the unified diff format output
-func (g *GitManager) parseGitDiffOutput(diffOutput string) ([]*DiffHunk, int, int, error) {
+func (g *GitManager) parseGitDiffOutput(diffOutput string) ([]*DiffHunk, int, int, error) { //nolint:unused
 	var hunks []*DiffHunk
 	var linesAdded, linesDeleted int
 
