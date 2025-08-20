@@ -246,7 +246,7 @@ func (g *GitManager) parseGitDiffOutput(diffOutput string) ([]*DiffHunk, int, in
 }
 
 // parseHunkHeader parses a hunk header line like "@@ -1,3 +1,4 @@"
-func (g *GitManager) parseHunkHeader(header string) (*DiffHunk, error) {
+func (g *GitManager) parseHunkHeader(header string) (*DiffHunk, error) { //nolint:unused
 	// Remove @@ markers
 	header = strings.TrimPrefix(header, "@@ ")
 	header = strings.TrimSuffix(header, " @@")
@@ -283,7 +283,7 @@ func (g *GitManager) parseHunkHeader(header string) (*DiffHunk, error) {
 }
 
 // parseRangePart parses a range part like "-1,3" or "+1,4"
-func (g *GitManager) parseRangePart(part string) (start, lines int, err error) {
+func (g *GitManager) parseRangePart(part string) (start, lines int, err error) { //nolint:unused
 	// Remove + or - prefix
 	sign := part[0]
 	part = part[1:]
@@ -313,7 +313,7 @@ func (g *GitManager) parseRangePart(part string) (start, lines int, err error) {
 }
 
 // parseDiffLine parses a single diff line and determines its type
-func (g *GitManager) parseDiffLine(line string, hunk *DiffHunk) *DiffLine {
+func (g *GitManager) parseDiffLine(line string, hunk *DiffHunk) *DiffLine { //nolint:unused
 	if len(line) == 0 {
 		return nil
 	}
