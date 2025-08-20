@@ -26,7 +26,7 @@ var pullRequestDiffParameters = jsonschema.Definition{
 }
 
 func NewPullRequestDiffSkill(organizationURL string, personalAccessToken string) agent.Skill {
-	// client := NewAzureDevOpsClient(organizationURL, personalAccessToken)
+
 	return agent.Skill{
 		Name:        "AzureDevOpsPullRequestDiff",
 		Description: pullRequestDiffSkillDescription,
@@ -150,10 +150,10 @@ func GetPullRequestDiff(ctx context.Context, orgURL, token string, azureCtx type
 		Int("pull_request_id", azureCtx.PullRequestID).
 		Msg("Getting pull request diff")
 
-		// The VCS provider. Cannot be changed.
+	// The VCS provider. Cannot be changed.
 	vcsProvider := vcsutils.AzureRepos
-	// API endpoint to Azure Repos. Set the organization.
 
+	// API endpoint to Azure Repos. Set the organization.
 	client, err := vcsclient.NewClientBuilder(vcsProvider).ApiEndpoint(orgURL).Token(token).Project(azureCtx.ProjectID).Build()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create vcs client: %w", err)
