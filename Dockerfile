@@ -1,6 +1,6 @@
 ### API Base ###
 #---------------
-FROM golang:1.24-alpine AS api-base
+FROM golang:1.25-alpine AS api-base
 WORKDIR /app
 # Install git for development and build environments
 RUN apk add --no-cache git
