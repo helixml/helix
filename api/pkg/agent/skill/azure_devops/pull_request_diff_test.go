@@ -16,6 +16,13 @@ func Test_GetDiff(t *testing.T) {
 	adoToken := os.Getenv("ADO_TOKEN")
 	adoOrgURL := os.Getenv("ADO_ORG_URL")
 
+	if os.Getenv("ADO_TOKEN") == "" {
+		t.Skip("ADO_TOKEN is not set")
+	}
+	if os.Getenv("ADO_ORG_URL") == "" {
+		t.Skip("ADO_ORG_URL is not set")
+	}
+
 	skill := NewPullRequestDiffSkill(adoOrgURL, adoToken)
 
 	ctx := context.Background()
