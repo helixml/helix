@@ -145,6 +145,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 			// TODO: add support for granular skill selection
 			skills = append(skills, azuredevops.NewCreateThreadSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
 			skills = append(skills, azuredevops.NewReplyToCommentSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
+			skills = append(skills, azuredevops.NewPullRequestDiffSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
 		}
 	}
 

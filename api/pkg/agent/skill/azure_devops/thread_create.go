@@ -3,7 +3,9 @@ package azuredevops
 import (
 	"context"
 	"fmt"
+	"strconv"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/jsonschema"
@@ -21,6 +23,14 @@ var createThreadParameters = jsonschema.Definition{
 		"content": {
 			Type:        jsonschema.String,
 			Description: "The content of the thread",
+		},
+		"file_path": {
+			Type:        jsonschema.String,
+			Description: "The file path of the file that contains the code that you want to comment on",
+		},
+		"line_number": {
+			Type:        jsonschema.Integer,
+			Description: "The line number of the file that you want to add a comment to. Starts at 1.",
 		},
 	},
 	Required: []string{"content"},
@@ -87,6 +97,34 @@ func (t *AzureDevOpsPullRequestCreateThreadTool) Execute(ctx context.Context, _ 
 		return "", fmt.Errorf("content is required")
 	}
 
+	spew.Dump(args)
+
+	threadContext := git.CommentThreadContext{}
+	threadContextSet := false
+
+	filepathIntf, ok := args["file_path"]
+	if ok {
+		filepath := filepathIntf.(string)
+		threadContext.FilePath = &filepath
+		threadContextSet = true
+	}
+
+	lineNumberIntf, ok := args["line_number"]
+	if ok {
+		lineNumber, err := parseInt(lineNumberIntf)
+		if err != nil {
+			return "", fmt.Errorf("failed to convert line_number to integer: %w", err)
+		}
+		if lineNumber == 0 {
+			lineNumber = 1
+		}
+		offset := 1
+		threadContext.LeftFileStart = &git.CommentPosition{
+			Line:   &lineNumber,
+			Offset: &offset,
+		}
+	}
+
 	azureCtx, ok := types.GetAzureDevopsRepositoryContext(ctx)
 	if !ok {
 		return "", fmt.Errorf("azure devops repository context not found")
@@ -96,6 +134,8 @@ func (t *AzureDevOpsPullRequestCreateThreadTool) Execute(ctx context.Context, _ 
 	if err != nil {
 		return "", fmt.Errorf("failed to create Azure DevOps client: %w", err)
 	}
+
+	content = fmt.Sprintf("[Helix] %s", content)
 
 	comment := []git.Comment{
 		{
@@ -112,10 +152,26 @@ func (t *AzureDevOpsPullRequestCreateThreadTool) Execute(ctx context.Context, _ 
 		Project:       &azureCtx.ProjectID,
 	}
 
+	if threadContextSet {
+		createThreadArgs.CommentThread.ThreadContext = &threadContext
+	}
+
 	createdThread, err := gitClient.CreateThread(ctx, createThreadArgs)
 	if err != nil {
 		return "", fmt.Errorf("failed to create thread: %w", err)
 	}
 
 	return fmt.Sprintf("Thread created: %d", createdThread.Id), nil
+}
+
+func parseInt(value any) (int, error) {
+	switch v := value.(type) {
+	case int:
+		return v, nil
+	case float64:
+		return int(v), nil
+	case string:
+		return strconv.Atoi(v)
+	}
+	return 0, fmt.Errorf("invalid integer value")
 }
