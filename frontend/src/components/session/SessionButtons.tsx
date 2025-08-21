@@ -26,8 +26,7 @@ export const SessionButtons: FC<{
   const {
     navigate,
     setParams,
-  } = useRouter()
-  // const sessions = useSessions()
+  } = useRouter()  
   const snackbar = useSnackbar()
   const loading = useLoading()
   const { mutate: deleteSession } = useDeleteSession(session.id || '')
