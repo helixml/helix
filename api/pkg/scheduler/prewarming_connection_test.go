@@ -135,7 +135,7 @@ func TestPrewarmNewRunner_VerifyWorkloadCreation(t *testing.T) {
 	require.NoError(t, err)
 
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(GetDefaultTestModels(), nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 	// Mock slot operations
 	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
@@ -243,7 +243,7 @@ func TestOnRunnerReconnectedCallback(t *testing.T) {
 	require.NoError(t, err)
 
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(GetDefaultTestModels(), nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 	// Mock slot operations
 	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
@@ -306,7 +306,7 @@ func TestPrewarmWorkloadProperties(t *testing.T) {
 	require.NoError(t, err)
 
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(GetDefaultTestModels(), nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 	// Mock slot operations
 	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
@@ -447,7 +447,7 @@ func TestPrewarmingMemoryAwareSelection(t *testing.T) {
 	require.NoError(t, err)
 
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(GetDefaultTestModels(), nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 	// Mock slot operations
 	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
@@ -532,7 +532,7 @@ func TestPrewarmingMemoryConstrainedSelection(t *testing.T) {
 	require.NoError(t, err)
 
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(GetDefaultTestModels(), nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 	// Mock slot operations
 	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()

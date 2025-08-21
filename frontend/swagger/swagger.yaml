@@ -2865,8 +2865,13 @@ definitions:
         type: array
       id:
         type: string
+      memory_estimation_meta:
+        additionalProperties: {}
+        type: object
       model:
         type: string
+      model_memory_requirement:
+        type: integer
       ready:
         type: boolean
       runner_id:

@@ -8197,8 +8197,15 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "memory_estimation_meta": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
                 "model": {
                     "type": "string"
+                },
+                "model_memory_requirement": {
+                    "type": "integer"
                 },
                 "ready": {
                     "type": "boolean"

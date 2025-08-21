@@ -303,8 +303,8 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		runnerController, // Implements RunnerSender interface
 		controller.NewStoreModelProvider(postgresStore), // Wrapped store implementing ModelProvider interface
 	)
-	memoryEstimationService.StartBackgroundCacheRefresh(ctx)
-	memoryEstimationService.StartCacheCleanup(ctx)
+	// memoryEstimationService.StartBackgroundCacheRefresh(ctx) // DISABLED FOR DEBUGGING
+	// memoryEstimationService.StartCacheCleanup(ctx) // DISABLED FOR DEBUGGING
 
 	scheduler, err := scheduler.NewScheduler(ctx, cfg, &scheduler.Params{
 		RunnerController:        runnerController,

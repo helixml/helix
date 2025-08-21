@@ -12,6 +12,7 @@ type Slot struct {
 	RunnerID         string    // The runner that this slot is assigned to
 	initialWork      *Workload // The work that is currently assigned to this slot
 	LastActivityTime time.Time // Private because I don't want people misinterpreting this
+	Created          time.Time // When the slot was first created
 	isActive         bool      // Private because I don't want people misinterpreting this
 	isStaleFunc      TimeoutFunc
 	isErrorFunc      TimeoutFunc
@@ -25,11 +26,13 @@ type Slot struct {
 // staleTimeout is a function that determines if a slot is stale
 // errorTimeout is a function that determines if a slot has errored
 func NewSlot(runnerID string, work *Workload, staleTimeout TimeoutFunc, errorTimeout TimeoutFunc, gpuAllocation *GPUAllocation) *Slot {
+	now := time.Now()
 	return &Slot{
 		ID:               uuid.New(),
 		RunnerID:         runnerID,
 		initialWork:      work,
-		LastActivityTime: time.Now(),
+		LastActivityTime: now,
+		Created:          now,
 		isActive:         false,
 		isStaleFunc:      staleTimeout,
 		isErrorFunc:      errorTimeout,

@@ -1,6 +1,10 @@
 import React, { FC, useState, useMemo } from "react";
 import Box from "@mui/material/Box";
-import { prettyBytes } from "../../utils/format";
+import {
+    prettyBytes,
+    formatRelativeTime,
+    formatDate,
+} from "../../utils/format";
 import IconButton from "@mui/material/IconButton";
 import Button from "@mui/material/Button";
 import VisibilityIcon from "@mui/icons-material/Visibility";
@@ -20,6 +24,7 @@ import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogContentText from "@mui/material/DialogContentText";
 import DialogTitle from "@mui/material/DialogTitle";
+import Tooltip from "@mui/material/Tooltip";
 
 import {
     IModelInstanceState,
@@ -98,6 +103,33 @@ export const ModelInstanceSummary: FC<{
         return modelData?.memory || null;
     }, [slot.model, models]);
 
+    // Create tooltip content for memory estimation (Ollama only)
+    const memoryEstimationTooltip = useMemo(() => {
+        console.log("Debug slot data:", {
+            runtime: slot.runtime,
+            model: slot.model,
+            memory_estimation_meta: slot.memory_estimation_meta,
+            model_memory_requirement: slot.model_memory_requirement,
+            context_length: slot.context_length,
+            tensor_parallel_size: slot.tensor_parallel_size,
+        });
+
+        if (slot.runtime !== "ollama" || !slot.memory_estimation_meta)
+            return "";
+
+        const meta = slot.memory_estimation_meta;
+        const lines = [
+            `Memory Estimation Details:`,
+            `• Context Length: ${meta.context_length?.toLocaleString() || "N/A"}`,
+            `• KV Cache Type: ${meta.kv_cache_type || "N/A"}`,
+            `• Batch Size: ${meta.batch_size || "N/A"}`,
+            `• Parallel Sequences: ${meta.parallel_sequences || "N/A"}`,
+            `• GPU Allocation: ${meta.gpu_allocation_type || "N/A"}`,
+            `• Estimation Source: ${meta.estimation_source || "N/A"}`,
+        ];
+        return lines.join("\n");
+    }, [slot.runtime, slot.memory_estimation_meta]);
+
     // Enhanced gradient border based on status
     const borderGradient = useMemo(() => {
         if (slot.active) {
@@ -156,23 +188,38 @@ export const ModelInstanceSummary: FC<{
                             />
                             {slot.runtime}: {slot.model}
                             {modelMemory && (
-                                <Typography
-                                    variant="caption"
-                                    sx={{
-                                        ml: 2,
-                                        color: "rgba(255, 255, 255, 0.7)",
-                                        backgroundColor:
-                                            "rgba(114, 201, 154, 0.1)",
-                                        border: "1px solid rgba(114, 201, 154, 0.3)",
-                                        px: 1,
-                                        py: 0.3,
-                                        borderRadius: "3px",
-                                        fontFamily: "monospace",
-                                        fontSize: "0.7rem",
-                                    }}
+                                <Tooltip
+                                    title={
+                                        memoryEstimationTooltip ||
+                                        "Memory estimate"
+                                    }
+                                    placement="top"
+                                    arrow
+                                    enterDelay={500}
                                 >
-                                    {prettyBytes(modelMemory)}
-                                </Typography>
+                                    <Typography
+                                        variant="caption"
+                                        sx={{
+                                            ml: 2,
+                                            color: "rgba(255, 255, 255, 0.7)",
+                                            backgroundColor:
+                                                "rgba(114, 201, 154, 0.1)",
+                                            border: "1px solid rgba(114, 201, 154, 0.3)",
+                                            px: 1,
+                                            py: 0.3,
+                                            borderRadius: "3px",
+                                            fontFamily: "monospace",
+                                            fontSize: "0.7rem",
+                                            cursor:
+                                                slot.runtime === "ollama" &&
+                                                memoryEstimationTooltip
+                                                    ? "help"
+                                                    : "default",
+                                        }}
+                                    >
+                                        {prettyBytes(modelMemory)}
+                                    </Typography>
+                                </Tooltip>
                             )}
                             {/* Multi-GPU allocation display */}
                             {slot.gpu_indices &&
@@ -228,19 +275,77 @@ export const ModelInstanceSummary: FC<{
                         </Typography>
                     </Grid>
                     <Grid item>
-                        <Typography
-                            variant="caption"
+                        <Box
                             sx={{
-                                color: "rgba(255, 255, 255, 0.6)",
-                                fontFamily: "monospace",
-                                backgroundColor: "rgba(255, 255, 255, 0.05)",
-                                px: 1,
-                                py: 0.5,
-                                borderRadius: "2px",
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "flex-end",
+                                gap: 0.5,
                             }}
                         >
-                            {slot.id}
-                        </Typography>
+                            <Typography
+                                variant="caption"
+                                sx={{
+                                    color: "rgba(255, 255, 255, 0.6)",
+                                    fontFamily: "monospace",
+                                    backgroundColor:
+                                        "rgba(255, 255, 255, 0.05)",
+                                    px: 1,
+                                    py: 0.5,
+                                    borderRadius: "2px",
+                                }}
+                            >
+                                {slot.id}
+                            </Typography>
+                            {slot.created &&
+                                (() => {
+                                    const now = new Date();
+                                    const created = new Date(slot.created);
+                                    const diffHours =
+                                        (now.getTime() - created.getTime()) /
+                                        (1000 * 60 * 60);
+
+                                    const isOld = diffHours > 24;
+                                    const isStale = diffHours > 4;
+
+                                    return (
+                                        <Tooltip
+                                            title={`Created: ${formatDate(slot.created)}${isOld ? " (OLD - Consider cleanup)" : isStale ? " (Stale)" : ""}`}
+                                            placement="top"
+                                            arrow
+                                        >
+                                            <Typography
+                                                variant="caption"
+                                                sx={{
+                                                    color: isOld
+                                                        ? "#ff9800"
+                                                        : isStale
+                                                          ? "#ffc107"
+                                                          : "rgba(255, 255, 255, 0.5)",
+                                                    fontSize: "0.65rem",
+                                                    fontStyle: "italic",
+                                                    fontWeight: isOld
+                                                        ? 600
+                                                        : 400,
+                                                    cursor: "help",
+                                                    backgroundColor: isOld
+                                                        ? "rgba(255, 152, 0, 0.1)"
+                                                        : isStale
+                                                          ? "rgba(255, 193, 7, 0.1)"
+                                                          : "transparent",
+                                                    px: isStale ? 0.5 : 0,
+                                                    py: isStale ? 0.25 : 0,
+                                                    borderRadius: "3px",
+                                                }}
+                                            >
+                                                {formatRelativeTime(
+                                                    slot.created,
+                                                )}
+                                            </Typography>
+                                        </Tooltip>
+                                    );
+                                })()}
+                        </Box>
                     </Grid>
                 </Grid>
 
