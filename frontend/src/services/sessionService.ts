@@ -3,17 +3,17 @@ import useApi from '../hooks/useApi';
 import { TypesSession } from '../api/api';
 import { QueryClient } from '@tanstack/react-query';
 
-export const sessionStepsQueryKey = (id: string) => [
+export const SESSION_STEPS_QUERY_KEY = (id: string) => [
   "session-steps",
   id
 ];
 
-export const getSessionQueryKey = (id: string) => [
+export const GET_SESSION_QUERY_KEY = (id: string) => [
   "session",
   id
 ];
 
-export const listSessionsQueryKey = (orgId?: string, page?: number, pageSize?: number, search?: string) => [
+export const LIST_SESSIONS_QUERY_KEY = (orgId?: string, page?: number, pageSize?: number, search?: string) => [
   "sessions",
   orgId,
   page,
@@ -28,7 +28,7 @@ export function useListSessionSteps(sessionId: string, options?: { enabled?: boo
   const apiClient = api.getApiClient()  
 
   return useQuery({
-    queryKey: sessionStepsQueryKey(sessionId),
+    queryKey: SESSION_STEPS_QUERY_KEY(sessionId),
     queryFn: () => apiClient.v1SessionsStepInfoDetail(sessionId),
     enabled: options?.enabled ?? true
   })
@@ -39,7 +39,7 @@ export function useGetSession(sessionId: string, options?: { enabled?: boolean }
   const apiClient = api.getApiClient()
 
   return useQuery({
-    queryKey: getSessionQueryKey(sessionId),
+    queryKey: GET_SESSION_QUERY_KEY(sessionId),
     queryFn: () => apiClient.v1SessionsDetail(sessionId),
     enabled: options?.enabled ?? true
   })
@@ -50,7 +50,7 @@ export function useListSessions(orgId?: string, search?: string, page?: number, 
   const apiClient = api.getApiClient()
   
   return useQuery({
-    queryKey: listSessionsQueryKey(orgId, page ?? 0, pageSize ?? 0, search ?? ''),
+    queryKey: LIST_SESSIONS_QUERY_KEY(orgId, page ?? 0, pageSize ?? 0, search ?? ''),
     queryFn: () => apiClient.v1SessionsList({
       org_id: orgId,
       search: search,
@@ -70,11 +70,11 @@ export function useUpdateSession(sessionId: string, options?: { enabled?: boolea
     mutationFn: (sessionData: TypesSession) => apiClient.v1SessionsUpdate(sessionId, sessionData),
     onSuccess: (updatedSession) => {
       // Invalidate the specific session query to refresh the session data
-      queryClient.invalidateQueries({ queryKey: getSessionQueryKey(sessionId) })
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) })
       // Invalidate all sessions queries to refresh the list after update
       queryClient.invalidateQueries({ queryKey: ["sessions"] })
       // Optionally update the cache directly with the new data
-      queryClient.setQueryData(getSessionQueryKey(sessionId), updatedSession)
+      queryClient.setQueryData(GET_SESSION_QUERY_KEY(sessionId), updatedSession)
     }
   })
 }
