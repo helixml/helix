@@ -328,13 +328,7 @@ func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context,
 	}
 
 	// Use model's actual context length and correct KV cache type
-	opts := memory.EstimateOptions{
-		NumCtx:      int(targetModel.ContextLength),
-		NumBatch:    512,
-		NumParallel: 1,
-		NumGPU:      1,
-		KVCacheType: "q8_0", // Match what we set in Ollama runtime
-	}
+	opts := types.CreateAutoEstimateOptions(targetModel.ContextLength)
 
 	log.Debug().
 		Str("CONTEXT_DEBUG", "dashboard_opts").

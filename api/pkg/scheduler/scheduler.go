@@ -103,6 +103,7 @@ import (
 	"runtime/debug"
 	"slices"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -156,11 +157,14 @@ type Scheduler struct {
 	queue                   *WorkQueue
 	memoryEstimationService MemoryEstimationService // For GGUF-based memory estimates
 	onSchedulingErr         func(work *Workload, err error)
-	slots                   *SlotStore                  // Database-backed slot storage
-	modelStaleFunc          TimeoutFunc                 // Function to check if models are stale
-	slotTimeoutFunc         TimeoutFunc                 // Function to check if slots have timed out due to error
-	decisionsTracker        *SchedulingDecisionsTracker // Tracks scheduling decisions for dashboard
-	runnerReconcileInterval time.Duration               // Configurable reconcile interval
+	slots                   *SlotStore                          // Database-backed slot storage
+	modelStaleFunc          TimeoutFunc                         // Function to check if models are stale
+	slotTimeoutFunc         TimeoutFunc                         // Function to check if slots have timed out due to error
+	decisionsTracker        *SchedulingDecisionsTracker         // Tracks scheduling decisions for dashboard
+	runnerReconcileInterval time.Duration                       // Configurable reconcile interval
+	runnerGCInterval        time.Duration                       // Configurable GC interval
+	detailedMemoryResults   map[string]*memory.EstimationResult // Store detailed memory estimation results for UI debugging
+	detailedMemoryMu        sync.RWMutex                        // Mutex for detailed memory results
 
 	// GPU allocation tracking - maps workload+runner to specific GPU allocation
 	gpuAllocations *xsync.MapOf[string, *GPUAllocation]
@@ -264,6 +268,7 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		slotTimeoutFunc:         slotTimeoutFunc,
 		decisionsTracker:        NewSchedulingDecisionsTracker(100), // Keep last 100 decisions
 		runnerReconcileInterval: reconcileInterval,
+		detailedMemoryResults:   make(map[string]*memory.EstimationResult),
 		gpuAllocations:          xsync.NewMapOf[string, *GPUAllocation](),
 		queueTrigger:            make(chan struct{}, 1), // Buffered channel to avoid blocking
 		heartbeats:              xsync.NewMapOf[string, *GoroutineHeartbeat](),
@@ -286,6 +291,9 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 
 	// Set up the model memory callback so RunnerController can get authoritative model memory
 	s.controller.setModelMemoryCallback(s.getModelMemory)
+
+	// Set up the detailed memory result callback so RunnerController can get detailed memory breakdowns
+	s.controller.setDetailedMemoryResultCallback(s.GetDetailedMemoryEstimate)
 
 	// Set up the scheduler slots callback so RunnerController can use desired state for scheduling decisions
 	s.controller.setSchedulerSlotsCallback(s.getSchedulerSlots)
@@ -1257,13 +1265,7 @@ func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
 		return 0, fmt.Errorf("model %s has no context length configured", modelID)
 	}
 
-	opts := memory.EstimateOptions{
-		NumCtx:      int(targetModel.ContextLength),
-		NumBatch:    512,
-		NumParallel: 1,
-		NumGPU:      1,
-		KVCacheType: "q8_0", // Match what we set in Ollama runtime
-	}
+	opts := types.CreateAutoEstimateOptions(targetModel.ContextLength)
 
 	log.Debug().
 		Str("CONTEXT_DEBUG", "scheduler_opts").
@@ -1277,6 +1279,11 @@ func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to estimate model memory: %w", err)
 	}
+
+	// Store detailed result for UI debugging
+	s.detailedMemoryMu.Lock()
+	s.detailedMemoryResults[modelID] = result
+	s.detailedMemoryMu.Unlock()
 
 	// Select the appropriate estimate based on recommendation
 	var estimate *memory.MemoryEstimate
@@ -1350,6 +1357,13 @@ func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
 		Uint64("total_size", estimate.TotalSize).
 		Msg("📋 SALMON Scheduler using TotalSize for scheduling")
 	return estimate.TotalSize, nil
+}
+
+// GetDetailedMemoryEstimate returns the detailed memory estimation breakdown for a model
+func (s *Scheduler) GetDetailedMemoryEstimate(modelID string) *memory.EstimationResult {
+	s.detailedMemoryMu.RLock()
+	defer s.detailedMemoryMu.RUnlock()
+	return s.detailedMemoryResults[modelID]
 }
 
 // getSchedulerSlots returns the scheduler's desired state slots for use in memory calculations

@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
@@ -29,20 +30,21 @@ const (
 )
 
 type RunnerController struct {
-	runners             []string
-	runnersMu           *sync.RWMutex // Dedicated mutex for runners list only
-	callbackMu          *sync.RWMutex // Dedicated mutex for callback function only
-	ps                  pubsub.PubSub
-	ctx                 context.Context
-	fs                  filestore.FileStore
-	slotsCache          *LockingRunnerMap[types.ListRunnerSlotsResponse]
-	statusCache         *LockingRunnerMap[types.RunnerStatus]
-	store               store.Store
-	onRunnerConnectedFn func(runnerID string)                // Callback for when a new runner connects
-	getModelMemoryFn    func(modelID string) (uint64, error) // Callback to get authoritative model memory from scheduler
-	getSchedulerSlotsFn func() map[uuid.UUID]*Slot           // Callback to get scheduler's desired state slots
-	healthChecker       HealthChecker                        // Interface for health checking, allows mocking in tests
-	runnerClient        RunnerClient                         // Interface for runner requests, allows mocking in tests
+	runners                   []string
+	runnersMu                 *sync.RWMutex // Dedicated mutex for runners list only
+	callbackMu                *sync.RWMutex // Dedicated mutex for callback function only
+	ps                        pubsub.PubSub
+	ctx                       context.Context
+	fs                        filestore.FileStore
+	slotsCache                *LockingRunnerMap[types.ListRunnerSlotsResponse]
+	statusCache               *LockingRunnerMap[types.RunnerStatus]
+	store                     store.Store
+	onRunnerConnectedFn       func(runnerID string)                         // Callback for when a new runner connects
+	getModelMemoryFn          func(modelID string) (uint64, error)          // Callback to get authoritative model memory from scheduler
+	getDetailedMemoryResultFn func(modelID string) *memory.EstimationResult // Callback to get detailed memory estimation
+	getSchedulerSlotsFn       func() map[uuid.UUID]*Slot                    // Callback to get scheduler's desired state slots
+	healthChecker             HealthChecker                                 // Interface for health checking, allows mocking in tests
+	runnerClient              RunnerClient                                  // Interface for runner requests, allows mocking in tests
 }
 
 // HealthChecker interface allows for mocking health checks in tests
@@ -231,28 +233,30 @@ func (h *NATSHealthChecker) SetModels(runnerID string) error {
 }
 
 type RunnerControllerConfig struct {
-	PubSub              pubsub.PubSub
-	FS                  filestore.FileStore
-	Store               store.Store
-	OnRunnerConnectedFn func(runnerID string)                // Optional callback for when a new runner connects
-	GetModelMemoryFn    func(modelID string) (uint64, error) // Optional callback to get authoritative model memory
-	HealthChecker       HealthChecker                        // Optional: for testing, defaults to NATS-based implementation
-	RunnerClient        RunnerClient                         // Optional: for testing, defaults to NATS-based implementation
+	PubSub                    pubsub.PubSub
+	FS                        filestore.FileStore
+	Store                     store.Store
+	OnRunnerConnectedFn       func(runnerID string)                         // Optional callback for when a new runner connects
+	GetModelMemoryFn          func(modelID string) (uint64, error)          // Optional callback to get authoritative model memory
+	GetDetailedMemoryResultFn func(modelID string) *memory.EstimationResult // Optional callback to get detailed memory estimation
+	HealthChecker             HealthChecker                                 // Optional: for testing, defaults to NATS-based implementation
+	RunnerClient              RunnerClient                                  // Optional: for testing, defaults to NATS-based implementation
 }
 
 func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*RunnerController, error) {
 	controller := &RunnerController{
-		ctx:                 ctx,
-		ps:                  cfg.PubSub,
-		fs:                  cfg.FS,
-		store:               cfg.Store,
-		runners:             []string{},
-		runnersMu:           &sync.RWMutex{}, // Dedicated mutex for runners list
-		callbackMu:          &sync.RWMutex{}, // Dedicated mutex for callback
-		slotsCache:          NewLockingRunnerMap[types.ListRunnerSlotsResponse](),
-		statusCache:         NewLockingRunnerMap[types.RunnerStatus](),
-		onRunnerConnectedFn: cfg.OnRunnerConnectedFn,
-		getModelMemoryFn:    cfg.GetModelMemoryFn,
+		ctx:                       ctx,
+		ps:                        cfg.PubSub,
+		fs:                        cfg.FS,
+		store:                     cfg.Store,
+		runners:                   []string{},
+		runnersMu:                 &sync.RWMutex{}, // Dedicated mutex for runners list
+		callbackMu:                &sync.RWMutex{}, // Dedicated mutex for callback
+		slotsCache:                NewLockingRunnerMap[types.ListRunnerSlotsResponse](),
+		statusCache:               NewLockingRunnerMap[types.RunnerStatus](),
+		onRunnerConnectedFn:       cfg.OnRunnerConnectedFn,
+		getModelMemoryFn:          cfg.GetModelMemoryFn,
+		getDetailedMemoryResultFn: cfg.GetDetailedMemoryResultFn,
 	}
 
 	// Set up health checker - use provided one or default to NATS-based
@@ -329,6 +333,13 @@ func (c *RunnerController) setModelMemoryCallback(fn func(modelID string) (uint6
 	c.callbackMu.Lock()
 	defer c.callbackMu.Unlock()
 	c.getModelMemoryFn = fn
+}
+
+// setDetailedMemoryResultCallback sets the callback function to get detailed memory estimation results from scheduler
+func (c *RunnerController) setDetailedMemoryResultCallback(fn func(modelID string) *memory.EstimationResult) {
+	c.callbackMu.Lock()
+	defer c.callbackMu.Unlock()
+	c.getDetailedMemoryResultFn = fn
 }
 
 // setSchedulerSlotsCallback sets the callback function to get scheduler's desired state slots
@@ -1482,8 +1493,43 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 		if err == nil {
 			for _, model := range models {
 				if model.ID == slot.InitialWork().ModelName().String() {
+					// Get detailed memory estimation breakdown for debugging
+					var detailedBreakdown map[string]any
+					if c.getDetailedMemoryResultFn != nil {
+						if result := c.getDetailedMemoryResultFn(model.ID); result != nil {
+							var estimate *memory.MemoryEstimate
+							if tensorParallelSize > 1 && result.TensorParallel != nil {
+								estimate = result.TensorParallel
+							} else if result.SingleGPU != nil {
+								estimate = result.SingleGPU
+							}
+
+							if estimate != nil {
+								// Convert bytes to human-readable format for debugging
+								formatMemory := func(bytes uint64) map[string]any {
+									return map[string]any{
+										"bytes": bytes,
+										"mb":    bytes / (1024 * 1024),
+										"gb":    float64(bytes) / (1024 * 1024 * 1024),
+									}
+								}
+
+								detailedBreakdown = map[string]any{
+									"total_memory":    formatMemory(estimate.TotalSize),
+									"weights_memory":  formatMemory(estimate.Weights),
+									"kv_cache_memory": formatMemory(estimate.KVCache),
+									"graph_memory":    formatMemory(estimate.Graph),
+									"vram_used":       formatMemory(estimate.VRAMSize),
+									"layers_on_gpu":   estimate.Layers,
+									"fully_loaded":    estimate.FullyLoaded,
+									"architecture":    estimate.Architecture,
+								}
+							}
+						}
+					}
+
 					memoryEstimationMeta = map[string]any{
-						"kv_cache_type":      "q8_0", // KV cache type used in estimation
+						"kv_cache_type":      types.DefaultKVCacheType, // KV cache type used in estimation
 						"context_length":     int(model.ContextLength),
 						"batch_size":         512,
 						"parallel_sequences": 1,
@@ -1497,6 +1543,11 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 								return "multi_gpu"
 							}
 						}(),
+					}
+
+					// Add detailed breakdown if available
+					if detailedBreakdown != nil {
+						memoryEstimationMeta["detailed_breakdown"] = detailedBreakdown
 					}
 					break
 				}

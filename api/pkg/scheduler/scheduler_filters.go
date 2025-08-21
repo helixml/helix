@@ -49,7 +49,7 @@ func (s *Scheduler) getEffectiveMemoryRequirement(ctx context.Context, work *Wor
 				Library:       "cuda", // Assume CUDA for now
 				FreeMemory:    gpu.FreeMemory,
 				TotalMemory:   gpu.TotalMemory,
-				MinimumMemory: gpu.FreeMemory, // Use free memory as minimum
+				MinimumMemory: 512 * 1024 * 1024, // 512MB minimum like standard config
 				Name:          gpu.ModelName,
 			})
 		}
@@ -60,13 +60,7 @@ func (s *Scheduler) getEffectiveMemoryRequirement(ctx context.Context, work *Wor
 		}
 
 		// Get memory estimate with model's context length
-		opts := memory.EstimateOptions{
-			NumCtx:      int(work.model.ContextLength), // Use model's configured context length
-			NumBatch:    512,
-			NumParallel: 1,
-			NumGPU:      numGPUs,
-			KVCacheType: "q8_0", // Match what we set in Ollama runtime
-		}
+		opts := types.CreateEstimateOptionsForGPUArray(work.model.ContextLength)
 
 		result, err := s.memoryEstimationService.EstimateModelMemory(ctx, work.model.ID, estimationGPUs, opts)
 		if err != nil {

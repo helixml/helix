@@ -158,13 +158,7 @@ func (s *MemoryEstimationService) EstimateModelMemoryFromRequest(ctx context.Con
 		}
 	}
 
-	opts := memory.EstimateOptions{
-		NumCtx:      contextLength,
-		NumBatch:    512,
-		NumParallel: 1,
-		NumGPU:      req.NumGPU,
-		KVCacheType: "q8_0", // Match what we set in Ollama runtime
-	}
+	opts := types.CreateOllamaEstimateOptions(int64(contextLength), req.NumGPU)
 
 	// Allow request to override the configured context length
 	if req.ContextLength > 0 {
@@ -717,13 +711,7 @@ func (s *MemoryEstimationService) refreshCacheForAllModels(ctx context.Context) 
 
 		for _, gpuConfig := range gpuConfigs {
 			// Create EstimateOptions with model's actual context length
-			opts := memory.EstimateOptions{
-				NumCtx:      int(model.ContextLength),
-				NumBatch:    512,
-				NumParallel: 1,
-				NumGPU:      len(gpuConfig.config),
-				KVCacheType: "q8_0", // Match what we set in Ollama runtime
-			}
+			opts := types.CreateEstimateOptionsForGPUArray(model.ContextLength)
 
 			// Check if we already have a fresh cache entry
 			cacheKey := s.generateCacheKey(model.ID, gpuConfig.config, opts)
