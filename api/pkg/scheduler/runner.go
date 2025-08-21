@@ -1474,6 +1474,36 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 		modelMemoryRequirement = slot.Memory()
 	}
 
+	// For Ollama models, collect memory estimation metadata for tooltip display
+	var memoryEstimationMeta map[string]any
+	if slot.InitialWork().Runtime() == types.RuntimeOllama {
+		// Get the model to extract context length and other parameters
+		models, err := c.store.ListModels(context.Background(), &store.ListModelsQuery{})
+		if err == nil {
+			for _, model := range models {
+				if model.ID == slot.InitialWork().ModelName().String() {
+					memoryEstimationMeta = map[string]any{
+						"kv_cache_type":      "q8_0", // KV cache type used in estimation
+						"context_length":     int(model.ContextLength),
+						"batch_size":         512,
+						"parallel_sequences": 1,
+						"estimation_source":  "gguf_analysis",
+						"gpu_allocation_type": func() string {
+							if tensorParallelSize > 1 {
+								return "tensor_parallel"
+							} else if gpuIndex != nil {
+								return "single_gpu"
+							} else {
+								return "multi_gpu"
+							}
+						}(),
+					}
+					break
+				}
+			}
+		}
+	}
+
 	req := &types.CreateRunnerSlotRequest{
 		ID: slot.ID,
 		Attributes: types.CreateRunnerSlotAttributes{
@@ -1485,6 +1515,7 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 			GPUIndex:               gpuIndex,
 			GPUIndices:             gpuIndices,
 			TensorParallelSize:     tensorParallelSize,
+			MemoryEstimationMeta:   memoryEstimationMeta,
 		},
 	}
 

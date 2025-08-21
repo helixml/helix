@@ -244,6 +244,7 @@ func (ss *SlotStore) saveToDatabase(slot *Slot) {
 		Active:   slot.isActive,
 		Ready:    slot.isRunning,
 		Status:   "scheduler_managed",
+		Created:  slot.Created,
 	}
 
 	// Serialize workload to JSONB if available

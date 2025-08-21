@@ -384,6 +384,7 @@ func (apiServer *HelixRunnerAPIServer) createSlot(w http.ResponseWriter, r *http
 		ModelMemoryRequirement: slotRequest.Attributes.ModelMemoryRequirement,
 		ContextLength:          slotRequest.Attributes.ContextLength,
 		RuntimeArgs:            slotRequest.Attributes.RuntimeArgs,
+		MemoryEstimationMeta:   slotRequest.Attributes.MemoryEstimationMeta,
 		APIServer:              apiServer,
 
 		// GPU allocation from scheduler - authoritative allocation decision
@@ -612,20 +613,23 @@ func (apiServer *HelixRunnerAPIServer) listSlots(w http.ResponseWriter, r *http.
 	slotList := make([]*types.RunnerSlot, 0, apiServer.slots.Size())
 	apiServer.slots.Range(func(id uuid.UUID, slot *Slot) bool {
 		slotList = append(slotList, &types.RunnerSlot{
-			ID:                 id,
-			RunnerID:           apiServer.runnerOptions.ID,
-			Runtime:            slot.Runtime(),
-			Version:            slot.Version(),
-			Model:              slot.Model,
-			ContextLength:      slot.ContextLength,
-			RuntimeArgs:        slot.RuntimeArgs, // Include runtime args for frontend display
-			Active:             slot.Active,
-			Ready:              slot.Ready,
-			Status:             slot.Status(r.Context()),
-			GPUIndex:           slot.GPUIndex,
-			GPUIndices:         slot.GPUIndices,
-			TensorParallelSize: slot.TensorParallelSize,
-			CommandLine:        slot.CommandLine,
+			ID:                     id,
+			RunnerID:               apiServer.runnerOptions.ID,
+			Runtime:                slot.Runtime(),
+			Version:                slot.Version(),
+			Model:                  slot.Model,
+			ModelMemoryRequirement: slot.ModelMemoryRequirement,
+			ContextLength:          slot.ContextLength,
+			RuntimeArgs:            slot.RuntimeArgs, // Include runtime args for frontend display
+			Active:                 slot.Active,
+			Ready:                  slot.Ready,
+			Status:                 slot.Status(r.Context()),
+			GPUIndex:               slot.GPUIndex,
+			GPUIndices:             slot.GPUIndices,
+			TensorParallelSize:     slot.TensorParallelSize,
+			CommandLine:            slot.CommandLine,
+			Created:                slot.Created,
+			MemoryEstimationMeta:   slot.MemoryEstimationMeta,
 		})
 		return true
 	})
@@ -653,20 +657,22 @@ func (apiServer *HelixRunnerAPIServer) getSlot(w http.ResponseWriter, r *http.Re
 	}
 
 	response := &types.RunnerSlot{
-		ID:                 slotUUID,
-		RunnerID:           apiServer.runnerOptions.ID,
-		Runtime:            slot.Runtime(),
-		Version:            slot.Version(),
-		Model:              slot.Model,
-		ContextLength:      slot.ContextLength,
-		RuntimeArgs:        slot.RuntimeArgs, // Include runtime args for frontend display
-		Active:             slot.Active,
-		Ready:              slot.Ready,
-		Status:             slot.Status(r.Context()),
-		GPUIndex:           slot.GPUIndex,
-		GPUIndices:         slot.GPUIndices,
-		TensorParallelSize: slot.TensorParallelSize,
-		CommandLine:        slot.CommandLine,
+		ID:                     slotUUID,
+		RunnerID:               apiServer.runnerOptions.ID,
+		Runtime:                slot.Runtime(),
+		Version:                slot.Version(),
+		Model:                  slot.Model,
+		ModelMemoryRequirement: slot.ModelMemoryRequirement,
+		ContextLength:          slot.ContextLength,
+		RuntimeArgs:            slot.RuntimeArgs, // Include runtime args for frontend display
+		Active:                 slot.Active,
+		Ready:                  slot.Ready,
+		Status:                 slot.Status(r.Context()),
+		GPUIndex:               slot.GPUIndex,
+		GPUIndices:             slot.GPUIndices,
+		TensorParallelSize:     slot.TensorParallelSize,
+		CommandLine:            slot.CommandLine,
+		MemoryEstimationMeta:   slot.MemoryEstimationMeta,
 	}
 
 	err = json.NewEncoder(w).Encode(response)

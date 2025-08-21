@@ -184,7 +184,7 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 		}
 
 		// Only include models that have GGUF estimates (no fallback to store values)
-		var modelsWithMemory []*types.RunnerModelStatus
+		modelsWithMemory := make([]*types.RunnerModelStatus, 0)
 		for _, model := range runnerStatus.Models {
 			if memory, exists := modelMemoryMap[model.ModelID]; exists {
 				// Copy the model and add GGUF memory estimate
@@ -285,22 +285,63 @@ func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context,
 	if memEstService == nil {
 		return 0, fmt.Errorf("memory estimation service not available")
 	}
-	// Use default GPU configuration for estimation (single GPU with large memory)
-	gpuConfig := []types.GPUInfoForEstimation{
-		{
-			TotalMemory: 80 * 1024 * 1024 * 1024, // 80GB - large enough for any model
-			Index:       0,
-		},
+
+	// Get model from store first
+	models, err := c.Options.Store.ListModels(ctx, &store.ListModelsQuery{})
+	if err != nil {
+		return 0, fmt.Errorf("failed to list models from store: %w", err)
 	}
 
-	// Use default estimation options similar to memory estimation service
+	var targetModel *types.Model
+	for _, model := range models {
+		if model.ID == modelID {
+			targetModel = model
+			break
+		}
+	}
+
+	if targetModel == nil {
+		return 0, fmt.Errorf("model %s not found in store", modelID)
+	}
+
+	if targetModel.Runtime != types.RuntimeOllama {
+		return 0, fmt.Errorf("GGUF-based estimation only available for Ollama models, got %s", targetModel.Runtime)
+	}
+
+	// Use standard GPU configuration for estimation (single 80GB GPU)
+	// This fixes the FreeMemory=0 bug that caused 0 layers to fit
+	gpuConfig := types.CreateStandardGPUConfig(1, 80)
+
+	// Use model's actual context length - no fallbacks
+	log.Debug().
+		Str("CONTEXT_DEBUG", "dashboard").
+		Str("model_id", modelID).
+		Int64("context_length_from_store", targetModel.ContextLength).
+		Str("runtime", string(targetModel.Runtime)).
+		Msg("🦈 HAMMERHEAD Dashboard reading context length from model store")
+
+	if targetModel.ContextLength == 0 {
+		log.Error().
+			Str("model_id", modelID).
+			Msg("CRITICAL: model has no context length configured - cannot estimate memory for dashboard")
+		return 0, fmt.Errorf("model %s has no context length configured", modelID)
+	}
+
+	// Use model's actual context length and correct KV cache type
 	opts := memory.EstimateOptions{
-		NumCtx:      4096,
+		NumCtx:      int(targetModel.ContextLength),
 		NumBatch:    512,
 		NumParallel: 1,
 		NumGPU:      1,
-		KVCacheType: "f16",
+		KVCacheType: "q8_0", // Match what we set in Ollama runtime
 	}
+
+	log.Debug().
+		Str("CONTEXT_DEBUG", "dashboard_opts").
+		Str("model_id", modelID).
+		Int("num_ctx_being_used", opts.NumCtx).
+		Str("kv_cache_type", opts.KVCacheType).
+		Msg("🦈 HAMMERHEAD Dashboard using these estimation options")
 
 	// Get memory estimation
 	result, err := memEstService.EstimateModelMemory(ctx, modelID, gpuConfig, opts)
@@ -317,22 +358,73 @@ func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context,
 		estimate = result.TensorParallel
 	case "cpu_only", "insufficient_memory":
 		// For UI display, prefer GPU estimates to show actual VRAM requirements
-		if result.SingleGPU != nil && result.SingleGPU.VRAMSize > 0 {
+		log.Debug().
+			Str("model_id", modelID).
+			Str("recommendation", result.Recommendation).
+			Interface("single_gpu", result.SingleGPU).
+			Interface("tensor_parallel", result.TensorParallel).
+			Interface("cpu_only", result.CPUOnly).
+			Msg("📋 SALMON Memory estimation result details for cpu_only/insufficient_memory case")
+
+		if result.SingleGPU != nil && result.SingleGPU.TotalSize > 0 {
 			estimate = result.SingleGPU
-		} else if result.TensorParallel != nil && result.TensorParallel.VRAMSize > 0 {
+		} else if result.TensorParallel != nil && result.TensorParallel.TotalSize > 0 {
 			estimate = result.TensorParallel
 		} else {
+			log.Debug().
+				Str("model_id", modelID).
+				Bool("single_gpu_nil", result.SingleGPU == nil).
+				Uint64("single_gpu_vram", func() uint64 {
+					if result.SingleGPU != nil {
+						return result.SingleGPU.VRAMSize
+					} else {
+						return 0
+					}
+				}()).
+				Uint64("single_gpu_total", func() uint64 {
+					if result.SingleGPU != nil {
+						return result.SingleGPU.TotalSize
+					} else {
+						return 0
+					}
+				}()).
+				Bool("tensor_parallel_nil", result.TensorParallel == nil).
+				Uint64("tensor_parallel_vram", func() uint64 {
+					if result.TensorParallel != nil {
+						return result.TensorParallel.VRAMSize
+					} else {
+						return 0
+					}
+				}()).
+				Uint64("tensor_parallel_total", func() uint64 {
+					if result.TensorParallel != nil {
+						return result.TensorParallel.TotalSize
+					} else {
+						return 0
+					}
+				}()).
+				Msg("📋 SALMON No valid GPU estimates found for display")
 			return 0, fmt.Errorf("no GPU-based estimate available for model %s", modelID)
 		}
 	default:
 		return 0, fmt.Errorf("unknown recommendation %s for model %s", result.Recommendation, modelID)
 	}
 
-	if estimate == nil || estimate.VRAMSize == 0 {
+	if estimate == nil {
 		return 0, fmt.Errorf("invalid memory estimate for model %s", modelID)
 	}
 
-	return estimate.VRAMSize, nil
+	// Always use TotalSize for consistent memory estimation
+	if estimate.TotalSize > 0 {
+		log.Debug().
+			Str("model_id", modelID).
+			Uint64("vram_size", estimate.VRAMSize).
+			Uint64("total_size", estimate.TotalSize).
+			Msg("📋 SALMON Using TotalSize for display")
+		return estimate.TotalSize, nil
+	} else {
+		return 0, fmt.Errorf("invalid memory estimate for model %s", modelID)
+	}
 }
 
 func (c *Controller) GetSchedulerHeartbeats(_ context.Context) (interface{}, error) {

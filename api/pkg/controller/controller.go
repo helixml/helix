@@ -143,10 +143,10 @@ func NewController(
 			options.RunnerController, // Implements RunnerSender interface
 			modelProvider,            // Wrapped store implementing ModelProvider interface
 		)
-		
+
 		// Start background cache refresh
-		controller.memoryEstimationService.StartBackgroundCacheRefresh(ctx)
-		controller.memoryEstimationService.StartCacheCleanup(ctx)
+		// controller.memoryEstimationService.StartBackgroundCacheRefresh(ctx) // DISABLED FOR DEBUGGING
+		// controller.memoryEstimationService.StartCacheCleanup(ctx) // DISABLED FOR DEBUGGING
 	}
 
 	return controller, nil

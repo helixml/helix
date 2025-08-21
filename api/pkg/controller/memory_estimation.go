@@ -132,10 +132,7 @@ func selectEstimateFromResult(result *memory.EstimationResult) *memory.MemoryEst
 
 // EstimateModelMemoryFromRequest estimates memory requirements for a model from a request
 func (s *MemoryEstimationService) EstimateModelMemoryFromRequest(ctx context.Context, req *MemoryEstimationRequest) (*MemoryEstimationResponse, error) {
-	// Convert request to internal format - use large GPU memory so it doesn't limit the calculation
-	// The actual memory requirement is what matters, not whether it fits in a specific GPU
-	gpuMemory := uint64(80 * 1024 * 1024 * 1024) // 80GB - large enough for any model
-
+	// Determine number of GPUs for estimation
 	numGPUs := 1
 	if req.NumGPU > 1 {
 		numGPUs = req.NumGPU
@@ -143,16 +140,8 @@ func (s *MemoryEstimationService) EstimateModelMemoryFromRequest(ctx context.Con
 		numGPUs = 2 // Default to 2 for auto-detect
 	}
 
-	gpuConfig := make([]types.GPUInfoForEstimation, numGPUs)
-	for i := 0; i < numGPUs; i++ {
-		gpuConfig[i] = types.GPUInfoForEstimation{
-			Index:         i,
-			Library:       "cuda",
-			FreeMemory:    gpuMemory,
-			TotalMemory:   gpuMemory,
-			MinimumMemory: 512 * 1024 * 1024,
-		}
-	}
+	// Use standard GPU configuration with 80GB per GPU (large enough for any model)
+	gpuConfig := types.CreateStandardGPUConfig(numGPUs, 80)
 
 	// Get the model's configured context length from the store
 	contextLength := 4096 // Default fallback
@@ -174,7 +163,7 @@ func (s *MemoryEstimationService) EstimateModelMemoryFromRequest(ctx context.Con
 		NumBatch:    512,
 		NumParallel: 1,
 		NumGPU:      req.NumGPU,
-		KVCacheType: "q8_0", // Match Ollama's actual KV cache configuration
+		KVCacheType: "q8_0", // Match what we set in Ollama runtime
 	}
 
 	// Allow request to override the configured context length
@@ -230,7 +219,7 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 		Int("num_gpu", opts.NumGPU).
 		Str("kv_cache_type", opts.KVCacheType).
 		Int("gpu_config_count", len(gpuConfig)).
-		Msg("EstimateModelMemory called with parameters")
+		Msg("🐠 SHARK EstimateModelMemory called with parameters")
 
 	// Check if this is an Ollama model - only Ollama models support GGUF-based estimation
 	models, err := s.modelProvider.ListModels(ctx)
@@ -263,9 +252,23 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 		log.Debug().
 			Str("model_name", modelName).
 			Str("cache_key", cacheKey).
-			Msg("returning cached memory estimation result")
+			Int("num_ctx_used", opts.NumCtx).
+			Str("kv_cache_type_used", opts.KVCacheType).
+			Str("recommendation", result.Recommendation).
+			Interface("single_gpu", result.SingleGPU).
+			Interface("tensor_parallel", result.TensorParallel).
+			Interface("cpu_only", result.CPUOnly).
+			Msg("🐠 SHARK returning cached memory estimation result - showing what params were used")
 		return result, nil
 	}
+
+	log.Debug().
+		Str("MEMORY_ESTIMATION_DEBUG", "cache_miss").
+		Str("model_name", modelName).
+		Str("cache_key", cacheKey).
+		Int("num_ctx", opts.NumCtx).
+		Str("kv_cache_type", opts.KVCacheType).
+		Msg("🐠 SHARK cache miss - will calculate new estimation")
 
 	// Find a runner that has this model
 	runnerID, err := s.findRunnerWithModel(ctx, modelName)
@@ -277,6 +280,39 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 	metadata, err := s.getModelMetadataFromRunner(ctx, runnerID, modelName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get model metadata from runner %s: %w", runnerID, err)
+	}
+
+	// Debug logging for GGUF metadata that was parsed
+	log.Debug().
+		Str("MEMORY_ESTIMATION_DEBUG", "gguf_metadata_parsed").
+		Str("architecture", metadata.Architecture).
+		Str("file_type", metadata.FileType).
+		Uint64("block_count", metadata.BlockCount).
+		Uint64("embedding_length", metadata.EmbeddingLength).
+		Uint64("context_length", metadata.ContextLength).
+		Uint64("head_count", metadata.HeadCount).
+		Uint64("head_count_kv", metadata.HeadCountKV).
+		Uint64("key_length", metadata.KeyLength).
+		Uint64("value_length", metadata.ValueLength).
+		Uint64("ff_length", metadata.FFLength).
+		Uint64("vocab_size", metadata.VocabSize).
+		Int("total_layer_count", len(metadata.Layers)).
+		Msg("🐠 SHARK GGUF metadata parsed from runner")
+
+	// Debug logging for GPU configuration being used
+	for i, gpu := range gpuConfig {
+		log.Debug().
+			Str("MEMORY_ESTIMATION_DEBUG", "gpu_config").
+			Int("gpu_index", i).
+			Str("gpu_id", gpu.ID).
+			Str("library", gpu.Library).
+			Uint64("total_memory_bytes", gpu.TotalMemory).
+			Uint64("total_memory_gb", gpu.TotalMemory/(1024*1024*1024)).
+			Uint64("free_memory_bytes", gpu.FreeMemory).
+			Uint64("free_memory_gb", gpu.FreeMemory/(1024*1024*1024)).
+			Uint64("minimum_memory_bytes", gpu.MinimumMemory).
+			Uint64("minimum_memory_gb", gpu.MinimumMemory/(1024*1024*1024)).
+			Msg("🐠 SHARK GPU configuration for memory estimation")
 	}
 
 	// Do memory calculation in API using Ollama's algorithm
@@ -319,125 +355,6 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 func (s *MemoryEstimationService) GetCachedEstimation(modelName string, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) *memory.EstimationResult {
 	cacheKey := s.generateCacheKey(modelName, gpuConfig, opts)
 	return s.cache.get(cacheKey)
-}
-
-// PrewarmCache eagerly caches memory estimates for common configurations
-func (s *MemoryEstimationService) PrewarmCache(ctx context.Context, modelNames []string) error {
-	log.Info().
-		Int("model_count", len(modelNames)).
-		Msg("starting memory estimation cache prewarming")
-
-	// Common GPU configurations to cache
-	commonConfigs := [][]types.GPUInfoForEstimation{
-		// Single GPU configurations
-		{{
-			ID:            "0",
-			Index:         0,
-			Library:       "cuda",
-			FreeMemory:    24 * 1024 * 1024 * 1024, // 24GB
-			TotalMemory:   24 * 1024 * 1024 * 1024,
-			MinimumMemory: 512 * 1024 * 1024,
-			Name:          "NVIDIA RTX 4090",
-		}},
-		{{
-			ID:            "0",
-			Index:         0,
-			Library:       "cuda",
-			FreeMemory:    80 * 1024 * 1024 * 1024, // 80GB
-			TotalMemory:   80 * 1024 * 1024 * 1024,
-			MinimumMemory: 512 * 1024 * 1024,
-			Name:          "NVIDIA H100",
-		}},
-		// Dual GPU configurations
-		{
-			{
-				ID:            "0",
-				Index:         0,
-				Library:       "cuda",
-				FreeMemory:    24 * 1024 * 1024 * 1024,
-				TotalMemory:   24 * 1024 * 1024 * 1024,
-				MinimumMemory: 512 * 1024 * 1024,
-				Name:          "NVIDIA RTX 4090",
-			},
-			{
-				ID:            "1",
-				Index:         1,
-				Library:       "cuda",
-				FreeMemory:    24 * 1024 * 1024 * 1024,
-				TotalMemory:   24 * 1024 * 1024 * 1024,
-				MinimumMemory: 512 * 1024 * 1024,
-				Name:          "NVIDIA RTX 4090",
-			},
-		},
-		{
-			{
-				ID:            "0",
-				Index:         0,
-				Library:       "cuda",
-				FreeMemory:    80 * 1024 * 1024 * 1024,
-				TotalMemory:   80 * 1024 * 1024 * 1024,
-				MinimumMemory: 512 * 1024 * 1024,
-				Name:          "NVIDIA H100",
-			},
-			{
-				ID:            "1",
-				Index:         1,
-				Library:       "cuda",
-				FreeMemory:    80 * 1024 * 1024 * 1024,
-				TotalMemory:   80 * 1024 * 1024 * 1024,
-				MinimumMemory: 512 * 1024 * 1024,
-				Name:          "NVIDIA H100",
-			},
-		},
-	}
-
-	// Default estimation options
-	opts := memory.EstimateOptions{
-		NumCtx:      4096,
-		NumBatch:    512,
-		NumParallel: 1,
-		NumGPU:      -1, // Auto
-		KVCacheType: "f16",
-	}
-
-	// Preload estimates for each model and GPU configuration
-	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, 5) // Limit concurrent requests
-
-	for _, modelName := range modelNames {
-		for _, gpuConfig := range commonConfigs {
-			wg.Add(1)
-			go func(model string, config []types.GPUInfoForEstimation) {
-				defer wg.Done()
-
-				semaphore <- struct{}{}        // Acquire
-				defer func() { <-semaphore }() // Release
-
-				_, err := s.EstimateModelMemory(ctx, model, config, opts)
-				if err != nil {
-					log.Warn().
-						Err(err).
-						Str("model", model).
-						Int("gpu_count", len(config)).
-						Msg("failed to preload memory estimation")
-				} else {
-					log.Debug().
-						Str("model", model).
-						Int("gpu_count", len(config)).
-						Msg("preloaded memory estimation")
-				}
-			}(modelName, gpuConfig)
-		}
-	}
-
-	wg.Wait()
-
-	log.Info().
-		Int("model_count", len(modelNames)).
-		Int("config_count", len(commonConfigs)).
-		Msg("completed memory estimation cache prewarming")
-
-	return nil
 }
 
 // findRunnerWithModel finds a runner that has the specified model
@@ -608,6 +525,8 @@ func (s *MemoryEstimationService) calculateMemoryEstimateLocally(metadata *memor
 	if estimate.RequiresFallback {
 		result.Recommendation = "cpu_only"
 		result.CPUOnly = estimate
+		// Keep GPU estimates available for display purposes even when CPU-only is recommended
+		// This allows dashboard to show actual VRAM requirements
 	}
 
 	return result
@@ -753,116 +672,61 @@ func (s *MemoryEstimationService) refreshCacheForAllModels(ctx context.Context) 
 
 	log.Debug().Msg("starting background cache refresh for memory estimates")
 
-	// Get all models
+	// Get all models from the store
 	models, err := s.modelProvider.ListModels(ctx)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to list models for cache refresh")
+		log.Error().Err(err).Msg("failed to get models for cache refresh")
 		return
 	}
 
-	// Common GPU configurations to pre-cache - focus on number of GPUs, not memory size
+	log.Debug().Int("model_count", len(models)).Msg("refreshing memory estimation cache for models")
+
+	// Common GPU configurations to cache
 	gpuConfigs := []struct {
 		name   string
 		config []types.GPUInfoForEstimation
-		opts   memory.EstimateOptions
 	}{
 		{
-			name: "single_gpu",
-			config: []types.GPUInfoForEstimation{
-				{
-					Index:         0,
-					Library:       "cuda",
-					FreeMemory:    80 * 1024 * 1024 * 1024, // Large enough for any model
-					TotalMemory:   80 * 1024 * 1024 * 1024,
-					MinimumMemory: 512 * 1024 * 1024,
-				},
-			},
-			opts: memory.EstimateOptions{
-				NumCtx:      4096,
-				NumBatch:    512,
-				NumParallel: 1,
-				NumGPU:      1,
-				KVCacheType: "q8_0", // Match Ollama's actual KV cache configuration
-			},
+			name:   "1GPU",
+			config: types.CreateStandardGPUConfig(1, 80),
 		},
 		{
-			name: "dual_gpu",
-			config: []types.GPUInfoForEstimation{
-				{
-					Index:         0,
-					Library:       "cuda",
-					FreeMemory:    80 * 1024 * 1024 * 1024, // Large enough for any model
-					TotalMemory:   80 * 1024 * 1024 * 1024,
-					MinimumMemory: 512 * 1024 * 1024,
-				},
-				{
-					Index:         1,
-					Library:       "cuda",
-					FreeMemory:    80 * 1024 * 1024 * 1024,
-					TotalMemory:   80 * 1024 * 1024 * 1024,
-					MinimumMemory: 512 * 1024 * 1024,
-				},
-			},
-			opts: memory.EstimateOptions{
-				NumCtx:      4096,
-				NumBatch:    512,
-				NumParallel: 1,
-				NumGPU:      2,
-				KVCacheType: "q8_0", // Match Ollama's actual KV cache configuration
-			},
+			name:   "2GPU",
+			config: types.CreateStandardGPUConfig(2, 80),
 		},
 		{
-			name: "quad_gpu",
-			config: []types.GPUInfoForEstimation{
-				{
-					Index:         0,
-					Library:       "cuda",
-					FreeMemory:    80 * 1024 * 1024 * 1024,
-					TotalMemory:   80 * 1024 * 1024 * 1024,
-					MinimumMemory: 512 * 1024 * 1024,
-				},
-				{
-					Index:         1,
-					Library:       "cuda",
-					FreeMemory:    80 * 1024 * 1024 * 1024,
-					TotalMemory:   80 * 1024 * 1024 * 1024,
-					MinimumMemory: 512 * 1024 * 1024,
-				},
-				{
-					Index:         2,
-					Library:       "cuda",
-					FreeMemory:    80 * 1024 * 1024 * 1024,
-					TotalMemory:   80 * 1024 * 1024 * 1024,
-					MinimumMemory: 512 * 1024 * 1024,
-				},
-				{
-					Index:         3,
-					Library:       "cuda",
-					FreeMemory:    80 * 1024 * 1024 * 1024,
-					TotalMemory:   80 * 1024 * 1024 * 1024,
-					MinimumMemory: 512 * 1024 * 1024,
-				},
-			},
-			opts: memory.EstimateOptions{
-				NumCtx:      4096,
-				NumBatch:    512,
-				NumParallel: 1,
-				NumGPU:      4,
-				KVCacheType: "q8_0", // Match Ollama's actual KV cache configuration
-			},
+			name:   "4GPU",
+			config: types.CreateStandardGPUConfig(4, 80),
 		},
 	}
 
-	refreshCount := 0
+	// For each model, estimate memory for each GPU configuration
 	for _, model := range models {
-		// Only refresh cache for Ollama models for now
+		// Skip non-Ollama models as they don't support GGUF-based estimation
 		if model.Runtime != types.RuntimeOllama {
 			continue
 		}
 
+		// Get model's actual context length - no fallbacks
+		if model.ContextLength == 0 {
+			log.Debug().
+				Str("model_id", model.ID).
+				Msg("skipping model with no context length configured")
+			continue
+		}
+
 		for _, gpuConfig := range gpuConfigs {
+			// Create EstimateOptions with model's actual context length
+			opts := memory.EstimateOptions{
+				NumCtx:      int(model.ContextLength),
+				NumBatch:    512,
+				NumParallel: 1,
+				NumGPU:      len(gpuConfig.config),
+				KVCacheType: "q8_0", // Match what we set in Ollama runtime
+			}
+
 			// Check if we already have a fresh cache entry
-			cacheKey := s.generateCacheKey(model.ID, gpuConfig.config, gpuConfig.opts)
+			cacheKey := s.generateCacheKey(model.ID, gpuConfig.config, opts)
 			if entry := s.cache.get(cacheKey); entry != nil {
 				// Entry exists and is still fresh, skip
 				continue
@@ -870,27 +734,34 @@ func (s *MemoryEstimationService) refreshCacheForAllModels(ctx context.Context) 
 
 			// Estimate memory in background (don't block on individual model failures)
 			go func(modelID string, config []types.GPUInfoForEstimation, opts memory.EstimateOptions, configName string) {
-				_, err := s.EstimateModelMemory(ctx, modelID, config, opts)
+				log.Debug().
+					Str("CACHE_REFRESH_DEBUG", "starting_estimation").
+					Str("model_id", modelID).
+					Str("config_name", configName).
+					Int("num_ctx", opts.NumCtx).
+					Str("kv_cache_type", opts.KVCacheType).
+					Msg("Starting background memory estimation for cache")
+
+				result, err := s.EstimateModelMemory(ctx, modelID, config, opts)
 				if err != nil {
 					log.Debug().
 						Err(err).
 						Str("model_id", modelID).
-						Str("config", configName).
-						Msg("failed to refresh memory estimate for model")
-				} else {
-					log.Debug().
-						Str("model_id", modelID).
-						Str("config", configName).
-						Msg("refreshed memory estimate for model")
+						Str("config_name", configName).
+						Msg("failed to estimate memory for model in background refresh")
+					return
 				}
-			}(model.ID, gpuConfig.config, gpuConfig.opts, gpuConfig.name)
 
-			refreshCount++
+				log.Debug().
+					Str("model_id", modelID).
+					Str("config_name", configName).
+					Str("recommendation", result.Recommendation).
+					Msg("successfully cached memory estimate in background")
+			}(model.ID, gpuConfig.config, opts, gpuConfig.name)
 		}
 	}
 
 	log.Info().
 		Int("model_count", len(models)).
-		Int("refresh_count", refreshCount).
 		Msg("completed background cache refresh for memory estimates")
 }

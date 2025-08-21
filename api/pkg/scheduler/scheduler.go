@@ -107,8 +107,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
+
 	"github.com/helixml/helix/api/pkg/memory"
-	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/puzpuzpuz/xsync/v3"
@@ -1235,25 +1235,42 @@ func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
 	}
 
 	if targetModel.Runtime != types.RuntimeOllama {
-		return 0, fmt.Errorf("GGUF-based estimation only available for Ollama models, model %s uses runtime %s", modelID, targetModel.Runtime)
+		return 0, fmt.Errorf("GGUF-based estimation only available for Ollama models, got %s", targetModel.Runtime)
 	}
 
-	// Use default GPU configuration for estimation (single GPU with large memory)
-	gpuConfig := []types.GPUInfoForEstimation{
-		{
-			TotalMemory: 80 * 1024 * 1024 * 1024, // 80GB - large enough for any model
-			Index:       0,
-		},
+	// Use standard GPU configuration for estimation (single 80GB GPU)
+	// This fixes the FreeMemory=0 bug that caused 0 layers to fit
+	gpuConfig := types.CreateStandardGPUConfig(1, 80)
+
+	// Use model's actual context length - no fallbacks
+	log.Debug().
+		Str("CONTEXT_DEBUG", "scheduler").
+		Str("model_id", modelID).
+		Int64("context_length_from_store", targetModel.ContextLength).
+		Str("runtime", string(targetModel.Runtime)).
+		Msg("🦈 HAMMERHEAD Scheduler reading context length from model store")
+
+	if targetModel.ContextLength == 0 {
+		log.Error().
+			Str("model_id", modelID).
+			Msg("CRITICAL: model has no context length configured - cannot estimate memory")
+		return 0, fmt.Errorf("model %s has no context length configured", modelID)
 	}
 
-	// Use default estimation options similar to memory estimation service
 	opts := memory.EstimateOptions{
-		NumCtx:      4096,
+		NumCtx:      int(targetModel.ContextLength),
 		NumBatch:    512,
 		NumParallel: 1,
 		NumGPU:      1,
-		KVCacheType: "f16",
+		KVCacheType: "q8_0", // Match what we set in Ollama runtime
 	}
+
+	log.Debug().
+		Str("CONTEXT_DEBUG", "scheduler_opts").
+		Str("model_id", modelID).
+		Int("num_ctx_being_used", opts.NumCtx).
+		Str("kv_cache_type", opts.KVCacheType).
+		Msg("🦈 HAMMERHEAD Scheduler using these estimation options")
 
 	// Get memory estimation
 	result, err := s.memoryEstimationService.EstimateModelMemory(context.Background(), modelID, gpuConfig, opts)
@@ -1270,22 +1287,69 @@ func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
 		estimate = result.TensorParallel
 	case "cpu_only", "insufficient_memory":
 		// For scheduling purposes, prefer GPU estimates to show actual VRAM requirements
-		if result.SingleGPU != nil && result.SingleGPU.VRAMSize > 0 {
+		log.Debug().
+			Str("model_id", modelID).
+			Str("recommendation", result.Recommendation).
+			Interface("single_gpu", result.SingleGPU).
+			Interface("tensor_parallel", result.TensorParallel).
+			Interface("cpu_only", result.CPUOnly).
+			Msg("📋 SALMON Scheduler memory estimation result details for cpu_only/insufficient_memory case")
+
+		if result.SingleGPU != nil && result.SingleGPU.TotalSize > 0 {
 			estimate = result.SingleGPU
-		} else if result.TensorParallel != nil && result.TensorParallel.VRAMSize > 0 {
+		} else if result.TensorParallel != nil && result.TensorParallel.TotalSize > 0 {
 			estimate = result.TensorParallel
 		} else {
+			log.Debug().
+				Str("model_id", modelID).
+				Bool("single_gpu_nil", result.SingleGPU == nil).
+				Uint64("single_gpu_vram", func() uint64 {
+					if result.SingleGPU != nil {
+						return result.SingleGPU.VRAMSize
+					} else {
+						return 0
+					}
+				}()).
+				Uint64("single_gpu_total", func() uint64 {
+					if result.SingleGPU != nil {
+						return result.SingleGPU.TotalSize
+					} else {
+						return 0
+					}
+				}()).
+				Bool("tensor_parallel_nil", result.TensorParallel == nil).
+				Uint64("tensor_parallel_vram", func() uint64 {
+					if result.TensorParallel != nil {
+						return result.TensorParallel.VRAMSize
+					} else {
+						return 0
+					}
+				}()).
+				Uint64("tensor_parallel_total", func() uint64 {
+					if result.TensorParallel != nil {
+						return result.TensorParallel.TotalSize
+					} else {
+						return 0
+					}
+				}()).
+				Msg("📋 SALMON Scheduler: No valid GPU estimates found")
 			return 0, fmt.Errorf("no GPU-based estimate available for model %s", modelID)
 		}
 	default:
 		return 0, fmt.Errorf("unknown recommendation %s for model %s", result.Recommendation, modelID)
 	}
 
-	if estimate == nil || estimate.VRAMSize == 0 {
+	if estimate == nil || estimate.TotalSize == 0 {
 		return 0, fmt.Errorf("invalid memory estimate for model %s", modelID)
 	}
 
-	return estimate.VRAMSize, nil
+	// Always use TotalSize for consistent memory estimation
+	log.Debug().
+		Str("model_id", modelID).
+		Uint64("vram_size", estimate.VRAMSize).
+		Uint64("total_size", estimate.TotalSize).
+		Msg("📋 SALMON Scheduler using TotalSize for scheduling")
+	return estimate.TotalSize, nil
 }
 
 // getSchedulerSlots returns the scheduler's desired state slots for use in memory calculations
@@ -2640,64 +2704,79 @@ func (s *Scheduler) getPrewarmModels(runnerID string) []*types.Model {
 	return selectedModels
 }
 
-// getAllConfiguredPrewarmModels gets all models with Prewarm=true from configuration
+// getAllConfiguredPrewarmModels gets all models with Prewarm=true from the store
 func (s *Scheduler) getAllConfiguredPrewarmModels() []*types.Model {
+	// Get all models from the store
+	allModels, err := s.controller.store.ListModels(context.Background(), &store.ListModelsQuery{})
+	if err != nil {
+		log.Error().Err(err).Msg("failed to get models from store for prewarming")
+		return nil
+	}
+
+	// Debug: Log all models from store with their prewarm status
+	log.Warn().Msg("FLAMINGO: === DEBUG: All models from store ===")
+	for _, model := range allModels {
+		log.Warn().
+			Str("model_id", model.ID).
+			Str("runtime", string(model.Runtime)).
+			Bool("prewarm", model.Prewarm).
+			Bool("user_modified", model.UserModified).
+			Msg("FLAMINGO: Model from store")
+	}
+
+	// Filter for models with Prewarm=true and organize by runtime type for optimal ordering
+	var ollamaModels []*types.Model
+	var vllmModels []*types.Model
+	var diffusersModels []*types.Model
+
+	for _, model := range allModels {
+		if model.Prewarm {
+			log.Warn().
+				Str("model_id", model.ID).
+				Str("runtime", string(model.Runtime)).
+				Msg("FLAMINGO: DEBUG: Adding model to prewarm list because Prewarm=true")
+			switch model.Runtime {
+			case types.RuntimeOllama:
+				ollamaModels = append(ollamaModels, model)
+			case types.RuntimeVLLM:
+				vllmModels = append(vllmModels, model)
+			case types.RuntimeDiffusers:
+				diffusersModels = append(diffusersModels, model)
+			}
+		} else {
+			log.Debug().
+				Str("model_id", model.ID).
+				Str("runtime", string(model.Runtime)).
+				Msg("FLAMINGO: DEBUG: Skipping model because Prewarm=false")
+		}
+	}
+
+	// Combine in order: Ollama first (fast startup), then VLLM, then Diffusers
 	var prewarmModels []*types.Model
+	prewarmModels = append(prewarmModels, ollamaModels...)
+	prewarmModels = append(prewarmModels, vllmModels...)
+	prewarmModels = append(prewarmModels, diffusersModels...)
 
-	// Check VLLM models
-	vllmModels, err := model.GetDefaultVLLMModels()
-	if err != nil {
-		log.Warn().Err(err).Msg("failed to get VLLM models for prewarming")
-	} else {
-		for _, m := range vllmModels {
-			if m.Prewarm {
-				prewarmModels = append(prewarmModels, &types.Model{
-					ID:      m.ID,
-					Memory:  m.Memory,
-					Runtime: types.RuntimeVLLM,
-					Prewarm: m.Prewarm,
-				})
-			}
+	// Log the prioritization order for debugging
+	if len(prewarmModels) > 0 {
+		log.Error().
+			Int("total_prewarm_models", len(prewarmModels)).
+			Int("ollama_models_first", len(ollamaModels)).
+			Int("vllm_models_second", len(vllmModels)).
+			Int("diffusers_models_last", len(diffusersModels)).
+			Msg("FLAMINGO: === CRITICAL: Found prewarm models despite dashboard settings! ===")
+
+		// Log the actual model order for verification
+		modelOrder := make([]string, len(prewarmModels))
+		for i, model := range prewarmModels {
+			modelOrder[i] = fmt.Sprintf("%s(%s)", model.ID, model.Runtime)
 		}
-	}
-
-	// Check Ollama models
-	ollamaModels, err := model.GetDefaultOllamaModels()
-	if err != nil {
-		log.Warn().Err(err).Msg("failed to get Ollama models for prewarming")
+		log.Error().
+			Strs("model_queue_order", modelOrder).
+			Msg("FLAMINGO: === CRITICAL: These models will be prewarmed despite dashboard settings ===")
 	} else {
-		for _, m := range ollamaModels {
-			if m.Prewarm {
-				prewarmModels = append(prewarmModels, &types.Model{
-					ID:      m.ID,
-					Memory:  m.Memory,
-					Runtime: types.RuntimeOllama,
-					Prewarm: m.Prewarm,
-				})
-			}
-		}
+		log.Info().Msg("FLAMINGO: === GOOD: No prewarm models found in store - respecting dashboard settings ===")
 	}
-
-	// Check Diffusers models
-	diffusersModels, err := model.GetDefaultDiffusersModels()
-	if err != nil {
-		log.Warn().Err(err).Msg("failed to get Diffusers models for prewarming")
-	} else {
-		for _, m := range diffusersModels {
-			if m.Prewarm {
-				prewarmModels = append(prewarmModels, &types.Model{
-					ID:      m.ID,
-					Memory:  m.Memory,
-					Runtime: types.RuntimeDiffusers,
-					Prewarm: m.Prewarm,
-				})
-			}
-		}
-	}
-
-	log.Debug().
-		Int("total_prewarm_models", len(prewarmModels)).
-		Msg("loaded prewarm models from configuration")
 
 	return prewarmModels
 }

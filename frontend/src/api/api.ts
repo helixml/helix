@@ -1740,7 +1740,9 @@ export interface TypesRunnerSlot {
   gpu_index?: number;
   gpu_indices?: number[];
   id?: string;
+  memory_estimation_meta?: Record<string, any>;
   model?: string;
+  model_memory_requirement?: number;
   ready?: boolean;
   runner_id?: string;
   runtime?: TypesRuntime;

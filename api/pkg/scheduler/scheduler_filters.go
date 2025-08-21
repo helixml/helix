@@ -65,7 +65,7 @@ func (s *Scheduler) getEffectiveMemoryRequirement(ctx context.Context, work *Wor
 			NumBatch:    512,
 			NumParallel: 1,
 			NumGPU:      numGPUs,
-			KVCacheType: "q8_0",
+			KVCacheType: "q8_0", // Match what we set in Ollama runtime
 		}
 
 		result, err := s.memoryEstimationService.EstimateModelMemory(ctx, work.model.ID, estimationGPUs, opts)

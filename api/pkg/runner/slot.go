@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/system"
@@ -23,12 +24,14 @@ type Slot struct {
 	ContextLength          int64     // Optional context length override for the model
 	IntendedRuntime        types.Runtime
 	RuntimeArgs            map[string]any // Runtime-specific arguments
+	MemoryEstimationMeta   map[string]any // Metadata about memory estimation for tooltips
 	Active                 bool           // True if the slot is active
 	Ready                  bool           // True if the slot is ready to be used
 	GPUIndex               *int           // Primary GPU for single-GPU models (nil for CPU-only)
 	GPUIndices             []int          // All GPUs used for multi-GPU models
 	TensorParallelSize     int            // Number of GPUs for tensor parallelism (1 = single GPU, 0 = CPU-only)
 	CommandLine            string         // The actual command line executed for this slot
+	Created                time.Time      // When the slot was created
 	runnerOptions          *Options
 	runningRuntime         Runtime
 	apiServer              *HelixRunnerAPIServer // Reference to API server for system config
@@ -61,6 +64,7 @@ type CreateSlotParams struct {
 	ModelMemoryRequirement uint64
 	ContextLength          int64                 // Optional context length override
 	RuntimeArgs            map[string]any        // Runtime-specific arguments
+	MemoryEstimationMeta   map[string]any        // Metadata about memory estimation for tooltips
 	APIServer              *HelixRunnerAPIServer // Reference to API server for system config
 
 	// GPU allocation from scheduler - authoritative allocation decision
@@ -84,17 +88,15 @@ func NewEmptySlot(params CreateSlotParams) *Slot {
 		ContextLength:          params.ContextLength,
 		IntendedRuntime:        params.Runtime,
 		RuntimeArgs:            params.RuntimeArgs,
+		MemoryEstimationMeta:   params.MemoryEstimationMeta,
 		Active:                 false,
 		Ready:                  false,
-
-		// GPU allocation from scheduler - set during slot creation
-		GPUIndex:           params.GPUIndex,
-		GPUIndices:         params.GPUIndices,
-		TensorParallelSize: params.TensorParallelSize,
-
-		runnerOptions:  params.RunnerOptions,
-		runningRuntime: nil, // This is set during creation
-		apiServer:      params.APIServer,
+		GPUIndex:               params.GPUIndex,
+		GPUIndices:             params.GPUIndices,
+		TensorParallelSize:     params.TensorParallelSize,
+		Created:                time.Now(),
+		runnerOptions:          params.RunnerOptions,
+		apiServer:              params.APIServer,
 	}
 }
 

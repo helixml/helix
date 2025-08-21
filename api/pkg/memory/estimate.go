@@ -18,201 +18,14 @@ func EstimateGPULayers(gpus []GPUInfo, metadata *ModelMetadata, opts EstimateOpt
 	// Convert our types to Ollama's format
 	ollamaGPUs, ollamaModel, ollamaOpts := ConvertToOllamaTypes(gpus, metadata, opts)
 
-	// Use Ollama's exact memory estimation logic
-	ollamaEstimate := estimateOllamaGPULayers(ollamaGPUs, ollamaModel, ollamaOpts, opts.NumParallel)
+	// Use Ollama's exact memory estimation logic (v0.11.4)
+	ollamaEstimate := estimateGPULayers(ollamaGPUs, ollamaModel, ollamaOpts, opts.NumParallel)
 
 	// Convert back to our format
 	return ConvertFromOllamaEstimate(ollamaEstimate, gpus, metadata, opts)
 }
 
-// calculateLayerSize calculates the memory size of a single transformer layer
-func calculateLayerSize(metadata *ModelMetadata) uint64 {
-	// Try to get size from first block layer
-	if layerInfo, exists := metadata.Layers["blk.0"]; exists {
-		var size uint64
-		for _, tensor := range layerInfo.Tensors {
-			size += tensor.Size
-		}
-		return size
-	}
-
-	// Fallback: estimate based on architecture parameters
-	return estimateLayerSizeFromParams(metadata)
-}
-
-// calculateKVCachePerLayer calculates KV cache memory per layer (matches Ollama's approach)
-func calculateKVCachePerLayer(metadata *ModelMetadata, opts EstimateOptions) uint64 {
-	context := uint64(opts.NumCtx * opts.NumParallel)
-	embeddingHeadsK := metadata.KeyLength
-	embeddingHeadsV := metadata.ValueLength
-	headsKV := metadata.HeadCountKV
-
-	// Determine bytes per element based on KV cache type
-	bytesPerElement := getKVCacheBytesPerElement(opts.KVCacheType)
-
-	kvCacheSize := uint64(float64(context*(embeddingHeadsK+embeddingHeadsV)*headsKV) * bytesPerElement)
-
-	// Debug logging for large context windows
-	if opts.NumCtx > 32768 {
-		log.Warn().
-			Str("KV_CACHE_DEBUG", "large_context").
-			Int("num_ctx", opts.NumCtx).
-			Uint64("context_tokens", context).
-			Uint64("embedding_heads_k", embeddingHeadsK).
-			Uint64("embedding_heads_v", embeddingHeadsV).
-			Uint64("heads_kv", headsKV).
-			Float64("bytes_per_element", bytesPerElement).
-			Str("kv_cache_type", opts.KVCacheType).
-			Uint64("kv_cache_per_layer_mb", kvCacheSize/(1024*1024)).
-			Msg("KV cache calculation for large context window")
-	}
-
-	return kvCacheSize
-}
-
-// calculateKVCache calculates the total KV cache memory requirements (legacy function)
-func calculateKVCache(metadata *ModelMetadata, opts EstimateOptions) uint64 {
-	kvPerLayer := calculateKVCachePerLayer(metadata, opts)
-	totalKVCache := kvPerLayer * metadata.BlockCount
-
-	// Debug logging for large context windows
-	if opts.NumCtx > 32768 {
-		log.Warn().
-			Str("KV_CACHE_DEBUG", "total_calculation").
-			Int("num_ctx", opts.NumCtx).
-			Uint64("kv_per_layer_mb", kvPerLayer/(1024*1024)).
-			Uint64("block_count", metadata.BlockCount).
-			Uint64("total_kv_cache_mb", totalKVCache/(1024*1024)).
-			Uint64("total_kv_cache_gb", totalKVCache/(1024*1024*1024)).
-			Msg("Total KV cache calculation for large context window")
-	}
-
-	return totalKVCache
-}
-
 // calculateGraphMemory calculates graph memory requirements based on architecture
-func calculateGraphMemory(metadata *ModelMetadata, opts EstimateOptions) (partial, full uint64) {
-	batch := uint64(opts.NumBatch)
-	context := uint64(opts.NumCtx * opts.NumParallel)
-	embedding := metadata.EmbeddingLength
-	heads := metadata.HeadCount
-	headsKV := metadata.HeadCountKV
-	vocab := metadata.VocabSize
-
-	// Calculate embedding heads for compatibility
-	var embeddingHeads, embeddingHeadsK uint64
-	if heads > 0 {
-		embeddingHeads = embedding / heads
-		embeddingHeadsK = metadata.KeyLength
-		// embeddingHeadsV would be metadata.ValueLength if needed
-	}
-
-	switch metadata.Architecture {
-	case ArchitectureLlama, ArchitectureLlama4:
-		full = max64(
-			4*batch*(1+4*embedding+context*(1+heads)),
-			4*batch*(embedding+vocab),
-		)
-
-		partial = 4 * batch * embedding
-		partial += max64(
-			4*batch*(1+embedding+max64(context, embedding))+embedding*embedding*9/16+4*context*(batch*heads+embeddingHeads*headsKV),
-			4*batch*(embedding+vocab)+embedding*vocab*105/128,
-		)
-
-	case ArchitectureQwen2, ArchitectureQwen3:
-		full = max64(
-			4*batch*(embedding+vocab),
-			4*batch*(1+2*embedding+context+context*heads),
-		)
-
-		partial = max64(
-			4*batch*(embedding+vocab)+embedding*vocab*105/128,
-			4*(batch*(1+2*embedding+context*(1+heads))+embedding*(1+context)),
-		)
-
-	case ArchitectureGemma, ArchitectureGemma2, ArchitectureGemma3:
-		full = max64(
-			4*batch*(embedding+vocab),
-			4*batch*(2+context+context*heads+2*embedding+2*embeddingHeadsK*heads),
-		)
-
-		partial = max64(
-			4*embedding*batch+embedding*vocab*105/128+4*vocab*batch,
-			4*batch*(2*embedding+1+2*embeddingHeadsK*heads+context+context*heads)+
-				4*embeddingHeadsK*context*8+
-				embedding*embeddingHeadsK*heads*9/16,
-		)
-
-		// Gemma3 specific adjustments
-		if metadata.Architecture == ArchitectureGemma3 {
-			full *= 4
-			partial *= 4
-		}
-
-	case ArchitectureCommandR:
-		full = max64(
-			4*batch*(embedding+vocab),
-			4*batch*(2+4*embedding+context*(1+heads)),
-		)
-
-		partial = max64(
-			4*batch*(embedding+vocab)+embedding*vocab*105/128,
-			4*batch*(1+2*embedding+context*(1+heads))+4*embedding*context+embedding*embedding*9/16,
-		)
-
-	case ArchitecturePhi2:
-		full = max64(
-			4*batch*(embedding+vocab),
-			4*batch*(1+4*embedding+context+context*heads),
-		)
-
-		partial = max64(
-			4*batch*(2*embedding+vocab)+embedding*vocab*105/128,
-			4*batch*(2+3*embedding+context+context*heads),
-		)
-
-	case ArchitectureStableLM:
-		full = 4 * batch * (context*(1+heads) + 3*embedding + 2)
-		partial = max64(
-			4*batch*(vocab+2*embedding),
-			full,
-		)
-
-	case ArchitectureDeepSeek2:
-		full = max64(
-			4*batch*(3*embedding+vocab),
-			4*batch*(3*embedding+2+context*(1+headsKV)+2*embeddingHeadsK*headsKV),
-		)
-
-		partial = max64(
-			4*batch*(3*embedding+vocab)+embedding*vocab*105/128,
-			4*batch*(2*embedding+1+2*embeddingHeadsK*headsKV+context+context*headsKV)+4*embeddingHeadsK*context*headsKV+embedding*embeddingHeadsK*headsKV*9/16,
-		)
-
-	case ArchitectureChatGLM:
-		full = 4 * batch * (embedding + vocab)
-		partial = 4*batch*(embedding+vocab) + embedding*vocab*105/128
-
-	case ArchitectureGPTOSS:
-		// Special handling for GPT-OSS architecture
-		partial = 2 * heads / max64(headsKV, 1) * calculateKVCache(metadata, opts) / 6
-		full = partial
-
-	default:
-		// Fallback to LLaMA calculation for unknown architectures
-		return calculateGraphMemory(&ModelMetadata{
-			Architecture:    ArchitectureLlama,
-			EmbeddingLength: metadata.EmbeddingLength,
-			HeadCount:       metadata.HeadCount,
-			HeadCountKV:     metadata.HeadCountKV,
-			VocabSize:       metadata.VocabSize,
-			BlockCount:      metadata.BlockCount,
-		}, opts)
-	}
-
-	return partial, full
-}
 
 // distributeLayers distributes model layers across available GPUs
 func distributeLayers(gpus []GPUInfo, metadata *ModelMetadata, layerSize, kvTotal, graphPartial, graphFull uint64, opts EstimateOptions) (layerCount int, tensorSplit []int, gpuAllocations []uint64) {
@@ -296,8 +109,37 @@ func distributeLayersLikeOllama(gpus []GPUInfo, metadata *ModelMetadata, kvPerLa
 		for _, tensor := range layerInfo.Tensors {
 			layerSize += tensor.Size
 		}
-	} else {
-		layerSize = estimateLayerSizeFromParams(metadata)
+		layerSize += kvPerLayer
+	}
+
+	// Debug logging for layer distribution
+	log.Debug().
+		Str("LAYER_DEBUG", "distribution_start").
+		Str("architecture", metadata.Architecture).
+		Uint64("block_count", metadata.BlockCount).
+		Uint64("layer_size_bytes", layerSize).
+		Uint64("layer_size_mb", layerSize/(1024*1024)).
+		Uint64("kv_per_layer_bytes", kvPerLayer).
+		Uint64("kv_per_layer_mb", kvPerLayer/(1024*1024)).
+		Uint64("overhead_bytes", overhead).
+		Uint64("overhead_mb", overhead/(1024*1024)).
+		Int("gpu_count", len(gpus)).
+		Uint64("graph_partial_mb", graphPartial/(1024*1024)).
+		Uint64("graph_full_mb", graphFull/(1024*1024)).
+		Msg("Starting layer distribution")
+
+	// Log GPU information
+	for i, gpu := range gpus {
+		log.Debug().
+			Str("LAYER_DEBUG", "gpu_info").
+			Int("gpu_index", i).
+			Uint64("total_memory_bytes", gpu.TotalMemory).
+			Uint64("total_memory_mb", gpu.TotalMemory/(1024*1024)).
+			Uint64("free_memory_bytes", gpu.FreeMemory).
+			Uint64("free_memory_mb", gpu.FreeMemory/(1024*1024)).
+			Uint64("minimum_memory_bytes", gpu.MinimumMemory).
+			Uint64("minimum_memory_mb", gpu.MinimumMemory/(1024*1024)).
+			Msg("GPU configuration for layer distribution")
 	}
 
 	// Add KV cache to layer size (like Ollama line 207)
@@ -324,6 +166,11 @@ func distributeLayersLikeOllama(gpus []GPUInfo, metadata *ModelMetadata, kvPerLa
 	if len(gpusWithSpace) == 0 {
 		// No GPU has enough space, everything goes to overflow
 		totalLayers := int(metadata.BlockCount) + 1
+		log.Debug().
+			Str("LAYER_DEBUG", "cpu_fallback").
+			Int("total_layers", totalLayers).
+			Msg("All layers will run on CPU")
+
 		for layerIdx := totalLayers - 1; layerIdx >= 0; layerIdx-- {
 			// Get actual layer size for this layer
 			currentLayerSize := layerSize // Default
@@ -352,8 +199,19 @@ func distributeLayersLikeOllama(gpus []GPUInfo, metadata *ModelMetadata, kvPerLa
 				memoryWeights += currentLayerSize
 			}
 			overflow += currentLayerSize
-			kvTotal += kvPerLayer
 		}
+		kvTotal = kvPerLayer * metadata.BlockCount
+
+		log.Debug().
+			Str("LAYER_DEBUG", "cpu_fallback_result").
+			Uint64("total_overflow_bytes", overflow).
+			Uint64("total_overflow_mb", overflow/(1024*1024)).
+			Uint64("kv_total_bytes", kvTotal).
+			Uint64("kv_total_mb", kvTotal/(1024*1024)).
+			Uint64("memory_weights_bytes", memoryWeights).
+			Uint64("memory_weights_mb", memoryWeights/(1024*1024)).
+			Msg("CPU fallback calculation complete")
+
 		return 0, tensorSplit, gpuAllocations, overflow, kvTotal, memoryWeights
 	}
 
@@ -441,85 +299,28 @@ func distributeLayersLikeOllama(gpus []GPUInfo, metadata *ModelMetadata, kvPerLa
 
 // estimateCPUOnly creates a CPU-only memory estimate
 func estimateCPUOnly(metadata *ModelMetadata, opts EstimateOptions) *MemoryEstimate {
-	totalSize := calculateTotalSize(metadata, 0)
-	kvCache := calculateKVCache(metadata, opts)
-	weights := calculateWeightsSize(metadata)
-
-	return &MemoryEstimate{
-		Layers:           0,
-		Graph:            0,
-		VRAMSize:         0,
-		TotalSize:        totalSize,
-		KVCache:          kvCache,
-		Weights:          weights,
-		GraphMem:         0,
-		Architecture:     metadata.Architecture,
-		EstimatedAt:      time.Now(),
-		FullyLoaded:      false,
-		RequiresFallback: true,
-		Options:          opts,
-		GPUs:             []GPUInfo{},
-	}
-}
-
-// calculateTotalMemoryRequirement calculates the total memory requirement including overflow
-// This matches Ollama's logic where TotalSize = GPU allocation + overflow (parts that don't fit on GPU)
-func calculateTotalMemoryRequirement(metadata *ModelMetadata, layersOnGPU int, kvTotal, graphMem uint64) uint64 {
-	// Calculate total model weights
-	weights := calculateWeightsSize(metadata)
-
-	// Total layers in the model (including output layer)
-	totalLayers := int(metadata.BlockCount) + 1
-
-	// If all layers fit on GPU, total size is just the weights + KV cache + graph
-	if layersOnGPU >= totalLayers {
-		return weights + kvTotal + graphMem
-	}
-
-	// If partial GPU loading, we need weights + KV cache + graph + some overhead
-	// The KV cache and graph are always loaded, but weights might be split between GPU/CPU
-	overhead := weights / 10 // 10% overhead for model loading and processing
-	return weights + kvTotal + graphMem + overhead
-}
-
-// calculateTotalSize calculates the total memory requirement for the model (legacy function)
-func calculateTotalSize(metadata *ModelMetadata, vramSize uint64) uint64 {
-	weights := calculateWeightsSize(metadata)
-
-	// Add some overhead for model loading and processing
-	overhead := weights / 10 // 10% overhead
-
-	return weights + overhead
-}
-
-// calculateWeightsSize calculates the total size of model weights
-func calculateWeightsSize(metadata *ModelMetadata) uint64 {
+	// Simple CPU-only calculation
 	var totalSize uint64
 	for _, layer := range metadata.Layers {
 		for _, tensor := range layer.Tensors {
 			totalSize += tensor.Size
 		}
 	}
-	return totalSize
-}
 
-// estimateLayerSizeFromParams estimates layer size from architecture parameters
-func estimateLayerSizeFromParams(metadata *ModelMetadata) uint64 {
-	embedding := metadata.EmbeddingLength
-	ffn := metadata.FFLength
-
-	if embedding == 0 || ffn == 0 {
-		return 0
+	return &MemoryEstimate{
+		Layers:           0,
+		Graph:            0,
+		VRAMSize:         0,
+		TotalSize:        totalSize,
+		KVCache:          0,
+		Weights:          totalSize,
+		GraphMem:         0,
+		Architecture:     metadata.Architecture,
+		EstimatedAt:      time.Now(),
+		FullyLoaded:      false,
+		RequiresFallback: true,
+		Options:          opts,
 	}
-
-	// Approximate size for attention + FFN weights in a typical layer
-	attnSize := embedding * embedding * 4 // Q, K, V, O projections
-	ffnSize := embedding * ffn * 2        // Up and down projections
-
-	// Account for quantization (rough approximation)
-	bytesPerParam := uint64(2) // Assume average of 2 bytes per parameter for mixed quantization
-
-	return (attnSize + ffnSize) * bytesPerParam
 }
 
 // getKVCacheBytesPerElement returns bytes per element for KV cache type

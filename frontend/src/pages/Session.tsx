@@ -30,9 +30,8 @@ import useApi from "../hooks/useApi";
 import useRouter from "../hooks/useRouter";
 import useAccount from "../hooks/useAccount";
 import useSession from "../hooks/useSession";
-import useSessions from "../hooks/useSessions";
+
 import useWebsocket from "../hooks/useWebsocket";
-import useLoading from "../hooks/useLoading";
 import { useTheme } from "@mui/material/styles";
 import useThemeConfig from "../hooks/useThemeConfig";
 import Tooltip from "@mui/material/Tooltip";
@@ -100,15 +99,18 @@ interface MemoizedInteractionProps {
     session_id: string;
     onRegenerate?: (interactionID: string, message: string) => void;
     sessionSteps: TypesStepInfo[];
+    activeStreamingInteractionId: string | null;
 }
 
 // Create a memoized version of the Interaction component
 const MemoizedInteraction = React.memo(
     (props: MemoizedInteractionProps) => {
+        const { activeStreamingInteractionId } = props;
         const isLive =
-            props.isLastInteraction &&
+            props.interaction.id === activeStreamingInteractionId &&
             props.interaction.state ===
-                TypesInteractionState.InteractionStateWaiting;
+                TypesInteractionState.InteractionStateWaiting &&
+            !props.interaction.response_message;
 
         // Debug logging for blank screen issue
         console.log("MemoizedInteraction Debug:", {
@@ -116,6 +118,7 @@ const MemoizedInteraction = React.memo(
             isLastInteraction: props.isLastInteraction,
             interactionState: props.interaction.state,
             expectedWaitingState: TypesInteractionState.InteractionStateWaiting,
+            activeStreamingInteractionId: activeStreamingInteractionId,
             isLive: isLive,
             isOwner: props.isOwner,
             isAdmin: props.isAdmin,
@@ -272,6 +275,51 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     const { data: sessionSteps } = useListSessionSteps(session.data?.id || "", {
         enabled: !!session.data?.id,
     });
+
+    // Track which interaction is currently streaming to prevent duplicates
+    const [activeStreamingInteractionId, setActiveStreamingInteractionId] =
+        useState<string | null>(null);
+
+    // Auto-set active streaming interaction when session has new waiting interaction
+    useEffect(() => {
+        if (!session.data?.interactions) {
+            if (activeStreamingInteractionId) {
+                console.log(
+                    "Auto-clearing activeStreamingInteractionId - no interactions",
+                );
+                setActiveStreamingInteractionId(null);
+            }
+            return;
+        }
+
+        // Find the last waiting interaction without response content
+        const waitingInteraction = session.data.interactions
+            .slice()
+            .reverse()
+            .find(
+                (interaction) =>
+                    interaction.state ===
+                        TypesInteractionState.InteractionStateWaiting &&
+                    !interaction.response_message,
+            );
+
+        if (
+            waitingInteraction &&
+            waitingInteraction.id !== activeStreamingInteractionId
+        ) {
+            console.log(
+                "Auto-setting activeStreamingInteractionId to",
+                waitingInteraction.id,
+            );
+            setActiveStreamingInteractionId(waitingInteraction.id || null);
+        } else if (!waitingInteraction && activeStreamingInteractionId) {
+            // Clear if no waiting interactions without content
+            console.log(
+                "Auto-clearing activeStreamingInteractionId - no valid waiting interactions",
+            );
+            setActiveStreamingInteractionId(null);
+        }
+    }, [session.data?.interactions, activeStreamingInteractionId]);
 
     const isOwner = account.user?.id == session.data?.owner;
     let sessionID = router.params.session_id;
@@ -748,6 +796,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                 // Get the appID from session.data.parent_app instead of URL params
                 const appID = session.data.parent_app || "";
 
+                // Clear any previous streaming interaction IMMEDIATELY
+                console.log("onSend: Clearing activeStreamingInteractionId");
+                setActiveStreamingInteractionId(null);
+
                 setInputValue("");
                 // Scroll to bottom immediately after submitting to show progress
                 scrollToBottom();
@@ -769,6 +821,12 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                 formData.set("input", prompt);
                 formData.set("model_name", session.data?.model_name || "");
 
+                // Clear any previous streaming interaction IMMEDIATELY
+                console.log(
+                    "onRegenerate: Clearing activeStreamingInteractionId",
+                );
+                setActiveStreamingInteractionId(null);
+
                 setInputValue("");
                 // Scroll to bottom immediately after submitting to show progress
                 scrollToBottom();
@@ -783,6 +841,23 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
             // After reloading the session, force scroll to bottom by passing true
             await safeReloadSession(true);
+
+            // Set the new interaction as the active streaming interaction based on current session data
+            if (
+                session.data &&
+                session.data.interactions &&
+                session.data.interactions.length > 0
+            ) {
+                const lastInteraction =
+                    session.data.interactions[
+                        session.data.interactions.length - 1
+                    ];
+                console.log(
+                    "onSend: Setting activeStreamingInteractionId to",
+                    lastInteraction.id,
+                );
+                setActiveStreamingInteractionId(lastInteraction.id || null);
+            }
 
             // Give the DOM time to update, then scroll to bottom again
             setTimeout(() => {
@@ -920,6 +995,23 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
             // After reloading the session, force scroll to bottom by passing true
             await safeReloadSession(true);
+
+            // Set the new interaction as the active streaming interaction based on current session data
+            if (
+                session.data &&
+                session.data.interactions &&
+                session.data.interactions.length > 0
+            ) {
+                const lastInteraction =
+                    session.data.interactions[
+                        session.data.interactions.length - 1
+                    ];
+                console.log(
+                    "onRegenerate: Setting activeStreamingInteractionId to",
+                    lastInteraction.id,
+                );
+                setActiveStreamingInteractionId(lastInteraction.id || null);
+            }
 
             // Give the DOM time to update, then scroll to bottom again
             setTimeout(() => {
@@ -1294,6 +1386,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                                             sessionSteps={
                                                 sessionSteps?.data || []
                                             }
+                                            activeStreamingInteractionId={
+                                                activeStreamingInteractionId
+                                            }
                                         />
                                     );
                                 })}
@@ -1503,6 +1598,22 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
             session.setData(newSession);
 
             console.log("WebSocket session.setData completed");
+
+            // Clear active streaming interaction if the last interaction is complete
+            if (newSession.interactions && newSession.interactions.length > 0) {
+                const lastInteraction =
+                    newSession.interactions[newSession.interactions.length - 1];
+                if (
+                    lastInteraction.state === "complete" ||
+                    lastInteraction.state === "error"
+                ) {
+                    console.log(
+                        "WebSocket: Clearing activeStreamingInteractionId - interaction complete/error",
+                        lastInteraction.id,
+                    );
+                    setActiveStreamingInteractionId(null);
+                }
+            }
 
             // Restore scroll position after updating session data
             setTimeout(restoreScrollPosition, 0);
