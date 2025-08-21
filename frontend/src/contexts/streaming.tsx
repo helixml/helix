@@ -198,6 +198,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
 
       // Invalidate the session query
       queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(currentSessionId) });
+      queryClient.invalidateQueries({ queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId) });
       
       // Reload all sessions to refresh the name in the sidebar
       invalidateSessionsQuery(queryClient)
