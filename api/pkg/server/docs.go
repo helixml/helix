@@ -3025,10 +3025,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.Session"
-                            }
+                            "$ref": "#/definitions/types.Session"
                         }
                     }
                 }
