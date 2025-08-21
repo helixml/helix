@@ -3,7 +3,7 @@ import ReconnectingWebSocket from 'reconnecting-websocket';
 import { IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, ISessionChatRequest, ISessionType } from '../types';
 import useAccount from '../hooks/useAccount';
 import { TypesInteraction, TypesMessage, TypesSession } from '../api/api';
-import { sessionStepsQueryKey } from '../services/sessionService';
+import { GET_SESSION_QUERY_KEY, SESSION_STEPS_QUERY_KEY } from '../services/sessionService';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateSessionsQuery } from '../services/sessionService';
 
@@ -196,8 +196,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
         return
       }      
 
-      // Invalidate the stepInfos query
-      queryClient.invalidateQueries({ queryKey: sessionStepsQueryKey(currentSessionId) });
+      // Invalidate the session query
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(currentSessionId) });
       
       // Reload all sessions to refresh the name in the sidebar
       invalidateSessionsQuery(queryClient)
@@ -353,9 +353,13 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
             if (!line.trim()) continue;
             
             if (line.startsWith('data: ')) {
-              const data = line.slice(5);
+              const data = line.slice(5);              
               
-              if (data === '[DONE]') {
+              if (data.trim() === '[DONE]') {
+
+                // Invalidate the session query
+                queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) });
+                
                 if (sessionData?.id) {
                   // Final flush of any remaining content
                   flushMessageBuffer(sessionData.id);
@@ -461,6 +465,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       if (!sessionData) {
         throw new Error('Failed to receive session data');
       }
+
+      console.log("streaming done")
 
       return sessionData;
 

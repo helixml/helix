@@ -6,7 +6,7 @@ import {
   ISessionSummary,  
 } from '../types'
 
-import { TypesSession, TypesSessionSummary } from '../api/api'
+import { TypesSession } from '../api/api'
 
 export const useSession = () => {
   const api = useApi()
