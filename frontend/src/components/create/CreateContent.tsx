@@ -14,7 +14,6 @@ import Disclaimer from '../widgets/Disclaimer'
 import Row from '../widgets/Row'
 import UploadingOverlay from '../widgets/UploadingOverlay'
 import useAccount from '../../hooks/useAccount'
-import useApi from '../../hooks/useApi'
 import useApps from '../../hooks/useApps'
 import useCreateInputs from '../../hooks/useCreateInputs'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
@@ -76,9 +75,7 @@ const CreateContent: FC<CreateContentProps> = ({
   const inputs = useCreateInputs()
   const snackbar = useSnackbar()
   const account = useAccount()
-  const api = useApi()
-  const tracking = useTracking()
-  // const sessions = useSessions()
+  const tracking = useTracking()  
   const isBigScreen = useIsBigScreen()
   const apps = useApps()
   const { NewInference } = useStreaming()

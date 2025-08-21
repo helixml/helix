@@ -22,8 +22,6 @@ import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
-// import useSession from '../hooks/useSession'
-// import useWebsocket from '../hooks/useWebsocket'
 import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
 import Tooltip from '@mui/material/Tooltip'
@@ -31,11 +29,9 @@ import LoadingSpinner from '../components/widgets/LoadingSpinner'
 import { useGetSession, useUpdateSession } from '../services/sessionService'
 
 import {
-  ICloneInteractionMode,
   INTERACTION_STATE_EDITING,
   SESSION_TYPE_TEXT,
-  SESSION_MODE_FINETUNE,
-  WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
+  SESSION_MODE_FINETUNE, 
   INTERACTION_STATE_COMPLETE,
   INTERACTION_STATE_ERROR,
   IShareSessionInstructions,
