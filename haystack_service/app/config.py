@@ -10,12 +10,12 @@ def _build_pgvector_dsn() -> str:
     user = os.getenv("PGVECTOR_USER")
     password = os.getenv("PGVECTOR_PASSWORD")
     database = os.getenv("PGVECTOR_DATABASE")
-    
+
     # If all individual components are provided, construct DSN
     if all([host, user, password, database]):
         port = port or "5432"  # Default port if not provided
         return f"postgresql://{user}:{password}@{host}:{port}/{database}"
-    
+
     # Otherwise, use the existing PGVECTOR_DSN or default
     return os.getenv("PGVECTOR_DSN", "postgresql://postgres:postgres@pgvector:5432/postgres")
 
@@ -26,7 +26,7 @@ class Settings:
     PGVECTOR_TABLE: str = os.getenv("PGVECTOR_TABLE", "haystack_documents")
 
     # Document processing
-    CHUNK_SIZE: int = int(os.getenv("RAG_HAYSTACK_CHUNK_SIZE", "1000"))
+    CHUNK_SIZE: int = int(os.getenv("RAG_HAYSTACK_CHUNK_SIZE", "500"))
     CHUNK_OVERLAP: int = int(os.getenv("RAG_HAYSTACK_CHUNK_OVERLAP", "50"))
     CHUNK_UNIT: str = os.getenv("RAG_HAYSTACK_CHUNK_UNIT", "word")
 

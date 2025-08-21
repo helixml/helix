@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -37,6 +39,8 @@ type DiffusersRuntime struct {
 	startTimeout     time.Duration
 	huggingFaceToken string
 	logBuffer        *system.ModelInstanceLogBuffer // Log buffer for this instance
+	processTracker   *ProcessTracker                // Process tracker for monitoring
+	slotID           *uuid.UUID                     // Associated slot ID
 }
 
 type DiffusersRuntimeParams struct {
@@ -181,6 +185,12 @@ func (d *DiffusersRuntime) Warm(ctx context.Context, modelName string) error {
 
 func (d *DiffusersRuntime) URL() string {
 	return fmt.Sprintf("http://localhost:%d", d.port)
+}
+
+// SetProcessTracker sets the process tracker for monitoring
+func (d *DiffusersRuntime) SetProcessTracker(tracker *ProcessTracker, slotID uuid.UUID) {
+	d.processTracker = tracker
+	d.slotID = &slotID
 }
 
 func (d *DiffusersRuntime) Runtime() types.Runtime {

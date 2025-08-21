@@ -298,9 +298,19 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	var appController *controller.Controller
 
+	// Create memory estimation service for scheduler
+	memoryEstimationService := controller.NewMemoryEstimationService(
+		runnerController, // Implements RunnerSender interface
+		controller.NewStoreModelProvider(postgresStore), // Wrapped store implementing ModelProvider interface
+	)
+	// memoryEstimationService.StartBackgroundCacheRefresh(ctx) // DISABLED FOR DEBUGGING
+	// memoryEstimationService.StartCacheCleanup(ctx) // DISABLED FOR DEBUGGING
+
 	scheduler, err := scheduler.NewScheduler(ctx, cfg, &scheduler.Params{
-		RunnerController: runnerController,
-		QueueSize:        100,
+		RunnerController:        runnerController,
+		Store:                   postgresStore,
+		MemoryEstimationService: memoryEstimationService,
+		QueueSize:               100,
 		OnSchedulingErr: func(work *scheduler.Workload, err error) {
 			if appController != nil {
 				switch work.WorkloadType {

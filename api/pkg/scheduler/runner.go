@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
@@ -29,20 +30,21 @@ const (
 )
 
 type RunnerController struct {
-	runners             []string
-	runnersMu           *sync.RWMutex // Dedicated mutex for runners list only
-	callbackMu          *sync.RWMutex // Dedicated mutex for callback function only
-	ps                  pubsub.PubSub
-	ctx                 context.Context
-	fs                  filestore.FileStore
-	slotsCache          *LockingRunnerMap[types.ListRunnerSlotsResponse]
-	statusCache         *LockingRunnerMap[types.RunnerStatus]
-	store               store.Store
-	onRunnerConnectedFn func(runnerID string)                // Callback for when a new runner connects
-	getModelMemoryFn    func(modelID string) (uint64, error) // Callback to get authoritative model memory from scheduler
-	getSchedulerSlotsFn func() map[uuid.UUID]*Slot           // Callback to get scheduler's desired state slots
-	healthChecker       HealthChecker                        // Interface for health checking, allows mocking in tests
-	runnerClient        RunnerClient                         // Interface for runner requests, allows mocking in tests
+	runners                   []string
+	runnersMu                 *sync.RWMutex // Dedicated mutex for runners list only
+	callbackMu                *sync.RWMutex // Dedicated mutex for callback function only
+	ps                        pubsub.PubSub
+	ctx                       context.Context
+	fs                        filestore.FileStore
+	slotsCache                *LockingRunnerMap[types.ListRunnerSlotsResponse]
+	statusCache               *LockingRunnerMap[types.RunnerStatus]
+	store                     store.Store
+	onRunnerConnectedFn       func(runnerID string)                         // Callback for when a new runner connects
+	getModelMemoryFn          func(modelID string) (uint64, error)          // Callback to get authoritative model memory from scheduler
+	getDetailedMemoryResultFn func(modelID string) *memory.EstimationResult // Callback to get detailed memory estimation
+	getSchedulerSlotsFn       func() map[uuid.UUID]*Slot                    // Callback to get scheduler's desired state slots
+	healthChecker             HealthChecker                                 // Interface for health checking, allows mocking in tests
+	runnerClient              RunnerClient                                  // Interface for runner requests, allows mocking in tests
 }
 
 // HealthChecker interface allows for mocking health checks in tests
@@ -231,28 +233,30 @@ func (h *NATSHealthChecker) SetModels(runnerID string) error {
 }
 
 type RunnerControllerConfig struct {
-	PubSub              pubsub.PubSub
-	FS                  filestore.FileStore
-	Store               store.Store
-	OnRunnerConnectedFn func(runnerID string)                // Optional callback for when a new runner connects
-	GetModelMemoryFn    func(modelID string) (uint64, error) // Optional callback to get authoritative model memory
-	HealthChecker       HealthChecker                        // Optional: for testing, defaults to NATS-based implementation
-	RunnerClient        RunnerClient                         // Optional: for testing, defaults to NATS-based implementation
+	PubSub                    pubsub.PubSub
+	FS                        filestore.FileStore
+	Store                     store.Store
+	OnRunnerConnectedFn       func(runnerID string)                         // Optional callback for when a new runner connects
+	GetModelMemoryFn          func(modelID string) (uint64, error)          // Optional callback to get authoritative model memory
+	GetDetailedMemoryResultFn func(modelID string) *memory.EstimationResult // Optional callback to get detailed memory estimation
+	HealthChecker             HealthChecker                                 // Optional: for testing, defaults to NATS-based implementation
+	RunnerClient              RunnerClient                                  // Optional: for testing, defaults to NATS-based implementation
 }
 
 func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*RunnerController, error) {
 	controller := &RunnerController{
-		ctx:                 ctx,
-		ps:                  cfg.PubSub,
-		fs:                  cfg.FS,
-		store:               cfg.Store,
-		runners:             []string{},
-		runnersMu:           &sync.RWMutex{}, // Dedicated mutex for runners list
-		callbackMu:          &sync.RWMutex{}, // Dedicated mutex for callback
-		slotsCache:          NewLockingRunnerMap[types.ListRunnerSlotsResponse](),
-		statusCache:         NewLockingRunnerMap[types.RunnerStatus](),
-		onRunnerConnectedFn: cfg.OnRunnerConnectedFn,
-		getModelMemoryFn:    cfg.GetModelMemoryFn,
+		ctx:                       ctx,
+		ps:                        cfg.PubSub,
+		fs:                        cfg.FS,
+		store:                     cfg.Store,
+		runners:                   []string{},
+		runnersMu:                 &sync.RWMutex{}, // Dedicated mutex for runners list
+		callbackMu:                &sync.RWMutex{}, // Dedicated mutex for callback
+		slotsCache:                NewLockingRunnerMap[types.ListRunnerSlotsResponse](),
+		statusCache:               NewLockingRunnerMap[types.RunnerStatus](),
+		onRunnerConnectedFn:       cfg.OnRunnerConnectedFn,
+		getModelMemoryFn:          cfg.GetModelMemoryFn,
+		getDetailedMemoryResultFn: cfg.GetDetailedMemoryResultFn,
 	}
 
 	// Set up health checker - use provided one or default to NATS-based
@@ -276,7 +280,24 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 			log.Error().Err(err).Str("subject", msg.Subject).Msg("error parsing runner ID")
 			return err
 		}
-		controller.OnConnectedHandler(runnerID)
+
+		// Only trigger prewarming on actual connection, not periodic pings
+		if string(msg.Data) == "connected" {
+			log.Info().Str("runner_id", runnerID).Msg("new runner connected")
+			controller.OnConnectedHandler(runnerID)
+		} else {
+			// For ping messages, register runner if not already registered (handles API restart case)
+			controller.runnersMu.RLock()
+			isRegistered := slices.Contains(controller.runners, runnerID)
+			controller.runnersMu.RUnlock()
+
+			if !isRegistered {
+				log.Info().Str("runner_id", runnerID).Msg("registering runner from ping (API restart recovery)")
+				controller.OnConnectedHandler(runnerID)
+			} else {
+				log.Trace().Str("runner_id", runnerID).Str("data", string(msg.Data)).Msg("runner ping received")
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -312,6 +333,13 @@ func (c *RunnerController) setModelMemoryCallback(fn func(modelID string) (uint6
 	c.callbackMu.Lock()
 	defer c.callbackMu.Unlock()
 	c.getModelMemoryFn = fn
+}
+
+// setDetailedMemoryResultCallback sets the callback function to get detailed memory estimation results from scheduler
+func (c *RunnerController) setDetailedMemoryResultCallback(fn func(modelID string) *memory.EstimationResult) {
+	c.callbackMu.Lock()
+	defer c.callbackMu.Unlock()
+	c.getDetailedMemoryResultFn = fn
 }
 
 // setSchedulerSlotsCallback sets the callback function to get scheduler's desired state slots
@@ -623,7 +651,7 @@ func (c *RunnerController) GetGPUMemoryInfo(runnerID string) ([]*types.GPUStatus
 
 // GetOptimalGPUAllocation determines the best GPU allocation strategy for a model
 // Returns single GPU index for single-GPU models, or multiple GPU indices for multi-GPU models
-func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryRequirement uint64) (singleGPU *int, multiGPUs []int, tensorParallelSize int) {
+func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryRequirement uint64, runtime types.Runtime) (singleGPU *int, multiGPUs []int, tensorParallelSize int) {
 	status, err := c.GetStatus(runnerID)
 	if err != nil {
 		log.Error().Err(err).Msg("error getting runner status for GPU allocation")
@@ -667,18 +695,28 @@ func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryR
 		}
 	}
 
-	// If single GPU doesn't work, try multi-GPU allocation
-	// Start with 2 GPUs and scale up as needed
-	for numGPUs := 2; numGPUs <= len(status.GPUs); numGPUs++ {
-		if gpuIndices, canFit := c.CanFitModelOnMultipleGPUsAllocated(runnerID, modelMemoryRequirement, numGPUs, allocatedMemoryPerGPU); canFit {
-			log.Debug().
-				Str("runner_id", runnerID).
-				Ints("selected_gpus", gpuIndices).
-				Int("tensor_parallel_size", numGPUs).
-				Uint64("model_memory_requirement", modelMemoryRequirement).
-				Msg("Selected multi-GPU allocation for model based on allocated memory")
-			return nil, gpuIndices, numGPUs
+	// Try multi-GPU allocation for runtimes that support tensor parallelism
+	if runtime == types.RuntimeVLLM || runtime == types.RuntimeOllama {
+		// If single GPU doesn't work, try multi-GPU allocation
+		// Start with 2 GPUs and scale up as needed
+		for numGPUs := 2; numGPUs <= len(status.GPUs); numGPUs++ {
+			if gpuIndices, canFit := c.CanFitModelOnMultipleGPUsAllocated(runnerID, modelMemoryRequirement, numGPUs, allocatedMemoryPerGPU); canFit {
+				log.Debug().
+					Str("runner_id", runnerID).
+					Ints("selected_gpus", gpuIndices).
+					Int("tensor_parallel_size", numGPUs).
+					Uint64("model_memory_requirement", modelMemoryRequirement).
+					Str("runtime", string(runtime)).
+					Msg("Selected multi-GPU allocation for model based on allocated memory")
+				return nil, gpuIndices, numGPUs
+			}
 		}
+	} else {
+		log.Debug().
+			Str("runner_id", runnerID).
+			Str("runtime", string(runtime)).
+			Uint64("model_memory_requirement", modelMemoryRequirement).
+			Msg("Skipping multi-GPU allocation for runtime that doesn't support tensor parallelism")
 	}
 
 	log.Debug().
@@ -1416,17 +1454,119 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 			Msg("Using GPU allocation from scheduler")
 	}
 
+	// Get authoritative model memory from scheduler (uses GGUF estimates for Ollama models)
+	var modelMemoryRequirement uint64
+	if c.getModelMemoryFn != nil {
+		var err error
+		modelMemoryRequirement, err = c.getModelMemoryFn(slot.InitialWork().ModelName().String())
+		if err != nil {
+			log.Error().
+				Str("runner_id", slot.RunnerID).
+				Str("slot_id", slot.ID.String()).
+				Str("model", slot.InitialWork().ModelName().String()).
+				Err(err).
+				Msg("Failed to get authoritative model memory, falling back to slot memory")
+			modelMemoryRequirement = slot.Memory()
+		} else {
+			log.Debug().
+				Str("runner_id", slot.RunnerID).
+				Str("slot_id", slot.ID.String()).
+				Str("model", slot.InitialWork().ModelName().String()).
+				Uint64("authoritative_memory_bytes", modelMemoryRequirement).
+				Uint64("slot_memory_bytes", slot.Memory()).
+				Msg("Using authoritative model memory from scheduler")
+		}
+	} else {
+		log.Warn().
+			Str("runner_id", slot.RunnerID).
+			Str("slot_id", slot.ID.String()).
+			Str("model", slot.InitialWork().ModelName().String()).
+			Msg("No model memory callback available, using slot memory")
+		modelMemoryRequirement = slot.Memory()
+	}
+
+	// For Ollama models, collect memory estimation metadata for tooltip display
+	var memoryEstimationMeta map[string]any
+	if slot.InitialWork().Runtime() == types.RuntimeOllama {
+		// Get the model to extract context length and other parameters
+		models, err := c.store.ListModels(context.Background(), &store.ListModelsQuery{})
+		if err == nil {
+			for _, model := range models {
+				if model.ID == slot.InitialWork().ModelName().String() {
+					// Get detailed memory estimation breakdown for debugging
+					var detailedBreakdown map[string]any
+					if c.getDetailedMemoryResultFn != nil {
+						if result := c.getDetailedMemoryResultFn(model.ID); result != nil {
+							var estimate *memory.MemoryEstimate
+							if tensorParallelSize > 1 && result.TensorParallel != nil {
+								estimate = result.TensorParallel
+							} else if result.SingleGPU != nil {
+								estimate = result.SingleGPU
+							}
+
+							if estimate != nil {
+								// Convert bytes to human-readable format for debugging
+								formatMemory := func(bytes uint64) map[string]any {
+									return map[string]any{
+										"bytes": bytes,
+										"mb":    bytes / (1024 * 1024),
+										"gb":    float64(bytes) / (1024 * 1024 * 1024),
+									}
+								}
+
+								detailedBreakdown = map[string]any{
+									"total_memory":    formatMemory(estimate.TotalSize),
+									"weights_memory":  formatMemory(estimate.Weights),
+									"kv_cache_memory": formatMemory(estimate.KVCache),
+									"graph_memory":    formatMemory(estimate.Graph),
+									"vram_used":       formatMemory(estimate.VRAMSize),
+									"layers_on_gpu":   estimate.Layers,
+									"fully_loaded":    estimate.FullyLoaded,
+									"architecture":    estimate.Architecture,
+								}
+							}
+						}
+					}
+
+					memoryEstimationMeta = map[string]any{
+						"kv_cache_type":      types.DefaultKVCacheType, // KV cache type used in estimation
+						"context_length":     int(model.ContextLength),
+						"batch_size":         512,
+						"parallel_sequences": 1,
+						"estimation_source":  "gguf_analysis",
+						"gpu_allocation_type": func() string {
+							if tensorParallelSize > 1 {
+								return "tensor_parallel"
+							} else if gpuIndex != nil {
+								return "single_gpu"
+							} else {
+								return "multi_gpu"
+							}
+						}(),
+					}
+
+					// Add detailed breakdown if available
+					if detailedBreakdown != nil {
+						memoryEstimationMeta["detailed_breakdown"] = detailedBreakdown
+					}
+					break
+				}
+			}
+		}
+	}
+
 	req := &types.CreateRunnerSlotRequest{
 		ID: slot.ID,
 		Attributes: types.CreateRunnerSlotAttributes{
 			Runtime:                slot.InitialWork().Runtime(),
 			Model:                  slot.InitialWork().ModelName().String(),
-			ModelMemoryRequirement: slot.Memory(),
+			ModelMemoryRequirement: modelMemoryRequirement,
 			ContextLength:          contextLength,
 			RuntimeArgs:            runtimeArgs,
 			GPUIndex:               gpuIndex,
 			GPUIndices:             gpuIndices,
 			TensorParallelSize:     tensorParallelSize,
+			MemoryEstimationMeta:   memoryEstimationMeta,
 		},
 	}
 

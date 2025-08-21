@@ -7,9 +7,11 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func Test_filterRunnersByMemory_NoRunners(t *testing.T) {
@@ -19,6 +21,18 @@ func Test_filterRunnersByMemory_NoRunners(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	mockCtrl := gomock.NewController(t)
+	defer mockCtrl.Finish()
+
+	mockStore := store.NewMockStore(mockCtrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
 	ctrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub:        ps,
 		HealthChecker: &MockHealthChecker{},
@@ -27,6 +41,7 @@ func Test_filterRunnersByMemory_NoRunners(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
+		Store:            mockStore,
 	})
 	require.NoError(t, err)
 
@@ -54,6 +69,18 @@ func Test_filterRunnersByMemory_SomeRunnersSufficient(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	mockCtrl := gomock.NewController(t)
+	defer mockCtrl.Finish()
+
+	mockStore := store.NewMockStore(mockCtrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
 	ctrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub:        ps,
 		HealthChecker: &MockHealthChecker{},
@@ -62,6 +89,7 @@ func Test_filterRunnersByMemory_SomeRunnersSufficient(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
+		Store:            mockStore,
 	})
 	require.NoError(t, err)
 
@@ -128,6 +156,18 @@ func Test_filterRunnersByMemory_NoRunnersSufficient(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	mockCtrl := gomock.NewController(t)
+	defer mockCtrl.Finish()
+
+	mockStore := store.NewMockStore(mockCtrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
 	ctrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub:        ps,
 		HealthChecker: &MockHealthChecker{},
@@ -136,6 +176,7 @@ func Test_filterRunnersByMemory_NoRunnersSufficient(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
+		Store:            mockStore,
 	})
 	require.NoError(t, err)
 
@@ -201,6 +242,18 @@ func Test_filterRunnersByModel_NoRunners(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	mockCtrl := gomock.NewController(t)
+	defer mockCtrl.Finish()
+
+	mockStore := store.NewMockStore(mockCtrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
 	ctrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub:        ps,
 		HealthChecker: &MockHealthChecker{},
@@ -209,6 +262,7 @@ func Test_filterRunnersByModel_NoRunners(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
+		Store:            mockStore,
 	})
 	require.NoError(t, err)
 
@@ -236,6 +290,18 @@ func Test_filterRunnersByModel_RuntimeNotOllama(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	mockCtrl := gomock.NewController(t)
+	defer mockCtrl.Finish()
+
+	mockStore := store.NewMockStore(mockCtrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
 	ctrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub:        ps,
 		HealthChecker: &MockHealthChecker{},
@@ -244,6 +310,7 @@ func Test_filterRunnersByModel_RuntimeNotOllama(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
+		Store:            mockStore,
 	})
 	require.NoError(t, err)
 
@@ -273,6 +340,18 @@ func Test_filterRunnersByModel_AllRunnersHaveModel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	mockCtrl := gomock.NewController(t)
+	defer mockCtrl.Finish()
+
+	mockStore := store.NewMockStore(mockCtrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
 	ctrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub:        ps,
 		HealthChecker: &MockHealthChecker{},
@@ -281,6 +360,7 @@ func Test_filterRunnersByModel_AllRunnersHaveModel(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
+		Store:            mockStore,
 	})
 	require.NoError(t, err)
 
@@ -328,6 +408,18 @@ func Test_filterRunnersByModel_OneRunnerHasModel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	mockCtrl := gomock.NewController(t)
+	defer mockCtrl.Finish()
+
+	mockStore := store.NewMockStore(mockCtrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
 	ctrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub:        ps,
 		HealthChecker: &MockHealthChecker{},
@@ -336,6 +428,7 @@ func Test_filterRunnersByModel_OneRunnerHasModel(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
+		Store:            mockStore,
 	})
 	require.NoError(t, err)
 
@@ -409,6 +502,18 @@ func Test_filterRunnersByModel_NoRunnerHasModel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	mockCtrl := gomock.NewController(t)
+	defer mockCtrl.Finish()
+
+	mockStore := store.NewMockStore(mockCtrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
 	ctrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub:        ps,
 		HealthChecker: &MockHealthChecker{},
@@ -417,6 +522,7 @@ func Test_filterRunnersByModel_NoRunnerHasModel(t *testing.T) {
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController: ctrl,
+		Store:            mockStore,
 	})
 	require.NoError(t, err)
 

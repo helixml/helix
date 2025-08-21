@@ -9,6 +9,14 @@
  * ---------------------------------------------------------------
  */
 
+export interface ControllerMemoryEstimationResponse {
+  cached?: boolean;
+  error?: string;
+  estimate?: MemoryMemoryEstimate;
+  gpu_config?: TypesGPUInfoForEstimation[];
+  model_id?: string;
+}
+
 export interface GithubComHelixmlHelixApiPkgTypesConfig {
   rules?: TypesRule[];
 }
@@ -308,6 +316,74 @@ export interface GormDeletedAt {
   time?: string;
   /** Valid is true if Time is not NULL */
   valid?: boolean;
+}
+
+export interface MemoryEstimateOptions {
+  /** Advanced options */
+  flash_attention?: boolean;
+  /** "f16", "q8_0", "q4_0" */
+  kv_cache_type?: string;
+  /** Batch size */
+  num_batch?: number;
+  /** Context size */
+  num_ctx?: number;
+  /** Number of layers to offload (-1 for auto) */
+  num_gpu?: number;
+  /** Number of parallel sequences */
+  num_parallel?: number;
+}
+
+export interface MemoryGPUInfo {
+  compute?: string;
+  dependency_path?: string[];
+  driver_major?: number;
+  driver_minor?: number;
+  env_workarounds?: string[][];
+  free_memory?: number;
+  id?: string;
+  index?: number;
+  /** "cuda", "rocm", "metal", "cpu" */
+  library?: string;
+  minimum_memory?: number;
+  name?: string;
+  total_memory?: number;
+  unreliable_free_memory?: boolean;
+  /** Additional fields for compatibility with Ollama's estimation */
+  variant?: string;
+}
+
+export interface MemoryMemoryEstimate {
+  /** Metadata */
+  architecture?: string;
+  estimated_at?: string;
+  /** Whether all layers fit on GPU */
+  fully_loaded?: boolean;
+  /** Memory allocation per GPU */
+  gpu_sizes?: number[];
+  gpus?: MemoryGPUInfo[];
+  /** Graph memory requirement */
+  graph?: number;
+  /** Graph computation memory */
+  graph_mem?: number;
+  /** Breakdown for analysis */
+  kv_cache?: number;
+  /** Core results */
+  layers?: number;
+  model_path?: string;
+  /** Configuration used for estimation */
+  options?: MemoryEstimateOptions;
+  /** Projector weights (for multimodal) */
+  projectors?: number;
+  /** Whether CPU fallback is needed */
+  requires_fallback?: boolean;
+  /** Layers per GPU for tensor parallel */
+  tensor_split?: number[];
+  /** Total memory requirement */
+  total_size?: number;
+  /** Total VRAM usage */
+  vram_size?: number;
+  /** Model weights memory */
+  weights?: number;
 }
 
 export interface OpenaiChatCompletionResponseFormatJSONSchema {
@@ -804,11 +880,16 @@ export interface TypesDashboardRunner {
   free_memory?: number;
   /** Number of GPUs detected */
   gpu_count?: number;
+  /** GPU memory stabilization statistics */
+  gpu_memory_stats?: TypesGPUMemoryStats;
   /** Per-GPU memory status */
   gpus?: TypesGPUStatus[];
   id?: string;
   labels?: Record<string, string>;
+  memory_string?: string;
   models?: TypesRunnerModelStatus[];
+  /** Process tracking and cleanup statistics */
+  process_stats?: any;
   slots?: TypesRunnerSlot[];
   total_memory?: number;
   updated?: string;
@@ -876,6 +957,76 @@ export interface TypesFrontendLicenseInfo {
   organization?: string;
   valid?: boolean;
   valid_until?: string;
+}
+
+export interface TypesGPUInfoForEstimation {
+  /** Free memory in bytes */
+  free_memory?: number;
+  id?: string;
+  index?: number;
+  /** "cuda", "rocm", "metal", "cpu" */
+  library?: string;
+  /** Minimum memory to reserve */
+  minimum_memory?: number;
+  /** GPU model name */
+  name?: string;
+  /** Total memory in bytes */
+  total_memory?: number;
+}
+
+export interface TypesGPUMemoryDataPoint {
+  /** Actual free memory (from nvidia-smi) */
+  actual_free_mb?: number;
+  /** Total GPU memory */
+  actual_total_mb?: number;
+  /** Actual memory used (from nvidia-smi) */
+  actual_used_mb?: number;
+  /** Memory allocated by Helix scheduler */
+  allocated_mb?: number;
+  gpu_index?: number;
+  timestamp?: string;
+}
+
+export interface TypesGPUMemoryReading {
+  delta_mb?: number;
+  is_stable?: boolean;
+  memory_mb?: number;
+  poll_number?: number;
+  stable_count?: number;
+}
+
+export interface TypesGPUMemoryStabilizationEvent {
+  /** "startup" or "deletion" */
+  context?: string;
+  error_message?: string;
+  memory_delta_threshold_mb?: number;
+  memory_readings?: TypesGPUMemoryReading[];
+  poll_interval_ms?: number;
+  polls_taken?: number;
+  required_stable_polls?: number;
+  runtime?: string;
+  slot_id?: string;
+  stabilized_memory_mb?: number;
+  success?: boolean;
+  timeout_seconds?: number;
+  timestamp?: string;
+  total_wait_seconds?: number;
+}
+
+export interface TypesGPUMemoryStats {
+  average_wait_time_seconds?: number;
+  failed_stabilizations?: number;
+  last_stabilization?: string;
+  max_wait_time_seconds?: number;
+  /** Last 10 minutes of memory data */
+  memory_time_series?: TypesGPUMemoryDataPoint[];
+  min_wait_time_seconds?: number;
+  /** Last 20 events */
+  recent_events?: TypesGPUMemoryStabilizationEvent[];
+  /** Last 10 minutes of scheduling events */
+  scheduling_events?: TypesSchedulingEvent[];
+  successful_stabilizations?: number;
+  total_stabilizations?: number;
 }
 
 export interface TypesGPUStatus {
@@ -1582,24 +1733,25 @@ export interface TypesRunnerModelStatus {
 
 export interface TypesRunnerSlot {
   active?: boolean;
-  /** The actual command line executed for this slot */
   command_line?: string;
-  /** Context length used for the model, if specified */
   context_length?: number;
-  /** Primary GPU for single-GPU models (for VLLM) */
+  created?: string;
+  gpu_allocation_data?: Record<string, any>;
   gpu_index?: number;
-  /** All GPUs used for multi-GPU models */
   gpu_indices?: number[];
   id?: string;
+  memory_estimation_meta?: Record<string, any>;
   model?: string;
+  model_memory_requirement?: number;
   ready?: boolean;
+  runner_id?: string;
   runtime?: TypesRuntime;
-  /** Runtime-specific arguments */
   runtime_args?: Record<string, any>;
   status?: string;
-  /** Number of GPUs for tensor parallelism (1 = single GPU) */
   tensor_parallel_size?: number;
+  updated?: string;
   version?: string;
+  workload_data?: Record<string, any>;
 }
 
 export enum TypesRuntime {
@@ -1639,6 +1791,18 @@ export enum TypesSchedulingDecisionType {
   SchedulingDecisionTypeRejected = "rejected",
   SchedulingDecisionTypeError = "error",
   SchedulingDecisionTypeUnschedulable = "unschedulable",
+}
+
+export interface TypesSchedulingEvent {
+  description?: string;
+  /** "slot_created", "slot_deleted", "eviction", "stabilization_start", "stabilization_end" */
+  event_type?: string;
+  gpu_indices?: number[];
+  memory_mb?: number;
+  model_name?: string;
+  runtime?: string;
+  slot_id?: string;
+  timestamp?: string;
 }
 
 export interface TypesSecret {
@@ -3115,6 +3279,62 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Estimate memory requirements for a model on different GPU configurations
+     *
+     * @tags models
+     * @name V1HelixModelsMemoryEstimateList
+     * @summary Estimate model memory requirements
+     * @request GET:/api/v1/helix-models/memory-estimate
+     * @secure
+     */
+    v1HelixModelsMemoryEstimateList: (
+      query: {
+        /** Model ID */
+        model_id: string;
+        /** Number of GPUs (default: auto-detect) */
+        num_gpu?: number;
+        /** Context length (default: model default) */
+        context_length?: number;
+        /** Batch size (default: 512) */
+        batch_size?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ControllerMemoryEstimationResponse, string>({
+        path: `/api/v1/helix-models/memory-estimate`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get memory estimates for multiple models with different GPU configurations
+     *
+     * @tags models
+     * @name V1HelixModelsMemoryEstimatesList
+     * @summary List memory estimates for multiple models
+     * @request GET:/api/v1/helix-models/memory-estimates
+     * @secure
+     */
+    v1HelixModelsMemoryEstimatesList: (
+      query?: {
+        /** Comma-separated list of model IDs */
+        model_ids?: string;
+        /** Number of GPUs (default: auto-detect) */
+        num_gpu?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ControllerMemoryEstimationResponse[], string>({
+        path: `/api/v1/helix-models/memory-estimates`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * No description
      *
      * @name V1KnowledgeList
@@ -4322,6 +4542,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<Record<string, string>, any>({
         path: `/api/v1/skills/reload`,
         method: "POST",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Delete a slot from the scheduler's desired state, allowing reconciliation to clean it up from the runner
+     *
+     * @tags dashboard
+     * @name V1SlotsDelete
+     * @summary Delete a slot from scheduler state
+     * @request DELETE:/api/v1/slots/{slot_id}
+     * @secure
+     */
+    v1SlotsDelete: (slotId: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, any>({
+        path: `/api/v1/slots/${slotId}`,
+        method: "DELETE",
         secure: true,
         ...params,
       }),

@@ -60,6 +60,12 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 			}
 
 			// If user hasn't modified the model, keep it in sync with code definitions
+			log.Debug().
+				Str("model_id", model.ID).
+				Bool("user_modified", existingModel.UserModified).
+				Bool("existing_prewarm", existingModel.Prewarm).
+				Bool("code_prewarm", model.Prewarm).
+				Msg("checking if model needs seeding updates")
 			if !existingModel.UserModified {
 				// Update all system-managed fields from code definitions
 				if existingModel.Memory != model.Memory {
@@ -79,6 +85,12 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 					shouldUpdate = true
 				}
 				if existingModel.Prewarm != model.Prewarm {
+					log.Warn().
+						Str("model_id", model.ID).
+						Bool("existing_prewarm", existingModel.Prewarm).
+						Bool("new_prewarm", model.Prewarm).
+						Bool("user_modified", existingModel.UserModified).
+						Msg("OVERRIDING prewarm setting during model seeding - this may override user dashboard changes!")
 					updateData.Prewarm = model.Prewarm
 					shouldUpdate = true
 				}
@@ -93,10 +105,12 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 				if err != nil {
 					log.Err(err).Str("model_id", model.ID).Msg("failed to update existing ollama model")
 				} else {
-					log.Info().
+					log.Warn().
 						Str("model_id", model.ID).
 						Bool("user_modified", existingModel.UserModified).
-						Msg("updated existing ollama model with latest system defaults")
+						Bool("prewarm_updated", updateData.Prewarm != existingModel.Prewarm).
+						Bool("final_prewarm", updateData.Prewarm).
+						Msg("SEEDING OVERRODE model settings - check if this conflicts with user dashboard changes")
 				}
 			}
 			continue
@@ -259,6 +273,12 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 			}
 
 			// If user hasn't modified the model, keep it in sync with code definitions
+			log.Debug().
+				Str("model_id", model.ID).
+				Bool("user_modified", existingModel.UserModified).
+				Bool("existing_prewarm", existingModel.Prewarm).
+				Bool("code_prewarm", model.Prewarm).
+				Msg("checking if VLLM model needs seeding updates")
 			if !existingModel.UserModified {
 				// Update all system-managed fields from code definitions
 				if existingModel.Memory != model.Memory {
@@ -278,6 +298,12 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 					shouldUpdate = true
 				}
 				if existingModel.Prewarm != model.Prewarm {
+					log.Warn().
+						Str("model_id", model.ID).
+						Bool("existing_prewarm", existingModel.Prewarm).
+						Bool("new_prewarm", model.Prewarm).
+						Bool("user_modified", existingModel.UserModified).
+						Msg("OVERRIDING VLLM prewarm setting during model seeding - this may override user dashboard changes!")
 					updateData.Prewarm = model.Prewarm
 					shouldUpdate = true
 				}
@@ -292,10 +318,12 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 				if err != nil {
 					log.Err(err).Str("model_id", model.ID).Msg("failed to update existing vllm model")
 				} else {
-					log.Info().
+					log.Warn().
 						Str("model_id", model.ID).
 						Bool("user_modified", existingModel.UserModified).
-						Msg("updated existing vllm model with latest system defaults")
+						Bool("prewarm_updated", updateData.Prewarm != existingModel.Prewarm).
+						Bool("final_prewarm", updateData.Prewarm).
+						Msg("SEEDING OVERRODE VLLM model settings - check if this conflicts with user dashboard changes")
 				}
 			}
 			continue
@@ -430,20 +458,23 @@ func (s *PostgresStore) ListModels(ctx context.Context, q *ListModelsQuery) ([]*
 
 	query := s.gdb.WithContext(ctx)
 
-	if q.Type != "" {
-		query = query.Where("type = ?", q.Type)
-	}
+	// Handle nil query gracefully
+	if q != nil {
+		if q.Type != "" {
+			query = query.Where("type = ?", q.Type)
+		}
 
-	if q.Name != "" {
-		query = query.Where("name = ?", q.Name)
-	}
+		if q.Name != "" {
+			query = query.Where("name = ?", q.Name)
+		}
 
-	if q.Runtime != "" {
-		query = query.Where("runtime = ?", q.Runtime)
-	}
+		if q.Runtime != "" {
+			query = query.Where("runtime = ?", q.Runtime)
+		}
 
-	if q.Enabled != nil {
-		query = query.Where("enabled = ?", *q.Enabled)
+		if q.Enabled != nil {
+			query = query.Where("enabled = ?", *q.Enabled)
+		}
 	}
 
 	err := query.Order("sort_order ASC, created DESC").Find(&models).Error

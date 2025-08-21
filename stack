@@ -7,6 +7,8 @@ export TMUX_SESSION=${TMUX_SESSION:="helix"}
 export WITH_RUNNER=${WITH_RUNNER:=""}
 export WITH_DEMOS=${WITH_DEMOS:=""}
 export STOP_KEYCLOAK=${STOP_KEYCLOAK:=""}
+export STOP_POSTGRES=${STOP_POSTGRES:=""}
+export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
 
 # Helper function to check for NVIDIA GPU and set appropriate variables
 function setup_runner_profile() {
@@ -110,6 +112,12 @@ function start() {
 
   sleep 2
 
+  # Check if WIPE_SLOTS is set and wipe slots if requested
+  if [[ -n "$WIPE_SLOTS" ]]; then
+    echo "WIPE_SLOTS is set, wiping slots from database..."
+    wipe-slots
+  fi
+
   echo "Creating tmux session $TMUX_SESSION..."
 
   # get the size of the window and create a session at that size
@@ -147,8 +155,14 @@ function start() {
 }
 
 function stop() {
-  if [[ -n "$STOP_KEYCLOAK" ]]; then
-    echo "Removing all docker containers (including keycloak)"
+  # Build exclude pattern for services that should not be stopped
+  local exclude_services=()
+  [[ -z "$STOP_KEYCLOAK" ]] && exclude_services+=("keycloak")
+  [[ -z "$STOP_POSTGRES" ]] && exclude_services+=("postgres")
+  [[ -z "$STOP_PGVECTOR" ]] && exclude_services+=("pgvector")
+
+  if [[ ${#exclude_services[@]} -eq 0 ]]; then
+    echo "Removing all docker containers"
 
     # Setup runner profiles first
     setup_runner_profile
@@ -174,7 +188,9 @@ function stop() {
       docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos down
     fi
   else
-    echo "Removing docker containers (except keycloak)"
+    # Create grep pattern to exclude services
+    local exclude_pattern=$(IFS='|'; echo "${exclude_services[*]}")
+    echo "Removing docker containers (except: ${exclude_services[*]})"
 
     # Setup runner profiles first
     setup_runner_profile
@@ -183,21 +199,21 @@ function stop() {
     if [[ -n "$WITH_RUNNER" ]]; then
       if [[ -n "$WITH_DEMOS" ]]; then
         # Both runner and demos
-        echo "Stopping services with runner ($RUNNER_CONTAINER) and demos profiles (except keycloak)"
-        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos rm -sf $(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos ps -a --services | grep -v keycloak)
+        echo "Stopping services with runner ($RUNNER_CONTAINER) and demos profiles (except: ${exclude_services[*]})"
+        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos rm -sf $(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos ps -a --services | grep -v -E "$exclude_pattern")
       else
         # Just runner
-        echo "Stopping services with runner ($RUNNER_CONTAINER) profile (except keycloak)"
-        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" rm -sf $(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" ps -a --services | grep -v keycloak)
+        echo "Stopping services with runner ($RUNNER_CONTAINER) profile (except: ${exclude_services[*]})"
+        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" rm -sf $(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" ps -a --services | grep -v -E "$exclude_pattern")
       fi
     elif [[ -n "$WITH_DEMOS" ]]; then
       # Just demos
-      echo "Stopping services with demos profile (except keycloak)"
-      docker compose -f docker-compose.dev.yaml --profile demos rm -sf $(docker compose -f docker-compose.dev.yaml --profile demos ps -a --services | grep -v keycloak)
+      echo "Stopping services with demos profile (except: ${exclude_services[*]})"
+      docker compose -f docker-compose.dev.yaml --profile demos rm -sf $(docker compose -f docker-compose.dev.yaml --profile demos ps -a --services | grep -v -E "$exclude_pattern")
     else
       # Include all profiles when no environment variables are set
-      echo "Stopping all services (all profiles, except keycloak)"
-      docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos rm -sf $(docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos ps -a --services | grep -v keycloak)
+      echo "Stopping all services (all profiles, except: ${exclude_services[*]})"
+      docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos rm -sf $(docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos ps -a --services | grep -v -E "$exclude_pattern")
     fi
   fi
 
@@ -246,6 +262,58 @@ function pgvector_pipe() {
   db pipe pgvector "$@"
 }
 
+function list-slots() {
+  echo "SELECT * FROM runner_slots ORDER BY created DESC;" | db pipe postgres
+}
+
+function slots() {
+  echo "Formatted view of all slots:"
+  echo "SELECT
+    id,
+    runner_id,
+    model,
+    runtime,
+    active,
+    ready,
+    status,
+    created::timestamp(0) as created,
+    updated::timestamp(0) as updated
+  FROM runner_slots
+  ORDER BY created DESC;" | db pipe postgres
+}
+
+function active-slots() {
+  echo "Active slots only:"
+  echo "SELECT
+    id,
+    runner_id,
+    model,
+    runtime,
+    status,
+    created::timestamp(0) as created
+  FROM runner_slots
+  WHERE active = true
+  ORDER BY created DESC;" | db pipe postgres
+}
+
+function slot-stats() {
+  echo "Slot statistics:"
+  echo "SELECT
+    runner_id,
+    COUNT(*) as total_slots,
+    COUNT(CASE WHEN active = true THEN 1 END) as active_slots,
+    COUNT(CASE WHEN active = false THEN 1 END) as inactive_slots
+  FROM runner_slots
+  GROUP BY runner_id
+  ORDER BY total_slots DESC;" | db pipe postgres
+}
+
+function wipe-slots() {
+  echo "Wiping all slots from database..."
+  echo "DELETE FROM runner_slots;" | db pipe postgres
+  echo "All slots have been deleted from the database."
+}
+
 function install() {
   go install ./api/..
 }
@@ -266,7 +334,7 @@ function lint() {
 
 # Before running this, ensure Postgres port is open (5432) for local connections
 # and that API server is stopped (if you started it with ./stack up)
-function test-integration() {  
+function test-integration() {
   cd integration-test/api && go test -v "$@"
 }
 

@@ -77,6 +77,14 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	ctrl := gomock.NewController(suite.T())
 	suite.ctrl = ctrl
 	suite.store = store.NewMockStore(ctrl)
+	// Add slot operation expectations for scheduler
+	suite.store.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	suite.store.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	suite.store.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	suite.store.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	suite.store.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	suite.store.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+
 	ps, err := pubsub.New(&config.ServerConfig{
 		PubSub: config.PubSub{
 			StoreDir: suite.T().TempDir(),
@@ -110,6 +118,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	suite.NoError(err)
 	schedulerParams := &scheduler.Params{
 		RunnerController: runnerController,
+		Store:            suite.store,
 	}
 	scheduler, err := scheduler.NewScheduler(context.Background(), cfg, schedulerParams)
 	suite.NoError(err)

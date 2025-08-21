@@ -9,10 +9,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog"
 	openai "github.com/sashabaranov/go-openai"
+	"go.uber.org/mock/gomock"
 )
 
 // init runs before any tests and sets reasonable log level defaults
@@ -45,6 +47,25 @@ func (m *MockHealthChecker) GetHealthz(_ string) error {
 func (m *MockHealthChecker) SetModels(_ string) error {
 	// In tests, always return success for model setting
 	return nil
+}
+
+// CreateMockSchedulerParams creates scheduler params with a mock store for testing
+func CreateMockSchedulerParams(t *testing.T, runnerController *RunnerController) *Params {
+	ctrl := gomock.NewController(t)
+	mockStore := store.NewMockStore(ctrl)
+
+	// Set up basic mock expectations for slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+
+	return &Params{
+		RunnerController: runnerController,
+		Store:            mockStore,
+	}
 }
 
 // MockRunnerClient implements RunnerClient for testing - always succeeds

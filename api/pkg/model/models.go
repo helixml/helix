@@ -400,7 +400,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 		{
 			ID:            "MrLight/dse-qwen2-2b-mrl-v1",
 			Name:          "DSE Qwen2 2B",
-			Memory:        GB * 8,
+			Memory:        GB * 10,
 			ContextLength: 8192,
 			Description:   "Small embedding model for RAG, from MrLight",
 			Args: []string{
