@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -78,13 +79,7 @@ func TestMemoryEstimation(t *testing.T) {
 			},
 		}
 
-		opts := EstimateOptions{
-			NumCtx:      4096,
-			NumBatch:    512,
-			NumParallel: 1,
-			NumGPU:      1,
-			KVCacheType: "q8_0", // Match what we set in Ollama runtime
-		}
+		opts := types.CreateTestEstimateOptions(4096)
 
 		estimate := EstimateGPULayers(gpuInfos, metadata, opts)
 		require.NotNil(t, estimate)
@@ -127,13 +122,7 @@ func TestMemoryEstimation(t *testing.T) {
 			},
 		}
 
-		opts := EstimateOptions{
-			NumCtx:      4096,
-			NumBatch:    512,
-			NumParallel: 1,
-			NumGPU:      -1,     // Auto-detect
-			KVCacheType: "q8_0", // Match what we set in Ollama runtime
-		}
+		opts := types.CreateTestEstimateOptions(4096)
 
 		estimate := EstimateGPULayers(gpuInfos, metadata, opts)
 		require.NotNil(t, estimate)
@@ -167,13 +156,7 @@ func TestMemoryEstimation(t *testing.T) {
 			},
 		}
 
-		opts := EstimateOptions{
-			NumCtx:      131072, // Large context like in our debug case
-			NumBatch:    512,
-			NumParallel: 1,
-			NumGPU:      -1,     // Auto-detect
-			KVCacheType: "q8_0", // Match what we set in Ollama runtime
-		}
+		opts := types.CreateTestEstimateOptions(131072) // Large context like in our debug case
 
 		estimate := EstimateGPULayers(gpuInfos, metadata, opts)
 		require.NotNil(t, estimate)
@@ -214,13 +197,7 @@ func TestMemoryEstimation(t *testing.T) {
 		}
 
 		// Use exact parameters from debug output
-		opts := EstimateOptions{
-			NumCtx:      131072, // Exact match from debug
-			NumBatch:    512,
-			NumParallel: 1,
-			NumGPU:      -1,
-			KVCacheType: "q8_0", // Match what we set in Ollama runtime
-		}
+		opts := types.CreateTestEstimateOptions(131072) // Exact match from debug
 
 		estimate := EstimateGPULayers(gpuInfos, metadata, opts)
 		require.NotNil(t, estimate)
@@ -302,13 +279,7 @@ func TestMemoryEstimation(t *testing.T) {
 			},
 		}
 
-		opts := EstimateOptions{
-			NumCtx:      131072,
-			NumBatch:    512,
-			NumParallel: 1,
-			NumGPU:      -1,
-			KVCacheType: "q8_0", // Match what we set in Ollama runtime
-		}
+		opts := types.CreateTestEstimateOptions(131072)
 
 		estimate := EstimateGPULayers(gpuInfos, gptossMetadata, opts)
 		require.NotNil(t, estimate)
@@ -347,8 +318,8 @@ func TestMemoryEstimation(t *testing.T) {
 			NumCtx:      4096,
 			NumBatch:    512,
 			NumParallel: 1,
-			NumGPU:      0,      // Force CPU
-			KVCacheType: "q8_0", // Match what we set in Ollama runtime
+			NumGPU:      0,                        // Force CPU
+			KVCacheType: types.DefaultKVCacheType, // Match what we set in Ollama runtime
 		}
 
 		estimate := EstimateGPULayers(gpuInfos, metadata, opts)

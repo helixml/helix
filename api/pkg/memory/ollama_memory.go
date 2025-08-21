@@ -223,6 +223,19 @@ func estimateGPULayers(gpus []OllamaGpuInfo, f *OllamaModelInfo, opts OllamaOpti
 
 		requiredMemory := overhead + gzo + ollamaMax64(graphPartialOffload, graphFullOffload) + gpus[i].MinimumMemory + 2*layerSize
 
+		slog.Info("LAYER_DISTRIBUTION_DEBUG: Initial GPU filtering",
+			"gpu_index", i,
+			"gpu_id", gpus[i].ID,
+			"free_memory_gb", float64(gpus[i].FreeMemory)/(1024*1024*1024),
+			"required_memory_gb", float64(requiredMemory)/(1024*1024*1024),
+			"overhead_gb", float64(overhead)/(1024*1024*1024),
+			"gzo_gb", float64(gzo)/(1024*1024*1024),
+			"graph_partial_gb", float64(graphPartialOffload)/(1024*1024*1024),
+			"graph_full_gb", float64(graphFullOffload)/(1024*1024*1024),
+			"minimum_memory_gb", float64(gpus[i].MinimumMemory)/(1024*1024*1024),
+			"layer_size_gb", float64(layerSize)/(1024*1024*1024),
+			"passes_filter", gpus[i].FreeMemory >= requiredMemory)
+
 		// Only include GPUs that can fit the graph, gpu minimum, the layer buffer and at least one more layer
 		if gpus[i].FreeMemory < requiredMemory {
 			slog.Debug("gpu has too little memory to allocate any layers",
@@ -251,9 +264,10 @@ func estimateGPULayers(gpus []OllamaGpuInfo, f *OllamaModelInfo, opts OllamaOpti
 		overflow += gpuZeroOverhead
 	}
 
-	slog.Debug("ZERO_LAYERS_DEBUG: Starting layer distribution",
+	slog.Info("LAYER_DISTRIBUTION_DEBUG: Starting layer distribution",
 		"block_count", f.BlockCount,
-		"gpus_with_space", len(gpusWithSpace))
+		"gpus_with_space", len(gpusWithSpace),
+		"total_layers_to_allocate", int(f.BlockCount)+1)
 
 	// For all the layers, find where they can fit on the GPU(s)
 	for i := int(f.BlockCount) - 1; i >= 0; i-- {
@@ -269,6 +283,12 @@ func estimateGPULayers(gpus []OllamaGpuInfo, f *OllamaModelInfo, opts OllamaOpti
 			}
 		}
 
+		slog.Info("LAYER_DISTRIBUTION_DEBUG: Processing layer",
+			"layer_index", i,
+			"layer_size_gb", float64(layerSize)/(1024*1024*1024),
+			"current_layer_count", layerCount,
+			"gpus_available", len(gpusWithSpace))
+
 		if opts.NumGPU >= 0 && layerCount >= opts.NumGPU {
 			// Stop allocating on GPU(s) once we hit the users target NumGPU
 			overflow += layerSize
@@ -276,21 +296,54 @@ func estimateGPULayers(gpus []OllamaGpuInfo, f *OllamaModelInfo, opts OllamaOpti
 		}
 
 		// distribute the layers across the GPU(s) that have space
+		layerFitted := false
 		for j := len(gpusWithSpace); j > 0; j-- {
 			g := gpusWithSpace[i%j]
 			used := gpuAllocations[g.i] + ollamaMax64(graphPartialOffload, graphFullOffload)
-			if g.g.FreeMemory > overhead+used+layerSize {
+			totalRequired := overhead + used + layerSize
+
+			slog.Info("LAYER_DISTRIBUTION_DEBUG: Trying to fit layer on GPU",
+				"layer_index", i,
+				"gpu_index", g.i,
+				"gpu_id", g.g.ID,
+				"gpu_free_memory_gb", float64(g.g.FreeMemory)/(1024*1024*1024),
+				"already_used_gb", float64(used)/(1024*1024*1024),
+				"layer_size_gb", float64(layerSize)/(1024*1024*1024),
+				"overhead_gb", float64(overhead)/(1024*1024*1024),
+				"total_required_gb", float64(totalRequired)/(1024*1024*1024),
+				"fits", g.g.FreeMemory > totalRequired)
+
+			if g.g.FreeMemory > totalRequired {
 				gpuAllocations[g.i] += layerSize
 				tensorSplit[g.i]++
 				layerCount++
+				layerFitted = true
+				slog.Info("LAYER_DISTRIBUTION_DEBUG: Layer fitted successfully",
+					"layer_index", i,
+					"gpu_index", g.i,
+					"new_layer_count", layerCount)
 				break
 			} else {
+				slog.Info("LAYER_DISTRIBUTION_DEBUG: Layer doesn't fit, removing GPU from available list",
+					"layer_index", i,
+					"gpu_index", g.i,
+					"gpu_id", g.g.ID)
 				gpusWithSpace = append(gpusWithSpace[:i%j], gpusWithSpace[i%j+1:]...)
 			}
 		}
 
+		if !layerFitted {
+			slog.Info("LAYER_DISTRIBUTION_DEBUG: Layer could not fit on any GPU",
+				"layer_index", i,
+				"layer_size_gb", float64(layerSize)/(1024*1024*1024),
+				"remaining_gpus", len(gpusWithSpace))
+		}
+
 		if len(gpusWithSpace) == 0 {
 			overflow += layerSize
+			slog.Info("LAYER_DISTRIBUTION_DEBUG: No GPUs left with space, adding to overflow",
+				"layer_index", i,
+				"overflow_gb", float64(overflow)/(1024*1024*1024))
 		}
 	}
 	if layerCount >= int(f.BlockCount) {
@@ -324,11 +377,22 @@ func estimateGPULayers(gpus []OllamaGpuInfo, f *OllamaModelInfo, opts OllamaOpti
 		if tensorSplit[i] <= 0 {
 			continue
 		}
+		var graphToAdd uint64
 		if fullyLoaded {
 			gpuAllocations[i] += graphFullOffload
+			graphToAdd = graphFullOffload
 		} else {
 			gpuAllocations[i] += graphPartialOffload
+			graphToAdd = graphPartialOffload
 		}
+
+		slog.Info("LAYER_DISTRIBUTION_DEBUG: Adding graph allocation to GPU",
+			"gpu_index", i,
+			"gpu_id", gpus[i].ID,
+			"layers_on_gpu", tensorSplit[i],
+			"graph_memory_gb", float64(graphToAdd)/(1024*1024*1024),
+			"total_allocation_gb", float64(gpuAllocations[i])/(1024*1024*1024),
+			"fully_loaded", fullyLoaded)
 	}
 	if fullyLoaded {
 		graphOffload = graphFullOffload
@@ -347,6 +411,21 @@ func estimateGPULayers(gpus []OllamaGpuInfo, f *OllamaModelInfo, opts OllamaOpti
 	for _, a := range gpuAllocations {
 		allocationsList = append(allocationsList, formatBytes(a))
 	}
+
+	slog.Info("LAYER_DISTRIBUTION_DEBUG: Final allocation summary",
+		"total_layers_allocated", layerCount,
+		"target_layers", int(f.BlockCount)+1,
+		"fully_loaded", fullyLoaded,
+		"overflow_gb", float64(overflow)/(1024*1024*1024),
+		"total_memory_required_gb", float64(memoryRequiredTotal)/(1024*1024*1024),
+		"memory_on_gpu_gb", float64(memoryRequiredPartial)/(1024*1024*1024),
+		"gpu_allocations_gb", func() []float64 {
+			result := make([]float64, len(gpuAllocations))
+			for i, alloc := range gpuAllocations {
+				result[i] = float64(alloc) / (1024 * 1024 * 1024)
+			}
+			return result
+		}())
 
 	slog.Info("GPTOSS_MEMORY_DEBUG: Final memory calculation summary",
 		"memory_required_total_bytes", memoryRequiredTotal,

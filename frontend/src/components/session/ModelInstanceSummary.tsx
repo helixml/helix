@@ -127,6 +127,49 @@ export const ModelInstanceSummary: FC<{
             `• GPU Allocation: ${meta.gpu_allocation_type || "N/A"}`,
             `• Estimation Source: ${meta.estimation_source || "N/A"}`,
         ];
+
+        // Add detailed memory breakdown if available
+        if (meta.detailed_breakdown) {
+            const breakdown = meta.detailed_breakdown;
+            lines.push(``, `Memory Breakdown:`);
+
+            if (breakdown.total_memory) {
+                lines.push(
+                    `• Total Memory: ${breakdown.total_memory.gb?.toFixed(2)} GB (${breakdown.total_memory.mb?.toLocaleString()} MB)`,
+                );
+            }
+            if (breakdown.weights_memory) {
+                lines.push(
+                    `• Model Weights: ${breakdown.weights_memory.gb?.toFixed(2)} GB (${breakdown.weights_memory.mb?.toLocaleString()} MB)`,
+                );
+            }
+            if (breakdown.kv_cache_memory) {
+                lines.push(
+                    `• KV Cache: ${breakdown.kv_cache_memory.gb?.toFixed(2)} GB (${breakdown.kv_cache_memory.mb?.toLocaleString()} MB)`,
+                );
+            }
+            if (breakdown.graph_memory) {
+                lines.push(
+                    `• Graph Memory: ${breakdown.graph_memory.gb?.toFixed(2)} GB (${breakdown.graph_memory.mb?.toLocaleString()} MB)`,
+                );
+            }
+            if (breakdown.vram_used) {
+                lines.push(
+                    `• VRAM Used: ${breakdown.vram_used.gb?.toFixed(2)} GB (${breakdown.vram_used.mb?.toLocaleString()} MB)`,
+                );
+            }
+            if (breakdown.layers_on_gpu !== undefined) {
+                lines.push(`• Layers on GPU: ${breakdown.layers_on_gpu}`);
+            }
+            if (breakdown.fully_loaded !== undefined) {
+                lines.push(
+                    `• Fully Loaded: ${breakdown.fully_loaded ? "Yes" : "No"}`,
+                );
+            }
+            if (breakdown.architecture) {
+                lines.push(`• Architecture: ${breakdown.architecture}`);
+            }
+        }
         return lines.join("\n");
     }, [slot.runtime, slot.memory_estimation_meta]);
 
