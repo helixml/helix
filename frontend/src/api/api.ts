@@ -4160,7 +4160,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SessionsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesSession[], any>({
+      this.request<TypesSession, any>({
         path: `/api/v1/sessions/${id}`,
         method: "GET",
         secure: true,

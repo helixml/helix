@@ -66,7 +66,7 @@ func (apiServer *HelixAPIServer) sessionLoader(req *http.Request, writeMode bool
 // @Summary Get a session by ID
 // @Description Get a session by ID
 // @Tags    sessions
-// @Success 200 {array} types.Session
+// @Success 200 {object} types.Session
 // @Param id path string true "Session ID"
 // @Router /api/v1/sessions/{id} [get]
 // @Security BearerAuth
@@ -822,13 +822,15 @@ func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.
 	}
 
 	session.Name = update.Name
+	session.Provider = update.Provider
+	session.ModelName = update.ModelName
 
-	err = apiServer.Store.UpdateSessionName(req.Context(), session.ID, session.Name)
+	updated, err := apiServer.Store.UpdateSession(req.Context(), *session)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	return session, nil
+	return updated, nil
 }
 
 // createAPIKey godoc

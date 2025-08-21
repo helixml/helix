@@ -5601,9 +5601,7 @@ paths:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/types.Session'
-            type: array
+            $ref: '#/definitions/types.Session'
       security:
       - BearerAuth: []
       summary: Get a session by ID
