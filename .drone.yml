@@ -23,7 +23,8 @@ steps:
       GITHUB_TOKEN:
         from_secret: github_token
     commands:
-      - go build
+      - apk add --no-cache gcc g++ musl-dev
+      - CGO_ENABLED=1 go build -tags "!rocm"
     when:
       event:
         - tag
@@ -101,6 +102,7 @@ steps:
       KEYCLOAK_PASSWORD: REPLACE_ME
 
     commands:
+      - apk add --no-cache gcc g++ musl-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
       - pwd && ./scripts/run-tests-with-timeout.sh -timeout 8m -v ./api/...
     when:
@@ -150,6 +152,7 @@ steps:
       SMALL_GENERATION_MODEL: gpt-4o-mini
 
     commands:
+      - apk add --no-cache gcc g++ musl-dev
       - chmod +x ./scripts/run-tests-with-timeout.sh
       # Build API server
       - go install ./api/..
@@ -684,6 +687,7 @@ steps:
       GITHUB_TOKEN:
         from_secret: github_token
     commands:
+      - apt-get update && apt-get install -y gcc g++ libc6-dev && rm -rf /var/lib/apt/lists/*
       - go install github.com/mitchellh/gox@latest
       - |
         if [ -n "$DRONE_TAG" ]; then
@@ -691,7 +695,7 @@ steps:
         else
           VERSION_FLAG=""
         fi
-        CGO_ENABLED=0 gox -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64" -ldflags "-w -s -extldflags '-static' $VERSION_FLAG" -output="helix-{{.OS}}-{{.Arch}}"
+        CGO_ENABLED=1 gox -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64" -tags "!rocm" -ldflags "-w -s $VERSION_FLAG" -output="helix-{{.OS}}-{{.Arch}}"
       - ./helix-linux-amd64 version
       - apt-get update && apt-get install -y curl
       - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
