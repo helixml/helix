@@ -24,6 +24,7 @@ type OllamaGpuInfo struct {
 type OllamaModelInfo struct {
 	BlockCount      uint64
 	HeadCountMax    uint64
+	HeadCountMin    uint64
 	HeadCountKVMin  uint64
 	EmbeddingLength uint64
 	KeyLength       uint64
@@ -732,9 +733,10 @@ func ConvertToOllamaTypes(gpus []GPUInfo, metadata *ModelMetadata, opts Estimate
 	}
 
 	// Convert model metadata
-	ollamaModel := &OllamaModelInfo{
+	ollamaModelInfo := &OllamaModelInfo{
 		BlockCount:      metadata.BlockCount,
-		HeadCountMax:    metadata.HeadCount,
+		HeadCountMax:    metadata.HeadCount, // Use regular head count as max
+		HeadCountMin:    metadata.HeadCount, // Use regular head count as min too
 		HeadCountKVMin:  metadata.HeadCountKV,
 		EmbeddingLength: metadata.EmbeddingLength,
 		KeyLength:       metadata.KeyLength,
@@ -750,7 +752,7 @@ func ConvertToOllamaTypes(gpus []GPUInfo, metadata *ModelMetadata, opts Estimate
 		NumGPU:   opts.NumGPU,
 	}
 
-	return ollamaGPUs, ollamaModel, ollamaOpts
+	return ollamaGPUs, ollamaModelInfo, ollamaOpts
 }
 
 // ConvertFromOllamaEstimate converts Ollama estimate back to our format
