@@ -355,6 +355,134 @@ function test-integration() {
 # Run specific tests:               ./stack test ./api/pkg/oauth_test
 # Run a single test:                ./stack test ./api/pkg/oauth_test -run TestOAuthAppIDPropagationProduction
 
+function ollama-sync() {
+  local OLLAMA_PATH="../ollama"
+  local TARGET_DIR="api/pkg/ollamav11"
+
+  # Check if we're in the right directory (should have api/ subdirectory)
+  if [[ ! -d "api" ]]; then
+    echo "Error: Must run from the root of the helix repository"
+    echo "Expected to find 'api/' directory in current path"
+    exit 1
+  fi
+
+  if [[ ! -d "$OLLAMA_PATH" ]]; then
+    echo "Error: Ollama repository not found at $OLLAMA_PATH"
+    echo "Expected ollama to be checked out as a sibling directory to helix"
+    exit 1
+  fi
+
+  # Check that ollama is on a release tag
+  echo "Checking Ollama version..."
+  if [[ ! -d "$OLLAMA_PATH/.git" ]]; then
+    echo "Error: $OLLAMA_PATH is not a git repository"
+    exit 1
+  fi
+
+  local OLLAMA_TAG=$(cd "$OLLAMA_PATH" && git describe --exact-match --tags HEAD 2>/dev/null)
+  if [[ -z "$OLLAMA_TAG" ]]; then
+    local CURRENT_COMMIT=$(cd "$OLLAMA_PATH" && git rev-parse --short HEAD)
+    echo "Error: Ollama is not checked out on a release tag"
+    echo "Current commit: $CURRENT_COMMIT"
+    echo "Please checkout a specific release tag (e.g., v0.11.4) before syncing"
+    echo "Example: cd $OLLAMA_PATH && git checkout v0.11.4"
+    exit 1
+  fi
+
+  echo "✅ Ollama is on release tag: $OLLAMA_TAG"
+  echo "Syncing Ollama memory estimation files..."
+
+  # Clean out target directory first to avoid stale files
+  if [[ -d "$TARGET_DIR" ]]; then
+    echo "Cleaning existing target directory..."
+    rm -rf "$TARGET_DIR"
+  fi
+
+  # Create target directory
+  mkdir -p "$TARGET_DIR"
+
+  # Copy core memory estimation files
+  echo "Copying memory estimation files..."
+  cp "$OLLAMA_PATH/llm/memory.go" "$TARGET_DIR/"
+
+  # Copy GGML/GGUF parsing files
+  echo "Copying GGML/GGUF files..."
+  cp -r "$OLLAMA_PATH/fs/ggml" "$TARGET_DIR/"
+  cp -r "$OLLAMA_PATH/fs/gguf" "$TARGET_DIR/"
+
+  # Copy supporting files
+  echo "Copying supporting files..."
+  cp -r "$OLLAMA_PATH/discover" "$TARGET_DIR/"
+  cp "$OLLAMA_PATH/api/types.go" "$TARGET_DIR/api_types.go"
+  cp "$OLLAMA_PATH/envconfig/config.go" "$TARGET_DIR/envconfig.go"
+  cp "$OLLAMA_PATH/format/bytes.go" "$TARGET_DIR/format.go"
+  cp -r "$OLLAMA_PATH/fs/util" "$TARGET_DIR/"
+
+  # Transform imports to use local versions
+  echo "Transforming imports for local use..."
+
+  # Transform package declarations to avoid import cycle
+  sed -i 's|package llm|package ollamav11|g' "$TARGET_DIR/memory.go"
+  sed -i 's|package api|package ollamav11|g' "$TARGET_DIR/api_types.go"
+  sed -i 's|package envconfig|package ollamav11|g' "$TARGET_DIR/envconfig.go"
+  sed -i 's|package format|package ollamav11|g' "$TARGET_DIR/format.go"
+
+  # Transform imports in memory.go - avoid self-imports by removing local package imports
+  sed -i 's|"github.com/ollama/ollama/api"|.|g' "$TARGET_DIR/memory.go"
+  sed -i 's|"github.com/ollama/ollama/discover"|"github.com/helixml/helix/api/pkg/ollamav11/discover"|g' "$TARGET_DIR/memory.go"
+  sed -i 's|"github.com/ollama/ollama/envconfig"|.|g' "$TARGET_DIR/memory.go"
+  sed -i 's|"github.com/ollama/ollama/format"|.|g' "$TARGET_DIR/memory.go"
+  sed -i 's|"github.com/ollama/ollama/fs/ggml"|"github.com/helixml/helix/api/pkg/ollamav11/ggml"|g' "$TARGET_DIR/memory.go"
+
+  # Remove the dot imports that were created (they'll use local functions)
+  sed -i '/^\s*\.\s*$/d' "$TARGET_DIR/memory.go"
+
+  # Transform imports in subdirectories
+  find "$TARGET_DIR/ggml" -name "*.go" -exec sed -i 's|"github.com/ollama/ollama/fs/gguf"|"github.com/helixml/helix/api/pkg/ollamav11/gguf"|g' {} \;
+  find "$TARGET_DIR/ggml" -name "*.go" -exec sed -i 's|"github.com/ollama/ollama/fs/util/bufioutil"|"github.com/helixml/helix/api/pkg/ollamav11/util/bufioutil"|g' {} \;
+  find "$TARGET_DIR/gguf" -name "*.go" -exec sed -i 's|"github.com/ollama/ollama/fs/ggml"|"github.com/helixml/helix/api/pkg/ollamav11/ggml"|g' {} \;
+  find "$TARGET_DIR/discover" -name "*.go" -exec sed -i 's|"github.com/ollama/ollama/envconfig"|"github.com/helixml/helix/api/pkg/ollamav11"|g' {} \;
+  find "$TARGET_DIR/discover" -name "*.go" -exec sed -i 's|"github.com/ollama/ollama/format"|"github.com/helixml/helix/api/pkg/ollamav11"|g' {} \;
+
+  echo "Import transformations complete. You can now create type adapters manually."
+
+  # Create sync info file
+  cat > "$TARGET_DIR/SYNC_INFO.md" << EOF
+# Ollama Memory Estimation Sync
+
+**Synced from:** $OLLAMA_PATH
+**Ollama version:** $OLLAMA_TAG
+**Sync date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+## Files synced:
+- llm/memory.go → memory.go
+- fs/ggml/ → ggml/
+- fs/gguf/ → gguf/
+- discover/ → discover/
+- api/types.go → api_types.go
+- envconfig/config.go → envconfig.go
+- format/bytes.go → format.go
+- fs/util/ → util/
+
+## Next steps:
+1. Create type adapters to convert Helix types to Ollama types
+2. Modify imports in copied files to use local versions
+3. Use exact Ollama EstimateGPULayers function with adapted types
+
+## Important:
+This sync was done against Ollama $OLLAMA_TAG. If Ollama is updated,
+re-run './stack ollama-sync' to get the latest memory estimation algorithms.
+EOF
+
+  echo "✅ Ollama files synced to $TARGET_DIR"
+  echo "📄 See $TARGET_DIR/SYNC_INFO.md for details"
+  echo ""
+  echo "Next steps:"
+  echo "1. Create type adapters in api/pkg/memory/ollama_wrapper.go"
+  echo "2. Update imports in copied files to use local versions"
+  echo "3. Test with exact Ollama memory estimation algorithm"
+}
+
 function test() {
   # Ingest env variables from .env file
   set -a
