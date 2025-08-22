@@ -460,6 +460,25 @@ func (s *MemoryEstimationService) getModelMetadataFromRunner(ctx context.Context
 		return nil, fmt.Errorf("metadata extraction failed: %s", response.Error)
 	}
 
+	// Log the detailed metadata returned by the runner
+	log.Debug().
+		Str("RUNNER_METADATA_DEBUG", "detailed_response").
+		Str("runner_id", runnerID).
+		Str("model_name", modelName).
+		Str("architecture", response.Metadata.Architecture).
+		Str("file_type", response.Metadata.FileType).
+		Uint64("block_count", response.Metadata.BlockCount).
+		Uint64("embedding_length", response.Metadata.EmbeddingLength).
+		Uint64("context_length", response.Metadata.ContextLength).
+		Uint64("head_count", response.Metadata.HeadCount).
+		Uint64("head_count_kv", response.Metadata.HeadCountKV).
+		Uint64("key_length", response.Metadata.KeyLength).
+		Uint64("value_length", response.Metadata.ValueLength).
+		Uint64("ff_length", response.Metadata.FFLength).
+		Uint64("vocab_size", response.Metadata.VocabSize).
+		Int("layer_count", len(response.Metadata.Layers)).
+		Msg("🔍 RUNNER returned GGUF metadata - these are the exact values we'll use in estimation")
+
 	return response.Metadata, nil
 }
 

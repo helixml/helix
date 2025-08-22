@@ -76,6 +76,15 @@ type OllamaMemoryEstimate struct {
 
 // estimateGPULayers is the main estimation function from Ollama v0.11.4
 func estimateGPULayers(gpus []OllamaGpuInfo, f *OllamaModelInfo, opts OllamaOptions, numParallel int) OllamaMemoryEstimate {
+	slog.Info("SHARK model identification",
+		"architecture", f.Architecture,
+		"block_count", f.BlockCount,
+		"head_count_max", f.HeadCountMax,
+		"head_count_kv_min", f.HeadCountKVMin,
+		"embedding_length", f.EmbeddingLength,
+		"key_length", f.KeyLength,
+		"value_length", f.ValueLength,
+		"total_layers_in_model", len(f.Layers))
 	// Graph size for a partial offload, applies to all GPUs
 	var graphPartialOffload uint64
 
@@ -129,12 +138,23 @@ func estimateGPULayers(gpus []OllamaGpuInfo, f *OllamaModelInfo, opts OllamaOpti
 
 	// Get layer size from blk.0 as a buffer
 	if blk0, ok := f.Layers["blk.0"]; ok {
-		for _, tensor := range blk0.Tensors {
+		var totalTensorSize uint64
+		for tensorName, tensor := range blk0.Tensors {
 			layerSize += tensor.Size
+			totalTensorSize += tensor.Size
+			slog.Info("SHARK blk0 tensor details",
+				"tensor_name", tensorName,
+				"tensor_size_mb", tensor.Size/(1024*1024),
+				"tensor_type", tensor.Type,
+				"tensor_shape", tensor.Shape)
 		}
-		slog.Info("ZERO_LAYERS_DEBUG: blk.0 found", "size_mb", layerSize/(1024*1024), "tensor_count", len(blk0.Tensors))
+		slog.Info("SHARK layer size calculation",
+			"blk0_size_mb", layerSize/(1024*1024),
+			"blk0_tensor_count", len(blk0.Tensors),
+			"blk0_total_tensor_size_mb", totalTensorSize/(1024*1024),
+			"blk0_size_gb", float64(layerSize)/(1024*1024*1024))
 	} else {
-		slog.Error("ZERO_LAYERS_DEBUG: model missing blk.0 layer - this will cause issues!")
+		slog.Error("SHARK model missing blk.0 layer - this will cause issues!")
 	}
 
 	// Calculate KV cache and graph sizes using v0.11.4 logic with architecture-specific handling
@@ -158,6 +178,12 @@ func estimateGPULayers(gpus []OllamaGpuInfo, f *OllamaModelInfo, opts OllamaOpti
 		"graph_full_bytes", graphFullOffload,
 		"graph_full_gb", float64(graphFullOffload)/(1024*1024*1024),
 		"kv_layers_count", len(kv))
+
+	slog.Info("GRAPH_MEMORY_DEBUG: Graph allocation check",
+		"graph_partial_offload_gb", float64(graphPartialOffload)/(1024*1024*1024),
+		"graph_full_offload_gb", float64(graphFullOffload)/(1024*1024*1024),
+		"using_metal", gpus[0].Library == "metal",
+		"multi_gpu", len(gpus) > 1)
 
 	if len(kv) > 0 {
 		layerSize += kv[0]
@@ -274,12 +300,39 @@ func estimateGPULayers(gpus []OllamaGpuInfo, f *OllamaModelInfo, opts OllamaOpti
 		// Some models have inconsistent layer sizes
 		if blk, ok := f.Layers[fmt.Sprintf("blk.%d", i)]; ok {
 			layerSize = 0
-			for _, tensor := range blk.Tensors {
+			var layerWeightSize uint64
+			for tensorName, tensor := range blk.Tensors {
 				layerSize += tensor.Size
+				layerWeightSize += tensor.Size
+				if i == int(f.BlockCount)-1 { // Log tensors for the last layer
+					slog.Info("SHARK tensor in layer",
+						"layer_index", i,
+						"tensor_name", tensorName,
+						"tensor_size_mb", tensor.Size/(1024*1024),
+						"tensor_type", tensor.Type)
+				}
 			}
 			layerSize += kv[i]
+			var prevMemoryWeights = memoryWeights
 			for _, tensor := range blk.Tensors {
 				memoryWeights += tensor.Size
+			}
+
+			slog.Info("SHARK weight accumulation",
+				"layer_index", i,
+				"layer_weight_size_mb", layerWeightSize/(1024*1024),
+				"previous_cumulative_mb", prevMemoryWeights/(1024*1024),
+				"new_cumulative_mb", memoryWeights/(1024*1024),
+				"added_mb", (memoryWeights-prevMemoryWeights)/(1024*1024))
+
+			if i == int(f.BlockCount)-1 { // Log the last layer for debugging
+				slog.Info("SHARK individual layer breakdown",
+					"layer_index", i,
+					"layer_weight_size_mb", layerWeightSize/(1024*1024),
+					"layer_kv_size_mb", kv[i]/(1024*1024),
+					"total_layer_size_mb", layerSize/(1024*1024),
+					"cumulative_weights_mb", memoryWeights/(1024*1024),
+					"tensor_count_in_layer", len(blk.Tensors))
 			}
 		}
 
@@ -296,54 +349,21 @@ func estimateGPULayers(gpus []OllamaGpuInfo, f *OllamaModelInfo, opts OllamaOpti
 		}
 
 		// distribute the layers across the GPU(s) that have space
-		layerFitted := false
 		for j := len(gpusWithSpace); j > 0; j-- {
 			g := gpusWithSpace[i%j]
 			used := gpuAllocations[g.i] + ollamaMax64(graphPartialOffload, graphFullOffload)
-			totalRequired := overhead + used + layerSize
-
-			slog.Info("LAYER_DISTRIBUTION_DEBUG: Trying to fit layer on GPU",
-				"layer_index", i,
-				"gpu_index", g.i,
-				"gpu_id", g.g.ID,
-				"gpu_free_memory_gb", float64(g.g.FreeMemory)/(1024*1024*1024),
-				"already_used_gb", float64(used)/(1024*1024*1024),
-				"layer_size_gb", float64(layerSize)/(1024*1024*1024),
-				"overhead_gb", float64(overhead)/(1024*1024*1024),
-				"total_required_gb", float64(totalRequired)/(1024*1024*1024),
-				"fits", g.g.FreeMemory > totalRequired)
-
-			if g.g.FreeMemory > totalRequired {
+			if g.g.FreeMemory > overhead+used+layerSize {
 				gpuAllocations[g.i] += layerSize
 				tensorSplit[g.i]++
 				layerCount++
-				layerFitted = true
-				slog.Info("LAYER_DISTRIBUTION_DEBUG: Layer fitted successfully",
-					"layer_index", i,
-					"gpu_index", g.i,
-					"new_layer_count", layerCount)
 				break
 			} else {
-				slog.Info("LAYER_DISTRIBUTION_DEBUG: Layer doesn't fit, removing GPU from available list",
-					"layer_index", i,
-					"gpu_index", g.i,
-					"gpu_id", g.g.ID)
 				gpusWithSpace = append(gpusWithSpace[:i%j], gpusWithSpace[i%j+1:]...)
 			}
 		}
 
-		if !layerFitted {
-			slog.Info("LAYER_DISTRIBUTION_DEBUG: Layer could not fit on any GPU",
-				"layer_index", i,
-				"layer_size_gb", float64(layerSize)/(1024*1024*1024),
-				"remaining_gpus", len(gpusWithSpace))
-		}
-
 		if len(gpusWithSpace) == 0 {
 			overflow += layerSize
-			slog.Info("LAYER_DISTRIBUTION_DEBUG: No GPUs left with space, adding to overflow",
-				"layer_index", i,
-				"overflow_gb", float64(overflow)/(1024*1024*1024))
 		}
 	}
 	if layerCount >= int(f.BlockCount) {
@@ -466,6 +486,21 @@ func estimateGPULayers(gpus []OllamaGpuInfo, f *OllamaModelInfo, opts OllamaOpti
 	}
 
 	if gpus[0].Library == "cpu" {
+		slog.Info("UI_RETURN_DEBUG: Final memory estimate being returned to UI",
+			"total_size_bytes", estimate.TotalSize,
+			"total_size_gb", float64(estimate.TotalSize)/(1024*1024*1024),
+			"vram_size_bytes", estimate.VRAMSize,
+			"vram_size_gb", float64(estimate.VRAMSize)/(1024*1024*1024),
+			"layers", estimate.Layers,
+			"graph_bytes", estimate.Graph,
+			"graph_gb", float64(estimate.Graph)/(1024*1024*1024),
+			"memory_weights_bytes", estimate.memoryWeights,
+			"memory_weights_gb", float64(estimate.memoryWeights)/(1024*1024*1024),
+			"kv_bytes", estimate.kv,
+			"kv_gb", float64(estimate.kv)/(1024*1024*1024),
+			"fully_loaded", fullyLoaded,
+			"function", "estimateGPULayers")
+
 		return estimate
 	}
 	if layerCount == 0 {
@@ -512,14 +547,50 @@ func estimateGPULayers(gpus []OllamaGpuInfo, f *OllamaModelInfo, opts OllamaOpti
 		"total_size_bytes", estimate.TotalSize,
 		"total_size_gb", float64(estimate.TotalSize)/(1024*1024*1024))
 
+	slog.Info("SHARK final result",
+		"model_architecture", f.Architecture,
+		"model_block_count", f.BlockCount,
+		"expected_total_tensors", f.BlockCount*13, // Rough estimate based on blk0
+		"total_layers_parsed", len(f.Layers),
+		"total_size_bytes", estimate.TotalSize,
+		"total_size_gb", float64(estimate.TotalSize)/(1024*1024*1024),
+		"vram_size_bytes", estimate.VRAMSize,
+		"vram_size_gb", float64(estimate.VRAMSize)/(1024*1024*1024),
+		"layers", estimate.Layers,
+		"graph_bytes", estimate.Graph,
+		"graph_gb", float64(estimate.Graph)/(1024*1024*1024),
+		"memory_weights_bytes", estimate.memoryWeights,
+		"memory_weights_gb", float64(estimate.memoryWeights)/(1024*1024*1024),
+		"kv_bytes", estimate.kv,
+		"kv_gb", float64(estimate.kv)/(1024*1024*1024),
+		"fully_loaded", estimate.Layers >= int(f.BlockCount)+1)
+
 	return estimate
 }
 
 // calculateGraphSizeV11_4 implements v0.11.4 graph size calculation with architecture-specific logic
 func calculateGraphSizeV11_4(modelInfo *OllamaModelInfo, numCtx, numBatch uint64, numParallel int, architecture string) ([]uint64, uint64, uint64) {
 	context := numCtx * uint64(numParallel)
+
+	// Calculate EmbeddingHeadCountMax like Ollama does
+	var embeddingHeadCountMax uint64
+	if modelInfo.HeadCountMin > 0 {
+		embeddingHeadCountMax = modelInfo.EmbeddingLength / modelInfo.HeadCountMin
+	} else {
+		embeddingHeadCountMax = 0
+	}
+
+	// Use key_length and value_length with fallback to EmbeddingHeadCountMax like Ollama
 	embeddingHeadsK := modelInfo.KeyLength
+	if embeddingHeadsK == 0 {
+		embeddingHeadsK = embeddingHeadCountMax
+	}
+
 	embeddingHeadsV := modelInfo.ValueLength
+	if embeddingHeadsV == 0 {
+		embeddingHeadsV = embeddingHeadCountMax
+	}
+
 	headsKV := modelInfo.HeadCountKVMin
 	if headsKV == 0 {
 		headsKV = 1
@@ -527,6 +598,18 @@ func calculateGraphSizeV11_4(modelInfo *OllamaModelInfo, numCtx, numBatch uint64
 
 	// Use q8_0 for KV cache (1 byte per element) - matches our runtime setting
 	bytesPerElement := float64(1.0)
+
+	slog.Info("GRAPH_MEMORY_DEBUG: Starting graph calculation",
+		"architecture", architecture,
+		"num_ctx", numCtx,
+		"num_batch", numBatch,
+		"num_parallel", numParallel,
+		"context", context,
+		"embedding_heads_k", embeddingHeadsK,
+		"embedding_heads_v", embeddingHeadsV,
+		"heads_kv", headsKV,
+		"bytes_per_element", bytesPerElement,
+		"block_count", modelInfo.BlockCount)
 
 	// Create KV array for each layer - general calculation first
 	kv := make([]uint64, modelInfo.BlockCount)
@@ -594,6 +677,16 @@ func calculateGraphSizeV11_4(modelInfo *OllamaModelInfo, numCtx, numBatch uint64
 			"graph_partial_bytes", graphPartial,
 			"graph_partial_gb", float64(graphPartial)/(1024*1024*1024))
 
+		slog.Info("GRAPH_MEMORY_DEBUG: Final gptoss graph calculation",
+			"head_count_max", headCountMax,
+			"head_count_kv_min", headCountKVMin,
+			"kv_total_bytes", kvTotal,
+			"kv_total_gb", float64(kvTotal)/(1024*1024*1024),
+			"formula_multiplier", 4*headCountMax/headCountKVMin,
+			"formula_divisor", 6,
+			"graph_full_gb", float64(graphFull)/(1024*1024*1024),
+			"graph_partial_gb", float64(graphPartial)/(1024*1024*1024))
+
 		return kv, graphPartial, graphFull
 
 	default:
@@ -608,6 +701,16 @@ func calculateGraphSizeV11_4(modelInfo *OllamaModelInfo, numCtx, numBatch uint64
 		gqa := modelInfo.HeadCountMax / headsKV
 		graphPartial := gqa * kvTotal / 6
 		graphFull := graphPartial
+
+		slog.Info("GRAPH_MEMORY_DEBUG: Standard architecture graph calculation",
+			"architecture", architecture,
+			"head_count_max", modelInfo.HeadCountMax,
+			"heads_kv", headsKV,
+			"gqa", gqa,
+			"kv_total_bytes", kvTotal,
+			"kv_total_gb", float64(kvTotal)/(1024*1024*1024),
+			"graph_partial_gb", float64(graphPartial)/(1024*1024*1024),
+			"graph_full_gb", float64(graphFull)/(1024*1024*1024))
 
 		return kv, graphPartial, graphFull
 	}
