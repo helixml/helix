@@ -9,92 +9,262 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/memory"
+	"github.com/ollama/ollama/api"
+	"github.com/ollama/ollama/discover"
+	"github.com/ollama/ollama/fs/ggml"
+	"github.com/ollama/ollama/llm"
 	"github.com/rs/zerolog/log"
 )
 
-// ModelMetadataRequest represents a request for model GGUF metadata
-type ModelMetadataRequest struct {
-	ModelName    string `json:"model_name"`
-	UseModelPath string `json:"use_model_path,omitempty"` // Optional: use specific model path
+// MemoryEstimationRequest represents a request for memory estimation using exact Ollama
+type MemoryEstimationRequest struct {
+	ModelName     string `json:"model_name"`
+	ContextLength int    `json:"context_length"`
+	BatchSize     int    `json:"batch_size"`
+	NumParallel   int    `json:"num_parallel"`
 }
 
-// ModelMetadataResponse represents the response with GGUF metadata
-type ModelMetadataResponse struct {
-	Success      bool                  `json:"success"`
-	Metadata     *memory.ModelMetadata `json:"metadata,omitempty"`
-	Error        string                `json:"error,omitempty"`
-	RunnerID     string                `json:"runner_id"`
-	ModelPath    string                `json:"model_path"`
-	ResponseTime int64                 `json:"response_time_ms"`
+// MemoryEstimationResponse contains memory estimates for different GPU configurations
+type MemoryEstimationResponse struct {
+	Success        bool                     `json:"success"`
+	Error          string                   `json:"error,omitempty"`
+	ModelName      string                   `json:"model_name"`
+	ModelPath      string                   `json:"model_path"`
+	Architecture   string                   `json:"architecture"`
+	BlockCount     uint64                   `json:"block_count"`
+	Configurations []GPUConfigurationResult `json:"configurations"`
+	ResponseTime   int64                    `json:"response_time_ms"`
+	RunnerID       string                   `json:"runner_id"`
 }
 
-// getModelMetadataHandler handles requests for model GGUF metadata only
-func (apiServer *HelixRunnerAPIServer) getModelMetadataHandler(w http.ResponseWriter, r *http.Request) {
+// GPUConfigurationResult contains memory estimation for a specific GPU setup
+type GPUConfigurationResult struct {
+	Name          string   `json:"name"`           // "single_gpu", "dual_gpu", "cpu_only", etc.
+	GPUCount      int      `json:"gpu_count"`      // Number of GPUs used
+	LayersOnGPU   int      `json:"layers_on_gpu"`  // How many layers fit on GPU
+	TotalLayers   int      `json:"total_layers"`   // Total layers in model
+	VRAMRequired  uint64   `json:"vram_required"`  // VRAM needed in bytes
+	TotalMemory   uint64   `json:"total_memory"`   // Total memory (VRAM + CPU) in bytes
+	GraphMemory   uint64   `json:"graph_memory"`   // Graph computation memory in bytes
+	KVCacheMemory uint64   `json:"kv_cache"`       // KV cache memory in bytes (estimated)
+	WeightsMemory uint64   `json:"weights_memory"` // Model weights memory in bytes (estimated)
+	FullyLoaded   bool     `json:"fully_loaded"`   // True if all layers fit on GPU
+	GPUSizes      []uint64 `json:"gpu_sizes"`      // Memory per GPU in bytes
+	TensorSplit   string   `json:"tensor_split"`   // Tensor split configuration
+}
+
+// getMemoryEstimationHandler handles memory estimation requests using exact Ollama code
+func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.ResponseWriter, r *http.Request) {
 	startTime := getCurrentTimeMillis()
 
-	var req ModelMetadataRequest
+	var req MemoryEstimationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Error().Err(err).Msg("error decoding model metadata request")
-		apiServer.writeMetadataError(w, "Invalid request body: "+err.Error(), http.StatusBadRequest, startTime)
+		log.Error().Err(err).Msg("error decoding memory estimation request")
+		apiServer.writeEstimationError(w, "Invalid request body: "+err.Error(), http.StatusBadRequest, startTime)
 		return
 	}
 
 	log.Info().
 		Str("model_name", req.ModelName).
+		Int("context_length", req.ContextLength).
+		Int("batch_size", req.BatchSize).
+		Int("num_parallel", req.NumParallel).
 		Str("runner_id", apiServer.runnerOptions.ID).
-		Msg("received model metadata request")
+		Msg("received memory estimation request")
 
-	// Find the model file
-	modelPath, err := apiServer.findModelFile(req.ModelName, req.UseModelPath)
+	// Validate request
+	if err := apiServer.validateEstimationRequest(req); err != nil {
+		apiServer.writeEstimationError(w, err.Error(), http.StatusBadRequest, startTime)
+		return
+	}
+
+	// Find the model file using existing logic
+	modelPath, err := apiServer.findModelFile(req.ModelName, "")
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("model_name", req.ModelName).
 			Msg("failed to find model file")
-		apiServer.writeMetadataError(w, fmt.Sprintf("Model not found: %v", err), http.StatusNotFound, startTime)
+		apiServer.writeEstimationError(w, fmt.Sprintf("Model not found: %v", err), http.StatusNotFound, startTime)
 		return
 	}
 
-	// Load GGUF metadata only (no calculation)
-	metadata, err := memory.LoadModelMetadata(modelPath)
+	// Load model using Ollama's exact GGUF parser
+	file, err := os.Open(modelPath)
 	if err != nil {
 		log.Error().
 			Err(err).
-			Str("model_name", req.ModelName).
 			Str("model_path", modelPath).
-			Msg("failed to load model metadata")
-		apiServer.writeMetadataError(w, fmt.Sprintf("Failed to load metadata: %v", err), http.StatusInternalServerError, startTime)
+			Msg("failed to open model file")
+		apiServer.writeEstimationError(w, fmt.Sprintf("Failed to open model: %v", err), http.StatusInternalServerError, startTime)
+		return
+	}
+	defer file.Close()
+
+	ggmlModel, err := ggml.Decode(file, 1024)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("model_path", modelPath).
+			Msg("failed to decode GGUF using Ollama parser")
+		apiServer.writeEstimationError(w, fmt.Sprintf("Failed to decode GGUF: %v", err), http.StatusInternalServerError, startTime)
 		return
 	}
 
-	responseTime := getCurrentTimeMillis() - startTime
-	response := ModelMetadataResponse{
-		Success:      true,
-		Metadata:     metadata,
-		RunnerID:     apiServer.runnerOptions.ID,
+	// Prepare response
+	response := MemoryEstimationResponse{
+		ModelName:    req.ModelName,
 		ModelPath:    modelPath,
-		ResponseTime: responseTime,
+		Architecture: ggmlModel.KV().Architecture(),
+		BlockCount:   ggmlModel.KV().BlockCount(),
+		RunnerID:     apiServer.runnerOptions.ID,
 	}
 
 	log.Info().
 		Str("model_name", req.ModelName).
-		Str("model_path", modelPath).
-		Str("architecture", metadata.Architecture).
-		Uint64("block_count", metadata.BlockCount).
-		Int64("response_time_ms", responseTime).
-		Msg("successfully extracted model metadata")
+		Str("architecture", response.Architecture).
+		Uint64("block_count", response.BlockCount).
+		Msg("model loaded successfully, calculating memory estimates")
+
+	// Get available GPUs using Ollama's discovery
+	allGPUs := discover.GetGPUInfo()
+
+	// Test different GPU configurations
+	configs := []struct {
+		name     string
+		gpuCount int
+	}{
+		{"single_gpu", 1},
+		{"dual_gpu", 2},
+		{"quad_gpu", 4},
+		{"octo_gpu", 8},
+	}
+
+	for _, config := range configs {
+		// Skip if we don't have enough GPUs
+		if config.gpuCount > len(allGPUs) {
+			continue
+		}
+
+		// Create GPU slice for this configuration
+		gpusToUse := allGPUs[:config.gpuCount]
+
+		// Create Ollama options
+		opts := api.Options{
+			Runner: api.Runner{
+				NumCtx:   req.ContextLength,
+				NumBatch: req.BatchSize,
+				NumGPU:   -1, // -1 = auto-detect max layers (NOT GPU count!)
+			},
+		}
+
+		// Use Ollama's exact EstimateGPULayers function
+		estimate := llm.EstimateGPULayers(gpusToUse, ggmlModel, []string{}, opts, req.NumParallel)
+
+		// Convert to our response format
+		result := GPUConfigurationResult{
+			Name:          config.name,
+			GPUCount:      config.gpuCount,
+			LayersOnGPU:   estimate.Layers,
+			TotalLayers:   int(response.BlockCount) + 1, // +1 for output layer
+			VRAMRequired:  estimate.VRAMSize,
+			TotalMemory:   estimate.TotalSize,
+			GraphMemory:   estimate.Graph,
+			KVCacheMemory: estimateKVCache(estimate),
+			WeightsMemory: estimateWeights(estimate),
+			FullyLoaded:   estimate.Layers >= int(response.BlockCount)+1,
+			GPUSizes:      estimate.GPUSizes,
+			TensorSplit:   estimate.TensorSplit,
+		}
+
+		response.Configurations = append(response.Configurations, result)
+
+		log.Info().
+			Str("config", config.name).
+			Int("gpu_count", config.gpuCount).
+			Int("layers_on_gpu", result.LayersOnGPU).
+			Int("total_layers", result.TotalLayers).
+			Uint64("vram_gb", result.VRAMRequired/(1024*1024*1024)).
+			Uint64("total_gb", result.TotalMemory/(1024*1024*1024)).
+			Bool("fully_loaded", result.FullyLoaded).
+			Msg("memory estimation result")
+	}
+
+	// Add CPU-only configuration
+	cpuGPU := discover.GpuInfo{
+		Library: "cpu",
+	}
+	cpuGPU.FreeMemory = 1024 * 1024 * 1024 * 1024 // 1TB fake memory
+	cpuGPU.TotalMemory = 1024 * 1024 * 1024 * 1024
+	cpuGPUs := []discover.GpuInfo{cpuGPU}
+
+	cpuOpts := api.Options{
+		Runner: api.Runner{
+			NumCtx:   req.ContextLength,
+			NumBatch: req.BatchSize,
+			NumGPU:   0, // 0 = CPU only
+		},
+	}
+
+	cpuEstimate := llm.EstimateGPULayers(cpuGPUs, ggmlModel, []string{}, cpuOpts, req.NumParallel)
+
+	cpuResult := GPUConfigurationResult{
+		Name:          "cpu_only",
+		GPUCount:      0,
+		LayersOnGPU:   0,
+		TotalLayers:   int(response.BlockCount) + 1,
+		VRAMRequired:  0,
+		TotalMemory:   cpuEstimate.TotalSize,
+		GraphMemory:   0,
+		KVCacheMemory: 0,
+		WeightsMemory: cpuEstimate.TotalSize,
+		FullyLoaded:   true, // CPU can handle any size (just slowly)
+		GPUSizes:      []uint64{},
+		TensorSplit:   "",
+	}
+
+	response.Configurations = append(response.Configurations, cpuResult)
+	response.Success = true
+	response.ResponseTime = getCurrentTimeMillis() - startTime
+
+	log.Info().
+		Str("model_name", req.ModelName).
+		Str("architecture", response.Architecture).
+		Int("config_count", len(response.Configurations)).
+		Int64("response_time_ms", response.ResponseTime).
+		Msg("memory estimation completed successfully")
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Error().Err(err).Msg("error encoding model metadata response")
+		log.Error().Err(err).Msg("error encoding memory estimation response")
 	}
 }
 
-// writeMetadataError writes an error response for model metadata requests
-func (apiServer *HelixRunnerAPIServer) writeMetadataError(w http.ResponseWriter, errorMsg string, statusCode int, startTime int64) {
+// validateEstimationRequest validates the memory estimation request
+func (apiServer *HelixRunnerAPIServer) validateEstimationRequest(req MemoryEstimationRequest) error {
+	if req.ModelName == "" {
+		return fmt.Errorf("model_name is required")
+	}
+
+	if req.ContextLength < 1 || req.ContextLength > 1000000 {
+		return fmt.Errorf("context_length must be between 1 and 1,000,000, got %d", req.ContextLength)
+	}
+
+	if req.BatchSize < 1 || req.BatchSize > 10000 {
+		return fmt.Errorf("batch_size must be between 1 and 10,000, got %d", req.BatchSize)
+	}
+
+	if req.NumParallel < 1 || req.NumParallel > 100 {
+		return fmt.Errorf("num_parallel must be between 1 and 100, got %d", req.NumParallel)
+	}
+
+	return nil
+}
+
+// writeEstimationError writes an error response for memory estimation requests
+func (apiServer *HelixRunnerAPIServer) writeEstimationError(w http.ResponseWriter, errorMsg string, statusCode int, startTime int64) {
 	responseTime := getCurrentTimeMillis() - startTime
-	response := ModelMetadataResponse{
+	response := MemoryEstimationResponse{
 		Success:      false,
 		Error:        errorMsg,
 		RunnerID:     apiServer.runnerOptions.ID,
@@ -104,8 +274,36 @@ func (apiServer *HelixRunnerAPIServer) writeMetadataError(w http.ResponseWriter,
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Error().Err(err).Msg("error encoding metadata error response")
+		log.Error().Err(err).Msg("error encoding memory estimation error response")
 	}
+}
+
+// Helper functions to extract memory components from Ollama's MemoryEstimate
+func estimateKVCache(estimate llm.MemoryEstimate) uint64 {
+	// Ollama's MemoryEstimate doesn't expose internal KV cache directly
+	// Estimate as portion of VRAM minus graph memory
+	if estimate.VRAMSize > estimate.Graph {
+		// KV cache is typically 10-30% of total VRAM for large contexts
+		return (estimate.VRAMSize - estimate.Graph) / 4
+	}
+	return 0
+}
+
+func estimateWeights(estimate llm.MemoryEstimate) uint64 {
+	// Model weights are the bulk of the memory
+	if estimate.TotalSize > estimate.Graph {
+		kvEstimate := estimateKVCache(estimate)
+		weights := estimate.TotalSize - estimate.Graph - kvEstimate
+		if weights > 0 {
+			return weights
+		}
+	}
+	// Fallback: assume weights are 70% of total
+	return estimate.TotalSize * 7 / 10
+}
+
+func getCurrentTimeMillis() int64 {
+	return time.Now().UnixMilli()
 }
 
 // Helper functions for model file discovery
@@ -248,8 +446,4 @@ func (apiServer *HelixRunnerAPIServer) isLikelyModelFile(path string) bool {
 		return info.Size() > 100*1024*1024
 	}
 	return false
-}
-
-func getCurrentTimeMillis() int64 {
-	return time.Now().UnixMilli()
 }

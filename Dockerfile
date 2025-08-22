@@ -14,9 +14,9 @@ RUN go install github.com/air-verse/air@v1.52.3
 COPY api /app/api
 WORKDIR /app/api
 # - Run a build to make the intial air build faster
-RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
+RUN CGO_ENABLED=1 go build -tags "cuda" -ldflags "-s -w" -o /helix
 # - Entrypoint is the air command
-ENTRYPOINT ["air", "--build.bin", "/helix", "--build.cmd", "CGO_ENABLED=0 go build -ldflags \"-s -w\" -o /helix", "--"]
+ENTRYPOINT ["air", "--build.bin", "/helix", "--build.cmd", "CGO_ENABLED=1 go build -tags \"cuda\" -ldflags \"-s -w\" -o /helix", "--build.stop_on_error", "true", "--"]
 CMD ["serve"]
 
 
