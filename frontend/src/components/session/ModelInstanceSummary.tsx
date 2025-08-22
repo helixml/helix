@@ -353,31 +353,25 @@ export const ModelInstanceSummary: FC<{
 
                                     return (
                                         <Tooltip
-                                            title={`Created: ${formatDate(slot.created)}${isOld ? " (OLD - Consider cleanup)" : isStale ? " (Stale)" : ""}`}
+                                            title={`Created: ${formatDate(slot.created)}`}
                                             placement="top"
                                             arrow
                                         >
                                             <Typography
                                                 variant="caption"
                                                 sx={{
-                                                    color: isOld
-                                                        ? "#ff9800"
-                                                        : isStale
-                                                          ? "#ffc107"
-                                                          : "rgba(255, 255, 255, 0.5)",
+                                                    color:
+                                                        isOld || isStale
+                                                            ? "rgba(255, 255, 255, 0.7)"
+                                                            : "rgba(255, 255, 255, 0.5)",
                                                     fontSize: "0.65rem",
                                                     fontStyle: "italic",
-                                                    fontWeight: isOld
-                                                        ? 600
-                                                        : 400,
+                                                    fontWeight: 400,
                                                     cursor: "help",
-                                                    backgroundColor: isOld
-                                                        ? "rgba(255, 152, 0, 0.1)"
-                                                        : isStale
-                                                          ? "rgba(255, 193, 7, 0.1)"
-                                                          : "transparent",
-                                                    px: isStale ? 0.5 : 0,
-                                                    py: isStale ? 0.25 : 0,
+                                                    backgroundColor:
+                                                        "transparent",
+                                                    px: 0,
+                                                    py: 0,
                                                     borderRadius: "3px",
                                                 }}
                                             >
