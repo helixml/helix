@@ -14,18 +14,13 @@ func EstimateGPULayers(gpus []GPUInfo, metadata *ModelMetadata, opts EstimateOpt
 		return estimateCPUOnly(metadata, opts)
 	}
 
-	// Use exact Ollama estimation algorithm
-	estimate := EstimateGPULayersUsingOllama(gpus, metadata, opts)
-
-	log.Debug().
+	// Memory estimation is now done on the runner using exact Ollama code
+	// This function should not be used anymore - return CPU fallback
+	log.Warn().
 		Str("architecture", metadata.Architecture).
-		Int("layers", estimate.Layers).
-		Uint64("vram_mb", estimate.VRAMSize/(1024*1024)).
-		Uint64("total_mb", estimate.TotalSize/(1024*1024)).
-		Bool("fully_loaded", estimate.FullyLoaded).
-		Msg("Exact Ollama memory estimation completed")
+		Msg("EstimateGPULayers called but memory estimation should now be done on runner - returning CPU fallback")
 
-	return estimate
+	return estimateCPUOnly(metadata, opts)
 }
 
 // estimateCPUOnly returns a CPU-only estimation
@@ -94,20 +89,4 @@ func EstimateModelMemory(metadata *ModelMetadata, gpuConfig []GPUInfo, opts Esti
 	result.CPUOnly = estimateCPUOnly(metadata, opts)
 
 	return result
-}
-
-// FormatMemorySize formats bytes as human readable string
-func FormatMemorySize(bytes uint64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-
-	div, exp := uint64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }

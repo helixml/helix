@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -270,28 +272,20 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 		return nil, fmt.Errorf("failed to find runner with model %s: %w", modelName, err)
 	}
 
-	// Get model metadata from runner via NATS
-	metadata, err := s.getModelMetadataFromRunner(ctx, runnerID, modelName)
+	// Get memory estimation from runner using exact Ollama algorithm
+	estimationResp, err := s.getMemoryEstimationFromRunner(ctx, runnerID, modelName, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get model metadata from runner %s: %w", runnerID, err)
+		return nil, fmt.Errorf("failed to get memory estimation from runner %s: %w", runnerID, err)
 	}
 
-	// Debug logging for GGUF metadata that was parsed
+	// Debug logging for memory estimation results from runner
 	log.Debug().
-		Str("MEMORY_ESTIMATION_DEBUG", "gguf_metadata_parsed").
-		Str("architecture", metadata.Architecture).
-		Str("file_type", metadata.FileType).
-		Uint64("block_count", metadata.BlockCount).
-		Uint64("embedding_length", metadata.EmbeddingLength).
-		Uint64("context_length", metadata.ContextLength).
-		Uint64("head_count", metadata.HeadCount).
-		Uint64("head_count_kv", metadata.HeadCountKV).
-		Uint64("key_length", metadata.KeyLength).
-		Uint64("value_length", metadata.ValueLength).
-		Uint64("ff_length", metadata.FFLength).
-		Uint64("vocab_size", metadata.VocabSize).
-		Int("total_layer_count", len(metadata.Layers)).
-		Msg("🐠 SHARK GGUF metadata parsed from runner")
+		Str("MEMORY_ESTIMATION_DEBUG", "runner_estimation_received").
+		Str("architecture", estimationResp.Architecture).
+		Uint64("block_count", estimationResp.BlockCount).
+		Int("config_count", len(estimationResp.Configurations)).
+		Int64("response_time_ms", estimationResp.ResponseTime).
+		Msg("🐠 SHARK Memory estimation received from runner using exact Ollama")
 
 	// Debug logging for GPU configuration being used
 	for i, gpu := range gpuConfig {
@@ -309,8 +303,8 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 			Msg("🐠 SHARK GPU configuration for memory estimation")
 	}
 
-	// Do memory calculation in API using Ollama's algorithm
-	result := s.calculateMemoryEstimateLocally(metadata, gpuConfig, opts)
+	// Convert runner's multi-config response to our EstimationResult format
+	result := s.convertRunnerEstimationToResult(estimationResp, gpuConfig, opts)
 
 	// Debug logging for memory estimation results
 	log.Debug().
@@ -403,38 +397,61 @@ func (s *MemoryEstimationService) findRunnerWithModel(ctx context.Context, model
 	return "", fmt.Errorf("no runner found with model %s", modelName)
 }
 
-// RunnerModelMetadataRequest represents a request for model metadata from runner
-type RunnerModelMetadataRequest struct {
-	ModelName    string `json:"model_name"`
-	UseModelPath string `json:"use_model_path,omitempty"` // Optional: use specific model path
+// RunnerMemoryEstimationRequest represents a request for memory estimation from runner
+type RunnerMemoryEstimationRequest struct {
+	ModelName     string `json:"model_name"`
+	ContextLength int    `json:"context_length"`
+	BatchSize     int    `json:"batch_size"`
+	NumParallel   int    `json:"num_parallel"`
 }
 
-// RunnerModelMetadataResponse represents the response with GGUF metadata from runner
-type RunnerModelMetadataResponse struct {
-	Success      bool                  `json:"success"`
-	Metadata     *memory.ModelMetadata `json:"metadata,omitempty"`
-	Error        string                `json:"error,omitempty"`
-	RunnerID     string                `json:"runner_id"`
-	ModelPath    string                `json:"model_path"`
-	ResponseTime int64                 `json:"response_time_ms"`
+// RunnerMemoryEstimationResponse represents the response with memory estimates from runner
+type RunnerMemoryEstimationResponse struct {
+	Success        bool                     `json:"success"`
+	Error          string                   `json:"error,omitempty"`
+	ModelName      string                   `json:"model_name"`
+	Architecture   string                   `json:"architecture"`
+	BlockCount     uint64                   `json:"block_count"`
+	Configurations []GPUConfigurationResult `json:"configurations"`
+	ResponseTime   int64                    `json:"response_time_ms"`
+	RunnerID       string                   `json:"runner_id"`
 }
 
-// getModelMetadataFromRunner gets GGUF metadata from a runner via NATS
-func (s *MemoryEstimationService) getModelMetadataFromRunner(ctx context.Context, runnerID, modelName string) (*memory.ModelMetadata, error) {
-	// Prepare metadata request
-	request := RunnerModelMetadataRequest{
-		ModelName: modelName,
+// GPUConfigurationResult contains memory estimation for a specific GPU setup
+type GPUConfigurationResult struct {
+	Name          string   `json:"name"`           // "single_gpu", "dual_gpu", etc.
+	GPUCount      int      `json:"gpu_count"`      // Number of GPUs used
+	LayersOnGPU   int      `json:"layers_on_gpu"`  // How many layers fit on GPU
+	TotalLayers   int      `json:"total_layers"`   // Total layers in model
+	VRAMRequired  uint64   `json:"vram_required"`  // VRAM needed in bytes
+	TotalMemory   uint64   `json:"total_memory"`   // Total memory in bytes
+	GraphMemory   uint64   `json:"graph_memory"`   // Graph computation memory in bytes
+	KVCacheMemory uint64   `json:"kv_cache"`       // KV cache memory in bytes
+	WeightsMemory uint64   `json:"weights_memory"` // Model weights memory in bytes
+	FullyLoaded   bool     `json:"fully_loaded"`   // True if all layers fit on GPU
+	GPUSizes      []uint64 `json:"gpu_sizes"`      // Memory per GPU in bytes
+	TensorSplit   string   `json:"tensor_split"`   // Tensor split configuration
+}
+
+// getMemoryEstimationFromRunner gets memory estimates from a runner via NATS using exact Ollama
+func (s *MemoryEstimationService) getMemoryEstimationFromRunner(ctx context.Context, runnerID, modelName string, opts memory.EstimateOptions) (*RunnerMemoryEstimationResponse, error) {
+	// Prepare memory estimation request
+	request := RunnerMemoryEstimationRequest{
+		ModelName:     modelName,
+		ContextLength: opts.NumCtx,
+		BatchSize:     opts.NumBatch,
+		NumParallel:   opts.NumParallel,
 	}
 
 	requestBody, err := json.Marshal(request)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal metadata request: %w", err)
+		return nil, fmt.Errorf("failed to marshal memory estimation request: %w", err)
 	}
 
 	// Create NATS request
 	req := &types.Request{
 		Method: "POST",
-		URL:    "/api/v1/model-metadata",
+		URL:    "/api/v1/memory-estimate",
 		Body:   requestBody,
 	}
 
@@ -443,60 +460,90 @@ func (s *MemoryEstimationService) getModelMetadataFromRunner(ctx context.Context
 		"Content-Type": "application/json",
 	}, req, 30*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send metadata request to runner: %w", err)
+		return nil, fmt.Errorf("failed to send memory estimation request to runner: %w", err)
 	}
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("runner returned status %d for metadata request", resp.StatusCode)
+		return nil, fmt.Errorf("runner returned status %d for memory estimation request", resp.StatusCode)
 	}
 
 	// Parse response
-	var response RunnerModelMetadataResponse
+	var response RunnerMemoryEstimationResponse
 	if err := json.Unmarshal(resp.Body, &response); err != nil {
-		return nil, fmt.Errorf("failed to decode metadata response: %w", err)
+		return nil, fmt.Errorf("failed to decode memory estimation response: %w", err)
 	}
 
 	if !response.Success {
-		return nil, fmt.Errorf("metadata extraction failed: %s", response.Error)
+		return nil, fmt.Errorf("memory estimation failed: %s", response.Error)
 	}
 
-	// Log the detailed metadata returned by the runner
-	log.Debug().
-		Str("RUNNER_METADATA_DEBUG", "detailed_response").
-		Str("runner_id", runnerID).
-		Str("model_name", modelName).
-		Str("architecture", response.Metadata.Architecture).
-		Str("file_type", response.Metadata.FileType).
-		Uint64("block_count", response.Metadata.BlockCount).
-		Uint64("embedding_length", response.Metadata.EmbeddingLength).
-		Uint64("context_length", response.Metadata.ContextLength).
-		Uint64("head_count", response.Metadata.HeadCount).
-		Uint64("head_count_kv", response.Metadata.HeadCountKV).
-		Uint64("key_length", response.Metadata.KeyLength).
-		Uint64("value_length", response.Metadata.ValueLength).
-		Uint64("ff_length", response.Metadata.FFLength).
-		Uint64("vocab_size", response.Metadata.VocabSize).
-		Int("layer_count", len(response.Metadata.Layers)).
-		Msg("🔍 RUNNER returned GGUF metadata - these are the exact values we'll use in estimation")
-
-	return response.Metadata, nil
+	return &response, nil
 }
 
-// calculateMemoryEstimateLocally performs memory calculation in the API using metadata from runner
-func (s *MemoryEstimationService) calculateMemoryEstimateLocally(metadata *memory.ModelMetadata, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) *memory.EstimationResult {
-	// Debug logging for local calculation entry
-	log.Debug().
-		Str("MEMORY_ESTIMATION_DEBUG", "local_calculation").
-		Str("architecture", metadata.Architecture).
-		Uint64("block_count", metadata.BlockCount).
-		Int("num_ctx", opts.NumCtx).
-		Str("kv_cache_type", opts.KVCacheType).
-		Int("gpu_count", len(gpuConfig)).
-		Msg("calculateMemoryEstimateLocally called")
+// convertRunnerEstimationToResult converts runner's multi-config estimation to our EstimationResult format
+func (s *MemoryEstimationService) convertRunnerEstimationToResult(runnerResp *RunnerMemoryEstimationResponse, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) *memory.EstimationResult {
+	// Create fake metadata from runner response for backward compatibility
+	metadata := &memory.ModelMetadata{
+		Architecture: runnerResp.Architecture,
+		BlockCount:   runnerResp.BlockCount,
+		Layers:       make(map[string]memory.LayerInfo),
+	}
 
-	// Convert types for our Ollama-based calculation
-	gpuInfos := make([]memory.GPUInfo, len(gpuConfig))
-	for i, gpu := range gpuConfig {
+	result := &memory.EstimationResult{
+		ModelName:   runnerResp.ModelName,
+		Metadata:    metadata,
+		EstimatedAt: time.Now(),
+	}
+
+	// Find the appropriate configurations from runner response
+	var singleGPUConfig, tensorParallelConfig, cpuConfig *GPUConfigurationResult
+
+	for i := range runnerResp.Configurations {
+		config := &runnerResp.Configurations[i]
+		switch config.Name {
+		case "single_gpu":
+			singleGPUConfig = config
+		case "dual_gpu", "quad_gpu", "octo_gpu":
+			if tensorParallelConfig == nil || config.GPUCount > tensorParallelConfig.GPUCount {
+				tensorParallelConfig = config
+			}
+		case "cpu_only":
+			cpuConfig = config
+		}
+	}
+
+	// Convert to our MemoryEstimate format
+	if singleGPUConfig != nil {
+		result.SingleGPU = s.convertConfigToMemoryEstimate(singleGPUConfig, metadata, opts, []types.GPUInfoForEstimation{gpuConfig[0]})
+	}
+
+	if tensorParallelConfig != nil && len(gpuConfig) >= tensorParallelConfig.GPUCount {
+		result.TensorParallel = s.convertConfigToMemoryEstimate(tensorParallelConfig, metadata, opts, gpuConfig[:tensorParallelConfig.GPUCount])
+	}
+
+	if cpuConfig != nil {
+		result.CPUOnly = s.convertConfigToMemoryEstimate(cpuConfig, metadata, opts, []types.GPUInfoForEstimation{})
+	}
+
+	// Determine recommendation based on what's available and works
+	if result.SingleGPU != nil && result.SingleGPU.FullyLoaded && len(gpuConfig) >= 1 {
+		result.Recommendation = "single_gpu"
+	} else if result.TensorParallel != nil && result.TensorParallel.FullyLoaded {
+		result.Recommendation = "tensor_parallel"
+	} else if result.SingleGPU != nil && result.SingleGPU.Layers > 0 {
+		result.Recommendation = "single_gpu"
+	} else {
+		result.Recommendation = "cpu_only"
+	}
+
+	return result
+}
+
+// convertConfigToMemoryEstimate converts a GPU configuration result to our MemoryEstimate format
+func (s *MemoryEstimationService) convertConfigToMemoryEstimate(config *GPUConfigurationResult, metadata *memory.ModelMetadata, opts memory.EstimateOptions, gpus []types.GPUInfoForEstimation) *memory.MemoryEstimate {
+	// Convert GPU info
+	gpuInfos := make([]memory.GPUInfo, len(gpus))
+	for i, gpu := range gpus {
 		gpuInfos[i] = memory.GPUInfo{
 			ID:            gpu.ID,
 			Index:         gpu.Index,
@@ -505,44 +552,37 @@ func (s *MemoryEstimationService) calculateMemoryEstimateLocally(metadata *memor
 			TotalMemory:   gpu.TotalMemory,
 			MinimumMemory: gpu.MinimumMemory,
 		}
-
-		// Debug GPU info
-		log.Debug().
-			Str("MEMORY_ESTIMATION_DEBUG", "gpu_info").
-			Int("gpu_index", i).
-			Str("gpu_id", gpu.ID).
-			Uint64("free_memory_mb", gpu.FreeMemory/(1024*1024)).
-			Uint64("total_memory_mb", gpu.TotalMemory/(1024*1024)).
-			Msg("GPU configuration for estimation")
 	}
 
-	// Use our Ollama-based memory estimation logic
-	estimate := memory.EstimateGPULayers(gpuInfos, metadata, opts)
-
-	// Convert to EstimationResult format
-	result := &memory.EstimationResult{
-		ModelName:      metadata.Architecture, // Use architecture as model name
-		Metadata:       metadata,
-		SingleGPU:      estimate,
-		Recommendation: "single_gpu",
-		EstimatedAt:    time.Now(),
+	// Parse tensor split
+	var tensorSplit []int
+	if config.TensorSplit != "" {
+		parts := strings.Split(config.TensorSplit, ",")
+		tensorSplit = make([]int, len(parts))
+		for i, part := range parts {
+			if val, err := strconv.Atoi(strings.TrimSpace(part)); err == nil {
+				tensorSplit[i] = val
+			}
+		}
 	}
 
-	// If multiple GPUs, also calculate tensor parallel
-	if len(gpuConfig) > 1 {
-		result.TensorParallel = estimate
-		result.Recommendation = "tensor_parallel"
+	return &memory.MemoryEstimate{
+		Architecture:     metadata.Architecture,
+		Layers:           config.LayersOnGPU,
+		VRAMSize:         config.VRAMRequired,
+		TotalSize:        config.TotalMemory,
+		Graph:            config.GraphMemory,
+		KVCache:          config.KVCacheMemory,
+		Weights:          config.WeightsMemory,
+		Projectors:       0,
+		FullyLoaded:      config.FullyLoaded,
+		RequiresFallback: config.LayersOnGPU == 0,
+		EstimatedAt:      time.Now(),
+		Options:          opts,
+		GPUs:             gpuInfos,
+		GPUSizes:         config.GPUSizes,
+		TensorSplit:      tensorSplit,
 	}
-
-	// Determine final recommendation
-	if estimate.RequiresFallback {
-		result.Recommendation = "cpu_only"
-		result.CPUOnly = estimate
-		// Keep GPU estimates available for display purposes even when CPU-only is recommended
-		// This allows dashboard to show actual VRAM requirements
-	}
-
-	return result
 }
 
 // generateCacheKey generates a cache key for the given parameters
