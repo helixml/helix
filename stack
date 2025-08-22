@@ -172,20 +172,20 @@ function stop() {
       if [[ -n "$WITH_DEMOS" ]]; then
         # Both runner and demos
         echo "Stopping services with runner ($RUNNER_CONTAINER) and demos profiles"
-        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos down
+        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos down -t 1
       else
         # Just runner
         echo "Stopping services with runner ($RUNNER_CONTAINER) profile"
-        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" down
+        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" down -t 1
       fi
     elif [[ -n "$WITH_DEMOS" ]]; then
       # Just demos
       echo "Stopping services with demos profile"
-      docker compose -f docker-compose.dev.yaml --profile demos down
+      docker compose -f docker-compose.dev.yaml --profile demos down -t 1
     else
       # Include all profiles when no environment variables are set
       echo "Stopping all services (all profiles)"
-      docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos down
+      docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos down -t 1
     fi
   else
     # Create grep pattern to exclude services
@@ -200,20 +200,32 @@ function stop() {
       if [[ -n "$WITH_DEMOS" ]]; then
         # Both runner and demos
         echo "Stopping services with runner ($RUNNER_CONTAINER) and demos profiles (except: ${exclude_services[*]})"
-        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos rm -sf $(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos ps -a --services | grep -v -E "$exclude_pattern")
+        local services=$(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos ps -a --services | grep -v -E "$exclude_pattern")
+        if [[ -n "$services" ]]; then
+          docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" --profile demos down -t 1 $services
+        fi
       else
         # Just runner
         echo "Stopping services with runner ($RUNNER_CONTAINER) profile (except: ${exclude_services[*]})"
-        docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" rm -sf $(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" ps -a --services | grep -v -E "$exclude_pattern")
+        local services=$(docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" ps -a --services | grep -v -E "$exclude_pattern")
+        if [[ -n "$services" ]]; then
+          docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" down -t 1 $services
+        fi
       fi
     elif [[ -n "$WITH_DEMOS" ]]; then
       # Just demos
       echo "Stopping services with demos profile (except: ${exclude_services[*]})"
-      docker compose -f docker-compose.dev.yaml --profile demos rm -sf $(docker compose -f docker-compose.dev.yaml --profile demos ps -a --services | grep -v -E "$exclude_pattern")
+      local services=$(docker compose -f docker-compose.dev.yaml --profile demos ps -a --services | grep -v -E "$exclude_pattern")
+      if [[ -n "$services" ]]; then
+        docker compose -f docker-compose.dev.yaml --profile demos down -t 1 $services
+      fi
     else
       # Include all profiles when no environment variables are set
       echo "Stopping all services (all profiles, except: ${exclude_services[*]})"
-      docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos rm -sf $(docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos ps -a --services | grep -v -E "$exclude_pattern")
+      local services=$(docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos ps -a --services | grep -v -E "$exclude_pattern")
+      if [[ -n "$services" ]]; then
+        docker compose -f docker-compose.dev.yaml --profile runner --profile runner_gpu --profile demos down -t 1 $services
+      fi
     fi
   fi
 
