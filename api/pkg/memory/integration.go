@@ -2,8 +2,8 @@ package memory
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
-	"runtime"
 )
 
 // ModelMemoryEstimator provides high-level interface for model memory estimation
@@ -18,7 +18,7 @@ func NewModelMemoryEstimator(modelsPath string) *ModelMemoryEstimator {
 	}
 }
 
-// EstimateMemoryForModel estimates memory requirements for a given model
+// EstimateMemoryForModel estimates memory requirements for a given model by name
 func (e *ModelMemoryEstimator) EstimateMemoryForModel(modelName string, gpuInfos []GPUInfo, opts EstimateOptions) (*EstimationResult, error) {
 	// Find model file
 	modelPath, err := e.findModelPath(modelName)
@@ -26,24 +26,26 @@ func (e *ModelMemoryEstimator) EstimateMemoryForModel(modelName string, gpuInfos
 		return nil, err
 	}
 
-	// Validate options
-	if err := ValidateEstimateOptions(opts); err != nil {
-		return nil, err
+	// Load metadata from GGUF file
+	metadata, err := LoadModelMetadata(modelPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load model metadata: %w", err)
 	}
 
 	// Perform estimation
-	return EstimateModelMemory(modelPath, gpuInfos, opts)
+	return EstimateModelMemory(metadata, gpuInfos, opts), nil
 }
 
 // EstimateMemoryForModelPath estimates memory requirements for a model at a specific path
 func (e *ModelMemoryEstimator) EstimateMemoryForModelPath(modelPath string, gpuInfos []GPUInfo, opts EstimateOptions) (*EstimationResult, error) {
-	// Validate options
-	if err := ValidateEstimateOptions(opts); err != nil {
-		return nil, err
+	// Load metadata from GGUF file
+	metadata, err := LoadModelMetadata(modelPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load model metadata: %w", err)
 	}
 
 	// Perform estimation
-	return EstimateModelMemory(modelPath, gpuInfos, opts)
+	return EstimateModelMemory(metadata, gpuInfos, opts), nil
 }
 
 // GetDefaultEstimateOptions returns reasonable default options for memory estimation
@@ -52,163 +54,84 @@ func GetDefaultEstimateOptions() EstimateOptions {
 		NumCtx:      4096,
 		NumBatch:    512,
 		NumParallel: 1,
-		NumGPU:      -1, // Auto-detect
-		KVCacheType: "f16",
+		NumGPU:      -1, // Use all available GPUs by default
+		KVCacheType: "q8_0",
 	}
 }
 
-// detectGPULibrary detects the GPU library based on the system
-func detectGPULibrary() string {
-	switch runtime.GOOS {
-	case "linux":
-		// Could check for CUDA/ROCm, but default to CUDA for now
-		return "cuda"
-	case "darwin":
-		return "metal"
-	case "windows":
-		return "cuda"
-	default:
-		return "cpu"
-	}
-}
-
-// findModelPath finds the model file path for a given model name
+// findModelPath finds the full path to a model file
 func (e *ModelMemoryEstimator) findModelPath(modelName string) (string, error) {
-	// This is a simplified implementation - in practice, you'd want to:
-	// 1. Check Ollama's manifest system
-	// 2. Look in blob storage
-	// 3. Handle model name resolution
+	// Common GGUF file extensions
+	extensions := []string{".gguf", ".ggml", ".bin"}
 
-	// For now, try common patterns
-	possiblePaths := []string{
-		filepath.Join(e.modelsPath, modelName),
-		filepath.Join(e.modelsPath, "blobs", modelName),
-		filepath.Join(e.modelsPath, "models", modelName),
+	// Search patterns
+	patterns := []string{
+		modelName,                     // Exact name
+		fmt.Sprintf("%s*", modelName), // Prefix match
 	}
 
-	// Try with common extensions
-	extensions := []string{"", ".gguf", ".bin"}
-
-	for _, basePath := range possiblePaths {
+	for _, pattern := range patterns {
 		for _, ext := range extensions {
-			fullPath := basePath + ext
-			if fileExists(fullPath) {
-				return fullPath, nil
+			// Try with extension
+			testPath := filepath.Join(e.modelsPath, pattern+ext)
+			if matches, err := filepath.Glob(testPath); err == nil && len(matches) > 0 {
+				// Return first match
+				return matches[0], nil
+			}
+
+			// Try pattern as-is (might already have extension)
+			testPath = filepath.Join(e.modelsPath, pattern)
+			if matches, err := filepath.Glob(testPath); err == nil && len(matches) > 0 {
+				// Check if it's a file and has a valid extension
+				for _, match := range matches {
+					if info, err := os.Stat(match); err == nil && !info.IsDir() {
+						for _, validExt := range extensions {
+							if filepath.Ext(match) == validExt {
+								return match, nil
+							}
+						}
+					}
+				}
 			}
 		}
 	}
 
-	return "", &EstimationError{
-		Type:    "model_not_found",
-		Message: "model file not found",
-		Details: fmt.Sprintf("searched for model '%s' in %s", modelName, e.modelsPath),
-	}
+	return "", fmt.Errorf("model file not found for model: %s", modelName)
 }
 
-// fileExists checks if a file exists
-func fileExists(path string) bool {
-	_, err := filepath.Abs(path)
-	return err == nil
-}
-
-// GetRecommendedGPUConfiguration returns the recommended GPU configuration for a model
-func GetRecommendedGPUConfiguration(result *EstimationResult) *GPUConfiguration {
-	if result == nil {
-		return nil
+// ValidateEstimateOptions validates estimation options
+func ValidateEstimateOptions(opts EstimateOptions) error {
+	if opts.NumCtx < 1 || opts.NumCtx > 1000000 {
+		return fmt.Errorf("invalid context size: must be between 1 and 1,000,000, got %d", opts.NumCtx)
 	}
 
-	config := &GPUConfiguration{
-		ModelName:      result.ModelName,
-		Recommendation: result.Recommendation,
+	if opts.NumBatch < 1 || opts.NumBatch > 10000 {
+		return fmt.Errorf("invalid batch size: must be between 1 and 10,000, got %d", opts.NumBatch)
 	}
 
-	switch result.Recommendation {
-	case "single_gpu":
-		if result.SingleGPU != nil {
-			config.GPUCount = 1
-			config.MemoryPerGPU = result.SingleGPU.VRAMSize
-			config.TotalMemory = result.SingleGPU.VRAMSize
-			config.LayersOffloaded = result.SingleGPU.Layers
-			config.FullyOffloaded = result.SingleGPU.FullyLoaded
-		}
-
-	case "tensor_parallel":
-		if result.TensorParallel != nil {
-			config.GPUCount = len(result.TensorParallel.GPUSizes)
-			config.TotalMemory = result.TensorParallel.VRAMSize
-			config.LayersOffloaded = result.TensorParallel.Layers
-			config.FullyOffloaded = result.TensorParallel.FullyLoaded
-			config.TensorSplit = result.TensorParallel.TensorSplit
-
-			// Calculate memory per GPU
-			if config.GPUCount > 0 {
-				config.MemoryPerGPU = config.TotalMemory / uint64(config.GPUCount)
-			}
-		}
-
-	case "cpu_only":
-		if result.CPUOnly != nil {
-			config.GPUCount = 0
-			config.TotalMemory = result.CPUOnly.TotalSize
-			config.LayersOffloaded = 0
-			config.FullyOffloaded = false
-		}
+	if opts.NumParallel < 1 || opts.NumParallel > 100 {
+		return fmt.Errorf("invalid parallel count: must be between 1 and 100, got %d", opts.NumParallel)
 	}
 
-	return config
+	if opts.KVCacheType != "" && opts.KVCacheType != "f16" && opts.KVCacheType != "q8_0" && opts.KVCacheType != "q4_0" {
+		return fmt.Errorf("invalid KV cache type: must be one of f16, q8_0, q4_0, got %s", opts.KVCacheType)
+	}
+
+	return nil
 }
 
-// GPUConfiguration represents a recommended GPU configuration for a model
-type GPUConfiguration struct {
-	ModelName       string `json:"model_name"`
-	Recommendation  string `json:"recommendation"`
-	GPUCount        int    `json:"gpu_count"`
-	MemoryPerGPU    uint64 `json:"memory_per_gpu"`
-	TotalMemory     uint64 `json:"total_memory"`
-	LayersOffloaded int    `json:"layers_offloaded"`
-	FullyOffloaded  bool   `json:"fully_offloaded"`
-	TensorSplit     []int  `json:"tensor_split,omitempty"`
-}
-
-// FormatMemorySize formats memory size in human-readable format
+// FormatMemorySize formats bytes as human readable string
 func FormatMemorySize(bytes uint64) string {
 	const unit = 1024
 	if bytes < unit {
 		return fmt.Sprintf("%d B", bytes)
 	}
+
 	div, exp := uint64(unit), 0
 	for n := bytes / unit; n >= unit; n /= unit {
 		div *= unit
 		exp++
 	}
+
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
-}
-
-// GetMemoryEfficiency calculates the memory efficiency of a configuration
-func GetMemoryEfficiency(result *EstimationResult) float64 {
-	if result == nil || result.Metadata == nil {
-		return 0.0
-	}
-
-	totalLayers := int(result.Metadata.BlockCount) + 1
-
-	var layersOffloaded int
-	switch result.Recommendation {
-	case "single_gpu":
-		if result.SingleGPU != nil {
-			layersOffloaded = result.SingleGPU.Layers
-		}
-	case "tensor_parallel":
-		if result.TensorParallel != nil {
-			layersOffloaded = result.TensorParallel.Layers
-		}
-	default:
-		return 0.0
-	}
-
-	if totalLayers == 0 {
-		return 0.0
-	}
-
-	return float64(layersOffloaded) / float64(totalLayers)
 }
