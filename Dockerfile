@@ -13,10 +13,12 @@ RUN go install github.com/air-verse/air@v1.52.3
 # - Copy the files and run a build to make startup faster
 COPY api /app/api
 WORKDIR /app/api
-# - Run a build to make the intial air build faster
-RUN CGO_ENABLED=1 go build -tags "cuda" -ldflags "-s -w" -o /helix
+# - Install gcc for CGO compilation
+RUN apk add --no-cache gcc g++ musl-dev
+# - Run a build to make the intial air build faster (exclude AMD/ROCm to avoid missing constants)
+RUN CGO_ENABLED=1 go build -tags "!rocm" -ldflags "-s -w" -o /helix
 # - Entrypoint is the air command
-ENTRYPOINT ["air", "--build.bin", "/helix", "--build.cmd", "CGO_ENABLED=1 go build -tags \"cuda\" -ldflags \"-s -w\" -o /helix", "--build.stop_on_error", "true", "--"]
+ENTRYPOINT ["air", "--build.bin", "/helix", "--build.cmd", "CGO_ENABLED=1 go build -tags \"!rocm\" -ldflags \"-s -w\" -o /helix", "--build.stop_on_error", "true", "--"]
 CMD ["serve"]
 
 
@@ -30,7 +32,8 @@ COPY api /app/api
 WORKDIR /app/api
 # - main.version is a variable required by Sentry and is set in .drone.yaml
 ARG APP_VERSION="v0.0.0+unknown"
-RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -buildvcs=true -ldflags "-s -w -X main.version=$APP_VERSION -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix
+RUN apk add --no-cache gcc g++ musl-dev && \
+    CGO_ENABLED=1 go build -tags "!rocm" -buildvcs=true -ldflags "-s -w -X main.version=$APP_VERSION -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix
 
 ### Frontend Base ###
 #--------------------
