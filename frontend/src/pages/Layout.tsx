@@ -15,7 +15,11 @@ import AppSidebar from '../components/app/AppSidebar'
 
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
-import Window from '../components/widgets/Window'
+import DarkDialog from '../components/dialog/DarkDialog'
+import DialogTitle from '@mui/material/DialogTitle'
+import DialogContent from '@mui/material/DialogContent'
+import DialogActions from '@mui/material/DialogActions'
+import Button from '@mui/material/Button'
 import { LicenseKeyPrompt } from '../components/LicenseKeyPrompt'
 
 import FloatingRunnerState from '../components/admin/FloatingRunnerState'
@@ -356,27 +360,46 @@ const Layout: FC<{
         <GlobalLoading />
         {
           account.showLoginWindow && (
-            <Window
+            <DarkDialog
               open
-              size="md"
-              title="Please login to continue"
-              onCancel={ () => {
+              maxWidth="md"
+              fullWidth
+              onClose={() => {
                 account.setShowLoginWindow(false)
               }}
-              onSubmit={ () => {
-                account.onLogin()
-              }}
-              withCancel
-              cancelTitle="Cancel"
-              submitTitle="Login / Register"
             >
-              <Typography gutterBottom>
-                You can login with your Google account or your organization's SSO provider.
-              </Typography>
-              <Typography>
-                We will keep what you've done here for you, so you may continue where you left off.
-              </Typography>
-            </Window>
+              <DialogTitle>
+                Please login to continue
+              </DialogTitle>
+              <DialogContent>
+                <Typography gutterBottom>
+                  You can login with your Google account or your organization's SSO provider.
+                </Typography>
+                <Typography>
+                  We will keep what you've done here for you, so you may continue where you left off.
+                </Typography>
+              </DialogContent>
+              <DialogActions>
+                <Button
+                  onClick={() => {
+                    account.setShowLoginWindow(false)
+                  }}
+                  color="primary"
+                  variant="outlined"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    account.onLogin()
+                  }}
+                  variant="contained"
+                  color="secondary"
+                >
+                  Login
+                </Button>
+              </DialogActions>
+            </DarkDialog>
           )
         }
         {

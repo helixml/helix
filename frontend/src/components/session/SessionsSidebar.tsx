@@ -49,7 +49,6 @@ export const SessionsSidebar: FC<{
   const [allSessions, setAllSessions] = useState<TypesSessionSummary[]>([])
   const [hasMore, setHasMore] = useState(true)
   const [totalCount, setTotalCount] = useState(0)
-  const [totalPages, setTotalPages] = useState(0)
 
   const orgId = router.params.org_id
 
@@ -61,8 +60,11 @@ export const SessionsSidebar: FC<{
   } = useListSessions(
     orgId, 
     undefined, 
-    currentPage, 
-    PAGE_SIZE
+    currentPage,
+    PAGE_SIZE,
+    {
+      enabled: !!account.user?.id, // Only load if logged in
+    }
   )
 
   // Update state when sessions data changes
@@ -77,7 +79,6 @@ export const SessionsSidebar: FC<{
       }
       
       setTotalCount(sessionsData.data.totalCount || 0)
-      setTotalPages(sessionsData.data.totalPages || 0)
       setHasMore((sessionsData.data.totalPages || 0) > currentPage + 1)
     }
   }, [sessionsData, currentPage])
@@ -253,6 +254,28 @@ export const SessionsSidebar: FC<{
           <Cell>
             <Typography color="error" variant="body2">
               Failed to load sessions
+            </Typography>
+          </Cell>
+        </Row>
+      </SlideMenuContainer>
+    )
+  }
+
+  // Show message when user is not logged in
+  if (!account.user?.id) {
+    return (
+      <SlideMenuContainer menuType={MENU_TYPE}>
+        <Row center sx={{ py: 4 }}>
+          <Cell>
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                color: 'text.secondary',
+                opacity: 0.6,
+                textAlign: 'center'
+              }}
+            >
+              Login to see your session history
             </Typography>
           </Cell>
         </Row>

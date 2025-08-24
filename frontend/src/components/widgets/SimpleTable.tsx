@@ -19,6 +19,7 @@ export interface ITableField {
 }
 
 const SimpleTable: FC<{
+  authenticated: boolean,
   fields: ITableField[],
   data: Record<string, any>[],
   compact?: boolean,
@@ -35,6 +36,7 @@ const SimpleTable: FC<{
     (row: Record<string, any>): JSX.Element,
   },
 }> = ({
+  authenticated = true,
   fields,
   data,
   compact = false,
@@ -81,6 +83,12 @@ const SimpleTable: FC<{
               <CircularProgress size={24} />
             </TableCell>
           </TableRow>
+        ) : !authenticated ? (
+          <TableRow>            
+            <TableCell colSpan={fields.length + (getActions ? 1 : 0)} align="center" sx={{ py: 3 }}>
+              Login to view your agents
+            </TableCell>
+          </TableRow>          
         ) : data.length === 0 ? (
           <TableRow>
             <TableCell colSpan={fields.length + (getActions ? 1 : 0)} align="center" sx={{ py: 3 }}>

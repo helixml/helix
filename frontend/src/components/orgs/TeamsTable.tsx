@@ -164,6 +164,7 @@ const TeamsTable: FC<{
   return (
     <>
       <SimpleTable
+        authenticated={true}
         fields={[{
           name: 'name',
           title: 'Name',
