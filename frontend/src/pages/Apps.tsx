@@ -37,8 +37,24 @@ const Apps: FC = () => {
     })
   }
 
+  const checkLoginStatus = (): boolean => {
+    if (!account.user) {
+      account.setShowLoginWindow(true)
+      return false
+    }
+    return true
+  }
+
   const onNewAgent = () => {
+    if(!checkLoginStatus()) return
+
     account.orgNavigate('new-agent')
+  }
+
+  const onNewSecret = () => {
+    if(!checkLoginStatus()) return
+
+    navigate('secrets')
   }
 
   const onDeleteApp = useCallback(async () => {
@@ -79,7 +95,7 @@ const Apps: FC = () => {
             variant="contained"
             color="secondary"
             endIcon={<LockIcon />}
-            onClick={() => navigate('secrets')}
+            onClick={onNewSecret}
             sx={{ mr: 2 }}
           >
             Secrets
