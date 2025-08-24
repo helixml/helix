@@ -121,6 +121,7 @@ const OrgsTable: FC<{
   return (
     <>
       <SimpleTable
+        authenticated={true}
         fields={[{
           name: 'display_name',
           title: 'Display Name',
