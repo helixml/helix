@@ -61,11 +61,13 @@ const Apps: FC = () => {
   ])
 
   useEffect(() => {
-    apps.loadApps()
+    if(account.user) {
+      apps.loadApps()
+    }
   }, [
-    apps.loadApps,
+    account, apps.loadApps,
   ])
-
+  
   return (
     <Page
       breadcrumbTitle="Agents"
@@ -103,6 +105,7 @@ const Apps: FC = () => {
         }}
       >
         <AppsTable
+          authenticated={ !!account.user }
           data={ apps.apps }
           onEdit={ onEditApp }
           onDelete={ setDeletingApp }
