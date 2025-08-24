@@ -39,10 +39,12 @@ import {
 import HelixIcon from '../../../assets/img/logo.png'
 
 const AppsDataGrid: FC<React.PropsWithChildren<{
+  authenticated: boolean,
   data: IApp[],
   onEdit: (app: IApp) => void,
   onDelete: (app: IApp) => void,
 }>> = ({
+  authenticated,
   data,
   onEdit,
   onDelete,
@@ -385,6 +387,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
   return (
     <>
       <SimpleTable
+        authenticated={ authenticated }
         fields={tableFields}
         data={ tableData }
         getActions={ getActions }
