@@ -1102,18 +1102,9 @@ func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint
 		log.Error().
 			Str("runner_id", runnerID).
 			Err(err).
-			Msg("PREWARM_DEBUG: CRITICAL - GetStatus failed - runner may not be fully connected yet!")
-		log.Error().
-			Str("runner_id", runnerID).
-			Err(err).
 			Msg("CRITICAL: failed to get runner status for memory calculation - cannot proceed without real data")
 		return 0, 0, 0, fmt.Errorf("runner %s status unavailable: %w", runnerID, err)
 	}
-
-	log.Debug().
-		Str("runner_id", runnerID).
-		Uint64("total_memory", runnerStatus.TotalMemory).
-		Msg("PREWARM_DEBUG: Successfully got runner status")
 
 	totalMemory := runnerStatus.TotalMemory
 	if totalMemory == 0 {
@@ -1306,11 +1297,6 @@ func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
 			Msg("PREWARM_DEBUG: CRITICAL - EstimateModelMemory failed! This is likely the timing issue - runner may not be ready")
 		return 0, fmt.Errorf("failed to estimate model memory: %w", err)
 	}
-
-	log.Info().
-		Str("model_id", modelID).
-		Str("recommendation", result.Recommendation).
-		Msg("PREWARM_DEBUG: Successfully got memory estimation from runner")
 
 	// Store detailed result for UI debugging
 	s.detailedMemoryMu.Lock()
@@ -2617,10 +2603,6 @@ func (s *Scheduler) PrewarmNewRunner(runnerID string) {
 	}
 
 	withContext.Info().
-		Int("prewarm_model_count", len(prewarmModels)).
-		Msg("PREWARM_DEBUG: Successfully got prewarm models, proceeding with prewarming")
-
-	withContext.Info().
 		Int("model_count", len(prewarmModels)).
 		Msg("starting prewarming for runner")
 
@@ -2717,13 +2699,6 @@ func (s *Scheduler) getPrewarmModels(runnerID string) []*types.Model {
 		log.Warn().Err(err).Str("runner_id", runnerID).Msg("failed to get runner memory for prewarming")
 		return nil
 	}
-
-	log.Info().
-		Str("runner_id", runnerID).
-		Uint64("total_memory_gb", totalMemory/(1024*1024*1024)).
-		Uint64("allocated_memory_gb", allocatedMemory/(1024*1024*1024)).
-		Uint64("free_memory_gb", freeMemory/(1024*1024*1024)).
-		Msg("PREWARM_DEBUG: Successfully calculated runner memory for prewarming")
 
 	log.Debug().
 		Str("runner_id", runnerID).

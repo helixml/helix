@@ -215,19 +215,6 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 		// Use Ollama's exact EstimateGPULayers function
 		estimate := llm.EstimateGPULayers(gpusToUse, ggmlModel, []string{}, opts, req.NumParallel)
 
-		// DEBUG: Log what Ollama returned
-		log.Info().
-			Str("MEMORY_ESTIMATION_DEBUG", "ollama_response").
-			Str("model_name", req.ModelName).
-			Str("config", config.name).
-			Int("layers", estimate.Layers).
-			Uint64("vram_size", estimate.VRAMSize).
-			Uint64("total_size", estimate.TotalSize).
-			Uint64("graph", estimate.Graph).
-			Interface("gpu_sizes", estimate.GPUSizes).
-			Str("tensor_split", estimate.TensorSplit).
-			Msg("🔧 MEMORY_DEBUG: Ollama's EstimateGPULayers returned these values")
-
 		// Convert to our response format
 		result := GPUConfigurationResult{
 			Name:          config.name,
