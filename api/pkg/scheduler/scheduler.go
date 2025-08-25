@@ -1096,14 +1096,24 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 // Returns error if runner status or memory information is unavailable - NO DEFAULTS
 func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint64, error) {
 	// Get runner status
+	log.Debug().Str("runner_id", runnerID).Msg("PREWARM_DEBUG: Attempting to get runner status")
 	runnerStatus, err := s.controller.GetStatus(runnerID)
 	if err != nil {
+		log.Error().
+			Str("runner_id", runnerID).
+			Err(err).
+			Msg("PREWARM_DEBUG: CRITICAL - GetStatus failed - runner may not be fully connected yet!")
 		log.Error().
 			Str("runner_id", runnerID).
 			Err(err).
 			Msg("CRITICAL: failed to get runner status for memory calculation - cannot proceed without real data")
 		return 0, 0, 0, fmt.Errorf("runner %s status unavailable: %w", runnerID, err)
 	}
+
+	log.Debug().
+		Str("runner_id", runnerID).
+		Uint64("total_memory", runnerStatus.TotalMemory).
+		Msg("PREWARM_DEBUG: Successfully got runner status")
 
 	totalMemory := runnerStatus.TotalMemory
 	if totalMemory == 0 {
@@ -1121,8 +1131,18 @@ func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint
 		// Only count slots on this specific runner
 		if slot.RunnerID == runnerID {
 			modelName := slot.InitialWork().ModelName().String()
+			log.Debug().
+				Str("runner_id", runnerID).
+				Str("model_name", modelName).
+				Msg("PREWARM_DEBUG: About to get model memory for slot")
 			modelMemory, err := s.getModelMemory(modelName)
 			if err != nil {
+				log.Error().
+					Str("runner_id", runnerID).
+					Str("slot_id", slot.ID.String()).
+					Str("model_name", modelName).
+					Err(err).
+					Msg("PREWARM_DEBUG: CRITICAL - getModelMemory failed - this could prevent prewarming!")
 				log.Warn().
 					Str("runner_id", runnerID).
 					Str("slot_id", slot.ID.String()).
@@ -1275,10 +1295,22 @@ func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
 		Msg("🦈 HAMMERHEAD Scheduler using these estimation options")
 
 	// Get memory estimation
+	log.Info().
+		Str("model_id", modelID).
+		Msg("PREWARM_DEBUG: About to call memoryEstimationService.EstimateModelMemory - this will contact runner via NATS")
 	result, err := s.memoryEstimationService.EstimateModelMemory(context.Background(), modelID, gpuConfig, opts)
 	if err != nil {
+		log.Error().
+			Str("model_id", modelID).
+			Err(err).
+			Msg("PREWARM_DEBUG: CRITICAL - EstimateModelMemory failed! This is likely the timing issue - runner may not be ready")
 		return 0, fmt.Errorf("failed to estimate model memory: %w", err)
 	}
+
+	log.Info().
+		Str("model_id", modelID).
+		Str("recommendation", result.Recommendation).
+		Msg("PREWARM_DEBUG: Successfully got memory estimation from runner")
 
 	// Store detailed result for UI debugging
 	s.detailedMemoryMu.Lock()
@@ -1350,12 +1382,6 @@ func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
 		return 0, fmt.Errorf("invalid memory estimate for model %s", modelID)
 	}
 
-	// Always use TotalSize for consistent memory estimation
-	log.Debug().
-		Str("model_id", modelID).
-		Uint64("vram_size", estimate.VRAMSize).
-		Uint64("total_size", estimate.TotalSize).
-		Msg("📋 SALMON Scheduler using TotalSize for scheduling")
 	return estimate.TotalSize, nil
 }
 
@@ -2574,18 +2600,25 @@ func (s *Scheduler) PrewarmNewRunner(runnerID string) {
 	}
 
 	withContext := log.With().Str("runner_id", runnerID).Logger()
+	withContext.Info().Msg("PREWARM_DEBUG: Starting prewarming for runner")
 	withContext.Info().Msg("prewarming runner")
 
 	// Get models that should be prewarmed on this runner
 	prewarmModels, err := s.getPrewarmModelsSafely(runnerID)
 	if err != nil {
+		withContext.Error().Err(err).Msg("PREWARM_DEBUG: Failed to get prewarm models - this could be a timing issue")
 		withContext.Error().Err(err).Msg("failed to get prewarm models")
 		return
 	}
 	if len(prewarmModels) == 0 {
+		withContext.Warn().Msg("PREWARM_DEBUG: No prewarm models returned - checking if this is due to memory calculation failure")
 		withContext.Warn().Msg("no prewarm models configured or selected, skipping prewarming")
 		return
 	}
+
+	withContext.Info().
+		Int("prewarm_model_count", len(prewarmModels)).
+		Msg("PREWARM_DEBUG: Successfully got prewarm models, proceeding with prewarming")
 
 	withContext.Info().
 		Int("model_count", len(prewarmModels)).
@@ -2677,11 +2710,20 @@ func (s *Scheduler) getPrewarmModels(runnerID string) []*types.Model {
 	}
 
 	// Get available memory on the target runner
+	log.Info().Str("runner_id", runnerID).Msg("PREWARM_DEBUG: About to calculate runner memory for prewarming")
 	totalMemory, allocatedMemory, freeMemory, err := s.calculateRunnerMemory(runnerID)
 	if err != nil {
+		log.Error().Err(err).Str("runner_id", runnerID).Msg("PREWARM_DEBUG: CRITICAL - calculateRunnerMemory failed during prewarming - this is likely the root cause!")
 		log.Warn().Err(err).Str("runner_id", runnerID).Msg("failed to get runner memory for prewarming")
 		return nil
 	}
+
+	log.Info().
+		Str("runner_id", runnerID).
+		Uint64("total_memory_gb", totalMemory/(1024*1024*1024)).
+		Uint64("allocated_memory_gb", allocatedMemory/(1024*1024*1024)).
+		Uint64("free_memory_gb", freeMemory/(1024*1024*1024)).
+		Msg("PREWARM_DEBUG: Successfully calculated runner memory for prewarming")
 
 	log.Debug().
 		Str("runner_id", runnerID).

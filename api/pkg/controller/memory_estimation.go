@@ -267,14 +267,32 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 		Msg("🐠 SHARK cache miss - will calculate new estimation")
 
 	// Find a runner that has this model
+	log.Info().
+		Str("model_name", modelName).
+		Msg("PREWARM_DEBUG: About to find runner with model for memory estimation")
+
 	runnerID, err := s.findRunnerWithModel(ctx, modelName)
 	if err != nil {
+		log.Error().
+			Str("model_name", modelName).
+			Err(err).
+			Msg("PREWARM_DEBUG: CRITICAL - Failed to find runner with model - no available runners may have this model yet")
 		return nil, fmt.Errorf("failed to find runner with model %s: %w", modelName, err)
 	}
+
+	log.Info().
+		Str("model_name", modelName).
+		Str("selected_runner_id", runnerID).
+		Msg("PREWARM_DEBUG: Successfully found runner with model, about to request memory estimation")
 
 	// Get memory estimation from runner using exact Ollama algorithm
 	estimationResp, err := s.getMemoryEstimationFromRunner(ctx, runnerID, modelName, opts)
 	if err != nil {
+		log.Error().
+			Str("model_name", modelName).
+			Str("runner_id", runnerID).
+			Err(err).
+			Msg("PREWARM_DEBUG: CRITICAL - Failed to get memory estimation from runner - timing issue or runner not ready")
 		return nil, fmt.Errorf("failed to get memory estimation from runner %s: %w", runnerID, err)
 	}
 
@@ -350,6 +368,12 @@ func (s *MemoryEstimationService) findRunnerWithModel(ctx context.Context, model
 	// Get list of connected runners
 	runnerIDs := s.runnerSender.RunnerIDs()
 
+	log.Info().
+		Str("model_name", modelName).
+		Int("total_runners", len(runnerIDs)).
+		Strs("runner_ids", runnerIDs).
+		Msg("PREWARM_DEBUG: Looking for runner with model - checking all connected runners")
+
 	// Check each runner for the model by calling the status endpoint
 	for _, runnerID := range runnerIDs {
 		// Create request to get runner status
@@ -361,6 +385,11 @@ func (s *MemoryEstimationService) findRunnerWithModel(ctx context.Context, model
 
 		resp, err := s.runnerSender.Send(ctx, runnerID, nil, req, 5*time.Second)
 		if err != nil {
+			log.Error().
+				Err(err).
+				Str("runner_id", runnerID).
+				Str("model_name", modelName).
+				Msg("PREWARM_DEBUG: Failed to get runner status - runner may not be ready yet")
 			log.Debug().
 				Err(err).
 				Str("runner_id", runnerID).
@@ -369,6 +398,11 @@ func (s *MemoryEstimationService) findRunnerWithModel(ctx context.Context, model
 		}
 
 		if resp.StatusCode != 200 {
+			log.Error().
+				Int("status_code", resp.StatusCode).
+				Str("runner_id", runnerID).
+				Str("model_name", modelName).
+				Msg("PREWARM_DEBUG: Runner status request returned non-200 - runner may not be ready")
 			log.Debug().
 				Int("status_code", resp.StatusCode).
 				Str("runner_id", runnerID).
@@ -379,6 +413,11 @@ func (s *MemoryEstimationService) findRunnerWithModel(ctx context.Context, model
 		// Parse runner status response
 		var status types.RunnerStatus
 		if err := json.Unmarshal(resp.Body, &status); err != nil {
+			log.Error().
+				Err(err).
+				Str("runner_id", runnerID).
+				Str("model_name", modelName).
+				Msg("PREWARM_DEBUG: Failed to parse runner status response")
 			log.Debug().
 				Err(err).
 				Str("runner_id", runnerID).
@@ -386,13 +425,33 @@ func (s *MemoryEstimationService) findRunnerWithModel(ctx context.Context, model
 			continue
 		}
 
+		// Log what models this runner currently has loaded
+		modelNames := make([]string, len(status.Models))
+		for i, model := range status.Models {
+			modelNames[i] = model.ModelID
+		}
+		log.Info().
+			Str("runner_id", runnerID).
+			Str("target_model", modelName).
+			Strs("loaded_models", modelNames).
+			Msg("PREWARM_DEBUG: Checking if runner has target model loaded")
+
 		// Check if this runner has the model
 		for _, model := range status.Models {
 			if model.ModelID == modelName {
+				log.Info().
+					Str("runner_id", runnerID).
+					Str("model_name", modelName).
+					Msg("PREWARM_DEBUG: Found runner with model already loaded!")
 				return runnerID, nil
 			}
 		}
 	}
+
+	log.Error().
+		Str("model_name", modelName).
+		Int("runners_checked", len(runnerIDs)).
+		Msg("PREWARM_DEBUG: CRITICAL - No runner found with model loaded! This is likely why prewarming fails - we need a runner that already has the model, but prewarming is for loading NEW models")
 
 	return "", fmt.Errorf("no runner found with model %s", modelName)
 }
@@ -456,14 +515,35 @@ func (s *MemoryEstimationService) getMemoryEstimationFromRunner(ctx context.Cont
 	}
 
 	// Send request to runner via NATS
+	log.Info().
+		Str("runner_id", runnerID).
+		Str("model_name", modelName).
+		Msg("PREWARM_DEBUG: About to send memory estimation request to runner via NATS")
+
 	resp, err := s.runnerSender.Send(ctx, runnerID, map[string]string{
 		"Content-Type": "application/json",
 	}, req, 30*time.Second)
 	if err != nil {
+		log.Error().
+			Str("runner_id", runnerID).
+			Str("model_name", modelName).
+			Err(err).
+			Msg("PREWARM_DEBUG: CRITICAL - Failed to send memory estimation request to runner via NATS - runner may not be ready!")
 		return nil, fmt.Errorf("failed to send memory estimation request to runner: %w", err)
 	}
 
+	log.Info().
+		Str("runner_id", runnerID).
+		Str("model_name", modelName).
+		Int("status_code", resp.StatusCode).
+		Msg("PREWARM_DEBUG: Got response from runner via NATS")
+
 	if resp.StatusCode != 200 {
+		log.Error().
+			Str("runner_id", runnerID).
+			Str("model_name", modelName).
+			Int("status_code", resp.StatusCode).
+			Msg("PREWARM_DEBUG: CRITICAL - Runner returned non-200 status for memory estimation")
 		return nil, fmt.Errorf("runner returned status %d for memory estimation request", resp.StatusCode)
 	}
 
@@ -474,8 +554,20 @@ func (s *MemoryEstimationService) getMemoryEstimationFromRunner(ctx context.Cont
 	}
 
 	if !response.Success {
+		log.Error().
+			Str("runner_id", runnerID).
+			Str("model_name", modelName).
+			Str("error", response.Error).
+			Msg("PREWARM_DEBUG: CRITICAL - Runner returned success=false for memory estimation")
 		return nil, fmt.Errorf("memory estimation failed: %s", response.Error)
 	}
+
+	log.Info().
+		Str("runner_id", runnerID).
+		Str("model_name", modelName).
+		Str("architecture", response.Architecture).
+		Int("config_count", len(response.Configurations)).
+		Msg("PREWARM_DEBUG: Successfully got memory estimation response from runner")
 
 	return &response, nil
 }
