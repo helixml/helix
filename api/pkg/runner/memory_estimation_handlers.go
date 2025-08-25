@@ -132,6 +132,32 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 		Uint64("block_count", response.BlockCount).
 		Msg("model loaded successfully, calculating memory estimates")
 
+	// Use mutex to protect global environment state from concurrent modifications
+	memoryEstimationMutex.Lock()
+	defer memoryEstimationMutex.Unlock()
+
+	// Save original environment variables to restore after estimation
+	origFlashAttn := os.Getenv("OLLAMA_FLASH_ATTENTION")
+	origKVCacheType := os.Getenv("OLLAMA_KV_CACHE_TYPE")
+
+	// Set environment variables to match actual runtime configuration
+	os.Setenv("OLLAMA_FLASH_ATTENTION", "1")
+	os.Setenv("OLLAMA_KV_CACHE_TYPE", types.DefaultKVCacheType)
+
+	// Restore original environment variables when function exits
+	defer func() {
+		if origFlashAttn == "" {
+			os.Unsetenv("OLLAMA_FLASH_ATTENTION")
+		} else {
+			os.Setenv("OLLAMA_FLASH_ATTENTION", origFlashAttn)
+		}
+		if origKVCacheType == "" {
+			os.Unsetenv("OLLAMA_KV_CACHE_TYPE")
+		} else {
+			os.Setenv("OLLAMA_KV_CACHE_TYPE", origKVCacheType)
+		}
+	}()
+
 	// Get available GPUs using Ollama's discovery
 	allGPUs := discover.GetGPUInfo()
 
@@ -180,37 +206,14 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 
 		// Set the same environment variables that are used when actually running Ollama
 		// This ensures our memory estimation accounts for flash attention and other optimizations
-		// Use mutex to protect global environment state from concurrent modifications
-		memoryEstimationMutex.Lock()
-		defer memoryEstimationMutex.Unlock()
-
-		// Save original values to restore them after estimation
-		origFlashAttn := os.Getenv("OLLAMA_FLASH_ATTENTION")
-		origKVCacheType := os.Getenv("OLLAMA_KV_CACHE_TYPE")
-
-		os.Setenv("OLLAMA_FLASH_ATTENTION", "1")
-		os.Setenv("OLLAMA_KV_CACHE_TYPE", types.DefaultKVCacheType)
-
 		log.Info().
 			Str("MEMORY_ESTIMATION_DEBUG", "env_vars_set").
 			Str("flash_attention", "1").
 			Str("kv_cache_type", types.DefaultKVCacheType).
-			Msg("🔧 MEMORY_DEBUG: Set environment variables to match runtime configuration")
+			Msg("🔧 MEMORY_DEBUG: Using runtime environment variables for estimation")
 
 		// Use Ollama's exact EstimateGPULayers function
 		estimate := llm.EstimateGPULayers(gpusToUse, ggmlModel, []string{}, opts, req.NumParallel)
-
-		// Restore original environment variables
-		if origFlashAttn == "" {
-			os.Unsetenv("OLLAMA_FLASH_ATTENTION")
-		} else {
-			os.Setenv("OLLAMA_FLASH_ATTENTION", origFlashAttn)
-		}
-		if origKVCacheType == "" {
-			os.Unsetenv("OLLAMA_KV_CACHE_TYPE")
-		} else {
-			os.Setenv("OLLAMA_KV_CACHE_TYPE", origKVCacheType)
-		}
 
 		// DEBUG: Log what Ollama returned
 		log.Info().
