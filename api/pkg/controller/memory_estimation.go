@@ -280,11 +280,6 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 		return nil, fmt.Errorf("failed to find runner with model %s: %w", modelName, err)
 	}
 
-	log.Info().
-		Str("model_name", modelName).
-		Str("selected_runner_id", runnerID).
-		Msg("PREWARM_DEBUG: Successfully found runner with model, about to request memory estimation")
-
 	// Get memory estimation from runner using exact Ollama algorithm
 	estimationResp, err := s.getMemoryEstimationFromRunner(ctx, runnerID, modelName, opts)
 	if err != nil {
@@ -448,11 +443,6 @@ func (s *MemoryEstimationService) findRunnerWithModel(ctx context.Context, model
 		}
 	}
 
-	log.Error().
-		Str("model_name", modelName).
-		Int("runners_checked", len(runnerIDs)).
-		Msg("PREWARM_DEBUG: CRITICAL - No runner found with model loaded! This is likely why prewarming fails - we need a runner that already has the model, but prewarming is for loading NEW models")
-
 	return "", fmt.Errorf("no runner found with model %s", modelName)
 }
 
@@ -561,13 +551,6 @@ func (s *MemoryEstimationService) getMemoryEstimationFromRunner(ctx context.Cont
 			Msg("PREWARM_DEBUG: CRITICAL - Runner returned success=false for memory estimation")
 		return nil, fmt.Errorf("memory estimation failed: %s", response.Error)
 	}
-
-	log.Info().
-		Str("runner_id", runnerID).
-		Str("model_name", modelName).
-		Str("architecture", response.Architecture).
-		Int("config_count", len(response.Configurations)).
-		Msg("PREWARM_DEBUG: Successfully got memory estimation response from runner")
 
 	return &response, nil
 }
