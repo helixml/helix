@@ -5,6 +5,7 @@ type SkillContextRunnerPromptData struct {
 	MainAgentSystemPrompt string
 	SkillSystemPrompt     string
 	MemoryBlocks          string
+	KnowledgeBlocks       string
 }
 
 // SkillSelectionPromptTemplate is the template for skill selection prompts.
@@ -31,9 +32,18 @@ COMMUNICATION:
 - Help users understand your progress without lengthy details
 - If you are providing information in a table, write valid GFM markdown, always leave a blank line before and after the table
 
+{{ if .MemoryBlocks }}
 All the memory learned from user's previous interactions are provided below. Use it as the context to answer the user's question.
 
-{{ .MemoryBlocks }}`
+{{ .MemoryBlocks }}
+{{ end }}
+
+{{ if .KnowledgeBlocks }}
+All the knowledge provided to you is below. Use it as the context to answer the user's question.
+
+{{ .KnowledgeBlocks }}
+{{ end }}
+`
 
 // SkillSelectionPrompt creates the skill selection prompt by applying the provided data.
 func SkillContextRunnerPrompt(data SkillContextRunnerPromptData) (string, error) {
