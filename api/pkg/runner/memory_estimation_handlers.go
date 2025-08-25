@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ollama/ollama/api"
@@ -14,7 +15,12 @@ import (
 	"github.com/ollama/ollama/fs/ggml"
 	"github.com/ollama/ollama/llm"
 	"github.com/rs/zerolog/log"
+
+	"github.com/helixml/helix/api/pkg/types"
 )
+
+// Mutex to protect global environment state during memory estimation
+var memoryEstimationMutex sync.Mutex
 
 // MemoryEstimationRequest represents a request for memory estimation using exact Ollama
 type MemoryEstimationRequest struct {
@@ -158,8 +164,66 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 			},
 		}
 
+		// DEBUG: Log exact parameters being passed to Ollama
+		log.Info().
+			Str("MEMORY_ESTIMATION_DEBUG", "ollama_params").
+			Str("model_name", req.ModelName).
+			Str("config", config.name).
+			Int("gpu_count", config.gpuCount).
+			Int("num_ctx", opts.Runner.NumCtx).
+			Int("num_batch", opts.Runner.NumBatch).
+			Int("num_gpu", opts.Runner.NumGPU).
+			Int("num_parallel", req.NumParallel).
+			Str("architecture", response.Architecture).
+			Uint64("block_count", response.BlockCount).
+			Msg("🔧 MEMORY_DEBUG: About to call Ollama's EstimateGPULayers with these exact parameters")
+
+		// Set the same environment variables that are used when actually running Ollama
+		// This ensures our memory estimation accounts for flash attention and other optimizations
+		// Use mutex to protect global environment state from concurrent modifications
+		memoryEstimationMutex.Lock()
+		defer memoryEstimationMutex.Unlock()
+
+		// Save original values to restore them after estimation
+		origFlashAttn := os.Getenv("OLLAMA_FLASH_ATTENTION")
+		origKVCacheType := os.Getenv("OLLAMA_KV_CACHE_TYPE")
+
+		os.Setenv("OLLAMA_FLASH_ATTENTION", "1")
+		os.Setenv("OLLAMA_KV_CACHE_TYPE", types.DefaultKVCacheType)
+
+		log.Info().
+			Str("MEMORY_ESTIMATION_DEBUG", "env_vars_set").
+			Str("flash_attention", "1").
+			Str("kv_cache_type", types.DefaultKVCacheType).
+			Msg("🔧 MEMORY_DEBUG: Set environment variables to match runtime configuration")
+
 		// Use Ollama's exact EstimateGPULayers function
 		estimate := llm.EstimateGPULayers(gpusToUse, ggmlModel, []string{}, opts, req.NumParallel)
+
+		// Restore original environment variables
+		if origFlashAttn == "" {
+			os.Unsetenv("OLLAMA_FLASH_ATTENTION")
+		} else {
+			os.Setenv("OLLAMA_FLASH_ATTENTION", origFlashAttn)
+		}
+		if origKVCacheType == "" {
+			os.Unsetenv("OLLAMA_KV_CACHE_TYPE")
+		} else {
+			os.Setenv("OLLAMA_KV_CACHE_TYPE", origKVCacheType)
+		}
+
+		// DEBUG: Log what Ollama returned
+		log.Info().
+			Str("MEMORY_ESTIMATION_DEBUG", "ollama_response").
+			Str("model_name", req.ModelName).
+			Str("config", config.name).
+			Int("layers", estimate.Layers).
+			Uint64("vram_size", estimate.VRAMSize).
+			Uint64("total_size", estimate.TotalSize).
+			Uint64("graph", estimate.Graph).
+			Interface("gpu_sizes", estimate.GPUSizes).
+			Str("tensor_split", estimate.TensorSplit).
+			Msg("🔧 MEMORY_DEBUG: Ollama's EstimateGPULayers returned these values")
 
 		// Convert to our response format
 		result := GPUConfigurationResult{
