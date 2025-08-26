@@ -62,7 +62,6 @@ steps:
     depends_on: []
 
   - name: check-for-secrets
-    description: "Run gitleaks to detect secrets in the codebase"
     image: ghcr.io/gitleaks/gitleaks:v8.24.0
     commands:
       - gitleaks dir -v
@@ -1095,7 +1094,6 @@ steps:
       branch:
         exclude:
           - main
-      event:
 
 ---
 kind: pipeline
@@ -1171,7 +1169,6 @@ steps:
       branch:
         exclude:
           - main
-      event:
 
 ---
 kind: pipeline
