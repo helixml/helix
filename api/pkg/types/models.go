@@ -26,6 +26,7 @@ type Model struct {
 	Name          string    `json:"name,omitempty" yaml:"name,omitempty"`
 	Memory        uint64    `json:"memory,omitempty" yaml:"memory,omitempty"` // in bytes, required
 	ContextLength int64     `json:"context_length,omitempty" yaml:"context_length,omitempty"`
+	Concurrency   int       `json:"concurrency,omitempty" yaml:"concurrency,omitempty"` // max concurrent requests per slot (0 = use global default)
 	Description   string    `json:"description,omitempty" yaml:"description,omitempty"`
 	Hide          bool      `json:"hide,omitempty" yaml:"hide,omitempty"`
 	Enabled       bool      `json:"enabled,omitempty" yaml:"enabled,omitempty"`
@@ -52,6 +53,7 @@ func (m *Model) UnmarshalJSON(data []byte) error {
 		Name          string      `json:"name,omitempty"`
 		Memory        uint64      `json:"memory,omitempty"`
 		ContextLength int64       `json:"context_length,omitempty"`
+		Concurrency   int         `json:"concurrency,omitempty"`
 		Description   string      `json:"description,omitempty"`
 		Hide          bool        `json:"hide,omitempty"`
 		Enabled       bool        `json:"enabled,omitempty"`
@@ -76,6 +78,7 @@ func (m *Model) UnmarshalJSON(data []byte) error {
 	m.Name = temp.Name
 	m.Memory = temp.Memory
 	m.ContextLength = temp.ContextLength
+	m.Concurrency = temp.Concurrency
 	m.Description = temp.Description
 	m.Hide = temp.Hide
 	m.Enabled = temp.Enabled

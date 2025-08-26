@@ -96,7 +96,8 @@ func TestMultiGPUEvictionCalculation(t *testing.T) {
 			model: testModels[2], // 30GB model
 		},
 		LastActivityTime: staleTime,
-		isActive:         false,
+		activeRequests:   0,
+		maxConcurrency:   1,
 		isStaleFunc:      func(string, time.Time) bool { return true }, // Always stale
 		isErrorFunc:      func(string, time.Time) bool { return false },
 		isRunning:        true, // Must be running to reach stale check
@@ -122,7 +123,8 @@ func TestMultiGPUEvictionCalculation(t *testing.T) {
 			model: testModels[1], // 60GB model
 		},
 		LastActivityTime: staleTime,
-		isActive:         false,
+		activeRequests:   0,
+		maxConcurrency:   1,
 		isStaleFunc:      func(string, time.Time) bool { return true }, // Always stale
 		isErrorFunc:      func(string, time.Time) bool { return false },
 		isRunning:        true, // Must be running to reach stale check
@@ -296,7 +298,8 @@ func TestEvictableMemoryCalculationMultiGPU(t *testing.T) {
 			model: testModels[0],
 		}, // 30GB model
 		LastActivityTime: time.Now().Add(-200 * time.Millisecond), // Make it stale
-		isActive:         false,
+		activeRequests:   0,
+		maxConcurrency:   1,
 		isStaleFunc:      func(string, time.Time) bool { return true }, // Always stale
 		isErrorFunc:      func(string, time.Time) bool { return false },
 		isRunning:        true, // Must be running to reach stale check
@@ -322,7 +325,8 @@ func TestEvictableMemoryCalculationMultiGPU(t *testing.T) {
 			model: testModels[1],
 		}, // 60GB model
 		LastActivityTime: time.Now().Add(-200 * time.Millisecond), // Make it stale
-		isActive:         false,
+		activeRequests:   0,
+		maxConcurrency:   1,
 		isStaleFunc:      func(string, time.Time) bool { return true }, // Always stale
 		isErrorFunc:      func(string, time.Time) bool { return false },
 		isRunning:        true, // Must be running to reach stale check

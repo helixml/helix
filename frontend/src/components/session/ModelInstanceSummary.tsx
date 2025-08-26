@@ -578,6 +578,36 @@ export const ModelInstanceSummary: FC<{
                     >
                         {slot.status}
                     </Typography>
+
+                    {/* Concurrency Information for VLLM and Ollama */}
+                    {(slot.runtime === "vllm" || slot.runtime === "ollama") &&
+                        slot.active_requests !== undefined &&
+                        slot.max_concurrency !== undefined && (
+                            <Tooltip
+                                title={`Currently processing ${slot.active_requests} out of ${slot.max_concurrency} maximum concurrent requests. This model instance can handle multiple requests simultaneously for better throughput.`}
+                                arrow
+                            >
+                                <Typography
+                                    variant="caption"
+                                    sx={{
+                                        color: "rgba(255, 255, 255, 0.7)",
+                                        fontSize: "0.7rem",
+                                        px: 1,
+                                        py: 0.3,
+                                        borderRadius: "2px",
+                                        backgroundColor:
+                                            "rgba(0, 200, 255, 0.1)",
+                                        border: "1px solid rgba(0, 200, 255, 0.2)",
+                                        fontFamily: "monospace",
+                                        cursor: "help",
+                                    }}
+                                >
+                                    {slot.active_requests}/
+                                    {slot.max_concurrency} requests
+                                </Typography>
+                            </Tooltip>
+                        )}
+
                     {!slot.ready && !slot.active && (
                         <CircularProgress
                             size={14}

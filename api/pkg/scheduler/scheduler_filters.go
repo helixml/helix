@@ -59,8 +59,25 @@ func (s *Scheduler) getEffectiveMemoryRequirement(ctx context.Context, work *Wor
 			estimationGPUs = estimationGPUs[:numGPUs]
 		}
 
-		// Get memory estimate with model's context length
-		opts := types.CreateEstimateOptionsForGPUArray(work.model.ContextLength)
+		// Get memory estimate with model's context length and concurrency
+		var numParallel int
+		if work.model.Concurrency > 0 {
+			numParallel = work.model.Concurrency
+		} else if work.Runtime() == types.RuntimeVLLM {
+			numParallel = 256 // VLLM's natural default
+		} else if work.Runtime() == types.RuntimeOllama {
+			numParallel = 4 // Reasonable default for Ollama
+		} else {
+			numParallel = types.DefaultParallelSequences
+		}
+
+		opts := memory.EstimateOptions{
+			NumCtx:      int(work.model.ContextLength),
+			NumBatch:    types.DefaultBatchSize,
+			NumParallel: numParallel,
+			NumGPU:      types.AutoDetectLayers,
+			KVCacheType: types.DefaultKVCacheType,
+		}
 
 		result, err := s.memoryEstimationService.EstimateModelMemory(ctx, work.model.ID, estimationGPUs, opts)
 		if err != nil {

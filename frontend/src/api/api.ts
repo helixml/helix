@@ -1343,6 +1343,8 @@ export enum TypesModality {
 export interface TypesModel {
   /** Whether to automatically pull the model if missing in the runner */
   auto_pull?: boolean;
+  /** max concurrent requests per slot (0 = use global default) */
+  concurrency?: number;
   context_length?: number;
   created?: string;
   description?: string;
@@ -1746,6 +1748,7 @@ export interface TypesRunnerModelStatus {
 
 export interface TypesRunnerSlot {
   active?: boolean;
+  active_requests?: number;
   command_line?: string;
   context_length?: number;
   created?: string;
@@ -1753,6 +1756,7 @@ export interface TypesRunnerSlot {
   gpu_index?: number;
   gpu_indices?: number[];
   id?: string;
+  max_concurrency?: number;
   memory_estimation_meta?: Record<string, any>;
   model?: string;
   model_memory_requirement?: number;

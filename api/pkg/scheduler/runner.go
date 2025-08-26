@@ -30,15 +30,16 @@ const (
 )
 
 type RunnerController struct {
-	runners                   []string
-	runnersMu                 *sync.RWMutex // Dedicated mutex for runners list only
-	callbackMu                *sync.RWMutex // Dedicated mutex for callback function only
-	ps                        pubsub.PubSub
-	ctx                       context.Context
-	fs                        filestore.FileStore
-	slotsCache                *LockingRunnerMap[types.ListRunnerSlotsResponse]
-	statusCache               *LockingRunnerMap[types.RunnerStatus]
-	store                     store.Store
+	runners     []string
+	runnersMu   *sync.RWMutex // Dedicated mutex for runners list only
+	callbackMu  *sync.RWMutex // Dedicated mutex for callback function only
+	ps          pubsub.PubSub
+	ctx         context.Context
+	fs          filestore.FileStore
+	slotsCache  *LockingRunnerMap[types.ListRunnerSlotsResponse]
+	statusCache *LockingRunnerMap[types.RunnerStatus]
+	store       store.Store
+
 	onRunnerConnectedFn       func(runnerID string)                         // Callback for when a new runner connects
 	getModelMemoryFn          func(modelID string) (uint64, error)          // Callback to get authoritative model memory from scheduler
 	getDetailedMemoryResultFn func(modelID string) *memory.EstimationResult // Callback to get detailed memory estimation
@@ -233,9 +234,10 @@ func (h *NATSHealthChecker) SetModels(runnerID string) error {
 }
 
 type RunnerControllerConfig struct {
-	PubSub                    pubsub.PubSub
-	FS                        filestore.FileStore
-	Store                     store.Store
+	PubSub pubsub.PubSub
+	FS     filestore.FileStore
+	Store  store.Store
+
 	OnRunnerConnectedFn       func(runnerID string)                         // Optional callback for when a new runner connects
 	GetModelMemoryFn          func(modelID string) (uint64, error)          // Optional callback to get authoritative model memory
 	GetDetailedMemoryResultFn func(modelID string) *memory.EstimationResult // Optional callback to get detailed memory estimation
@@ -245,10 +247,11 @@ type RunnerControllerConfig struct {
 
 func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*RunnerController, error) {
 	controller := &RunnerController{
-		ctx:                       ctx,
-		ps:                        cfg.PubSub,
-		fs:                        cfg.FS,
-		store:                     cfg.Store,
+		ctx:   ctx,
+		ps:    cfg.PubSub,
+		fs:    cfg.FS,
+		store: cfg.Store,
+
 		runners:                   []string{},
 		runnersMu:                 &sync.RWMutex{}, // Dedicated mutex for runners list
 		callbackMu:                &sync.RWMutex{}, // Dedicated mutex for callback
@@ -1430,6 +1433,98 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 						Msg("VLLM Args: Created runtime_args map with substituted values from hardcoded fallback")
 				}
 			}
+
+			// Add VLLM concurrency configuration
+			var numParallel int
+			if modelObj.Concurrency > 0 {
+				numParallel = modelObj.Concurrency
+				log.Debug().
+					Str("model", modelName).
+					Int("concurrency", numParallel).
+					Msg("Using per-model concurrency setting for VLLM")
+			} else {
+				// Use VLLM's natural default
+				numParallel = 256
+				log.Debug().
+					Str("model", modelName).
+					Int("concurrency", numParallel).
+					Msg("Using VLLM natural default concurrency")
+			}
+
+			// Ensure runtimeArgs exists
+			if runtimeArgs == nil {
+				runtimeArgs = make(map[string]interface{})
+			}
+
+			// Get existing args or create new ones
+			var existingArgs []string
+			if args, ok := runtimeArgs["args"].([]string); ok {
+				existingArgs = args
+			} else if argsIface, ok := runtimeArgs["args"].([]interface{}); ok {
+				// Convert []interface{} to []string
+				existingArgs = make([]string, len(argsIface))
+				for i, v := range argsIface {
+					existingArgs[i] = fmt.Sprintf("%v", v)
+				}
+			}
+
+			// Check if --max-num-seqs is already present
+			hasMaxNumSeqs := false
+			for i, arg := range existingArgs {
+				if arg == "--max-num-seqs" {
+					// Replace the value if it exists
+					if i+1 < len(existingArgs) {
+						existingArgs[i+1] = fmt.Sprintf("%d", numParallel)
+						hasMaxNumSeqs = true
+						break
+					}
+				}
+			}
+
+			// Add --max-num-seqs if not present
+			if !hasMaxNumSeqs {
+				existingArgs = append(existingArgs, "--max-num-seqs", fmt.Sprintf("%d", numParallel))
+			}
+
+			// Update runtime args
+			runtimeArgs["args"] = existingArgs
+
+			log.Info().
+				Str("model", modelName).
+				Int("max_num_seqs", numParallel).
+				Strs("final_args", existingArgs).
+				Msg("VLLM: Added concurrency configuration to runtime args")
+		}
+		// If this is an Ollama runtime, add concurrency configuration
+		if slot.InitialWork().Runtime() == types.RuntimeOllama {
+			// Get concurrency setting from model or use scheduler default
+			var numParallel int
+			if modelObj.Concurrency > 0 {
+				numParallel = modelObj.Concurrency
+				log.Debug().
+					Str("model", modelName).
+					Int("concurrency", numParallel).
+					Msg("Using per-model concurrency setting for Ollama")
+			} else {
+				// Use reasonable default for Ollama
+				numParallel = 4
+				log.Debug().
+					Str("model", modelName).
+					Int("concurrency", numParallel).
+					Msg("Using Ollama default concurrency")
+			}
+
+			// Add concurrency to runtime args
+			if runtimeArgs == nil {
+				runtimeArgs = make(map[string]interface{})
+			}
+			runtimeArgs["num_parallel"] = numParallel
+
+			log.Info().
+				Str("model", modelName).
+				Int("num_parallel", numParallel).
+				Interface("runtime_args", runtimeArgs).
+				Msg("Ollama: Added concurrency configuration to runtime args")
 		}
 	} else {
 		log.Warn().Str("model", modelName).Err(err).Msg("Could not get model, using default context length")

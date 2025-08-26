@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -156,9 +157,10 @@ func (ss *SlotStore) loadFromDatabase() {
 			ID:               dbSlot.ID,
 			RunnerID:         dbSlot.RunnerID,
 			LastActivityTime: dbSlot.Updated,
-			isActive:         dbSlot.Active,
-			isStaleFunc:      nil, // Will be set by SetTimeoutFunctions
-			isErrorFunc:      nil, // Will be set by SetTimeoutFunctions
+			activeRequests:   0,                     // Start with 0 active requests (runtime state)
+			maxConcurrency:   dbSlot.MaxConcurrency, // Restore from database
+			isStaleFunc:      nil,                   // Will be set by SetTimeoutFunctions
+			isErrorFunc:      nil,                   // Will be set by SetTimeoutFunctions
 			isRunning:        dbSlot.Ready,
 		}
 
@@ -239,12 +241,14 @@ func (ss *SlotStore) saveToDatabase(slot *Slot) {
 
 	// Convert scheduler.Slot to types.RunnerSlot
 	dbSlot := &types.RunnerSlot{
-		ID:       slot.ID,
-		RunnerID: slot.RunnerID,
-		Active:   slot.isActive,
-		Ready:    slot.isRunning,
-		Status:   "scheduler_managed",
-		Created:  slot.Created,
+		ID:             slot.ID,
+		RunnerID:       slot.RunnerID,
+		Active:         slot.IsActive(),
+		Ready:          slot.isRunning,
+		Status:         "scheduler_managed",
+		Created:        slot.Created,
+		ActiveRequests: slot.GetActiveRequests(),
+		MaxConcurrency: atomic.LoadInt64(&slot.maxConcurrency),
 	}
 
 	// Serialize workload to JSONB if available
@@ -313,7 +317,7 @@ func (ss *SlotStore) UpdateSlotActivity(id uuid.UUID, active, running bool) {
 	ss.mu.Lock()
 	slot, exists := ss.cache[id]
 	if exists {
-		slot.isActive = active
+		// Only sync running state from runner - scheduler manages active requests internally
 		slot.isRunning = running
 		slot.LastActivityTime = time.Now()
 	}
