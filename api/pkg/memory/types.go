@@ -59,7 +59,20 @@ type EstimateOptions struct {
 	NumCtx      int `json:"num_ctx"`      // Context size
 	NumBatch    int `json:"num_batch"`    // Batch size
 	NumParallel int `json:"num_parallel"` // Number of parallel sequences
-	NumGPU      int `json:"num_gpu"`      // Number of layers to offload (-1 for auto)
+
+	// ⚠️  CRITICAL CONFUSION WARNING ⚠️
+	// NumGPU is NOT the number of GPUs in your hardware configuration!
+	// NumGPU is the number of MODEL LAYERS to offload to GPU (-1 for auto-detect all that fit)
+	//
+	// Examples:
+	// - NumGPU = -1: Auto-detect max layers that fit (RECOMMENDED - gives full model memory)
+	// - NumGPU = 1:  Only offload 1 layer to GPU (gives tiny memory estimate)
+	// - NumGPU = 0:  CPU only (no GPU layers)
+	//
+	// To estimate for different GPU hardware configs (1 GPU vs 4 GPUs),
+	// you pass different GPU configuration arrays to the estimation function,
+	// NOT different NumGPU values!
+	NumGPU int `json:"num_gpu"` // Number of layers to offload (-1 for auto)
 
 	// Advanced options
 	FlashAttention bool   `json:"flash_attention,omitempty"`
@@ -103,10 +116,10 @@ type EstimationResult struct {
 	// Estimation results
 	SingleGPU      *MemoryEstimate `json:"single_gpu,omitempty"`
 	TensorParallel *MemoryEstimate `json:"tensor_parallel,omitempty"`
-	CPUOnly        *MemoryEstimate `json:"cpu_only,omitempty"`
+	// CPUOnly removed - not properly supported and adds confusion
 
 	// Recommendations
-	Recommendation string `json:"recommendation"` // "single_gpu", "tensor_parallel", "cpu_only", "insufficient_memory"
+	Recommendation string `json:"recommendation"` // "single_gpu", "tensor_parallel", "insufficient_memory"
 
 	EstimatedAt time.Time `json:"estimated_at"`
 	Error       string    `json:"error,omitempty"`

@@ -394,7 +394,8 @@ func validateModel(model *types.Model) error {
 		return fmt.Errorf("id not specified")
 	}
 
-	if model.Memory == 0 {
+	// Allow 0 memory for Ollama models since they auto-detect memory requirements
+	if model.Memory == 0 && model.Runtime != types.RuntimeOllama {
 		return fmt.Errorf("memory not specified")
 	}
 

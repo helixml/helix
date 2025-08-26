@@ -327,7 +327,20 @@ export interface MemoryEstimateOptions {
   num_batch?: number;
   /** Context size */
   num_ctx?: number;
-  /** Number of layers to offload (-1 for auto) */
+  /**
+   * ⚠️  CRITICAL CONFUSION WARNING ⚠️
+   * NumGPU is NOT the number of GPUs in your hardware configuration!
+   * NumGPU is the number of MODEL LAYERS to offload to GPU (-1 for auto-detect all that fit)
+   *
+   * Examples:
+   * - NumGPU = -1: Auto-detect max layers that fit (RECOMMENDED - gives full model memory)
+   * - NumGPU = 1:  Only offload 1 layer to GPU (gives tiny memory estimate)
+   * - NumGPU = 0:  CPU only (no GPU layers)
+   *
+   * To estimate for different GPU hardware configs (1 GPU vs 4 GPUs),
+   * you pass different GPU configuration arrays to the estimation function,
+   * NOT different NumGPU values!
+   */
   num_gpu?: number;
   /** Number of parallel sequences */
   num_parallel?: number;
@@ -3292,7 +3305,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         /** Model ID */
         model_id: string;
         /** Number of GPUs (default: auto-detect) */
-        num_gpu?: number;
+        gpu_count?: number;
         /** Context length (default: model default) */
         context_length?: number;
         /** Batch size (default: 512) */
@@ -3322,7 +3335,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         /** Comma-separated list of model IDs */
         model_ids?: string;
         /** Number of GPUs (default: auto-detect) */
-        num_gpu?: number;
+        gpu_count?: number;
       },
       params: RequestParams = {},
     ) =>

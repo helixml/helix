@@ -300,43 +300,8 @@ func TestMemoryEstimation(t *testing.T) {
 		}
 	})
 
-	// Test CPU-only estimation
-	t.Run("CPUOnly", func(t *testing.T) {
-		gpuInfos := []GPUInfo{
-			{
-				ID:            "cpu",
-				Index:         0,
-				Library:       "cpu",
-				FreeMemory:    32 * 1024 * 1024 * 1024, // 32GB RAM
-				TotalMemory:   32 * 1024 * 1024 * 1024,
-				MinimumMemory: 1024 * 1024 * 1024,
-				Name:          "CPU",
-			},
-		}
-
-		opts := EstimateOptions{
-			NumCtx:      4096,
-			NumBatch:    512,
-			NumParallel: 1,
-			NumGPU:      0,                        // Force CPU
-			KVCacheType: types.DefaultKVCacheType, // Match what we set in Ollama runtime
-		}
-
-		estimate := EstimateGPULayers(gpuInfos, metadata, opts)
-		require.NotNil(t, estimate)
-
-		// For CPU-only, layers should be 0 (all on CPU), but total size should be calculated
-		assert.Equal(t, "qwen3", estimate.Architecture)
-		assert.Equal(t, 0, estimate.Layers, "CPU-only should have 0 GPU layers")
-		assert.Greater(t, estimate.TotalSize, uint64(0), "Should have total memory requirement")
-		assert.Greater(t, estimate.Weights, uint64(0), "Should have weights size")
-		assert.Greater(t, estimate.KVCache, uint64(0), "Should have KV cache size")
-
-		t.Logf("CPU Only - Total Size: %s, Weights: %s, KV Cache: %s",
-			FormatMemorySize(estimate.TotalSize),
-			FormatMemorySize(estimate.Weights),
-			FormatMemorySize(estimate.KVCache))
-	})
+	// CPU-only estimation removed - not properly supported and adds confusion
+	// All memory estimation should be GPU-based since we don't properly support CPU inference
 }
 
 func TestFormatMemorySize(t *testing.T) {

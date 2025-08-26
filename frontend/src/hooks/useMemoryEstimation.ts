@@ -40,10 +40,15 @@ export const useMemoryEstimation = () => {
             setError(null);
 
             try {
+                // ⚠️  CRITICAL API PARAMETER CONFUSION WARNING ⚠️
+                // gpu_count in this API means "number of GPUs in hardware config" (1, 2, 4, 8)
+                // It maps to GPUCount field in backend (NOT the confusing Ollama NumGPU!)
+                // It does NOT mean "number of layers to offload to GPU"
+                // The backend always uses -1 (auto-detect all layers) for layer offload
                 const query = {
                     model_id: modelId,
                     context_length: contextLength,
-                    num_gpu: gpuCount,
+                    gpu_count: gpuCount, // Hardware GPU count (1, 2, 4, 8) - NOT layer count!
                 };
 
                 const response =
@@ -88,10 +93,15 @@ export const useMemoryEstimation = () => {
                 // Fetch estimates for all GPU scenarios in parallel
                 const promises = GPU_SCENARIOS.map(async (scenario) => {
                     try {
+                        // ⚠️  CRITICAL API PARAMETER CONFUSION WARNING ⚠️
+                        // gpu_count in this API means "number of GPUs in hardware config" (1, 2, 4, 8)
+                        // It maps to GPUCount field in backend (NOT the confusing Ollama NumGPU!)
+                        // It does NOT mean "number of layers to offload to GPU"
+                        // The backend always uses -1 (auto-detect all layers) for layer offload
                         const query = {
                             model_id: modelId,
                             context_length: contextLength,
-                            num_gpu: scenario.gpuCount,
+                            gpu_count: scenario.gpuCount, // Hardware GPU count - NOT layer count!
                         };
 
                         const response =
