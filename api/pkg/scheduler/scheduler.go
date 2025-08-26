@@ -120,13 +120,6 @@ import (
 	"golang.org/x/exp/rand"
 )
 
-const (
-	// Request timeout - requests older than this will be automatically cleaned up
-	requestTimeoutDuration = 10 * time.Minute
-	// Cleanup interval - how often to check for timed out requests
-	requestCleanupInterval = 1 * time.Minute
-)
-
 // MemoryEstimationService interface for getting dynamic memory estimates
 type MemoryEstimationService interface {
 	EstimateModelMemory(ctx context.Context, modelName string, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) (*memory.EstimationResult, error)
@@ -171,10 +164,6 @@ type Scheduler struct {
 	decisionsTracker        *SchedulingDecisionsTracker // Tracks scheduling decisions for dashboard
 	runnerReconcileInterval time.Duration               // Configurable reconcile interval
 
-	// Request tracking for proper completion handling
-	requestTrackingMutex  sync.RWMutex
-	requestToSlot         map[string]uuid.UUID                // requestID -> slotID mapping
-	requestStartTimes     map[string]time.Time                // requestID -> start time for timeout detection
 	runnerGCInterval      time.Duration                       // Configurable GC interval
 	detailedMemoryResults map[string]*memory.EstimationResult // Store detailed memory estimation results for UI debugging
 	detailedMemoryMu      sync.RWMutex                        // Mutex for detailed memory results
@@ -281,23 +270,16 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		slotTimeoutFunc:         slotTimeoutFunc,
 		decisionsTracker:        NewSchedulingDecisionsTracker(100), // Keep last 100 decisions
 		runnerReconcileInterval: reconcileInterval,
-		requestToSlot:           make(map[string]uuid.UUID),
-		requestStartTimes:       make(map[string]time.Time),
-		detailedMemoryResults:   make(map[string]*memory.EstimationResult),
-		gpuAllocations:          xsync.NewMapOf[string, *GPUAllocation](),
-		queueTrigger:            make(chan struct{}, 1), // Buffered channel to avoid blocking
-		heartbeats:              xsync.NewMapOf[string, *GoroutineHeartbeat](),
-		runnerGCInterval:        5 * time.Minute,
+
+		detailedMemoryResults: make(map[string]*memory.EstimationResult),
+		gpuAllocations:        xsync.NewMapOf[string, *GPUAllocation](),
+		queueTrigger:          make(chan struct{}, 1), // Buffered channel to avoid blocking
+		heartbeats:            xsync.NewMapOf[string, *GoroutineHeartbeat](),
+		runnerGCInterval:      5 * time.Minute,
 	}
 
 	// Set timeout functions on slots loaded from database
 	slotStore.SetTimeoutFunctions(modelStaleFunc, slotTimeoutFunc)
-
-	// Reset any stale request counters from previous runs
-	s.resetStaleRequestCounters()
-
-	// Start request cleanup goroutine
-	go s.cleanupTimedOutRequests(ctx)
 
 	// Start the queue processor
 	go s.processQueue(ctx)
@@ -618,228 +600,11 @@ func (s *Scheduler) RunnerSlots(runnerID string) ([]*types.RunnerSlot, error) {
 	return enrichedSlots, nil
 }
 
-// UntrackRequest removes a request from tracking without releasing the slot
-func (s *Scheduler) UntrackRequest(requestID string) {
-	s.requestTrackingMutex.Lock()
-	defer s.requestTrackingMutex.Unlock()
-	delete(s.requestToSlot, requestID)
-	delete(s.requestStartTimes, requestID)
-}
-
-// TrackRequest records a mapping between a request ID and slot ID for completion tracking
-func (s *Scheduler) TrackRequest(requestID string, slotID uuid.UUID) {
-	s.requestTrackingMutex.Lock()
-	defer s.requestTrackingMutex.Unlock()
-	s.requestToSlot[requestID] = slotID
-	s.requestStartTimes[requestID] = time.Now()
-}
-
-// ReleaseRequest releases a slot when a request completes, using the request ID
-// For streaming responses, only releases when Done=true to avoid releasing on every chunk
-func (s *Scheduler) ReleaseRequest(requestID string, isStreaming bool, isDone bool) {
-	// For streaming responses, only release when the stream is complete
-	if isStreaming && !isDone {
-		log.Trace().
-			Str("request_id", requestID).
-			Bool("is_streaming", isStreaming).
-			Bool("is_done", isDone).
-			Msg("skipping release for streaming response chunk")
-		return
-	}
-
-	s.requestTrackingMutex.Lock()
-	slotID, exists := s.requestToSlot[requestID]
-	if exists {
-		delete(s.requestToSlot, requestID)
-		delete(s.requestStartTimes, requestID)
-	}
-	s.requestTrackingMutex.Unlock()
-
-	if exists {
-		if slot, ok := s.slots.Load(slotID); ok {
-			slot.Release()
-			log.Debug().
-				Str("request_id", requestID).
-				Str("slot_id", slotID.String()).
-				Int64("active_requests", slot.GetActiveRequests()).
-				Bool("is_streaming", isStreaming).
-				Bool("is_done", isDone).
-				Msg("released request from slot")
-		} else {
-			log.Warn().
-				Str("request_id", requestID).
-				Str("slot_id", slotID.String()).
-				Msg("attempted to release request for non-existent slot")
-		}
-	}
-}
-
-// cleanupTimedOutRequests periodically cleans up requests that have been running too long
-func (s *Scheduler) cleanupTimedOutRequests(ctx context.Context) {
-	ticker := time.NewTicker(requestCleanupInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.cleanupTimedOutRequestsOnce()
-		}
-	}
-}
-
-func (s *Scheduler) cleanupTimedOutRequestsOnce() {
-	s.requestTrackingMutex.Lock()
-	timedOutRequests := make([]string, 0)
-	now := time.Now()
-
-	for requestID, startTime := range s.requestStartTimes {
-		if now.Sub(startTime) > requestTimeoutDuration {
-			timedOutRequests = append(timedOutRequests, requestID)
-		}
-	}
-
-	// Clean up tracking for timed out requests
-	for _, requestID := range timedOutRequests {
-		slotID := s.requestToSlot[requestID]
-		delete(s.requestToSlot, requestID)
-		delete(s.requestStartTimes, requestID)
-
-		log.Warn().
-			Str("request_id", requestID).
-			Str("slot_id", slotID.String()).
-			Dur("timeout", requestTimeoutDuration).
-			Msg("cleaning up timed out request")
-
-		// Release the slot
-		if slot, ok := s.slots.Load(slotID); ok {
-			slot.Release()
-		} else {
-			log.Warn().
-				Str("request_id", requestID).
-				Str("slot_id", slotID.String()).
-				Msg("timed out request references non-existent slot")
-		}
-	}
-	s.requestTrackingMutex.Unlock()
-
-	if len(timedOutRequests) > 0 {
-		log.Warn().
-			Int("count", len(timedOutRequests)).
-			Dur("timeout", requestTimeoutDuration).
-			Msg("cleaned up timed out requests")
-	}
-}
-
-// cleanupRequestsForSlot removes all tracked requests for a given slot (used when slot is deleted)
-func (s *Scheduler) cleanupRequestsForSlot(slotID uuid.UUID) {
-	s.requestTrackingMutex.Lock()
-	defer s.requestTrackingMutex.Unlock()
-
-	requestsToCleanup := make([]string, 0)
-	for requestID, trackedSlotID := range s.requestToSlot {
-		if trackedSlotID == slotID {
-			requestsToCleanup = append(requestsToCleanup, requestID)
-		}
-	}
-
-	for _, requestID := range requestsToCleanup {
-		delete(s.requestToSlot, requestID)
-		delete(s.requestStartTimes, requestID)
-	}
-
-	if len(requestsToCleanup) > 0 {
-		log.Debug().
-			Str("slot_id", slotID.String()).
-			Int("request_count", len(requestsToCleanup)).
-			Msg("cleaned up tracked requests for deleted slot")
-	}
-}
-
-// cleanupRequestsForRunner removes all tracked requests for a given runner (used when runner disconnects)
-func (s *Scheduler) cleanupRequestsForRunner(runnerID string) {
-	s.requestTrackingMutex.Lock()
-	defer s.requestTrackingMutex.Unlock()
-
-	requestsToCleanup := make([]string, 0)
-	slotsToRelease := make([]uuid.UUID, 0)
-
-	// Find all requests for slots on this runner
-	for requestID, slotID := range s.requestToSlot {
-		if slot, ok := s.slots.Load(slotID); ok {
-			if slot.RunnerID == runnerID {
-				requestsToCleanup = append(requestsToCleanup, requestID)
-				slotsToRelease = append(slotsToRelease, slotID)
-			}
-		} else {
-			// Slot doesn't exist anymore, clean up the tracking
-			log.Debug().
-				Str("request_id", requestID).
-				Str("slot_id", slotID.String()).
-				Msg("cleaning up request tracking for non-existent slot")
-			requestsToCleanup = append(requestsToCleanup, requestID)
-		}
-	}
-
-	// Clean up tracking
-	for _, requestID := range requestsToCleanup {
-		delete(s.requestToSlot, requestID)
-		delete(s.requestStartTimes, requestID)
-	}
-
-	// Release slots outside the lock
-	s.requestTrackingMutex.Unlock()
-	for _, slotID := range slotsToRelease {
-		if slot, ok := s.slots.Load(slotID); ok {
-			slot.Release()
-		} else {
-			log.Debug().
-				Str("slot_id", slotID.String()).
-				Msg("slot disappeared while cleaning up runner requests")
-		}
-	}
-	s.requestTrackingMutex.Lock()
-
-	if len(requestsToCleanup) > 0 {
-		log.Warn().
-			Str("runner_id", runnerID).
-			Int("request_count", len(requestsToCleanup)).
-			Msg("cleaned up tracked requests for disconnected runner")
-	}
-}
-
-// resetStaleRequestCounters resets request counters for slots that appear to be idle
-func (s *Scheduler) resetStaleRequestCounters() {
-	s.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
-		if slot == nil {
-			log.Warn().
-				Str("slot_id", slotID.String()).
-				Msg("found nil slot during startup counter reset")
-			return true
-		}
-
-		activeRequests := slot.GetActiveRequests()
-		if activeRequests > 0 && !slot.IsActive() {
-			log.Warn().
-				Str("slot_id", slotID.String()).
-				Int64("active_requests", activeRequests).
-				Msg("resetting stale request counter on startup")
-			atomic.StoreInt64(&slot.activeRequests, 0)
-		}
-		return true
-	})
-}
-
 // DeleteSlot removes a slot from the scheduler's desired state
 // This allows the reconciler to clean up the slot from the runner
 func (s *Scheduler) DeleteSlot(slotID uuid.UUID) error {
 	log.Info().Str("slot_id", slotID.String()).Msg("DEBUG: Scheduler.DeleteSlot called")
 	log.Info().Str("slot_id", slotID.String()).Msg("DEBUG: about to call s.slots.Delete")
-
-	// Clean up any tracked requests for this slot
-	s.cleanupRequestsForSlot(slotID)
-
 	s.slots.Delete(slotID)
 	log.Info().Str("slot_id", slotID.String()).Msg("DEBUG: s.slots.Delete completed successfully")
 	return nil
@@ -2545,21 +2310,15 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 			llmReq := req.LLMInferenceRequest()
 			if llmReq.Embeddings {
 				withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting embedding request")
-				s.TrackRequest(llmReq.RequestID, slot.ID) // Track request for completion
 				err := s.controller.RunnerClient().SubmitEmbeddingRequest(slot, llmReq)
 				if err != nil {
-					s.UntrackRequest(llmReq.RequestID)
-					slot.Release()
 					s.onSchedulingErr(req, err)
 					withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting embedding request")
 				}
 			} else {
 				withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting chat completion request")
-				s.TrackRequest(llmReq.RequestID, slot.ID) // Track request for completion
 				err := s.controller.RunnerClient().SubmitChatCompletionRequest(slot, llmReq)
 				if err != nil {
-					s.UntrackRequest(llmReq.RequestID)
-					slot.Release()
 					s.onSchedulingErr(req, err)
 					withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting chat completion request")
 				}
@@ -2570,11 +2329,8 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 				switch req.Session().Type {
 				case types.SessionTypeImage:
 					withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting text2image request")
-					s.TrackRequest(req.Session().ID, slot.ID) // Track request for completion
 					err := s.controller.RunnerClient().SubmitImageGenerationRequest(slot, req.Session())
 					if err != nil {
-						s.UntrackRequest(req.Session().ID)
-						slot.Release()
 						s.onSchedulingErr(req, err)
 						withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting text2image request")
 					}
@@ -2586,11 +2342,8 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 						convertedRequest.Request.Model = req.Session().LoraDir
 
 						// Forward the request to the chat completion handler
-						s.TrackRequest(convertedRequest.RequestID, slot.ID) // Track request for completion
 						err := s.controller.RunnerClient().SubmitChatCompletionRequest(slot, convertedRequest)
 						if err != nil {
-							s.UntrackRequest(convertedRequest.RequestID)
-							slot.Release()
 							s.onSchedulingErr(req, err)
 							withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting LORA inference request")
 						}
