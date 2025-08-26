@@ -322,8 +322,19 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 		}()).
 		Msg("memory estimation result details")
 
-	// Cache all GPU configurations separately
-	s.cacheAllConfigurations(modelName, result, opts)
+	// Cache all GPU configurations separately - but NEVER cache insufficient_memory results
+	if result.Recommendation != "insufficient_memory" {
+		s.cacheAllConfigurations(modelName, result, opts)
+		log.Debug().
+			Str("model_name", modelName).
+			Str("recommendation", result.Recommendation).
+			Msg("cached all GPU configurations for model")
+	} else {
+		log.Warn().
+			Str("model_name", modelName).
+			Str("recommendation", result.Recommendation).
+			Msg("NOT caching insufficient_memory result - this is an error, not a real estimate")
+	}
 
 	log.Info().
 		Str("model_name", modelName).
@@ -356,8 +367,8 @@ func (s *MemoryEstimationService) getCachedResultForModel(modelName string, opts
 
 // cacheAllConfigurations caches each GPU configuration from the estimation result separately
 func (s *MemoryEstimationService) cacheAllConfigurations(modelName string, result *memory.EstimationResult, opts memory.EstimateOptions) {
-	// Cache single GPU configuration
-	if result.SingleGPU != nil {
+	// Cache single GPU configuration - only if it's a valid result
+	if result.SingleGPU != nil && result.SingleGPU.Layers > 0 {
 		singleResult := &memory.EstimationResult{
 			ModelName:      result.ModelName,
 			Metadata:       result.Metadata,
@@ -368,10 +379,16 @@ func (s *MemoryEstimationService) cacheAllConfigurations(modelName string, resul
 		key := s.generateCacheKeyForConfig(modelName, 1, opts)
 		s.cache.set(key, singleResult)
 		log.Debug().Str("cache_key", key).Msg("cached single GPU configuration")
+	} else if result.SingleGPU != nil {
+		log.Warn().
+			Str("model_name", modelName).
+			Int("layers", result.SingleGPU.Layers).
+			Bool("fully_loaded", result.SingleGPU.FullyLoaded).
+			Msg("NOT caching single GPU result - 0 layers indicates estimation error")
 	}
 
-	// Cache tensor parallel configuration (if available)
-	if result.TensorParallel != nil {
+	// Cache tensor parallel configuration (if available and valid)
+	if result.TensorParallel != nil && result.TensorParallel.Layers > 0 {
 		// Determine GPU count from tensor parallel result
 		gpuCount := 2 // Default assumption for tensor parallel
 		if len(result.TensorParallel.GPUSizes) > 0 {
@@ -388,6 +405,12 @@ func (s *MemoryEstimationService) cacheAllConfigurations(modelName string, resul
 		key := s.generateCacheKeyForConfig(modelName, gpuCount, opts)
 		s.cache.set(key, tensorResult)
 		log.Debug().Str("cache_key", key).Int("gpu_count", gpuCount).Msg("cached tensor parallel configuration")
+	} else if result.TensorParallel != nil {
+		log.Warn().
+			Str("model_name", modelName).
+			Int("layers", result.TensorParallel.Layers).
+			Bool("fully_loaded", result.TensorParallel.FullyLoaded).
+			Msg("NOT caching tensor parallel result - 0 layers indicates estimation error")
 	}
 }
 
