@@ -1359,54 +1359,16 @@ func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
 	case "tensor_parallel":
 		estimate = result.TensorParallel
 	case "cpu_only", "insufficient_memory":
-		// For scheduling purposes, prefer GPU estimates to show actual VRAM requirements
-		log.Debug().
+		// FAIL FAST: insufficient_memory is an error condition, not a valid estimate
+		// The scheduler should retry later when conditions might be better
+		log.Warn().
 			Str("model_id", modelID).
 			Str("recommendation", result.Recommendation).
 			Interface("single_gpu", result.SingleGPU).
 			Interface("tensor_parallel", result.TensorParallel).
-			Msg("📋 SALMON Scheduler memory estimation result details for cpu_only/insufficient_memory case")
+			Msg("📋 SALMON Memory estimation failed - insufficient memory. Scheduler will retry later.")
 
-		if result.SingleGPU != nil && result.SingleGPU.TotalSize > 0 {
-			estimate = result.SingleGPU
-		} else if result.TensorParallel != nil && result.TensorParallel.TotalSize > 0 {
-			estimate = result.TensorParallel
-		} else {
-			log.Debug().
-				Str("model_id", modelID).
-				Bool("single_gpu_nil", result.SingleGPU == nil).
-				Uint64("single_gpu_vram", func() uint64 {
-					if result.SingleGPU != nil {
-						return result.SingleGPU.VRAMSize
-					} else {
-						return 0
-					}
-				}()).
-				Uint64("single_gpu_total", func() uint64 {
-					if result.SingleGPU != nil {
-						return result.SingleGPU.TotalSize
-					} else {
-						return 0
-					}
-				}()).
-				Bool("tensor_parallel_nil", result.TensorParallel == nil).
-				Uint64("tensor_parallel_vram", func() uint64 {
-					if result.TensorParallel != nil {
-						return result.TensorParallel.VRAMSize
-					} else {
-						return 0
-					}
-				}()).
-				Uint64("tensor_parallel_total", func() uint64 {
-					if result.TensorParallel != nil {
-						return result.TensorParallel.TotalSize
-					} else {
-						return 0
-					}
-				}()).
-				Msg("📋 SALMON Scheduler: No valid GPU estimates found")
-			return 0, fmt.Errorf("no GPU-based estimate available for model %s", modelID)
-		}
+		return 0, fmt.Errorf("memory estimation failed for model %s: %s (scheduler will retry later)", modelID, result.Recommendation)
 	default:
 		return 0, fmt.Errorf("unknown recommendation %s for model %s", result.Recommendation, modelID)
 	}

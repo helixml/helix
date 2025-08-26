@@ -158,8 +158,24 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 		}
 	}()
 
-	// Get available GPUs using Ollama's discovery
-	allGPUs := discover.GetGPUInfo()
+	// Use standard GPU configurations for theoretical memory estimation
+	// This ensures consistent results independent of actual hardware state during startup
+	log.Info().
+		Str("MEMORY_ESTIMATION_DEBUG", "using_standard_gpus").
+		Msg("🔧 MEMORY_DEBUG: Using standard GPU configs instead of actual GPU discovery for theoretical estimation")
+
+	// Create standard GPU configurations with 80GB memory each
+	allGPUs := make([]discover.GpuInfo, 8) // Support up to 8 GPUs
+	for i := 0; i < 8; i++ {
+		allGPUs[i] = discover.GpuInfo{
+			Library:       "cuda",
+			FreeMemory:    80 * 1024 * 1024 * 1024, // 80GB free
+			TotalMemory:   80 * 1024 * 1024 * 1024, // 80GB total
+			MinimumMemory: 512 * 1024 * 1024,       // 512MB minimum
+			ID:            fmt.Sprintf("standard-gpu-%d", i),
+			Index:         i,
+		}
+	}
 
 	// Test different GPU configurations
 	configs := []struct {
