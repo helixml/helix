@@ -1627,11 +1627,18 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 					}
 
 					memoryEstimationMeta = map[string]any{
-						"kv_cache_type":      types.DefaultKVCacheType, // KV cache type used in estimation
-						"context_length":     int(model.ContextLength),
-						"batch_size":         512,
-						"parallel_sequences": 1,
-						"estimation_source":  "gguf_analysis",
+						"kv_cache_type":  types.DefaultKVCacheType, // KV cache type used in estimation
+						"context_length": int(model.ContextLength),
+						"batch_size":     512,
+						"parallel_sequences": func() int {
+							if runtimeArgs != nil {
+								if numParallelVal, ok := runtimeArgs["num_parallel"].(int); ok {
+									return numParallelVal
+								}
+							}
+							return 1
+						}(),
+						"estimation_source": "gguf_analysis",
 						"gpu_allocation_type": func() string {
 							if tensorParallelSize > 1 {
 								return "tensor_parallel"

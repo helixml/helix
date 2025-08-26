@@ -21,7 +21,7 @@ import (
 // SimpleMemoryEstimationServiceForTest provides simple mock memory estimates for testing
 type SimpleMemoryEstimationServiceForTest struct{}
 
-func (m *SimpleMemoryEstimationServiceForTest) EstimateModelMemory(ctx context.Context, modelName string, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
+func (m *SimpleMemoryEstimationServiceForTest) EstimateModelMemory(ctx context.Context, modelName string, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
 	// Return appropriate memory values for different models
 	var memSize uint64
 	switch modelName {

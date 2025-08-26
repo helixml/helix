@@ -45,26 +45,6 @@ func (apiServer *HelixAPIServer) estimateModelMemory(rw http.ResponseWriter, r *
 		}
 	}
 
-	contextLength := 0 // Use model default
-	if contextLengthStr := r.URL.Query().Get("context_length"); contextLengthStr != "" {
-		var err error
-		contextLength, err = strconv.Atoi(contextLengthStr)
-		if err != nil {
-			http.Error(rw, "invalid context_length parameter", http.StatusBadRequest)
-			return
-		}
-	}
-
-	batchSize := 512 // Default batch size
-	if batchSizeStr := r.URL.Query().Get("batch_size"); batchSizeStr != "" {
-		var err error
-		batchSize, err = strconv.Atoi(batchSizeStr)
-		if err != nil {
-			http.Error(rw, "invalid batch_size parameter", http.StatusBadRequest)
-			return
-		}
-	}
-
 	// Get memory estimation service
 	memoryService := apiServer.Controller.GetMemoryEstimationService()
 	if memoryService == nil {
@@ -76,10 +56,8 @@ func (apiServer *HelixAPIServer) estimateModelMemory(rw http.ResponseWriter, r *
 	// Create estimation request
 	// numGPU here is hardware GPU count, gets mapped to GPUCount field
 	req := &controller.MemoryEstimationRequest{
-		ModelID:       modelID,
-		GPUCount:      numGPU,
-		ContextLength: contextLength,
-		BatchSize:     batchSize,
+		ModelID:  modelID,
+		GPUCount: numGPU,
 	}
 
 	// Estimate memory requirements

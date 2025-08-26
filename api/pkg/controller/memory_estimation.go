@@ -68,18 +68,15 @@ type MemoryEstimationRequest struct {
 	// CRITICAL: GPUCount is the NUMBER OF GPUs in the hardware configuration (1, 2, 4, 8, etc.)
 	// It is NOT the number of layers to offload to GPU (that's always auto-detect = -1)
 	// This API parameter controls how many GPUs to simulate in the estimation
-	GPUCount      int `json:"gpu_count,omitempty"`
-	ContextLength int `json:"context_length,omitempty"`
-	BatchSize     int `json:"batch_size,omitempty"`
+	GPUCount int `json:"gpu_count,omitempty"`
 }
 
 // MemoryEstimationResponse represents a response with memory estimation
 type MemoryEstimationResponse struct {
-	ModelID   string                       `json:"model_id"`
-	GPUConfig []types.GPUInfoForEstimation `json:"gpu_config"`
-	Estimate  *memory.MemoryEstimate       `json:"estimate"`
-	Cached    bool                         `json:"cached"`
-	Error     string                       `json:"error,omitempty"`
+	ModelID  string                 `json:"model_id"`
+	Estimate *memory.MemoryEstimate `json:"estimate"`
+	Cached   bool                   `json:"cached"`
+	Error    string                 `json:"error,omitempty"`
 }
 
 // MemoryEstimationService provides memory estimation services for the controlplane
@@ -136,63 +133,50 @@ func selectEstimateFromResult(result *memory.EstimationResult) *memory.MemoryEst
 
 // EstimateModelMemoryFromRequest estimates memory requirements for a model from a request
 func (s *MemoryEstimationService) EstimateModelMemoryFromRequest(ctx context.Context, req *MemoryEstimationRequest) (*MemoryEstimationResponse, error) {
-	// CRITICAL: req.GPUCount is the NUMBER OF GPUs in hardware config, NOT layers to offload!
-	// Determine number of GPUs for hardware estimation
-	numGPUs := 1
-	if req.GPUCount > 1 {
-		numGPUs = req.GPUCount
-	} else if req.GPUCount == -1 {
-		numGPUs = 2 // Default to 2 for auto-detect
+
+	// Get the model's configured context length from the store - NO FALLBACKS
+	models, err := s.modelProvider.ListModels(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list models from store: %w", err)
 	}
 
-	// Use standard GPU configuration with 80GB per GPU (large enough for any model)
-	gpuConfig := types.CreateStandardGPUConfig(numGPUs, 80)
-
-	// Get the model's configured context length from the store
-	contextLength := 4096 // Default fallback
-	if models, err := s.modelProvider.ListModels(ctx); err == nil {
-		for _, model := range models {
-			if model.ID == req.ModelID {
-				contextLength = int(model.ContextLength)
-				log.Debug().
-					Str("model_id", req.ModelID).
-					Int("context_length", contextLength).
-					Msg("using model's configured context length")
-				break
-			}
+	var targetModel *types.Model
+	for _, model := range models {
+		if model.ID == req.ModelID {
+			targetModel = model
+			break
 		}
 	}
 
+	if targetModel == nil {
+		return nil, fmt.Errorf("model %s not found in store", req.ModelID)
+	}
+
+	if targetModel.ContextLength == 0 {
+		return nil, fmt.Errorf("model %s has no context length configured - cannot estimate memory", req.ModelID)
+	}
+
+	contextLength := int(targetModel.ContextLength)
+	log.Debug().
+		Str("model_id", req.ModelID).
+		Int("context_length", contextLength).
+		Msg("using model's configured context length from store")
+
 	// CRITICAL: ALWAYS use -1 for layer offload (auto-detect max layers that fit)
-	// The req.GPUCount parameter controls GPU hardware config, NOT layer offload!
+	// Use model store values only - no request overrides
 	opts := types.CreateOllamaEstimateOptions(int64(contextLength), types.AutoDetectLayers)
 
-	// Allow request to override the configured context length
-	if req.ContextLength > 0 {
-		opts.NumCtx = req.ContextLength
-		log.Debug().
-			Str("model_id", req.ModelID).
-			Int("requested_context_length", req.ContextLength).
-			Int("configured_context_length", contextLength).
-			Msg("overriding model's configured context length with request parameter")
-	}
-	if req.BatchSize > 0 {
-		opts.NumBatch = req.BatchSize
-	}
-
 	// Check cache first
-	cacheKey := s.generateCacheKey(req.ModelID, gpuConfig, opts)
-	if result := s.cache.get(cacheKey); result != nil {
+	if result := s.getCachedResultForModel(req.ModelID, opts); result != nil {
 		return &MemoryEstimationResponse{
-			ModelID:   req.ModelID,
-			GPUConfig: gpuConfig,
-			Estimate:  selectEstimateFromResult(result),
-			Cached:    true,
+			ModelID:  req.ModelID,
+			Estimate: selectEstimateFromResult(result),
+			Cached:   true,
 		}, nil
 	}
 
 	// Estimate memory
-	result, err := s.EstimateModelMemory(ctx, req.ModelID, gpuConfig, opts)
+	result, err := s.EstimateModelMemory(ctx, req.ModelID, opts)
 	if err != nil {
 		return &MemoryEstimationResponse{
 			ModelID: req.ModelID,
@@ -201,15 +185,16 @@ func (s *MemoryEstimationService) EstimateModelMemoryFromRequest(ctx context.Con
 	}
 
 	return &MemoryEstimationResponse{
-		ModelID:   req.ModelID,
-		GPUConfig: gpuConfig,
-		Estimate:  selectEstimateFromResult(result),
-		Cached:    false,
+		ModelID:  req.ModelID,
+		Estimate: selectEstimateFromResult(result),
+		Cached:   false,
 	}, nil
 }
 
 // EstimateModelMemory estimates memory requirements for a model
-func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, modelName string, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
+func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, modelName string, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
+	// Memory estimation no longer needs GPU config - runner returns all configurations
+
 	// Debug logging for context length tracing
 	log.Debug().
 		Str("MEMORY_ESTIMATION_DEBUG", "entry_point").
@@ -219,7 +204,6 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 		Int("num_parallel", opts.NumParallel).
 		Int("num_gpu", opts.NumGPU).
 		Str("kv_cache_type", opts.KVCacheType).
-		Int("gpu_config_count", len(gpuConfig)).
 		Msg("🐠 SHARK EstimateModelMemory called with parameters")
 
 	// Check if this is an Ollama model - only Ollama models support GGUF-based estimation
@@ -245,30 +229,24 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 		return nil, fmt.Errorf("GGUF-based memory estimation is only available for Ollama models, model %s uses runtime %s", modelName, targetModel.Runtime)
 	}
 
-	// Generate cache key
-	cacheKey := s.generateCacheKey(modelName, gpuConfig, opts)
-
-	// Check cache first
-	if result := s.cache.get(cacheKey); result != nil {
+	// Check cache first - try to find any cached result for this model+options
+	if result := s.getCachedResultForModel(modelName, opts); result != nil {
 		log.Debug().
 			Str("model_name", modelName).
-			Str("cache_key", cacheKey).
 			Int("num_ctx_used", opts.NumCtx).
 			Str("kv_cache_type_used", opts.KVCacheType).
 			Str("recommendation", result.Recommendation).
-			Interface("single_gpu", result.SingleGPU).
-			Interface("tensor_parallel", result.TensorParallel).
-			Msg("🐠 SHARK returning cached memory estimation result - showing what params were used")
+			Msg("🐠 SHARK returning cached memory estimation result")
 		return result, nil
 	}
 
+	// Cache miss - need to calculate all configurations from runner
 	log.Debug().
 		Str("MEMORY_ESTIMATION_DEBUG", "cache_miss").
 		Str("model_name", modelName).
-		Str("cache_key", cacheKey).
 		Int("num_ctx", opts.NumCtx).
 		Str("kv_cache_type", opts.KVCacheType).
-		Msg("🐠 SHARK cache miss - will calculate new estimation")
+		Msg("🐠 SHARK cache miss - will get all GPU configurations from runner")
 
 	// Find a runner that has this model
 	log.Info().
@@ -314,48 +292,38 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 		Int64("response_time_ms", estimationResp.ResponseTime).
 		Msg("🐠 SHARK Memory estimation received from runner using exact Ollama")
 
-	// Debug logging for GPU configuration being used
-	for i, gpu := range gpuConfig {
-		log.Debug().
-			Str("MEMORY_ESTIMATION_DEBUG", "gpu_config").
-			Int("gpu_index", i).
-			Str("gpu_id", gpu.ID).
-			Str("library", gpu.Library).
-			Uint64("total_memory_bytes", gpu.TotalMemory).
-			Uint64("total_memory_gb", gpu.TotalMemory/(1024*1024*1024)).
-			Uint64("free_memory_bytes", gpu.FreeMemory).
-			Uint64("free_memory_gb", gpu.FreeMemory/(1024*1024*1024)).
-			Uint64("minimum_memory_bytes", gpu.MinimumMemory).
-			Uint64("minimum_memory_gb", gpu.MinimumMemory/(1024*1024*1024)).
-			Msg("🐠 SHARK GPU configuration for memory estimation")
-	}
+	// GPU configuration is now handled internally by the runner
+	log.Debug().
+		Str("MEMORY_ESTIMATION_DEBUG", "gpu_config").
+		Msg("🐠 SHARK using standard GPU configuration for memory estimation")
 
 	// Convert runner's multi-config response to our EstimationResult format
-	result := s.convertRunnerEstimationToResult(estimationResp, gpuConfig, opts)
+	result := s.convertRunnerEstimationToResult(estimationResp, opts)
 
 	// Debug logging for memory estimation results
+
 	log.Debug().
 		Str("MEMORY_ESTIMATION_DEBUG", "result").
 		Str("model_name", modelName).
-		Str("runner_id", runnerID).
 		Str("recommendation", result.Recommendation).
+		Str("runner_id", runnerID).
 		Int("num_ctx_used", opts.NumCtx).
-		Uint64("single_gpu_total_mb", func() uint64 {
+		Int("single_gpu_total_mb", func() int {
 			if result.SingleGPU != nil {
-				return result.SingleGPU.TotalSize / (1024 * 1024)
+				return int(result.SingleGPU.TotalSize / (1024 * 1024))
 			}
 			return 0
 		}()).
-		Uint64("single_gpu_kv_cache_mb", func() uint64 {
+		Int("single_gpu_kv_cache_mb", func() int {
 			if result.SingleGPU != nil {
-				return result.SingleGPU.KVCache / (1024 * 1024)
+				return int(result.SingleGPU.KVCache / (1024 * 1024))
 			}
 			return 0
 		}()).
 		Msg("memory estimation result details")
 
-	// Cache the result
-	s.cache.set(cacheKey, result)
+	// Cache all GPU configurations separately
+	s.cacheAllConfigurations(modelName, result, opts)
 
 	log.Info().
 		Str("model_name", modelName).
@@ -367,8 +335,64 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 }
 
 // GetCachedEstimation returns a cached estimation if available
-func (s *MemoryEstimationService) GetCachedEstimation(modelName string, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) *memory.EstimationResult {
-	cacheKey := s.generateCacheKey(modelName, gpuConfig, opts)
+// getCachedResultForModel tries to find any cached result for the model+options, preferring single GPU
+func (s *MemoryEstimationService) getCachedResultForModel(modelName string, opts memory.EstimateOptions) *memory.EstimationResult {
+	// Try single GPU first (most common case)
+	singleGPUKey := s.generateCacheKeyForConfig(modelName, 1, opts)
+	if result := s.cache.get(singleGPUKey); result != nil {
+		return result
+	}
+
+	// Try other GPU configurations
+	for _, gpuCount := range []int{2, 4, 8} {
+		key := s.generateCacheKeyForConfig(modelName, gpuCount, opts)
+		if result := s.cache.get(key); result != nil {
+			return result
+		}
+	}
+
+	return nil
+}
+
+// cacheAllConfigurations caches each GPU configuration from the estimation result separately
+func (s *MemoryEstimationService) cacheAllConfigurations(modelName string, result *memory.EstimationResult, opts memory.EstimateOptions) {
+	// Cache single GPU configuration
+	if result.SingleGPU != nil {
+		singleResult := &memory.EstimationResult{
+			ModelName:      result.ModelName,
+			Metadata:       result.Metadata,
+			EstimatedAt:    result.EstimatedAt,
+			SingleGPU:      result.SingleGPU,
+			Recommendation: "single_gpu",
+		}
+		key := s.generateCacheKeyForConfig(modelName, 1, opts)
+		s.cache.set(key, singleResult)
+		log.Debug().Str("cache_key", key).Msg("cached single GPU configuration")
+	}
+
+	// Cache tensor parallel configuration (if available)
+	if result.TensorParallel != nil {
+		// Determine GPU count from tensor parallel result
+		gpuCount := 2 // Default assumption for tensor parallel
+		if len(result.TensorParallel.GPUSizes) > 0 {
+			gpuCount = len(result.TensorParallel.GPUSizes)
+		}
+
+		tensorResult := &memory.EstimationResult{
+			ModelName:      result.ModelName,
+			Metadata:       result.Metadata,
+			EstimatedAt:    result.EstimatedAt,
+			TensorParallel: result.TensorParallel,
+			Recommendation: "tensor_parallel",
+		}
+		key := s.generateCacheKeyForConfig(modelName, gpuCount, opts)
+		s.cache.set(key, tensorResult)
+		log.Debug().Str("cache_key", key).Int("gpu_count", gpuCount).Msg("cached tensor parallel configuration")
+	}
+}
+
+func (s *MemoryEstimationService) GetCachedEstimation(modelName string, gpuCount int, opts memory.EstimateOptions) *memory.EstimationResult {
+	cacheKey := s.generateCacheKeyForConfig(modelName, gpuCount, opts)
 	return s.cache.get(cacheKey)
 }
 
@@ -570,7 +594,7 @@ func (s *MemoryEstimationService) getMemoryEstimationFromRunner(ctx context.Cont
 }
 
 // convertRunnerEstimationToResult converts runner's multi-config estimation to our EstimationResult format
-func (s *MemoryEstimationService) convertRunnerEstimationToResult(runnerResp *RunnerMemoryEstimationResponse, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) *memory.EstimationResult {
+func (s *MemoryEstimationService) convertRunnerEstimationToResult(runnerResp *RunnerMemoryEstimationResponse, opts memory.EstimateOptions) *memory.EstimationResult {
 	log.Debug().
 		Str("MEMORY_DEBUG", "converting_runner_response").
 		Str("model_name", runnerResp.ModelName).
@@ -607,7 +631,12 @@ func (s *MemoryEstimationService) convertRunnerEstimationToResult(runnerResp *Ru
 	}
 
 	// Convert to our MemoryEstimate format
+	// Convert single GPU configuration if found
 	if singleGPUConfig != nil {
+		// Create standard single GPU config for conversion
+		standardSingleGPU := types.CreateStandardGPUConfig(1, 80)
+		result.SingleGPU = s.convertConfigToMemoryEstimate(singleGPUConfig, metadata, opts, standardSingleGPU)
+
 		log.Debug().
 			Str("MEMORY_DEBUG", "converting_single_gpu_config").
 			Str("config_name", singleGPUConfig.Name).
@@ -616,17 +645,18 @@ func (s *MemoryEstimationService) convertRunnerEstimationToResult(runnerResp *Ru
 			Float64("total_memory_gib", float64(singleGPUConfig.TotalMemory)/(1024*1024*1024)).
 			Uint64("vram_required_bytes", singleGPUConfig.VRAMRequired).
 			Msg("🔥 MEMORY_DEBUG: Converting single GPU config")
-		result.SingleGPU = s.convertConfigToMemoryEstimate(singleGPUConfig, metadata, opts, []types.GPUInfoForEstimation{gpuConfig[0]})
 	}
 
-	if tensorParallelConfig != nil && len(gpuConfig) >= tensorParallelConfig.GPUCount {
-		result.TensorParallel = s.convertConfigToMemoryEstimate(tensorParallelConfig, metadata, opts, gpuConfig[:tensorParallelConfig.GPUCount])
+	if tensorParallelConfig != nil {
+		// Create standard multi-GPU config for conversion
+		standardMultiGPU := types.CreateStandardGPUConfig(tensorParallelConfig.GPUCount, 80)
+		result.TensorParallel = s.convertConfigToMemoryEstimate(tensorParallelConfig, metadata, opts, standardMultiGPU)
 	}
 
 	// CPU-only estimation disabled - not properly supported
 
 	// Determine recommendation based on what's available and works
-	if result.SingleGPU != nil && result.SingleGPU.FullyLoaded && len(gpuConfig) >= 1 {
+	if result.SingleGPU != nil && result.SingleGPU.FullyLoaded {
 		result.Recommendation = "single_gpu"
 	} else if result.TensorParallel != nil && result.TensorParallel.FullyLoaded {
 		result.Recommendation = "tensor_parallel"
@@ -696,31 +726,29 @@ func (s *MemoryEstimationService) convertConfigToMemoryEstimate(config *GPUConfi
 	log.Debug().
 		Str("MEMORY_DEBUG", "convertConfigToMemoryEstimate_output").
 		Str("config_name", config.Name).
-		Uint64("output_total_size_bytes", estimate.TotalSize).
-		Uint64("output_total_size_gb", estimate.TotalSize/(1024*1024*1024)).
-		Float64("output_total_size_gib", float64(estimate.TotalSize)/(1024*1024*1024)).
-		Uint64("output_vram_size_bytes", estimate.VRAMSize).
+		Uint64("output_total_size_bytes", config.TotalMemory).
+		Uint64("output_total_size_gb", config.TotalMemory/(1024*1024*1024)).
+		Float64("output_total_size_gib", float64(config.TotalMemory)/(1024*1024*1024)).
+		Uint64("output_vram_size_bytes", config.VRAMRequired).
 		Msg("🔥 MEMORY_DEBUG: Output values from convertConfigToMemoryEstimate")
 
 	return estimate
 }
 
-// generateCacheKey generates a cache key for the given parameters
-func (s *MemoryEstimationService) generateCacheKey(modelName string, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) string {
+// generateCacheKeyForConfig generates a cache key for a specific GPU configuration
+func (s *MemoryEstimationService) generateCacheKeyForConfig(modelName string, gpuCount int, opts memory.EstimateOptions) string {
 	// Create a simple hash of the parameters
 	key := fmt.Sprintf("%s_%d_%d_%d_%d_%d_%s",
 		modelName,
-		len(gpuConfig),
+		gpuCount,
 		opts.NumCtx,
 		opts.NumBatch,
 		opts.NumParallel,
 		opts.NumGPU,
 		opts.KVCacheType)
 
-	// Add GPU memory info to key
-	for _, gpu := range gpuConfig {
-		key += fmt.Sprintf("_%s_%d", gpu.Library, gpu.TotalMemory/(1024*1024*1024)) // GB
-	}
+	// Add standard GPU configuration info to key
+	key += fmt.Sprintf("_cuda_%d", 80) // Standard 80GB CUDA GPU
 
 	return key
 }
@@ -855,24 +883,7 @@ func (s *MemoryEstimationService) refreshCacheForAllModels(ctx context.Context) 
 
 	log.Debug().Int("model_count", len(models)).Msg("refreshing memory estimation cache for models")
 
-	// Common GPU configurations to cache
-	gpuConfigs := []struct {
-		name   string
-		config []types.GPUInfoForEstimation
-	}{
-		{
-			name:   "1GPU",
-			config: types.CreateStandardGPUConfig(1, 80),
-		},
-		{
-			name:   "2GPU",
-			config: types.CreateStandardGPUConfig(2, 80),
-		},
-		{
-			name:   "4GPU",
-			config: types.CreateStandardGPUConfig(4, 80),
-		},
-	}
+	// No need for GPU config arrays - EstimateModelMemory handles all configurations internally
 
 	// For each model, estimate memory for each GPU configuration
 	for _, model := range models {
@@ -889,44 +900,38 @@ func (s *MemoryEstimationService) refreshCacheForAllModels(ctx context.Context) 
 			continue
 		}
 
-		for _, gpuConfig := range gpuConfigs {
-			// Create EstimateOptions with model's actual context length
-			opts := types.CreateEstimateOptionsForGPUArray(model.ContextLength)
+		// Create EstimateOptions with model's actual context length
+		opts := types.CreateEstimateOptionsForGPUArray(model.ContextLength)
 
-			// Check if we already have a fresh cache entry
-			cacheKey := s.generateCacheKey(model.ID, gpuConfig.config, opts)
-			if entry := s.cache.get(cacheKey); entry != nil {
-				// Entry exists and is still fresh, skip
-				continue
+		// Check if we already have any fresh cache entry for this model
+		if cached := s.getCachedResultForModel(model.ID, opts); cached != nil {
+			// Entry exists and is still fresh, skip
+			continue
+		}
+
+		// Estimate memory in background - single call will cache all GPU configurations
+		go func(modelID string, opts memory.EstimateOptions) {
+			log.Debug().
+				Str("CACHE_REFRESH_DEBUG", "starting_estimation").
+				Str("model_id", modelID).
+				Int("num_ctx", opts.NumCtx).
+				Str("kv_cache_type", opts.KVCacheType).
+				Msg("Starting background memory estimation for cache (will cache all GPU configs)")
+
+			result, err := s.EstimateModelMemory(ctx, modelID, opts)
+			if err != nil {
+				log.Debug().
+					Err(err).
+					Str("model_id", modelID).
+					Msg("failed to estimate memory in background")
+				return
 			}
 
-			// Estimate memory in background (don't block on individual model failures)
-			go func(modelID string, config []types.GPUInfoForEstimation, opts memory.EstimateOptions, configName string) {
-				log.Debug().
-					Str("CACHE_REFRESH_DEBUG", "starting_estimation").
-					Str("model_id", modelID).
-					Str("config_name", configName).
-					Int("num_ctx", opts.NumCtx).
-					Str("kv_cache_type", opts.KVCacheType).
-					Msg("Starting background memory estimation for cache")
-
-				result, err := s.EstimateModelMemory(ctx, modelID, config, opts)
-				if err != nil {
-					log.Debug().
-						Err(err).
-						Str("model_id", modelID).
-						Str("config_name", configName).
-						Msg("failed to estimate memory for model in background refresh")
-					return
-				}
-
-				log.Debug().
-					Str("model_id", modelID).
-					Str("config_name", configName).
-					Str("recommendation", result.Recommendation).
-					Msg("successfully cached memory estimate in background")
-			}(model.ID, gpuConfig.config, opts, gpuConfig.name)
-		}
+			log.Debug().
+				Str("model_id", modelID).
+				Str("recommendation", result.Recommendation).
+				Msg("successfully cached all GPU configurations for model in background")
+		}(model.ID, opts)
 	}
 
 	log.Info().
