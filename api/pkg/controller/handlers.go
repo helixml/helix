@@ -146,13 +146,16 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 		}
 
 		modelMemoryMap[model.ID] = memory
-		log.Trace().
+		log.Debug().
+			Str("MEMORY_DEBUG", "storing_in_modelMemoryMap").
 			Str("model_id", model.ID).
 			Str("model_type", string(model.Type)).
 			Str("runtime", string(model.Runtime)).
 			Uint64("memory_bytes", memory).
+			Uint64("memory_gb", memory/(1024*1024*1024)).
+			Float64("memory_gib", float64(memory)/(1024*1024*1024)).
 			Bool("enabled", model.Enabled).
-			Msg("📋 Loaded model from store")
+			Msg("🔥 MEMORY_DEBUG: Storing model memory in modelMemoryMap")
 	}
 
 	log.Trace().
@@ -192,10 +195,13 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 				modelWithMemory.Memory = memory
 				modelsWithMemory = append(modelsWithMemory, &modelWithMemory)
 				log.Debug().
+					Str("MEMORY_DEBUG", "adding_to_modelsWithMemory").
 					Str("runner_id", runnerStatus.ID).
 					Str("model_id", model.ModelID).
 					Uint64("gguf_memory_bytes", memory).
-					Msg("✅ Using GGUF-based memory estimate for runner model")
+					Uint64("gguf_memory_gb", memory/(1024*1024*1024)).
+					Float64("gguf_memory_gib", float64(memory)/(1024*1024*1024)).
+					Msg("🔥 MEMORY_DEBUG: Adding model with memory to runner models list")
 			} else {
 				// Skip models without GGUF estimates entirely (for Ollama models)
 				log.Debug().
@@ -229,11 +235,14 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 					modelsWithMemory = append(modelsWithMemory, slotModel)
 					slotModelMap[slot.Model] = true
 					log.Debug().
+						Str("MEMORY_DEBUG", "adding_slot_model_to_modelsWithMemory").
 						Str("runner_id", runnerStatus.ID).
 						Str("slot_id", slot.ID.String()).
 						Str("model", slot.Model).
 						Uint64("gguf_memory_bytes", memory).
-						Msg("✅ Added slot model with GGUF estimate to models list")
+						Uint64("gguf_memory_gb", memory/(1024*1024*1024)).
+						Float64("gguf_memory_gib", float64(memory)/(1024*1024*1024)).
+						Msg("🔥 MEMORY_DEBUG: Adding slot model with memory to models list")
 				} else {
 					// Skip slot models without GGUF estimates entirely (for Ollama models)
 					log.Debug().
@@ -343,6 +352,24 @@ func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context,
 		return 0, fmt.Errorf("failed to estimate model memory: %w", err)
 	}
 
+	log.Debug().
+		Str("MEMORY_DEBUG", "estimation_result_received").
+		Str("model_id", modelID).
+		Str("recommendation", result.Recommendation).
+		Uint64("single_gpu_total_size", func() uint64 {
+			if result.SingleGPU != nil {
+				return result.SingleGPU.TotalSize
+			}
+			return 0
+		}()).
+		Uint64("single_gpu_vram_size", func() uint64 {
+			if result.SingleGPU != nil {
+				return result.SingleGPU.VRAMSize
+			}
+			return 0
+		}()).
+		Msg("🔥 MEMORY_DEBUG: Raw estimation result from memory service")
+
 	// Select the appropriate estimate based on recommendation
 	var estimate *memory.MemoryEstimate
 	switch result.Recommendation {
@@ -350,15 +377,14 @@ func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context,
 		estimate = result.SingleGPU
 	case "tensor_parallel":
 		estimate = result.TensorParallel
-	case "cpu_only", "insufficient_memory":
+	case "insufficient_memory":
 		// For UI display, prefer GPU estimates to show actual VRAM requirements
 		log.Debug().
 			Str("model_id", modelID).
 			Str("recommendation", result.Recommendation).
 			Interface("single_gpu", result.SingleGPU).
 			Interface("tensor_parallel", result.TensorParallel).
-			Interface("cpu_only", result.CPUOnly).
-			Msg("📋 SALMON Memory estimation result details for cpu_only/insufficient_memory case")
+			Msg("📋 SALMON Memory estimation result details for insufficient_memory case")
 
 		if result.SingleGPU != nil && result.SingleGPU.TotalSize > 0 {
 			estimate = result.SingleGPU
@@ -411,10 +437,13 @@ func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context,
 	// Always use TotalSize for consistent memory estimation
 	if estimate.TotalSize > 0 {
 		log.Debug().
+			Str("MEMORY_DEBUG", "final_dashboard_value").
 			Str("model_id", modelID).
 			Uint64("vram_size", estimate.VRAMSize).
 			Uint64("total_size", estimate.TotalSize).
-			Msg("📋 SALMON Using TotalSize for display")
+			Uint64("total_size_gb", estimate.TotalSize/(1024*1024*1024)).
+			Float64("total_size_gib", float64(estimate.TotalSize)/(1024*1024*1024)).
+			Msg("🔥 MEMORY_DEBUG: Final memory value being returned for dashboard")
 		return estimate.TotalSize, nil
 	} else {
 		return 0, fmt.Errorf("invalid memory estimate for model %s", modelID)

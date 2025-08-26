@@ -228,8 +228,8 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
             runtime: formData.runtime,
             memory:
                 formData.runtime === TypesRuntime.RuntimeOllama
-                    ? 0
-                    : Math.round(formData.memory * 1024 * 1024 * 1024), // Convert GB to Bytes, set 0 for Ollama (auto-detected)
+                    ? 0 // Will be auto-detected after download
+                    : Math.round(formData.memory * 1024 * 1024 * 1024), // Convert GB to Bytes
             context_length:
                 formData.context_length > 0
                     ? formData.context_length
@@ -368,7 +368,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
             description: formData.description.trim() || undefined,
             type: formData.type,
             runtime: formData.runtime,
-            memory: 0, // Will be auto-detected for Ollama
+            memory: 0, // Will be auto-detected after download
             context_length:
                 formData.context_length > 0
                     ? formData.context_length
@@ -523,46 +523,44 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                     {/* Pull button for Ollama models - right under runtime dropdown */}
                     {!isEditing &&
                         formData.runtime === TypesRuntime.RuntimeOllama && (
-                            <Box>
-                                <Button
-                                    variant="contained"
-                                    color={
-                                        isModelRegistered
-                                            ? "success"
-                                            : "primary"
-                                    }
-                                    size="large"
-                                    startIcon={<DownloadIcon />}
-                                    onClick={handlePullModel}
-                                    disabled={
-                                        loading ||
-                                        !formData.id.trim() ||
-                                        isModelRegistered
-                                    }
-                                    fullWidth
-                                    sx={{
-                                        py: 1.5,
-                                        fontSize: "1.1rem",
-                                        fontWeight: "bold",
-                                        boxShadow: 2,
-                                        "&:hover": {
-                                            boxShadow: 4,
-                                        },
-                                    }}
-                                >
-                                    {isModelRegistered
-                                        ? "✓ Model Registered"
-                                        : "Register & Pull Model"}
-                                </Button>
-                                <FormHelperText>
-                                    {isModelRegistered
-                                        ? "Model registered successfully! Download progress will appear below."
-                                        : !formData.id.trim()
-                                          ? "Enter a Model ID above to register and pull the model"
-                                          : "Register the model and start downloading. Progress will be shown below."}
-                                </FormHelperText>
-                            </Box>
-                        )}
+                        <Box>
+                            <Button
+                                variant="contained"
+                                color={
+                                    isModelRegistered ? "success" : "primary"
+                                }
+                                size="large"
+                                startIcon={<DownloadIcon />}
+                                onClick={handlePullModel}
+                                disabled={
+                                    loading ||
+                                    !formData.id.trim() ||
+                                    isModelRegistered
+                                }
+                                fullWidth
+                                sx={{
+                                    py: 1.5,
+                                    fontSize: "1.1rem",
+                                    fontWeight: "bold",
+                                    boxShadow: 2,
+                                    "&:hover": {
+                                        boxShadow: 4,
+                                    },
+                                }}
+                            >
+                                {isModelRegistered
+                                    ? "✓ Model Registered"
+                                    : "Register & Pull Model"}
+                            </Button>
+                            <FormHelperText>
+                                {isModelRegistered
+                                    ? "Model registered successfully! Download progress will appear below."
+                                    : !formData.id.trim()
+                                      ? "Enter a Model ID above to register and pull the model"
+                                      : "Register the model and start downloading. Progress will be shown below."}
+                            </FormHelperText>
+                        </Box>
+                    )}
 
                     {/* Download progress for Ollama models */}
                     {!isEditing &&
@@ -837,29 +835,6 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                         <FormControlLabel
                             control={
                                 <Switch
-                                    checked={formData.hide}
-                                    onChange={handleSwitchChange}
-                                    name="hide"
-                                    disabled={loading}
-                                />
-                            }
-                            label="Hide"
-                        />
-                        <FormHelperText>
-                            Hide this model from the default selection lists
-                            (still usable if selected directly).
-                        </FormHelperText>
-                    </Stack>
-
-                    <Stack
-                        direction="row"
-                        spacing={2}
-                        justifyContent="start"
-                        alignItems="center"
-                    >
-                        <FormControlLabel
-                            control={
-                                <Switch
                                     checked={formData.auto_pull}
                                     onChange={handleSwitchChange}
                                     name="auto_pull"
@@ -894,6 +869,29 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                         <FormHelperText>
                             Fill free GPU memory on runners with this model when
                             available.
+                        </FormHelperText>
+                    </Stack>
+
+                    <Stack
+                        direction="row"
+                        spacing={2}
+                        justifyContent="start"
+                        alignItems="center"
+                    >
+                        <FormControlLabel
+                            control={
+                                <Switch
+                                    checked={formData.hide}
+                                    onChange={handleSwitchChange}
+                                    name="hide"
+                                    disabled={loading}
+                                />
+                            }
+                            label="Hide"
+                        />
+                        <FormHelperText>
+                            Hide this model from the default selection lists
+                            (still usable if selected directly).
                         </FormHelperText>
                     </Stack>
                 </Stack>

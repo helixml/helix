@@ -15,7 +15,7 @@ import (
 // @Description Estimate memory requirements for a model on different GPU configurations
 // @Tags models
 // @Param model_id query string true "Model ID"
-// @Param num_gpu query int false "Number of GPUs (default: auto-detect)"
+// @Param gpu_count query int false "Number of GPUs (default: auto-detect)"
 // @Param context_length query int false "Context length (default: model default)"
 // @Param batch_size query int false "Batch size (default: 512)"
 // @Success 200 {object} controller.MemoryEstimationResponse
@@ -33,8 +33,10 @@ func (apiServer *HelixAPIServer) estimateModelMemory(rw http.ResponseWriter, r *
 	}
 
 	// Parse query parameters
+	// CRITICAL: gpu_count parameter is the NUMBER OF GPUs in hardware config (1, 2, 4, 8, etc.)
+	// It is NOT the confusing Ollama NumGPU parameter for layer offload!
 	numGPU := -1 // Auto-detect by default
-	if numGPUStr := r.URL.Query().Get("num_gpu"); numGPUStr != "" {
+	if numGPUStr := r.URL.Query().Get("gpu_count"); numGPUStr != "" {
 		var err error
 		numGPU, err = strconv.Atoi(numGPUStr)
 		if err != nil {
@@ -72,9 +74,10 @@ func (apiServer *HelixAPIServer) estimateModelMemory(rw http.ResponseWriter, r *
 	}
 
 	// Create estimation request
+	// numGPU here is hardware GPU count, gets mapped to GPUCount field
 	req := &controller.MemoryEstimationRequest{
 		ModelID:       modelID,
-		NumGPU:        numGPU,
+		GPUCount:      numGPU,
 		ContextLength: contextLength,
 		BatchSize:     batchSize,
 	}
@@ -98,7 +101,7 @@ func (apiServer *HelixAPIServer) estimateModelMemory(rw http.ResponseWriter, r *
 // @Description Get memory estimates for multiple models with different GPU configurations
 // @Tags models
 // @Param model_ids query string false "Comma-separated list of model IDs"
-// @Param num_gpu query int false "Number of GPUs (default: auto-detect)"
+// @Param gpu_count query int false "Number of GPUs (default: auto-detect)"
 // @Success 200 {array} controller.MemoryEstimationResponse
 // @Failure 400 {string} string "Invalid request parameters"
 // @Failure 500 {string} string "Internal server error"
@@ -131,8 +134,10 @@ func (apiServer *HelixAPIServer) listModelMemoryEstimates(rw http.ResponseWriter
 	}
 
 	// Parse query parameters
+	// CRITICAL: gpu_count parameter is the NUMBER OF GPUs in hardware config (1, 2, 4, 8, etc.)
+	// It is NOT the confusing Ollama NumGPU parameter for layer offload!
 	numGPU := -1 // Auto-detect by default
-	if numGPUStr := r.URL.Query().Get("num_gpu"); numGPUStr != "" {
+	if numGPUStr := r.URL.Query().Get("gpu_count"); numGPUStr != "" {
 		var err error
 		numGPU, err = strconv.Atoi(numGPUStr)
 		if err != nil {
@@ -162,10 +167,11 @@ func (apiServer *HelixAPIServer) listModelMemoryEstimates(rw http.ResponseWriter
 	responses := make([]*controller.MemoryEstimationResponse, 0, len(modelIDs))
 
 	// Estimate memory for each model
+	// numGPU here is hardware GPU count, gets mapped to GPUCount field
 	for _, modelID := range modelIDs {
 		req := &controller.MemoryEstimationRequest{
-			ModelID: modelID,
-			NumGPU:  numGPU,
+			ModelID:  modelID,
+			GPUCount: numGPU,
 		}
 
 		resp, err := memoryService.EstimateModelMemoryFromRequest(r.Context(), req)

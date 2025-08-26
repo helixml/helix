@@ -1196,7 +1196,7 @@
                     {
                         "type": "integer",
                         "description": "Number of GPUs (default: auto-detect)",
-                        "name": "num_gpu",
+                        "name": "gpu_count",
                         "in": "query"
                     },
                     {
@@ -1262,7 +1262,7 @@
                     {
                         "type": "integer",
                         "description": "Number of GPUs (default: auto-detect)",
-                        "name": "num_gpu",
+                        "name": "gpu_count",
                         "in": "query"
                     }
                 ],
@@ -4794,7 +4794,7 @@
                     "type": "integer"
                 },
                 "num_gpu": {
-                    "description": "Number of layers to offload (-1 for auto)",
+                    "description": "⚠️  CRITICAL CONFUSION WARNING ⚠️\nNumGPU is NOT the number of GPUs in your hardware configuration!\nNumGPU is the number of MODEL LAYERS to offload to GPU (-1 for auto-detect all that fit)\n\nExamples:\n- NumGPU = -1: Auto-detect max layers that fit (RECOMMENDED - gives full model memory)\n- NumGPU = 1:  Only offload 1 layer to GPU (gives tiny memory estimate)\n- NumGPU = 0:  CPU only (no GPU layers)\n\nTo estimate for different GPU hardware configs (1 GPU vs 4 GPUs),\nyou pass different GPU configuration arrays to the estimation function,\nNOT different NumGPU values!",
                     "type": "integer"
                 },
                 "num_parallel": {

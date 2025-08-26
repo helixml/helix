@@ -215,6 +215,25 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 		// Use Ollama's exact EstimateGPULayers function
 		estimate := llm.EstimateGPULayers(gpusToUse, ggmlModel, []string{}, opts, req.NumParallel)
 
+		// Log raw Ollama estimation result
+		log.Info().
+			Str("MEMORY_DEBUG", "raw_ollama_estimation").
+			Str("model_name", req.ModelName).
+			Str("config", config.name).
+			Int("gpu_count", config.gpuCount).
+			Int("layers", estimate.Layers).
+			Uint64("total_size_bytes", estimate.TotalSize).
+			Uint64("total_size_gb", estimate.TotalSize/(1024*1024*1024)).
+			Float64("total_size_gib", float64(estimate.TotalSize)/(1024*1024*1024)).
+			Uint64("vram_size_bytes", estimate.VRAMSize).
+			Uint64("vram_size_gb", estimate.VRAMSize/(1024*1024*1024)).
+			Float64("vram_size_gib", float64(estimate.VRAMSize)/(1024*1024*1024)).
+			Uint64("graph_bytes", estimate.Graph).
+			Uint64("graph_gb", estimate.Graph/(1024*1024*1024)).
+			Str("tensor_split", estimate.TensorSplit).
+			Interface("gpu_sizes", estimate.GPUSizes).
+			Msg("🔥 MEMORY_DEBUG: Raw Ollama estimation result")
+
 		// Convert to our response format
 		result := GPUConfigurationResult{
 			Name:          config.name,
@@ -231,6 +250,23 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 			TensorSplit:   estimate.TensorSplit,
 		}
 
+		// Log the converted result
+		log.Info().
+			Str("MEMORY_DEBUG", "converted_result").
+			Str("model_name", req.ModelName).
+			Str("config", config.name).
+			Int("gpu_count", config.gpuCount).
+			Uint64("result_total_memory_bytes", result.TotalMemory).
+			Uint64("result_total_memory_gb", result.TotalMemory/(1024*1024*1024)).
+			Float64("result_total_memory_gib", float64(result.TotalMemory)/(1024*1024*1024)).
+			Uint64("result_vram_required_bytes", result.VRAMRequired).
+			Uint64("result_vram_required_gb", result.VRAMRequired/(1024*1024*1024)).
+			Float64("result_vram_required_gib", float64(result.VRAMRequired)/(1024*1024*1024)).
+			Uint64("kv_cache_memory", result.KVCacheMemory).
+			Uint64("weights_memory", result.WeightsMemory).
+			Bool("fully_loaded", result.FullyLoaded).
+			Msg("🔥 MEMORY_DEBUG: Converted GPUConfigurationResult")
+
 		response.Configurations = append(response.Configurations, result)
 
 		log.Info().
@@ -244,42 +280,23 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 			Msg("memory estimation result")
 	}
 
-	// Add CPU-only configuration
-	cpuGPU := discover.GpuInfo{
-		Library: "cpu",
-	}
-	cpuGPU.FreeMemory = 1024 * 1024 * 1024 * 1024 // 1TB fake memory
-	cpuGPU.TotalMemory = 1024 * 1024 * 1024 * 1024
-	cpuGPUs := []discover.GpuInfo{cpuGPU}
-
-	cpuOpts := api.Options{
-		Runner: api.Runner{
-			NumCtx:   req.ContextLength,
-			NumBatch: req.BatchSize,
-			NumGPU:   0, // 0 = CPU only
-		},
-	}
-
-	cpuEstimate := llm.EstimateGPULayers(cpuGPUs, ggmlModel, []string{}, cpuOpts, req.NumParallel)
-
-	cpuResult := GPUConfigurationResult{
-		Name:          "cpu_only",
-		GPUCount:      0,
-		LayersOnGPU:   0,
-		TotalLayers:   int(response.BlockCount) + 1,
-		VRAMRequired:  0,
-		TotalMemory:   cpuEstimate.TotalSize,
-		GraphMemory:   0,
-		KVCacheMemory: 0,
-		WeightsMemory: cpuEstimate.TotalSize,
-		FullyLoaded:   true, // CPU can handle any size (just slowly)
-		GPUSizes:      []uint64{},
-		TensorSplit:   "",
-	}
-
-	response.Configurations = append(response.Configurations, cpuResult)
+	// CPU-only estimation disabled - not properly supported and adds confusion
+	// We only support GPU-based inference, so CPU estimates are misleading
+	log.Debug().
+		Str("model_name", req.ModelName).
+		Msg("Skipping CPU-only estimation - not supported")
 	response.Success = true
 	response.ResponseTime = getCurrentTimeMillis() - startTime
+
+	// Log final response summary
+	log.Info().
+		Str("MEMORY_DEBUG", "final_response").
+		Str("model_name", req.ModelName).
+		Str("architecture", response.Architecture).
+		Int("config_count", len(response.Configurations)).
+		Int64("response_time_ms", response.ResponseTime).
+		Interface("all_configurations", response.Configurations).
+		Msg("🔥 MEMORY_DEBUG: Final memory estimation response")
 
 	log.Info().
 		Str("model_name", req.ModelName).

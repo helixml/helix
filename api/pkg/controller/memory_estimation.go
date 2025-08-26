@@ -64,10 +64,13 @@ func (smp *StoreModelProvider) ListModels(ctx context.Context) ([]*types.Model, 
 
 // MemoryEstimationRequest represents a request for memory estimation
 type MemoryEstimationRequest struct {
-	ModelID       string `json:"model_id"`
-	NumGPU        int    `json:"num_gpu,omitempty"`
-	ContextLength int    `json:"context_length,omitempty"`
-	BatchSize     int    `json:"batch_size,omitempty"`
+	ModelID string `json:"model_id"`
+	// CRITICAL: GPUCount is the NUMBER OF GPUs in the hardware configuration (1, 2, 4, 8, etc.)
+	// It is NOT the number of layers to offload to GPU (that's always auto-detect = -1)
+	// This API parameter controls how many GPUs to simulate in the estimation
+	GPUCount      int `json:"gpu_count,omitempty"`
+	ContextLength int `json:"context_length,omitempty"`
+	BatchSize     int `json:"batch_size,omitempty"`
 }
 
 // MemoryEstimationResponse represents a response with memory estimation
@@ -110,35 +113,35 @@ func selectEstimateFromResult(result *memory.EstimationResult) *memory.MemoryEst
 		return result.SingleGPU
 	case "tensor_parallel":
 		return result.TensorParallel
-	case "cpu_only", "insufficient_memory":
-		// For UI display, prefer to show GPU estimates even if CPU-only is recommended
-		// This allows users to see actual VRAM requirements
+	case "insufficient_memory":
+		// For UI display, prefer to show GPU estimates to show actual VRAM requirements
 		if result.SingleGPU != nil && result.SingleGPU.VRAMSize > 0 {
 			return result.SingleGPU
 		} else if result.TensorParallel != nil && result.TensorParallel.VRAMSize > 0 {
 			return result.TensorParallel
 		} else {
-			return result.CPUOnly
+			return nil // No valid GPU estimate available
 		}
 	default:
-		// Fallback to single GPU if available, otherwise tensor parallel
+		// Default to single GPU if available
 		if result.SingleGPU != nil {
 			return result.SingleGPU
 		} else if result.TensorParallel != nil {
 			return result.TensorParallel
 		} else {
-			return result.CPUOnly
+			return nil // No valid GPU estimate available
 		}
 	}
 }
 
 // EstimateModelMemoryFromRequest estimates memory requirements for a model from a request
 func (s *MemoryEstimationService) EstimateModelMemoryFromRequest(ctx context.Context, req *MemoryEstimationRequest) (*MemoryEstimationResponse, error) {
-	// Determine number of GPUs for estimation
+	// CRITICAL: req.GPUCount is the NUMBER OF GPUs in hardware config, NOT layers to offload!
+	// Determine number of GPUs for hardware estimation
 	numGPUs := 1
-	if req.NumGPU > 1 {
-		numGPUs = req.NumGPU
-	} else if req.NumGPU == -1 {
+	if req.GPUCount > 1 {
+		numGPUs = req.GPUCount
+	} else if req.GPUCount == -1 {
 		numGPUs = 2 // Default to 2 for auto-detect
 	}
 
@@ -160,7 +163,9 @@ func (s *MemoryEstimationService) EstimateModelMemoryFromRequest(ctx context.Con
 		}
 	}
 
-	opts := types.CreateOllamaEstimateOptions(int64(contextLength), req.NumGPU)
+	// CRITICAL: ALWAYS use -1 for layer offload (auto-detect max layers that fit)
+	// The req.GPUCount parameter controls GPU hardware config, NOT layer offload!
+	opts := types.CreateOllamaEstimateOptions(int64(contextLength), types.AutoDetectLayers)
 
 	// Allow request to override the configured context length
 	if req.ContextLength > 0 {
@@ -253,7 +258,6 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 			Str("recommendation", result.Recommendation).
 			Interface("single_gpu", result.SingleGPU).
 			Interface("tensor_parallel", result.TensorParallel).
-			Interface("cpu_only", result.CPUOnly).
 			Msg("🐠 SHARK returning cached memory estimation result - showing what params were used")
 		return result, nil
 	}
@@ -290,6 +294,16 @@ func (s *MemoryEstimationService) EstimateModelMemory(ctx context.Context, model
 			Msg("PREWARM_DEBUG: CRITICAL - Failed to get memory estimation from runner - timing issue or runner not ready")
 		return nil, fmt.Errorf("failed to get memory estimation from runner %s: %w", runnerID, err)
 	}
+
+	// Log raw runner response
+	log.Debug().
+		Str("MEMORY_DEBUG", "raw_runner_response").
+		Str("model_name", modelName).
+		Str("runner_id", runnerID).
+		Str("architecture", estimationResp.Architecture).
+		Int("config_count", len(estimationResp.Configurations)).
+		Interface("configurations", estimationResp.Configurations).
+		Msg("🔥 MEMORY_DEBUG: Raw response from runner")
 
 	// Debug logging for memory estimation results from runner
 	log.Debug().
@@ -557,6 +571,12 @@ func (s *MemoryEstimationService) getMemoryEstimationFromRunner(ctx context.Cont
 
 // convertRunnerEstimationToResult converts runner's multi-config estimation to our EstimationResult format
 func (s *MemoryEstimationService) convertRunnerEstimationToResult(runnerResp *RunnerMemoryEstimationResponse, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) *memory.EstimationResult {
+	log.Debug().
+		Str("MEMORY_DEBUG", "converting_runner_response").
+		Str("model_name", runnerResp.ModelName).
+		Int("config_count", len(runnerResp.Configurations)).
+		Msg("🔥 MEMORY_DEBUG: Starting conversion from runner response")
+
 	// Create fake metadata from runner response for backward compatibility
 	metadata := &memory.ModelMetadata{
 		Architecture: runnerResp.Architecture,
@@ -571,7 +591,7 @@ func (s *MemoryEstimationService) convertRunnerEstimationToResult(runnerResp *Ru
 	}
 
 	// Find the appropriate configurations from runner response
-	var singleGPUConfig, tensorParallelConfig, cpuConfig *GPUConfigurationResult
+	var singleGPUConfig, tensorParallelConfig *GPUConfigurationResult
 
 	for i := range runnerResp.Configurations {
 		config := &runnerResp.Configurations[i]
@@ -582,13 +602,20 @@ func (s *MemoryEstimationService) convertRunnerEstimationToResult(runnerResp *Ru
 			if tensorParallelConfig == nil || config.GPUCount > tensorParallelConfig.GPUCount {
 				tensorParallelConfig = config
 			}
-		case "cpu_only":
-			cpuConfig = config
+			// Skip cpu_only configurations - not supported
 		}
 	}
 
 	// Convert to our MemoryEstimate format
 	if singleGPUConfig != nil {
+		log.Debug().
+			Str("MEMORY_DEBUG", "converting_single_gpu_config").
+			Str("config_name", singleGPUConfig.Name).
+			Uint64("total_memory_bytes", singleGPUConfig.TotalMemory).
+			Uint64("total_memory_gb", singleGPUConfig.TotalMemory/(1024*1024*1024)).
+			Float64("total_memory_gib", float64(singleGPUConfig.TotalMemory)/(1024*1024*1024)).
+			Uint64("vram_required_bytes", singleGPUConfig.VRAMRequired).
+			Msg("🔥 MEMORY_DEBUG: Converting single GPU config")
 		result.SingleGPU = s.convertConfigToMemoryEstimate(singleGPUConfig, metadata, opts, []types.GPUInfoForEstimation{gpuConfig[0]})
 	}
 
@@ -596,9 +623,7 @@ func (s *MemoryEstimationService) convertRunnerEstimationToResult(runnerResp *Ru
 		result.TensorParallel = s.convertConfigToMemoryEstimate(tensorParallelConfig, metadata, opts, gpuConfig[:tensorParallelConfig.GPUCount])
 	}
 
-	if cpuConfig != nil {
-		result.CPUOnly = s.convertConfigToMemoryEstimate(cpuConfig, metadata, opts, []types.GPUInfoForEstimation{})
-	}
+	// CPU-only estimation disabled - not properly supported
 
 	// Determine recommendation based on what's available and works
 	if result.SingleGPU != nil && result.SingleGPU.FullyLoaded && len(gpuConfig) >= 1 {
@@ -608,7 +633,7 @@ func (s *MemoryEstimationService) convertRunnerEstimationToResult(runnerResp *Ru
 	} else if result.SingleGPU != nil && result.SingleGPU.Layers > 0 {
 		result.Recommendation = "single_gpu"
 	} else {
-		result.Recommendation = "cpu_only"
+		result.Recommendation = "insufficient_memory"
 	}
 
 	return result
@@ -616,6 +641,15 @@ func (s *MemoryEstimationService) convertRunnerEstimationToResult(runnerResp *Ru
 
 // convertConfigToMemoryEstimate converts a GPU configuration result to our MemoryEstimate format
 func (s *MemoryEstimationService) convertConfigToMemoryEstimate(config *GPUConfigurationResult, metadata *memory.ModelMetadata, opts memory.EstimateOptions, gpus []types.GPUInfoForEstimation) *memory.MemoryEstimate {
+	log.Debug().
+		Str("MEMORY_DEBUG", "convertConfigToMemoryEstimate_input").
+		Str("config_name", config.Name).
+		Uint64("input_total_memory_bytes", config.TotalMemory).
+		Uint64("input_total_memory_gb", config.TotalMemory/(1024*1024*1024)).
+		Float64("input_total_memory_gib", float64(config.TotalMemory)/(1024*1024*1024)).
+		Uint64("input_vram_required_bytes", config.VRAMRequired).
+		Msg("🔥 MEMORY_DEBUG: Input values to convertConfigToMemoryEstimate")
+
 	// Convert GPU info
 	gpuInfos := make([]memory.GPUInfo, len(gpus))
 	for i, gpu := range gpus {
@@ -641,7 +675,7 @@ func (s *MemoryEstimationService) convertConfigToMemoryEstimate(config *GPUConfi
 		}
 	}
 
-	return &memory.MemoryEstimate{
+	estimate := &memory.MemoryEstimate{
 		Architecture:     metadata.Architecture,
 		Layers:           config.LayersOnGPU,
 		VRAMSize:         config.VRAMRequired,
@@ -658,17 +692,29 @@ func (s *MemoryEstimationService) convertConfigToMemoryEstimate(config *GPUConfi
 		GPUSizes:         config.GPUSizes,
 		TensorSplit:      tensorSplit,
 	}
+
+	log.Debug().
+		Str("MEMORY_DEBUG", "convertConfigToMemoryEstimate_output").
+		Str("config_name", config.Name).
+		Uint64("output_total_size_bytes", estimate.TotalSize).
+		Uint64("output_total_size_gb", estimate.TotalSize/(1024*1024*1024)).
+		Float64("output_total_size_gib", float64(estimate.TotalSize)/(1024*1024*1024)).
+		Uint64("output_vram_size_bytes", estimate.VRAMSize).
+		Msg("🔥 MEMORY_DEBUG: Output values from convertConfigToMemoryEstimate")
+
+	return estimate
 }
 
 // generateCacheKey generates a cache key for the given parameters
 func (s *MemoryEstimationService) generateCacheKey(modelName string, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) string {
 	// Create a simple hash of the parameters
-	key := fmt.Sprintf("%s_%d_%d_%d_%d_%s",
+	key := fmt.Sprintf("%s_%d_%d_%d_%d_%d_%s",
 		modelName,
 		len(gpuConfig),
 		opts.NumCtx,
 		opts.NumBatch,
 		opts.NumParallel,
+		opts.NumGPU,
 		opts.KVCacheType)
 
 	// Add GPU memory info to key
