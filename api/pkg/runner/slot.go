@@ -27,6 +27,7 @@ type Slot struct {
 	MemoryEstimationMeta   map[string]any // Metadata about memory estimation for tooltips
 	Active                 bool           // True if the slot is active
 	Ready                  bool           // True if the slot is ready to be used
+	activeRequests         int64          // Number of concurrent active requests (atomic)
 	GPUIndex               *int           // Primary GPU for single-GPU models (nil for CPU-only)
 	GPUIndices             []int          // All GPUs used for multi-GPU models
 	TensorParallelSize     int            // Number of GPUs for tensor parallelism (1 = single GPU, 0 = CPU-only)
