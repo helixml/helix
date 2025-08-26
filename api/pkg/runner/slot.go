@@ -189,9 +189,17 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 				Msg("No specific GPU allocation from scheduler, using all available GPUs for Ollama model")
 		}
 
-		// Note, we don't pass through RuntimeArgs for Ollama because model
-		// params are defined by ollama model pulls rather than in commandline
-		// flags like vLLM
+		// Extract num_parallel from RuntimeArgs if provided by scheduler
+		if s.RuntimeArgs != nil {
+			if numParallelVal, ok := s.RuntimeArgs["num_parallel"].(int); ok && numParallelVal > 0 {
+				runtimeParams.NumParallel = &numParallelVal
+				log.Info().
+					Str("slot_id", s.ID.String()).
+					Str("model", s.Model).
+					Int("num_parallel", numParallelVal).
+					Msg("Using concurrency setting from scheduler for Ollama model")
+			}
+		}
 
 		log.Debug().
 			Str("model", s.Model).

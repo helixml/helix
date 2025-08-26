@@ -1,9 +1,11 @@
 package scheduler
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -13,7 +15,8 @@ type Slot struct {
 	initialWork      *Workload // The work that is currently assigned to this slot
 	LastActivityTime time.Time // Private because I don't want people misinterpreting this
 	Created          time.Time // When the slot was first created
-	isActive         bool      // Private because I don't want people misinterpreting this
+	activeRequests   int64     // Number of concurrent active requests (atomic)
+	maxConcurrency   int64     // Maximum concurrent requests allowed (atomic)
 	isStaleFunc      TimeoutFunc
 	isErrorFunc      TimeoutFunc
 	isRunning        bool
@@ -27,13 +30,31 @@ type Slot struct {
 // errorTimeout is a function that determines if a slot has errored
 func NewSlot(runnerID string, work *Workload, staleTimeout TimeoutFunc, errorTimeout TimeoutFunc, gpuAllocation *GPUAllocation) *Slot {
 	now := time.Now()
+
+	// Determine concurrency limit: model-specific > runtime natural default
+	maxConcurrency := int64(1) // Conservative default for unknown runtimes
+
+	// First check if model has specific concurrency setting
+	if work.model != nil && work.model.Concurrency > 0 {
+		maxConcurrency = int64(work.model.Concurrency)
+	} else {
+		// Use natural runtime defaults
+		if work.Runtime() == types.RuntimeVLLM {
+			maxConcurrency = 256 // VLLM's natural default
+		} else if work.Runtime() == types.RuntimeOllama {
+			maxConcurrency = 4 // Reasonable default for Ollama
+		}
+		// Other runtimes keep maxConcurrency = 1
+	}
+
 	return &Slot{
 		ID:               uuid.New(),
 		RunnerID:         runnerID,
 		initialWork:      work,
 		LastActivityTime: now,
 		Created:          now,
-		isActive:         false,
+		activeRequests:   0,
+		maxConcurrency:   maxConcurrency,
 		isStaleFunc:      staleTimeout,
 		isErrorFunc:      errorTimeout,
 		isRunning:        false,
@@ -95,7 +116,7 @@ func (s *Slot) IsStale() bool {
 	}
 
 	// If work is active, check for error timeout
-	if s.isActive {
+	if s.IsActive() {
 		elapsed := time.Since(s.LastActivityTime)
 		isError := s.isErrorFunc(s.RunnerID, s.LastActivityTime)
 		if isError {
@@ -138,19 +159,31 @@ func (s *Slot) IsStale() bool {
 
 // True if this slot is currently active with work
 func (s *Slot) IsActive() bool {
-	return s.isActive
+	return atomic.LoadInt64(&s.activeRequests) > 0
 }
 
-// Sets a slot as no longer active
+// True if this slot has capacity for more work
+func (s *Slot) HasCapacity() bool {
+	return atomic.LoadInt64(&s.activeRequests) < atomic.LoadInt64(&s.maxConcurrency)
+}
+
+// GetActiveRequests returns the current number of active requests
+func (s *Slot) GetActiveRequests() int64 {
+	return atomic.LoadInt64(&s.activeRequests)
+}
+
+// Sets a slot as no longer active (decrements active requests)
 func (s *Slot) Release() {
-	s.isActive = false
+	if atomic.AddInt64(&s.activeRequests, -1) < 0 {
+		atomic.StoreInt64(&s.activeRequests, 0) // Prevent negative values
+	}
 	s.LastActivityTime = time.Now()
 }
 
-// Marks the work as started
+// Marks new work as started (increments active requests)
 func (s *Slot) Start() {
+	atomic.AddInt64(&s.activeRequests, 1)
 	s.LastActivityTime = time.Now()
-	s.isActive = true
 }
 
 func (s *Slot) IsRunning() bool {

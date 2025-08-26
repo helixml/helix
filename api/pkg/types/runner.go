@@ -122,6 +122,8 @@ type RunnerSlot struct {
 	Active                 bool           `json:"active" gorm:"default:false"`
 	Ready                  bool           `json:"ready" gorm:"default:false"`
 	Status                 string         `json:"status"`
+	ActiveRequests         int64          `json:"active_requests" gorm:"default:0"`
+	MaxConcurrency         int64          `json:"max_concurrency" gorm:"default:1"`
 	GPUIndex               *int           `json:"gpu_index,omitempty"`
 	GPUIndices             []int          `json:"gpu_indices,omitempty" gorm:"type:jsonb;serializer:json"`
 	TensorParallelSize     int            `json:"tensor_parallel_size,omitempty" gorm:"default:0"`

@@ -38,6 +38,7 @@ type OllamaRuntime struct {
 	contextLength  int64
 	model          string
 	args           []string
+	numParallel    int // Number of parallel requests
 	ollamaClient   *api.Client
 	cmd            *exec.Cmd
 	cancel         context.CancelFunc
@@ -75,6 +76,7 @@ type OllamaRuntimeParams struct {
 	ContextLength *int64                         // Optional: Context length to use for the model
 	Model         *string                        // Optional: Model to use
 	Args          []string                       // Optional: Additional arguments to pass to Ollama
+	NumParallel   *int                           // Optional: Number of parallel requests (default 1)
 	GPUIndex      *int                           // Optional: Primary GPU index for single-GPU models
 	GPUIndices    []int                          // Optional: GPU indices for multi-GPU models (overrides GPUIndex)
 	LogBuffer     *system.ModelInstanceLogBuffer // Optional: Log buffer for capturing logs
@@ -128,14 +130,20 @@ func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRun
 		gpuIndices = []int{gpuIndex}
 	}
 
-	// Log GPU configuration
+	// Set numParallel with default
+	numParallel := 1
+	if params.NumParallel != nil {
+		numParallel = *params.NumParallel
+	}
+
 	log.Debug().
 		Str("model", model).
 		Int64("context_length", contextLength).
+		Int("num_parallel", numParallel).
 		Strs("args", params.Args).
 		Int("gpu_index", gpuIndex).
 		Ints("gpu_indices", gpuIndices).
-		Msg("NewOllamaRuntime GPU configuration")
+		Msg("NewOllamaRuntime configuration")
 
 	return &OllamaRuntime{
 		version:       "unknown",
@@ -145,6 +153,7 @@ func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRun
 		contextLength: contextLength,
 		model:         model,
 		args:          params.Args,
+		numParallel:   numParallel,
 		gpuIndex:      gpuIndex,
 		gpuIndices:    gpuIndices,
 		logBuffer:     params.LogBuffer,
@@ -192,7 +201,7 @@ func (i *OllamaRuntime) Start(ctx context.Context) error {
 	}()
 
 	// Start ollama cmd
-	cmd, err := startOllamaCmd(ctx, ollamaCommander, i.port, i.cacheDir, i.contextLength, i.gpuIndex, i.gpuIndices, i.logBuffer)
+	cmd, err := startOllamaCmd(ctx, ollamaCommander, i.port, i.cacheDir, i.contextLength, i.numParallel, i.gpuIndex, i.gpuIndices, i.logBuffer)
 	if err != nil {
 		return fmt.Errorf("error building ollama cmd: %w", err)
 	}
@@ -514,7 +523,7 @@ func (i *OllamaRuntime) waitUntilOllamaIsReady(ctx context.Context, startTimeout
 	}
 }
 
-func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, _ int, gpuIndices []int, logBuffer *system.ModelInstanceLogBuffer) (*exec.Cmd, error) {
+func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir string, contextLength int64, numParallel int, _ int, gpuIndices []int, logBuffer *system.ModelInstanceLogBuffer) (*exec.Cmd, error) {
 	// Find ollama on the path
 	ollamaPath, err := commander.LookPath("ollama")
 	if err != nil {
@@ -534,7 +543,7 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 		"HTTPS_PROXY=" + os.Getenv("HTTPS_PROXY"),
 		"OLLAMA_KEEP_ALIVE=-1",
 		"OLLAMA_MAX_LOADED_MODELS=1",
-		"OLLAMA_NUM_PARALLEL=1",
+		fmt.Sprintf("OLLAMA_NUM_PARALLEL=%d", numParallel),
 		"OLLAMA_FLASH_ATTENTION=1",
 		"OLLAMA_KV_CACHE_TYPE=" + types.DefaultKVCacheType,
 		"OLLAMA_HOST=" + ollamaHost, // Bind on localhost with random port

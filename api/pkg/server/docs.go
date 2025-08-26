@@ -7133,6 +7133,10 @@ const docTemplate = `{
                     "description": "Whether to automatically pull the model if missing in the runner",
                     "type": "boolean"
                 },
+                "concurrency": {
+                    "description": "max concurrent requests per slot (0 = use global default)",
+                    "type": "integer"
+                },
                 "context_length": {
                     "type": "integer"
                 },
@@ -8172,6 +8176,9 @@ const docTemplate = `{
                 "active": {
                     "type": "boolean"
                 },
+                "active_requests": {
+                    "type": "integer"
+                },
                 "command_line": {
                     "type": "string"
                 },
@@ -8196,6 +8203,9 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
+                },
+                "max_concurrency": {
+                    "type": "integer"
                 },
                 "memory_estimation_meta": {
                     "type": "object",

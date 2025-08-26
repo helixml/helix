@@ -104,6 +104,7 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -551,7 +552,49 @@ func (s *Scheduler) RunnerStatus() ([]*types.RunnerStatus, error) {
 }
 
 func (s *Scheduler) RunnerSlots(runnerID string) ([]*types.RunnerSlot, error) {
-	return s.controller.GetSlots(runnerID)
+	// Get base slots from runner
+	baseSlots, err := s.controller.GetSlots(runnerID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Enrich with concurrency information from scheduler state
+	enrichedSlots := make([]*types.RunnerSlot, len(baseSlots))
+	for i, baseSlot := range baseSlots {
+		enrichedSlots[i] = &types.RunnerSlot{
+			ID:                     baseSlot.ID,
+			Created:                baseSlot.Created,
+			Updated:                baseSlot.Updated,
+			RunnerID:               baseSlot.RunnerID,
+			Runtime:                baseSlot.Runtime,
+			Model:                  baseSlot.Model,
+			ModelMemoryRequirement: baseSlot.ModelMemoryRequirement,
+			ContextLength:          baseSlot.ContextLength,
+			RuntimeArgs:            baseSlot.RuntimeArgs,
+			Version:                baseSlot.Version,
+			Active:                 baseSlot.Active,
+			Ready:                  baseSlot.Ready,
+			Status:                 baseSlot.Status,
+			GPUIndex:               baseSlot.GPUIndex,
+			GPUIndices:             baseSlot.GPUIndices,
+			TensorParallelSize:     baseSlot.TensorParallelSize,
+			CommandLine:            baseSlot.CommandLine,
+			WorkloadData:           baseSlot.WorkloadData,
+			GPUAllocationData:      baseSlot.GPUAllocationData,
+		}
+
+		// Find matching scheduler slot to get concurrency info
+		if schedulerSlot, exists := s.slots.Load(baseSlot.ID); exists {
+			enrichedSlots[i].ActiveRequests = schedulerSlot.GetActiveRequests()
+			enrichedSlots[i].MaxConcurrency = atomic.LoadInt64(&schedulerSlot.maxConcurrency)
+		} else {
+			// Fallback values if scheduler slot not found
+			enrichedSlots[i].ActiveRequests = 0
+			enrichedSlots[i].MaxConcurrency = 1
+		}
+	}
+
+	return enrichedSlots, nil
 }
 
 // DeleteSlot removes a slot from the scheduler's desired state
@@ -770,7 +813,7 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 			if slot.InitialWork().ModelName() == req.Model &&
 				slot.InitialWork().Runtime() == req.Runtime &&
 				slot.InitialWork().LoraDir() == req.LoraDir &&
-				!slot.IsActive() {
+				slot.HasCapacity() {
 				existingCount++
 			}
 			return true
@@ -940,13 +983,12 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 		if runnerSlot, exists := allActualSlotDetails[slotID]; exists {
 			// Slot exists in both scheduler and on runner - sync the status
 			isRunning := runnerSlot.Ready && runnerSlot.Status != ""
-			isActive := runnerSlot.Active
 
-			// Only collect updates if status has changed
-			if schedulerSlot.IsRunning() != isRunning || schedulerSlot.IsActive() != isActive {
+			// Only collect updates if running status has changed
+			if schedulerSlot.IsRunning() != isRunning {
 				updates = append(updates, slotUpdate{
 					slotID:     slotID,
-					isActive:   isActive,
+					isActive:   false, // Scheduler manages active state internally
 					isRunning:  isRunning,
 					runnerID:   schedulerSlot.RunnerID,
 					modelName:  schedulerSlot.InitialWork().ModelName().String(),
@@ -961,7 +1003,7 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	// Apply updates after Range completes to avoid deadlock
 	syncedSlotCount := 0
 	for _, update := range updates {
-		s.slots.UpdateSlotActivity(update.slotID, update.isActive, update.isRunning)
+		s.slots.UpdateSlotActivity(update.slotID, false, update.isRunning)
 		syncedSlotCount++
 
 		// log.Info().
@@ -1276,7 +1318,25 @@ func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
 		return 0, fmt.Errorf("model %s has no context length configured", modelID)
 	}
 
-	opts := types.CreateAutoEstimateOptions(targetModel.ContextLength)
+	// Get concurrency setting for memory estimation
+	var numParallel int
+	if targetModel.Concurrency > 0 {
+		numParallel = targetModel.Concurrency
+	} else if targetModel.Runtime == types.RuntimeVLLM {
+		numParallel = 256 // VLLM's natural default
+	} else if targetModel.Runtime == types.RuntimeOllama {
+		numParallel = 4 // Reasonable default for Ollama
+	} else {
+		numParallel = types.DefaultParallelSequences
+	}
+
+	opts := memory.EstimateOptions{
+		NumCtx:      int(targetModel.ContextLength),
+		NumBatch:    types.DefaultBatchSize,
+		NumParallel: numParallel,
+		NumGPU:      types.AutoDetectLayers,
+		KVCacheType: types.DefaultKVCacheType,
+	}
 
 	log.Debug().
 		Str("CONTEXT_DEBUG", "scheduler_opts").
@@ -1317,7 +1377,6 @@ func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
 			Str("recommendation", result.Recommendation).
 			Interface("single_gpu", result.SingleGPU).
 			Interface("tensor_parallel", result.TensorParallel).
-			Interface("cpu_only", result.CPUOnly).
 			Msg("📋 SALMON Scheduler memory estimation result details for cpu_only/insufficient_memory case")
 
 		if result.SingleGPU != nil && result.SingleGPU.TotalSize > 0 {
@@ -2124,9 +2183,11 @@ func (s *Scheduler) warmSlotsWithReason(req *Workload, reasonOut *string) []*Slo
 		}
 		runningSlots++
 
-		// If the slot is already running another job, skip
-		if slot.IsActive() {
-			withSlotContext(&log.Logger, slot).Trace().Msg("skipping warm slot, already active")
+		// If the slot has no capacity for more work, skip
+		if !slot.HasCapacity() {
+			withSlotContext(&log.Logger, slot).Trace().
+				Int64("active_requests", slot.GetActiveRequests()).
+				Msg("skipping warm slot, at capacity")
 			return true
 		}
 		availableSlots++
@@ -2156,7 +2217,7 @@ func (s *Scheduler) warmSlotsWithReason(req *Workload, reasonOut *string) []*Slo
 		} else if runningSlots == 0 {
 			*reasonOut = fmt.Sprintf("All %d matching slots still starting for model %s", loraMatchSlots, req.ModelName())
 		} else if availableSlots == 0 {
-			*reasonOut = fmt.Sprintf("All %d running slots busy for model %s", runningSlots, req.ModelName())
+			*reasonOut = fmt.Sprintf("All %d running slots at capacity for model %s", runningSlots, req.ModelName())
 		} else {
 			*reasonOut = fmt.Sprintf("No warm slots available for model %s (%d total, %d running, %d available)",
 				req.ModelName(), totalSlots, runningSlots, availableSlots)
@@ -2203,11 +2264,19 @@ func (s *Scheduler) pickBestWarmSlot(warmSlots []*Slot) *Slot {
 	})
 
 	// Sort slots considering:
-	// 1. Runner load (prefer less loaded runners)
-	// 2. Last activity time (prefer more recently used slots)
-	// 3. Random factor for tie-breaking
+	// 1. Slot load (prefer slots with fewer active requests)
+	// 2. Runner load (prefer less loaded runners)
+	// 3. Last activity time (prefer more recently used slots)
+	// 4. Random factor for tie-breaking
 	slices.SortFunc(warmSlots, func(i, j *Slot) int {
-		// First compare runner load
+		// First compare slot load - prefer slots with fewer active requests
+		iActive := i.GetActiveRequests()
+		jActive := j.GetActiveRequests()
+		if iActive != jActive {
+			return int(iActive - jActive)
+		}
+
+		// Then compare runner load
 		if activeSlots[i.RunnerID] != activeSlots[j.RunnerID] {
 			return activeSlots[i.RunnerID] - activeSlots[j.RunnerID]
 		}
@@ -2232,9 +2301,9 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 		return fmt.Errorf("slot not found: %s", slot.ID.String())
 	}
 
-	// Ensure the slot is not already scheduled or active.
-	if slot.IsActive() {
-		return fmt.Errorf("slot already active: %s", slot.ID.String())
+	// Ensure the slot has capacity for more work
+	if !slot.HasCapacity() {
+		return fmt.Errorf("slot at capacity: %s", slot.ID.String())
 	}
 
 	// Marks the slot as locally active. This is reset in the reconciliation process.
