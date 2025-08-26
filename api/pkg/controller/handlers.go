@@ -146,15 +146,16 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 		}
 
 		modelMemoryMap[model.ID] = memory
+
 		log.Debug().
 			Str("MEMORY_DEBUG", "storing_in_modelMemoryMap").
 			Str("model_id", model.ID).
 			Str("model_type", string(model.Type)).
 			Str("runtime", string(model.Runtime)).
+			Bool("enabled", model.Enabled).
 			Uint64("memory_bytes", memory).
 			Uint64("memory_gb", memory/(1024*1024*1024)).
 			Float64("memory_gib", float64(memory)/(1024*1024*1024)).
-			Bool("enabled", model.Enabled).
 			Msg("🔥 MEMORY_DEBUG: Storing model memory in modelMemoryMap")
 	}
 
@@ -317,10 +318,6 @@ func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context,
 		return 0, fmt.Errorf("GGUF-based estimation only available for Ollama models, got %s", targetModel.Runtime)
 	}
 
-	// Use standard GPU configuration for estimation (single 80GB GPU)
-	// This fixes the FreeMemory=0 bug that caused 0 layers to fit
-	gpuConfig := types.CreateStandardGPUConfig(1, 80)
-
 	// Use model's actual context length - no fallbacks
 	log.Debug().
 		Str("CONTEXT_DEBUG", "dashboard").
@@ -339,15 +336,32 @@ func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context,
 	// Use model's actual context length and correct KV cache type
 	opts := types.CreateAutoEstimateOptions(targetModel.ContextLength)
 
+	// CRITICAL: Use same concurrency setting as scheduler to ensure consistent cache keys and estimates
+	// This fixes the 14.848 GiB vs 47.75 GB discrepancy
+	if targetModel.Concurrency > 0 {
+		opts.NumParallel = targetModel.Concurrency
+		log.Debug().
+			Str("model_id", modelID).
+			Int("concurrency", targetModel.Concurrency).
+			Msg("🦈 HAMMERHEAD Dashboard using per-model concurrency setting")
+	} else if targetModel.Runtime == types.RuntimeOllama {
+		opts.NumParallel = 4 // Match scheduler's "reasonable default for Ollama"
+		log.Debug().
+			Str("model_id", modelID).
+			Int("concurrency", opts.NumParallel).
+			Msg("🦈 HAMMERHEAD Dashboard using Ollama default concurrency")
+	}
+
 	log.Debug().
 		Str("CONTEXT_DEBUG", "dashboard_opts").
 		Str("model_id", modelID).
 		Int("num_ctx_being_used", opts.NumCtx).
+		Int("num_parallel_being_used", opts.NumParallel).
 		Str("kv_cache_type", opts.KVCacheType).
 		Msg("🦈 HAMMERHEAD Dashboard using these estimation options")
 
 	// Get memory estimation
-	result, err := memEstService.EstimateModelMemory(ctx, modelID, gpuConfig, opts)
+	result, err := memEstService.EstimateModelMemory(ctx, modelID, opts)
 	if err != nil {
 		return 0, fmt.Errorf("failed to estimate model memory: %w", err)
 	}
@@ -439,10 +453,10 @@ func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context,
 		log.Debug().
 			Str("MEMORY_DEBUG", "final_dashboard_value").
 			Str("model_id", modelID).
-			Uint64("vram_size", estimate.VRAMSize).
 			Uint64("total_size", estimate.TotalSize).
 			Uint64("total_size_gb", estimate.TotalSize/(1024*1024*1024)).
 			Float64("total_size_gib", float64(estimate.TotalSize)/(1024*1024*1024)).
+			Uint64("vram_size", estimate.VRAMSize).
 			Msg("🔥 MEMORY_DEBUG: Final memory value being returned for dashboard")
 		return estimate.TotalSize, nil
 	} else {

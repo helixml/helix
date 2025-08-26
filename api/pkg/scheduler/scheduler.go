@@ -122,7 +122,7 @@ import (
 
 // MemoryEstimationService interface for getting dynamic memory estimates
 type MemoryEstimationService interface {
-	EstimateModelMemory(ctx context.Context, modelName string, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) (*memory.EstimationResult, error)
+	EstimateModelMemory(ctx context.Context, modelName string, opts memory.EstimateOptions) (*memory.EstimationResult, error)
 }
 
 const (
@@ -1291,10 +1291,6 @@ func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
 		return 0, fmt.Errorf("GGUF-based estimation only available for Ollama models, got %s", targetModel.Runtime)
 	}
 
-	// Use standard GPU configuration for estimation (single 80GB GPU)
-	// This fixes the FreeMemory=0 bug that caused 0 layers to fit
-	gpuConfig := types.CreateStandardGPUConfig(1, 80)
-
 	// Use model's actual context length - no fallbacks
 	log.Debug().
 		Str("CONTEXT_DEBUG", "scheduler").
@@ -1341,7 +1337,7 @@ func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
 	log.Info().
 		Str("model_id", modelID).
 		Msg("PREWARM_DEBUG: About to call memoryEstimationService.EstimateModelMemory - this will contact runner via NATS")
-	result, err := s.memoryEstimationService.EstimateModelMemory(context.Background(), modelID, gpuConfig, opts)
+	result, err := s.memoryEstimationService.EstimateModelMemory(context.Background(), modelID, opts)
 	if err != nil {
 		log.Error().
 			Str("model_id", modelID).

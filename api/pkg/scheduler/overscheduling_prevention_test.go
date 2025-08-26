@@ -34,7 +34,7 @@ func NewSimpleMemoryEstimationService() *SimpleMemoryEstimationService {
 	}
 }
 
-func (m *SimpleMemoryEstimationService) EstimateModelMemory(ctx context.Context, modelName string, gpuConfig []types.GPUInfoForEstimation, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
+func (m *SimpleMemoryEstimationService) EstimateModelMemory(ctx context.Context, modelName string, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
 	memSize, ok := m.modelMemory[modelName]
 	if !ok {
 		return nil, fmt.Errorf("model %s not found in mock", modelName)

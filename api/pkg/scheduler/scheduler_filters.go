@@ -30,34 +30,11 @@ func (s *Scheduler) filterRunners(work *Workload, runnerIDs []string) ([]string,
 func (s *Scheduler) getEffectiveMemoryRequirement(ctx context.Context, work *Workload, runnerID string, numGPUs int) (uint64, bool) {
 	// For Ollama models, try to get GGUF-based memory estimate
 	if work.Runtime() == types.RuntimeOllama && s.memoryEstimationService != nil {
-		// Convert runner's GPU info for estimation
-		gpuInfo, err := s.controller.GetGPUMemoryInfo(runnerID)
-		if err != nil || len(gpuInfo) == 0 {
-			log.Debug().
-				Str("runner_id", runnerID).
-				Str("model", work.ModelName().String()).
-				Msg("no GPU info available for GGUF estimation - will skip scheduling this Ollama model")
-			return 0, false
-		}
-
-		// Convert to estimation format
-		var estimationGPUs []types.GPUInfoForEstimation
-		for _, gpu := range gpuInfo {
-			estimationGPUs = append(estimationGPUs, types.GPUInfoForEstimation{
-				ID:            fmt.Sprintf("%s-gpu-%d", runnerID, gpu.Index), // Generate ID from runner and index
-				Index:         gpu.Index,
-				Library:       "cuda", // Assume CUDA for now
-				FreeMemory:    gpu.FreeMemory,
-				TotalMemory:   gpu.TotalMemory,
-				MinimumMemory: 512 * 1024 * 1024, // 512MB minimum like standard config
-				Name:          gpu.ModelName,
-			})
-		}
-
-		// Limit to requested number of GPUs
-		if numGPUs > 0 && numGPUs < len(estimationGPUs) {
-			estimationGPUs = estimationGPUs[:numGPUs]
-		}
+		log.Debug().
+			Str("runner_id", runnerID).
+			Str("model", work.ModelName().String()).
+			Int("num_gpus", numGPUs).
+			Msg("using standard GPU config for GGUF memory estimation")
 
 		// Get memory estimate with model's context length and concurrency
 		var numParallel int
@@ -79,7 +56,7 @@ func (s *Scheduler) getEffectiveMemoryRequirement(ctx context.Context, work *Wor
 			KVCacheType: types.DefaultKVCacheType,
 		}
 
-		result, err := s.memoryEstimationService.EstimateModelMemory(ctx, work.model.ID, estimationGPUs, opts)
+		result, err := s.memoryEstimationService.EstimateModelMemory(ctx, work.model.ID, opts)
 		if err != nil {
 			log.Warn().
 				Err(err).
