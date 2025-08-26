@@ -120,6 +120,18 @@ func ValidateEstimateOptions(opts EstimateOptions) error {
 	return nil
 }
 
+// CreateTestEstimateOptions creates EstimateOptions for testing with reasonable defaults
+// contextLength: test context length (common values: 4096, 131072)
+func CreateTestEstimateOptions(contextLength int) EstimateOptions {
+	return EstimateOptions{
+		NumCtx:      contextLength,
+		NumBatch:    512,
+		NumParallel: 1,
+		NumGPU:      -1, // Auto-detect all layers that fit
+		KVCacheType: "q8_0",
+	}
+}
+
 // FormatMemorySize formats bytes as human readable string
 func FormatMemorySize(bytes uint64) string {
 	const unit = 1024

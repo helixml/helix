@@ -41,12 +41,6 @@ func CreateAutoEstimateOptions(contextLength int64) memory.EstimateOptions {
 	return CreateOllamaEstimateOptions(contextLength, AutoDetectLayers)
 }
 
-// CreateTestEstimateOptions creates EstimateOptions for testing with reasonable defaults
-// contextLength: test context length (common values: 4096, 131072)
-func CreateTestEstimateOptions(contextLength int) memory.EstimateOptions {
-	return CreateOllamaEstimateOptions(int64(contextLength), AutoDetectLayers)
-}
-
 // CreateEstimateOptionsForGPUArray creates EstimateOptions when using a GPU configuration array
 // This is used when the number of GPUs is specified by the GPU config array passed separately.
 // The NumGPU field is set to auto-detect layers since GPU count is handled elsewhere.

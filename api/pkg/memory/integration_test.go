@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -79,7 +78,7 @@ func TestMemoryEstimation(t *testing.T) {
 			},
 		}
 
-		opts := types.CreateTestEstimateOptions(4096)
+		opts := CreateTestEstimateOptions(4096)
 
 		estimate := EstimateGPULayers(gpuInfos, metadata, opts)
 		require.NotNil(t, estimate)
@@ -122,7 +121,7 @@ func TestMemoryEstimation(t *testing.T) {
 			},
 		}
 
-		opts := types.CreateTestEstimateOptions(4096)
+		opts := CreateTestEstimateOptions(4096)
 
 		estimate := EstimateGPULayers(gpuInfos, metadata, opts)
 		require.NotNil(t, estimate)
@@ -156,7 +155,7 @@ func TestMemoryEstimation(t *testing.T) {
 			},
 		}
 
-		opts := types.CreateTestEstimateOptions(131072) // Large context like in our debug case
+		opts := CreateTestEstimateOptions(131072) // Large context like in our debug case
 
 		estimate := EstimateGPULayers(gpuInfos, metadata, opts)
 		require.NotNil(t, estimate)
@@ -197,7 +196,7 @@ func TestMemoryEstimation(t *testing.T) {
 		}
 
 		// Use exact parameters from debug output
-		opts := types.CreateTestEstimateOptions(131072) // Exact match from debug
+		opts := CreateTestEstimateOptions(131072) // Exact match from debug
 
 		estimate := EstimateGPULayers(gpuInfos, metadata, opts)
 		require.NotNil(t, estimate)
@@ -279,7 +278,7 @@ func TestMemoryEstimation(t *testing.T) {
 			},
 		}
 
-		opts := types.CreateTestEstimateOptions(131072)
+		opts := CreateTestEstimateOptions(131072)
 
 		estimate := EstimateGPULayers(gpuInfos, gptossMetadata, opts)
 		require.NotNil(t, estimate)
