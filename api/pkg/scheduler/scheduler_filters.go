@@ -41,9 +41,9 @@ func (s *Scheduler) getEffectiveMemoryRequirement(ctx context.Context, work *Wor
 		if work.model.Concurrency > 0 {
 			numParallel = work.model.Concurrency
 		} else if work.Runtime() == types.RuntimeVLLM {
-			numParallel = 256 // VLLM's natural default
+			numParallel = types.DefaultVLLMParallelSequences
 		} else if work.Runtime() == types.RuntimeOllama {
-			numParallel = 4 // Reasonable default for Ollama
+			numParallel = types.DefaultOllamaParallelSequences
 		} else {
 			numParallel = types.DefaultParallelSequences
 		}

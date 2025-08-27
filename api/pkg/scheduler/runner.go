@@ -1447,7 +1447,7 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 					Msg("Using per-model concurrency setting for VLLM")
 			} else {
 				// Use VLLM's natural default
-				numParallel = 256
+				numParallel = types.DefaultVLLMParallelSequences
 				log.Debug().
 					Str("model", modelName).
 					Int("concurrency", numParallel).
@@ -1510,7 +1510,7 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 					Msg("Using per-model concurrency setting for Ollama")
 			} else {
 				// Use reasonable default for Ollama
-				numParallel = 4
+				numParallel = types.DefaultOllamaParallelSequences
 				log.Debug().
 					Str("model", modelName).
 					Int("concurrency", numParallel).
@@ -1581,6 +1581,20 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 			Str("model", slot.InitialWork().ModelName().String()).
 			Msg("No model memory callback available, using slot memory")
 		modelMemoryRequirement = slot.Memory()
+	}
+
+	// CRITICAL SAFETY CHECK: Never allow slots with zero memory requirement
+	// This prevents overscheduling bugs where the scheduler thinks no memory is allocated
+	if modelMemoryRequirement == 0 {
+		err := fmt.Errorf("CRITICAL: Cannot create slot with zero memory requirement for model %s on runner %s - this would cause overscheduling",
+			slot.InitialWork().ModelName().String(), slot.RunnerID)
+		log.Error().
+			Str("runner_id", slot.RunnerID).
+			Str("slot_id", slot.ID.String()).
+			Str("model", slot.InitialWork().ModelName().String()).
+			Err(err).
+			Msg("CRITICAL: Refusing to create slot with zero memory requirement - fix model memory configuration")
+		return err
 	}
 
 	// For Ollama models, collect memory estimation metadata for tooltip display

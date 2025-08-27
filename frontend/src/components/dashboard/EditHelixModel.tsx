@@ -71,6 +71,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
         runtime: TypesRuntime.RuntimeOllama as TypesRuntime,
         memory: 0, // Store memory in GB
         context_length: 0, // Initialize context length
+        concurrency: 0, // Number of concurrent requests (0 = use runtime default)
         enabled: true,
         hide: false,
         auto_pull: true, // Enable auto_pull by default
@@ -93,6 +94,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                         ? model.memory / (1024 * 1024 * 1024)
                         : 0, // Convert bytes to GB
                     context_length: model.context_length || 0,
+                    concurrency: model.concurrency || 0, // Initialize concurrency
                     enabled:
                         model.enabled !== undefined ? model.enabled : false, // Default to false if undefined
                     hide: model.hide || false,
@@ -234,6 +236,8 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                 formData.context_length > 0
                     ? formData.context_length
                     : undefined,
+            concurrency:
+                formData.concurrency > 0 ? formData.concurrency : undefined, // 0 means use runtime default
             enabled: formData.enabled,
             auto_pull: formData.auto_pull,
             prewarm: formData.prewarm,
@@ -523,44 +527,46 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                     {/* Pull button for Ollama models - right under runtime dropdown */}
                     {!isEditing &&
                         formData.runtime === TypesRuntime.RuntimeOllama && (
-                        <Box>
-                            <Button
-                                variant="contained"
-                                color={
-                                    isModelRegistered ? "success" : "primary"
-                                }
-                                size="large"
-                                startIcon={<DownloadIcon />}
-                                onClick={handlePullModel}
-                                disabled={
-                                    loading ||
-                                    !formData.id.trim() ||
-                                    isModelRegistered
-                                }
-                                fullWidth
-                                sx={{
-                                    py: 1.5,
-                                    fontSize: "1.1rem",
-                                    fontWeight: "bold",
-                                    boxShadow: 2,
-                                    "&:hover": {
-                                        boxShadow: 4,
-                                    },
-                                }}
-                            >
-                                {isModelRegistered
-                                    ? "✓ Model Registered"
-                                    : "Register & Pull Model"}
-                            </Button>
-                            <FormHelperText>
-                                {isModelRegistered
-                                    ? "Model registered successfully! Download progress will appear below."
-                                    : !formData.id.trim()
-                                      ? "Enter a Model ID above to register and pull the model"
-                                      : "Register the model and start downloading. Progress will be shown below."}
-                            </FormHelperText>
-                        </Box>
-                    )}
+                            <Box>
+                                <Button
+                                    variant="contained"
+                                    color={
+                                        isModelRegistered
+                                            ? "success"
+                                            : "primary"
+                                    }
+                                    size="large"
+                                    startIcon={<DownloadIcon />}
+                                    onClick={handlePullModel}
+                                    disabled={
+                                        loading ||
+                                        !formData.id.trim() ||
+                                        isModelRegistered
+                                    }
+                                    fullWidth
+                                    sx={{
+                                        py: 1.5,
+                                        fontSize: "1.1rem",
+                                        fontWeight: "bold",
+                                        boxShadow: 2,
+                                        "&:hover": {
+                                            boxShadow: 4,
+                                        },
+                                    }}
+                                >
+                                    {isModelRegistered
+                                        ? "✓ Model Registered"
+                                        : "Register & Pull Model"}
+                                </Button>
+                                <FormHelperText>
+                                    {isModelRegistered
+                                        ? "Model registered successfully! Download progress will appear below."
+                                        : !formData.id.trim()
+                                          ? "Enter a Model ID above to register and pull the model"
+                                          : "Register the model and start downloading. Progress will be shown below."}
+                                </FormHelperText>
+                            </Box>
+                        )}
 
                     {/* Download progress for Ollama models */}
                     {!isEditing &&
@@ -769,6 +775,37 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                         </>
                     )}
 
+                    {/* Concurrency field - for Ollama models */}
+                    {formData.runtime === TypesRuntime.RuntimeOllama && (
+                        <TextField
+                            name="concurrency"
+                            label="Concurrent Requests"
+                            type="number"
+                            value={
+                                formData.concurrency === 0
+                                    ? ""
+                                    : formData.concurrency
+                            }
+                            onChange={handleTextFieldChange}
+                            fullWidth
+                            autoComplete="off"
+                            placeholder="0 (use runtime default)"
+                            helperText={
+                                formData.concurrency === 0 ||
+                                !formData.concurrency
+                                    ? "Number of concurrent requests this model can handle (0 = use runtime default of 2)"
+                                    : `This model will handle up to ${formData.concurrency} concurrent requests. Higher values use more memory.`
+                            }
+                            disabled={loading}
+                            InputProps={{
+                                inputProps: {
+                                    min: 0,
+                                    max: 16, // Reasonable upper limit
+                                },
+                            }}
+                        />
+                    )}
+
                     {/* Memory Estimation Widget for Ollama models - only show after download completes */}
                     {formData.runtime === TypesRuntime.RuntimeOllama &&
                         formData.id &&
@@ -781,6 +818,13 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                                     setFormData((prev) => ({
                                         ...prev,
                                         context_length: value,
+                                    }))
+                                }
+                                currentConcurrency={formData.concurrency}
+                                onConcurrencyChange={(value) =>
+                                    setFormData((prev) => ({
+                                        ...prev,
+                                        concurrency: value,
                                     }))
                                 }
                                 disabled={loading}

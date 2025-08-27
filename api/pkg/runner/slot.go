@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -191,6 +192,12 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 		}
 
 		// Extract num_parallel from RuntimeArgs if provided by scheduler
+		log.Info().
+			Str("slot_id", s.ID.String()).
+			Str("model", s.Model).
+			Interface("runtime_args", s.RuntimeArgs).
+			Msg("🔍 TRACING: RuntimeArgs received in slot creation")
+
 		if s.RuntimeArgs != nil {
 			if numParallelVal, ok := s.RuntimeArgs["num_parallel"].(int); ok && numParallelVal > 0 {
 				runtimeParams.NumParallel = &numParallelVal
@@ -198,8 +205,65 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 					Str("slot_id", s.ID.String()).
 					Str("model", s.Model).
 					Int("num_parallel", numParallelVal).
-					Msg("Using concurrency setting from scheduler for Ollama model")
+					Msg("🔍 TRACING: Successfully extracted num_parallel from RuntimeArgs for Ollama model")
+			} else {
+				// DEBUG: Check what type the value actually is
+				if val, exists := s.RuntimeArgs["num_parallel"]; exists {
+					log.Warn().
+						Str("slot_id", s.ID.String()).
+						Str("model", s.Model).
+						Interface("num_parallel_raw_value", val).
+						Str("actual_type", fmt.Sprintf("%T", val)).
+						Msg("🔍 TRACING: Type assertion failed - checking actual type")
+
+					// Try different type assertions
+					if float64Val, ok := val.(float64); ok {
+						numParallelInt := int(float64Val)
+						runtimeParams.NumParallel = &numParallelInt
+						log.Info().
+							Str("slot_id", s.ID.String()).
+							Str("model", s.Model).
+							Float64("num_parallel_float64", float64Val).
+							Int("num_parallel_converted", numParallelInt).
+							Msg("🔍 TRACING: Successfully extracted num_parallel as float64 and converted to int")
+					} else if stringVal, ok := val.(string); ok {
+						if numParallelInt, err := strconv.Atoi(stringVal); err == nil && numParallelInt > 0 {
+							runtimeParams.NumParallel = &numParallelInt
+							log.Info().
+								Str("slot_id", s.ID.String()).
+								Str("model", s.Model).
+								Str("num_parallel_string", stringVal).
+								Int("num_parallel_converted", numParallelInt).
+								Msg("🔍 TRACING: Successfully extracted num_parallel as string and converted to int")
+						} else {
+							log.Error().
+								Str("slot_id", s.ID.String()).
+								Str("model", s.Model).
+								Str("num_parallel_string", stringVal).
+								Err(err).
+								Msg("🔍 TRACING: Failed to convert num_parallel string to int")
+						}
+					} else {
+						log.Error().
+							Str("slot_id", s.ID.String()).
+							Str("model", s.Model).
+							Interface("num_parallel_value", val).
+							Str("actual_type", fmt.Sprintf("%T", val)).
+							Msg("🔍 TRACING: Unknown type for num_parallel - cannot convert")
+					}
+				} else {
+					log.Warn().
+						Str("slot_id", s.ID.String()).
+						Str("model", s.Model).
+						Interface("runtime_args", s.RuntimeArgs).
+						Msg("🔍 TRACING: num_parallel key does not exist in RuntimeArgs")
+				}
 			}
+		} else {
+			log.Warn().
+				Str("slot_id", s.ID.String()).
+				Str("model", s.Model).
+				Msg("🔍 TRACING: RuntimeArgs is nil - no num_parallel available")
 		}
 
 		log.Debug().
@@ -209,6 +273,18 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 			Ints("gpu_indices", s.GPUIndices).
 			Int("tensor_parallel_size", s.TensorParallelSize).
 			Msg("Creating Ollama runtime with scheduler GPU allocation")
+
+		log.Info().
+			Str("slot_id", s.ID.String()).
+			Str("model", s.Model).
+			Interface("num_parallel_ptr", runtimeParams.NumParallel).
+			Int("num_parallel_value", func() int {
+				if runtimeParams.NumParallel != nil {
+					return *runtimeParams.NumParallel
+				}
+				return 0
+			}()).
+			Msg("🔍 TRACING: Final runtimeParams.NumParallel being passed to NewOllamaRuntime")
 
 		s.runningRuntime, err = NewOllamaRuntime(ctx, runtimeParams)
 		if err != nil {

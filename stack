@@ -9,6 +9,7 @@ export WITH_DEMOS=${WITH_DEMOS:=""}
 export STOP_KEYCLOAK=${STOP_KEYCLOAK:=""}
 export STOP_POSTGRES=${STOP_POSTGRES:=""}
 export STOP_PGVECTOR=${STOP_PGVECTOR:=""}
+export WIPE_SLOTS=${WIPE_SLOTS:="0"}
 
 # Helper function to check for NVIDIA GPU and set appropriate variables
 function setup_runner_profile() {

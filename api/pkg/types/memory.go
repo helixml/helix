@@ -18,6 +18,13 @@ const (
 	// DefaultParallelSequences is the standard number of parallel sequences
 	DefaultParallelSequences = 1
 
+	// DefaultOllamaParallelSequences is the default number of parallel sequences for Ollama models
+	// Reduced from 4 to 2 to limit memory usage (parallelism multiplies context allocation)
+	DefaultOllamaParallelSequences = 2
+
+	// DefaultVLLMParallelSequences is the default number of parallel sequences for VLLM models
+	DefaultVLLMParallelSequences = 256
+
 	// AutoDetectLayers means auto-detect how many layers fit on GPU
 	AutoDetectLayers = -1
 )

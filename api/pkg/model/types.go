@@ -22,7 +22,7 @@ type Model interface {
 	// return the number of bytes of memory this model will require
 	// this enables the runner to multiplex models onto one GPU
 	GetMemoryRequirements(mode types.SessionMode) uint64
-	
+
 	// This is the new method that uses the memory estimation system
 
 	// tells you if this model is text or image based
@@ -30,6 +30,9 @@ type Model interface {
 
 	// returns the maximum context length for this model (0 means use default)
 	GetContextLength() int64
+
+	// returns the number of concurrent requests for this model (0 means use default)
+	GetConcurrency() int
 
 	// the function we call to get the python process booted and
 	// asking us for work

@@ -4154,12 +4154,6 @@ const docTemplate = `{
                 "estimate": {
                     "$ref": "#/definitions/memory.MemoryEstimate"
                 },
-                "gpu_config": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.GPUInfoForEstimation"
-                    }
-                },
                 "model_id": {
                     "type": "string"
                 }
@@ -6288,37 +6282,6 @@ const docTemplate = `{
                 },
                 "valid_until": {
                     "type": "string"
-                }
-            }
-        },
-        "types.GPUInfoForEstimation": {
-            "type": "object",
-            "properties": {
-                "free_memory": {
-                    "description": "Free memory in bytes",
-                    "type": "integer"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "index": {
-                    "type": "integer"
-                },
-                "library": {
-                    "description": "\"cuda\", \"rocm\", \"metal\", \"cpu\"",
-                    "type": "string"
-                },
-                "minimum_memory": {
-                    "description": "Minimum memory to reserve",
-                    "type": "integer"
-                },
-                "name": {
-                    "description": "GPU model name",
-                    "type": "string"
-                },
-                "total_memory": {
-                    "description": "Total memory in bytes",
-                    "type": "integer"
                 }
             }
         },

@@ -167,14 +167,16 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 	// Create standard GPU configurations with 80GB memory each
 	allGPUs := make([]discover.GpuInfo, 8) // Support up to 8 GPUs
 	for i := 0; i < 8; i++ {
-		allGPUs[i] = discover.GpuInfo{
+		gpu := discover.GpuInfo{
 			Library:       "cuda",
-			FreeMemory:    80 * 1024 * 1024 * 1024, // 80GB free
-			TotalMemory:   80 * 1024 * 1024 * 1024, // 80GB total
-			MinimumMemory: 512 * 1024 * 1024,       // 512MB minimum
+			MinimumMemory: 512 * 1024 * 1024, // 512MB minimum
 			ID:            fmt.Sprintf("standard-gpu-%d", i),
-			Index:         i,
+			Name:          fmt.Sprintf("Standard GPU %d", i),
 		}
+		// Set memory info through embedded struct
+		gpu.TotalMemory = 80 * 1024 * 1024 * 1024 // 80GB total
+		gpu.FreeMemory = 80 * 1024 * 1024 * 1024  // 80GB free
+		allGPUs[i] = gpu
 	}
 
 	// Test different GPU configurations
@@ -198,9 +200,11 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 		gpusToUse := allGPUs[:config.gpuCount]
 
 		// Create Ollama options
+		// CRITICAL: Multiply context length by numParallel because Ollama allocates numParallel * contextLength total context
+		adjustedContextLength := req.ContextLength * req.NumParallel
 		opts := api.Options{
 			Runner: api.Runner{
-				NumCtx:   req.ContextLength,
+				NumCtx:   adjustedContextLength,
 				NumBatch: req.BatchSize,
 				NumGPU:   -1, // -1 = auto-detect max layers (NOT GPU count!)
 			},
@@ -212,13 +216,15 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 			Str("model_name", req.ModelName).
 			Str("config", config.name).
 			Int("gpu_count", config.gpuCount).
+			Int("original_context_length", req.ContextLength).
+			Int("adjusted_context_length", adjustedContextLength).
 			Int("num_ctx", opts.Runner.NumCtx).
 			Int("num_batch", opts.Runner.NumBatch).
 			Int("num_gpu", opts.Runner.NumGPU).
 			Int("num_parallel", req.NumParallel).
 			Str("architecture", response.Architecture).
 			Uint64("block_count", response.BlockCount).
-			Msg("🔧 MEMORY_DEBUG: About to call Ollama's EstimateGPULayers with these exact parameters")
+			Msg("🔧 MEMORY_DEBUG: About to call Ollama's EstimateGPULayers with adjusted context length (original * numParallel)")
 
 		// Set the same environment variables that are used when actually running Ollama
 		// This ensures our memory estimation accounts for flash attention and other optimizations
