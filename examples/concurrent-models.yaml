@@ -1,0 +1,159 @@
+# Example Model Configurations with Concurrency Settings
+# This file demonstrates how to configure concurrent request handling
+# for different model types and sizes in Helix.
+
+---
+# Small Ollama model - can handle more concurrent requests
+apiVersion: helix.ml/v1alpha1
+kind: Model
+metadata:
+    name: phi3-mini-high-concurrency
+spec:
+    id: phi3:3.8b-mini-instruct-q4_0
+    runtime: ollama
+    memory: 4200000000 # 4.2GB
+    context_length: 4096
+    concurrency: 8 # Handle up to 8 concurrent requests
+    description: "Efficient small model optimized for high throughput chat"
+    enabled: true
+    auto_pull: true
+
+---
+# Medium Ollama model - moderate concurrency
+apiVersion: helix.ml/v1alpha1
+kind: Model
+metadata:
+    name: llama3-8b-balanced
+spec:
+    id: llama3:8b-instruct-q4_0
+    runtime: ollama
+    memory: 8500000000 # 8.5GB
+    context_length: 8192
+    concurrency: 4 # Handle up to 4 concurrent requests
+    description: "Balanced model for general purpose chat and reasoning"
+    enabled: true
+    auto_pull: true
+
+---
+# Large Ollama model - conservative concurrency
+apiVersion: helix.ml/v1alpha1
+kind: Model
+metadata:
+    name: llama3-70b-conservative
+spec:
+    id: llama3:70b-instruct-q4_0
+    runtime: ollama
+    memory: 42000000000 # 42GB
+    context_length: 8192
+    concurrency: 2 # Handle up to 2 concurrent requests
+    description: "Large model for complex reasoning tasks"
+    enabled: true
+    auto_pull: false # Don't auto-pull due to size
+
+---
+# VLLM vision model - high concurrency for multimodal tasks
+apiVersion: helix.ml/v1alpha1
+kind: Model
+metadata:
+    name: qwen-vl-high-throughput
+spec:
+    id: Qwen/Qwen2.5-VL-7B-Instruct
+    runtime: vllm
+    memory: 39000000000 # 39GB
+    context_length: 32768
+    concurrency: 12 # Handle up to 12 concurrent vision requests
+    description: "Vision-language model optimized for concurrent multimodal processing"
+    enabled: true
+    runtime_args:
+        args:
+            - "--trust-remote-code"
+            - "--max-model-len"
+            - "32768"
+            - "--limit-mm-per-prompt"
+            - '{"image":10}'
+            # --max-num-seqs will be automatically added based on concurrency setting
+
+---
+# VLLM text model - very high concurrency for simple tasks
+apiVersion: helix.ml/v1alpha1
+kind: Model
+metadata:
+    name: custom-vllm-high-concurrency
+spec:
+    id: microsoft/DialoGPT-medium
+    runtime: vllm
+    memory: 2000000000 # 2GB
+    context_length: 1024
+    concurrency: 32 # Handle up to 32 concurrent requests
+    description: "Lightweight conversational model for high-volume chat"
+    enabled: true
+    runtime_args:
+        args:
+            - "--trust-remote-code"
+            - "--max-model-len"
+            - "1024"
+            # --max-num-seqs 32 will be automatically added
+
+---
+# Model without explicit concurrency - uses global default
+apiVersion: helix.ml/v1alpha1
+kind: Model
+metadata:
+    name: default-concurrency-model
+spec:
+    id: gemma:2b-instruct-q4_0
+    runtime: ollama
+    memory: 2500000000 # 2.5GB
+    context_length: 2048
+    # No concurrency specified - will use runtime natural defaults (VLLM: 256, Ollama: 4)
+    description: "Model using global concurrency settings"
+    enabled: true
+    auto_pull: true
+
+---
+# Example configuration for development/testing
+apiVersion: helix.ml/v1alpha1
+kind: Model
+metadata:
+    name: dev-test-model
+spec:
+    id: tinyllama:1.1b-chat-q4_0
+    runtime: ollama
+    memory: 1200000000 # 1.2GB
+    context_length: 2048
+    concurrency: 1 # Single request for predictable testing
+    description: "Tiny model for development and testing"
+    enabled: true
+    auto_pull: true
+
+---
+# Configuration Notes:
+#
+# Natural Runtime Defaults (no configuration required):
+# - VLLM: 256 concurrent requests (--max-num-seqs 256)
+# - Ollama: 4 concurrent requests (OLLAMA_NUM_PARALLEL=4)
+# - Others: 1 concurrent request (backward compatible)
+#
+# Concurrency Guidelines (override natural defaults as needed):
+# - Small models (<5GB):     8-32 concurrent requests
+# - Medium models (5-15GB):  4-8 concurrent requests
+# - Large models (15-50GB):  2-4 concurrent requests
+# - Huge models (50GB+):     1-2 concurrent requests
+#
+# Runtime Behavior:
+# - Ollama: Sets OLLAMA_NUM_PARALLEL environment variable
+# - VLLM:   Adds --max-num-seqs command line argument
+# - Others: Defaults to 1 (no concurrency)
+#
+# Memory Impact:
+# - Higher concurrency increases memory usage (especially for VLLM's default 256)
+# - Memory estimation accounts for concurrency automatically
+# - Consider reducing VLLM concurrency for smaller GPUs
+# - Monitor GPU memory usage when increasing concurrency
+#
+# Performance Tips:
+# - Natural defaults work well for most use cases
+# - VLLM's default 256 may be too high for smaller GPUs - consider reducing
+# - Ollama's default 4 provides good balance of throughput and latency
+# - Monitor request latency - too much concurrency can hurt performance
+# - Consider model architecture - some models batch more efficiently

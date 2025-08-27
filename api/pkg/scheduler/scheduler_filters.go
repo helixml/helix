@@ -84,20 +84,47 @@ func (s *Scheduler) getEffectiveMemoryRequirement(ctx context.Context, work *Wor
 			return 0, false
 		}
 
+		// Get database memory for comparison logging only
+		databaseMemory := uint64(0)
+		if work.model != nil {
+			databaseMemory = work.model.Memory
+		}
+
 		log.Info().
 			Str("GGUF_MEMORY_ESTIMATE", "used").
 			Str("runner_id", runnerID).
 			Str("model", work.ModelName().String()).
 			Int("num_gpus", numGPUs).
 			Uint64("gguf_memory_gb", estimate.TotalSize/(1024*1024*1024)).
-			Uint64("hardcoded_memory_gb", work.model.Memory/(1024*1024*1024)).
-			Msg("using GGUF-based memory estimate instead of hardcoded value")
+			Uint64("database_memory_gb", databaseMemory/(1024*1024*1024)).
+			Msg("using GGUF-based memory estimate instead of database value")
 
 		return estimate.TotalSize, true
 	}
 
-	// For non-Ollama models or when GGUF estimation is not available, use hardcoded value
-	return work.model.Memory, false
+	// For non-Ollama models, get authoritative memory from scheduler
+	if s != nil {
+		authoritativeMemory, err := s.getModelMemory(work.ModelName().String())
+		if err != nil {
+			log.Error().
+				Str("model", work.ModelName().String()).
+				Err(err).
+				Msg("CRITICAL: Failed to get authoritative memory for non-Ollama model")
+			return 0, false
+		}
+		return authoritativeMemory, false
+	}
+
+	// Fallback only if scheduler context not available
+	if work.model != nil && work.model.Memory > 0 {
+		log.Warn().
+			Str("model", work.ModelName().String()).
+			Uint64("database_memory_gb", work.model.Memory/(1024*1024*1024)).
+			Msg("Using database memory as last resort - may be stale")
+		return work.model.Memory, false
+	}
+
+	return 0, false
 }
 
 func (s *Scheduler) filterRunnersByMemory(work *Workload, runnerIDs []string) ([]string, error) {

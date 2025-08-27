@@ -2,16 +2,52 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+// InsufficientMemoryTestService provides memory estimates for insufficient memory testing
+type InsufficientMemoryTestService struct {
+	modelMemory map[string]uint64
+}
+
+func NewInsufficientMemoryTestService() *InsufficientMemoryTestService {
+	return &InsufficientMemoryTestService{
+		modelMemory: map[string]uint64{
+			"Qwen/Qwen2.5-VL-7B-Instruct": 39 * 1024 * 1024 * 1024, // 39GB
+			"MrLight/dse-qwen2-2b-mrl-v1": 8 * 1024 * 1024 * 1024,  // 8GB
+			"gpt-oss:20b":                 16 * 1024 * 1024 * 1024, // 16GB
+			"qwen3:8b":                    10 * 1024 * 1024 * 1024, // 10GB
+		},
+	}
+}
+
+func (m *InsufficientMemoryTestService) EstimateModelMemory(ctx context.Context, modelName string, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
+	memSize, ok := m.modelMemory[modelName]
+	if !ok {
+		return nil, fmt.Errorf("model %s not found in insufficient memory test mock", modelName)
+	}
+
+	estimate := &memory.MemoryEstimate{
+		Layers:    36, // Mock value
+		VRAMSize:  memSize,
+		TotalSize: memSize,
+	}
+
+	return &memory.EstimationResult{
+		Recommendation: "single_gpu",
+		SingleGPU:      estimate,
+	}, nil
+}
 
 // TestInsufficientMemoryPrewarming tests the scenario where there isn't enough memory
 // to fit all prewarm models, and the scheduler should select a subset that fits
@@ -24,9 +60,22 @@ func TestInsufficientMemoryPrewarming(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
+	// Test models that normally would be prewarmed - total ~73GB
+	testModels := []*types.Model{
+		{ID: "Qwen/Qwen2.5-VL-7B-Instruct", Memory: 39 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: true, ContextLength: 32768}, // 39GB
+		{ID: "MrLight/dse-qwen2-2b-mrl-v1", Memory: 8 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: true, ContextLength: 8192},   // 8GB
+		{ID: "gpt-oss:20b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: true, ContextLength: 131072},                                    // 16GB (GGUF estimated)
+		{ID: "qwen3:8b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: true, ContextLength: 40960},                                        // 10GB (GGUF estimated)
+	}
+
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+
+	// Add GetModel expectations for each test model
+	for _, model := range testModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
 	// Mock slot operations
 	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
 	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
@@ -41,9 +90,10 @@ func TestInsufficientMemoryPrewarming(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		Store:            mockStore,
-		QueueSize:        50,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewInsufficientMemoryTestService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -78,9 +128,19 @@ func TestInsufficientMemoryPrewarming(t *testing.T) {
 	require.Less(t, len(prewarmModels), 4, "Should not select all models due to insufficient memory")
 
 	// Verify that selected models don't exceed available memory
+	// Use memory estimation service to get actual memory requirements
+	memoryService := NewInsufficientMemoryTestService()
 	totalSelectedMemory := uint64(0)
 	for _, model := range prewarmModels {
-		totalSelectedMemory += model.Memory
+		if model.Runtime == types.RuntimeOllama {
+			// Use GGUF estimation for Ollama models
+			result, err := memoryService.EstimateModelMemory(ctx, model.ID, memory.EstimateOptions{})
+			require.NoError(t, err, "Should be able to estimate memory for model %s", model.ID)
+			totalSelectedMemory += result.SingleGPU.TotalSize
+		} else {
+			// Use database value for VLLM models
+			totalSelectedMemory += model.Memory
+		}
 	}
 
 	require.LessOrEqual(t, totalSelectedMemory, lowMemory,

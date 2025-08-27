@@ -2,11 +2,13 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -14,6 +16,38 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+// GPUDistributionMemoryEstimationService provides memory estimates for GPU distribution testing
+type GPUDistributionMemoryEstimationService struct {
+	modelMemory map[string]uint64
+}
+
+func NewGPUDistributionMemoryEstimationService() *GPUDistributionMemoryEstimationService {
+	return &GPUDistributionMemoryEstimationService{
+		modelMemory: map[string]uint64{
+			"model-a": 10 * 1024 * 1024 * 1024, // 10GB
+			"model-b": 15 * 1024 * 1024 * 1024, // 15GB
+		},
+	}
+}
+
+func (m *GPUDistributionMemoryEstimationService) EstimateModelMemory(ctx context.Context, modelName string, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
+	memSize, ok := m.modelMemory[modelName]
+	if !ok {
+		return nil, fmt.Errorf("model %s not found in GPU distribution test mock", modelName)
+	}
+
+	estimate := &memory.MemoryEstimate{
+		Layers:    36, // Mock value
+		VRAMSize:  memSize,
+		TotalSize: memSize,
+	}
+
+	return &memory.EstimationResult{
+		Recommendation: "single_gpu",
+		SingleGPU:      estimate,
+	}, nil
+}
 
 // TestGPUAllocationDistribution tests that the one-slot-per-cycle fix properly distributes
 // GPU allocations across multiple GPUs by checking the allocation decisions stored by the scheduler
@@ -28,8 +62,8 @@ func TestGPUAllocationDistribution(t *testing.T) {
 
 	// Use simple models for testing
 	testModels := []*types.Model{
-		{ID: "model-a", Memory: 10 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: true}, // 10GB
-		{ID: "model-b", Memory: 15 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: true}, // 15GB
+		{ID: "model-a", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: true, ContextLength: 8192}, // Ollama model - uses GGUF estimation
+		{ID: "model-b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: true, ContextLength: 8192}, // Ollama model - uses GGUF estimation
 	}
 
 	mockStore := store.NewMockStore(ctrl)
@@ -57,6 +91,7 @@ func TestGPUAllocationDistribution(t *testing.T) {
 	_, err = NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController:        runnerCtrl,
 		Store:                   mockStore,
+		MemoryEstimationService: NewGPUDistributionMemoryEstimationService(),
 		QueueSize:               50,
 		RunnerReconcileInterval: &fastInterval, // Fast reconciliation for tests
 	})
@@ -176,13 +211,15 @@ func TestGPUAllocationDistribution(t *testing.T) {
 	t.Logf("  GPU 1: %d GB allocated out of %d GB", gpu1Memory/(1024*1024*1024), gpuMemoryBytes/(1024*1024*1024))
 
 	// Verify that memory calculations are correct
+	// Use GGUF estimated values since Ollama models have Memory=0 in database
+	modelAMemory := uint64(10 * 1024 * 1024 * 1024) // 10GB from GGUF estimation
 	expectedGpu0Memory := uint64(0)
 	expectedGpu1Memory := uint64(0)
 
 	if *singleGPU1 == 0 {
-		expectedGpu0Memory += testModels[0].Memory
+		expectedGpu0Memory += modelAMemory
 	} else {
-		expectedGpu1Memory += testModels[0].Memory
+		expectedGpu1Memory += modelAMemory
 	}
 
 	assert.Equal(t, expectedGpu0Memory, gpu0Memory, "GPU 0 allocated memory should match expected")

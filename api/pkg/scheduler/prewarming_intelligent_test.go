@@ -2,10 +2,12 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -13,6 +15,40 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+// IntelligentPrewarmingTestMemoryService provides memory estimates for intelligent prewarming testing
+type IntelligentPrewarmingTestMemoryService struct {
+	modelMemory map[string]uint64
+}
+
+func NewIntelligentPrewarmingTestMemoryService() *IntelligentPrewarmingTestMemoryService {
+	return &IntelligentPrewarmingTestMemoryService{
+		modelMemory: map[string]uint64{
+			"gpt-oss:20b":                 48 * 1024 * 1024 * 1024, // 48GB
+			"qwen3:8b":                    10 * 1024 * 1024 * 1024, // 10GB
+			"Qwen/Qwen2.5-VL-7B-Instruct": 39 * 1024 * 1024 * 1024, // 39GB
+			"MrLight/dse-qwen2-2b-mrl-v1": 8 * 1024 * 1024 * 1024,  // 8GB
+		},
+	}
+}
+
+func (m *IntelligentPrewarmingTestMemoryService) EstimateModelMemory(ctx context.Context, modelName string, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
+	memSize, ok := m.modelMemory[modelName]
+	if !ok {
+		return nil, fmt.Errorf("model %s not found in intelligent prewarming test mock", modelName)
+	}
+
+	estimate := &memory.MemoryEstimate{
+		Layers:    36, // Mock value
+		VRAMSize:  memSize,
+		TotalSize: memSize,
+	}
+
+	return &memory.EstimationResult{
+		Recommendation: "single_gpu",
+		SingleGPU:      estimate,
+	}, nil
+}
 
 func TestIntelligentPrewarming_WithDefaultPrewarmModels(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -49,9 +85,10 @@ func TestIntelligentPrewarming_WithDefaultPrewarmModels(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		Store:            mockStore,
-		QueueSize:        10,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewIntelligentPrewarmingTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -107,9 +144,10 @@ func TestIntelligentPrewarming_UnevenDistribution(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		Store:            mockStore,
-		QueueSize:        10,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewIntelligentPrewarmingTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -199,9 +237,10 @@ func TestIntelligentPrewarming_BalancedDistribution(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		Store:            mockStore,
-		QueueSize:        10,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewIntelligentPrewarmingTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -275,9 +314,10 @@ func TestIntelligentPrewarming_EmptyCluster(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		Store:            mockStore,
-		QueueSize:        10,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewIntelligentPrewarmingTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -332,9 +372,10 @@ func TestAnalyzeGlobalModelDistribution(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		Store:            mockStore,
-		QueueSize:        10,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewIntelligentPrewarmingTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -428,9 +469,10 @@ func TestSelectModelsForBalancing(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		Store:            mockStore,
-		QueueSize:        10,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewIntelligentPrewarmingTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
