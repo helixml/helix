@@ -71,6 +71,14 @@ func NewMockMemoryEstimationServiceForAllocation() *MockMemoryEstimationServiceF
 					TotalSize: 7 * 1024 * 1024 * 1024,
 				},
 			},
+			"qwen3:8b": {
+				Recommendation: "single_gpu",
+				SingleGPU: &memory.MemoryEstimate{
+					Layers:    36,
+					VRAMSize:  10 * 1024 * 1024 * 1024,
+					TotalSize: 10 * 1024 * 1024 * 1024,
+				},
+			},
 			"ollama-impossible:200b": {
 				Recommendation: "insufficient_memory",
 			},

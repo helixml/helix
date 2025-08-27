@@ -2698,7 +2698,59 @@ func (s *Scheduler) PrewarmNewRunner(runnerID string) {
 			continue
 		}
 
-		// Create a dummy workload for prewarming
+		// Get memory requirement for allocation decision
+		ctx := context.Background()
+		var modelMemory uint64
+		if model.Runtime == types.RuntimeOllama {
+			// Use memory estimation for Ollama models
+			result, err := s.memoryEstimationService.EstimateModelMemory(ctx, model.ID, memory.EstimateOptions{})
+			if err != nil {
+				withContext.Warn().
+					Err(err).
+					Str("model", model.ID).
+					Msg("failed to estimate memory for Ollama model in prewarming, skipping")
+				continue
+			}
+			modelMemory = result.SingleGPU.TotalSize
+		} else {
+			// Use database value for VLLM models
+			modelMemory = model.Memory
+		}
+
+		// Make GPU allocation decision for prewarming
+		singleGPU, multiGPUs, tensorParallelSize := s.controller.GetOptimalGPUAllocation(runnerID, modelMemory, model.Runtime)
+
+		// Configure model with allocation
+		var allocation GPUAllocationConfig
+		if singleGPU != nil {
+			allocation = GPUAllocationConfig{
+				GPUCount:     1,
+				SpecificGPUs: []int{*singleGPU},
+			}
+		} else if len(multiGPUs) > 0 {
+			allocation = GPUAllocationConfig{
+				GPUCount:     tensorParallelSize,
+				SpecificGPUs: multiGPUs,
+			}
+		} else {
+			withContext.Warn().
+				Str("model", model.ID).
+				Uint64("memory_gb", modelMemory/(1024*1024*1024)).
+				Msg("no GPU allocation available for prewarming, skipping model")
+			continue
+		}
+
+		configuredModel, err := NewModelForGPUAllocation(model, allocation, s.memoryEstimationService)
+		if err != nil {
+			withContext.Warn().
+				Err(err).
+				Str("model", model.ID).
+				Interface("allocation", allocation).
+				Msg("failed to configure model for prewarming, skipping")
+			continue
+		}
+
+		// Create a dummy workload for prewarming with configured model
 		prewarmWorkload := &Workload{
 			WorkloadType: WorkloadTypeLLMInferenceRequest,
 			llmInferenceRequest: &types.RunnerLLMInferenceRequest{
@@ -2712,14 +2764,14 @@ func (s *Scheduler) PrewarmNewRunner(runnerID string) {
 					},
 				},
 			},
-			model: model,
+			model: configuredModel,
 		}
 
 		// Set the preferred runner for this prewarming workload
 		prewarmWorkload.SetPreferredRunner(runnerID)
 
 		// Enqueue the prewarming workload
-		err := s.Enqueue(prewarmWorkload)
+		err = s.Enqueue(prewarmWorkload)
 		if err != nil {
 			withContext.Warn().
 				Err(err).

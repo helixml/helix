@@ -172,7 +172,20 @@ func TestPrewarmNewRunner_VerifyWorkloadCreation(t *testing.T) {
 	require.NoError(t, err)
 
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(GetDefaultTestModels(), nil).AnyTimes()
+	// Use controlled test models that match the memory service
+	testModels := []*types.Model{
+		{ID: "qwen3:8b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: true, ContextLength: 8192},                   // 10GB (GGUF estimated)
+		{ID: "gpt-oss:20b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: true, ContextLength: 131072},              // 48GB (GGUF estimated)
+		{ID: "MrLight/dse-qwen2-2b-mrl-v1", Memory: 8 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: true},  // 8GB
+		{ID: "Qwen/Qwen2.5-VL-7B-Instruct", Memory: 39 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: true}, // 39GB
+	}
+
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
+
+	// Mock GetModel calls for each test model
+	for _, model := range testModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
 	// Mock slot operations
 	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
