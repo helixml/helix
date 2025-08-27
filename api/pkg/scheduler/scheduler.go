@@ -1156,26 +1156,40 @@ func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint
 		// Only count slots on this specific runner
 		if slot.RunnerID == runnerID {
 			modelName := slot.InitialWork().ModelName().String()
-			log.Debug().
-				Str("runner_id", runnerID).
-				Str("model_name", modelName).
-				Msg("PREWARM_DEBUG: About to get model memory for slot")
-			modelMemory, err := s.getModelMemory(modelName)
-			if err != nil {
-				log.Error().
+
+			// NEW ARCHITECTURE: Use configured model if available, fallback to old method for transition
+			var modelMemory uint64
+			if slot.InitialWork().model != nil && slot.InitialWork().model.IsAllocationConfigured() {
+				// Use configured model memory (authoritative, no errors)
+				modelMemory = slot.InitialWork().model.GetMemoryForAllocation()
+				log.Debug().
 					Str("runner_id", runnerID).
-					Str("slot_id", slot.ID.String()).
 					Str("model_name", modelName).
-					Err(err).
-					Msg("PREWARM_DEBUG: CRITICAL - getModelMemory failed - this could prevent prewarming!")
-				log.Warn().
+					Uint64("configured_memory_gb", modelMemory/(1024*1024*1024)).
+					Msg("PREWARM_DEBUG: Using configured model memory")
+			} else {
+				// Fallback for old-style slots during transition period
+				log.Debug().
 					Str("runner_id", runnerID).
-					Str("slot_id", slot.ID.String()).
 					Str("model_name", modelName).
-					Err(err).
-					Msg("WARNING: Cannot get memory for slot - Ollama model without GGUF data. This slot will not be counted in memory calculations.")
-				skippedSlots++
-				return true // Continue iteration, skip this slot
+					Msg("PREWARM_DEBUG: Using fallback getModelMemory for unconfigured slot")
+				var err error
+				modelMemory, err = s.getModelMemory(modelName)
+				if err != nil {
+					log.Error().
+						Str("runner_id", runnerID).
+						Str("slot_id", slot.ID.String()).
+						Str("model_name", modelName).
+						Err(err).
+						Msg("PREWARM_DEBUG: CRITICAL - getModelMemory failed - this could prevent prewarming!")
+					log.Warn().
+						Str("runner_id", runnerID).
+						Str("slot_id", slot.ID.String()).
+						Str("model_name", modelName).
+						Err(err).
+						Msg("CRITICAL: getModelMemory failed in calculateRunnerMemory, using slot memory as fallback")
+					modelMemory = slot.Memory() // Use slot memory as last resort
+				}
 			}
 			allocatedMemory += modelMemory
 		}
@@ -1510,8 +1524,39 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 				continue // Try next runner
 			}
 
-			// Re-calculate GPU allocation after eviction to ensure accurate memory state
-			singleGPU, multiGPUs, tensorParallelSize := s.controller.GetOptimalGPUAllocation(runnerID, req.ExampleWorkload.model.Memory, req.ExampleWorkload.Runtime())
+			// STEP 1: Get authoritative memory for GPU allocation decision
+			authoritativeMemory, err := s.getModelMemory(req.ExampleWorkload.ModelName().String())
+			if err != nil {
+				lastErr = fmt.Errorf("failed to get authoritative memory for model %s: %w", req.ExampleWorkload.ModelName(), err)
+				continue
+			}
+
+			// STEP 2: Make GPU allocation decision using authoritative memory
+			singleGPU, multiGPUs, tensorParallelSize := s.controller.GetOptimalGPUAllocation(runnerID, authoritativeMemory, req.ExampleWorkload.Runtime())
+
+			// STEP 3: Create configured model for this GPU allocation
+			var configuredWorkload *Workload
+			if singleGPU != nil || len(multiGPUs) > 0 {
+				allocation, err := ConvertGPUAllocationToConfig(singleGPU, multiGPUs)
+				if err != nil {
+					lastErr = fmt.Errorf("failed to convert GPU allocation for model %s: %w", req.ExampleWorkload.ModelName(), err)
+					continue
+				}
+
+				configuredModel, err := NewModelForGPUAllocation(req.ExampleWorkload.model, allocation, s.memoryEstimationService)
+				if err != nil {
+					lastErr = fmt.Errorf("failed to configure model %s for GPU allocation: %w", req.ExampleWorkload.ModelName(), err)
+					continue
+				}
+
+				// Create workload with properly configured model
+				configuredWorkload = &Workload{
+					WorkloadType:        req.ExampleWorkload.WorkloadType,
+					llmInferenceRequest: req.ExampleWorkload.llmInferenceRequest,
+					session:             req.ExampleWorkload.session,
+					model:               configuredModel,
+				}
+			}
 
 			// Create GPU allocation object
 			var gpuAllocation *GPUAllocation
@@ -1523,11 +1568,11 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 					MultiGPUs:          multiGPUs,
 					TensorParallelSize: tensorParallelSize,
 				}
-				// Store the fresh allocation for future reference
-				s.storeGPUAllocation(req.ExampleWorkload, runnerID, singleGPU, multiGPUs)
+				// Store the allocation for future reference
+				s.storeGPUAllocation(configuredWorkload, runnerID, singleGPU, multiGPUs)
 			} else {
 				// GPU allocation failed - insufficient memory on this runner
-				lastErr = fmt.Errorf("insufficient GPU memory on runner %s for model requiring %d bytes", runnerID, req.ExampleWorkload.model.Memory)
+				lastErr = fmt.Errorf("insufficient GPU memory on runner %s for model requiring %d bytes", runnerID, authoritativeMemory)
 				withWorkContext(&log.Logger, req.ExampleWorkload).Debug().
 					Err(lastErr).
 					Str("runner_id", runnerID).
@@ -1536,20 +1581,35 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 				continue // Try next runner
 			}
 
-			slot := NewSlot(runnerID, req.ExampleWorkload, s.modelStaleFunc, s.slotTimeoutFunc, gpuAllocation)
+			// Use configured workload with proper GPU allocation info
+			if configuredWorkload == nil {
+				lastErr = fmt.Errorf("CRITICAL: configuredWorkload is nil but we reached slot creation - this is a bug")
+				continue
+			}
+			slot := NewSlot(runnerID, configuredWorkload, s.modelStaleFunc, s.slotTimeoutFunc, gpuAllocation)
 
 			// log.Info().
 			// 	Str("slot_id", slot.ID.String()).
 			// 	Str("runner_id", slot.RunnerID).
-			// 	Str("model", req.ExampleWorkload.ModelName().String()).
+			// 	Str("model", configuredWorkload.ModelName().String()).
 			// 	Msg("APPLE: Created new slot in ensureSlots")
 
 			s.slots.Store(slot.ID, slot)
 
-			// Log successful new slot creation with memory info
-			s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeCreateNewSlot, true,
+			// Log successful slot creation with configured model memory
+			log.Debug().
+				Str("🐛 MODEL_MEMORY_DEBUG", "slot_creation_success").
+				Str("work_id", configuredWorkload.ID()).
+				Str("model_name", configuredWorkload.ModelName().String()).
+				Uint64("configured_memory_bytes", configuredWorkload.model.GetMemoryForAllocation()).
+				Uint64("configured_memory_gb", configuredWorkload.model.GetMemoryForAllocation()/(1024*1024*1024)).
+				Int("configured_gpu_count", configuredWorkload.model.GetGPUCount()).
+				Str("slot_id", slot.ID.String()).
+				Msg("🐛 TRACING: Using configured model for slot creation")
+
+			s.logSchedulingDecision(configuredWorkload, types.SchedulingDecisionTypeCreateNewSlot, true,
 				fmt.Sprintf("Created new slot on runner %s (attempt %d/%d)", runnerID, j+1, len(sortedRunners)),
-				runnerID, slot.ID.String(), startTime, freeMemory, req.ExampleWorkload.model.Memory, totalMemory)
+				runnerID, slot.ID.String(), time.Now(), freeMemory, configuredWorkload.model.GetMemoryForAllocation(), totalMemory)
 			slotCreated = true
 			break // Success, no need to try more runners
 		}
@@ -1979,11 +2039,38 @@ func (s *Scheduler) getOptimalGPUAllocationWithEviction(runnerID string, modelMe
 // DeleteMostStaleStrategy iteratively deletes allocated work from stale slots until there is enough
 // memory to allocate the new workload. Returns the final memory state used for the decision.
 func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (totalMemory, allocatedMemory, freeMemory uint64, err error) {
+	// NEW ARCHITECTURE: Use configured model if available, fallback to old method for transition
+	var requiredMem uint64
+	if work.model != nil && work.model.IsAllocationConfigured() {
+		// Use configured model memory (authoritative, no errors)
+		requiredMem = work.model.GetMemoryForAllocation()
+		log.Debug().
+			Str("runner_id", runnerID).
+			Str("model_name", work.ModelName().String()).
+			Uint64("configured_memory_gb", requiredMem/(1024*1024*1024)).
+			Msg("EVICTION: Using configured model memory")
+	} else {
+		// Fallback for old-style workloads during transition period
+		log.Debug().
+			Str("runner_id", runnerID).
+			Str("model_name", work.ModelName().String()).
+			Msg("EVICTION: Using fallback getModelMemory for unconfigured workload")
+		requiredMem, err = s.getModelMemory(work.ModelName().String())
+		if err != nil {
+			log.Error().
+				Str("runner_id", runnerID).
+				Str("model_name", work.ModelName().String()).
+				Err(err).
+				Msg("CRITICAL: Failed to get authoritative model memory in deleteMostStaleStrategy")
+			return 0, 0, 0, fmt.Errorf("failed to get authoritative model memory for %s: %w", work.ModelName().String(), err)
+		}
+	}
+
 	log.Info().
 		Str("ORANGE_DELETE_START", "eviction_strategy").
 		Str("runner_id", runnerID).
 		Str("model", work.ModelName().String()).
-		Uint64("required_memory_gb", work.model.Memory/(1024*1024*1024)).
+		Uint64("required_memory_gb", requiredMem/(1024*1024*1024)).
 		Msg("ORANGE: Starting deleteMostStaleStrategy")
 
 	// CRITICAL FIX: Use the same memory calculation as calculateRunnerMemory to avoid overscheduling
@@ -2109,7 +2196,7 @@ func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (to
 
 		// CRITICAL: Synchronously delete the slot from the runner BEFORE continuing
 		// This ensures GPU memory is actually freed before allocating new models
-		err := s.controller.DeleteSlot(runnerID, evictedSlot.ID)
+		err = s.controller.DeleteSlot(runnerID, evictedSlot.ID)
 		if err != nil {
 			log.Error().
 				Str("ORANGE_DELETE_ERROR", "runner_deletion_failed").

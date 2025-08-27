@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -15,6 +16,47 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+// TensorParallelismTestMemoryService provides memory estimates for tensor parallelism testing
+type TensorParallelismTestMemoryService struct {
+	modelMemory map[string]uint64
+}
+
+func NewTensorParallelismTestMemoryService() *TensorParallelismTestMemoryService {
+	return &TensorParallelismTestMemoryService{
+		modelMemory: map[string]uint64{
+			"medium-model:40b":   40 * 1024 * 1024 * 1024,  // 40GB
+			"large-model:120b":   120 * 1024 * 1024 * 1024, // 120GB
+			"small-model:7b":     7 * 1024 * 1024 * 1024,   // 7GB
+			"medium-model:30b":   30 * 1024 * 1024 * 1024,  // 30GB
+			"large-model:70b":    70 * 1024 * 1024 * 1024,  // 70GB
+			"huge-model:175b":    175 * 1024 * 1024 * 1024, // 175GB
+			"test-ollama-model":  50 * 1024 * 1024 * 1024,  // 50GB
+			"large-ollama:90b":   90 * 1024 * 1024 * 1024,  // 90GB
+			"medium-model:50b":   50 * 1024 * 1024 * 1024,  // 50GB
+			"embedding-model:7b": 7 * 1024 * 1024 * 1024,   // 7GB
+			"small-ollama:30b":   30 * 1024 * 1024 * 1024,  // 30GB
+		},
+	}
+}
+
+func (m *TensorParallelismTestMemoryService) EstimateModelMemory(ctx context.Context, modelName string, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
+	memSize, ok := m.modelMemory[modelName]
+	if !ok {
+		return nil, fmt.Errorf("model %s not found in tensor parallelism test mock", modelName)
+	}
+
+	estimate := &memory.MemoryEstimate{
+		Layers:    36, // Mock value
+		VRAMSize:  memSize,
+		TotalSize: memSize,
+	}
+
+	return &memory.EstimationResult{
+		Recommendation: "single_gpu",
+		SingleGPU:      estimate,
+	}, nil
+}
 
 // TestTensorParallelismLargeModelSplitting tests that large models get properly
 // TestBasicGPUAllocation tests basic GPU allocation functionality
@@ -29,9 +71,9 @@ func TestBasicGPUAllocation(t *testing.T) {
 
 	// Define test models - realistic sizes that should work
 	testModels := []*types.Model{
-		{ID: "medium-model:50b", Memory: 50 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: false},   // 50GB - fits on single 80GB GPU
-		{ID: "large-ollama:90b", Memory: 90 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: false}, // 90GB - would need multi-GPU but Ollama is restricted
-		{ID: "embedding-model:7b", Memory: 7 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: false},  // 7GB - small model
+		{ID: "medium-model:50b", Memory: 50 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: false},  // 50GB - fits on single 80GB GPU
+		{ID: "large-ollama:90b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: false, ContextLength: 8192}, // 90GB - Ollama model uses GGUF estimation
+		{ID: "embedding-model:7b", Memory: 7 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: false}, // 7GB - small model
 	}
 
 	mockStore := store.NewMockStore(ctrl)
@@ -60,6 +102,7 @@ func TestBasicGPUAllocation(t *testing.T) {
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController:        runnerCtrl,
 		Store:                   mockStore,
+		MemoryEstimationService: NewTensorParallelismTestMemoryService(),
 		QueueSize:               50,
 		RunnerReconcileInterval: &fastInterval,
 	})
@@ -218,6 +261,7 @@ func TestFragmentationPrevention(t *testing.T) {
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController:        runnerCtrl,
 		Store:                   mockStore,
+		MemoryEstimationService: NewTensorParallelismTestMemoryService(),
 		QueueSize:               50,
 		RunnerReconcileInterval: &fastInterval, // Fast reconciliation for tests
 	})
@@ -461,6 +505,7 @@ func TestOptimalTensorParallelismScheduling(t *testing.T) {
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController:        runnerCtrl,
 		Store:                   mockStore,
+		MemoryEstimationService: NewTensorParallelismTestMemoryService(),
 		QueueSize:               50,
 		RunnerReconcileInterval: &fastInterval, // Fast reconciliation for tests
 	})
@@ -669,8 +714,8 @@ func TestOllamaMultiGPURestriction(t *testing.T) {
 
 	// Test models to verify the restriction
 	testModels := []*types.Model{
-		{ID: "small-ollama:30b", Memory: 30 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: false}, // 30GB - fits on single GPU
-		{ID: "large-ollama:90b", Memory: 90 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: false}, // 90GB - would need multi-GPU
+		{ID: "small-ollama:30b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: false, ContextLength: 8192}, // 30GB - Ollama model uses GGUF estimation
+		{ID: "large-ollama:90b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: false, ContextLength: 8192}, // 90GB - Ollama model uses GGUF estimation
 	}
 
 	mockStore := store.NewMockStore(ctrl)
@@ -694,9 +739,10 @@ func TestOllamaMultiGPURestriction(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		Store:            mockStore,
-		QueueSize:        50,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewTensorParallelismTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 

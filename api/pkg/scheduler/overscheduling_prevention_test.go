@@ -69,9 +69,9 @@ func TestOverSchedulingPrevention(t *testing.T) {
 
 	// Use real models from the model registry so the scheduler can find their memory requirements
 	realModels := []*types.Model{
-		{ID: "qwen3:8b", Memory: 10 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: true},       // 10GB
-		{ID: "gpt-oss:20b", Memory: 16 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: true},    // 16GB
-		{ID: "qwen2.5vl:32b", Memory: 32 * 1024 * 1024 * 1024, Runtime: types.RuntimeOllama, Prewarm: false}, // 32GB
+		{ID: "qwen3:8b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: true, ContextLength: 40960},       // Ollama model - uses GGUF estimation
+		{ID: "gpt-oss:20b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: true, ContextLength: 131072},   // Ollama model - uses GGUF estimation
+		{ID: "qwen2.5vl:32b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: false, ContextLength: 32768}, // Ollama model - uses GGUF estimation
 	}
 
 	mockStore := store.NewMockStore(ctrl)

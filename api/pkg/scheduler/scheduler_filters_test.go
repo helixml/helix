@@ -2,10 +2,12 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -13,6 +15,41 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+// SchedulerFiltersTestMemoryService provides memory estimates for scheduler filters testing
+type SchedulerFiltersTestMemoryService struct {
+	modelMemory map[string]uint64
+}
+
+func NewSchedulerFiltersTestMemoryService() *SchedulerFiltersTestMemoryService {
+	return &SchedulerFiltersTestMemoryService{
+		modelMemory: map[string]uint64{
+			"test-model-small": 2000, // 2KB - for sufficient memory test
+			"test-model-large": 4000, // 4KB - for insufficient memory test
+			"small-model":      1000, // 1KB
+			"medium-model":     2500, // 2.5KB
+			"large-model":      5000, // 5KB
+		},
+	}
+}
+
+func (m *SchedulerFiltersTestMemoryService) EstimateModelMemory(ctx context.Context, modelName string, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
+	memSize, ok := m.modelMemory[modelName]
+	if !ok {
+		return nil, fmt.Errorf("model %s not found in scheduler filters test mock", modelName)
+	}
+
+	estimate := &memory.MemoryEstimate{
+		Layers:    36, // Mock value
+		VRAMSize:  memSize,
+		TotalSize: memSize,
+	}
+
+	return &memory.EstimationResult{
+		Recommendation: "single_gpu",
+		SingleGPU:      estimate,
+	}, nil
+}
 
 func Test_filterRunnersByMemory_NoRunners(t *testing.T) {
 	ps, err := pubsub.NewInMemoryNats()
@@ -40,8 +77,10 @@ func Test_filterRunnersByMemory_NoRunners(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: ctrl,
-		Store:            mockStore,
+		RunnerController:        ctrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewSchedulerFiltersTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -88,8 +127,10 @@ func Test_filterRunnersByMemory_SomeRunnersSufficient(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: ctrl,
-		Store:            mockStore,
+		RunnerController:        ctrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewSchedulerFiltersTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -119,7 +160,7 @@ func Test_filterRunnersByMemory_SomeRunnersSufficient(t *testing.T) {
 				},
 				Models: []*types.RunnerModelStatus{
 					{
-						ModelID:            "test-model",
+						ModelID:            "test-model-small",
 						DownloadInProgress: false,
 						Runtime:            types.RuntimeOllama,
 					},
@@ -132,10 +173,10 @@ func Test_filterRunnersByMemory_SomeRunnersSufficient(t *testing.T) {
 
 	workload, err := NewLLMWorkload(&types.RunnerLLMInferenceRequest{
 		Request: &openai.ChatCompletionRequest{
-			Model: "test-model",
+			Model: "test-model-small",
 		},
 	}, &types.Model{
-		ID:     "test-model",
+		ID:     "test-model-small",
 		Memory: requiredMemory,
 	})
 	require.NoError(t, err)
@@ -175,8 +216,10 @@ func Test_filterRunnersByMemory_NoRunnersSufficient(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: ctrl,
-		Store:            mockStore,
+		RunnerController:        ctrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewSchedulerFiltersTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -206,7 +249,7 @@ func Test_filterRunnersByMemory_NoRunnersSufficient(t *testing.T) {
 				},
 				Models: []*types.RunnerModelStatus{
 					{
-						ModelID:            "test-model",
+						ModelID:            "test-model-large",
 						DownloadInProgress: false,
 						Runtime:            types.RuntimeOllama,
 					},
@@ -219,10 +262,10 @@ func Test_filterRunnersByMemory_NoRunnersSufficient(t *testing.T) {
 
 	workload, err := NewLLMWorkload(&types.RunnerLLMInferenceRequest{
 		Request: &openai.ChatCompletionRequest{
-			Model: "test-model",
+			Model: "test-model-large",
 		},
 	}, &types.Model{
-		ID:     "test-model",
+		ID:     "test-model-large",
 		Memory: requiredMemory,
 	})
 	require.NoError(t, err)
@@ -261,8 +304,10 @@ func Test_filterRunnersByModel_NoRunners(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: ctrl,
-		Store:            mockStore,
+		RunnerController:        ctrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewSchedulerFiltersTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -309,8 +354,10 @@ func Test_filterRunnersByModel_RuntimeNotOllama(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: ctrl,
-		Store:            mockStore,
+		RunnerController:        ctrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewSchedulerFiltersTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -359,8 +406,10 @@ func Test_filterRunnersByModel_AllRunnersHaveModel(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: ctrl,
-		Store:            mockStore,
+		RunnerController:        ctrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewSchedulerFiltersTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -427,8 +476,10 @@ func Test_filterRunnersByModel_OneRunnerHasModel(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: ctrl,
-		Store:            mockStore,
+		RunnerController:        ctrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewSchedulerFiltersTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -521,8 +572,10 @@ func Test_filterRunnersByModel_NoRunnerHasModel(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: ctrl,
-		Store:            mockStore,
+		RunnerController:        ctrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewSchedulerFiltersTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 

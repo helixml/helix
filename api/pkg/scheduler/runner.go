@@ -768,9 +768,20 @@ func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) (map[
 			continue
 		}
 
-		// Get authoritative model memory from the scheduler
+		// NEW ARCHITECTURE: Use configured model if available, fallback to old method for transition
 		var modelMemory uint64
-		if c.getModelMemoryFn != nil {
+		if slot.InitialWork().model != nil && slot.InitialWork().model.IsAllocationConfigured() {
+			// Use configured model memory (authoritative, no errors)
+			modelMemory = slot.InitialWork().model.GetMemoryForAllocation()
+			log.Debug().
+				Str("runner_id", runnerID).
+				Str("slot_id", slotID.String()).
+				Str("model", slot.InitialWork().ModelName().String()).
+				Uint64("configured_memory_gb", modelMemory/(1024*1024*1024)).
+				Int("configured_gpu_count", slot.InitialWork().model.GetGPUCount()).
+				Msg("Using configured model memory (NEW ARCHITECTURE)")
+		} else if c.getModelMemoryFn != nil {
+			// Fallback for old-style slots during transition period
 			var err error
 			modelMemory, err = c.getModelMemoryFn(slot.InitialWork().ModelName().String())
 			if err != nil {
@@ -784,16 +795,19 @@ func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) (map[
 					Msg("CRITICAL: Failed to get model memory requirements - this could lead to over-scheduling")
 				return allocatedMemoryPerGPU, err
 			}
+			log.Debug().
+				Str("runner_id", runnerID).
+				Str("slot_id", slotID.String()).
+				Str("model", slot.InitialWork().ModelName().String()).
+				Uint64("fallback_memory_gb", modelMemory/(1024*1024*1024)).
+				Msg("Using fallback getModelMemoryFn callback")
 		} else {
-			err := fmt.Errorf("no model memory callback available for slot %s with model %s on runner %s",
-				slotID.String(), slot.InitialWork().ModelName().String(), runnerID)
 			log.Error().
 				Str("runner_id", runnerID).
 				Str("slot_id", slotID.String()).
 				Str("model", slot.InitialWork().ModelName().String()).
-				Err(err).
-				Msg("CRITICAL: No model memory callback available - this is a programming error")
-			return allocatedMemoryPerGPU, err
+				Msg("CRITICAL: No getModelMemoryFn callback available - using slot memory as fallback")
+			modelMemory = slot.Memory()
 		}
 
 		// Verify we got valid memory value
@@ -1552,9 +1566,21 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 			Msg("Using GPU allocation from scheduler")
 	}
 
-	// Get authoritative model memory from scheduler (uses GGUF estimates for Ollama models)
+	// NEW ARCHITECTURE: Get authoritative model memory from configured model or fallback
 	var modelMemoryRequirement uint64
-	if c.getModelMemoryFn != nil {
+	if slot.InitialWork().model != nil && slot.InitialWork().model.IsAllocationConfigured() {
+		// Use configured model memory (authoritative, no errors)
+		modelMemoryRequirement = slot.InitialWork().model.GetMemoryForAllocation()
+		log.Debug().
+			Str("runner_id", slot.RunnerID).
+			Str("slot_id", slot.ID.String()).
+			Str("model", slot.InitialWork().ModelName().String()).
+			Uint64("configured_memory_bytes", modelMemoryRequirement).
+			Uint64("configured_memory_gb", modelMemoryRequirement/(1024*1024*1024)).
+			Int("configured_gpu_count", slot.InitialWork().model.GetGPUCount()).
+			Msg("Using configured model memory (NEW ARCHITECTURE)")
+	} else if c.getModelMemoryFn != nil {
+		// Fallback for old-style slots during transition period
 		var err error
 		modelMemoryRequirement, err = c.getModelMemoryFn(slot.InitialWork().ModelName().String())
 		if err != nil {
@@ -1572,7 +1598,7 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 				Str("model", slot.InitialWork().ModelName().String()).
 				Uint64("authoritative_memory_bytes", modelMemoryRequirement).
 				Uint64("slot_memory_bytes", slot.Memory()).
-				Msg("Using authoritative model memory from scheduler")
+				Msg("Using fallback getModelMemory callback")
 		}
 	} else {
 		log.Warn().
