@@ -508,12 +508,7 @@ func (s *MemoryEstimationService) findRunnerWithModel(ctx context.Context, model
 }
 
 // RunnerMemoryEstimationRequest represents a request for memory estimation from runner
-type RunnerMemoryEstimationRequest struct {
-	ModelName     string `json:"model_name"`
-	ContextLength int    `json:"context_length"`
-	BatchSize     int    `json:"batch_size"`
-	NumParallel   int    `json:"num_parallel"`
-}
+// Use shared struct from types package instead of local definition
 
 // RunnerMemoryEstimationResponse represents the response with memory estimates from runner
 type RunnerMemoryEstimationResponse struct {
@@ -545,8 +540,8 @@ type GPUConfigurationResult struct {
 
 // getMemoryEstimationFromRunner gets memory estimates from a runner via NATS using exact Ollama
 func (s *MemoryEstimationService) getMemoryEstimationFromRunner(ctx context.Context, runnerID, modelName string, opts memory.EstimateOptions) (*RunnerMemoryEstimationResponse, error) {
-	// Prepare memory estimation request
-	request := RunnerMemoryEstimationRequest{
+	// Prepare memory estimation request using shared struct
+	request := types.MemoryEstimationRequest{
 		ModelName:     modelName,
 		ContextLength: opts.NumCtx,
 		BatchSize:     opts.NumBatch,
@@ -594,8 +589,9 @@ func (s *MemoryEstimationService) getMemoryEstimationFromRunner(ctx context.Cont
 			Str("runner_id", runnerID).
 			Str("model_name", modelName).
 			Int("status_code", resp.StatusCode).
+			Str("response_body", string(resp.Body)).
 			Msg("PREWARM_DEBUG: CRITICAL - Runner returned non-200 status for memory estimation")
-		return nil, fmt.Errorf("runner returned status %d for memory estimation request", resp.StatusCode)
+		return nil, fmt.Errorf("runner returned status %d for memory estimation request: %s", resp.StatusCode, string(resp.Body))
 	}
 
 	// Parse response

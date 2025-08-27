@@ -45,11 +45,11 @@ type Model struct {
 	UserModified bool `json:"user_modified,omitempty" yaml:"user_modified,omitempty"`
 
 	// EXPORTED ALLOCATION FIELDS: Set by NewModelForGPUAllocation based on scheduler's GPU allocation decision
-	AllocatedMemory       uint64   `json:"allocated_memory,omitempty" yaml:"allocated_memory,omitempty"`
-	AllocatedGPUCount     int      `json:"allocated_gpu_count,omitempty" yaml:"allocated_gpu_count,omitempty"`
-	AllocatedPerGPUMemory []uint64 `json:"allocated_per_gpu_memory,omitempty" yaml:"allocated_per_gpu_memory,omitempty"`
-	AllocatedSpecificGPUs []int    `json:"allocated_specific_gpus,omitempty" yaml:"allocated_specific_gpus,omitempty"`
-	AllocationConfigured  bool     `json:"allocation_configured,omitempty" yaml:"allocation_configured,omitempty"` // Safety flag
+	AllocatedMemory       uint64   `json:"allocated_memory,omitempty" yaml:"allocated_memory,omitempty" gorm:"-"`
+	AllocatedGPUCount     int      `json:"allocated_gpu_count,omitempty" yaml:"allocated_gpu_count,omitempty" gorm:"-"`
+	AllocatedPerGPUMemory []uint64 `json:"allocated_per_gpu_memory,omitempty" yaml:"allocated_per_gpu_memory,omitempty" gorm:"-"`
+	AllocatedSpecificGPUs []int    `json:"allocated_specific_gpus,omitempty" yaml:"allocated_specific_gpus,omitempty" gorm:"-"`
+	AllocationConfigured  bool     `json:"allocation_configured,omitempty" yaml:"allocation_configured,omitempty" gorm:"-"` // Safety flag
 }
 
 // UnmarshalJSON handles both flattened array format and nested object format for RuntimeArgs
