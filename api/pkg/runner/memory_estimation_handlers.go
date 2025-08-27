@@ -23,49 +23,21 @@ import (
 var memoryEstimationMutex sync.Mutex
 
 // MemoryEstimationRequest represents a request for memory estimation using exact Ollama
-type MemoryEstimationRequest struct {
-	ModelName     string `json:"model_name"`
-	ContextLength int    `json:"context_length"`
-	BatchSize     int    `json:"batch_size"`
-	NumParallel   int    `json:"num_parallel"`
-}
+// MemoryEstimationRequest is now defined in types package to ensure consistency
+// between API and runner sides
 
-// MemoryEstimationResponse contains memory estimates for different GPU configurations
-type MemoryEstimationResponse struct {
-	Success        bool                     `json:"success"`
-	Error          string                   `json:"error,omitempty"`
-	ModelName      string                   `json:"model_name"`
-	ModelPath      string                   `json:"model_path"`
-	Architecture   string                   `json:"architecture"`
-	BlockCount     uint64                   `json:"block_count"`
-	Configurations []GPUConfigurationResult `json:"configurations"`
-	ResponseTime   int64                    `json:"response_time_ms"`
-	RunnerID       string                   `json:"runner_id"`
-}
+// MemoryEstimationResponse is now defined in types package for consistency
 
 // GPUConfigurationResult contains memory estimation for a specific GPU setup
-type GPUConfigurationResult struct {
-	Name          string   `json:"name"`           // "single_gpu", "dual_gpu", "cpu_only", etc.
-	GPUCount      int      `json:"gpu_count"`      // Number of GPUs used
-	LayersOnGPU   int      `json:"layers_on_gpu"`  // How many layers fit on GPU
-	TotalLayers   int      `json:"total_layers"`   // Total layers in model
-	VRAMRequired  uint64   `json:"vram_required"`  // VRAM needed in bytes
-	TotalMemory   uint64   `json:"total_memory"`   // Total memory (VRAM + CPU) in bytes
-	GraphMemory   uint64   `json:"graph_memory"`   // Graph computation memory in bytes
-	KVCacheMemory uint64   `json:"kv_cache"`       // KV cache memory in bytes (estimated)
-	WeightsMemory uint64   `json:"weights_memory"` // Model weights memory in bytes (estimated)
-	FullyLoaded   bool     `json:"fully_loaded"`   // True if all layers fit on GPU
-	GPUSizes      []uint64 `json:"gpu_sizes"`      // Memory per GPU in bytes
-	TensorSplit   string   `json:"tensor_split"`   // Tensor split configuration
-}
+// GPUConfigurationResult is now MemoryEstimationConfiguration in types package for consistency
 
 // getMemoryEstimationHandler handles memory estimation requests using exact Ollama code
 func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.ResponseWriter, r *http.Request) {
 	startTime := getCurrentTimeMillis()
 
-	var req MemoryEstimationRequest
+	var req types.MemoryEstimationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Error().Err(err).Msg("error decoding memory estimation request")
+		log.Error().Err(err).Msg("RUNNER_DEBUG: error decoding memory estimation request")
 		apiServer.writeEstimationError(w, "Invalid request body: "+err.Error(), http.StatusBadRequest, startTime)
 		return
 	}
@@ -76,24 +48,44 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 		Int("batch_size", req.BatchSize).
 		Int("num_parallel", req.NumParallel).
 		Str("runner_id", apiServer.runnerOptions.ID).
-		Msg("received memory estimation request")
+		Msg("RUNNER_DEBUG: received memory estimation request with full parameters")
 
 	// Validate request
+	log.Debug().
+		Str("model_name", req.ModelName).
+		Msg("RUNNER_DEBUG: starting request validation")
 	if err := apiServer.validateEstimationRequest(req); err != nil {
+		log.Error().
+			Err(err).
+			Str("model_name", req.ModelName).
+			Int("context_length", req.ContextLength).
+			Int("batch_size", req.BatchSize).
+			Int("num_parallel", req.NumParallel).
+			Msg("RUNNER_DEBUG: validation failed for memory estimation request")
 		apiServer.writeEstimationError(w, err.Error(), http.StatusBadRequest, startTime)
 		return
 	}
+	log.Debug().
+		Str("model_name", req.ModelName).
+		Msg("RUNNER_DEBUG: validation passed")
 
 	// Find the model file using existing logic
+	log.Debug().
+		Str("model_name", req.ModelName).
+		Msg("RUNNER_DEBUG: looking for model file")
 	modelPath, err := apiServer.findModelFile(req.ModelName, "")
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("model_name", req.ModelName).
-			Msg("failed to find model file")
+			Msg("RUNNER_DEBUG: failed to find model file")
 		apiServer.writeEstimationError(w, fmt.Sprintf("Model not found: %v", err), http.StatusNotFound, startTime)
 		return
 	}
+	log.Debug().
+		Str("model_name", req.ModelName).
+		Str("model_path", modelPath).
+		Msg("RUNNER_DEBUG: found model file")
 
 	// Load model using Ollama's exact GGUF parser
 	file, err := os.Open(modelPath)
@@ -118,18 +110,18 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 	}
 
 	// Prepare response
-	response := MemoryEstimationResponse{
+	response := types.MemoryEstimationResponse{
 		ModelName:    req.ModelName,
 		ModelPath:    modelPath,
 		Architecture: ggmlModel.KV().Architecture(),
-		BlockCount:   ggmlModel.KV().BlockCount(),
+		BlockCount:   int(ggmlModel.KV().BlockCount()),
 		RunnerID:     apiServer.runnerOptions.ID,
 	}
 
 	log.Info().
 		Str("model_name", req.ModelName).
 		Str("architecture", response.Architecture).
-		Uint64("block_count", response.BlockCount).
+		Int("block_count", response.BlockCount).
 		Msg("model loaded successfully, calculating memory estimates")
 
 	// Use mutex to protect global environment state from concurrent modifications
@@ -223,7 +215,7 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 			Int("num_gpu", opts.Runner.NumGPU).
 			Int("num_parallel", req.NumParallel).
 			Str("architecture", response.Architecture).
-			Uint64("block_count", response.BlockCount).
+			Int("block_count", response.BlockCount).
 			Msg("🔧 MEMORY_DEBUG: About to call Ollama's EstimateGPULayers with adjusted context length (original * numParallel)")
 
 		// Set the same environment variables that are used when actually running Ollama
@@ -256,20 +248,20 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 			Interface("gpu_sizes", estimate.GPUSizes).
 			Msg("🔥 MEMORY_DEBUG: Raw Ollama estimation result")
 
-		// Convert to our response format
-		result := GPUConfigurationResult{
+		// Convert to our response format using shared struct
+		result := types.MemoryEstimationConfiguration{
 			Name:          config.name,
 			GPUCount:      config.gpuCount,
-			LayersOnGPU:   estimate.Layers,
-			TotalLayers:   int(response.BlockCount) + 1, // +1 for output layer
-			VRAMRequired:  estimate.VRAMSize,
-			TotalMemory:   estimate.TotalSize,
-			GraphMemory:   estimate.Graph,
-			KVCacheMemory: estimateKVCache(estimate),
-			WeightsMemory: estimateWeights(estimate),
-			FullyLoaded:   estimate.Layers >= int(response.BlockCount)+1,
 			GPUSizes:      estimate.GPUSizes,
+			TotalMemory:   estimate.TotalSize,
+			VRAMRequired:  estimate.VRAMSize,
+			WeightsMemory: estimateWeights(estimate),
+			KVCache:       estimateKVCache(estimate),
+			GraphMemory:   estimate.Graph,
 			TensorSplit:   estimate.TensorSplit,
+			LayersOnGPU:   estimate.Layers,
+			TotalLayers:   response.BlockCount + 1, // +1 for output layer
+			FullyLoaded:   estimate.Layers >= response.BlockCount+1,
 		}
 
 		// Log the converted result
@@ -284,10 +276,10 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 			Uint64("result_vram_required_bytes", result.VRAMRequired).
 			Uint64("result_vram_required_gb", result.VRAMRequired/(1024*1024*1024)).
 			Float64("result_vram_required_gib", float64(result.VRAMRequired)/(1024*1024*1024)).
-			Uint64("kv_cache_memory", result.KVCacheMemory).
+			Uint64("kv_cache_memory", result.KVCache).
 			Uint64("weights_memory", result.WeightsMemory).
 			Bool("fully_loaded", result.FullyLoaded).
-			Msg("🔥 MEMORY_DEBUG: Converted GPUConfigurationResult")
+			Msg("🔥 MEMORY_DEBUG: Converted MemoryEstimationConfiguration")
 
 		response.Configurations = append(response.Configurations, result)
 
@@ -308,7 +300,7 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 		Str("model_name", req.ModelName).
 		Msg("Skipping CPU-only estimation - not supported")
 	response.Success = true
-	response.ResponseTime = getCurrentTimeMillis() - startTime
+	response.ResponseTimeMs = getCurrentTimeMillis() - startTime
 
 	// Log final response summary
 	log.Info().
@@ -316,7 +308,7 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 		Str("model_name", req.ModelName).
 		Str("architecture", response.Architecture).
 		Int("config_count", len(response.Configurations)).
-		Int64("response_time_ms", response.ResponseTime).
+		Int64("response_time_ms", response.ResponseTimeMs).
 		Interface("all_configurations", response.Configurations).
 		Msg("🔥 MEMORY_DEBUG: Final memory estimation response")
 
@@ -324,7 +316,7 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 		Str("model_name", req.ModelName).
 		Str("architecture", response.Architecture).
 		Int("config_count", len(response.Configurations)).
-		Int64("response_time_ms", response.ResponseTime).
+		Int64("response_time_ms", response.ResponseTimeMs).
 		Msg("memory estimation completed successfully")
 
 	w.Header().Set("Content-Type", "application/json")
@@ -334,20 +326,32 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 }
 
 // validateEstimationRequest validates the memory estimation request
-func (apiServer *HelixRunnerAPIServer) validateEstimationRequest(req MemoryEstimationRequest) error {
+func (apiServer *HelixRunnerAPIServer) validateEstimationRequest(req types.MemoryEstimationRequest) error {
 	if req.ModelName == "" {
 		return fmt.Errorf("model_name is required")
 	}
 
 	if req.ContextLength < 1 || req.ContextLength > 1000000 {
+		log.Error().
+			Str("model_name", req.ModelName).
+			Int("context_length", req.ContextLength).
+			Msg("RUNNER_DEBUG: context_length validation failed")
 		return fmt.Errorf("context_length must be between 1 and 1,000,000, got %d", req.ContextLength)
 	}
 
 	if req.BatchSize < 1 || req.BatchSize > 10000 {
+		log.Error().
+			Str("model_name", req.ModelName).
+			Int("batch_size", req.BatchSize).
+			Msg("RUNNER_DEBUG: batch_size validation failed")
 		return fmt.Errorf("batch_size must be between 1 and 10,000, got %d", req.BatchSize)
 	}
 
 	if req.NumParallel < 1 || req.NumParallel > 100 {
+		log.Error().
+			Str("model_name", req.ModelName).
+			Int("num_parallel", req.NumParallel).
+			Msg("RUNNER_DEBUG: num_parallel validation failed")
 		return fmt.Errorf("num_parallel must be between 1 and 100, got %d", req.NumParallel)
 	}
 
@@ -357,11 +361,11 @@ func (apiServer *HelixRunnerAPIServer) validateEstimationRequest(req MemoryEstim
 // writeEstimationError writes an error response for memory estimation requests
 func (apiServer *HelixRunnerAPIServer) writeEstimationError(w http.ResponseWriter, errorMsg string, statusCode int, startTime int64) {
 	responseTime := getCurrentTimeMillis() - startTime
-	response := MemoryEstimationResponse{
-		Success:      false,
-		Error:        errorMsg,
-		RunnerID:     apiServer.runnerOptions.ID,
-		ResponseTime: responseTime,
+	response := types.MemoryEstimationResponse{
+		Success:        false,
+		Error:          errorMsg,
+		RunnerID:       apiServer.runnerOptions.ID,
+		ResponseTimeMs: responseTime,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -1432,22 +1432,16 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 			}
 
 			// STEP 1: Get authoritative memory for GPU allocation decision
-			authoritativeMemoryResult, err := s.memoryEstimationService.EstimateModelMemory(context.Background(), req.ExampleWorkload.ModelName().String(), memory.EstimateOptions{})
-			if err != nil {
-				lastErr = fmt.Errorf("failed to get authoritative memory for model %s: %w", req.ExampleWorkload.ModelName(), err)
+			var authoritativeMemory uint64
+
+			// All models MUST be configured before reaching scheduling phase
+			if !req.ExampleWorkload.model.IsAllocationConfigured() {
+				lastErr = fmt.Errorf("CRITICAL: workload %s has unconfigured model %s - all models must use NewModelForGPUAllocation", req.ExampleWorkload.ID(), req.ExampleWorkload.ModelName())
 				continue
 			}
 
-			// Extract appropriate memory value based on recommendation
-			var authoritativeMemory uint64
-			if authoritativeMemoryResult.SingleGPU != nil {
-				authoritativeMemory = authoritativeMemoryResult.SingleGPU.TotalSize
-			} else if authoritativeMemoryResult.TensorParallel != nil {
-				authoritativeMemory = authoritativeMemoryResult.TensorParallel.TotalSize
-			} else {
-				lastErr = fmt.Errorf("no valid memory estimate for model %s", req.ExampleWorkload.ModelName())
-				continue
-			}
+			// Use configured model's authoritative memory
+			authoritativeMemory = req.ExampleWorkload.model.GetMemoryForAllocation()
 
 			// STEP 2: Make GPU allocation decision using authoritative memory
 			singleGPU, multiGPUs, tensorParallelSize := s.controller.GetOptimalGPUAllocation(runnerID, authoritativeMemory, req.ExampleWorkload.Runtime())
@@ -2703,7 +2697,8 @@ func (s *Scheduler) PrewarmNewRunner(runnerID string) {
 		var modelMemory uint64
 		if model.Runtime == types.RuntimeOllama {
 			// Use memory estimation for Ollama models
-			result, err := s.memoryEstimationService.EstimateModelMemory(ctx, model.ID, memory.EstimateOptions{})
+			estimateOptions := types.CreateAutoEstimateOptions(model.ContextLength)
+			result, err := s.memoryEstimationService.EstimateModelMemory(ctx, model.ID, estimateOptions)
 			if err != nil {
 				withContext.Warn().
 					Err(err).
