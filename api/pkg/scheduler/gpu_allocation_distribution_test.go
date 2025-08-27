@@ -152,12 +152,29 @@ func TestGPUAllocationDistribution(t *testing.T) {
 	// Set up minimal scheduler context with no initial slots
 	SetupMinimalSchedulerContext(runnerCtrl, make(map[uuid.UUID]*Slot))
 
+	// Create configured models for testing
+	memoryService := NewGPUDistributionMemoryEstimationService()
+
+	allocation1 := GPUAllocationConfig{
+		GPUCount:     1,
+		SpecificGPUs: []int{0}, // We'll adjust this based on actual allocation
+	}
+	configuredModel1, err := NewModelForGPUAllocation(testModels[0], allocation1, memoryService)
+	require.NoError(t, err)
+
+	allocation2 := GPUAllocationConfig{
+		GPUCount:     1,
+		SpecificGPUs: []int{1}, // We'll adjust this based on actual allocation
+	}
+	configuredModel2, err := NewModelForGPUAllocation(testModels[1], allocation2, memoryService)
+	require.NoError(t, err)
+
 	// Manually test the GPU allocation decisions by simulating what the scheduler does
 	// during slot reconciliation, but without actually creating slots
 
 	// First allocation - should go to GPU 0 (both GPUs have equal free memory)
 	t.Logf("\n=== Testing First GPU Allocation (model-a) ===")
-	singleGPU1, multiGPUs1, _ := runnerCtrl.GetOptimalGPUAllocation(testRunnerID, testModels[0].Memory, types.RuntimeVLLM)
+	singleGPU1, multiGPUs1, _ := runnerCtrl.GetOptimalGPUAllocation(testRunnerID, configuredModel1.GetMemoryForAllocation(), types.RuntimeOllama)
 
 	require.NotNil(t, singleGPU1, "First model should get a single GPU allocation")
 	assert.Equal(t, 0, *singleGPU1, "First model should be allocated to GPU 0 (or GPU 1, both are equal)")
@@ -165,10 +182,15 @@ func TestGPUAllocationDistribution(t *testing.T) {
 
 	t.Logf("✅ First allocation: model-a → GPU %d", *singleGPU1)
 
+	// Update configured model 1 with actual GPU allocation
+	allocation1.SpecificGPUs = []int{*singleGPU1}
+	configuredModel1, err = NewModelForGPUAllocation(testModels[0], allocation1, memoryService)
+	require.NoError(t, err)
+
 	// Now simulate that the first model has been allocated by creating a test slot
 	// This is what would happen after the first reconciliation cycle
 	testSlots := make(map[uuid.UUID]*Slot)
-	firstSlot := CreateTestSlot(testRunnerID, testModels[0].ID, testModels[0].Memory, singleGPU1, nil)
+	firstSlot := CreateTestSlot(testRunnerID, configuredModel1, singleGPU1, nil)
 	testSlots[firstSlot.ID] = firstSlot
 
 	// Set up minimal scheduler context with the allocated slot
@@ -176,7 +198,7 @@ func TestGPUAllocationDistribution(t *testing.T) {
 
 	// Second allocation - should now see the first allocation and choose the other GPU
 	t.Logf("\n=== Testing Second GPU Allocation (model-b) ===")
-	singleGPU2, multiGPUs2, _ := runnerCtrl.GetOptimalGPUAllocation(testRunnerID, testModels[1].Memory, types.RuntimeVLLM)
+	singleGPU2, multiGPUs2, _ := runnerCtrl.GetOptimalGPUAllocation(testRunnerID, configuredModel2.GetMemoryForAllocation(), types.RuntimeOllama)
 
 	require.NotNil(t, singleGPU2, "Second model should get a single GPU allocation")
 	assert.Empty(t, multiGPUs2, "Second model should use single GPU, not multi-GPU")
@@ -211,8 +233,8 @@ func TestGPUAllocationDistribution(t *testing.T) {
 	t.Logf("  GPU 1: %d GB allocated out of %d GB", gpu1Memory/(1024*1024*1024), gpuMemoryBytes/(1024*1024*1024))
 
 	// Verify that memory calculations are correct
-	// Use GGUF estimated values since Ollama models have Memory=0 in database
-	modelAMemory := uint64(10 * 1024 * 1024 * 1024) // 10GB from GGUF estimation
+	// Use configured model's memory (from GGUF estimation)
+	modelAMemory := configuredModel1.GetMemoryForAllocation() // 10GB from GGUF estimation
 	expectedGpu0Memory := uint64(0)
 	expectedGpu1Memory := uint64(0)
 

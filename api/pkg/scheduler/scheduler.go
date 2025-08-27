@@ -109,7 +109,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
-
 	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -292,9 +291,6 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 
 	// Start the runner reconciler
 	go s.reconcileRunners(ctx)
-
-	// Set up the model memory callback so RunnerController can get authoritative model memory
-	s.controller.setModelMemoryCallback(s.getModelMemory)
 
 	// Set up the detailed memory result callback so RunnerController can get detailed memory breakdowns
 	s.controller.setDetailedMemoryResultCallback(s.GetDetailedMemoryEstimate)
@@ -1152,49 +1148,41 @@ func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint
 	// Memory is allocated to slots regardless of whether they're currently active
 	allocatedMemory := uint64(0)
 	skippedSlots := 0
+	var rangeErr error
 	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 		// Only count slots on this specific runner
 		if slot.RunnerID == runnerID {
 			modelName := slot.InitialWork().ModelName().String()
 
-			// NEW ARCHITECTURE: Use configured model if available, fallback to old method for transition
-			var modelMemory uint64
-			if slot.InitialWork().model != nil && slot.InitialWork().model.IsAllocationConfigured() {
-				// Use configured model memory (authoritative, no errors)
-				modelMemory = slot.InitialWork().model.GetMemoryForAllocation()
-				log.Debug().
+			// NEW ARCHITECTURE: Require configured models - no fallbacks
+			if slot.InitialWork().model == nil || !slot.InitialWork().model.IsAllocationConfigured() {
+				rangeErr = fmt.Errorf("slot %s has unconfigured model %s - all models must use NewModelForGPUAllocation",
+					slot.ID.String(), modelName)
+				log.Error().
 					Str("runner_id", runnerID).
+					Str("slot_id", slot.ID.String()).
 					Str("model_name", modelName).
-					Uint64("configured_memory_gb", modelMemory/(1024*1024*1024)).
-					Msg("PREWARM_DEBUG: Using configured model memory")
-			} else {
-				// Fallback for old-style slots during transition period
-				log.Debug().
-					Str("runner_id", runnerID).
-					Str("model_name", modelName).
-					Msg("PREWARM_DEBUG: Using fallback getModelMemory for unconfigured slot")
-				var err error
-				modelMemory, err = s.getModelMemory(modelName)
-				if err != nil {
-					log.Error().
-						Str("runner_id", runnerID).
-						Str("slot_id", slot.ID.String()).
-						Str("model_name", modelName).
-						Err(err).
-						Msg("PREWARM_DEBUG: CRITICAL - getModelMemory failed - this could prevent prewarming!")
-					log.Warn().
-						Str("runner_id", runnerID).
-						Str("slot_id", slot.ID.String()).
-						Str("model_name", modelName).
-						Err(err).
-						Msg("CRITICAL: getModelMemory failed in calculateRunnerMemory, using slot memory as fallback")
-					modelMemory = slot.Memory() // Use slot memory as last resort
-				}
+					Err(rangeErr).
+					Msg("CRITICAL: Unconfigured model in calculateRunnerMemory")
+				return false // Stop iteration
 			}
+
+			// Use configured model memory (authoritative, never fails)
+			modelMemory := slot.InitialWork().model.GetMemoryForAllocation()
+			log.Debug().
+				Str("runner_id", runnerID).
+				Str("model_name", modelName).
+				Uint64("configured_memory_gb", modelMemory/(1024*1024*1024)).
+				Int("configured_gpu_count", slot.InitialWork().model.GetGPUCount()).
+				Msg("Using configured model memory (no fallbacks)")
 			allocatedMemory += modelMemory
 		}
 		return true
 	})
+
+	if rangeErr != nil {
+		return 0, 0, 0, rangeErr
+	}
 
 	if skippedSlots > 0 {
 		log.Warn().
@@ -1211,87 +1199,6 @@ func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint
 	}
 
 	return totalMemory, allocatedMemory, freeMemory, nil
-}
-
-// getModelMemory returns the memory requirement for a model
-func (s *Scheduler) getModelMemory(modelID string) (uint64, error) {
-	log.Debug().
-		Str("🔧 MEMORY_DEBUG", "getModelMemory_entry").
-		Str("model_id", modelID).
-		Msg("🔧 MEMORY_DEBUG: Getting model memory for scheduling")
-
-	// Get model info first to determine runtime
-	models, err := s.controller.store.ListModels(context.Background(), &store.ListModelsQuery{})
-	if err != nil {
-		log.Error().
-			Str("model_id", modelID).
-			Err(err).
-			Msg("CRITICAL: failed to list models from store - cannot get model info")
-		return 0, fmt.Errorf("failed to list models from store for model %s: %w", modelID, err)
-	}
-
-	var targetModel *types.Model
-	for _, model := range models {
-		if model.ID == modelID {
-			targetModel = model
-			break
-		}
-	}
-
-	if targetModel == nil {
-		log.Error().
-			Str("model_id", modelID).
-			Msg("CRITICAL: model not found in model registry - cannot determine memory requirement")
-		return 0, fmt.Errorf("model %s not found in model registry", modelID)
-	}
-
-	// For Ollama models, ONLY use GGUF-based memory estimate - never fall back to store values
-	if targetModel.Runtime == types.RuntimeOllama {
-		log.Debug().
-			Str("🔧 MEMORY_DEBUG", "ollama_model_detected").
-			Str("model_id", modelID).
-			Msg("🔧 MEMORY_DEBUG: Detected Ollama model, using GGUF estimation")
-
-		if s.memoryEstimationService == nil {
-			log.Error().
-				Str("model_id", modelID).
-				Msg("CRITICAL: memory estimation service required for Ollama models but not available")
-			return 0, fmt.Errorf("memory estimation service required for Ollama model %s but not available", modelID)
-		}
-
-		ggufMemory, err := s.getGGUFBasedMemoryEstimate(modelID)
-		if err != nil {
-			log.Error().
-				Str("🔧 MEMORY_DEBUG", "gguf_estimation_failed").
-				Str("model_id", modelID).
-				Err(err).
-				Msg("CRITICAL: GGUF estimation failed for Ollama model - cannot schedule without GGUF data")
-			return 0, fmt.Errorf("GGUF estimation failed for Ollama model %s: %w", modelID, err)
-		}
-
-		log.Info().
-			Str("🔧 MEMORY_DEBUG", "gguf_estimation_success").
-			Str("model_id", modelID).
-			Uint64("gguf_memory_bytes", ggufMemory).
-			Uint64("gguf_memory_gb", ggufMemory/(1024*1024*1024)).
-			Msg("🔧 MEMORY_DEBUG: Using GGUF-based memory estimate for scheduling")
-		return ggufMemory, nil
-	}
-
-	// For non-Ollama models, use store values
-	if targetModel.Memory == 0 {
-		log.Error().
-			Str("model_id", modelID).
-			Msg("CRITICAL: model has zero memory requirement - invalid configuration")
-		return 0, fmt.Errorf("model %s has zero memory requirement - invalid configuration", modelID)
-	}
-
-	log.Debug().
-		Str("model_id", modelID).
-		Str("runtime", string(targetModel.Runtime)).
-		Uint64("store_memory_bytes", targetModel.Memory).
-		Msg("Using store-based memory value for non-Ollama model")
-	return targetModel.Memory, nil
 }
 
 // getGGUFBasedMemoryEstimate attempts to get GGUF-based memory estimate for Ollama models
@@ -1525,9 +1432,20 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 			}
 
 			// STEP 1: Get authoritative memory for GPU allocation decision
-			authoritativeMemory, err := s.getModelMemory(req.ExampleWorkload.ModelName().String())
+			authoritativeMemoryResult, err := s.memoryEstimationService.EstimateModelMemory(context.Background(), req.ExampleWorkload.ModelName().String(), memory.EstimateOptions{})
 			if err != nil {
 				lastErr = fmt.Errorf("failed to get authoritative memory for model %s: %w", req.ExampleWorkload.ModelName(), err)
+				continue
+			}
+
+			// Extract appropriate memory value based on recommendation
+			var authoritativeMemory uint64
+			if authoritativeMemoryResult.SingleGPU != nil {
+				authoritativeMemory = authoritativeMemoryResult.SingleGPU.TotalSize
+			} else if authoritativeMemoryResult.TensorParallel != nil {
+				authoritativeMemory = authoritativeMemoryResult.TensorParallel.TotalSize
+			} else {
+				lastErr = fmt.Errorf("no valid memory estimate for model %s", req.ExampleWorkload.ModelName())
 				continue
 			}
 
@@ -1868,16 +1786,18 @@ func (s *Scheduler) calculateEvictableMemoryPerGPU(runnerID string) (map[int]uin
 					return
 				}
 
-				modelMemory, err := s.controller.getModelMemoryFn(modelName)
-				if err != nil {
-					log.Info().
-						Str("ORANGE_MEMORY_ERROR", "model_memory_lookup").
-						Err(err).
+				// NEW ARCHITECTURE: Require configured models - no callbacks
+				if slot.InitialWork().model == nil || !slot.InitialWork().model.IsAllocationConfigured() {
+					log.Error().
+						Str("ORANGE_MEMORY_ERROR", "unconfigured_model").
 						Str("model", modelName).
 						Str("slot_id", slot.ID.String()).
-						Msg("ORANGE: Could not get model memory for evictable calculation")
+						Msg("ORANGE: Slot has unconfigured model - cannot calculate evictable memory")
 					return
 				}
+
+				// Use configured model memory (authoritative, never fails)
+				modelMemory := slot.InitialWork().model.GetMemoryForAllocation()
 
 				log.Info().
 					Str("ORANGE_STALE_MEMORY", "adding_evictable").
@@ -2039,32 +1959,26 @@ func (s *Scheduler) getOptimalGPUAllocationWithEviction(runnerID string, modelMe
 // DeleteMostStaleStrategy iteratively deletes allocated work from stale slots until there is enough
 // memory to allocate the new workload. Returns the final memory state used for the decision.
 func (s *Scheduler) deleteMostStaleStrategy(runnerID string, work *Workload) (totalMemory, allocatedMemory, freeMemory uint64, err error) {
-	// NEW ARCHITECTURE: Use configured model if available, fallback to old method for transition
-	var requiredMem uint64
-	if work.model != nil && work.model.IsAllocationConfigured() {
-		// Use configured model memory (authoritative, no errors)
-		requiredMem = work.model.GetMemoryForAllocation()
-		log.Debug().
+	// NEW ARCHITECTURE: Require configured models - no fallbacks
+	if work.model == nil || !work.model.IsAllocationConfigured() {
+		err = fmt.Errorf("workload %s has unconfigured model %s - all models must use NewModelForGPUAllocation",
+			work.ID(), work.ModelName().String())
+		log.Error().
 			Str("runner_id", runnerID).
 			Str("model_name", work.ModelName().String()).
-			Uint64("configured_memory_gb", requiredMem/(1024*1024*1024)).
-			Msg("EVICTION: Using configured model memory")
-	} else {
-		// Fallback for old-style workloads during transition period
-		log.Debug().
-			Str("runner_id", runnerID).
-			Str("model_name", work.ModelName().String()).
-			Msg("EVICTION: Using fallback getModelMemory for unconfigured workload")
-		requiredMem, err = s.getModelMemory(work.ModelName().String())
-		if err != nil {
-			log.Error().
-				Str("runner_id", runnerID).
-				Str("model_name", work.ModelName().String()).
-				Err(err).
-				Msg("CRITICAL: Failed to get authoritative model memory in deleteMostStaleStrategy")
-			return 0, 0, 0, fmt.Errorf("failed to get authoritative model memory for %s: %w", work.ModelName().String(), err)
-		}
+			Err(err).
+			Msg("CRITICAL: Unconfigured model in deleteMostStaleStrategy")
+		return 0, 0, 0, err
 	}
+
+	// Use configured model memory (authoritative, never fails)
+	requiredMem := work.model.GetMemoryForAllocation()
+	log.Debug().
+		Str("runner_id", runnerID).
+		Str("model_name", work.ModelName().String()).
+		Uint64("configured_memory_gb", requiredMem/(1024*1024*1024)).
+		Int("configured_gpu_count", work.model.GetGPUCount()).
+		Msg("EVICTION: Using configured model memory (no fallbacks)")
 
 	log.Info().
 		Str("ORANGE_DELETE_START", "eviction_strategy").

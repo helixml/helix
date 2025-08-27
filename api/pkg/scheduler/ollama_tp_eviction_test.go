@@ -109,8 +109,17 @@ func TestOllamaTPEvictionFallback(t *testing.T) {
 	gpuCount := 2
 	gpuMemoryBytes := uint64(40 * 1024 * 1024 * 1024) // 40GB per GPU
 
+	// Create configured model for the small model that will be evicted
+	memoryService := NewOllamaTPEvictionMemoryService()
+	smallModelAllocation := GPUAllocationConfig{
+		GPUCount:     1,
+		SpecificGPUs: []int{0},
+	}
+	configuredSmallModel, err := NewModelForGPUAllocation(testModels[1], smallModelAllocation, memoryService)
+	require.NoError(t, err)
+
 	// Create a test slot that will be evicted
-	smallModelSlot := CreateTestSlot(testRunnerID, "small-model:7b", 7*1024*1024*1024,
+	smallModelSlot := CreateTestSlot(testRunnerID, configuredSmallModel,
 		func() *int { i := 0; return &i }(), nil)
 	// Make it stale for eviction
 	smallModelSlot.LastActivityTime = time.Now().Add(-2 * time.Hour)

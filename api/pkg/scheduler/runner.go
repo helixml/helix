@@ -41,7 +41,6 @@ type RunnerController struct {
 	store       store.Store
 
 	onRunnerConnectedFn       func(runnerID string)                         // Callback for when a new runner connects
-	getModelMemoryFn          func(modelID string) (uint64, error)          // Callback to get authoritative model memory from scheduler
 	getDetailedMemoryResultFn func(modelID string) *memory.EstimationResult // Callback to get detailed memory estimation
 	getSchedulerSlotsFn       func() map[uuid.UUID]*Slot                    // Callback to get scheduler's desired state slots
 	healthChecker             HealthChecker                                 // Interface for health checking, allows mocking in tests
@@ -239,7 +238,6 @@ type RunnerControllerConfig struct {
 	Store  store.Store
 
 	OnRunnerConnectedFn       func(runnerID string)                         // Optional callback for when a new runner connects
-	GetModelMemoryFn          func(modelID string) (uint64, error)          // Optional callback to get authoritative model memory
 	GetDetailedMemoryResultFn func(modelID string) *memory.EstimationResult // Optional callback to get detailed memory estimation
 	HealthChecker             HealthChecker                                 // Optional: for testing, defaults to NATS-based implementation
 	RunnerClient              RunnerClient                                  // Optional: for testing, defaults to NATS-based implementation
@@ -258,7 +256,6 @@ func NewRunnerController(ctx context.Context, cfg *RunnerControllerConfig) (*Run
 		slotsCache:                NewLockingRunnerMap[types.ListRunnerSlotsResponse](),
 		statusCache:               NewLockingRunnerMap[types.RunnerStatus](),
 		onRunnerConnectedFn:       cfg.OnRunnerConnectedFn,
-		getModelMemoryFn:          cfg.GetModelMemoryFn,
 		getDetailedMemoryResultFn: cfg.GetDetailedMemoryResultFn,
 	}
 
@@ -329,13 +326,6 @@ func (c *RunnerController) SetOnRunnerConnectedCallback(fn func(runnerID string)
 	c.callbackMu.Lock()
 	defer c.callbackMu.Unlock()
 	c.onRunnerConnectedFn = fn
-}
-
-// setModelMemoryCallback sets the callback function to get authoritative model memory from scheduler
-func (c *RunnerController) setModelMemoryCallback(fn func(modelID string) (uint64, error)) {
-	c.callbackMu.Lock()
-	defer c.callbackMu.Unlock()
-	c.getModelMemoryFn = fn
 }
 
 // setDetailedMemoryResultCallback sets the callback function to get detailed memory estimation results from scheduler
@@ -768,47 +758,28 @@ func (c *RunnerController) calculateAllocatedMemoryPerGPU(runnerID string) (map[
 			continue
 		}
 
-		// NEW ARCHITECTURE: Use configured model if available, fallback to old method for transition
-		var modelMemory uint64
-		if slot.InitialWork().model != nil && slot.InitialWork().model.IsAllocationConfigured() {
-			// Use configured model memory (authoritative, no errors)
-			modelMemory = slot.InitialWork().model.GetMemoryForAllocation()
-			log.Debug().
-				Str("runner_id", runnerID).
-				Str("slot_id", slotID.String()).
-				Str("model", slot.InitialWork().ModelName().String()).
-				Uint64("configured_memory_gb", modelMemory/(1024*1024*1024)).
-				Int("configured_gpu_count", slot.InitialWork().model.GetGPUCount()).
-				Msg("Using configured model memory (NEW ARCHITECTURE)")
-		} else if c.getModelMemoryFn != nil {
-			// Fallback for old-style slots during transition period
-			var err error
-			modelMemory, err = c.getModelMemoryFn(slot.InitialWork().ModelName().String())
-			if err != nil {
-				err = fmt.Errorf("failed to get model memory for slot %s with model %s on runner %s: %w",
-					slotID.String(), slot.InitialWork().ModelName().String(), runnerID, err)
-				log.Error().
-					Str("runner_id", runnerID).
-					Str("slot_id", slotID.String()).
-					Str("model", slot.InitialWork().ModelName().String()).
-					Err(err).
-					Msg("CRITICAL: Failed to get model memory requirements - this could lead to over-scheduling")
-				return allocatedMemoryPerGPU, err
-			}
-			log.Debug().
-				Str("runner_id", runnerID).
-				Str("slot_id", slotID.String()).
-				Str("model", slot.InitialWork().ModelName().String()).
-				Uint64("fallback_memory_gb", modelMemory/(1024*1024*1024)).
-				Msg("Using fallback getModelMemoryFn callback")
-		} else {
+		// NEW ARCHITECTURE: Require configured models - no fallbacks
+		if slot.InitialWork().model == nil || !slot.InitialWork().model.IsAllocationConfigured() {
+			err := fmt.Errorf("slot %s has unconfigured model %s - all models must use NewModelForGPUAllocation",
+				slotID.String(), slot.InitialWork().ModelName().String())
 			log.Error().
 				Str("runner_id", runnerID).
 				Str("slot_id", slotID.String()).
 				Str("model", slot.InitialWork().ModelName().String()).
-				Msg("CRITICAL: No getModelMemoryFn callback available - using slot memory as fallback")
-			modelMemory = slot.Memory()
+				Err(err).
+				Msg("CRITICAL: Unconfigured model in calculateAllocatedMemoryPerGPU")
+			return allocatedMemoryPerGPU, err
 		}
+
+		// Use configured model memory (authoritative, never fails)
+		modelMemory := slot.InitialWork().model.GetMemoryForAllocation()
+		log.Debug().
+			Str("runner_id", runnerID).
+			Str("slot_id", slotID.String()).
+			Str("model", slot.InitialWork().ModelName().String()).
+			Uint64("configured_memory_gb", modelMemory/(1024*1024*1024)).
+			Int("configured_gpu_count", slot.InitialWork().model.GetGPUCount()).
+			Msg("Using configured model memory (no fallbacks)")
 
 		// Verify we got valid memory value
 		if modelMemory == 0 {
@@ -1566,48 +1537,22 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 			Msg("Using GPU allocation from scheduler")
 	}
 
-	// NEW ARCHITECTURE: Get authoritative model memory from configured model or fallback
-	var modelMemoryRequirement uint64
-	if slot.InitialWork().model != nil && slot.InitialWork().model.IsAllocationConfigured() {
-		// Use configured model memory (authoritative, no errors)
-		modelMemoryRequirement = slot.InitialWork().model.GetMemoryForAllocation()
-		log.Debug().
-			Str("runner_id", slot.RunnerID).
-			Str("slot_id", slot.ID.String()).
-			Str("model", slot.InitialWork().ModelName().String()).
-			Uint64("configured_memory_bytes", modelMemoryRequirement).
-			Uint64("configured_memory_gb", modelMemoryRequirement/(1024*1024*1024)).
-			Int("configured_gpu_count", slot.InitialWork().model.GetGPUCount()).
-			Msg("Using configured model memory (NEW ARCHITECTURE)")
-	} else if c.getModelMemoryFn != nil {
-		// Fallback for old-style slots during transition period
-		var err error
-		modelMemoryRequirement, err = c.getModelMemoryFn(slot.InitialWork().ModelName().String())
-		if err != nil {
-			log.Error().
-				Str("runner_id", slot.RunnerID).
-				Str("slot_id", slot.ID.String()).
-				Str("model", slot.InitialWork().ModelName().String()).
-				Err(err).
-				Msg("Failed to get authoritative model memory, falling back to slot memory")
-			modelMemoryRequirement = slot.Memory()
-		} else {
-			log.Debug().
-				Str("runner_id", slot.RunnerID).
-				Str("slot_id", slot.ID.String()).
-				Str("model", slot.InitialWork().ModelName().String()).
-				Uint64("authoritative_memory_bytes", modelMemoryRequirement).
-				Uint64("slot_memory_bytes", slot.Memory()).
-				Msg("Using fallback getModelMemory callback")
-		}
-	} else {
-		log.Warn().
-			Str("runner_id", slot.RunnerID).
-			Str("slot_id", slot.ID.String()).
-			Str("model", slot.InitialWork().ModelName().String()).
-			Msg("No model memory callback available, using slot memory")
-		modelMemoryRequirement = slot.Memory()
+	// NEW ARCHITECTURE: Require configured models - no fallbacks
+	if slot.InitialWork().model == nil || !slot.InitialWork().model.IsAllocationConfigured() {
+		return fmt.Errorf("slot %s has unconfigured model %s - all models must use NewModelForGPUAllocation",
+			slot.ID.String(), slot.InitialWork().ModelName().String())
 	}
+
+	// Use configured model memory (authoritative, never fails)
+	modelMemoryRequirement := slot.InitialWork().model.GetMemoryForAllocation()
+	log.Debug().
+		Str("runner_id", slot.RunnerID).
+		Str("slot_id", slot.ID.String()).
+		Str("model", slot.InitialWork().ModelName().String()).
+		Uint64("configured_memory_bytes", modelMemoryRequirement).
+		Uint64("configured_memory_gb", modelMemoryRequirement/(1024*1024*1024)).
+		Int("configured_gpu_count", slot.InitialWork().model.GetGPUCount()).
+		Msg("Using configured model memory (no fallbacks)")
 
 	// CRITICAL SAFETY CHECK: Never allow slots with zero memory requirement
 	// This prevents overscheduling bugs where the scheduler thinks no memory is allocated
