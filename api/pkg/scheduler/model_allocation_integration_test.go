@@ -559,20 +559,31 @@ func TestIntegratedSchedulingFlow(t *testing.T) {
 	runnerCtrl.runners = append(runnerCtrl.runners, testRunnerID)
 	runnerCtrl.runnersMu.Unlock()
 
-	// Test the complete flow: enqueue -> schedule -> allocate -> create slot
+	// Test the complete flow: allocate -> configure -> enqueue -> schedule -> create slot
+	// Step 1: Scheduler makes allocation decision (simulated)
+	allocation := GPUAllocationConfig{
+		GPUCount:     1,
+		SpecificGPUs: []int{0},
+	}
+
+	// Step 2: Configure model with allocation
+	configuredModel, err := NewModelForGPUAllocation(baseModel, allocation, memoryService)
+	require.NoError(t, err)
+
+	// Step 3: Create workload with configured model
 	workload, err := NewLLMWorkload(&types.RunnerLLMInferenceRequest{
 		RequestID: "integration-flow-test",
 		Request: &openai.ChatCompletionRequest{
 			Model:    "integration-test:30b",
 			Messages: []openai.ChatCompletionMessage{{Role: "user", Content: "test"}},
 		},
-	}, baseModel) // Note: starts with unconfigured base model
+	}, configuredModel) // Note: uses pre-configured model
 	require.NoError(t, err)
 
-	// Enqueue the workload
+	// Step 4: Enqueue the workload
 	err = scheduler.Enqueue(workload)
 	require.NoError(t, err)
-	t.Logf("✅ Successfully enqueued workload with unconfigured model")
+	t.Logf("✅ Successfully enqueued workload with configured model")
 
 	// Trigger scheduling
 	scheduler.reconcileSlotsOnce(ctx)

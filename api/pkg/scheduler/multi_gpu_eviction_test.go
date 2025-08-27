@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -51,10 +52,39 @@ func TestMultiGPUEvictionCalculation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Memory service for multi-GPU eviction test
+	memoryService := &MockMemoryEstimationServiceForAllocation{
+		modelMemory: map[string]*memory.EstimationResult{
+			"small-model:30b": {
+				Recommendation: "single_gpu",
+				SingleGPU: &memory.MemoryEstimate{
+					Layers:    36,
+					VRAMSize:  30 * 1024 * 1024 * 1024,
+					TotalSize: 30 * 1024 * 1024 * 1024,
+				},
+			},
+			"medium-model:60b": {
+				Recommendation: "tensor_parallel",
+				SingleGPU: &memory.MemoryEstimate{
+					Layers:    36,
+					VRAMSize:  60 * 1024 * 1024 * 1024,
+					TotalSize: 60 * 1024 * 1024 * 1024,
+				},
+				TensorParallel: &memory.MemoryEstimate{
+					Layers:    36,
+					VRAMSize:  60 * 1024 * 1024 * 1024,
+					TotalSize: 60 * 1024 * 1024 * 1024,
+					GPUSizes:  []uint64{30 * 1024 * 1024 * 1024, 30 * 1024 * 1024 * 1024},
+				},
+			},
+		},
+	}
+
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		Store:            mockStore,
-		QueueSize:        50,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: memoryService,
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -79,6 +109,21 @@ func TestMultiGPUEvictionCalculation(t *testing.T) {
 
 	t.Logf("=== Testing Multi-GPU Eviction Memory Calculation ===")
 
+	// Create configured models for testing
+	singleGPUAllocation := GPUAllocationConfig{
+		GPUCount:     1,
+		SpecificGPUs: []int{0},
+	}
+	configuredSingleGPUModel, err := NewModelForGPUAllocation(testModels[2], singleGPUAllocation, memoryService)
+	require.NoError(t, err)
+
+	multiGPUAllocation := GPUAllocationConfig{
+		GPUCount:     2,
+		SpecificGPUs: []int{0, 1},
+	}
+	configuredMultiGPUModel, err := NewModelForGPUAllocation(testModels[1], multiGPUAllocation, memoryService)
+	require.NoError(t, err)
+
 	// Create test slots that would be considered stale
 	staleTime := time.Now().Add(-10 * time.Minute) // Long ago
 
@@ -93,7 +138,7 @@ func TestMultiGPUEvictionCalculation(t *testing.T) {
 					Model: "small-model:30b",
 				},
 			},
-			model: testModels[2], // 30GB model
+			model: configuredSingleGPUModel, // 30GB configured model
 		},
 		LastActivityTime: staleTime,
 		activeRequests:   0,
@@ -120,7 +165,7 @@ func TestMultiGPUEvictionCalculation(t *testing.T) {
 					Model: "medium-model:60b",
 				},
 			},
-			model: testModels[1], // 60GB model
+			model: configuredMultiGPUModel, // 60GB configured model
 		},
 		LastActivityTime: staleTime,
 		activeRequests:   0,
@@ -248,6 +293,34 @@ func TestEvictableMemoryCalculationMultiGPU(t *testing.T) {
 	require.NoError(t, err)
 
 	shortStaleTime := 100 * time.Millisecond
+	// Memory service for evictable memory test
+	memoryService := &MockMemoryEstimationServiceForAllocation{
+		modelMemory: map[string]*memory.EstimationResult{
+			"model-a:30b": {
+				Recommendation: "single_gpu",
+				SingleGPU: &memory.MemoryEstimate{
+					Layers:    36,
+					VRAMSize:  30 * 1024 * 1024 * 1024,
+					TotalSize: 30 * 1024 * 1024 * 1024,
+				},
+			},
+			"model-b:60b": {
+				Recommendation: "tensor_parallel",
+				SingleGPU: &memory.MemoryEstimate{
+					Layers:    36,
+					VRAMSize:  60 * 1024 * 1024 * 1024,
+					TotalSize: 60 * 1024 * 1024 * 1024,
+				},
+				TensorParallel: &memory.MemoryEstimate{
+					Layers:    36,
+					VRAMSize:  60 * 1024 * 1024 * 1024,
+					TotalSize: 60 * 1024 * 1024 * 1024,
+					GPUSizes:  []uint64{30 * 1024 * 1024 * 1024, 30 * 1024 * 1024 * 1024},
+				},
+			},
+		},
+	}
+
 	serverConfig := &config.ServerConfig{
 		Providers: config.Providers{
 			Helix: config.Helix{
@@ -256,9 +329,10 @@ func TestEvictableMemoryCalculationMultiGPU(t *testing.T) {
 		},
 	}
 	scheduler, err := NewScheduler(ctx, serverConfig, &Params{
-		RunnerController: runnerCtrl,
-		Store:            mockStore,
-		QueueSize:        50,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: memoryService,
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -281,6 +355,21 @@ func TestEvictableMemoryCalculationMultiGPU(t *testing.T) {
 	runnerCtrl.runners = append(runnerCtrl.runners, testRunnerID)
 	runnerCtrl.runnersMu.Unlock()
 
+	// Create configured models for testing
+	singleGPUAllocation := GPUAllocationConfig{
+		GPUCount:     1,
+		SpecificGPUs: []int{0},
+	}
+	configuredModelA, err := NewModelForGPUAllocation(testModels[0], singleGPUAllocation, memoryService)
+	require.NoError(t, err)
+
+	multiGPUAllocation := GPUAllocationConfig{
+		GPUCount:     2,
+		SpecificGPUs: []int{0, 1},
+	}
+	configuredModelB, err := NewModelForGPUAllocation(testModels[1], multiGPUAllocation, memoryService)
+	require.NoError(t, err)
+
 	// Create test slots manually
 	t.Logf("Creating test slots for evictable memory calculation")
 
@@ -295,8 +384,8 @@ func TestEvictableMemoryCalculationMultiGPU(t *testing.T) {
 					Model: "model-a:30b",
 				},
 			},
-			model: testModels[0],
-		}, // 30GB model
+			model: configuredModelA,
+		}, // 30GB configured model
 		LastActivityTime: time.Now().Add(-200 * time.Millisecond), // Make it stale
 		activeRequests:   0,
 		maxConcurrency:   1,
@@ -322,8 +411,8 @@ func TestEvictableMemoryCalculationMultiGPU(t *testing.T) {
 					Model: "model-b:60b",
 				},
 			},
-			model: testModels[1],
-		}, // 60GB model
+			model: configuredModelB,
+		}, // 60GB configured model
 		LastActivityTime: time.Now().Add(-200 * time.Millisecond), // Make it stale
 		activeRequests:   0,
 		maxConcurrency:   1,
