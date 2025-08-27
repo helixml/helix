@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/freeport"
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -559,7 +560,7 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 		"OLLAMA_MAX_LOADED_MODELS=1",
 		fmt.Sprintf("OLLAMA_NUM_PARALLEL=%d", numParallel),
 		"OLLAMA_FLASH_ATTENTION=1",
-		"OLLAMA_KV_CACHE_TYPE=" + types.DefaultKVCacheType,
+		"OLLAMA_KV_CACHE_TYPE=" + memory.DefaultKVCacheType,
 		"OLLAMA_HOST=" + ollamaHost, // Bind on localhost with random port
 		"OLLAMA_MODELS=" + cacheDir, // Where to store the models
 	}

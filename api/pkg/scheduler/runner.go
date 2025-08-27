@@ -1495,7 +1495,7 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 					Msg("Using per-model concurrency setting for Ollama")
 			} else {
 				// Use reasonable default for Ollama
-				numParallel = types.DefaultOllamaParallelSequences
+				numParallel = memory.DefaultOllamaParallelSequences
 				log.Debug().
 					Str("model", modelName).
 					Int("concurrency", numParallel).
@@ -1612,7 +1612,7 @@ func (c *RunnerController) CreateSlot(slot *Slot) error {
 					}
 
 					memoryEstimationMeta = map[string]any{
-						"kv_cache_type":  types.DefaultKVCacheType, // KV cache type used in estimation
+						"kv_cache_type":  memory.DefaultKVCacheType, // KV cache type used in estimation
 						"context_length": int(model.ContextLength),
 						"batch_size":     512,
 						"parallel_sequences": func() int {

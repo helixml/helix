@@ -66,17 +66,12 @@ func NewModelForGPUAllocation(baseModel *types.Model, allocation GPUAllocationCo
 		}
 
 		// Get authoritative GGUF estimation with proper options from model store
-		estimateOptions := memory.EstimateOptions{
-			NumCtx:      int(baseModel.ContextLength), // Use context length from model store
-			NumBatch:    512,                          // Standard batch size
-			NumParallel: int(baseModel.Concurrency),   // Use concurrency from model store
-			NumGPU:      -1,                           // Auto-detect all layers that fit
-			KVCacheType: "q8_0",                       // Standard KV cache type
-		}
-
-		// Handle default concurrency if not set
-		if estimateOptions.NumParallel <= 0 {
-			estimateOptions.NumParallel = 2 // Ollama default
+		estimateOptions := memory.CreateAutoEstimateOptions(baseModel.ContextLength)
+		// Override concurrency if specified in model
+		if baseModel.Concurrency > 0 {
+			estimateOptions.NumParallel = int(baseModel.Concurrency)
+		} else {
+			estimateOptions.NumParallel = memory.DefaultOllamaParallelSequences
 		}
 
 		result, err := memoryEstimationService.EstimateModelMemory(context.Background(), baseModel.ID, estimateOptions)

@@ -334,7 +334,7 @@ func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context,
 	}
 
 	// Use model's actual context length and correct KV cache type
-	opts := types.CreateAutoEstimateOptions(targetModel.ContextLength)
+	opts := memory.CreateAutoEstimateOptions(targetModel.ContextLength)
 
 	// CRITICAL: Use same concurrency setting as scheduler to ensure consistent cache keys and estimates
 	// This fixes the 14.848 GiB vs 47.75 GB discrepancy
@@ -345,7 +345,7 @@ func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context,
 			Int("concurrency", targetModel.Concurrency).
 			Msg("🦈 HAMMERHEAD Dashboard using per-model concurrency setting")
 	} else if targetModel.Runtime == types.RuntimeOllama {
-		opts.NumParallel = types.DefaultOllamaParallelSequences
+		opts.NumParallel = memory.DefaultOllamaParallelSequences
 		log.Debug().
 			Str("model_id", modelID).
 			Int("concurrency", opts.NumParallel).
