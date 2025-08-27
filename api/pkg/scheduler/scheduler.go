@@ -1525,6 +1525,15 @@ func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
 				}
 				// Store the fresh allocation for future reference
 				s.storeGPUAllocation(req.ExampleWorkload, runnerID, singleGPU, multiGPUs)
+			} else {
+				// GPU allocation failed - insufficient memory on this runner
+				lastErr = fmt.Errorf("insufficient GPU memory on runner %s for model requiring %d bytes", runnerID, req.ExampleWorkload.model.Memory)
+				withWorkContext(&log.Logger, req.ExampleWorkload).Debug().
+					Err(lastErr).
+					Str("runner_id", runnerID).
+					Uint64("model_memory_requirement", req.ExampleWorkload.model.Memory).
+					Msg("GPU allocation failed due to insufficient memory, trying next runner")
+				continue // Try next runner
 			}
 
 			slot := NewSlot(runnerID, req.ExampleWorkload, s.modelStaleFunc, s.slotTimeoutFunc, gpuAllocation)
