@@ -25,6 +25,8 @@ interface MemoryEstimationWidgetProps {
     modelId: string;
     currentContextLength: number;
     onContextLengthChange: (value: number) => void;
+    currentConcurrency: number;
+    onConcurrencyChange: (value: number) => void;
     disabled?: boolean;
 }
 
@@ -35,6 +37,8 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
     modelId,
     currentContextLength,
     onContextLengthChange,
+    currentConcurrency,
+    onConcurrencyChange,
     disabled = false,
 }) => {
     // Convert context length to logarithmic scale for better distribution
@@ -63,7 +67,7 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
         setSliderValue(contextToLogScale(currentContextLength / 1000));
     }, [currentContextLength]);
 
-    // Debounced fetch estimates when model or context length changes
+    // Debounced fetch estimates when model, context length, or concurrency changes
     useEffect(() => {
         // Clear existing timer
         if (debounceTimerRef.current) {
@@ -85,7 +89,7 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
                 clearTimeout(debounceTimerRef.current);
             }
         };
-    }, [modelId, currentContextLength]);
+    }, [modelId, currentContextLength, currentConcurrency]);
 
     const handleSliderChange = useCallback(
         (_: Event, value: number | number[]) => {
@@ -353,6 +357,56 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
                             />
                         ))}
                     </Box>
+                </Box>
+
+                {/* Concurrency Control */}
+                <Box mb={3}>
+                    <Typography variant="subtitle2" gutterBottom>
+                        Concurrent Requests:{" "}
+                        <Box
+                            component="span"
+                            sx={{
+                                fontWeight: "bold",
+                                color: "primary.main",
+                            }}
+                        >
+                            {currentConcurrency === 0
+                                ? "Default (2)"
+                                : currentConcurrency}
+                        </Box>
+                    </Typography>
+                    <Box px={1}>
+                        <Slider
+                            value={currentConcurrency}
+                            onChange={(_, value) => {
+                                const newValue = Array.isArray(value)
+                                    ? value[0]
+                                    : value;
+                                onConcurrencyChange(newValue);
+                            }}
+                            min={0}
+                            max={8}
+                            step={1}
+                            marks={[
+                                { value: 0, label: "Default" },
+                                { value: 1, label: "1" },
+                                { value: 2, label: "2" },
+                                { value: 4, label: "4" },
+                                { value: 8, label: "8" },
+                            ]}
+                            valueLabelDisplay="auto"
+                            disabled={disabled}
+                            sx={{ mb: 2 }}
+                        />
+                    </Box>
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                        <Typography variant="body2">
+                            <strong>Memory Impact:</strong> Ollama allocates{" "}
+                            <em>concurrency × context length</em> total memory
+                            for the KV cache. Higher concurrency improves
+                            throughput but increases memory usage.
+                        </Typography>
+                    </Alert>
                 </Box>
 
                 {/* Memory Estimates */}

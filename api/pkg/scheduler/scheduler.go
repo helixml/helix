@@ -1201,6 +1201,11 @@ func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint
 
 // getModelMemory returns the memory requirement for a model
 func (s *Scheduler) getModelMemory(modelID string) (uint64, error) {
+	log.Debug().
+		Str("🔧 MEMORY_DEBUG", "getModelMemory_entry").
+		Str("model_id", modelID).
+		Msg("🔧 MEMORY_DEBUG: Getting model memory for scheduling")
+
 	// Get model info first to determine runtime
 	models, err := s.controller.store.ListModels(context.Background(), &store.ListModelsQuery{})
 	if err != nil {
@@ -1228,6 +1233,11 @@ func (s *Scheduler) getModelMemory(modelID string) (uint64, error) {
 
 	// For Ollama models, ONLY use GGUF-based memory estimate - never fall back to store values
 	if targetModel.Runtime == types.RuntimeOllama {
+		log.Debug().
+			Str("🔧 MEMORY_DEBUG", "ollama_model_detected").
+			Str("model_id", modelID).
+			Msg("🔧 MEMORY_DEBUG: Detected Ollama model, using GGUF estimation")
+
 		if s.memoryEstimationService == nil {
 			log.Error().
 				Str("model_id", modelID).
@@ -1238,16 +1248,19 @@ func (s *Scheduler) getModelMemory(modelID string) (uint64, error) {
 		ggufMemory, err := s.getGGUFBasedMemoryEstimate(modelID)
 		if err != nil {
 			log.Error().
+				Str("🔧 MEMORY_DEBUG", "gguf_estimation_failed").
 				Str("model_id", modelID).
 				Err(err).
 				Msg("CRITICAL: GGUF estimation failed for Ollama model - cannot schedule without GGUF data")
 			return 0, fmt.Errorf("GGUF estimation failed for Ollama model %s: %w", modelID, err)
 		}
 
-		log.Debug().
+		log.Info().
+			Str("🔧 MEMORY_DEBUG", "gguf_estimation_success").
 			Str("model_id", modelID).
 			Uint64("gguf_memory_bytes", ggufMemory).
-			Msg("Using GGUF-based memory estimate for scheduling")
+			Uint64("gguf_memory_gb", ggufMemory/(1024*1024*1024)).
+			Msg("🔧 MEMORY_DEBUG: Using GGUF-based memory estimate for scheduling")
 		return ggufMemory, nil
 	}
 
@@ -1269,9 +1282,19 @@ func (s *Scheduler) getModelMemory(modelID string) (uint64, error) {
 
 // getGGUFBasedMemoryEstimate attempts to get GGUF-based memory estimate for Ollama models
 func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
+	log.Debug().
+		Str("🔧 MEMORY_DEBUG", "gguf_estimation_entry").
+		Str("model_id", modelID).
+		Msg("🔧 MEMORY_DEBUG: Starting GGUF-based memory estimation")
+
 	// Check if this is an Ollama model first
 	models, err := s.controller.store.ListModels(context.Background(), &store.ListModelsQuery{})
 	if err != nil {
+		log.Error().
+			Str("🔧 MEMORY_DEBUG", "gguf_store_error").
+			Str("model_id", modelID).
+			Err(err).
+			Msg("🔧 MEMORY_DEBUG: Failed to list models from store for GGUF estimation")
 		return 0, fmt.Errorf("failed to list models from store: %w", err)
 	}
 
@@ -1311,9 +1334,9 @@ func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
 	if targetModel.Concurrency > 0 {
 		numParallel = targetModel.Concurrency
 	} else if targetModel.Runtime == types.RuntimeVLLM {
-		numParallel = 256 // VLLM's natural default
+		numParallel = types.DefaultVLLMParallelSequences
 	} else if targetModel.Runtime == types.RuntimeOllama {
-		numParallel = 4 // Reasonable default for Ollama
+		numParallel = types.DefaultOllamaParallelSequences
 	} else {
 		numParallel = types.DefaultParallelSequences
 	}
@@ -1325,6 +1348,16 @@ func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
 		NumGPU:      types.AutoDetectLayers,
 		KVCacheType: types.DefaultKVCacheType,
 	}
+
+	log.Debug().
+		Str("🔧 MEMORY_DEBUG", "gguf_estimation_params").
+		Str("model_id", modelID).
+		Int("context_length", opts.NumCtx).
+		Int("batch_size", opts.NumBatch).
+		Int("num_parallel", opts.NumParallel).
+		Int("num_gpu", opts.NumGPU).
+		Str("kv_cache_type", opts.KVCacheType).
+		Msg("🔧 MEMORY_DEBUG: Calling memory estimation service with these parameters")
 
 	log.Debug().
 		Str("CONTEXT_DEBUG", "scheduler_opts").
@@ -1340,11 +1373,31 @@ func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
 	result, err := s.memoryEstimationService.EstimateModelMemory(context.Background(), modelID, opts)
 	if err != nil {
 		log.Error().
+			Str("🔧 MEMORY_DEBUG", "gguf_estimation_service_error").
 			Str("model_id", modelID).
 			Err(err).
-			Msg("PREWARM_DEBUG: CRITICAL - EstimateModelMemory failed! This is likely the timing issue - runner may not be ready")
+			Msg("🔧 MEMORY_DEBUG: CRITICAL - EstimateModelMemory failed! This is likely the timing issue - runner may not be ready")
 		return 0, fmt.Errorf("failed to estimate model memory: %w", err)
 	}
+
+	log.Info().
+		Str("🔧 MEMORY_DEBUG", "gguf_estimation_service_result").
+		Str("model_id", modelID).
+		Str("recommendation", result.Recommendation).
+		Uint64("single_gpu_vram", func() uint64 {
+			if result.SingleGPU != nil {
+				return result.SingleGPU.VRAMSize
+			}
+			return 0
+		}()).
+		Uint64("single_gpu_total", func() uint64 {
+			if result.SingleGPU != nil {
+				return result.SingleGPU.TotalSize
+			}
+			return 0
+		}()).
+		Bool("has_tensor_parallel", result.TensorParallel != nil).
+		Msg("🔧 MEMORY_DEBUG: Memory estimation service returned result")
 
 	// Store detailed result for UI debugging
 	s.detailedMemoryMu.Lock()

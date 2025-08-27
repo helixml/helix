@@ -345,7 +345,7 @@ func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context,
 			Int("concurrency", targetModel.Concurrency).
 			Msg("🦈 HAMMERHEAD Dashboard using per-model concurrency setting")
 	} else if targetModel.Runtime == types.RuntimeOllama {
-		opts.NumParallel = 4 // Match scheduler's "reasonable default for Ollama"
+		opts.NumParallel = types.DefaultOllamaParallelSequences
 		log.Debug().
 			Str("model_id", modelID).
 			Int("concurrency", opts.NumParallel).

@@ -152,6 +152,28 @@ func (ss *SlotStore) loadFromDatabase() {
 			Str("model", dbSlot.Model).
 			Msg("APPLE: Loading slot from database")
 
+		// CRITICAL SAFETY CHECK: Reject slots with zero memory requirement to prevent overscheduling
+		if dbSlot.ModelMemoryRequirement == 0 {
+			log.Error().
+				Str("slot_id", dbSlot.ID.String()).
+				Str("runner_id", dbSlot.RunnerID).
+				Str("model", dbSlot.Model).
+				Msg("CRITICAL: Rejecting slot with zero memory requirement from database - this would cause overscheduling")
+
+			// Delete the invalid slot from database to prevent it from being loaded again
+			if err := ss.store.DeleteSlot(context.Background(), dbSlot.ID.String()); err != nil {
+				log.Error().
+					Err(err).
+					Str("slot_id", dbSlot.ID.String()).
+					Msg("Failed to delete invalid slot from database")
+			} else {
+				log.Info().
+					Str("slot_id", dbSlot.ID.String()).
+					Msg("Successfully deleted invalid slot from database")
+			}
+			continue
+		}
+
 		// Convert types.RunnerSlot to scheduler.Slot
 		slot := &Slot{
 			ID:               dbSlot.ID,

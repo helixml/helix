@@ -193,6 +193,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Description:   "Open-weight reasoning model with agentic capabilities, from OpenAI - optimized for consumer hardware, ~20B parameters",
 			Hide:          false,
 			Prewarm:       true,
+			Concurrency:   1, // too big for concurrency 2
 		},
 		{
 			ID:            "gpt-oss:120b", // https://ollama.com/library/gpt-oss:120b
@@ -202,12 +203,14 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 			Description:   "Large open-weight reasoning model with advanced capabilities, from OpenAI - production-grade, ~120B parameters",
 			Hide:          false,
 			Prewarm:       false, // Don't prewarm due to high memory requirements
+			Concurrency:   1,     // too big for concurrency 2
 		},
 		{
 			ID:            "qwen3:8b", // https://ollama.com/library/qwen3:8b
 			Name:          "Qwen3 8B",
 			Memory:        GB * 10, // Based on Q4_K_M quantization, ~10GB model size
 			ContextLength: 40960,   // 40K context window
+			Concurrency:   0,       // Use runtime default (DefaultOllamaParallelSequences)
 			Description:   "Latest generation Qwen model with enhanced reasoning, from Alibaba - 4bit quantized, 40K context",
 			Hide:          false,
 			Prewarm:       true,
@@ -314,6 +317,10 @@ func (o *VLLMGenericText) GetMemoryRequirements(_ types.SessionMode) uint64 {
 
 func (o *VLLMGenericText) GetContextLength() int64 {
 	return o.ContextLength
+}
+
+func (o *VLLMGenericText) GetConcurrency() int {
+	return 0 // Default to 0 (use runtime default)
 }
 
 func (o *VLLMGenericText) GetType() types.SessionType {

@@ -13,7 +13,6 @@ export interface ControllerMemoryEstimationResponse {
   cached?: boolean;
   error?: string;
   estimate?: MemoryMemoryEstimate;
-  gpu_config?: TypesGPUInfoForEstimation[];
   model_id?: string;
 }
 
@@ -970,21 +969,6 @@ export interface TypesFrontendLicenseInfo {
   organization?: string;
   valid?: boolean;
   valid_until?: string;
-}
-
-export interface TypesGPUInfoForEstimation {
-  /** Free memory in bytes */
-  free_memory?: number;
-  id?: string;
-  index?: number;
-  /** "cuda", "rocm", "metal", "cpu" */
-  library?: string;
-  /** Minimum memory to reserve */
-  minimum_memory?: number;
-  /** GPU model name */
-  name?: string;
-  /** Total memory in bytes */
-  total_memory?: number;
 }
 
 export interface TypesGPUMemoryDataPoint {

@@ -134,6 +134,15 @@ func NewOllamaRuntime(_ context.Context, params OllamaRuntimeParams) (*OllamaRun
 	numParallel := 1
 	if params.NumParallel != nil {
 		numParallel = *params.NumParallel
+		log.Info().
+			Str("model", model).
+			Int("num_parallel_from_params", numParallel).
+			Msg("🔍 TRACING: NewOllamaRuntime received NumParallel from params")
+	} else {
+		log.Warn().
+			Str("model", model).
+			Int("num_parallel_default", numParallel).
+			Msg("🔍 TRACING: NewOllamaRuntime using default NumParallel (params.NumParallel was nil)")
 	}
 
 	log.Debug().
@@ -537,6 +546,11 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 	ollamaHost := fmt.Sprintf("127.0.0.1:%d", port)
 
 	// Build environment variables
+	log.Info().
+		Int("num_parallel_being_set", numParallel).
+		Str("env_var_value", fmt.Sprintf("OLLAMA_NUM_PARALLEL=%d", numParallel)).
+		Msg("🔍 TRACING: Setting OLLAMA_NUM_PARALLEL environment variable in startOllamaCmd")
+
 	env := []string{
 		"HOME=" + os.Getenv("HOME"),
 		"HTTP_PROXY=" + os.Getenv("HTTP_PROXY"),
@@ -577,6 +591,16 @@ func startOllamaCmd(ctx context.Context, commander Commander, port int, cacheDir
 
 	cmd.Env = env
 	log.Debug().Interface("env", cmd.Env).Msg("Ollama serve command")
+
+	// Extra logging to trace OLLAMA_NUM_PARALLEL specifically
+	for _, envVar := range env {
+		if len(envVar) > 18 && envVar[:18] == "OLLAMA_NUM_PARALLEL" {
+			log.Info().
+				Str("env_var", envVar).
+				Msg("🔍 TRACING: OLLAMA_NUM_PARALLEL environment variable set for ollama serve")
+			break
+		}
+	}
 
 	// Prepare stdout and stderr
 	log.Debug().Msg("Preparing stdout and stderr")

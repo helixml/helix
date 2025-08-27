@@ -37,12 +37,49 @@ func NewSlot(runnerID string, work *Workload, staleTimeout TimeoutFunc, errorTim
 	// First check if model has specific concurrency setting
 	if work.model != nil && work.model.Concurrency > 0 {
 		maxConcurrency = int64(work.model.Concurrency)
+		log.Info().
+			Str("model_id", work.model.ID).
+			Int("model_concurrency", work.model.Concurrency).
+			Int64("max_concurrency", maxConcurrency).
+			Msg("🔧 CONCURRENCY_DEBUG: Using model-specific concurrency setting")
 	} else {
 		// Use natural runtime defaults
 		if work.Runtime() == types.RuntimeVLLM {
-			maxConcurrency = 256 // VLLM's natural default
+			maxConcurrency = int64(types.DefaultVLLMParallelSequences)
+			log.Info().
+				Str("model_id", func() string {
+					if work.model != nil {
+						return work.model.ID
+					}
+					return "unknown"
+				}()).
+				Int("model_concurrency", func() int {
+					if work.model != nil {
+						return work.model.Concurrency
+					}
+					return 0
+				}()).
+				Int64("max_concurrency", maxConcurrency).
+				Int("default_vllm_parallel", types.DefaultVLLMParallelSequences).
+				Msg("🔧 CONCURRENCY_DEBUG: Using VLLM default concurrency")
 		} else if work.Runtime() == types.RuntimeOllama {
-			maxConcurrency = 4 // Reasonable default for Ollama
+			maxConcurrency = int64(types.DefaultOllamaParallelSequences)
+			log.Info().
+				Str("model_id", func() string {
+					if work.model != nil {
+						return work.model.ID
+					}
+					return "unknown"
+				}()).
+				Int("model_concurrency", func() int {
+					if work.model != nil {
+						return work.model.Concurrency
+					}
+					return 0
+				}()).
+				Int64("max_concurrency", maxConcurrency).
+				Int("default_ollama_parallel", types.DefaultOllamaParallelSequences).
+				Msg("🔧 CONCURRENCY_DEBUG: Using Ollama default concurrency")
 		}
 		// Other runtimes keep maxConcurrency = 1
 	}

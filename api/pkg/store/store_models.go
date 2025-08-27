@@ -36,6 +36,11 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 	ollamaModels, _ := model.GetDefaultOllamaModels()
 
 	for i, model := range ollamaModels {
+		// Skip hidden models - don't seed them at all
+		if model.Hide {
+			continue
+		}
+
 		// Check if model already exists
 		existingModel, err := s.GetModel(ctx, model.ID)
 		if err != nil && err != ErrNotFound {
@@ -98,6 +103,10 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 					updateData.ContextLength = model.ContextLength
 					shouldUpdate = true
 				}
+				if existingModel.Concurrency != model.Concurrency {
+					updateData.Concurrency = model.Concurrency
+					shouldUpdate = true
+				}
 			}
 
 			if shouldUpdate {
@@ -124,6 +133,7 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 			Runtime:       types.RuntimeOllama,
 			ContextLength: model.ContextLength,
 			Memory:        model.Memory,
+			Concurrency:   model.Concurrency,
 			Description:   model.Description,
 			Hide:          model.Hide,
 			Enabled:       true,
@@ -145,6 +155,11 @@ func (s *PostgresStore) seedDiffusersModels(ctx context.Context) error {
 	diffusersModels, _ := model.GetDefaultDiffusersModels()
 
 	for i, model := range diffusersModels {
+		// Skip hidden models - don't seed them at all
+		if model.Hide {
+			continue
+		}
+
 		// Check if model already exists
 		existingModel, err := s.GetModel(ctx, model.ID)
 		if err != nil && err != ErrNotFound {
@@ -230,6 +245,11 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 	vllmModels, _ := model.GetDefaultVLLMModels()
 
 	for i, model := range vllmModels {
+		// Skip hidden models - don't seed them at all
+		if model.Hide {
+			continue
+		}
+
 		// Check if model already exists
 		existingModel, err := s.GetModel(ctx, model.ID)
 		if err != nil && err != ErrNotFound {
