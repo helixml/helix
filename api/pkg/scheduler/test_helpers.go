@@ -249,23 +249,20 @@ func SetupMinimalSchedulerContext(runnerCtrl *RunnerController, testSlots map[uu
 }
 
 // CreateTestSlot creates a test slot for use in unit tests
-func CreateTestSlot(runnerID string, modelName string, modelMemory uint64, gpuIndex *int, gpuIndices []int) *Slot {
+func CreateTestSlot(runnerID string, configuredModel *types.Model, gpuIndex *int, gpuIndices []int) *Slot {
 	// Create a minimal workload for the slot
 	work := &Workload{
 		WorkloadType: WorkloadTypeLLMInferenceRequest,
 		llmInferenceRequest: &types.RunnerLLMInferenceRequest{
 			RequestID: uuid.New().String(),
 			Request: &openai.ChatCompletionRequest{
-				Model: modelName,
+				Model: configuredModel.ID,
 				Messages: []openai.ChatCompletionMessage{
 					{Role: "user", Content: "test"},
 				},
 			},
 		},
-		model: &types.Model{
-			ID:     modelName,
-			Memory: modelMemory,
-		},
+		model: configuredModel,
 	}
 
 	// Create GPU allocation

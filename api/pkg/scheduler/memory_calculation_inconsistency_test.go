@@ -125,28 +125,38 @@ func TestMemoryCalculationInconsistency(t *testing.T) {
 	}, CacheConfig{updateInterval: time.Second}))
 
 	// Use an existing prewarm model that the scheduler knows about
-	// From the default configuration: "qwen3:8b" has 10GB memory
+	// From the default configuration: "qwen3:8b" - Ollama model with GGUF estimation
 	testModel := &types.Model{
-		ID:      "qwen3:8b",
-		Memory:  10 * 1024 * 1024 * 1024, // 10GB configured (matches default config)
-		Runtime: types.RuntimeOllama,
-		Prewarm: true,
+		ID:            "qwen3:8b",
+		Memory:        0, // Ollama models have Memory=0 in database
+		Runtime:       types.RuntimeOllama,
+		Prewarm:       true,
+		ContextLength: 8192, // Required for GGUF estimation
 	}
 
-	// Create a workload using this model
+	// Create configured model for allocation
+	memoryService := NewMockMemoryEstimationServiceForAllocation()
+	allocation := GPUAllocationConfig{
+		GPUCount:     1,
+		SpecificGPUs: []int{0},
+	}
+	configuredModel, err := NewModelForGPUAllocation(testModel, allocation, memoryService)
+	require.NoError(t, err)
+
+	// Create a workload using the configured model
 	workload := &Workload{
 		WorkloadType: WorkloadTypeLLMInferenceRequest,
 		llmInferenceRequest: &types.RunnerLLMInferenceRequest{
 			RequestID: "test-workload-1",
 			CreatedAt: time.Now(),
 			Request: &openai.ChatCompletionRequest{
-				Model: testModel.ID,
+				Model: configuredModel.ID,
 				Messages: []openai.ChatCompletionMessage{
 					{Role: "user", Content: "test"},
 				},
 			},
 		},
-		model: testModel,
+		model: configuredModel,
 	}
 
 	// STEP 1: Calculate initial memory state using scheduler method

@@ -104,14 +104,21 @@ func (s *Scheduler) getEffectiveMemoryRequirement(ctx context.Context, work *Wor
 
 	// For non-Ollama models, get authoritative memory from scheduler
 	if s != nil {
-		authoritativeMemory, err := s.getModelMemory(work.ModelName().String())
-		if err != nil {
+		// NEW ARCHITECTURE: Require configured models - no fallbacks
+		if work.model == nil || !work.model.IsAllocationConfigured() {
 			log.Error().
 				Str("model", work.ModelName().String()).
-				Err(err).
-				Msg("CRITICAL: Failed to get authoritative memory for non-Ollama model")
+				Msg("CRITICAL: Unconfigured model in getEffectiveMemoryRequirement - all models must use NewModelForGPUAllocation")
 			return 0, false
 		}
+
+		// Use configured model memory (authoritative, never fails)
+		authoritativeMemory := work.model.GetMemoryForAllocation()
+		log.Debug().
+			Str("model", work.ModelName().String()).
+			Uint64("configured_memory_gb", authoritativeMemory/(1024*1024*1024)).
+			Int("configured_gpu_count", work.model.GetGPUCount()).
+			Msg("Using configured model memory (no fallbacks)")
 		return authoritativeMemory, false
 	}
 
