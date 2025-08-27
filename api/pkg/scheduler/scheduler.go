@@ -814,8 +814,7 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 		slotsNeeded := req.Count - existingCount
 		if slotsNeeded > 0 {
 			// Create only one slot per cycle to ensure proper GPU distribution
-			slotsToCreateThisCycle := 1
-			slotsToCreate += slotsToCreateThisCycle
+			slotsToCreate += 1
 
 			// log.Info().
 			//	Str("model", req.Model.String()).
@@ -823,22 +822,19 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 			//	Int("existing", existingCount).
 			//	Int("required", req.Count).
 			//	Int("needed_total", slotsNeeded).
-			//	Int("creating_this_cycle", slotsToCreateThisCycle).
 			//	Msg("SLOT_RECONCILE_DEBUG: Creating one slot per cycle for proper GPU distribution")
 
 			// log.Debug().
 			//	Str("SLOT_RECONCILE_DEBUG", "calling_ensure_slots").
 			//	Str("model", req.Model.String()).
-			//	Int("slots_needed", slotsToCreateThisCycle).
 			//	Msg("SLOT_RECONCILE_DEBUG: About to call ensureSlots")
 
 			s.updateHeartbeatStatus("reconcileSlots", fmt.Sprintf("creating 1 slot for model %s (%d more needed)", req.Model.String(), slotsNeeded-1))
-			s.ensureSlots(req, slotsToCreateThisCycle)
+			s.ensureSlots(req)
 
 			// log.Debug().
 			//	Str("SLOT_RECONCILE_DEBUG", "ensure_slots_returned").
 			//	Str("model", req.Model.String()).
-			//	Int("slots_created", slotsToCreateThisCycle).
 			//	Int("remaining_needed", slotsNeeded-1).
 			//	Msg("SLOT_RECONCILE_DEBUG: ensureSlots returned - remaining slots will be created in next cycle")
 
@@ -1257,17 +1253,17 @@ func (s *Scheduler) getGGUFBasedMemoryEstimate(modelID string) (uint64, error) {
 	} else if targetModel.Runtime == types.RuntimeVLLM {
 		numParallel = types.DefaultVLLMParallelSequences
 	} else if targetModel.Runtime == types.RuntimeOllama {
-		numParallel = types.DefaultOllamaParallelSequences
+		numParallel = memory.DefaultOllamaParallelSequences
 	} else {
-		numParallel = types.DefaultParallelSequences
+		numParallel = memory.DefaultParallelSequences
 	}
 
 	opts := memory.EstimateOptions{
 		NumCtx:      int(targetModel.ContextLength),
-		NumBatch:    types.DefaultBatchSize,
+		NumBatch:    memory.DefaultBatchSize,
 		NumParallel: numParallel,
-		NumGPU:      types.AutoDetectLayers,
-		KVCacheType: types.DefaultKVCacheType,
+		NumGPU:      memory.AutoDetectLayers,
+		KVCacheType: memory.DefaultKVCacheType,
 	}
 
 	log.Debug().
@@ -1371,160 +1367,157 @@ func (s *Scheduler) getSchedulerSlots() map[uuid.UUID]*Slot {
 	return result
 }
 
-func (s *Scheduler) ensureSlots(req SlotRequirement, count int) {
+func (s *Scheduler) ensureSlots(req SlotRequirement) {
 	// log.Info().
 	//	Str("model", req.Model.String()).
 	//	Str("runtime", string(req.Runtime)).
 	//	Int("count", count).
 	//	Msg("SLOT_RECONCILE_DEBUG: Starting ensureSlots")
 
-	for i := 0; i < count; i++ {
-		startTime := time.Now()
+	startTime := time.Now()
 
-		// Get all runners sorted by preference
-		sortedRunners, err := s.getSortedRunners(req.ExampleWorkload)
-		if err != nil {
-			// log.Error().Err(err).
-			//	Str("model", req.Model.String()).
-			//	Msg("SLOT_RECONCILE_DEBUG: Failed to get sorted runners")
+	// Get all runners sorted by preference
+	sortedRunners, err := s.getSortedRunners(req.ExampleWorkload)
+	if err != nil {
+		// log.Error().Err(err).
+		//	Str("model", req.Model.String()).
+		//	Msg("SLOT_RECONCILE_DEBUG: Failed to get sorted runners")
 
-			// Log scheduling rejection - no specific runner info available
-			s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeRejected, false,
-				fmt.Sprintf("Failed to get runners: %v", err), "", "", startTime, 0, req.ExampleWorkload.model.Memory, 0)
+		// Log scheduling rejection - no specific runner info available
+		s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeRejected, false,
+			fmt.Sprintf("Failed to get runners: %v", err), "", "", startTime, 0, req.ExampleWorkload.model.Memory, 0)
 
-			retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
-			if retry {
-				// log.Info().Err(err).Interface("requirement", req).Msg("SLOT_RECONCILE_DEBUG: failed to get runners for requirement, retrying...")
-				return
-			}
-			// log.Warn().Err(err).Interface("requirement", req).Msg("SLOT_RECONCILE_DEBUG: failed to get runners for requirement, skipping...")
-			s.onSchedulingErr(req.ExampleWorkload, err)
-			s.queue.Remove(req.ExampleWorkload)
+		retry, err := ErrorHandlingStrategy(err, req.ExampleWorkload)
+		if retry {
+			// log.Info().Err(err).Interface("requirement", req).Msg("SLOT_RECONCILE_DEBUG: failed to get runners for requirement, retrying...")
 			return
 		}
+		// log.Warn().Err(err).Interface("requirement", req).Msg("SLOT_RECONCILE_DEBUG: failed to get runners for requirement, skipping...")
+		s.onSchedulingErr(req.ExampleWorkload, err)
+		s.queue.Remove(req.ExampleWorkload)
+		return
+	}
+
+	// log.Info().
+	//	Str("model", req.Model.String()).
+	//	Strs("sorted_runners", sortedRunners).
+	//	Int("runner_count", len(sortedRunners)).
+	//	Msg("SLOT_RECONCILE_DEBUG: Got sorted runners for slot creation")
+
+	// Try each runner in order of preference until one succeeds
+	var lastErr error
+	slotCreated := false
+
+	for j, runnerID := range sortedRunners {
+		withWorkContext(&log.Logger, req.ExampleWorkload).Trace().
+			Str("runner_id", runnerID).
+			Int("attempt", j+1).
+			Int("total_runners", len(sortedRunners)).
+			Msg("trying runner for slot creation")
+
+		// Try to delete stale slots on this runner if required
+		totalMemory, _, freeMemory, err := s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload)
+		if err != nil {
+			lastErr = err
+			withWorkContext(&log.Logger, req.ExampleWorkload).Debug().
+				Err(err).
+				Str("runner_id", runnerID).
+				Msg("failed to free memory on runner, trying next")
+			continue // Try next runner
+		}
+
+		// STEP 1: Get authoritative memory for GPU allocation decision
+		var authoritativeMemory uint64
+
+		// All models MUST be configured before reaching scheduling phase
+		if !req.ExampleWorkload.model.IsAllocationConfigured() {
+			lastErr = fmt.Errorf("CRITICAL: workload %s has unconfigured model %s - all models must use NewModelForGPUAllocation", req.ExampleWorkload.ID(), req.ExampleWorkload.ModelName())
+			continue
+		}
+
+		// Use configured model's authoritative memory
+		authoritativeMemory = req.ExampleWorkload.model.GetMemoryForAllocation()
+
+		// STEP 2: Make GPU allocation decision using authoritative memory
+		singleGPU, multiGPUs, tensorParallelSize := s.controller.GetOptimalGPUAllocation(runnerID, authoritativeMemory, req.ExampleWorkload.Runtime())
+
+		// STEP 3: Create configured model for this GPU allocation
+		var configuredWorkload *Workload
+		if singleGPU != nil || len(multiGPUs) > 0 {
+			allocation, err := ConvertGPUAllocationToConfig(singleGPU, multiGPUs)
+			if err != nil {
+				lastErr = fmt.Errorf("failed to convert GPU allocation for model %s: %w", req.ExampleWorkload.ModelName(), err)
+				continue
+			}
+
+			configuredModel, err := NewModelForGPUAllocation(req.ExampleWorkload.model, allocation, s.memoryEstimationService)
+			if err != nil {
+				lastErr = fmt.Errorf("failed to configure model %s for GPU allocation: %w", req.ExampleWorkload.ModelName(), err)
+				continue
+			}
+
+			// Create workload with properly configured model
+			configuredWorkload = &Workload{
+				WorkloadType:        req.ExampleWorkload.WorkloadType,
+				llmInferenceRequest: req.ExampleWorkload.llmInferenceRequest,
+				session:             req.ExampleWorkload.session,
+				model:               configuredModel,
+			}
+		}
+
+		// Create GPU allocation object
+		var gpuAllocation *GPUAllocation
+		if singleGPU != nil || len(multiGPUs) > 0 {
+			gpuAllocation = &GPUAllocation{
+				WorkloadID:         req.ExampleWorkload.ID(),
+				RunnerID:           runnerID,
+				SingleGPU:          singleGPU,
+				MultiGPUs:          multiGPUs,
+				TensorParallelSize: tensorParallelSize,
+			}
+			// Store the allocation for future reference
+			s.storeGPUAllocation(configuredWorkload, runnerID, singleGPU, multiGPUs)
+		} else {
+			// GPU allocation failed - insufficient memory on this runner
+			lastErr = fmt.Errorf("insufficient GPU memory on runner %s for model requiring %d bytes", runnerID, authoritativeMemory)
+			withWorkContext(&log.Logger, req.ExampleWorkload).Debug().
+				Err(lastErr).
+				Str("runner_id", runnerID).
+				Uint64("model_memory_requirement", req.ExampleWorkload.model.Memory).
+				Msg("GPU allocation failed due to insufficient memory, trying next runner")
+			continue // Try next runner
+		}
+
+		// Use configured workload with proper GPU allocation info
+		if configuredWorkload == nil {
+			lastErr = fmt.Errorf("CRITICAL: configuredWorkload is nil but we reached slot creation - this is a bug")
+			continue
+		}
+		slot := NewSlot(runnerID, configuredWorkload, s.modelStaleFunc, s.slotTimeoutFunc, gpuAllocation)
 
 		// log.Info().
-		//	Str("model", req.Model.String()).
-		//	Strs("sorted_runners", sortedRunners).
-		//	Int("runner_count", len(sortedRunners)).
-		//	Msg("SLOT_RECONCILE_DEBUG: Got sorted runners for slot creation")
+		// 	Str("slot_id", slot.ID.String()).
+		// 	Str("runner_id", slot.RunnerID).
+		// 	Str("model", configuredWorkload.ModelName().String()).
+		// 	Msg("APPLE: Created new slot in ensureSlots")
 
-		// Try each runner in order of preference until one succeeds
-		var lastErr error
-		slotCreated := false
+		s.slots.Store(slot.ID, slot)
 
-		for j, runnerID := range sortedRunners {
-			withWorkContext(&log.Logger, req.ExampleWorkload).Trace().
-				Str("runner_id", runnerID).
-				Int("attempt", j+1).
-				Int("total_runners", len(sortedRunners)).
-				Msg("trying runner for slot creation")
+		// Log successful slot creation with configured model memory
+		log.Debug().
+			Str("🐛 MODEL_MEMORY_DEBUG", "slot_creation_success").
+			Str("work_id", configuredWorkload.ID()).
+			Str("model_name", configuredWorkload.ModelName().String()).
+			Uint64("configured_memory_bytes", configuredWorkload.model.GetMemoryForAllocation()).
+			Uint64("configured_memory_gb", configuredWorkload.model.GetMemoryForAllocation()/(1024*1024*1024)).
+			Int("configured_gpu_count", configuredWorkload.model.GetGPUCount()).
+			Str("slot_id", slot.ID.String()).
+			Msg("🐛 TRACING: Using configured model for slot creation")
 
-			// Try to delete stale slots on this runner if required
-			totalMemory, _, freeMemory, err := s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload)
-			if err != nil {
-				lastErr = err
-				withWorkContext(&log.Logger, req.ExampleWorkload).Debug().
-					Err(err).
-					Str("runner_id", runnerID).
-					Msg("failed to free memory on runner, trying next")
-				continue // Try next runner
-			}
-
-			// STEP 1: Get authoritative memory for GPU allocation decision
-			var authoritativeMemory uint64
-
-			// All models MUST be configured before reaching scheduling phase
-			if !req.ExampleWorkload.model.IsAllocationConfigured() {
-				lastErr = fmt.Errorf("CRITICAL: workload %s has unconfigured model %s - all models must use NewModelForGPUAllocation", req.ExampleWorkload.ID(), req.ExampleWorkload.ModelName())
-				continue
-			}
-
-			// Use configured model's authoritative memory
-			authoritativeMemory = req.ExampleWorkload.model.GetMemoryForAllocation()
-
-			// STEP 2: Make GPU allocation decision using authoritative memory
-			singleGPU, multiGPUs, tensorParallelSize := s.controller.GetOptimalGPUAllocation(runnerID, authoritativeMemory, req.ExampleWorkload.Runtime())
-
-			// STEP 3: Create configured model for this GPU allocation
-			var configuredWorkload *Workload
-			if singleGPU != nil || len(multiGPUs) > 0 {
-				allocation, err := ConvertGPUAllocationToConfig(singleGPU, multiGPUs)
-				if err != nil {
-					lastErr = fmt.Errorf("failed to convert GPU allocation for model %s: %w", req.ExampleWorkload.ModelName(), err)
-					continue
-				}
-
-				configuredModel, err := NewModelForGPUAllocation(req.ExampleWorkload.model, allocation, s.memoryEstimationService)
-				if err != nil {
-					lastErr = fmt.Errorf("failed to configure model %s for GPU allocation: %w", req.ExampleWorkload.ModelName(), err)
-					continue
-				}
-
-				// Create workload with properly configured model
-				configuredWorkload = &Workload{
-					WorkloadType:        req.ExampleWorkload.WorkloadType,
-					llmInferenceRequest: req.ExampleWorkload.llmInferenceRequest,
-					session:             req.ExampleWorkload.session,
-					model:               configuredModel,
-				}
-			}
-
-			// Create GPU allocation object
-			var gpuAllocation *GPUAllocation
-			if singleGPU != nil || len(multiGPUs) > 0 {
-				gpuAllocation = &GPUAllocation{
-					WorkloadID:         req.ExampleWorkload.ID(),
-					RunnerID:           runnerID,
-					SingleGPU:          singleGPU,
-					MultiGPUs:          multiGPUs,
-					TensorParallelSize: tensorParallelSize,
-				}
-				// Store the allocation for future reference
-				s.storeGPUAllocation(configuredWorkload, runnerID, singleGPU, multiGPUs)
-			} else {
-				// GPU allocation failed - insufficient memory on this runner
-				lastErr = fmt.Errorf("insufficient GPU memory on runner %s for model requiring %d bytes", runnerID, authoritativeMemory)
-				withWorkContext(&log.Logger, req.ExampleWorkload).Debug().
-					Err(lastErr).
-					Str("runner_id", runnerID).
-					Uint64("model_memory_requirement", req.ExampleWorkload.model.Memory).
-					Msg("GPU allocation failed due to insufficient memory, trying next runner")
-				continue // Try next runner
-			}
-
-			// Use configured workload with proper GPU allocation info
-			if configuredWorkload == nil {
-				lastErr = fmt.Errorf("CRITICAL: configuredWorkload is nil but we reached slot creation - this is a bug")
-				continue
-			}
-			slot := NewSlot(runnerID, configuredWorkload, s.modelStaleFunc, s.slotTimeoutFunc, gpuAllocation)
-
-			// log.Info().
-			// 	Str("slot_id", slot.ID.String()).
-			// 	Str("runner_id", slot.RunnerID).
-			// 	Str("model", configuredWorkload.ModelName().String()).
-			// 	Msg("APPLE: Created new slot in ensureSlots")
-
-			s.slots.Store(slot.ID, slot)
-
-			// Log successful slot creation with configured model memory
-			log.Debug().
-				Str("🐛 MODEL_MEMORY_DEBUG", "slot_creation_success").
-				Str("work_id", configuredWorkload.ID()).
-				Str("model_name", configuredWorkload.ModelName().String()).
-				Uint64("configured_memory_bytes", configuredWorkload.model.GetMemoryForAllocation()).
-				Uint64("configured_memory_gb", configuredWorkload.model.GetMemoryForAllocation()/(1024*1024*1024)).
-				Int("configured_gpu_count", configuredWorkload.model.GetGPUCount()).
-				Str("slot_id", slot.ID.String()).
-				Msg("🐛 TRACING: Using configured model for slot creation")
-
-			s.logSchedulingDecision(configuredWorkload, types.SchedulingDecisionTypeCreateNewSlot, true,
-				fmt.Sprintf("Created new slot on runner %s (attempt %d/%d)", runnerID, j+1, len(sortedRunners)),
-				runnerID, slot.ID.String(), time.Now(), freeMemory, configuredWorkload.model.GetMemoryForAllocation(), totalMemory)
-			slotCreated = true
-			break // Success, no need to try more runners
-		}
+		s.logSchedulingDecision(configuredWorkload, types.SchedulingDecisionTypeCreateNewSlot, true,
+			fmt.Sprintf("Created new slot on runner %s (attempt %d/%d)", runnerID, j+1, len(sortedRunners)),
+			runnerID, slot.ID.String(), time.Now(), freeMemory, configuredWorkload.model.GetMemoryForAllocation(), totalMemory)
+		slotCreated = true
 
 		// If we failed on all runners, handle the error
 		if !slotCreated {
@@ -2697,7 +2690,7 @@ func (s *Scheduler) PrewarmNewRunner(runnerID string) {
 		var modelMemory uint64
 		if model.Runtime == types.RuntimeOllama {
 			// Use memory estimation for Ollama models
-			estimateOptions := types.CreateAutoEstimateOptions(model.ContextLength)
+			estimateOptions := memory.CreateAutoEstimateOptions(model.ContextLength)
 			result, err := s.memoryEstimationService.EstimateModelMemory(ctx, model.ID, estimateOptions)
 			if err != nil {
 				withContext.Warn().

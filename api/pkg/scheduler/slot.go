@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -63,7 +64,7 @@ func NewSlot(runnerID string, work *Workload, staleTimeout TimeoutFunc, errorTim
 				Int("default_vllm_parallel", types.DefaultVLLMParallelSequences).
 				Msg("🔧 CONCURRENCY_DEBUG: Using VLLM default concurrency")
 		} else if work.Runtime() == types.RuntimeOllama {
-			maxConcurrency = int64(types.DefaultOllamaParallelSequences)
+			maxConcurrency = int64(memory.DefaultOllamaParallelSequences)
 			log.Info().
 				Str("model_id", func() string {
 					if work.model != nil {
@@ -78,7 +79,7 @@ func NewSlot(runnerID string, work *Workload, staleTimeout TimeoutFunc, errorTim
 					return 0
 				}()).
 				Int64("max_concurrency", maxConcurrency).
-				Int("default_ollama_parallel", types.DefaultOllamaParallelSequences).
+				Int("default_ollama_parallel", memory.DefaultOllamaParallelSequences).
 				Msg("🔧 CONCURRENCY_DEBUG: Using Ollama default concurrency")
 		}
 		// Other runtimes keep maxConcurrency = 1

@@ -164,7 +164,7 @@ func (s *MemoryEstimationService) EstimateModelMemoryFromRequest(ctx context.Con
 
 	// CRITICAL: ALWAYS use -1 for layer offload (auto-detect max layers that fit)
 	// Use model store values only - no request overrides
-	opts := types.CreateOllamaEstimateOptions(int64(contextLength), types.AutoDetectLayers)
+	opts := memory.CreateOllamaEstimateOptions(int64(contextLength), memory.AutoDetectLayers)
 
 	// Check cache first
 	if result := s.getCachedResultForModel(req.ModelID, opts); result != nil {
@@ -920,7 +920,7 @@ func (s *MemoryEstimationService) refreshCacheForAllModels(ctx context.Context) 
 		}
 
 		// Create EstimateOptions with model's actual context length
-		opts := types.CreateEstimateOptionsForGPUArray(model.ContextLength)
+		opts := memory.CreateEstimateOptionsForGPUArray(model.ContextLength)
 
 		// Check if we already have any fresh cache entry for this model
 		if cached := s.getCachedResultForModel(model.ID, opts); cached != nil {

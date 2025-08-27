@@ -6,6 +6,24 @@ import (
 	"path/filepath"
 )
 
+// Constants for memory estimation to avoid duplication
+const (
+	// DefaultKVCacheType is the KV cache type we use for Ollama models
+	DefaultKVCacheType = "q8_0"
+
+	// DefaultBatchSize is the standard batch size for memory estimation
+	DefaultBatchSize = 512
+
+	// DefaultParallelSequences is the standard number of parallel sequences
+	DefaultParallelSequences = 1
+
+	// DefaultOllamaParallelSequences is the default number of parallel sequences for Ollama models
+	DefaultOllamaParallelSequences = 2
+
+	// AutoDetectLayers means auto-detect how many layers fit on GPU
+	AutoDetectLayers = -1
+)
+
 // ModelMemoryEstimator provides high-level interface for model memory estimation
 type ModelMemoryEstimator struct {
 	modelsPath string
@@ -52,10 +70,10 @@ func (e *ModelMemoryEstimator) EstimateMemoryForModelPath(modelPath string, gpuI
 func GetDefaultEstimateOptions() EstimateOptions {
 	return EstimateOptions{
 		NumCtx:      4096,
-		NumBatch:    512,
-		NumParallel: 1,
-		NumGPU:      -1, // Use all available GPUs by default
-		KVCacheType: "q8_0",
+		NumBatch:    DefaultBatchSize,
+		NumParallel: DefaultParallelSequences,
+		NumGPU:      AutoDetectLayers,
+		KVCacheType: DefaultKVCacheType,
 	}
 }
 
@@ -122,14 +140,42 @@ func ValidateEstimateOptions(opts EstimateOptions) error {
 
 // CreateTestEstimateOptions creates EstimateOptions for testing with reasonable defaults
 // contextLength: test context length (common values: 4096, 131072)
+// CreateTestEstimateOptions creates EstimateOptions for testing with a specific context length
 func CreateTestEstimateOptions(contextLength int) EstimateOptions {
 	return EstimateOptions{
 		NumCtx:      contextLength,
-		NumBatch:    512,
-		NumParallel: 1,
-		NumGPU:      -1, // Auto-detect all layers that fit
-		KVCacheType: "q8_0",
+		NumBatch:    DefaultBatchSize,
+		NumParallel: DefaultParallelSequences,
+		NumGPU:      AutoDetectLayers,
+		KVCacheType: DefaultKVCacheType,
 	}
+}
+
+// CreateOllamaEstimateOptions creates EstimateOptions for Ollama models with sensible defaults
+// contextLength: the model's context length
+// numLayersOnGPU: number of layers to offload (-1 for auto-detect, which allows all layers that fit)
+func CreateOllamaEstimateOptions(contextLength int64, numLayersOnGPU int) EstimateOptions {
+	return EstimateOptions{
+		NumCtx:      int(contextLength),
+		NumBatch:    DefaultBatchSize,
+		NumParallel: DefaultParallelSequences,
+		NumGPU:      numLayersOnGPU,
+		KVCacheType: DefaultKVCacheType,
+	}
+}
+
+// CreateAutoEstimateOptions creates EstimateOptions with auto-detection (all layers that fit)
+// This is the most common case for scheduling and dashboard display
+func CreateAutoEstimateOptions(contextLength int64) EstimateOptions {
+	return CreateOllamaEstimateOptions(contextLength, AutoDetectLayers)
+}
+
+// CreateEstimateOptionsForGPUArray creates EstimateOptions when using a GPU configuration array
+// This is used when the number of GPUs is specified by the GPU config array passed separately.
+// The NumGPU field is set to auto-detect layers since GPU count is handled elsewhere.
+func CreateEstimateOptionsForGPUArray(contextLength int64) EstimateOptions {
+	// Always use auto-detect for layers when GPU array specifies the hardware config
+	return CreateOllamaEstimateOptions(contextLength, AutoDetectLayers)
 }
 
 // FormatMemorySize formats bytes as human readable string

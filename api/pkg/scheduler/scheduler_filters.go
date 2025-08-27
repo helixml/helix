@@ -43,17 +43,17 @@ func (s *Scheduler) getEffectiveMemoryRequirement(ctx context.Context, work *Wor
 		} else if work.Runtime() == types.RuntimeVLLM {
 			numParallel = types.DefaultVLLMParallelSequences
 		} else if work.Runtime() == types.RuntimeOllama {
-			numParallel = types.DefaultOllamaParallelSequences
+			numParallel = memory.DefaultOllamaParallelSequences
 		} else {
-			numParallel = types.DefaultParallelSequences
+			numParallel = memory.DefaultParallelSequences
 		}
 
 		opts := memory.EstimateOptions{
 			NumCtx:      int(work.model.ContextLength),
-			NumBatch:    types.DefaultBatchSize,
+			NumBatch:    memory.DefaultBatchSize,
 			NumParallel: numParallel,
-			NumGPU:      types.AutoDetectLayers,
-			KVCacheType: types.DefaultKVCacheType,
+			NumGPU:      memory.AutoDetectLayers,
+			KVCacheType: memory.DefaultKVCacheType,
 		}
 
 		result, err := s.memoryEstimationService.EstimateModelMemory(ctx, work.model.ID, opts)

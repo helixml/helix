@@ -16,6 +16,7 @@ import (
 	"github.com/ollama/ollama/llm"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -134,7 +135,7 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 
 	// Set environment variables to match actual runtime configuration
 	os.Setenv("OLLAMA_FLASH_ATTENTION", "1")
-	os.Setenv("OLLAMA_KV_CACHE_TYPE", types.DefaultKVCacheType)
+	os.Setenv("OLLAMA_KV_CACHE_TYPE", memory.DefaultKVCacheType)
 
 	// Restore original environment variables when function exits
 	defer func() {
@@ -223,7 +224,7 @@ func (apiServer *HelixRunnerAPIServer) getMemoryEstimationHandler(w http.Respons
 		log.Info().
 			Str("MEMORY_ESTIMATION_DEBUG", "env_vars_set").
 			Str("flash_attention", "1").
-			Str("kv_cache_type", types.DefaultKVCacheType).
+			Str("kv_cache_type", memory.DefaultKVCacheType).
 			Msg("🔧 MEMORY_DEBUG: Using runtime environment variables for estimation")
 
 		// Use Ollama's exact EstimateGPULayers function
