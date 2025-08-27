@@ -196,8 +196,6 @@ const Dashboard: FC = () => {
                     <Box
                         sx={{
                             width: "100%",
-                            height: "100%",
-                            overflow: "auto",
                         }}
                     >
                         <ProviderEndpointsTable />
@@ -208,8 +206,6 @@ const Dashboard: FC = () => {
                     <Box
                         sx={{
                             width: "100%",
-                            height: "100%",
-                            overflow: "auto",
                             p: 2,
                         }}
                     >
@@ -597,8 +593,6 @@ const Dashboard: FC = () => {
                     <Box
                         sx={{
                             width: "100%",
-                            height: "100%",
-                            overflow: "auto",
                         }}
                     >
                         <HelixModelsTable />
@@ -609,8 +603,6 @@ const Dashboard: FC = () => {
                     <Box
                         sx={{
                             width: "100%",
-                            height: "100%",
-                            overflow: "auto",
                             p: 2,
                         }}
                     >

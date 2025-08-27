@@ -539,7 +539,7 @@ const HelixModelsTable: FC = () => {
                             <TableCell>Name</TableCell>
                             <TableCell>Context Length</TableCell>
                             <TableCell>Type</TableCell>
-                            <TableCell>Memory Estimate</TableCell>
+                            <TableCell>Memory</TableCell>
                             <TableCell align="center">Pricing</TableCell>
                             <TableCell>Enabled</TableCell>
                             <TableCell>Auto pull</TableCell>
