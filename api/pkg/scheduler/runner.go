@@ -746,20 +746,31 @@ func (c *RunnerController) GetAllPossibleGPUAllocations(runnerID string, modelMe
 
 	var options []AllocationOption
 
-	// Option 1: Try single GPU allocation
+	// Option 1: Try single GPU allocation - find GPU with most free memory
+	var bestGPU *int
+	var maxFreeMemory uint64
+
 	for _, gpu := range status.GPUs {
 		allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
 		freeMemory := gpu.TotalMemory - allocatedMemory
 
-		if freeMemory >= modelMemoryRequirement {
-			options = append(options, AllocationOption{
-				GPUCount:            1,
-				GPUs:                []int{gpu.Index},
-				MemoryPerGPU:        modelMemoryRequirement,
-				TotalMemoryRequired: modelMemoryRequirement,
-				TensorParallelSize:  1,
-			})
+		// Check if this GPU has enough free memory for the model and has more free memory than current best
+		if freeMemory >= modelMemoryRequirement && freeMemory > maxFreeMemory {
+			maxFreeMemory = freeMemory
+			idx := gpu.Index
+			bestGPU = &idx
 		}
+	}
+
+	// Add single GPU option if we found a suitable GPU
+	if bestGPU != nil {
+		options = append(options, AllocationOption{
+			GPUCount:            1,
+			GPUs:                []int{*bestGPU},
+			MemoryPerGPU:        modelMemoryRequirement,
+			TotalMemoryRequired: modelMemoryRequirement,
+			TensorParallelSize:  1,
+		})
 	}
 
 	// Option 2: Try multi-GPU allocations for supported runtimes
@@ -810,21 +821,32 @@ func (c *RunnerController) GetAllPossibleGPUAllocationsWithEviction(runnerID str
 
 	var options []AllocationOption
 
-	// Option 1: Try single GPU allocation with eviction
+	// Option 1: Try single GPU allocation with eviction - find GPU with most available memory
+	var bestGPU *int
+	var maxAvailableMemory uint64
+
 	for _, gpu := range status.GPUs {
 		allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
 		evictableMemory := evictableMemoryPerGPU[gpu.Index]
 		availableMemory := gpu.TotalMemory - allocatedMemory + evictableMemory
 
-		if availableMemory >= modelMemoryRequirement {
-			options = append(options, AllocationOption{
-				GPUCount:            1,
-				GPUs:                []int{gpu.Index},
-				MemoryPerGPU:        modelMemoryRequirement,
-				TotalMemoryRequired: modelMemoryRequirement,
-				TensorParallelSize:  1,
-			})
+		// Check if this GPU has enough available memory for the model and has more available memory than current best
+		if availableMemory >= modelMemoryRequirement && availableMemory > maxAvailableMemory {
+			maxAvailableMemory = availableMemory
+			idx := gpu.Index
+			bestGPU = &idx
 		}
+	}
+
+	// Add single GPU option if we found a suitable GPU
+	if bestGPU != nil {
+		options = append(options, AllocationOption{
+			GPUCount:            1,
+			GPUs:                []int{*bestGPU},
+			MemoryPerGPU:        modelMemoryRequirement,
+			TotalMemoryRequired: modelMemoryRequirement,
+			TensorParallelSize:  1,
+		})
 	}
 
 	// Option 2: Try multi-GPU allocations with eviction for supported runtimes
