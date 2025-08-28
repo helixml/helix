@@ -2045,11 +2045,67 @@ func (s *Scheduler) tryEvictionForAllocation(runnerID string, work *Workload, op
 			return nil, fmt.Errorf("failed to calculate runner memory: %w", err)
 		}
 
-		// Check if we have enough memory for this allocation option
-		memoryNeeded := option.TotalMemoryRequired
-		freeMem := int64(currentFreeMem) - int64(memoryNeeded)
+		// CRITICAL FIX: Check memory allocation based on GPU allocation type
+		var hasEnoughMemory bool
+		var memoryNeeded uint64
+		var freeMem int64
 
-		if freeMem >= 0 {
+		if option.GPUCount == 1 {
+			// Single GPU allocation: check per-GPU memory on the specific target GPU
+			allocatedMemoryPerGPU, err := s.controller.calculateAllocatedMemoryPerGPU(runnerID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to calculate per-GPU memory: %w", err)
+			}
+
+			status, err := s.controller.GetStatus(runnerID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get runner status: %w", err)
+			}
+
+			targetGPUIndex := option.GPUs[0]
+			targetGPUTotal := uint64(0)
+			for _, gpu := range status.GPUs {
+				if gpu.Index == targetGPUIndex {
+					targetGPUTotal = gpu.TotalMemory
+					break
+				}
+			}
+
+			if targetGPUTotal == 0 {
+				return nil, fmt.Errorf("target GPU %d not found", targetGPUIndex)
+			}
+
+			allocatedOnTargetGPU := allocatedMemoryPerGPU[targetGPUIndex]
+			freeOnTargetGPU := targetGPUTotal - allocatedOnTargetGPU
+			memoryNeeded = option.MemoryPerGPU
+			freeMem = int64(freeOnTargetGPU) - int64(memoryNeeded)
+			hasEnoughMemory = freeMem >= 0
+
+			log.Debug().
+				Str("runner_id", runnerID).
+				Int("target_gpu", targetGPUIndex).
+				Uint64("gpu_total_gb", targetGPUTotal/(1024*1024*1024)).
+				Uint64("gpu_allocated_gb", allocatedOnTargetGPU/(1024*1024*1024)).
+				Uint64("gpu_free_gb", freeOnTargetGPU/(1024*1024*1024)).
+				Uint64("required_gb", option.MemoryPerGPU/(1024*1024*1024)).
+				Bool("has_enough", hasEnoughMemory).
+				Msg("Checking single GPU memory for allocation")
+		} else {
+			// Multi-GPU allocation: check total memory across allocated GPUs
+			memoryNeeded = option.TotalMemoryRequired
+			freeMem = int64(currentFreeMem) - int64(memoryNeeded)
+			hasEnoughMemory = freeMem >= 0
+
+			log.Debug().
+				Str("runner_id", runnerID).
+				Ints("target_gpus", option.GPUs).
+				Uint64("total_free_gb", currentFreeMem/(1024*1024*1024)).
+				Uint64("required_gb", memoryNeeded/(1024*1024*1024)).
+				Bool("has_enough", hasEnoughMemory).
+				Msg("Checking multi-GPU memory for allocation")
+		}
+
+		if hasEnoughMemory {
 			// Success! We have enough memory
 			return &AllocationResult{
 				AllocationOption: option,
