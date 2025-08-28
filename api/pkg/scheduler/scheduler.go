@@ -175,6 +175,9 @@ type Scheduler struct {
 
 	// Heartbeat tracking for goroutines
 	heartbeats *xsync.MapOf[string, *GoroutineHeartbeat]
+
+	// Global allocator for simplified allocation decisions
+	globalAllocator *GlobalAllocator
 }
 
 // GoroutineHeartbeat tracks the health of scheduler goroutines
@@ -297,6 +300,9 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 
 	// Set up the scheduler slots callback so RunnerController can use desired state for scheduling decisions
 	s.controller.setSchedulerSlotsCallback(s.getSchedulerSlots)
+
+	// Initialize global allocator
+	s.globalAllocator = NewGlobalAllocator(s.controller, s.memoryEstimationService, s.slots)
 
 	return s, nil
 }
@@ -830,7 +836,12 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 			//	Msg("SLOT_RECONCILE_DEBUG: About to call ensureSlots")
 
 			s.updateHeartbeatStatus("reconcileSlots", fmt.Sprintf("creating 1 slot for model %s (%d more needed)", req.Model.String(), slotsNeeded-1))
-			s.ensureSlot(req)
+
+			// Use new global allocator architecture
+			log.Debug().
+				Str("model", req.Model.String()).
+				Msg("🌍 GLOBAL: Using global allocator")
+			s.ensureSlotWithGlobalAllocator(req)
 
 			// log.Debug().
 			//	Str("SLOT_RECONCILE_DEBUG", "ensure_slots_returned").
@@ -1367,6 +1378,67 @@ func (s *Scheduler) getSchedulerSlots() map[uuid.UUID]*Slot {
 	return result
 }
 
+// ensureSlotWithGlobalAllocator uses the new global allocator architecture
+func (s *Scheduler) ensureSlotWithGlobalAllocator(req SlotRequirement) {
+	startTime := time.Now()
+
+	// Use global allocator to create the slot
+	slot, err := s.globalAllocator.AllocateWorkload(req.ExampleWorkload, s.modelStaleFunc, s.slotTimeoutFunc)
+	if err != nil {
+		log.Warn().
+			Err(err).
+			Str("model", req.ExampleWorkload.ModelName().String()).
+			Msg("🌍 GLOBAL: Failed to allocate workload")
+
+		// Log scheduling rejection
+		s.logSchedulingDecision(req.ExampleWorkload, types.SchedulingDecisionTypeRejected, false,
+			fmt.Sprintf("Global allocation failed: %v", err),
+			"", "", startTime, 0, 0, 0)
+
+		// Handle error using existing strategy
+		retry, retryErr := ErrorHandlingStrategy(err, req.ExampleWorkload)
+		if retry {
+			log.Info().Err(err).Interface("requirement", req).Msg("global allocation failed, retrying...")
+			return
+		}
+		log.Warn().Err(err).Interface("requirement", req).Msg("global allocation failed, skipping...")
+		if retryErr != nil {
+			log.Warn().Err(retryErr).Msg("error handling strategy failed")
+		}
+		s.onSchedulingErr(req.ExampleWorkload, err)
+		s.queue.Remove(req.ExampleWorkload)
+		return
+	}
+
+	// Store the slot
+	s.slots.Store(slot.ID, slot)
+
+	// Store GPU allocation for tracking
+	if slot.GPUAllocation != nil {
+		s.storeGPUAllocation(slot.InitialWork(), slot.RunnerID, slot.GPUAllocation.SingleGPU, slot.GPUAllocation.MultiGPUs)
+	}
+
+	// Log successful allocation
+	totalMem, _, freeMem, _ := s.calculateRunnerMemory(slot.RunnerID)
+	s.logSchedulingDecision(slot.InitialWork(), types.SchedulingDecisionTypeCreateNewSlot, true,
+		fmt.Sprintf("Global allocator created slot on runner %s with %d-GPU allocation",
+			slot.RunnerID, len(slot.GPUAllocation.MultiGPUs)+func() int {
+				if slot.GPUAllocation.SingleGPU != nil {
+					return 1
+				}
+				return 0
+			}()),
+		slot.RunnerID, slot.ID.String(), time.Now(), freeMem,
+		slot.InitialWork().model.GetMemoryForAllocation(), totalMem)
+
+	log.Info().
+		Str("slot_id", slot.ID.String()).
+		Str("runner_id", slot.RunnerID).
+		Str("model", slot.InitialWork().ModelName().String()).
+		Msg("🌍 GLOBAL: Successfully created slot using global allocator")
+}
+
+// ensureSlot uses the legacy allocation architecture (kept for comparison/rollback)
 func (s *Scheduler) ensureSlot(req SlotRequirement) {
 	// log.Info().
 	//	Str("model", req.Model.String()).
@@ -3261,6 +3333,21 @@ func (s *Scheduler) selectModelsForMemoryAndDistribution(prewarmModels []*types.
 			Msg("all compatible models fit in memory, prewarming all")
 		return prewarmModels
 	}
+
+// GetGlobalAllocator returns the global allocator for testing/debugging
+func (s *Scheduler) GetGlobalAllocator() *GlobalAllocator {
+	return s.globalAllocator
+}
+
+// ValidateGlobalMemoryState checks for any overscheduling violations
+func (s *Scheduler) ValidateGlobalMemoryState() {
+	violations := s.globalAllocator.ValidateNoOverscheduling()
+	if len(violations) > 0 {
+		log.Error().
+			Strs("violations", violations).
+			Msg("🚨 CRITICAL: Overscheduling violations detected")
+	}
+}
 
 	// Not all models can fit - use greedy selection prioritizing distribution
 	log.Debug().
