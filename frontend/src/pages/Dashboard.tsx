@@ -37,6 +37,7 @@ import ProviderEndpointsTable from "../components/dashboard/ProviderEndpointsTab
 import OAuthProvidersTable from "../components/dashboard/OAuthProvidersTable";
 import HelixModelsTable from "../components/dashboard/HelixModelsTable";
 import SchedulingDecisionsTable from "../components/dashboard/SchedulingDecisionsTable";
+import GlobalSchedulingVisualization from "../components/dashboard/GlobalSchedulingVisualization";
 import SystemSettingsTable from "../components/dashboard/SystemSettingsTable";
 import Chip from "@mui/material/Chip";
 import { useFloatingRunnerState } from "../contexts/floatingRunnerState";
@@ -548,6 +549,17 @@ const Dashboard: FC = () => {
                                             },
                                         )}
                                 </Grid>
+
+                                {/* Global Scheduling Visualization Section */}
+                                <Box sx={{ mt: 4 }}>
+                                    <GlobalSchedulingVisualization
+                                        decisions={
+                                            (dashboardData as any)
+                                                ?.global_allocation_decisions ||
+                                            []
+                                        }
+                                    />
+                                </Box>
 
                                 {/* Scheduling Decisions Section */}
                                 <Box sx={{ mt: 4 }}>

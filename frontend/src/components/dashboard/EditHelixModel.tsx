@@ -114,6 +114,7 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                     runtime: TypesRuntime.RuntimeOllama,
                     memory: 0, // Default GB
                     context_length: 32000, // Default to 32K tokens
+                    concurrency: 0, // Number of concurrent requests (0 = use runtime default)
                     enabled: true,
                     hide: false,
                     auto_pull: true, // Enable auto_pull by default

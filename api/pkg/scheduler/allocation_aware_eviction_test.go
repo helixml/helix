@@ -419,8 +419,8 @@ func TestIntegratedAllocationAwareScheduling(t *testing.T) {
 			Runtime:         workload.Runtime(),
 		}
 
-		// Call ensureSlot - this should use the new allocation-aware eviction
-		scheduler.ensureSlot(req)
+		// Call ensureSlotWithGlobalAllocator - this uses the new global allocator
+		scheduler.ensureSlotWithGlobalAllocator(req)
 
 		// Verify a slot was created
 		var createdSlot *Slot

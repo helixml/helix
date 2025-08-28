@@ -281,10 +281,14 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 	// Get recent scheduling decisions (last 50)
 	schedulingDecisions := c.scheduler.GetSchedulingDecisions(50)
 
+	// Get recent global allocation decisions (last 25)
+	globalAllocationDecisions := c.scheduler.GetGlobalAllocationDecisions(25)
+
 	return &types.DashboardData{
-		Runners:             runners,
-		Queue:               queue,
-		SchedulingDecisions: schedulingDecisions,
+		Runners:                   runners,
+		Queue:                     queue,
+		SchedulingDecisions:       schedulingDecisions,
+		GlobalAllocationDecisions: globalAllocationDecisions,
 	}, nil
 }
 

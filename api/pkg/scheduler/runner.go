@@ -25,8 +25,9 @@ import (
 
 const (
 	submitChatCompletionRequestTimeout = 300 * time.Second
-	defaultRequestTimeout              = 5 * time.Second // Reduced from 300s - we need fast failure for slot reconciliation
-	cacheUpdateInterval                = 1 * time.Second // Reduced from 5s for more responsive dashboard updates
+	defaultRequestTimeout              = 5 * time.Second   // Reduced from 300s - we need fast failure for slot reconciliation
+	evictionRequestTimeout             = 120 * time.Second // Longer timeout for eviction operations which can take time
+	cacheUpdateInterval                = 1 * time.Second   // Reduced from 5s for more responsive dashboard updates
 )
 
 type RunnerController struct {
@@ -100,7 +101,7 @@ func (r *NATSRunnerClient) DeleteSlot(runnerID string, slotID uuid.UUID) error {
 	resp, err := r.controller.Send(r.controller.ctx, runnerID, nil, &types.Request{
 		Method: "DELETE",
 		URL:    fmt.Sprintf("/api/v1/slots/%s", slotID.String()),
-	}, defaultRequestTimeout)
+	}, evictionRequestTimeout)
 	if err != nil {
 		return err
 	}
