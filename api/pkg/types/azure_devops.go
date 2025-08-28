@@ -11,6 +11,14 @@ type AzureDevopsRepositoryContext struct {
 	PullRequestID int
 	ProjectID     string
 
+	RemoteURL string // For example "https://dev.azure.com/helixml/helix-agents/_git/helix-agents"
+
+	LastMergeSourceCommitID string // PR commit
+	LastMergeTargetCommitID string // Master branch (for example 'main')
+
+	SourceRefName string // For example "refs/heads/feature/pr-2"
+	TargetRefName string // For example "refs/heads/main"
+
 	ThreadID  int // Thread that triggered this event
 	CommentID int // Comment that triggered this event
 }

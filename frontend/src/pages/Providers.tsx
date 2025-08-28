@@ -47,9 +47,18 @@ const Providers: React.FC = () => {
     editAllowed = account.isOrgAdmin
   }
 
+  const checkLoginStatus = (): boolean => {
+    if (!account.user) {
+      account.setShowLoginWindow(true)
+      return false
+    }
+    return true
+  }
 
   const handleOpenDialog = (provider: Provider) => {
-    if (!editAllowed) return;
+    if(!checkLoginStatus()) return
+    
+    if (!editAllowed) return;    
     setSelectedProvider(provider);
     setDialogOpen(true);
   };

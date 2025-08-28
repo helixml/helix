@@ -1214,6 +1214,12 @@ const docTemplate = `{
                         "description": "Batch size (default: 512)",
                         "name": "batch_size",
                         "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of parallel sequences/concurrent requests (default: 2)",
+                        "name": "num_parallel",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -3143,10 +3149,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.Session"
-                            }
+                            "$ref": "#/definitions/types.Session"
                         }
                     }
                 }
@@ -5332,6 +5335,74 @@ const docTemplate = `{
                 }
             }
         },
+        "types.AllocationPlanView": {
+            "type": "object",
+            "properties": {
+                "cost": {
+                    "type": "integer"
+                },
+                "evictions_needed": {
+                    "description": "Slot IDs",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "gpu_count": {
+                    "type": "integer"
+                },
+                "gpus": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_multi_gpu": {
+                    "type": "boolean"
+                },
+                "is_valid": {
+                    "type": "boolean"
+                },
+                "memory_per_gpu": {
+                    "type": "integer"
+                },
+                "requires_eviction": {
+                    "type": "boolean"
+                },
+                "runner_capacity": {
+                    "description": "GPU index -\u003e total memory",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "runner_id": {
+                    "type": "string"
+                },
+                "runner_memory_state": {
+                    "description": "GPU index -\u003e allocated memory",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.Runtime"
+                },
+                "tensor_parallel_size": {
+                    "type": "integer"
+                },
+                "total_memory_required": {
+                    "type": "integer"
+                },
+                "validation_error": {
+                    "type": "string"
+                }
+            }
+        },
         "types.ApiKey": {
             "type": "object",
             "properties": {
@@ -6039,6 +6110,12 @@ const docTemplate = `{
         "types.DashboardData": {
             "type": "object",
             "properties": {
+                "global_allocation_decisions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.GlobalAllocationDecision"
+                    }
+                },
                 "queue": {
                     "type": "array",
                     "items": {
@@ -6430,6 +6507,34 @@ const docTemplate = `{
                 }
             }
         },
+        "types.GPUState": {
+            "type": "object",
+            "properties": {
+                "active_slots": {
+                    "description": "Slot IDs using this GPU",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "allocated_memory": {
+                    "type": "integer"
+                },
+                "free_memory": {
+                    "type": "integer"
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "total_memory": {
+                    "type": "integer"
+                },
+                "utilization": {
+                    "description": "0.0 - 1.0",
+                    "type": "number"
+                }
+            }
+        },
         "types.GPUStatus": {
             "type": "object",
             "properties": {
@@ -6460,6 +6565,83 @@ const docTemplate = `{
                 "used_memory": {
                     "description": "Used memory in bytes",
                     "type": "integer"
+                }
+            }
+        },
+        "types.GlobalAllocationDecision": {
+            "type": "object",
+            "properties": {
+                "after_state": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/types.RunnerStateView"
+                    }
+                },
+                "before_state": {
+                    "description": "Global state snapshots",
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/types.RunnerStateView"
+                    }
+                },
+                "considered_plans": {
+                    "description": "All plans considered",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AllocationPlanView"
+                    }
+                },
+                "created": {
+                    "type": "string"
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "execution_time_ms": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "model_name": {
+                    "type": "string"
+                },
+                "optimization_score": {
+                    "description": "How optimal the final decision was",
+                    "type": "number"
+                },
+                "planning_time_ms": {
+                    "description": "Timing information",
+                    "type": "integer"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.Runtime"
+                },
+                "selected_plan": {
+                    "$ref": "#/definitions/types.AllocationPlanView"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "success": {
+                    "description": "Decision outcome",
+                    "type": "boolean"
+                },
+                "total_plans_generated": {
+                    "type": "integer"
+                },
+                "total_runners_evaluated": {
+                    "description": "Decision metadata",
+                    "type": "integer"
+                },
+                "total_time_ms": {
+                    "type": "integer"
+                },
+                "workload_id": {
+                    "type": "string"
                 }
             }
         },
@@ -7092,6 +7274,29 @@ const docTemplate = `{
         "types.Model": {
             "type": "object",
             "properties": {
+                "allocated_gpu_count": {
+                    "type": "integer"
+                },
+                "allocated_memory": {
+                    "description": "EXPORTED ALLOCATION FIELDS: Set by NewModelForGPUAllocation based on scheduler's GPU allocation decision",
+                    "type": "integer"
+                },
+                "allocated_per_gpu_memory": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "allocated_specific_gpus": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "allocation_configured": {
+                    "description": "Safety flag",
+                    "type": "boolean"
+                },
                 "auto_pull": {
                     "description": "Whether to automatically pull the model if missing in the runner",
                     "type": "boolean"
@@ -7120,7 +7325,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "memory": {
-                    "description": "in bytes, required",
+                    "description": "DATABASE FIELD: Admin-configured memory for VLLM models, MUST be 0 for Ollama models",
                     "type": "integer"
                 },
                 "name": {
@@ -8208,6 +8413,33 @@ const docTemplate = `{
                 "workload_data": {
                     "type": "object",
                     "additionalProperties": {}
+                }
+            }
+        },
+        "types.RunnerStateView": {
+            "type": "object",
+            "properties": {
+                "active_slots": {
+                    "type": "integer"
+                },
+                "gpu_states": {
+                    "description": "GPU index -\u003e state",
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/types.GPUState"
+                    }
+                },
+                "is_connected": {
+                    "type": "boolean"
+                },
+                "runner_id": {
+                    "type": "string"
+                },
+                "total_slots": {
+                    "type": "integer"
+                },
+                "warm_slots": {
+                    "type": "integer"
                 }
             }
         },

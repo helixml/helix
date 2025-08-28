@@ -828,6 +828,9 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		}
 	}
 
+	// Write last data: [DONE] chunk
+	_ = writeChunk(rw, []byte("[DONE]"))
+
 	// Update last interaction
 	interaction.ResponseMessage = fullResponse
 	interaction.Completed = time.Now()

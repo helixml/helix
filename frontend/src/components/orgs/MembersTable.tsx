@@ -170,6 +170,7 @@ const MembersTable: FC<MembersTableProps> = ({
   return (
     <>
       <SimpleTable
+        authenticated={true}
         fields={[{
           name: 'user',
           title: 'User',
