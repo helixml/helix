@@ -830,7 +830,7 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 			//	Msg("SLOT_RECONCILE_DEBUG: About to call ensureSlots")
 
 			s.updateHeartbeatStatus("reconcileSlots", fmt.Sprintf("creating 1 slot for model %s (%d more needed)", req.Model.String(), slotsNeeded-1))
-			s.ensureSlots(req)
+			s.ensureSlot(req)
 
 			// log.Debug().
 			//	Str("SLOT_RECONCILE_DEBUG", "ensure_slots_returned").
@@ -1367,7 +1367,7 @@ func (s *Scheduler) getSchedulerSlots() map[uuid.UUID]*Slot {
 	return result
 }
 
-func (s *Scheduler) ensureSlots(req SlotRequirement) {
+func (s *Scheduler) ensureSlot(req SlotRequirement) {
 	// log.Info().
 	//	Str("model", req.Model.String()).
 	//	Str("runtime", string(req.Runtime)).
@@ -1415,84 +1415,79 @@ func (s *Scheduler) ensureSlots(req SlotRequirement) {
 			Int("total_runners", len(sortedRunners)).
 			Msg("trying runner for slot creation")
 
-		// Try to delete stale slots on this runner if required
-		totalMemory, _, freeMemory, err := s.deleteMostStaleStrategy(runnerID, req.ExampleWorkload)
+		// NEW ARCHITECTURE: Try all possible GPU allocations with eviction for unconfigured workload
+		// This solves the chicken-and-egg problem where we need to know the allocation to evict memory,
+		// but we need to evict memory to determine the best allocation
+
+		// Ensure we have an unconfigured workload for allocation-aware eviction
+		if req.ExampleWorkload.model == nil {
+			lastErr = fmt.Errorf("workload %s has nil model", req.ExampleWorkload.ID())
+			continue
+		}
+		if req.ExampleWorkload.model.IsAllocationConfigured() {
+			lastErr = fmt.Errorf("CRITICAL: workload %s has pre-configured model %s - ensureSlot expects unconfigured models", req.ExampleWorkload.ID(), req.ExampleWorkload.ModelName())
+			continue
+		}
+
+		// Try all possible allocations with eviction to find the optimal solution
+		allocationResult, err := s.tryAllAllocationsWithEviction(runnerID, req.ExampleWorkload)
 		if err != nil {
 			lastErr = err
 			withWorkContext(&log.Logger, req.ExampleWorkload).Debug().
 				Err(err).
 				Str("runner_id", runnerID).
-				Msg("failed to free memory on runner, trying next")
+				Msg("failed to find viable allocation with eviction, trying next runner")
 			continue // Try next runner
 		}
 
-		// STEP 1: Get authoritative memory for GPU allocation decision
-		var authoritativeMemory uint64
+		// Create GPU allocation config from the optimal allocation found
+		allocation := GPUAllocationConfig{
+			GPUCount:     allocationResult.AllocationOption.GPUCount,
+			SpecificGPUs: allocationResult.AllocationOption.GPUs,
+		}
 
-		// All models MUST be configured before reaching scheduling phase
-		if !req.ExampleWorkload.model.IsAllocationConfigured() {
-			lastErr = fmt.Errorf("CRITICAL: workload %s has unconfigured model %s - all models must use NewModelForGPUAllocation", req.ExampleWorkload.ID(), req.ExampleWorkload.ModelName())
+		// Create configured model for this optimal GPU allocation
+		configuredModel, err := NewModelForGPUAllocation(req.ExampleWorkload.model, allocation, s.memoryEstimationService)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to configure model %s for optimal allocation: %w", req.ExampleWorkload.ModelName(), err)
 			continue
 		}
 
-		// Use configured model's authoritative memory
-		authoritativeMemory = req.ExampleWorkload.model.GetMemoryForAllocation()
-
-		// STEP 2: Make GPU allocation decision using authoritative memory
-		singleGPU, multiGPUs, tensorParallelSize := s.controller.GetOptimalGPUAllocation(runnerID, authoritativeMemory, req.ExampleWorkload.Runtime())
-
-		// STEP 3: Create configured model for this GPU allocation
-		var configuredWorkload *Workload
-		if singleGPU != nil || len(multiGPUs) > 0 {
-			allocation, err := ConvertGPUAllocationToConfig(singleGPU, multiGPUs)
-			if err != nil {
-				lastErr = fmt.Errorf("failed to convert GPU allocation for model %s: %w", req.ExampleWorkload.ModelName(), err)
-				continue
-			}
-
-			configuredModel, err := NewModelForGPUAllocation(req.ExampleWorkload.model, allocation, s.memoryEstimationService)
-			if err != nil {
-				lastErr = fmt.Errorf("failed to configure model %s for GPU allocation: %w", req.ExampleWorkload.ModelName(), err)
-				continue
-			}
-
-			// Create workload with properly configured model
-			configuredWorkload = &Workload{
-				WorkloadType:        req.ExampleWorkload.WorkloadType,
-				llmInferenceRequest: req.ExampleWorkload.llmInferenceRequest,
-				session:             req.ExampleWorkload.session,
-				model:               configuredModel,
-			}
+		// Create workload with properly configured model
+		configuredWorkload := &Workload{
+			WorkloadType:        req.ExampleWorkload.WorkloadType,
+			llmInferenceRequest: req.ExampleWorkload.llmInferenceRequest,
+			session:             req.ExampleWorkload.session,
+			model:               configuredModel,
 		}
 
-		// Create GPU allocation object
-		var gpuAllocation *GPUAllocation
-		if singleGPU != nil || len(multiGPUs) > 0 {
-			gpuAllocation = &GPUAllocation{
-				WorkloadID:         req.ExampleWorkload.ID(),
-				RunnerID:           runnerID,
-				SingleGPU:          singleGPU,
-				MultiGPUs:          multiGPUs,
-				TensorParallelSize: tensorParallelSize,
-			}
-			// Store the allocation for future reference
-			s.storeGPUAllocation(configuredWorkload, runnerID, singleGPU, multiGPUs)
+		// Extract GPU allocation details for slot creation
+		var singleGPU *int
+		var multiGPUs []int
+		var tensorParallelSize int
+
+		if allocationResult.AllocationOption.GPUCount == 1 {
+			singleGPU = &allocationResult.AllocationOption.GPUs[0]
+			tensorParallelSize = 1
 		} else {
-			// GPU allocation failed - insufficient memory on this runner
-			lastErr = fmt.Errorf("insufficient GPU memory on runner %s for model requiring %d bytes", runnerID, authoritativeMemory)
-			withWorkContext(&log.Logger, req.ExampleWorkload).Debug().
-				Err(lastErr).
-				Str("runner_id", runnerID).
-				Uint64("model_memory_requirement", req.ExampleWorkload.model.Memory).
-				Msg("GPU allocation failed due to insufficient memory, trying next runner")
-			continue // Try next runner
+			multiGPUs = allocationResult.AllocationOption.GPUs
+			tensorParallelSize = allocationResult.AllocationOption.TensorParallelSize
 		}
 
-		// Use configured workload with proper GPU allocation info
-		if configuredWorkload == nil {
-			lastErr = fmt.Errorf("CRITICAL: configuredWorkload is nil but we reached slot creation - this is a bug")
-			continue
+		totalMemory := allocationResult.TotalMemory
+		freeMemory := allocationResult.FreeMemory
+
+		// Create GPU allocation object from the optimal allocation
+		gpuAllocation := &GPUAllocation{
+			WorkloadID:         req.ExampleWorkload.ID(),
+			RunnerID:           runnerID,
+			SingleGPU:          singleGPU,
+			MultiGPUs:          multiGPUs,
+			TensorParallelSize: tensorParallelSize,
 		}
+
+		// Store the allocation for future reference
+		s.storeGPUAllocation(configuredWorkload, runnerID, singleGPU, multiGPUs)
 		slot := NewSlot(runnerID, configuredWorkload, s.modelStaleFunc, s.slotTimeoutFunc, gpuAllocation)
 
 		// log.Info().
@@ -1515,8 +1510,20 @@ func (s *Scheduler) ensureSlots(req SlotRequirement) {
 			Msg("🐛 TRACING: Using configured model for slot creation")
 
 		s.logSchedulingDecision(configuredWorkload, types.SchedulingDecisionTypeCreateNewSlot, true,
-			fmt.Sprintf("Created new slot on runner %s (attempt %d/%d)", runnerID, j+1, len(sortedRunners)),
+			fmt.Sprintf("Created new slot on runner %s with %d-GPU allocation (attempt %d/%d, evicted %d slots)",
+				runnerID, allocationResult.AllocationOption.GPUCount, j+1, len(sortedRunners), len(allocationResult.EvictedSlots)),
 			runnerID, slot.ID.String(), time.Now(), freeMemory, configuredWorkload.model.GetMemoryForAllocation(), totalMemory)
+
+		// Log detailed eviction information
+		if len(allocationResult.EvictedSlots) > 0 {
+			for _, evictedSlot := range allocationResult.EvictedSlots {
+				s.logSchedulingDecision(configuredWorkload, types.SchedulingDecisionTypeEvictStaleSlot, true,
+					fmt.Sprintf("Evicted stale slot %s (model: %s, age: %v) for optimal %d-GPU allocation",
+						evictedSlot.ID.String(), evictedSlot.InitialWork().ModelName(), time.Since(evictedSlot.LastActivityTime),
+						allocationResult.AllocationOption.GPUCount),
+					runnerID, evictedSlot.ID.String(), time.Now(), freeMemory, configuredWorkload.model.GetMemoryForAllocation(), totalMemory)
+			}
+		}
 		slotCreated = true
 
 		// If we failed on all runners, handle the error
@@ -1941,6 +1948,175 @@ func (s *Scheduler) getOptimalGPUAllocationWithEviction(runnerID string, modelMe
 		Msg("Could not find suitable GPU allocation even with eviction potential")
 
 	return nil, nil, 0
+}
+
+// AllocationResult represents the result of trying to allocate a model with eviction
+type AllocationResult struct {
+	AllocationOption AllocationOption
+	TotalMemory      uint64
+	AllocatedMemory  uint64
+	FreeMemory       uint64
+	EvictedSlots     []*Slot
+}
+
+// tryAllAllocationsWithEviction tries all possible GPU allocations for an unconfigured workload
+// and returns the best allocation that can be satisfied through eviction
+func (s *Scheduler) tryAllAllocationsWithEviction(runnerID string, work *Workload) (*AllocationResult, error) {
+	// Ensure we have an unconfigured workload
+	if work.model == nil {
+		return nil, fmt.Errorf("workload %s has nil model", work.ID())
+	}
+	if work.model.IsAllocationConfigured() {
+		return nil, fmt.Errorf("workload %s already has configured model - use deleteMostStaleStrategy instead", work.ID())
+	}
+
+	// Get all possible allocation options
+	var allocationOptions []AllocationOption
+	var err error
+
+	// First, try without eviction to see if we can allocate immediately
+	allocationOptions, err = s.controller.GetAllPossibleGPUAllocations(runnerID, work.model.Memory, work.Runtime())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get possible allocations: %w", err)
+	}
+
+	// If no options without eviction, try with eviction
+	if len(allocationOptions) == 0 {
+		// Calculate evictable memory per GPU
+		evictableMemoryPerGPU, err := s.calculateEvictableMemoryPerGPU(runnerID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate evictable memory: %w", err)
+		}
+
+		allocationOptions, err = s.controller.GetAllPossibleGPUAllocationsWithEviction(runnerID, work.model.Memory, work.Runtime(), evictableMemoryPerGPU)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get possible allocations with eviction: %w", err)
+		}
+	}
+
+	if len(allocationOptions) == 0 {
+		return nil, ErrRunnersAreFull
+	}
+
+	// Try each allocation option, starting with single GPU (most efficient)
+	for _, option := range allocationOptions {
+		log.Debug().
+			Str("runner_id", runnerID).
+			Str("model", work.ModelName().String()).
+			Int("gpu_count", option.GPUCount).
+			Ints("gpus", option.GPUs).
+			Uint64("memory_per_gpu_gb", option.MemoryPerGPU/(1024*1024*1024)).
+			Uint64("total_memory_gb", option.TotalMemoryRequired/(1024*1024*1024)).
+			Msg("Trying allocation option")
+
+		// Try to evict enough memory for this allocation option
+		result, err := s.tryEvictionForAllocation(runnerID, work, option)
+		if err != nil {
+			log.Debug().
+				Err(err).
+				Str("runner_id", runnerID).
+				Int("gpu_count", option.GPUCount).
+				Msg("Failed to evict for allocation option")
+			continue
+		}
+
+		log.Info().
+			Str("runner_id", runnerID).
+			Str("model", work.ModelName().String()).
+			Int("gpu_count", option.GPUCount).
+			Ints("gpus", option.GPUs).
+			Int("evicted_slots", len(result.EvictedSlots)).
+			Msg("Successfully found allocation with eviction")
+
+		return result, nil
+	}
+
+	return nil, ErrRunnersAreFull
+}
+
+// tryEvictionForAllocation attempts to evict enough memory for a specific allocation option
+func (s *Scheduler) tryEvictionForAllocation(runnerID string, work *Workload, option AllocationOption) (*AllocationResult, error) {
+	var evictedSlots []*Slot
+
+	for {
+		// Recalculate memory state after each potential slot deletion
+		totalMem, currentAllocatedMem, currentFreeMem, err := s.calculateRunnerMemory(runnerID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate runner memory: %w", err)
+		}
+
+		// Check if we have enough memory for this allocation option
+		memoryNeeded := option.TotalMemoryRequired
+		freeMem := int64(currentFreeMem) - int64(memoryNeeded)
+
+		if freeMem >= 0 {
+			// Success! We have enough memory
+			return &AllocationResult{
+				AllocationOption: option,
+				TotalMemory:      totalMem,
+				AllocatedMemory:  currentAllocatedMem,
+				FreeMemory:       currentFreeMem,
+				EvictedSlots:     evictedSlots,
+			}, nil
+		}
+
+		// Find stale slots to evict
+		var allSlots []*Slot
+		s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+			if slot.RunnerID == runnerID {
+				allSlots = append(allSlots, slot)
+			}
+			return true
+		})
+
+		// Filter out slots that are the same as the workload we're trying to schedule
+		notSameWorkload := Filter(allSlots, func(slot *Slot) bool {
+			return slot.InitialWork().ModelName() != work.ModelName() ||
+				slot.InitialWork().Runtime() != work.Runtime() ||
+				slot.InitialWork().LoraDir() != work.LoraDir()
+		})
+
+		// Only keep the stale slots
+		staleSlots := Filter(notSameWorkload, func(slot *Slot) bool {
+			return slot.IsStale()
+		})
+
+		if len(staleSlots) == 0 {
+			return nil, fmt.Errorf("no stale slots available for eviction")
+		}
+
+		// Sort by staleness (oldest first)
+		slices.SortFunc(staleSlots, func(i, j *Slot) int {
+			return int(i.LastActivityTime.Sub(j.LastActivityTime))
+		})
+
+		// Evict the most stale slot
+		evictedSlot := staleSlots[0]
+
+		log.Info().
+			Str("runner_id", runnerID).
+			Str("evicted_slot_id", evictedSlot.ID.String()).
+			Str("evicted_model", evictedSlot.InitialWork().ModelName().String()).
+			Dur("slot_age", time.Since(evictedSlot.LastActivityTime)).
+			Uint64("target_memory_gb", memoryNeeded/(1024*1024*1024)).
+			Int64("still_needed_mb", -freeMem/1024/1024).
+			Msg("Evicting slot for allocation option")
+
+		// Delete the slot from the runner
+		err = s.controller.DeleteSlot(runnerID, evictedSlot.ID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("runner_id", runnerID).
+				Str("slot_id", evictedSlot.ID.String()).
+				Msg("Failed to delete slot from runner - continuing anyway")
+		}
+
+		s.slots.Delete(evictedSlot.ID)
+		s.clearGPUAllocation(evictedSlot.InitialWork().ID())
+
+		evictedSlots = append(evictedSlots, evictedSlot)
+	}
 }
 
 // DeleteMostStaleStrategy iteratively deletes allocated work from stale slots until there is enough
@@ -2685,60 +2861,8 @@ func (s *Scheduler) PrewarmNewRunner(runnerID string) {
 			continue
 		}
 
-		// Get memory requirement for allocation decision
-		ctx := context.Background()
-		var modelMemory uint64
-		if model.Runtime == types.RuntimeOllama {
-			// Use memory estimation for Ollama models
-			estimateOptions := memory.CreateAutoEstimateOptions(model.ContextLength)
-			result, err := s.memoryEstimationService.EstimateModelMemory(ctx, model.ID, estimateOptions)
-			if err != nil {
-				withContext.Warn().
-					Err(err).
-					Str("model", model.ID).
-					Msg("failed to estimate memory for Ollama model in prewarming, skipping")
-				continue
-			}
-			modelMemory = result.SingleGPU.TotalSize
-		} else {
-			// Use database value for VLLM models
-			modelMemory = model.Memory
-		}
-
-		// Make GPU allocation decision for prewarming
-		singleGPU, multiGPUs, tensorParallelSize := s.controller.GetOptimalGPUAllocation(runnerID, modelMemory, model.Runtime)
-
-		// Configure model with allocation
-		var allocation GPUAllocationConfig
-		if singleGPU != nil {
-			allocation = GPUAllocationConfig{
-				GPUCount:     1,
-				SpecificGPUs: []int{*singleGPU},
-			}
-		} else if len(multiGPUs) > 0 {
-			allocation = GPUAllocationConfig{
-				GPUCount:     tensorParallelSize,
-				SpecificGPUs: multiGPUs,
-			}
-		} else {
-			withContext.Warn().
-				Str("model", model.ID).
-				Uint64("memory_gb", modelMemory/(1024*1024*1024)).
-				Msg("no GPU allocation available for prewarming, skipping model")
-			continue
-		}
-
-		configuredModel, err := NewModelForGPUAllocation(model, allocation, s.memoryEstimationService)
-		if err != nil {
-			withContext.Warn().
-				Err(err).
-				Str("model", model.ID).
-				Interface("allocation", allocation).
-				Msg("failed to configure model for prewarming, skipping")
-			continue
-		}
-
-		// Create a dummy workload for prewarming with configured model
+		// Create a dummy workload for prewarming with unconfigured model
+		// Let ensureSlot handle the allocation decision and model configuration
 		prewarmWorkload := &Workload{
 			WorkloadType: WorkloadTypeLLMInferenceRequest,
 			llmInferenceRequest: &types.RunnerLLMInferenceRequest{
@@ -2752,7 +2876,7 @@ func (s *Scheduler) PrewarmNewRunner(runnerID string) {
 					},
 				},
 			},
-			model: configuredModel,
+			model: model, // Use unconfigured base model - ensureSlot will handle allocation
 		}
 
 		// Set the preferred runner for this prewarming workload
