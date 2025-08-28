@@ -882,9 +882,10 @@ type WorkloadSummary struct {
 }
 
 type DashboardData struct {
-	Runners             []*DashboardRunner    `json:"runners"`
-	Queue               []*WorkloadSummary    `json:"queue"`
-	SchedulingDecisions []*SchedulingDecision `json:"scheduling_decisions"`
+	Runners                   []*DashboardRunner          `json:"runners"`
+	Queue                     []*WorkloadSummary          `json:"queue"`
+	SchedulingDecisions       []*SchedulingDecision       `json:"scheduling_decisions"`
+	GlobalAllocationDecisions []*GlobalAllocationDecision `json:"global_allocation_decisions"`
 }
 
 // GPUMemoryDataPoint represents a single point in time for GPU memory tracking
@@ -977,6 +978,79 @@ type GlobalSchedulingDecision struct {
 	ModelName     string        `json:"model_name"`
 	Mode          SessionMode   `json:"mode"`
 	Filter        SessionFilter `json:"filter"`
+}
+
+// AllocationPlanView represents a plan option for visualization
+type AllocationPlanView struct {
+	ID                  string         `json:"id"`
+	RunnerID            string         `json:"runner_id"`
+	GPUs                []int          `json:"gpus"`
+	GPUCount            int            `json:"gpu_count"`
+	IsMultiGPU          bool           `json:"is_multi_gpu"`
+	TotalMemoryRequired uint64         `json:"total_memory_required"`
+	MemoryPerGPU        uint64         `json:"memory_per_gpu"`
+	Cost                int            `json:"cost"`
+	RequiresEviction    bool           `json:"requires_eviction"`
+	EvictionsNeeded     []string       `json:"evictions_needed"` // Slot IDs
+	TensorParallelSize  int            `json:"tensor_parallel_size"`
+	Runtime             Runtime        `json:"runtime"`
+	IsValid             bool           `json:"is_valid"`
+	ValidationError     string         `json:"validation_error,omitempty"`
+	RunnerMemoryState   map[int]uint64 `json:"runner_memory_state"` // GPU index -> allocated memory
+	RunnerCapacity      map[int]uint64 `json:"runner_capacity"`     // GPU index -> total memory
+}
+
+// GlobalAllocationDecision represents a complete global allocation decision for visualization
+type GlobalAllocationDecision struct {
+	ID         string    `json:"id"`
+	Created    time.Time `json:"created"`
+	WorkloadID string    `json:"workload_id"`
+	SessionID  string    `json:"session_id"`
+	ModelName  string    `json:"model_name"`
+	Runtime    Runtime   `json:"runtime"`
+
+	// All plans considered
+	ConsideredPlans []*AllocationPlanView `json:"considered_plans"`
+	SelectedPlan    *AllocationPlanView   `json:"selected_plan"`
+
+	// Timing information
+	PlanningTimeMs  int64 `json:"planning_time_ms"`
+	ExecutionTimeMs int64 `json:"execution_time_ms"`
+	TotalTimeMs     int64 `json:"total_time_ms"`
+
+	// Decision outcome
+	Success      bool   `json:"success"`
+	Reason       string `json:"reason"`
+	ErrorMessage string `json:"error_message,omitempty"`
+
+	// Global state snapshots
+	BeforeState map[string]*RunnerStateView `json:"before_state"`
+	AfterState  map[string]*RunnerStateView `json:"after_state"`
+
+	// Decision metadata
+	TotalRunnersEvaluated int     `json:"total_runners_evaluated"`
+	TotalPlansGenerated   int     `json:"total_plans_generated"`
+	OptimizationScore     float64 `json:"optimization_score"` // How optimal the final decision was
+}
+
+// RunnerStateView represents a runner's state for visualization
+type RunnerStateView struct {
+	RunnerID    string            `json:"runner_id"`
+	GPUStates   map[int]*GPUState `json:"gpu_states"` // GPU index -> state
+	TotalSlots  int               `json:"total_slots"`
+	ActiveSlots int               `json:"active_slots"`
+	WarmSlots   int               `json:"warm_slots"`
+	IsConnected bool              `json:"is_connected"`
+}
+
+// GPUState represents a single GPU's state
+type GPUState struct {
+	Index           int      `json:"index"`
+	TotalMemory     uint64   `json:"total_memory"`
+	AllocatedMemory uint64   `json:"allocated_memory"`
+	FreeMemory      uint64   `json:"free_memory"`
+	ActiveSlots     []string `json:"active_slots"` // Slot IDs using this GPU
+	Utilization     float64  `json:"utilization"`  // 0.0 - 1.0
 }
 
 // keep track of the state of the data prep

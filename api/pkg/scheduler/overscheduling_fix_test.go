@@ -159,7 +159,7 @@ func TestTensorParallelismDiagnosis(t *testing.T) {
 			Runtime:         workload.Runtime(),
 		}
 
-		scheduler.ensureSlot(req)
+		scheduler.ensureSlotWithGlobalAllocator(req)
 		time.Sleep(100 * time.Millisecond)
 
 		// Check what actually got created

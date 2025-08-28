@@ -52,14 +52,16 @@ type GlobalAllocator struct {
 	controller              *RunnerController
 	memoryEstimationService MemoryEstimationService
 	slots                   *SlotStore
+	globalDecisionsTracker  *GlobalAllocationDecisionsTracker
 }
 
 // NewGlobalAllocator creates a new global allocator
-func NewGlobalAllocator(controller *RunnerController, memoryService MemoryEstimationService, slots *SlotStore) *GlobalAllocator {
+func NewGlobalAllocator(controller *RunnerController, memoryService MemoryEstimationService, slots *SlotStore, globalDecisionsTracker *GlobalAllocationDecisionsTracker) *GlobalAllocator {
 	return &GlobalAllocator{
 		controller:              controller,
 		memoryEstimationService: memoryService,
 		slots:                   slots,
+		globalDecisionsTracker:  globalDecisionsTracker,
 	}
 }
 
@@ -644,20 +646,7 @@ func (ga *GlobalAllocator) calculatePlanCost(runnerID string, gpuIndex int, evic
 	// 3. Runner load balancing (prefer runners with less total load)
 	runnerPenalty := ga.calculateRunnerLoadPenalty(runnerID)
 
-	totalCost := evictionCost + memoryPenalty + runnerPenalty
-
-	log.Trace().
-		Str("runner_id", runnerID).
-		Int("gpu_index", gpuIndex).
-		Int("eviction_count", evictionCount).
-		Uint64("free_memory_gb", freeMemory/(1024*1024*1024)).
-		Int("eviction_cost", evictionCost).
-		Int("memory_penalty", memoryPenalty).
-		Int("runner_penalty", runnerPenalty).
-		Int("total_cost", totalCost).
-		Msg("🌍 GLOBAL: Single GPU plan cost calculation")
-
-	return totalCost
+	return evictionCost + memoryPenalty + runnerPenalty
 }
 
 // calculateMultiGPUPlanCost calculates the cost of a multi-GPU allocation plan
@@ -670,20 +659,7 @@ func (ga *GlobalAllocator) calculateMultiGPUPlanCost(runnerID string, gpus []int
 	// Runner load penalty
 	runnerPenalty := ga.calculateRunnerLoadPenalty(runnerID)
 
-	totalCost := baseCost + multiGPUPenalty + runnerPenalty
-
-	log.Trace().
-		Str("runner_id", runnerID).
-		Ints("gpus", gpus).
-		Int("gpu_count", len(gpus)).
-		Int("eviction_count", evictionCount).
-		Int("base_cost", baseCost).
-		Int("multi_gpu_penalty", multiGPUPenalty).
-		Int("runner_penalty", runnerPenalty).
-		Int("total_cost", totalCost).
-		Msg("🌍 GLOBAL: Multi-GPU plan cost calculation")
-
-	return totalCost
+	return baseCost + multiGPUPenalty + runnerPenalty
 }
 
 // calculateRunnerLoadPenalty calculates penalty based on runner's current load
@@ -732,11 +708,7 @@ func (ga *GlobalAllocator) performEvictions(runnerID string, slotsToEvict []*Slo
 func (ga *GlobalAllocator) runnerHasModel(runnerID, modelID string) bool {
 	status, err := ga.controller.GetStatus(runnerID)
 	if err != nil {
-		log.Debug().
-			Str("runner_id", runnerID).
-			Str("model_id", modelID).
-			Err(err).
-			Msg("🌍 GLOBAL: Failed to get runner status for model check")
+
 		return false
 	}
 
@@ -745,19 +717,11 @@ func (ga *GlobalAllocator) runnerHasModel(runnerID, modelID string) bool {
 	for i, model := range status.Models {
 		availableModels[i] = model.ModelID
 		if model.ModelID == modelID {
-			log.Debug().
-				Str("runner_id", runnerID).
-				Str("model_id", modelID).
-				Msg("🌍 GLOBAL: Runner has requested model")
+
 			return true
 		}
 	}
 
-	log.Debug().
-		Str("runner_id", runnerID).
-		Str("model_id", modelID).
-		Strs("available_models", availableModels).
-		Msg("🌍 GLOBAL: Runner does not have requested model")
 	return false
 }
 
@@ -848,6 +812,8 @@ func (ga *GlobalAllocator) slotUsesGPU(slot *Slot, gpuIndex int) bool {
 // AllocateWorkload is the main entry point for the global allocator
 // This replaces the complex multi-method allocation logic in ensureSlot()
 func (ga *GlobalAllocator) AllocateWorkload(work *Workload, modelStaleFunc, slotTimeoutFunc TimeoutFunc) (*Slot, error) {
+	startTime := time.Now()
+
 	if work == nil {
 		return nil, fmt.Errorf("workload is nil")
 	}
@@ -858,6 +824,9 @@ func (ga *GlobalAllocator) AllocateWorkload(work *Workload, modelStaleFunc, slot
 		Str("workload_id", work.ID()).
 		Msg("🌍 GLOBAL: Starting global allocation for workload")
 
+	// Capture before state for visualization
+	beforeState := ga.captureGlobalState()
+
 	// Phase 1: Create allocation plan
 	plan, err := ga.PlanAllocation(work)
 	if err != nil {
@@ -865,6 +834,9 @@ func (ga *GlobalAllocator) AllocateWorkload(work *Workload, modelStaleFunc, slot
 			Err(err).
 			Str("model", work.ModelName().String()).
 			Msg("🌍 GLOBAL: Failed to create allocation plan")
+
+		// Log failed global decision
+		ga.logGlobalDecision(work, nil, nil, beforeState, nil, time.Since(startTime).Milliseconds(), false, fmt.Sprintf("Failed to create allocation plan: %v", err))
 		return nil, err
 	}
 
@@ -876,6 +848,9 @@ func (ga *GlobalAllocator) AllocateWorkload(work *Workload, modelStaleFunc, slot
 			Str("runner_id", plan.RunnerID).
 			Ints("gpus", plan.GPUs).
 			Msg("🌍 GLOBAL: Allocation plan validation failed")
+
+		// Log failed global decision
+		ga.logGlobalDecision(work, []*AllocationPlan{plan}, plan, beforeState, nil, time.Since(startTime).Milliseconds(), false, fmt.Sprintf("Allocation plan validation failed: %v", err))
 		return nil, fmt.Errorf("allocation plan validation failed: %w", err)
 	}
 
@@ -887,12 +862,18 @@ func (ga *GlobalAllocator) AllocateWorkload(work *Workload, modelStaleFunc, slot
 			Str("model", work.ModelName().String()).
 			Str("runner_id", plan.RunnerID).
 			Msg("🌍 GLOBAL: Failed to execute allocation plan")
+
+		// Log failed global decision
+		ga.logGlobalDecision(work, []*AllocationPlan{plan}, plan, beforeState, nil, time.Since(startTime).Milliseconds(), false, fmt.Sprintf("Failed to execute allocation plan: %v", err))
 		return nil, err
 	}
 
 	// Set timeout functions
 	slot.isStaleFunc = modelStaleFunc
 	slot.isErrorFunc = slotTimeoutFunc
+
+	// Capture after state for visualization
+	afterState := ga.captureGlobalState()
 
 	log.Info().
 		Str("model", work.ModelName().String()).
@@ -902,6 +883,9 @@ func (ga *GlobalAllocator) AllocateWorkload(work *Workload, modelStaleFunc, slot
 		Int("evictions_performed", len(plan.EvictionsNeeded)).
 		Uint64("memory_allocated_gb", plan.TotalMemoryRequired/(1024*1024*1024)).
 		Msg("🌍 GLOBAL: Successfully allocated workload")
+
+	// Log successful global decision
+	ga.logGlobalDecision(work, []*AllocationPlan{plan}, plan, beforeState, afterState, time.Since(startTime).Milliseconds(), true, "Successfully allocated workload")
 
 	return slot, nil
 }
@@ -954,6 +938,199 @@ func (ga *GlobalAllocator) ValidateNoOverscheduling() []string {
 	return violations
 }
 
+// captureGlobalState captures the current state of all runners for visualization
+func (ga *GlobalAllocator) captureGlobalState() map[string]*types.RunnerStateView {
+	state := make(map[string]*types.RunnerStateView)
+
+	for _, runnerID := range ga.controller.RunnerIDs() {
+		runnerState := &types.RunnerStateView{
+			RunnerID:    runnerID,
+			GPUStates:   make(map[int]*types.GPUState),
+			IsConnected: slices.Contains(ga.controller.RunnerIDs(), runnerID),
+		}
+
+		// Get runner status
+		status, err := ga.controller.GetStatus(runnerID)
+		if err != nil {
+			state[runnerID] = runnerState
+			continue
+		}
+
+		// Get allocated memory per GPU
+		allocatedPerGPU, err := ga.controller.calculateAllocatedMemoryPerGPU(runnerID)
+		if err != nil {
+			allocatedPerGPU = make(map[int]uint64)
+		}
+
+		// Capture GPU states
+		for i, gpu := range status.GPUs {
+			allocated := allocatedPerGPU[i]
+			free := gpu.TotalMemory - allocated
+			utilization := float64(allocated) / float64(gpu.TotalMemory)
+
+			// Get active slots for this GPU
+			var activeSlots []string
+			ga.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
+				if slot.RunnerID != runnerID {
+					return true
+				}
+
+				if slot.GPUAllocation != nil {
+					usesThisGPU := false
+					if slot.GPUAllocation.SingleGPU != nil && *slot.GPUAllocation.SingleGPU == i {
+						usesThisGPU = true
+					}
+					for _, multiGPU := range slot.GPUAllocation.MultiGPUs {
+						if multiGPU == i {
+							usesThisGPU = true
+							break
+						}
+					}
+					if usesThisGPU {
+						activeSlots = append(activeSlots, slot.ID.String())
+					}
+				}
+				return true
+			})
+
+			runnerState.GPUStates[i] = &types.GPUState{
+				Index:           i,
+				TotalMemory:     gpu.TotalMemory,
+				AllocatedMemory: allocated,
+				FreeMemory:      free,
+				ActiveSlots:     activeSlots,
+				Utilization:     utilization,
+			}
+		}
+
+		state[runnerID] = runnerState
+	}
+
+	return state
+}
+
+// convertPlanToView converts an AllocationPlan to AllocationPlanView for visualization
+func (ga *GlobalAllocator) convertPlanToView(plan *AllocationPlan) *types.AllocationPlanView {
+	if plan == nil {
+		return nil
+	}
+
+	var evictionIDs []string
+	for _, slot := range plan.EvictionsNeeded {
+		evictionIDs = append(evictionIDs, slot.ID.String())
+	}
+
+	// Get runner memory state
+	runnerMemoryState := make(map[int]uint64)
+	runnerCapacity := make(map[int]uint64)
+
+	allocatedPerGPU, err := ga.controller.calculateAllocatedMemoryPerGPU(plan.RunnerID)
+	if err == nil {
+		runnerMemoryState = allocatedPerGPU
+	}
+
+	status, err := ga.controller.GetStatus(plan.RunnerID)
+	if err == nil {
+		for i, gpu := range status.GPUs {
+			runnerCapacity[i] = gpu.TotalMemory
+		}
+	}
+
+	validationError := ""
+	if plan.ValidationError != nil {
+		validationError = plan.ValidationError.Error()
+	}
+
+	return &types.AllocationPlanView{
+		ID:                  fmt.Sprintf("%s-%v", plan.RunnerID, plan.GPUs),
+		RunnerID:            plan.RunnerID,
+		GPUs:                plan.GPUs,
+		GPUCount:            plan.GPUCount,
+		IsMultiGPU:          plan.IsMultiGPU,
+		TotalMemoryRequired: plan.TotalMemoryRequired,
+		MemoryPerGPU:        plan.MemoryPerGPU,
+		Cost:                plan.Cost,
+		RequiresEviction:    plan.RequiresEviction,
+		EvictionsNeeded:     evictionIDs,
+		TensorParallelSize:  plan.TensorParallelSize,
+		Runtime:             plan.Runtime,
+		IsValid:             plan.IsValid,
+		ValidationError:     validationError,
+		RunnerMemoryState:   runnerMemoryState,
+		RunnerCapacity:      runnerCapacity,
+	}
+}
+
+// logGlobalDecision logs a comprehensive global allocation decision
+func (ga *GlobalAllocator) logGlobalDecision(work *Workload, allPlans []*AllocationPlan, selectedPlan *AllocationPlan, beforeState, afterState map[string]*types.RunnerStateView, totalTimeMs int64, success bool, reason string) {
+	if ga.globalDecisionsTracker == nil {
+		return
+	}
+
+	// Convert all plans to view format
+	var consideredPlans []*types.AllocationPlanView
+	for _, plan := range allPlans {
+		consideredPlans = append(consideredPlans, ga.convertPlanToView(plan))
+	}
+
+	var selectedPlanView *types.AllocationPlanView
+	if selectedPlan != nil {
+		selectedPlanView = ga.convertPlanToView(selectedPlan)
+	}
+
+	// Calculate optimization score
+	optimizationScore := 0.0
+	if success && selectedPlan != nil && len(allPlans) > 0 {
+		minCost := selectedPlan.Cost
+		maxCost := selectedPlan.Cost
+		for _, plan := range allPlans {
+			if plan.Cost < minCost {
+				minCost = plan.Cost
+			}
+			if plan.Cost > maxCost {
+				maxCost = plan.Cost
+			}
+		}
+		if maxCost > minCost {
+			optimizationScore = 1.0 - float64(selectedPlan.Cost-minCost)/float64(maxCost-minCost)
+		} else {
+			optimizationScore = 1.0
+		}
+	}
+
+	sessionID := ""
+	if work.session != nil {
+		sessionID = work.session.ID
+	}
+
+	decision := &types.GlobalAllocationDecision{
+		WorkloadID:      work.ID(),
+		SessionID:       sessionID,
+		ModelName:       work.ModelName().String(),
+		Runtime:         work.Runtime(),
+		ConsideredPlans: consideredPlans,
+		SelectedPlan:    selectedPlanView,
+		PlanningTimeMs:  totalTimeMs,
+		ExecutionTimeMs: 0, // Will be updated if execution succeeds
+		TotalTimeMs:     totalTimeMs,
+		Success:         success,
+		Reason:          reason,
+		ErrorMessage: func() string {
+			if !success {
+				return reason
+			}
+			return ""
+		}(),
+		BeforeState:           beforeState,
+		AfterState:            afterState,
+		TotalRunnersEvaluated: len(ga.controller.RunnerIDs()),
+		TotalPlansGenerated:   len(allPlans),
+		OptimizationScore:     optimizationScore,
+	}
+
+	ga.globalDecisionsTracker.LogGlobalDecision(decision)
+}
+
 // DebugAllocationDecision logs detailed information about an allocation decision
 func (ga *GlobalAllocator) DebugAllocationDecision(work *Workload, plan *AllocationPlan) {
 	memoryState := ga.GetGlobalMemoryState()
@@ -973,13 +1150,12 @@ func (ga *GlobalAllocator) DebugAllocationDecision(work *Workload, plan *Allocat
 			return result
 		}()).
 		Interface("selected_plan", map[string]interface{}{
-			"runner":            plan.RunnerID,
+			"runner_id":         plan.RunnerID,
 			"gpus":              plan.GPUs,
 			"gpu_count":         plan.GPUCount,
-			"memory_per_gpu":    plan.MemoryPerGPU / (1024 * 1024 * 1024),
-			"total_memory":      plan.TotalMemoryRequired / (1024 * 1024 * 1024),
+			"memory_per_gpu_gb": plan.MemoryPerGPU / (1024 * 1024 * 1024),
+			"total_memory_gb":   plan.TotalMemoryRequired / (1024 * 1024 * 1024),
 			"requires_eviction": plan.RequiresEviction,
-			"eviction_count":    len(plan.EvictionsNeeded),
 			"cost":              plan.Cost,
 		}).
 		Msg("🐛 GLOBAL: Allocation decision details")

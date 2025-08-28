@@ -672,6 +672,16 @@ func TestGlobalAllocator_ValidationIntegrity(t *testing.T) {
 	t.Run("detects overscheduling violations", func(t *testing.T) {
 		// Create a slot that overschedules GPU 0
 		badWorkload := &Workload{
+			WorkloadType: WorkloadTypeLLMInferenceRequest,
+			llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+				RequestID: "bad-workload",
+				Request: &openai.ChatCompletionRequest{
+					Model: "bad-model",
+					Messages: []openai.ChatCompletionMessage{
+						{Role: "user", Content: "test content"},
+					},
+				},
+			},
 			model: &types.Model{ID: "bad-model", Runtime: types.RuntimeVLLM, Memory: 200 * 1024 * 1024 * 1024},
 		}
 
@@ -690,7 +700,7 @@ func TestGlobalAllocator_ValidationIntegrity(t *testing.T) {
 
 		violations := allocator.ValidateNoOverscheduling()
 		assert.Greater(t, len(violations), 0, "Should detect overscheduling violation")
-		assert.Contains(t, violations[0], "overscheduled", "Should describe overscheduling")
+		assert.Contains(t, violations[0], "allocated >", "Should describe overscheduling")
 
 		// Clean up
 		scheduler.slots.Delete(badSlot.ID)
@@ -771,6 +781,15 @@ func TestGlobalAllocator_GlobalOptimization(t *testing.T) {
 		// Large model should prefer high-memory runner
 		largeWorkload := &Workload{
 			WorkloadType: WorkloadTypeLLMInferenceRequest,
+			llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+				RequestID: "large-workload",
+				Request: &openai.ChatCompletionRequest{
+					Model: "large-vllm:70b",
+					Messages: []openai.ChatCompletionMessage{
+						{Role: "user", Content: "test content"},
+					},
+				},
+			},
 			model: &types.Model{
 				ID: "large-vllm:70b", Runtime: types.RuntimeVLLM, Memory: 70 * 1024 * 1024 * 1024,
 			},
@@ -788,7 +807,16 @@ func TestGlobalAllocator_GlobalOptimization(t *testing.T) {
 		// Fill runner 1 partially
 		workload1 := &Workload{
 			WorkloadType: WorkloadTypeLLMInferenceRequest,
-			model:        &types.Model{ID: "medium-vllm:20b", Runtime: types.RuntimeVLLM, Memory: 60 * 1024 * 1024 * 1024},
+			llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+				RequestID: "workload1",
+				Request: &openai.ChatCompletionRequest{
+					Model: "medium-vllm:20b",
+					Messages: []openai.ChatCompletionMessage{
+						{Role: "user", Content: "test content"},
+					},
+				},
+			},
+			model: &types.Model{ID: "medium-vllm:20b", Runtime: types.RuntimeVLLM, Memory: 60 * 1024 * 1024 * 1024},
 		}
 
 		slot1, err := allocator.AllocateWorkload(workload1, nil, nil)
@@ -798,7 +826,16 @@ func TestGlobalAllocator_GlobalOptimization(t *testing.T) {
 		// Now small model should prefer runner 2 (less loaded)
 		workload2 := &Workload{
 			WorkloadType: WorkloadTypeLLMInferenceRequest,
-			model:        &types.Model{ID: "small-vllm:7b", Runtime: types.RuntimeVLLM, Memory: 30 * 1024 * 1024 * 1024},
+			llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+				RequestID: "workload2",
+				Request: &openai.ChatCompletionRequest{
+					Model: "small-vllm:7b",
+					Messages: []openai.ChatCompletionMessage{
+						{Role: "user", Content: "test content"},
+					},
+				},
+			},
+			model: &types.Model{ID: "small-vllm:7b", Runtime: types.RuntimeVLLM, Memory: 30 * 1024 * 1024 * 1024},
 		}
 
 		plan2, err := allocator.PlanAllocation(workload2)
@@ -816,27 +853,59 @@ func TestGlobalAllocator_ErrorHandling(t *testing.T) {
 	defer cleanup()
 
 	t.Run("handles no runners available", func(t *testing.T) {
+		// Create proper mocks
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		ps, err := pubsub.NewInMemoryNats()
+		require.NoError(t, err)
+
+		mockStore := store.NewMockStore(ctrl)
+		mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+		mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+
 		// Create allocator with no runners
-		emptyController, _ := NewRunnerController(context.Background(), &RunnerControllerConfig{
-			PubSub:        nil,
-			Store:         nil,
+		emptyController, err := NewRunnerController(context.Background(), &RunnerControllerConfig{
+			PubSub:        ps,
+			Store:         mockStore,
 			HealthChecker: &MockHealthChecker{},
 			RunnerClient:  DefaultMockRunnerClient(),
 		})
+		require.NoError(t, err)
 
-		emptyAllocator := NewGlobalAllocator(emptyController, NewGlobalAllocatorMemoryService(), NewSlotStore(nil))
+		emptyAllocator := NewGlobalAllocator(emptyController, NewGlobalAllocatorMemoryService(), NewSlotStore(mockStore), NewGlobalAllocationDecisionsTracker(10))
 
 		workload := &Workload{
+			WorkloadType: WorkloadTypeLLMInferenceRequest,
+			llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+				RequestID: "error-test",
+				Request: &openai.ChatCompletionRequest{
+					Model: "test",
+					Messages: []openai.ChatCompletionMessage{
+						{Role: "user", Content: "test content"},
+					},
+				},
+			},
 			model: &types.Model{ID: "test", Runtime: types.RuntimeVLLM, Memory: 10 * 1024 * 1024 * 1024},
 		}
 
-		_, err := emptyAllocator.PlanAllocation(workload)
+		_, err = emptyAllocator.PlanAllocation(workload)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no runners available")
 	})
 
 	t.Run("handles model too large for any GPU", func(t *testing.T) {
 		workload := &Workload{
+			WorkloadType: WorkloadTypeLLMInferenceRequest,
+			llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+				RequestID: "impossible-model-test",
+				Request: &openai.ChatCompletionRequest{
+					Model: "impossible-model",
+					Messages: []openai.ChatCompletionMessage{
+						{Role: "user", Content: "test content"},
+					},
+				},
+			},
 			model: &types.Model{
 				ID: "impossible-model", Runtime: types.RuntimeVLLM, Memory: 500 * 1024 * 1024 * 1024, // 500GB
 			},
@@ -863,6 +932,16 @@ func TestGlobalAllocator_MemoryCalculations(t *testing.T) {
 
 		// Allocate first model
 		workload1 := &Workload{
+			WorkloadType: WorkloadTypeLLMInferenceRequest,
+			llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+				RequestID: "memory-calc-1",
+				Request: &openai.ChatCompletionRequest{
+					Model: "first",
+					Messages: []openai.ChatCompletionMessage{
+						{Role: "user", Content: "test content"},
+					},
+				},
+			},
 			model: &types.Model{ID: "first", Runtime: types.RuntimeVLLM, Memory: 30 * 1024 * 1024 * 1024},
 		}
 
@@ -883,6 +962,16 @@ func TestGlobalAllocator_MemoryCalculations(t *testing.T) {
 
 		// Allocate second model - should use other GPU
 		workload2 := &Workload{
+			WorkloadType: WorkloadTypeLLMInferenceRequest,
+			llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+				RequestID: "memory-calc-2",
+				Request: &openai.ChatCompletionRequest{
+					Model: "second",
+					Messages: []openai.ChatCompletionMessage{
+						{Role: "user", Content: "test content"},
+					},
+				},
+			},
 			model: &types.Model{ID: "second", Runtime: types.RuntimeVLLM, Memory: 40 * 1024 * 1024 * 1024},
 		}
 
@@ -953,42 +1042,55 @@ func TestGlobalAllocator_IntegrationWithScheduler(t *testing.T) {
 	})
 }
 
-// Benchmark to compare global allocator performance vs legacy
-func BenchmarkGlobalAllocatorVsLegacy(b *testing.B) {
-	scheduler, _, allocator, testRunnerID, ctx, cleanup := createTestGlobalAllocator(&testing.T{})
+// TestGlobalAllocator_DecisionLogging verifies that global allocation decisions are logged
+func TestGlobalAllocator_DecisionLogging(t *testing.T) {
+	scheduler, _, allocator, testRunnerID, ctx, cleanup := createTestGlobalAllocator(t)
 	defer cleanup()
-	_ = testRunnerID // Suppress unused variable warnings
 	_ = ctx
 
+	// Create a test workload
 	workload := &Workload{
 		WorkloadType: WorkloadTypeLLMInferenceRequest,
-		model:        &types.Model{ID: "bench", Runtime: types.RuntimeVLLM, Memory: 30 * 1024 * 1024 * 1024},
+		llmInferenceRequest: &types.RunnerLLMInferenceRequest{
+			RequestID: "decision-log-test",
+			Request: &openai.ChatCompletionRequest{
+				Model: "test-model",
+				Messages: []openai.ChatCompletionMessage{
+					{Role: "user", Content: "test content"},
+				},
+			},
+		},
+		model: &types.Model{ID: "test-model", Runtime: types.RuntimeVLLM, Memory: 30 * 1024 * 1024 * 1024},
 	}
 
-	b.Run("GlobalAllocator", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			plan, err := allocator.PlanAllocation(workload)
-			if err != nil {
-				b.Fatal(err)
-			}
-			_ = plan
-		}
-	})
+	// Perform allocation which should log a decision
+	slot, err := allocator.AllocateWorkload(workload, scheduler.modelStaleFunc, scheduler.slotTimeoutFunc)
+	require.NoError(t, err)
+	require.NotNil(t, slot)
 
-	b.Run("LegacyAllocator", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			// Simulate legacy allocation process
-			sortedRunners, err := scheduler.getSortedRunners(workload)
-			if err != nil {
-				b.Fatal(err)
-			}
+	// Verify that a global allocation decision was logged
+	decisions := scheduler.GetGlobalAllocationDecisions(10)
+	require.Len(t, decisions, 1, "Expected exactly one global allocation decision to be logged")
 
-			if len(sortedRunners) > 0 {
-				_, err = scheduler.tryAllAllocationsWithEviction(sortedRunners[0], workload)
-				if err != nil {
-					// Expected in benchmark
-				}
-			}
-		}
-	})
+	decision := decisions[0]
+	assert.Equal(t, workload.ID(), decision.WorkloadID)
+	assert.Equal(t, "test-model", decision.ModelName)
+	assert.Equal(t, types.RuntimeVLLM, decision.Runtime)
+	assert.True(t, decision.Success)
+	assert.NotEmpty(t, decision.Reason)
+	assert.GreaterOrEqual(t, decision.TotalTimeMs, int64(0))
+	assert.Equal(t, 1, decision.TotalRunnersEvaluated)
+	assert.Greater(t, decision.TotalPlansGenerated, 0)
+
+	// Verify selected plan exists
+	require.NotNil(t, decision.SelectedPlan)
+	assert.Equal(t, testRunnerID, decision.SelectedPlan.RunnerID)
+	assert.Greater(t, decision.SelectedPlan.GPUCount, 0)
+
+	// Verify before and after states are captured
+	assert.NotEmpty(t, decision.BeforeState)
+	assert.NotEmpty(t, decision.AfterState)
+
+	t.Logf("✅ Global allocation decision logged successfully: WorkloadID=%s, Success=%v, Time=%dms",
+		decision.WorkloadID, decision.Success, decision.TotalTimeMs)
 }

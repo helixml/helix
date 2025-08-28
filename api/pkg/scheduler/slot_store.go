@@ -217,17 +217,6 @@ func (ss *SlotStore) loadFromDatabase() {
 			}
 		}
 
-		// Fallback to legacy fields if JSONB data is not available
-		if slot.GPUAllocation == nil {
-			slot.GPUAllocation = &GPUAllocation{
-				WorkloadID:         "", // Will be set by reconciliation
-				RunnerID:           dbSlot.RunnerID,
-				SingleGPU:          dbSlot.GPUIndex,
-				MultiGPUs:          dbSlot.GPUIndices,
-				TensorParallelSize: dbSlot.TensorParallelSize,
-			}
-		}
-
 		ss.cache[dbSlot.ID] = slot
 
 		log.Debug().
@@ -283,13 +272,6 @@ func (ss *SlotStore) saveToDatabase(slot *Slot) {
 			}
 		}
 
-		// Also populate legacy fields for compatibility
-		dbSlot.Model = string(slot.initialWork.ModelName())
-		dbSlot.Runtime = slot.initialWork.Runtime()
-	} else {
-		// Default values for legacy fields
-		dbSlot.Runtime = types.RuntimeOllama
-		dbSlot.Model = ""
 	}
 
 	// Serialize GPU allocation to JSONB
@@ -302,10 +284,6 @@ func (ss *SlotStore) saveToDatabase(slot *Slot) {
 			}
 		}
 
-		// Also populate legacy fields for compatibility
-		dbSlot.GPUIndex = slot.GPUAllocation.SingleGPU
-		dbSlot.GPUIndices = slot.GPUAllocation.MultiGPUs
-		dbSlot.TensorParallelSize = slot.GPUAllocation.TensorParallelSize
 	}
 
 	_, err := ss.store.CreateSlot(ctx, dbSlot)
