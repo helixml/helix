@@ -3334,21 +3334,6 @@ func (s *Scheduler) selectModelsForMemoryAndDistribution(prewarmModels []*types.
 		return prewarmModels
 	}
 
-// GetGlobalAllocator returns the global allocator for testing/debugging
-func (s *Scheduler) GetGlobalAllocator() *GlobalAllocator {
-	return s.globalAllocator
-}
-
-// ValidateGlobalMemoryState checks for any overscheduling violations
-func (s *Scheduler) ValidateGlobalMemoryState() {
-	violations := s.globalAllocator.ValidateNoOverscheduling()
-	if len(violations) > 0 {
-		log.Error().
-			Strs("violations", violations).
-			Msg("🚨 CRITICAL: Overscheduling violations detected")
-	}
-}
-
 	// Not all models can fit - use greedy selection prioritizing distribution
 	log.Debug().
 		Int("model_count", len(prewarmModels)).
@@ -3412,6 +3397,21 @@ func (s *Scheduler) ValidateGlobalMemoryState() {
 		Msg("completed memory-aware model selection")
 
 	return selectedModels
+}
+
+// GetGlobalAllocator returns the global allocator for testing/debugging
+func (s *Scheduler) GetGlobalAllocator() *GlobalAllocator {
+	return s.globalAllocator
+}
+
+// ValidateGlobalMemoryState checks for any overscheduling violations
+func (s *Scheduler) ValidateGlobalMemoryState() {
+	violations := s.globalAllocator.ValidateNoOverscheduling()
+	if len(violations) > 0 {
+		log.Error().
+			Strs("violations", violations).
+			Msg("🚨 CRITICAL: Overscheduling violations detected")
+	}
 }
 
 // selectModelsByMemory filters models that can fit in the available memory
