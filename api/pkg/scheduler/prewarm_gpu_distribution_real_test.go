@@ -97,11 +97,14 @@ func TestRealPrewarmGPUDistribution(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Use fast reconciliation interval for test (100ms instead of default 5s)
+	fastReconcileInterval := 100 * time.Millisecond
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
 		RunnerController:        runnerCtrl,
 		Store:                   mockStore,
 		MemoryEstimationService: NewPrewarmGPUDistributionTestMemoryService(),
 		QueueSize:               50,
+		RunnerReconcileInterval: &fastReconcileInterval,
 	})
 	require.NoError(t, err)
 
@@ -168,10 +171,9 @@ func TestRealPrewarmGPUDistribution(t *testing.T) {
 	scheduler.PrewarmNewRunner(testRunnerID)
 
 	// Give time for the pre-warming process to complete
-	// With our fix, each slot is created in a separate reconciliation cycle (every 5 seconds)
-	// We have 3 models, so we need to wait for 3 cycles: 3 * 5 = 15 seconds + buffer
-	t.Logf("Waiting for multiple slot reconciliation cycles (5 seconds each, 3 models = ~15 seconds)...")
-	time.Sleep(18 * time.Second)
+	// With fast reconciliation (100ms), we need much less time
+	t.Logf("Waiting for multiple slot reconciliation cycles (100ms each)...")
+	time.Sleep(500 * time.Millisecond)
 
 	// Check the actual slots that were created by the scheduler
 	t.Logf("\n=== Analyzing Real Slot Creation ===")
@@ -402,7 +404,7 @@ func TestRealPrewarmWithLargerGPUs(t *testing.T) {
 	// Trigger real pre-warming
 	scheduler.PrewarmNewRunner(testRunnerID)
 	t.Logf("Waiting for slot reconciliation with fast 100ms intervals...")
-	time.Sleep(5 * time.Second) // With 100ms intervals, this gives 50 reconciliation cycles
+	time.Sleep(500 * time.Millisecond) // With 100ms intervals, this gives 5 reconciliation cycles
 
 	// Analyze results
 	slotsCreated := 0
