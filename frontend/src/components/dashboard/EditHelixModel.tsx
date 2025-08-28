@@ -126,6 +126,42 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
         }
     }, [open, model, isEditing]);
 
+    // Helper function to generate a user-friendly name from a model ID
+    const generateModelNameFromId = (modelId: string): string => {
+        if (!modelId.trim()) return "";
+
+        // Handle different patterns
+        let name = modelId;
+
+        // Handle provider/model format (e.g., "nvidia/Nemotron-CC-v2")
+        if (name.includes("/")) {
+            const parts = name.split("/");
+            name = parts.join(" ");
+        }
+
+        // Handle colon format (e.g., "gemma3:12b", "llama3:70b-instruct-q4_0")
+        if (name.includes(":")) {
+            name = name.replace(":", " ");
+        }
+
+        // Replace hyphens and underscores with spaces
+        name = name.replace(/[-_]/g, " ");
+
+        // Capitalize each word first
+        name = name
+            .split(" ")
+            .map(
+                (word) =>
+                    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
+            )
+            .join(" ");
+
+        // Convert size indicators after capitalization (e.g., "12b" -> "12B", "70b" -> "70B")
+        name = name.replace(/\b(\d+(?:\.\d+)?)b\b/gi, "$1B");
+
+        return name;
+    };
+
     const handleTextFieldChange = (
         e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
     ) => {
@@ -149,7 +185,19 @@ const EditHelixModelDialog: React.FC<EditHelixModelDialogProps> = ({
                 setFormData((prev) => ({ ...prev, [name]: 0 }));
             }
         } else {
-            setFormData((prev) => ({ ...prev, [name]: value }));
+            // Handle model ID changes - auto-fill name if empty
+            if (name === "id" && !isEditing) {
+                setFormData((prev) => {
+                    const newFormData = { ...prev, [name]: value };
+                    // Only auto-fill name if it's currently empty
+                    if (!prev.name.trim() && value.trim()) {
+                        newFormData.name = generateModelNameFromId(value);
+                    }
+                    return newFormData;
+                });
+            } else {
+                setFormData((prev) => ({ ...prev, [name]: value }));
+            }
         }
         setError("");
     };
