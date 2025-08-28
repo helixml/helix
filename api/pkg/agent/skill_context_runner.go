@@ -34,14 +34,13 @@ func MessageWhenToolErrorWithRetry(errorString string, toolCallID string) *opena
 	}
 }
 
-func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistory *MessageList, llm *LLM, outChan chan Response, memoryBlock, knowledgeBlock *MemoryBlock, skill *Skill, skillToolCallID string) (*openai.ChatCompletionMessage, error) {
+func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistory *MessageList, llm *LLM, outChan chan Response, memoryBlock *MemoryBlock, skill *Skill, skillToolCallID string) (*openai.ChatCompletionMessage, error) {
 	log.Info().Str("skill", skill.Name).Msg("Running skill")
 
 	promptData := prompts.SkillContextRunnerPromptData{
 		MainAgentSystemPrompt: a.prompt,
 		SkillSystemPrompt:     skill.SystemPrompt,
 		MemoryBlocks:          memoryBlock.Parse(),
-		KnowledgeBlocks:       knowledgeBlock.Parse(),
 	}
 	systemPrompt, err := prompts.SkillContextRunnerPrompt(promptData)
 	if err != nil {

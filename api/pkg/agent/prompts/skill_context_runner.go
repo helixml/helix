@@ -5,7 +5,6 @@ type SkillContextRunnerPromptData struct {
 	MainAgentSystemPrompt string
 	SkillSystemPrompt     string
 	MemoryBlocks          string
-	KnowledgeBlocks       string
 }
 
 // SkillSelectionPromptTemplate is the template for skill selection prompts.
@@ -36,12 +35,6 @@ COMMUNICATION:
 All the memory learned from user's previous interactions are provided below. Use it as the context to answer the user's question.
 
 {{ .MemoryBlocks }}
-{{ end }}
-
-{{ if .KnowledgeBlocks }}
-All the knowledge provided to you is below. Use it as the context to answer the user's question.
-
-{{ .KnowledgeBlocks }}
 {{ end }}
 `
 
