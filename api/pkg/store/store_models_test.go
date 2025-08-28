@@ -84,12 +84,12 @@ func (suite *ModelTestSuite) TestCreateModel() {
 	suite.Error(err)
 	suite.Contains(err.Error(), "type not specified")
 
-	// Test creating a model with missing Memory
+	// Test creating a model with missing Memory (use VLLM since Ollama allows Memory=0)
 	invalidModelNoMemory := &types.Model{
 		ID:            "invalid-model-no-memory",
 		Name:          "Invalid Model",
 		Type:          types.ModelTypeChat,
-		Runtime:       types.RuntimeOllama,
+		Runtime:       types.RuntimeVLLM,
 		ContextLength: 4096,
 	}
 	_, err = suite.db.CreateModel(suite.ctx, invalidModelNoMemory)
