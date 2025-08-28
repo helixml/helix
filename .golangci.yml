@@ -19,6 +19,7 @@ linters:
 issues:
   exclude-dirs:
     - vendor
+    - llama/llama.cpp
   exclude-rules:
     - path: 'api/cmd'
       linters:
@@ -34,8 +35,6 @@ issues:
         - forbidigo
 
 run:
-  skip-dirs:
-    - llama/llama.cpp
   timeout: 10m
 
 linters-settings:
