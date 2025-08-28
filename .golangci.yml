@@ -17,7 +17,7 @@ linters:
     # - gocritic
 
 issues:
-  exlude-dirs:
+  exclude-dirs:
     - vendor
   exclude-rules:
     - path: 'api/cmd'
@@ -34,6 +34,8 @@ issues:
         - forbidigo
 
 run:
+  skip-dirs:
+    - llama/llama.cpp
   timeout: 10m
 
 linters-settings:
