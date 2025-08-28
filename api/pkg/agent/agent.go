@@ -478,7 +478,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 					}
 				} else {
 					// Clone the messages again so all goroutines get different message history
-					result, err = a.SkillContextRunner(ctx, meta, messageHistory.Clone(), llm, outUserChannel, memoryBlock, knowledgeBlock, skill, tool.ID)
+					result, err = a.SkillContextRunner(ctx, meta, messageHistory.Clone(), llm, outUserChannel, memoryBlock, skill, tool.ID)
 					if err != nil {
 						log.Error().Err(err).Msg("Error running skill")
 						return

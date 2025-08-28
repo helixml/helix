@@ -283,6 +283,11 @@ func (s *AgentTestSuite) Test_Agent_DirectSkill() {
 		},
 	}
 
+	knowledgeBlock := NewMemoryBlock()
+	knowledgeBlock.AddString("name", "Test knowledge")
+	knowledgeBlock.AddString("description", "Test description")
+	knowledgeBlock.AddString("contents", "Test contents")
+
 	agent := NewAgent(NewLogStepInfoEmitter(), "Convert 100 USD to EUR", []Skill{skill}, 10)
 
 	respCh := make(chan Response)
@@ -410,7 +415,7 @@ func (s *AgentTestSuite) Test_Agent_DirectSkill() {
 					Content: "Convert 100 USD to EUR",
 				},
 			},
-		}, &MemoryBlock{}, &MemoryBlock{}, respCh, false)
+		}, &MemoryBlock{}, knowledgeBlock, respCh, false)
 	}()
 
 	var aggregatedResponse string
