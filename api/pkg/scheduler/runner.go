@@ -721,6 +721,146 @@ func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryR
 	return nil, nil, 0
 }
 
+// AllocationOption represents a possible GPU allocation for a model
+type AllocationOption struct {
+	GPUCount            int
+	GPUs                []int
+	MemoryPerGPU        uint64
+	TotalMemoryRequired uint64
+	TensorParallelSize  int
+}
+
+// GetAllPossibleGPUAllocations returns all viable GPU allocation options for a model
+// This is used by the eviction strategy to try different allocations and find the optimal one
+func (c *RunnerController) GetAllPossibleGPUAllocations(runnerID string, modelMemoryRequirement uint64, runtime types.Runtime) ([]AllocationOption, error) {
+	status, err := c.GetStatus(runnerID)
+	if err != nil {
+		return nil, fmt.Errorf("error getting runner status: %w", err)
+	}
+
+	// Calculate allocated memory per GPU based on existing slots
+	allocatedMemoryPerGPU, err := c.calculateAllocatedMemoryPerGPU(runnerID)
+	if err != nil {
+		return nil, fmt.Errorf("error calculating allocated memory per GPU: %w", err)
+	}
+
+	var options []AllocationOption
+
+	// Option 1: Try single GPU allocation
+	for _, gpu := range status.GPUs {
+		allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
+		freeMemory := gpu.TotalMemory - allocatedMemory
+
+		if freeMemory >= modelMemoryRequirement {
+			options = append(options, AllocationOption{
+				GPUCount:            1,
+				GPUs:                []int{gpu.Index},
+				MemoryPerGPU:        modelMemoryRequirement,
+				TotalMemoryRequired: modelMemoryRequirement,
+				TensorParallelSize:  1,
+			})
+		}
+	}
+
+	// Option 2: Try multi-GPU allocations for supported runtimes
+	if runtime == types.RuntimeVLLM || runtime == types.RuntimeOllama {
+		for numGPUs := 2; numGPUs <= len(status.GPUs); numGPUs++ {
+			memoryPerGPU := modelMemoryRequirement / uint64(numGPUs)
+			var candidateGPUs []int
+
+			// Find GPUs that can accommodate the per-GPU memory requirement
+			for _, gpu := range status.GPUs {
+				allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
+				freeMemory := gpu.TotalMemory - allocatedMemory
+
+				if freeMemory >= memoryPerGPU {
+					candidateGPUs = append(candidateGPUs, gpu.Index)
+				}
+			}
+
+			// If we have enough candidate GPUs, create an allocation option
+			if len(candidateGPUs) >= numGPUs {
+				selectedGPUs := candidateGPUs[:numGPUs]
+				options = append(options, AllocationOption{
+					GPUCount:            numGPUs,
+					GPUs:                selectedGPUs,
+					MemoryPerGPU:        memoryPerGPU,
+					TotalMemoryRequired: modelMemoryRequirement,
+					TensorParallelSize:  numGPUs,
+				})
+			}
+		}
+	}
+
+	return options, nil
+}
+
+// GetAllPossibleGPUAllocationsWithEviction returns all viable GPU allocation options considering eviction
+func (c *RunnerController) GetAllPossibleGPUAllocationsWithEviction(runnerID string, modelMemoryRequirement uint64, runtime types.Runtime, evictableMemoryPerGPU map[int]uint64) ([]AllocationOption, error) {
+	status, err := c.GetStatus(runnerID)
+	if err != nil {
+		return nil, fmt.Errorf("error getting runner status: %w", err)
+	}
+
+	// Calculate allocated memory per GPU based on existing slots
+	allocatedMemoryPerGPU, err := c.calculateAllocatedMemoryPerGPU(runnerID)
+	if err != nil {
+		return nil, fmt.Errorf("error calculating allocated memory per GPU: %w", err)
+	}
+
+	var options []AllocationOption
+
+	// Option 1: Try single GPU allocation with eviction
+	for _, gpu := range status.GPUs {
+		allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
+		evictableMemory := evictableMemoryPerGPU[gpu.Index]
+		availableMemory := gpu.TotalMemory - allocatedMemory + evictableMemory
+
+		if availableMemory >= modelMemoryRequirement {
+			options = append(options, AllocationOption{
+				GPUCount:            1,
+				GPUs:                []int{gpu.Index},
+				MemoryPerGPU:        modelMemoryRequirement,
+				TotalMemoryRequired: modelMemoryRequirement,
+				TensorParallelSize:  1,
+			})
+		}
+	}
+
+	// Option 2: Try multi-GPU allocations with eviction for supported runtimes
+	if runtime == types.RuntimeVLLM || runtime == types.RuntimeOllama {
+		for numGPUs := 2; numGPUs <= len(status.GPUs); numGPUs++ {
+			memoryPerGPU := modelMemoryRequirement / uint64(numGPUs)
+			var candidateGPUs []int
+
+			// Find GPUs that can accommodate the per-GPU memory requirement with eviction
+			for _, gpu := range status.GPUs {
+				allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
+				evictableMemory := evictableMemoryPerGPU[gpu.Index]
+				availableMemory := gpu.TotalMemory - allocatedMemory + evictableMemory
+
+				if availableMemory >= memoryPerGPU {
+					candidateGPUs = append(candidateGPUs, gpu.Index)
+				}
+			}
+
+			// If we have enough candidate GPUs, create an allocation option
+			if len(candidateGPUs) >= numGPUs {
+				selectedGPUs := candidateGPUs[:numGPUs]
+				options = append(options, AllocationOption{
+					GPUCount:            numGPUs,
+					GPUs:                selectedGPUs,
+					MemoryPerGPU:        memoryPerGPU,
+					TotalMemoryRequired: modelMemoryRequirement,
+					TensorParallelSize:  numGPUs,
+				})
+			}
+		}
+	}
+
+	return options, nil
+}
+
 func (c *RunnerController) Version(runnerID string) string {
 	status, err := c.GetStatus(runnerID)
 	if err != nil {
