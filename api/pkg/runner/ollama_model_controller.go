@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/avast/retry-go/v4"
@@ -24,13 +25,30 @@ func (r *Runner) startHelixModelReconciler(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("error creating ollama runtime: %w", err)
 	}
+
+	// Create a special reconciler slot ID for process tracking
+	reconcilerSlotID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+
+	// Register the reconciler's Ollama runtime with the process tracker to prevent orphan cleanup
+	if ollamaRuntime, ok := runningRuntime.(*OllamaRuntime); ok && r.server != nil {
+		ollamaRuntime.SetProcessTracker(r.server.processTracker, reconcilerSlotID)
+		log.Info().Msg("PROCESS_TRACKER: Set up process tracking for reconciler Ollama runtime")
+	}
+
 	// Start ollama runtime
 	err = runningRuntime.Start(ctx)
 	if err != nil {
 		return fmt.Errorf("error starting ollama runtime: %w", err)
 	}
 
-	defer runningRuntime.Stop() //nolint:errcheck
+	defer func() {
+		// Clean up process tracker registration before stopping runtime
+		if r.server != nil {
+			r.server.processTracker.UnregisterSlot(reconcilerSlotID)
+			log.Info().Msg("PROCESS_TRACKER: Cleaned up reconciler Ollama runtime registration")
+		}
+		runningRuntime.Stop() //nolint:errcheck
+	}()
 
 	for {
 		err := r.reconcileHelixModels(ctx, runningRuntime)
