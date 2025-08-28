@@ -33,6 +33,7 @@ export const useMemoryEstimation = () => {
             modelId: string,
             contextLength: number,
             gpuCount: number = 1,
+            numParallel?: number,
         ) => {
             if (!modelId || contextLength <= 0) return;
 
@@ -45,11 +46,16 @@ export const useMemoryEstimation = () => {
                 // It maps to GPUCount field in backend (NOT the confusing Ollama NumGPU!)
                 // It does NOT mean "number of layers to offload to GPU"
                 // The backend always uses -1 (auto-detect all layers) for layer offload
-                const query = {
+                const query: any = {
                     model_id: modelId,
                     context_length: contextLength,
                     gpu_count: gpuCount, // Hardware GPU count (1, 2, 4, 8) - NOT layer count!
                 };
+
+                // Add num_parallel if provided (for concurrency)
+                if (numParallel && numParallel > 0) {
+                    query.num_parallel = numParallel;
+                }
 
                 const response =
                     await apiClient.v1HelixModelsMemoryEstimateList(query);
@@ -83,7 +89,11 @@ export const useMemoryEstimation = () => {
     );
 
     const fetchMultipleEstimates = useCallback(
-        async (modelId: string, contextLength: number) => {
+        async (
+            modelId: string,
+            contextLength: number,
+            numParallel?: number,
+        ) => {
             if (!modelId || contextLength <= 0) return;
 
             setLoading(true);
@@ -98,11 +108,16 @@ export const useMemoryEstimation = () => {
                         // It maps to GPUCount field in backend (NOT the confusing Ollama NumGPU!)
                         // It does NOT mean "number of layers to offload to GPU"
                         // The backend always uses -1 (auto-detect all layers) for layer offload
-                        const query = {
+                        const query: any = {
                             model_id: modelId,
                             context_length: contextLength,
                             gpu_count: scenario.gpuCount, // Hardware GPU count - NOT layer count!
                         };
+
+                        // Add num_parallel if provided (for concurrency)
+                        if (numParallel && numParallel > 0) {
+                            query.num_parallel = numParallel;
+                        }
 
                         const response =
                             await apiClient.v1HelixModelsMemoryEstimateList(

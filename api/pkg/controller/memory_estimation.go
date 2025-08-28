@@ -69,6 +69,12 @@ type MemoryEstimationRequest struct {
 	// It is NOT the number of layers to offload to GPU (that's always auto-detect = -1)
 	// This API parameter controls how many GPUs to simulate in the estimation
 	GPUCount int `json:"gpu_count,omitempty"`
+	// Optional override for context length - if not provided, uses model's configured value
+	ContextLength int `json:"context_length,omitempty"`
+	// Optional override for batch size - if not provided, uses default
+	BatchSize int `json:"batch_size,omitempty"`
+	// Optional override for concurrency - if not provided, uses default
+	NumParallel int `json:"num_parallel,omitempty"`
 }
 
 // MemoryEstimationResponse represents a response with memory estimation
@@ -134,7 +140,7 @@ func selectEstimateFromResult(result *memory.EstimationResult) *memory.MemoryEst
 // EstimateModelMemoryFromRequest estimates memory requirements for a model from a request
 func (s *MemoryEstimationService) EstimateModelMemoryFromRequest(ctx context.Context, req *MemoryEstimationRequest) (*MemoryEstimationResponse, error) {
 
-	// Get the model's configured context length from the store - NO FALLBACKS
+	// Get the model's configured values from the store as defaults
 	models, err := s.modelProvider.ListModels(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list models from store: %w", err)
@@ -152,19 +158,52 @@ func (s *MemoryEstimationService) EstimateModelMemoryFromRequest(ctx context.Con
 		return nil, fmt.Errorf("model %s not found in store", req.ModelID)
 	}
 
-	if targetModel.ContextLength == 0 {
-		return nil, fmt.Errorf("model %s has no context length configured - cannot estimate memory", req.ModelID)
+	// Determine context length - use override if provided, otherwise model default
+	var contextLength int
+	if req.ContextLength > 0 {
+		contextLength = req.ContextLength
+		log.Debug().
+			Str("model_id", req.ModelID).
+			Int("context_length", contextLength).
+			Msg("using context length from API request override")
+	} else if targetModel.ContextLength > 0 {
+		contextLength = int(targetModel.ContextLength)
+		log.Debug().
+			Str("model_id", req.ModelID).
+			Int("context_length", contextLength).
+			Msg("using model's configured context length from store")
+	} else {
+		return nil, fmt.Errorf("model %s has no context length configured and none provided in request - cannot estimate memory", req.ModelID)
 	}
 
-	contextLength := int(targetModel.ContextLength)
-	log.Debug().
-		Str("model_id", req.ModelID).
-		Int("context_length", contextLength).
-		Msg("using model's configured context length from store")
+	// Determine batch size - use override if provided, otherwise default
+	batchSize := memory.DefaultBatchSize
+	if req.BatchSize > 0 {
+		batchSize = req.BatchSize
+		log.Debug().
+			Str("model_id", req.ModelID).
+			Int("batch_size", batchSize).
+			Msg("using batch size from API request override")
+	}
+
+	// Determine parallel sequences - use override if provided, otherwise default
+	numParallel := memory.DefaultParallelSequences
+	if req.NumParallel > 0 {
+		numParallel = req.NumParallel
+		log.Debug().
+			Str("model_id", req.ModelID).
+			Int("num_parallel", numParallel).
+			Msg("using num_parallel from API request override")
+	}
 
 	// CRITICAL: ALWAYS use -1 for layer offload (auto-detect max layers that fit)
-	// Use model store values only - no request overrides
-	opts := memory.CreateOllamaEstimateOptions(int64(contextLength), memory.AutoDetectLayers)
+	opts := memory.EstimateOptions{
+		NumCtx:      contextLength,
+		NumBatch:    batchSize,
+		NumParallel: numParallel,
+		NumGPU:      memory.AutoDetectLayers,
+		KVCacheType: memory.DefaultKVCacheType,
+	}
 
 	// Check cache first
 	if result := s.getCachedResultForModel(req.ModelID, opts); result != nil {

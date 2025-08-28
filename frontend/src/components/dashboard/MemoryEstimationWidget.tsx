@@ -12,13 +12,8 @@ import {
     Alert,
     Tooltip,
     IconButton,
-    Collapse,
 } from "@mui/material";
-import {
-    ExpandMore as ExpandMoreIcon,
-    ExpandLess as ExpandLessIcon,
-    Refresh as RefreshIcon,
-} from "@mui/icons-material";
+import { Refresh as RefreshIcon } from "@mui/icons-material";
 import { useMemoryEstimation } from "../../hooks/useMemoryEstimation";
 
 interface MemoryEstimationWidgetProps {
@@ -48,7 +43,7 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
     const [sliderValue, setSliderValue] = useState(
         contextToLogScale(currentContextLength / 1000),
     );
-    const [expanded, setExpanded] = useState(false);
+
     const {
         estimates,
         loading,
@@ -77,7 +72,11 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
         // Set new timer
         debounceTimerRef.current = setTimeout(() => {
             if (modelId && currentContextLength > 0) {
-                fetchMultipleEstimates(modelId, currentContextLength);
+                fetchMultipleEstimates(
+                    modelId,
+                    currentContextLength,
+                    currentConcurrency,
+                );
             } else {
                 clearEstimates();
             }
@@ -127,9 +126,18 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
 
     const handleManualRefresh = useCallback(() => {
         if (modelId && currentContextLength > 0) {
-            fetchMultipleEstimates(modelId, currentContextLength);
+            fetchMultipleEstimates(
+                modelId,
+                currentContextLength,
+                currentConcurrency,
+            );
         }
-    }, [modelId, currentContextLength, fetchMultipleEstimates]);
+    }, [
+        modelId,
+        currentContextLength,
+        currentConcurrency,
+        fetchMultipleEstimates,
+    ]);
 
     const renderEstimateCard = (scenario: {
         name: string;
@@ -138,12 +146,16 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
         const estimate = estimates[scenario.gpuCount];
 
         return (
-            <Grid item xs={12} sm={6} md={4} key={scenario.gpuCount}>
-                <Card variant="outlined" sx={{ height: "100%" }}>
-                    <CardContent sx={{ p: 2 }}>
+            <Grid item xs={6} sm={4} md={3} key={scenario.gpuCount}>
+                <Card
+                    variant="outlined"
+                    sx={{ height: "100%", minHeight: "140px" }}
+                >
+                    <CardContent sx={{ p: 1.5 }}>
                         <Typography
-                            variant="subtitle2"
+                            variant="body2"
                             gutterBottom
+                            sx={{ fontSize: "0.875rem", fontWeight: 600 }}
                             color="primary"
                         >
                             {scenario.name}
@@ -157,18 +169,26 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
                             <Box>
                                 {scenario.gpuCount === 1 ? (
                                     <Typography
-                                        variant="h6"
+                                        variant="body1"
                                         color="text.primary"
                                         gutterBottom
+                                        sx={{
+                                            fontSize: "1rem",
+                                            fontWeight: 500,
+                                        }}
                                     >
                                         {formatMemorySize(estimate.total_size)}
                                     </Typography>
                                 ) : (
                                     <Box>
                                         <Typography
-                                            variant="h6"
+                                            variant="body1"
                                             color="text.primary"
                                             gutterBottom
+                                            sx={{
+                                                fontSize: "1rem",
+                                                fontWeight: 500,
+                                            }}
                                         >
                                             {formatMemorySize(
                                                 (estimate.total_size || 0) /
@@ -190,11 +210,12 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
                                     </Box>
                                 )}
 
-                                <Box sx={{ mt: 1 }}>
+                                <Box sx={{ mt: 0.5 }}>
                                     <Typography
                                         variant="caption"
                                         display="block"
                                         color="text.secondary"
+                                        sx={{ lineHeight: 1.2, mb: 0.25 }}
                                     >
                                         VRAM:{" "}
                                         {formatMemorySize(estimate.vram_size)}
@@ -203,6 +224,7 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
                                         variant="caption"
                                         display="block"
                                         color="text.secondary"
+                                        sx={{ lineHeight: 1.2, mb: 0.25 }}
                                     >
                                         Weights:{" "}
                                         {formatMemorySize(estimate.weights)}
@@ -211,6 +233,7 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
                                         variant="caption"
                                         display="block"
                                         color="text.secondary"
+                                        sx={{ lineHeight: 1.2, mb: 0.25 }}
                                     >
                                         KV Cache:{" "}
                                         {formatMemorySize(estimate.kv_cache)}
@@ -220,7 +243,11 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
                                             label="CPU Fallback"
                                             size="small"
                                             color="info"
-                                            sx={{ mt: 0.5, fontSize: "0.7rem" }}
+                                            sx={{
+                                                mt: 0.25,
+                                                fontSize: "0.6rem",
+                                                height: 16,
+                                            }}
                                         />
                                     )}
                                 </Box>
@@ -260,13 +287,6 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
                                 <RefreshIcon />
                             </IconButton>
                         </Tooltip>
-                        <IconButton
-                            size="small"
-                            onClick={() => setExpanded(!expanded)}
-                            disabled={disabled}
-                        >
-                            {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                        </IconButton>
                     </Box>
                 </Box>
 
@@ -410,37 +430,15 @@ const MemoryEstimationWidget: React.FC<MemoryEstimationWidgetProps> = ({
                 </Box>
 
                 {/* Memory Estimates */}
-                <Collapse in={expanded}>
-                    <Typography variant="subtitle2" gutterBottom>
+                <Box>
+                    <Typography variant="subtitle2" gutterBottom sx={{ mb: 2 }}>
                         GPU Memory Requirements
                     </Typography>
 
-                    <Grid container spacing={2}>
+                    <Grid container spacing={1.5}>
                         {GPU_SCENARIOS.map(renderEstimateCard)}
                     </Grid>
-                </Collapse>
-
-                {!expanded && Object.keys(estimates).length > 0 && (
-                    <Box>
-                        <Typography
-                            variant="body2"
-                            color="text.secondary"
-                            sx={{ lineHeight: 1.6 }}
-                        >
-                            {estimates[1] &&
-                                `1 GPU: ${formatMemorySize(estimates[1].total_size)}`}
-                            {estimates[2] &&
-                                estimates[2].total_size &&
-                                ` • 2 GPUs: ${formatMemorySize(estimates[2].total_size / 2)} each (${formatMemorySize(estimates[2].total_size)} total)`}
-                            {estimates[4] &&
-                                estimates[4].total_size &&
-                                ` • 4 GPUs: ${formatMemorySize(estimates[4].total_size / 4)} each (${formatMemorySize(estimates[4].total_size)} total)`}
-                            {estimates[8] &&
-                                estimates[8].total_size &&
-                                ` • 8 GPUs: ${formatMemorySize(estimates[8].total_size / 8)} each (${formatMemorySize(estimates[8].total_size)} total)`}
-                        </Typography>
-                    </Box>
-                )}
+                </Box>
             </CardContent>
         </Card>
     );
