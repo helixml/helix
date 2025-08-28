@@ -97,6 +97,8 @@ func (t *AzureDevOpsPullRequestUpdateThreadTool) Execute(ctx context.Context, _ 
 		return "", fmt.Errorf("failed to create Azure DevOps client: %w", err)
 	}
 
+	content = fmt.Sprintf("[Helix] %s", content)
+
 	comment := []git.Comment{
 		{
 			Content: &content,

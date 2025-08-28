@@ -865,6 +865,52 @@ definitions:
       total_tokens:
         type: integer
     type: object
+  types.AllocationPlanView:
+    properties:
+      cost:
+        type: integer
+      evictions_needed:
+        description: Slot IDs
+        items:
+          type: string
+        type: array
+      gpu_count:
+        type: integer
+      gpus:
+        items:
+          type: integer
+        type: array
+      id:
+        type: string
+      is_multi_gpu:
+        type: boolean
+      is_valid:
+        type: boolean
+      memory_per_gpu:
+        type: integer
+      requires_eviction:
+        type: boolean
+      runner_capacity:
+        additionalProperties:
+          type: integer
+        description: GPU index -> total memory
+        type: object
+      runner_id:
+        type: string
+      runner_memory_state:
+        additionalProperties:
+          type: integer
+        description: GPU index -> allocated memory
+        type: object
+      runtime:
+        $ref: '#/definitions/types.Runtime'
+      tensor_parallel_size:
+        type: integer
+      total_memory_required:
+        type: integer
+      validation_error:
+        type: string
+    type: object
   types.ApiKey:
     properties:
       app_id:
@@ -1373,6 +1419,10 @@ definitions:
     type: object
   types.DashboardData:
     properties:
+      global_allocation_decisions:
+        items:
+          $ref: '#/definitions/types.GlobalAllocationDecision'
+        type: array
       queue:
         items:
           $ref: '#/definitions/types.WorkloadSummary'
@@ -1632,6 +1682,25 @@ definitions:
       total_stabilizations:
         type: integer
     type: object
+  types.GPUState:
+    properties:
+      active_slots:
+        description: Slot IDs using this GPU
+        items:
+          type: string
+        type: array
+      allocated_memory:
+        type: integer
+      free_memory:
+        type: integer
+      index:
+        type: integer
+      total_memory:
+        type: integer
+      utilization:
+        description: 0.0 - 1.0
+        type: number
+    type: object
   types.GPUStatus:
     properties:
       cuda_version:
@@ -1656,6 +1725,59 @@ definitions:
       used_memory:
         description: Used memory in bytes
         type: integer
+    type: object
+  types.GlobalAllocationDecision:
+    properties:
+      after_state:
+        additionalProperties:
+          $ref: '#/definitions/types.RunnerStateView'
+        type: object
+      before_state:
+        additionalProperties:
+          $ref: '#/definitions/types.RunnerStateView'
+        description: Global state snapshots
+        type: object
+      considered_plans:
+        description: All plans considered
+        items:
+          $ref: '#/definitions/types.AllocationPlanView'
+        type: array
+      created:
+        type: string
+      error_message:
+        type: string
+      execution_time_ms:
+        type: integer
+      id:
+        type: string
+      model_name:
+        type: string
+      optimization_score:
+        description: How optimal the final decision was
+        type: number
+      planning_time_ms:
+        description: Timing information
+        type: integer
+      reason:
+        type: string
+      runtime:
+        $ref: '#/definitions/types.Runtime'
+      selected_plan:
+        $ref: '#/definitions/types.AllocationPlanView'
+      session_id:
+        type: string
+      success:
+        description: Decision outcome
+        type: boolean
+      total_plans_generated:
+        type: integer
+      total_runners_evaluated:
+        description: Decision metadata
+        type: integer
+      total_time_ms:
+        type: integer
+      workload_id:
+        type: string
     type: object
   types.ImageURLDetail:
     enum:
@@ -2106,6 +2228,23 @@ definitions:
     - ModalityFile
   types.Model:
     properties:
+      allocated_gpu_count:
+        type: integer
+      allocated_memory:
+        description: 'EXPORTED ALLOCATION FIELDS: Set by NewModelForGPUAllocation
+          based on scheduler''s GPU allocation decision'
+        type: integer
+      allocated_per_gpu_memory:
+        items:
+          type: integer
+        type: array
+      allocated_specific_gpus:
+        items:
+          type: integer
+        type: array
+      allocation_configured:
+        description: Safety flag
+        type: boolean
       auto_pull:
         description: Whether to automatically pull the model if missing in the runner
         type: boolean
@@ -2126,7 +2265,8 @@ definitions:
         description: for example 'phi3.5:3.8b-mini-instruct-q8_0'
         type: string
       memory:
-        description: in bytes, required
+        description: 'DATABASE FIELD: Admin-configured memory for VLLM models, MUST
+          be 0 for Ollama models'
         type: integer
       name:
         type: string
@@ -2885,6 +3025,24 @@ definitions:
       workload_data:
         additionalProperties: {}
         type: object
+    type: object
+  types.RunnerStateView:
+    properties:
+      active_slots:
+        type: integer
+      gpu_states:
+        additionalProperties:
+          $ref: '#/definitions/types.GPUState'
+        description: GPU index -> state
+        type: object
+      is_connected:
+        type: boolean
+      runner_id:
+        type: string
+      total_slots:
+        type: integer
+      warm_slots:
+        type: integer
     type: object
   types.Runtime:
     enum:
@@ -4837,6 +4995,10 @@ paths:
         in: query
         name: batch_size
         type: integer
+      - description: 'Number of parallel sequences/concurrent requests (default: 2)'
+        in: query
+        name: num_parallel
+        type: integer
       responses:
         "200":
           description: OK
@@ -5964,9 +6126,7 @@ paths:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/types.Session'
-            type: array
+            $ref: '#/definitions/types.Session'
       security:
       - BearerAuth: []
       summary: Get a session by ID

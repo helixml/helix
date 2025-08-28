@@ -2,6 +2,8 @@
 #---------------
 FROM golang:1.24-alpine AS api-base
 WORKDIR /app
+# Install git for development and build environments
+RUN apk add --no-cache git
 COPY go.mod go.sum ./
 RUN go mod download
 
@@ -64,7 +66,7 @@ RUN yarn build
 ### Production Image ###
 #-----------------------
 FROM alpine:3.21
-RUN apk --update add --no-cache ca-certificates
+RUN apk --update add --no-cache ca-certificates git
 
 COPY --from=api-build-env /helix /helix
 COPY --from=ui-build-env /app/dist /www

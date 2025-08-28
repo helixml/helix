@@ -116,7 +116,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
-	"golang.org/x/exp/rand"
+	"golang.org/x/exp/rand" //nolint:staticcheck
 )
 
 // MemoryEstimationService interface for getting dynamic memory estimates
