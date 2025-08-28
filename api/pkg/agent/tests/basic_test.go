@@ -168,7 +168,7 @@ func TestSimpleConversation(t *testing.T) {
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
-	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agent.Meta{
+	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, &agent.MemoryBlock{}, ai, messageHistory, agent.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -227,7 +227,7 @@ func TestConversationWithSkills(t *testing.T) {
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
-	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, myAgent, messageHistory, agent.Meta{
+	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, &agent.MemoryBlock{}, myAgent, messageHistory, agent.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -276,7 +276,7 @@ func TestConversationWithHistory(t *testing.T) {
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
-	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agent.Meta{
+	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, &agent.MemoryBlock{}, ai, messageHistory, agent.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -341,7 +341,7 @@ func TestConversationWithSkills_WithHistory_NoSkillsToBeUsed(t *testing.T) {
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
-	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, myAgent, messageHistory, agent.Meta{
+	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, &agent.MemoryBlock{}, myAgent, messageHistory, agent.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -393,7 +393,7 @@ func TestConversationWithHistory_WithQuestionAboutPast(t *testing.T) {
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
-	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agent.Meta{
+	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, &agent.MemoryBlock{}, ai, messageHistory, agent.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
@@ -452,7 +452,7 @@ func TestMemoryRetrieval(t *testing.T) {
 	sessionID := GenerateNewTestID()
 	userID := GenerateNewTestID()
 
-	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, ai, messageHistory, agent.Meta{
+	convSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, &agent.MemoryBlock{}, ai, messageHistory, agent.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID},
