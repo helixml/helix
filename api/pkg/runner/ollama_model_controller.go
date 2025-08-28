@@ -30,8 +30,8 @@ func (r *Runner) startHelixModelReconciler(ctx context.Context) error {
 	reconcilerSlotID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
 
 	// Register the reconciler's Ollama runtime with the process tracker to prevent orphan cleanup
-	if ollamaRuntime, ok := runningRuntime.(*OllamaRuntime); ok && r.server != nil {
-		ollamaRuntime.SetProcessTracker(r.server.processTracker, reconcilerSlotID)
+	if r.server != nil {
+		runningRuntime.SetProcessTracker(r.server.processTracker, reconcilerSlotID)
 		log.Info().Msg("PROCESS_TRACKER: Set up process tracking for reconciler Ollama runtime")
 	}
 
