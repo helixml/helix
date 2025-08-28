@@ -291,10 +291,23 @@ func (ga *GlobalAllocator) generateRunnerAllocationPlans(runnerID string, status
 	singleGPUPlans := ga.generateSingleGPUPlans(runnerID, status, allocatedMemoryPerGPU, work, memoryRequirement)
 	plans = append(plans, singleGPUPlans...)
 
+	log.Debug().
+		Str("runner_id", runnerID).
+		Str("model", work.ModelName().String()).
+		Int("single_gpu_plans", len(singleGPUPlans)).
+		Msg("🌍 GLOBAL: Generated single GPU plans")
+
 	// Option 2: Try multi-GPU allocations (if runtime supports it)
 	if work.Runtime() == types.RuntimeVLLM || work.Runtime() == types.RuntimeOllama {
 		multiGPUPlans := ga.generateMultiGPUPlans(runnerID, status, allocatedMemoryPerGPU, work, memoryRequirement)
 		plans = append(plans, multiGPUPlans...)
+
+		log.Debug().
+			Str("runner_id", runnerID).
+			Str("model", work.ModelName().String()).
+			Int("multi_gpu_plans", len(multiGPUPlans)).
+			Int("total_plans", len(plans)).
+			Msg("🌍 GLOBAL: Generated multi-GPU plans")
 	}
 
 	return plans, nil
@@ -304,20 +317,50 @@ func (ga *GlobalAllocator) generateRunnerAllocationPlans(runnerID string, status
 func (ga *GlobalAllocator) generateSingleGPUPlans(runnerID string, status *types.RunnerStatus, allocatedMemoryPerGPU map[int]uint64, work *Workload, memoryRequirement uint64) []AllocationPlan {
 	var plans []AllocationPlan
 
+	log.Debug().
+		Str("runner_id", runnerID).
+		Str("model", work.ModelName().String()).
+		Uint64("memory_requirement_gb", memoryRequirement/(1024*1024*1024)).
+		Interface("allocated_per_gpu_gb", func() map[string]uint64 {
+			result := make(map[string]uint64)
+			for gpu, mem := range allocatedMemoryPerGPU {
+				result[fmt.Sprintf("gpu_%d", gpu)] = mem / (1024 * 1024 * 1024)
+			}
+			return result
+		}()).
+		Msg("🌍 GLOBAL: Starting single GPU plan generation")
+
 	for _, gpu := range status.GPUs {
 		// Check if model can physically fit on this GPU
 		if memoryRequirement > gpu.TotalMemory {
-			log.Trace().
+			log.Debug().
 				Str("runner_id", runnerID).
 				Int("gpu", gpu.Index).
 				Uint64("required_gb", memoryRequirement/(1024*1024*1024)).
 				Uint64("gpu_capacity_gb", gpu.TotalMemory/(1024*1024*1024)).
-				Msg("🌍 GLOBAL: Model too large for GPU")
+				Msg("🌍 GLOBAL: Model too large for GPU - skipping")
 			continue
 		}
 
+		log.Debug().
+			Str("runner_id", runnerID).
+			Int("gpu", gpu.Index).
+			Uint64("required_gb", memoryRequirement/(1024*1024*1024)).
+			Uint64("gpu_capacity_gb", gpu.TotalMemory/(1024*1024*1024)).
+			Msg("🌍 GLOBAL: GPU can physically fit model")
+
 		allocatedOnGPU := allocatedMemoryPerGPU[gpu.Index]
 		freeOnGPU := gpu.TotalMemory - allocatedOnGPU
+
+		log.Debug().
+			Str("runner_id", runnerID).
+			Int("gpu", gpu.Index).
+			Uint64("gpu_total_gb", gpu.TotalMemory/(1024*1024*1024)).
+			Uint64("gpu_allocated_gb", allocatedOnGPU/(1024*1024*1024)).
+			Uint64("gpu_free_gb", freeOnGPU/(1024*1024*1024)).
+			Uint64("required_gb", memoryRequirement/(1024*1024*1024)).
+			Bool("can_fit_without_eviction", freeOnGPU >= memoryRequirement).
+			Msg("🌍 GLOBAL: Evaluating GPU for single allocation")
 
 		plan := AllocationPlan{
 			RunnerID:            runnerID,
@@ -334,16 +377,16 @@ func (ga *GlobalAllocator) generateSingleGPUPlans(runnerID string, status *types
 		if freeOnGPU >= memoryRequirement {
 			// Can fit without eviction
 			plan.RequiresEviction = false
-			plan.Cost = ga.calculatePlanCost(runnerID, gpu.Index, 0, freeOnGPU)
+			plan.Cost = ga.calculatePlanCost(runnerID, gpu.Index, 0, freeOnGPU, gpu.TotalMemory)
 			plans = append(plans, plan)
 
-			log.Trace().
+			log.Debug().
 				Str("runner_id", runnerID).
 				Int("gpu", gpu.Index).
 				Uint64("free_gb", freeOnGPU/(1024*1024*1024)).
 				Uint64("required_gb", memoryRequirement/(1024*1024*1024)).
 				Int("cost", plan.Cost).
-				Msg("🌍 GLOBAL: Single GPU plan without eviction")
+				Msg("🌍 GLOBAL: Generated single GPU plan without eviction")
 		} else {
 			// Check if can fit with eviction
 			evictableSlots := ga.findEvictableSlots(runnerID, gpu.Index, work)
@@ -352,20 +395,26 @@ func (ga *GlobalAllocator) generateSingleGPUPlans(runnerID string, status *types
 			if freeOnGPU+evictableMemory >= memoryRequirement {
 				plan.RequiresEviction = true
 				plan.EvictionsNeeded = ga.selectSlotsForEviction(evictableSlots, memoryRequirement-freeOnGPU)
-				plan.Cost = ga.calculatePlanCost(runnerID, gpu.Index, len(plan.EvictionsNeeded), freeOnGPU)
+				plan.Cost = ga.calculatePlanCost(runnerID, gpu.Index, len(plan.EvictionsNeeded), freeOnGPU, gpu.TotalMemory)
 				plans = append(plans, plan)
 
-				log.Trace().
+				log.Debug().
 					Str("runner_id", runnerID).
 					Int("gpu", gpu.Index).
 					Uint64("free_gb", freeOnGPU/(1024*1024*1024)).
 					Uint64("evictable_gb", evictableMemory/(1024*1024*1024)).
 					Int("evictions_needed", len(plan.EvictionsNeeded)).
 					Int("cost", plan.Cost).
-					Msg("🌍 GLOBAL: Single GPU plan with eviction")
+					Msg("🌍 GLOBAL: Generated single GPU plan with eviction")
 			}
 		}
 	}
+
+	log.Debug().
+		Str("runner_id", runnerID).
+		Str("model", work.ModelName().String()).
+		Int("single_gpu_plans_generated", len(plans)).
+		Msg("🌍 GLOBAL: Completed single GPU plan generation")
 
 	return plans
 }
@@ -374,9 +423,21 @@ func (ga *GlobalAllocator) generateSingleGPUPlans(runnerID string, status *types
 func (ga *GlobalAllocator) generateMultiGPUPlans(runnerID string, status *types.RunnerStatus, allocatedMemoryPerGPU map[int]uint64, work *Workload, memoryRequirement uint64) []AllocationPlan {
 	var plans []AllocationPlan
 
+	log.Debug().
+		Str("runner_id", runnerID).
+		Uint64("memory_requirement_gb", memoryRequirement/(1024*1024*1024)).
+		Int("available_gpus", len(status.GPUs)).
+		Msg("🌍 GLOBAL: Starting multi-GPU plan generation")
+
 	// Try different numbers of GPUs (2, 3, 4...)
 	for numGPUs := 2; numGPUs <= len(status.GPUs); numGPUs++ {
 		memoryPerGPU := memoryRequirement / uint64(numGPUs)
+
+		log.Debug().
+			Str("runner_id", runnerID).
+			Int("num_gpus", numGPUs).
+			Uint64("memory_per_gpu_gb", memoryPerGPU/(1024*1024*1024)).
+			Msg("🌍 GLOBAL: Trying multi-GPU configuration")
 
 		// Find GPUs that can accommodate the per-GPU requirement
 		var viableGPUs []int
@@ -436,16 +497,21 @@ func (ga *GlobalAllocator) generateMultiGPUPlans(runnerID string, status *types.
 
 			plans = append(plans, plan)
 
-			log.Trace().
+			log.Debug().
 				Str("runner_id", runnerID).
 				Ints("gpus", selectedGPUs).
 				Int("gpu_count", numGPUs).
 				Uint64("memory_per_gpu_gb", memoryPerGPU/(1024*1024*1024)).
 				Int("total_evictions", len(totalEvictions)).
 				Int("cost", plan.Cost).
-				Msg("🌍 GLOBAL: Multi-GPU allocation plan")
+				Msg("🌍 GLOBAL: Generated multi-GPU allocation plan")
 		}
 	}
+
+	log.Debug().
+		Str("runner_id", runnerID).
+		Int("generated_plans", len(plans)).
+		Msg("🌍 GLOBAL: Completed multi-GPU plan generation")
 
 	return plans
 }
@@ -461,13 +527,28 @@ func (ga *GlobalAllocator) selectOptimalPlan(plans []AllocationPlan) *Allocation
 		return a.Cost - b.Cost
 	})
 
+	// Log all plans for debugging
+	log.Debug().Int("total_plans", len(plans)).Msg("🌍 GLOBAL: All allocation plans")
+	for i, p := range plans {
+		log.Debug().
+			Int("plan_index", i).
+			Str("runner", p.RunnerID).
+			Ints("gpus", p.GPUs).
+			Int("gpu_count", p.GPUCount).
+			Bool("is_multi_gpu", p.IsMultiGPU).
+			Int("cost", p.Cost).
+			Bool("requires_eviction", p.RequiresEviction).
+			Msg("🌍 GLOBAL: Plan option")
+	}
+
 	// Log the decision process
-	log.Debug().
+	log.Info().
 		Int("total_plans", len(plans)).
 		Str("selected_runner", plans[0].RunnerID).
 		Ints("selected_gpus", plans[0].GPUs).
 		Int("selected_cost", plans[0].Cost).
 		Bool("requires_eviction", plans[0].RequiresEviction).
+		Bool("is_multi_gpu", plans[0].IsMultiGPU).
 		Msg("🌍 GLOBAL: Selected optimal plan from candidates")
 
 	return &plans[0]
@@ -551,31 +632,58 @@ func (ga *GlobalAllocator) selectSlotsForEviction(evictableSlots []*Slot, memory
 }
 
 // calculatePlanCost calculates the cost of a single GPU allocation plan
-func (ga *GlobalAllocator) calculatePlanCost(runnerID string, gpuIndex int, evictionCount int, freeMemory uint64) int {
+func (ga *GlobalAllocator) calculatePlanCost(runnerID string, gpuIndex int, evictionCount int, freeMemory uint64, totalMemory uint64) int {
 	// Cost factors:
 	// 1. Eviction cost (higher evictions = higher cost)
 	evictionCost := evictionCount * 100
 
 	// 2. Load balancing cost (prefer GPUs with more free memory)
-	memoryPenalty := int((80*1024*1024*1024 - freeMemory) / (1024 * 1024 * 1024)) // Penalty for less free memory
+	usedMemory := totalMemory - freeMemory
+	memoryPenalty := int(usedMemory / (1024 * 1024 * 1024)) // Penalty based on used memory in GB
 
 	// 3. Runner load balancing (prefer runners with less total load)
 	runnerPenalty := ga.calculateRunnerLoadPenalty(runnerID)
 
-	return evictionCost + memoryPenalty + runnerPenalty
+	totalCost := evictionCost + memoryPenalty + runnerPenalty
+
+	log.Trace().
+		Str("runner_id", runnerID).
+		Int("gpu_index", gpuIndex).
+		Int("eviction_count", evictionCount).
+		Uint64("free_memory_gb", freeMemory/(1024*1024*1024)).
+		Int("eviction_cost", evictionCost).
+		Int("memory_penalty", memoryPenalty).
+		Int("runner_penalty", runnerPenalty).
+		Int("total_cost", totalCost).
+		Msg("🌍 GLOBAL: Single GPU plan cost calculation")
+
+	return totalCost
 }
 
 // calculateMultiGPUPlanCost calculates the cost of a multi-GPU allocation plan
 func (ga *GlobalAllocator) calculateMultiGPUPlanCost(runnerID string, gpus []int, evictionCount int) int {
 	baseCost := evictionCount * 100
 
-	// Multi-GPU penalty (prefer single GPU when possible)
-	multiGPUPenalty := len(gpus) * 10
+	// Multi-GPU penalty (strongly prefer single GPU when possible)
+	multiGPUPenalty := len(gpus) * 1000 // High penalty to prefer single GPU
 
 	// Runner load penalty
 	runnerPenalty := ga.calculateRunnerLoadPenalty(runnerID)
 
-	return baseCost + multiGPUPenalty + runnerPenalty
+	totalCost := baseCost + multiGPUPenalty + runnerPenalty
+
+	log.Trace().
+		Str("runner_id", runnerID).
+		Ints("gpus", gpus).
+		Int("gpu_count", len(gpus)).
+		Int("eviction_count", evictionCount).
+		Int("base_cost", baseCost).
+		Int("multi_gpu_penalty", multiGPUPenalty).
+		Int("runner_penalty", runnerPenalty).
+		Int("total_cost", totalCost).
+		Msg("🌍 GLOBAL: Multi-GPU plan cost calculation")
+
+	return totalCost
 }
 
 // calculateRunnerLoadPenalty calculates penalty based on runner's current load
@@ -624,14 +732,32 @@ func (ga *GlobalAllocator) performEvictions(runnerID string, slotsToEvict []*Slo
 func (ga *GlobalAllocator) runnerHasModel(runnerID, modelID string) bool {
 	status, err := ga.controller.GetStatus(runnerID)
 	if err != nil {
+		log.Debug().
+			Str("runner_id", runnerID).
+			Str("model_id", modelID).
+			Err(err).
+			Msg("🌍 GLOBAL: Failed to get runner status for model check")
 		return false
 	}
 
-	for _, model := range status.Models {
+	// Log available models for debugging
+	availableModels := make([]string, len(status.Models))
+	for i, model := range status.Models {
+		availableModels[i] = model.ModelID
 		if model.ModelID == modelID {
+			log.Debug().
+				Str("runner_id", runnerID).
+				Str("model_id", modelID).
+				Msg("🌍 GLOBAL: Runner has requested model")
 			return true
 		}
 	}
+
+	log.Debug().
+		Str("runner_id", runnerID).
+		Str("model_id", modelID).
+		Strs("available_models", availableModels).
+		Msg("🌍 GLOBAL: Runner does not have requested model")
 	return false
 }
 
