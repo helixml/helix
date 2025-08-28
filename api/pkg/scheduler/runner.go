@@ -658,6 +658,20 @@ func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryR
 		return nil, nil, 0
 	}
 
+	// 🚨 DEBUG: Log current GPU memory state
+	log.Error().
+		Str("🚨 DEBUG", "gpu_selection_start").
+		Str("runner_id", runnerID).
+		Uint64("model_memory_gb", modelMemoryRequirement/(1024*1024*1024)).
+		Interface("current_allocated_per_gpu_gb", func() map[string]uint64 {
+			result := make(map[string]uint64)
+			for gpu, mem := range allocatedMemoryPerGPU {
+				result[fmt.Sprintf("gpu_%d", gpu)] = mem / (1024 * 1024 * 1024)
+			}
+			return result
+		}()).
+		Msg("🚨 Starting GPU selection")
+
 	// First, try to fit the model on a single GPU
 	if c.CanFitModelOnAnyGPUAllocated(runnerID, modelMemoryRequirement, allocatedMemoryPerGPU) {
 		// Find the GPU with the most free memory (based on allocated memory, not real-time memory)
@@ -668,15 +682,47 @@ func (c *RunnerController) GetOptimalGPUAllocation(runnerID string, modelMemoryR
 			allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
 			freeMemory := gpu.TotalMemory - allocatedMemory
 
+			// 🚨 DEBUG: Log GPU evaluation for selection
+			log.Error().
+				Str("🚨 DEBUG", "gpu_evaluation").
+				Str("runner_id", runnerID).
+				Int("gpu_index", gpu.Index).
+				Uint64("gpu_total_gb", gpu.TotalMemory/(1024*1024*1024)).
+				Uint64("gpu_allocated_gb", allocatedMemory/(1024*1024*1024)).
+				Uint64("gpu_free_gb", freeMemory/(1024*1024*1024)).
+				Uint64("model_requirement_gb", modelMemoryRequirement/(1024*1024*1024)).
+				Bool("has_enough_memory", freeMemory >= modelMemoryRequirement).
+				Uint64("current_max_free_gb", maxFreeMemory/(1024*1024*1024)).
+				Bool("is_better_than_current_best", freeMemory > maxFreeMemory).
+				Msg("🚨 Evaluating GPU for selection")
+
 			// Check if this GPU has enough free memory for the model and has more free memory than current best
 			if freeMemory >= modelMemoryRequirement && freeMemory > maxFreeMemory {
 				maxFreeMemory = freeMemory
 				idx := gpu.Index
 				bestGPU = &idx
+
+				// 🚨 DEBUG: Log when a GPU is selected as the new best
+				log.Error().
+					Str("🚨 DEBUG", "gpu_selected_as_best").
+					Str("runner_id", runnerID).
+					Int("selected_gpu", idx).
+					Uint64("gpu_free_gb", freeMemory/(1024*1024*1024)).
+					Msg("🚨 NEW BEST GPU selected")
 			}
 		}
 
 		if bestGPU != nil {
+			// 🚨 DEBUG: Log final GPU selection decision
+			log.Error().
+				Str("🚨 DEBUG", "final_gpu_selection").
+				Str("runner_id", runnerID).
+				Int("selected_gpu", *bestGPU).
+				Uint64("model_memory_gb", modelMemoryRequirement/(1024*1024*1024)).
+				Uint64("gpu_allocated_gb", allocatedMemoryPerGPU[*bestGPU]/(1024*1024*1024)).
+				Uint64("gpu_free_gb", maxFreeMemory/(1024*1024*1024)).
+				Msg("🚨 FINAL GPU SELECTION for single GPU allocation")
+
 			log.Trace().
 				Str("runner_id", runnerID).
 				Int("selected_gpu", *bestGPU).
