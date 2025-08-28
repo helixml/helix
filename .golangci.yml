@@ -16,8 +16,8 @@ linters:
     - forbidigo
     # - gocritic
 
-  disable:
-    - goanalysis_metalinter
+#  disable:
+#    - goanalysis_metalinter
 
 issues:
   exclude-dirs:
