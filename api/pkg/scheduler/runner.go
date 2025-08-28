@@ -750,20 +750,61 @@ func (c *RunnerController) GetAllPossibleGPUAllocations(runnerID string, modelMe
 	var bestGPU *int
 	var maxFreeMemory uint64
 
+	log.Debug().
+		Str("runner_id", runnerID).
+		Uint64("model_memory_requirement_gb", modelMemoryRequirement/(1024*1024*1024)).
+		Str("runtime", string(runtime)).
+		Msg("DEBUG: GetAllPossibleGPUAllocations - checking single GPU options")
+
 	for _, gpu := range status.GPUs {
 		allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
 		freeMemory := gpu.TotalMemory - allocatedMemory
+
+		log.Debug().
+			Str("runner_id", runnerID).
+			Int("gpu_index", gpu.Index).
+			Uint64("gpu_total_gb", gpu.TotalMemory/(1024*1024*1024)).
+			Uint64("gpu_allocated_gb", allocatedMemory/(1024*1024*1024)).
+			Uint64("gpu_free_gb", freeMemory/(1024*1024*1024)).
+			Uint64("model_requirement_gb", modelMemoryRequirement/(1024*1024*1024)).
+			Bool("has_enough_free", freeMemory >= modelMemoryRequirement).
+			Bool("more_free_than_current_best", freeMemory > maxFreeMemory).
+			Msg("DEBUG: Checking GPU for single GPU allocation")
+
+		// CRITICAL SAFETY CHECK: Model cannot exceed GPU's physical capacity
+		if modelMemoryRequirement > gpu.TotalMemory {
+			log.Debug().
+				Str("runner_id", runnerID).
+				Int("gpu_index", gpu.Index).
+				Uint64("model_requirement_gb", modelMemoryRequirement/(1024*1024*1024)).
+				Uint64("gpu_total_capacity_gb", gpu.TotalMemory/(1024*1024*1024)).
+				Msg("DEBUG: Skipping GPU - model exceeds physical GPU capacity")
+			continue
+		}
 
 		// Check if this GPU has enough free memory for the model and has more free memory than current best
 		if freeMemory >= modelMemoryRequirement && freeMemory > maxFreeMemory {
 			maxFreeMemory = freeMemory
 			idx := gpu.Index
 			bestGPU = &idx
+
+			log.Debug().
+				Str("runner_id", runnerID).
+				Int("selected_gpu", idx).
+				Uint64("free_memory_gb", freeMemory/(1024*1024*1024)).
+				Msg("DEBUG: Selected new best GPU for single GPU allocation")
 		}
 	}
 
 	// Add single GPU option if we found a suitable GPU
 	if bestGPU != nil {
+		log.Debug().
+			Str("runner_id", runnerID).
+			Int("selected_gpu", *bestGPU).
+			Uint64("memory_per_gpu_gb", modelMemoryRequirement/(1024*1024*1024)).
+			Uint64("total_memory_gb", modelMemoryRequirement/(1024*1024*1024)).
+			Msg("DEBUG: Adding single GPU allocation option")
+
 		options = append(options, AllocationOption{
 			GPUCount:            1,
 			GPUs:                []int{*bestGPU},
@@ -771,6 +812,11 @@ func (c *RunnerController) GetAllPossibleGPUAllocations(runnerID string, modelMe
 			TotalMemoryRequired: modelMemoryRequirement,
 			TensorParallelSize:  1,
 		})
+	} else {
+		log.Debug().
+			Str("runner_id", runnerID).
+			Uint64("model_requirement_gb", modelMemoryRequirement/(1024*1024*1024)).
+			Msg("DEBUG: No suitable GPU found for single GPU allocation")
 	}
 
 	// Option 2: Try multi-GPU allocations for supported runtimes
@@ -825,21 +871,65 @@ func (c *RunnerController) GetAllPossibleGPUAllocationsWithEviction(runnerID str
 	var bestGPU *int
 	var maxAvailableMemory uint64
 
+	log.Debug().
+		Str("runner_id", runnerID).
+		Uint64("model_memory_requirement_gb", modelMemoryRequirement/(1024*1024*1024)).
+		Str("runtime", string(runtime)).
+		Interface("evictable_memory_per_gpu", evictableMemoryPerGPU).
+		Msg("DEBUG: GetAllPossibleGPUAllocationsWithEviction - checking single GPU options with eviction")
+
 	for _, gpu := range status.GPUs {
 		allocatedMemory := allocatedMemoryPerGPU[gpu.Index]
 		evictableMemory := evictableMemoryPerGPU[gpu.Index]
 		availableMemory := gpu.TotalMemory - allocatedMemory + evictableMemory
+
+		log.Debug().
+			Str("runner_id", runnerID).
+			Int("gpu_index", gpu.Index).
+			Uint64("gpu_total_gb", gpu.TotalMemory/(1024*1024*1024)).
+			Uint64("gpu_allocated_gb", allocatedMemory/(1024*1024*1024)).
+			Uint64("gpu_evictable_gb", evictableMemory/(1024*1024*1024)).
+			Uint64("gpu_available_gb", availableMemory/(1024*1024*1024)).
+			Uint64("model_requirement_gb", modelMemoryRequirement/(1024*1024*1024)).
+			Bool("has_enough_available", availableMemory >= modelMemoryRequirement).
+			Bool("more_available_than_current_best", availableMemory > maxAvailableMemory).
+			Msg("DEBUG: Checking GPU for single GPU allocation with eviction")
+
+		// CRITICAL SAFETY CHECK: Model cannot exceed GPU's physical capacity, even with full eviction
+		if modelMemoryRequirement > gpu.TotalMemory {
+			log.Debug().
+				Str("runner_id", runnerID).
+				Int("gpu_index", gpu.Index).
+				Uint64("model_requirement_gb", modelMemoryRequirement/(1024*1024*1024)).
+				Uint64("gpu_total_capacity_gb", gpu.TotalMemory/(1024*1024*1024)).
+				Msg("DEBUG: Skipping GPU - model exceeds physical GPU capacity")
+			continue
+		}
 
 		// Check if this GPU has enough available memory for the model and has more available memory than current best
 		if availableMemory >= modelMemoryRequirement && availableMemory > maxAvailableMemory {
 			maxAvailableMemory = availableMemory
 			idx := gpu.Index
 			bestGPU = &idx
+
+			log.Debug().
+				Str("runner_id", runnerID).
+				Int("selected_gpu", idx).
+				Uint64("available_memory_gb", availableMemory/(1024*1024*1024)).
+				Msg("DEBUG: Selected new best GPU for single GPU allocation with eviction")
 		}
 	}
 
 	// Add single GPU option if we found a suitable GPU
 	if bestGPU != nil {
+		log.Debug().
+			Str("runner_id", runnerID).
+			Int("selected_gpu", *bestGPU).
+			Uint64("memory_per_gpu_gb", modelMemoryRequirement/(1024*1024*1024)).
+			Uint64("total_memory_gb", modelMemoryRequirement/(1024*1024*1024)).
+			Uint64("max_available_memory_gb", maxAvailableMemory/(1024*1024*1024)).
+			Msg("DEBUG: Adding single GPU allocation option with eviction")
+
 		options = append(options, AllocationOption{
 			GPUCount:            1,
 			GPUs:                []int{*bestGPU},
@@ -847,6 +937,11 @@ func (c *RunnerController) GetAllPossibleGPUAllocationsWithEviction(runnerID str
 			TotalMemoryRequired: modelMemoryRequirement,
 			TensorParallelSize:  1,
 		})
+	} else {
+		log.Debug().
+			Str("runner_id", runnerID).
+			Uint64("model_requirement_gb", modelMemoryRequirement/(1024*1024*1024)).
+			Msg("DEBUG: No suitable GPU found for single GPU allocation with eviction")
 	}
 
 	// Option 2: Try multi-GPU allocations with eviction for supported runtimes
