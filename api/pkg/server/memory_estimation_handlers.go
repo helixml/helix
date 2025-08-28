@@ -18,6 +18,7 @@ import (
 // @Param gpu_count query int false "Number of GPUs (default: auto-detect)"
 // @Param context_length query int false "Context length (default: model default)"
 // @Param batch_size query int false "Batch size (default: 512)"
+// @Param num_parallel query int false "Number of parallel sequences/concurrent requests (default: 2)"
 // @Success 200 {object} controller.MemoryEstimationResponse
 // @Failure 400 {string} string "Invalid request parameters"
 // @Failure 404 {string} string "Model not found"
@@ -40,7 +41,52 @@ func (apiServer *HelixAPIServer) estimateModelMemory(rw http.ResponseWriter, r *
 		var err error
 		numGPU, err = strconv.Atoi(numGPUStr)
 		if err != nil {
-			http.Error(rw, "invalid num_gpu parameter", http.StatusBadRequest)
+			http.Error(rw, "invalid gpu_count parameter", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Parse context_length parameter
+	contextLength := 0
+	if contextLengthStr := r.URL.Query().Get("context_length"); contextLengthStr != "" {
+		var err error
+		contextLength, err = strconv.Atoi(contextLengthStr)
+		if err != nil {
+			http.Error(rw, "invalid context_length parameter", http.StatusBadRequest)
+			return
+		}
+		if contextLength <= 0 {
+			http.Error(rw, "context_length must be positive", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Parse batch_size parameter
+	batchSize := 0
+	if batchSizeStr := r.URL.Query().Get("batch_size"); batchSizeStr != "" {
+		var err error
+		batchSize, err = strconv.Atoi(batchSizeStr)
+		if err != nil {
+			http.Error(rw, "invalid batch_size parameter", http.StatusBadRequest)
+			return
+		}
+		if batchSize <= 0 {
+			http.Error(rw, "batch_size must be positive", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Parse num_parallel parameter
+	numParallel := 0
+	if numParallelStr := r.URL.Query().Get("num_parallel"); numParallelStr != "" {
+		var err error
+		numParallel, err = strconv.Atoi(numParallelStr)
+		if err != nil {
+			http.Error(rw, "invalid num_parallel parameter", http.StatusBadRequest)
+			return
+		}
+		if numParallel <= 0 {
+			http.Error(rw, "num_parallel must be positive", http.StatusBadRequest)
 			return
 		}
 	}
@@ -56,8 +102,11 @@ func (apiServer *HelixAPIServer) estimateModelMemory(rw http.ResponseWriter, r *
 	// Create estimation request
 	// numGPU here is hardware GPU count, gets mapped to GPUCount field
 	req := &controller.MemoryEstimationRequest{
-		ModelID:  modelID,
-		GPUCount: numGPU,
+		ModelID:       modelID,
+		GPUCount:      numGPU,
+		ContextLength: contextLength,
+		BatchSize:     batchSize,
+		NumParallel:   numParallel,
 	}
 
 	// Estimate memory requirements
@@ -144,12 +193,60 @@ func (apiServer *HelixAPIServer) listModelMemoryEstimates(rw http.ResponseWriter
 
 	responses := make([]*controller.MemoryEstimationResponse, 0, len(modelIDs))
 
+	// Parse context_length parameter for batch requests
+	contextLength := 0
+	if contextLengthStr := r.URL.Query().Get("context_length"); contextLengthStr != "" {
+		var err error
+		contextLength, err = strconv.Atoi(contextLengthStr)
+		if err != nil {
+			http.Error(rw, "invalid context_length parameter", http.StatusBadRequest)
+			return
+		}
+		if contextLength <= 0 {
+			http.Error(rw, "context_length must be positive", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Parse batch_size parameter for batch requests
+	batchSize := 0
+	if batchSizeStr := r.URL.Query().Get("batch_size"); batchSizeStr != "" {
+		var err error
+		batchSize, err = strconv.Atoi(batchSizeStr)
+		if err != nil {
+			http.Error(rw, "invalid batch_size parameter", http.StatusBadRequest)
+			return
+		}
+		if batchSize <= 0 {
+			http.Error(rw, "batch_size must be positive", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Parse num_parallel parameter for batch requests
+	numParallel := 0
+	if numParallelStr := r.URL.Query().Get("num_parallel"); numParallelStr != "" {
+		var err error
+		numParallel, err = strconv.Atoi(numParallelStr)
+		if err != nil {
+			http.Error(rw, "invalid num_parallel parameter", http.StatusBadRequest)
+			return
+		}
+		if numParallel <= 0 {
+			http.Error(rw, "num_parallel must be positive", http.StatusBadRequest)
+			return
+		}
+	}
+
 	// Estimate memory for each model
 	// numGPU here is hardware GPU count, gets mapped to GPUCount field
 	for _, modelID := range modelIDs {
 		req := &controller.MemoryEstimationRequest{
-			ModelID:  modelID,
-			GPUCount: numGPU,
+			ModelID:       modelID,
+			GPUCount:      numGPU,
+			ContextLength: contextLength,
+			BatchSize:     batchSize,
+			NumParallel:   numParallel,
 		}
 
 		resp, err := memoryService.EstimateModelMemoryFromRequest(r.Context(), req)
