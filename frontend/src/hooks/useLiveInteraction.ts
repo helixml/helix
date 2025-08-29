@@ -22,21 +22,11 @@ const useLiveInteraction = (
     const { currentResponses, stepInfos } = useStreaming();
     const [recentTimestamp, setRecentTimestamp] = useState(Date.now());
     const [isStale, setIsStale] = useState(false);
+    // Preserve the last known message to prevent blank screen during completion
+    // This fixes the flickering issue where streaming context clears before interaction updates
+    const [lastKnownMessage, setLastKnownMessage] = useState<string>("");
 
-    // Debug logging for blank screen issue
-    console.log("useLiveInteraction Debug:", {
-        sessionId,
-        initialInteractionId: initialInteraction?.id,
-        currentInteractionId: interaction?.id,
-        hasCurrentResponse: currentResponses.has(sessionId),
-        currentResponseMessage:
-            currentResponses
-                .get(sessionId)
-                ?.response_message?.substring(0, 50) + "..." || "NO MESSAGE",
-        stepInfosForSession: stepInfos.get(sessionId)?.length || 0,
-        isStale,
-        recentTimestamp: new Date(recentTimestamp).toISOString(),
-    });
+    // Removed excessive debug logging
 
     const isAppTryHelixDomain = useMemo(() => {
         return window.location.hostname === "app.helix.ml";
@@ -46,16 +36,7 @@ const useLiveInteraction = (
         if (sessionId) {
             const currentResponse = currentResponses.get(sessionId);
             if (currentResponse) {
-                console.log(
-                    "useLiveInteraction: Updating interaction with current response:",
-                    {
-                        sessionId,
-                        currentResponseMessage:
-                            currentResponse.response_message?.substring(0, 50) +
-                                "..." || "NO MESSAGE",
-                        currentResponseState: currentResponse.state,
-                    },
-                );
+                // Removed excessive debug logging
                 setInteraction(
                     (
                         prevInteraction: TypesInteraction | null,
@@ -69,16 +50,17 @@ const useLiveInteraction = (
                         };
                     },
                 );
+                // Preserve message when we get updates
+                if (currentResponse.response_message) {
+                    setLastKnownMessage(currentResponse.response_message);
+                }
                 setRecentTimestamp(Date.now());
                 // Reset stale state when we get an update
                 if (isStale) {
                     setIsStale(false);
                 }
             } else {
-                console.log(
-                    "useLiveInteraction: No current response found for session:",
-                    sessionId,
-                );
+                // Removed excessive debug logging
                 // If no streaming context but we have an initial interaction in waiting state,
                 // keep using the initial interaction data
                 if (
@@ -90,6 +72,13 @@ const useLiveInteraction = (
             }
         }
     }, [sessionId, currentResponses, isStale, initialInteraction]);
+
+    // Update lastKnownMessage when interaction.response_message changes
+    useEffect(() => {
+        if (interaction?.response_message) {
+            setLastKnownMessage(interaction.response_message);
+        }
+    }, [interaction?.response_message]);
 
     // Check for stale state, but only update when it changes from non-stale to stale
     useEffect(() => {
@@ -112,7 +101,9 @@ const useLiveInteraction = (
     }, [recentTimestamp, staleThreshold, isStale, isAppTryHelixDomain]);
 
     const result = {
-        message: interaction?.response_message || "",
+        // Use interaction message if available, otherwise fall back to preserved message
+        // This prevents blank screen when streaming context clears during completion
+        message: interaction?.response_message || lastKnownMessage || "",
         status: interaction?.state || "",
         isComplete:
             interaction?.state ===
@@ -121,29 +112,45 @@ const useLiveInteraction = (
         stepInfos: stepInfos.get(sessionId) || [],
     };
 
-    // Debug: Show if we're in waiting state with no message
+    // Debug: Targeted logging for blank screen flickering issue
     if (interaction?.state === "waiting" && !result.message) {
-        console.log(
-            "useLiveInteraction: In waiting state but no message - this causes blank screen",
-            {
-                sessionId,
-                interactionState: interaction?.state,
-                hasStreamingContext: currentResponses.has(sessionId),
-                streamingResponseMessage:
-                    currentResponses.get(sessionId)?.response_message,
-            },
-        );
+        console.log("🔍 BLANK_SCREEN: In waiting state with no message", {
+            sessionId,
+            interactionState: interaction?.state,
+            hasStreamingContext: currentResponses.has(sessionId),
+            streamingMessage: currentResponses.get(sessionId)?.response_message ? "EXISTS" : "MISSING",
+            lastKnownMessage: lastKnownMessage ? "PRESERVED" : "MISSING"
+        });
+    }
+    
+    // Log when we're using preserved message during completion
+    if (interaction?.state === "complete" && !interaction?.response_message && lastKnownMessage) {
+        console.log("🔄 USING_PRESERVED: Using preserved message during completion", {
+            sessionId,
+            preservedMessageLength: lastKnownMessage.length,
+            interactionHasMessage: !!interaction?.response_message
+        });
+    }
+    
+    // Log state transitions that might cause flickering
+    if (interaction?.state === "complete" && result.message) {
+        console.log("✅ COMPLETE: Interaction finished with message", {
+            sessionId,
+            messageLength: result.message.length,
+            messageSource: interaction?.response_message ? "INTERACTION" : "PRESERVED",
+            isStale: result.isStale
+        });
     }
 
-    console.log("useLiveInteraction: Returning result:", {
-        sessionId,
-        hasMessage: !!result.message,
-        messageLength: result.message.length,
-        status: result.status,
-        isComplete: result.isComplete,
-        isStale: result.isStale,
-        stepInfosCount: result.stepInfos.length,
-    });
+    // Minimal logging for critical state changes only
+    useEffect(() => {
+        if (interaction?.state === "complete" && !result.message) {
+            console.log("🚨 HOOK_CRITICAL: Complete state but no message", {
+                sessionId,
+                preservedMessageExists: !!lastKnownMessage
+            });
+        }
+    }, [sessionId, interaction?.state, result.message, lastKnownMessage]);
 
     return result;
 };
