@@ -174,9 +174,6 @@ type Scheduler struct {
 	// Channel to trigger immediate queue processing (e.g., when runners reconnect)
 	queueTrigger chan struct{}
 
-	// Request tracking - maps requestID to slot for proper lifecycle management
-	activeRequests *xsync.MapOf[string, *Slot]
-
 	// Heartbeat tracking for goroutines
 	heartbeats *xsync.MapOf[string, *GoroutineHeartbeat]
 
@@ -247,9 +244,6 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		Dur("runner_reconcile_interval", reconcileInterval).
 		Msg("slot timeouts configured")
 
-	// Set runner GC interval
-	runnerGCInterval := 5 * time.Minute
-
 	modelStaleFunc := NewTimeoutFunc(modelTTL)
 	slotTimeoutFunc := NewTimeoutFunc(slotTTL)
 
@@ -280,12 +274,12 @@ func NewScheduler(ctx context.Context, serverConfig *config.ServerConfig, params
 		decisionsTracker:        NewSchedulingDecisionsTracker(100),      // Keep last 100 decisions
 		globalDecisionsTracker:  NewGlobalAllocationDecisionsTracker(50), // Keep last 50 global decisions
 		runnerReconcileInterval: reconcileInterval,
-		runnerGCInterval:        runnerGCInterval,
-		detailedMemoryResults:   make(map[string]*memory.EstimationResult),
-		gpuAllocations:          xsync.NewMapOf[string, *GPUAllocation](),
-		queueTrigger:            make(chan struct{}, 1),
-		activeRequests:          xsync.NewMapOf[string, *Slot](),
-		heartbeats:              xsync.NewMapOf[string, *GoroutineHeartbeat](),
+
+		detailedMemoryResults: make(map[string]*memory.EstimationResult),
+		gpuAllocations:        xsync.NewMapOf[string, *GPUAllocation](),
+		queueTrigger:          make(chan struct{}, 1), // Buffered channel to avoid blocking
+		heartbeats:            xsync.NewMapOf[string, *GoroutineHeartbeat](),
+		runnerGCInterval:      5 * time.Minute,
 	}
 
 	// Set timeout functions on slots loaded from database
@@ -2023,11 +2017,6 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 	withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("starting slot")
 	slot.Start()
 
-	// Track the request so we can release the slot when it completes
-	if llmReq := req.LLMInferenceRequest(); llmReq != nil {
-		s.activeRequests.Store(llmReq.RequestID, slot)
-	}
-
 	// Can do the rest in a goroutine, no need to wait for it to submit
 	go func() {
 		// Submit the work to the slot
@@ -2037,22 +2026,14 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 			if llmReq.Embeddings {
 				withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting embedding request")
 				err := s.controller.RunnerClient().SubmitEmbeddingRequest(slot, llmReq)
-				// Release slot immediately after embedding completes since embeddings are synchronous
-				s.activeRequests.Delete(llmReq.RequestID)
-				slot.Release()
 				if err != nil {
 					s.onSchedulingErr(req, err)
 					withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting embedding request")
-				} else {
-					withSlotAndWorkContext(&log.Logger, slot, req).Debug().Msg("embedding request completed and slot released")
 				}
 			} else {
 				withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting chat completion request")
 				err := s.controller.RunnerClient().SubmitChatCompletionRequest(slot, llmReq)
 				if err != nil {
-					// Release slot immediately if submission failed
-					s.activeRequests.Delete(llmReq.RequestID)
-					slot.Release()
 					s.onSchedulingErr(req, err)
 					withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting chat completion request")
 				}
@@ -2064,13 +2045,9 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 				case types.SessionTypeImage:
 					withSlotAndWorkContext(&log.Logger, slot, req).Trace().Msg("submitting text2image request")
 					err := s.controller.RunnerClient().SubmitImageGenerationRequest(slot, req.Session())
-					// Release slot immediately after image generation completes since image generation is synchronous
-					slot.Release()
 					if err != nil {
 						s.onSchedulingErr(req, err)
 						withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting text2image request")
-					} else {
-						withSlotAndWorkContext(&log.Logger, slot, req).Debug().Msg("image generation request completed and slot released")
 					}
 				case types.SessionTypeText:
 					if req.Session().LoraDir != "" {
@@ -2079,33 +2056,21 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 						convertedRequest := req.ToLLMInferenceRequest()
 						convertedRequest.Request.Model = req.Session().LoraDir
 
-						// Track converted request for completion
-						s.activeRequests.Store(convertedRequest.RequestID, slot)
-
 						// Forward the request to the chat completion handler
 						err := s.controller.RunnerClient().SubmitChatCompletionRequest(slot, convertedRequest)
 						if err != nil {
-							// Release slot immediately if submission failed
-							s.activeRequests.Delete(convertedRequest.RequestID)
-							slot.Release()
 							s.onSchedulingErr(req, err)
 							withSlotAndWorkContext(&log.Logger, slot, req).Warn().Err(err).Msg("error submitting LORA inference request")
 						}
 					} else {
-						// Release slot immediately for unimplemented features
-						slot.Release()
 						s.onSchedulingErr(req, fmt.Errorf("not implemented: %s and no lora dir", req.Session().Type))
 						withSlotAndWorkContext(&log.Logger, slot, req).Warn().Msg("not implemented: no lora dir")
 					}
 				default:
-					// Release slot immediately for unimplemented features
-					slot.Release()
 					s.onSchedulingErr(req, fmt.Errorf("not implemented: %s", req.Session().Type))
 					withSlotAndWorkContext(&log.Logger, slot, req).Warn().Msg("not implemented: session type")
 				}
 			default:
-				// Release slot immediately for unimplemented features
-				slot.Release()
 				s.onSchedulingErr(req, fmt.Errorf("not implemented: %s", req.Session().Mode))
 				withSlotAndWorkContext(&log.Logger, slot, req).Warn().Msg("not implemented: session mode")
 			}
@@ -2115,21 +2080,6 @@ func (s *Scheduler) allocateSlot(slotID uuid.UUID, req *Workload) error {
 	}()
 
 	return nil
-}
-
-// CompleteActiveRequest releases a slot when a request completes
-func (s *Scheduler) CompleteActiveRequest(requestID string) {
-	slot, ok := s.activeRequests.LoadAndDelete(requestID)
-	if ok {
-		slot.Release()
-		withSlotContext(&log.Logger, slot).Debug().
-			Str("request_id", requestID).
-			Msg("completed active request and released slot")
-	} else {
-		log.Warn().
-			Str("request_id", requestID).
-			Msg("attempted to complete unknown request")
-	}
 }
 
 // createNewSlot creates a new slot for the given runner and workload.
