@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/janitor"
@@ -233,4 +235,51 @@ func initializeModelsCache(cfg *config.RunnerConfig) error {
 	}
 
 	return nil
+}
+
+// Utility functions for environment variable handling
+func getDefaultServeOptionString(envName string, defaultValue string) string {
+	envValue := os.Getenv(envName)
+	if envValue != "" {
+		return envValue
+	}
+	return defaultValue
+}
+
+func getDefaultServeOptionBool(envName string, defaultValue bool) bool {
+	envValue := os.Getenv(envName)
+	if envValue != "" {
+		return true
+	}
+	return defaultValue
+}
+
+func getDefaultServeOptionInt(envName string, defaultValue int) int {
+	envValue := os.Getenv(envName)
+	if envValue != "" {
+		i, err := strconv.Atoi(envValue)
+		if err == nil {
+			return i
+		}
+	}
+	return defaultValue
+}
+
+// comma separated key=value pairs e.g. LABELS="name=apples,height=10"
+func getDefaultServeOptionMap(envName string, defaultValue map[string]string) map[string]string {
+	envValue := os.Getenv(envName)
+	if envValue != "" {
+		parts := strings.Split(envValue, ",")
+		data := make(map[string]string)
+		for _, part := range parts {
+			kv := strings.Split(part, "=")
+			if len(kv) == 2 {
+				data[kv[0]] = kv[1]
+			} else {
+				log.Warn().Msgf("invalid key=value pair: %s", part)
+			}
+		}
+		return data
+	}
+	return defaultValue
 }
