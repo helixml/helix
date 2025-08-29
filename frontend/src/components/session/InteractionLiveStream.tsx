@@ -93,12 +93,6 @@ export const InteractionLiveStream: FC<{
     // Effect to detect completion from the server (WebSocket)
     useEffect(() => {
         if (isComplete && isActivelyStreaming) {
-            console.log("🔄 STREAM_END: Setting streaming to false", {
-                sessionId: session_id,
-                interactionId: interaction?.id,
-                hasMessage: !!message,
-                messageLength: message?.length || 0
-            });
             setIsActivelyStreaming(false);
         }
     }, [isComplete, isActivelyStreaming]);
@@ -118,13 +112,7 @@ export const InteractionLiveStream: FC<{
         return null;
     }
 
-    // Minimal logging for debugging if needed
-    if (interaction.state === "complete" && !message) {
-        console.log("🚨 CRITICAL: Complete state but no message!", {
-            sessionId: session_id,
-            interactionId: interaction?.id
-        });
-    }
+
 
     return (
         <>

@@ -607,10 +607,7 @@ func (s *Scheduler) RunnerSlots(runnerID string) ([]*types.RunnerSlot, error) {
 // DeleteSlot removes a slot from the scheduler's desired state
 // This allows the reconciler to clean up the slot from the runner
 func (s *Scheduler) DeleteSlot(slotID uuid.UUID) error {
-	log.Info().Str("slot_id", slotID.String()).Msg("DEBUG: Scheduler.DeleteSlot called")
-	log.Info().Str("slot_id", slotID.String()).Msg("DEBUG: about to call s.slots.Delete")
 	s.slots.Delete(slotID)
-	log.Info().Str("slot_id", slotID.String()).Msg("DEBUG: s.slots.Delete completed successfully")
 	return nil
 }
 
@@ -644,13 +641,9 @@ func (s *Scheduler) reconcileSlots(ctx context.Context) {
 			case <-time.After(s.runnerReconcileInterval):
 				s.updateHeartbeat("reconcileSlots")
 				s.updateHeartbeatStatus("reconcileSlots", "starting reconcile cycle")
-				// log.Debug().
-				//	Str("SLOT_RECONCILE_DEBUG", "starting_reconcile").
-				//	Msg("SLOT_RECONCILE_DEBUG: Starting reconcileSlots cycle")
+
 				s.reconcileSlotsOnce(ctx)
-				// log.Debug().
-				//	Str("SLOT_RECONCILE_DEBUG", "finished_reconcile").
-				//	Msg("SLOT_RECONCILE_DEBUG: Finished reconcileSlots cycle")
+
 				s.updateHeartbeatStatus("reconcileSlots", "idle - waiting for next cycle")
 			}
 		}
@@ -782,13 +775,11 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	s.updateHeartbeatStatus("reconcileSlots", "getting runner list")
 	// Get all runners
 	runnerIDs := s.controller.RunnerIDs()
-	// log.Info().Strs("runner_ids", runnerIDs).Msg("SLOT_RECONCILE_DEBUG: Starting slot reconciliation")
 
 	s.updateHeartbeatStatus("reconcileSlots", "getting required slots from queue")
 
 	// Ensure new slots are created and ready to take work
 	requiredSlots := s.queue.GetRequiredSlots()
-	// log.Info().Interface("required_slots", requiredSlots).Msg("SLOT_RECONCILE_DEBUG: Required slots for current workload")
 
 	// Track slot stats
 	existingSlotCount := 0
@@ -824,25 +815,9 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 			// Create only one slot per cycle to ensure proper GPU distribution
 			slotsToCreate += 1
 
-			// log.Info().
-			//	Str("model", req.Model.String()).
-			//	Str("runtime", string(req.Runtime)).
-			//	Int("existing", existingCount).
-			//	Int("required", req.Count).
-			//	Int("needed_total", slotsNeeded).
-			//	Msg("SLOT_RECONCILE_DEBUG: Creating one slot per cycle for proper GPU distribution")
-
-			// log.Debug().
-			//	Str("SLOT_RECONCILE_DEBUG", "calling_ensure_slots").
-			//	Str("model", req.Model.String()).
-			//	Msg("SLOT_RECONCILE_DEBUG: About to call ensureSlots")
-
 			s.updateHeartbeatStatus("reconcileSlots", fmt.Sprintf("creating 1 slot for model %s (%d more needed)", req.Model.String(), slotsNeeded-1))
 
 			// Use new global allocator architecture
-			log.Debug().
-				Str("model", req.Model.String()).
-				Msg("🌍 GLOBAL: Using global allocator")
 			s.ensureSlotWithGlobalAllocator(req)
 
 			// log.Debug().
@@ -867,7 +842,6 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	allActualSlots := make(map[uuid.UUID]string)                  // maps slot ID to runner ID
 	allActualSlotDetails := make(map[uuid.UUID]*types.RunnerSlot) // maps slot ID to slot details
 	for _, runnerID := range runnerIDs {
-		// log.Info().Str("runner_id", runnerID).Msg("APPLE: Fetching actual slots from runner")
 
 		// We need a live view of the slots here, otherwise we might get stale data
 		actualSlots, err := s.controller.fetchSlots(runnerID)
@@ -876,20 +850,7 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 			continue
 		}
 
-		// log.Info().
-		// 	Str("runner_id", runnerID).
-		// 	Int("slot_count", len(actualSlots.Slots)).
-		// 	Msg("APPLE: Got actual slots from runner")
-
 		for _, slot := range actualSlots.Slots {
-			// 	log.Info().
-			// 		Str("slot_id", slot.ID.String()).
-			// 		Str("runner_id", slot.RunnerID).
-			// 		Str("model", slot.Model).
-			// 		Bool("active", slot.Active).
-			// 		Bool("ready", slot.Ready).
-			// 		Msg("APPLE: Processing actual slot from runner")
-
 			// If we find the same slot ID on multiple runners, delete from the duplicate runner
 			if existingRunnerID, exists := allActualSlots[slot.ID]; exists {
 				duplicateSlotCount++
@@ -2598,10 +2559,8 @@ func (s *Scheduler) getPrewarmModels(runnerID string) []*types.Model {
 	}
 
 	// Get available memory on the target runner
-	log.Info().Str("runner_id", runnerID).Msg("PREWARM_DEBUG: About to calculate runner memory for prewarming")
 	totalMemory, allocatedMemory, freeMemory, err := s.calculateRunnerMemory(runnerID)
 	if err != nil {
-		log.Error().Err(err).Str("runner_id", runnerID).Msg("PREWARM_DEBUG: CRITICAL - calculateRunnerMemory failed during prewarming - this is likely the root cause!")
 		log.Warn().Err(err).Str("runner_id", runnerID).Msg("failed to get runner memory for prewarming")
 		return nil
 	}

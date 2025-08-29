@@ -112,45 +112,7 @@ const useLiveInteraction = (
         stepInfos: stepInfos.get(sessionId) || [],
     };
 
-    // Debug: Targeted logging for blank screen flickering issue
-    if (interaction?.state === "waiting" && !result.message) {
-        console.log("🔍 BLANK_SCREEN: In waiting state with no message", {
-            sessionId,
-            interactionState: interaction?.state,
-            hasStreamingContext: currentResponses.has(sessionId),
-            streamingMessage: currentResponses.get(sessionId)?.response_message ? "EXISTS" : "MISSING",
-            lastKnownMessage: lastKnownMessage ? "PRESERVED" : "MISSING"
-        });
-    }
-    
-    // Log when we're using preserved message during completion
-    if (interaction?.state === "complete" && !interaction?.response_message && lastKnownMessage) {
-        console.log("🔄 USING_PRESERVED: Using preserved message during completion", {
-            sessionId,
-            preservedMessageLength: lastKnownMessage.length,
-            interactionHasMessage: !!interaction?.response_message
-        });
-    }
-    
-    // Log state transitions that might cause flickering
-    if (interaction?.state === "complete" && result.message) {
-        console.log("✅ COMPLETE: Interaction finished with message", {
-            sessionId,
-            messageLength: result.message.length,
-            messageSource: interaction?.response_message ? "INTERACTION" : "PRESERVED",
-            isStale: result.isStale
-        });
-    }
 
-    // Minimal logging for critical state changes only
-    useEffect(() => {
-        if (interaction?.state === "complete" && !result.message) {
-            console.log("🚨 HOOK_CRITICAL: Complete state but no message", {
-                sessionId,
-                preservedMessageExists: !!lastKnownMessage
-            });
-        }
-    }, [sessionId, interaction?.state, result.message, lastKnownMessage]);
 
     return result;
 };
