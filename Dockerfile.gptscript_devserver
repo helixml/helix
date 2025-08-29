@@ -14,8 +14,10 @@ COPY .git /.git
 
 WORKDIR /app/api
 
+# Install C++ compiler for CGO compilation
+RUN apt-get update && apt-get install -y gcc g++ libc6-dev && rm -rf /var/lib/apt/lists/*
 # Build the Go app
-RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
+RUN CGO_ENABLED=1 go build -tags "!rocm" -ldflags "-s -w" -o /helix
 
 FROM alpine:3.21
 RUN apk --update add ca-certificates bash openssh unzip wget sqlite

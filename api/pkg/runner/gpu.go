@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"os/exec"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -123,6 +122,14 @@ func (g *GPUManager) GetFreeMemory() uint64 {
 }
 
 func (g *GPUManager) GetUsedMemory() uint64 {
+	return g.usedMemory
+}
+
+// GetFreshUsedMemory forces a fresh nvidia-smi call to get current GPU memory usage
+// This is useful when you need real-time memory data rather than cached values
+func (g *GPUManager) GetFreshUsedMemory() uint64 {
+	// Force a fresh memory fetch which will update g.usedMemory
+	g.fetchFreeMemory()
 	return g.usedMemory
 }
 
@@ -264,88 +271,6 @@ func (g *GPUManager) GetPerGPUMemory() uint64 {
 // GetGPUInfo returns information about all individual GPUs
 func (g *GPUManager) GetGPUInfo() map[int]*GPUInfo {
 	return g.gpuMemoryMap
-}
-
-// GetBestGPUForModel returns the GPU index with the most free memory that can fit the model
-// Returns -1 if no GPU has enough memory
-func (g *GPUManager) GetBestGPUForModel(modelMemoryRequirement uint64) int {
-	bestGPU := -1
-	maxFreeMemory := uint64(0)
-
-	for gpuIndex, gpuInfo := range g.gpuMemoryMap {
-		// Check if this GPU has enough free memory for the model
-		if gpuInfo.FreeMemory >= modelMemoryRequirement {
-			// Select the GPU with the most free memory to balance load
-			if gpuInfo.FreeMemory > maxFreeMemory {
-				maxFreeMemory = gpuInfo.FreeMemory
-				bestGPU = gpuIndex
-			}
-		}
-	}
-
-	log.Debug().
-		Int("selected_gpu", bestGPU).
-		Uint64("model_memory_requirement", modelMemoryRequirement).
-		Uint64("max_free_memory", maxFreeMemory).
-		Int("total_gpus", len(g.gpuMemoryMap)).
-		Msg("Selected GPU for VLLM model")
-
-	return bestGPU
-}
-
-// GetBestGPUsForMultiGPUModel selects the best set of GPUs for a multi-GPU model
-// Returns GPU indices and whether the allocation is possible
-func (g *GPUManager) GetBestGPUsForMultiGPUModel(modelMemoryRequirement uint64, tensorParallelSize int) ([]int, bool) {
-	if !g.hasGPU || g.gpuCount == 0 || tensorParallelSize <= 0 {
-		log.Warn().
-			Bool("has_gpu", g.hasGPU).
-			Int("gpu_count", g.gpuCount).
-			Int("tensor_parallel_size", tensorParallelSize).
-			Msg("Cannot schedule multi-GPU model: insufficient GPU resources")
-		return nil, false
-	}
-
-	// For multi-GPU models, we need to distribute memory across GPUs
-	// VLLM will split the model across GPUs, so each GPU needs roughly modelMemory/tensorParallelSize
-	memoryPerGPU := modelMemoryRequirement / uint64(tensorParallelSize)
-
-	// Add some buffer for overhead (10%)
-	memoryPerGPU = uint64(float64(memoryPerGPU) * 1.1)
-
-	// Find GPUs with sufficient memory
-	var candidateGPUs []int
-	for gpuIndex, gpu := range g.gpuMemoryMap {
-		if gpu.FreeMemory >= memoryPerGPU {
-			candidateGPUs = append(candidateGPUs, gpuIndex)
-		}
-	}
-
-	// Check if we have enough GPUs
-	if len(candidateGPUs) < tensorParallelSize {
-		log.Warn().
-			Int("available_gpus", len(candidateGPUs)).
-			Int("required_gpus", tensorParallelSize).
-			Uint64("memory_per_gpu_required", memoryPerGPU).
-			Uint64("total_model_memory", modelMemoryRequirement).
-			Msg("Insufficient GPUs available for multi-GPU model")
-		return nil, false
-	}
-
-	// Sort candidates by available memory (descending) and select the best ones
-	sort.Slice(candidateGPUs, func(i, j int) bool {
-		return g.gpuMemoryMap[candidateGPUs[i]].FreeMemory > g.gpuMemoryMap[candidateGPUs[j]].FreeMemory
-	})
-
-	selectedGPUs := candidateGPUs[:tensorParallelSize]
-
-	log.Info().
-		Ints("selected_gpus", selectedGPUs).
-		Int("tensor_parallel_size", tensorParallelSize).
-		Uint64("memory_per_gpu", memoryPerGPU).
-		Uint64("total_model_memory", modelMemoryRequirement).
-		Msg("Selected GPUs for multi-GPU model")
-
-	return selectedGPUs, true
 }
 
 func (g *GPUManager) fetchTotalMemoryAndCount() (uint64, int) {

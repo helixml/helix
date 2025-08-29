@@ -15,7 +15,7 @@ import (
 	"github.com/tmc/langchaingo/schema"
 )
 
-var model = "meta-llama/Llama-3-8b-chat-hf"
+var model = "openai/gpt-oss-20b"
 
 type Query struct {
 	store        store.Store

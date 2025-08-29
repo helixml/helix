@@ -24,7 +24,7 @@ FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 
 ### BUILD
 
-FROM golang:1.24 AS go-build-env
+FROM golang:1.24-bullseye AS go-build-env
 WORKDIR /workspace/helix
 
 # <- COPY go.mod and go.sum files to the workspace
@@ -42,10 +42,13 @@ COPY . .
 # Run tidy and show git diff for go.sum
 # RUN go mod tidy && git diff --exit-code -- go.sum
 
+# Install C++ compiler for CGO compilation
+RUN apt-get update && apt-get install -y gcc g++ libc6-dev && rm -rf /var/lib/apt/lists/*
+
 # Build the Go app
 # RUN go mod tidy && go mod download && CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
 ARG APP_VERSION="v0.0.0+unknown"
-RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=0 go build -ldflags "-s -w -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=1 go build -tags "!rocm" -ldflags "-s -w -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix-runner ./runner-cmd/helix-runner
 
 # Stage for downloading vLLM templates
 FROM alpine:latest as vllm-templates
@@ -66,7 +69,7 @@ RUN if [ -d "/tmp/vllm/examples" ]; then \
 ### RUNNER CONTAINER
 
 # ============================================================================
-# CLEAN vLLM-ONLY SETUP (MINIMAL CUDA BASE)  
+# CLEAN vLLM-ONLY SETUP (MINIMAL CUDA BASE)
 # ============================================================================
 # The runner-base image has been updated to use CUDA runtime base:
 # nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 with system Python 3.10
@@ -76,12 +79,12 @@ RUN if [ -d "/tmp/vllm/examples" ]; then \
 # WHAT WAS CHANGED IN BASE IMAGE:
 # 1. Base: nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 (CUDA 12.4 + Ubuntu 22.04)
 # 2. Python: System Python 3.10 (no miniconda complexity)
-# 3. Axolotl: Installation commented out (easy to restore)  
+# 3. Axolotl: Installation commented out (easy to restore)
 # 4. Packages: Minimal system packages only
 # 5. Build tools + Python 3.12: Added here for best vLLM compatibility and future-proofing
 #
 # HOW TO RESTORE AXOLOTL:
-# 1. In base-images/Dockerfile.runner: Change FROM back to winglian/axolotl image  
+# 1. In base-images/Dockerfile.runner: Change FROM back to winglian/axolotl image
 # 2. In base-images/Dockerfile.runner: Re-add miniconda installation
 # 3. In base-images/Dockerfile.runner: Uncomment axolotl installation section
 # 4. Update Go runtime files to use miniconda paths (see comments in files)
@@ -122,7 +125,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=uv /uv /bin/uv
 
 # Create clean vLLM virtualenv using Python 3.12 (latest, best future compatibility)
-# This isolates vLLM from any system packages - completely clean environment  
+# This isolates vLLM from any system packages - completely clean environment
 RUN python3.12 -m venv /workspace/vllm/venv && \
     echo "Installing vLLM into clean virtualenv using UV (much faster than pip)" && \
     /workspace/vllm/venv/bin/python -m pip install uv && \
@@ -133,7 +136,7 @@ RUN python3.12 -m venv /workspace/vllm/venv && \
 # Create the examples directory in the vLLM venv package where it will look for templates (Python 3.12)
 RUN mkdir -p /workspace/vllm/venv/lib/python3.12/site-packages/vllm/examples
 
-# Copy the example templates to the vLLM venv package examples directory  
+# Copy the example templates to the vLLM venv package examples directory
 COPY --from=vllm-templates /vllm-templates/* /workspace/vllm/venv/lib/python3.12/site-packages/vllm/examples/
 
 # Create a clean /vllm directory with examples subdirectory
@@ -168,6 +171,6 @@ RUN mkdir -p /tmp/helix/ollama /tmp/helix/src /tmp/helix/cache /tmp/helix/root-c
 #    echo "echo \"Pretending to activate virtualenv (actually doing nothing)\"" > /workspace/axolotl/venv/bin/activate && \
 #    chmod 0777 /workspace/axolotl /workspace/axolotl/dataset_cache
 
-COPY --from=go-build-env /helix /workspace/helix/helix
+COPY --from=go-build-env /helix-runner /workspace/helix/helix-runner
 
-ENTRYPOINT ["/workspace/helix/helix", "runner"]
+ENTRYPOINT ["/workspace/helix/helix-runner"]

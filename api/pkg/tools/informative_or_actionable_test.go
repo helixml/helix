@@ -54,7 +54,7 @@ func (suite *ActionTestSuite) SetupTest() {
 			cfg.Providers.TogetherAI.BaseURL,
 			cfg.Stripe.BillingEnabled,
 		)
-		cfg.Tools.Model = "meta-llama/Llama-3-8b-chat-hf"
+		cfg.Tools.Model = "openai/gpt-oss-20b"
 	} else {
 		apiClient = openai.NewMockClient(suite.ctrl)
 	}

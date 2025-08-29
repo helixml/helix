@@ -14,7 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/gptscript"
 )
 
-func newGptScriptRunnerCmd() *cobra.Command {
+func NewGptScriptRunnerCmd() *cobra.Command {
 	runCmd := &cobra.Command{
 		Use:     "gptscript-runner",
 		Short:   "Start the helix gptscript runner.",

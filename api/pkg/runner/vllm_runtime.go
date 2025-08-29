@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -42,6 +43,8 @@ type VLLMRuntime struct {
 	logBuffer          *system.ModelInstanceLogBuffer // Log buffer for this instance
 	commandLine        string                         // The actual command line executed
 	ready              bool                           // True when vLLM is ready to handle requests
+	processTracker     *ProcessTracker                // Process tracker for monitoring
+	slotID             *uuid.UUID                     // Associated slot ID
 }
 
 type VLLMRuntimeParams struct {
@@ -192,6 +195,16 @@ func (v *VLLMRuntime) Start(ctx context.Context) error {
 	v.cmd = cmd
 	v.commandLine = commandLine
 
+	// Register the process with the tracker if available
+	if v.processTracker != nil && v.slotID != nil && v.cmd != nil && v.cmd.Process != nil {
+		v.processTracker.RegisterProcess(v.cmd.Process.Pid, *v.slotID, v.model, v.commandLine)
+		log.Info().
+			Int("pid", v.cmd.Process.Pid).
+			Str("slot_id", v.slotID.String()).
+			Str("model", v.model).
+			Msg("PROCESS_TRACKER: Registered VLLM process")
+	}
+
 	// Wait for vLLM to be ready
 	log.Debug().Str("url", v.URL()).Dur("timeout", v.startTimeout).Msg("Waiting for vLLM to start")
 	err = v.waitUntilVLLMIsReady(ctx, v.startTimeout)
@@ -218,6 +231,12 @@ func (v *VLLMRuntime) URL() string {
 	return fmt.Sprintf("http://localhost:%d", v.port)
 }
 
+// SetProcessTracker sets the process tracker for monitoring
+func (v *VLLMRuntime) SetProcessTracker(tracker *ProcessTracker, slotID uuid.UUID) {
+	v.processTracker = tracker
+	v.slotID = &slotID
+}
+
 func (v *VLLMRuntime) Stop() error {
 	defer v.cancel() // Cancel the context no matter what
 
@@ -241,13 +260,20 @@ func (v *VLLMRuntime) Stop() error {
 		Str("model", v.model).
 		Str("stack_trace", string(stackTrace[:stackSize])).
 		Str("context_info", contextInfo).
-		Msg("Stopping vLLM runtime")
+		Msg("VLLM_STOP: Stopping vLLM runtime")
 
 	if err := killProcessTree(v.cmd.Process.Pid); err != nil {
-		log.Error().Msgf("error stopping vLLM model process: %s", err.Error())
+		log.Error().
+			Err(err).
+			Int("pid", v.cmd.Process.Pid).
+			Str("model", v.model).
+			Msg("VLLM_STOP: CRITICAL - Failed to stop vLLM model process, potential GPU memory leak!")
 		return err
 	}
-	log.Info().Msg("vLLM runtime stopped")
+	log.Info().
+		Int("pid", v.cmd.Process.Pid).
+		Str("model", v.model).
+		Msg("VLLM_STOP: vLLM runtime stopped successfully")
 	return nil
 }
 

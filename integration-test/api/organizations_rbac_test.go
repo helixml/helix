@@ -181,7 +181,7 @@ func (suite *OrganizationsRBACTestSuite) TestNonMemberCannotCreateApp() {
 				Assistants: []types.AssistantConfig{
 					{
 						Name:  "test-assistant-1",
-						Model: "meta-llama/Llama-3-8b-chat-hf",
+						Model: "openai/gpt-oss-20b",
 					},
 				},
 			},
@@ -214,7 +214,7 @@ func (suite *OrganizationsRBACTestSuite) TestAppVisibilityWithoutGrantingAccess(
 				Assistants: []types.AssistantConfig{
 					{
 						Name:  "test-assistant-1",
-						Model: "meta-llama/Llama-3-8b-chat-hf",
+						Model: "openai/gpt-oss-20b",
 					},
 				},
 			},
@@ -267,7 +267,7 @@ func (suite *OrganizationsRBACTestSuite) TestAppVisibility_GrantedAccessToSingle
 				Assistants: []types.AssistantConfig{
 					{
 						Name:  "test-assistant-1",
-						Model: "meta-llama/Llama-3-8b-chat-hf",
+						Model: "openai/gpt-oss-20b",
 					},
 				},
 			},
@@ -328,7 +328,7 @@ func (suite *OrganizationsRBACTestSuite) TestAppVisibility_GrantedAccessToTeam()
 				Assistants: []types.AssistantConfig{
 					{
 						Name:  "test-assistant-1",
-						Model: "meta-llama/Llama-3-8b-chat-hf",
+						Model: "openai/gpt-oss-20b",
 					},
 				},
 			},
@@ -389,7 +389,7 @@ func (suite *OrganizationsRBACTestSuite) TestAppUpdate_AppOwner_OrgOwner() {
 				Assistants: []types.AssistantConfig{
 					{
 						Name:  "test-assistant-1",
-						Model: "meta-llama/Llama-3-8b-chat-hf",
+						Model: "openai/gpt-oss-20b",
 					},
 				},
 			},
@@ -425,7 +425,7 @@ func (suite *OrganizationsRBACTestSuite) TestAppUpdate_SingleUser() {
 				Assistants: []types.AssistantConfig{
 					{
 						Name:  "test-assistant-1",
-						Model: "meta-llama/Llama-3-8b-chat-hf",
+						Model: "openai/gpt-oss-20b",
 					},
 				},
 			},
@@ -508,7 +508,7 @@ func (suite *OrganizationsRBACTestSuite) TestAppUpdate_Team() {
 				Assistants: []types.AssistantConfig{
 					{
 						Name:  "test-assistant-1",
-						Model: "meta-llama/Llama-3-8b-chat-hf",
+						Model: "openai/gpt-oss-20b",
 					},
 				},
 			},

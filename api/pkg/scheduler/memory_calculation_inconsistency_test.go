@@ -2,11 +2,13 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -15,6 +17,35 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+// SimpleMemoryEstimationServiceForTest provides simple mock memory estimates for testing
+type SimpleMemoryEstimationServiceForTest struct{}
+
+func (m *SimpleMemoryEstimationServiceForTest) EstimateModelMemory(ctx context.Context, modelName string, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
+	// Return appropriate memory values for different models
+	var memSize uint64
+	switch modelName {
+	case "qwen3:8b":
+		memSize = 10 * 1024 * 1024 * 1024 // 10GB
+	case "gpt-oss:20b":
+		memSize = 48 * 1024 * 1024 * 1024 // 48GB
+	case "qwen3:30b":
+		memSize = 55 * 1024 * 1024 * 1024 // 55GB (GGUF estimate)
+	default:
+		return nil, fmt.Errorf("model %s not found in test mock", modelName)
+	}
+
+	estimate := &memory.MemoryEstimate{
+		Layers:    36, // Mock value
+		VRAMSize:  memSize,
+		TotalSize: memSize,
+	}
+
+	return &memory.EstimationResult{
+		Recommendation: "single_gpu",
+		SingleGPU:      estimate,
+	}, nil
+}
 
 // Helper function for absolute difference
 func abs64(x uint64) uint64 {
@@ -41,6 +72,11 @@ func TestMemoryCalculationInconsistency(t *testing.T) {
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub:        ps,
@@ -51,8 +87,10 @@ func TestMemoryCalculationInconsistency(t *testing.T) {
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		QueueSize:        50,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: &SimpleMemoryEstimationServiceForTest{}, // Add mock memory estimation service
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -87,28 +125,38 @@ func TestMemoryCalculationInconsistency(t *testing.T) {
 	}, CacheConfig{updateInterval: time.Second}))
 
 	// Use an existing prewarm model that the scheduler knows about
-	// From the default configuration: "qwen3:8b" has 10GB memory
+	// From the default configuration: "qwen3:8b" - Ollama model with GGUF estimation
 	testModel := &types.Model{
-		ID:      "qwen3:8b",
-		Memory:  10 * 1024 * 1024 * 1024, // 10GB configured (matches default config)
-		Runtime: types.RuntimeOllama,
-		Prewarm: true,
+		ID:            "qwen3:8b",
+		Memory:        0, // Ollama models have Memory=0 in database
+		Runtime:       types.RuntimeOllama,
+		Prewarm:       true,
+		ContextLength: 8192, // Required for GGUF estimation
 	}
 
-	// Create a workload using this model
+	// Create configured model for allocation
+	memoryService := NewMockMemoryEstimationServiceForAllocation()
+	allocation := GPUAllocationConfig{
+		GPUCount:     1,
+		SpecificGPUs: []int{0},
+	}
+	configuredModel, err := NewModelForGPUAllocation(testModel, allocation, memoryService)
+	require.NoError(t, err)
+
+	// Create a workload using the configured model
 	workload := &Workload{
 		WorkloadType: WorkloadTypeLLMInferenceRequest,
 		llmInferenceRequest: &types.RunnerLLMInferenceRequest{
 			RequestID: "test-workload-1",
 			CreatedAt: time.Now(),
 			Request: &openai.ChatCompletionRequest{
-				Model: testModel.ID,
+				Model: configuredModel.ID,
 				Messages: []openai.ChatCompletionMessage{
 					{Role: "user", Content: "test"},
 				},
 			},
 		},
-		model: testModel,
+		model: configuredModel,
 	}
 
 	// STEP 1: Calculate initial memory state using scheduler method
@@ -250,6 +298,11 @@ func TestHeuristicFailureWhenModelMemoryUnknown(t *testing.T) {
 	mockStore := store.NewMockStore(ctrl)
 	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
 	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
 		PubSub:        ps,

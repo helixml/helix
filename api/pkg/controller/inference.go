@@ -1546,7 +1546,6 @@ func (c *Controller) UpdateSessionWithKnowledgeResults(ctx context.Context, sess
 		}
 	}
 
-	// Log the updated document IDs
 	logCtx.Debug().
 		Str("session_id", session.ID).
 		Interface("document_ids", session.Metadata.DocumentIDs).

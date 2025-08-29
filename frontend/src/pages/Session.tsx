@@ -165,18 +165,7 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
   const lastInteractionNotComplete = 
     isLastInteraction && nextProps.interaction.state !== 'complete' && nextProps.interaction.state !== 'error';
   
-  // Log when state changes to help debug re-render issues
-  if (prevProps.interaction.state !== nextProps.interaction.state) {
-    console.log(
-      `Interaction state changed from ${prevProps.interaction.state} to ${nextProps.interaction.state}`,
-      `interactionChanged=${interactionChanged}`,
-      `shouldSkipRender=${!interactionChanged && 
-        !documentIdsChanged && 
-        !ragResultsChanged && 
-        !lastInteractionNotComplete &&
-        prevProps.highlightAllFiles === nextProps.highlightAllFiles}`
-    );
-  }
+
   
   // Return true if nothing changed (skip re-render), false if something changed (trigger re-render)
   return !interactionChanged && 
