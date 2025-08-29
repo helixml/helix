@@ -7,7 +7,7 @@ import (
 
 var evalTargets []string
 
-func newEvalsCommand() *cobra.Command {
+func NewEvalsCommand() *cobra.Command {
 	var evalsCmd = &cobra.Command{
 		Use:   "evals",
 		Short: "A CLI tool for evaluating finetuned LLMs",

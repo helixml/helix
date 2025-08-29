@@ -69,7 +69,7 @@ func NewServeConfig() (*config.ServerConfig, error) {
 	return &serverConfig, nil
 }
 
-func newServeCmd() *cobra.Command {
+func NewServeCmd() *cobra.Command {
 	serveConfig, err := NewServeConfig()
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create serve options")

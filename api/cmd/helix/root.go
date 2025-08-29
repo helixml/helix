@@ -50,15 +50,14 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(member.New())
 
 	// Commands available on all platforms
-	RootCmd.AddCommand(newServeCmd())
-	RootCmd.AddCommand(newVersionCommand())
+	RootCmd.AddCommand(NewServeCmd())
+	RootCmd.AddCommand(NewVersionCommand())
 
-	RootCmd.AddCommand(newGptScriptCmd())
-	RootCmd.AddCommand(newGptScriptRunnerCmd())
-	RootCmd.AddCommand(newQapairCommand())
-	RootCmd.AddCommand(newEvalsCommand())
+	RootCmd.AddCommand(NewGptScriptCmd())
+	RootCmd.AddCommand(NewGptScriptRunnerCmd())
+	RootCmd.AddCommand(NewQapairCommand())
+	RootCmd.AddCommand(NewEvalsCommand())
 	RootCmd.AddCommand(NewTestCmd()) // Use the NewTestCmd function from the current package
-	RootCmd.AddCommand(newRunnerCmd())
 
 	return RootCmd
 }
