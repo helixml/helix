@@ -37,7 +37,11 @@ function setup_runner_profile() {
 }
 
 function mock-runner() {
-   go run . runner \
+  echo "Building helix-runner binary for mock runner..."
+  build-runner || return 1
+  
+  echo "Starting mock runner..."
+  ./helix-runner \
     --mock-runner \
     --server-port 8090 \
     --api-host http://localhost:8080 \
@@ -72,6 +76,19 @@ function build() {
 function static-compile() {
   export CGO_ENABLED=0
   go build -ldflags '-extldflags "-static"' -o helix .
+}
+
+function build-runner() {
+  echo "Building helix-runner binary..."
+  export CGO_ENABLED=1
+  local APP_VERSION=${APP_VERSION:-"v0.0.0+dev"}
+  
+  if go build -buildvcs=false -tags '!rocm' -ldflags '-s -w -X github.com/helixml/helix/api/pkg/data.Version='$APP_VERSION -o helix-runner ./runner-cmd/helix-runner; then
+    echo "✅ Successfully built helix-runner binary"
+  else
+    echo "❌ Failed to build helix-runner binary"
+    return 1
+  fi
 }
 
 function start() {
@@ -143,8 +160,10 @@ function start() {
 
   if [[ -n "$WITH_RUNNER" ]]; then
     tmux send-keys -t 3 "docker compose -f docker-compose.dev.yaml --profile \"$RUNNER_CONTAINER\" exec $RUNNER_CONTAINER bash" C-m
+    # Build the runner binary first using our build-runner function
+    tmux send-keys -t 3 "echo 'Building helix-runner binary...' && export CGO_ENABLED=1 && go build -buildvcs=false -tags '!rocm' -ldflags '-s -w -X github.com/helixml/helix/api/pkg/data.Version=v0.0.0+dev' -o helix-runner ./runner-cmd/helix-runner && echo 'Runner binary built successfully'" C-m
     # Lack of space is intentional below - don't want to break ctrl+c up enter
-    tmux send-keys -t 3 "${DEV_CPU_ONLY_CMD}LOG_LEVEL=debug GOMODCACHE=/go/pkg/mod GOCACHE=/root/.cache/go-build GOTOOLCHAIN=auto ${VLLM_ENV_VARS} go run . runner --api-host http://172.17.0.1:8080 --api-token oh-hallo-insecure-token --runner-id dev-runner" C-m
+    tmux send-keys -t 3 "${DEV_CPU_ONLY_CMD}LOG_LEVEL=debug ${VLLM_ENV_VARS} ./helix-runner --api-host http://172.17.0.1:8080 --api-token oh-hallo-insecure-token --runner-id dev-runner" C-m
   fi
 
   if [[ -n "$WITH_DEMOS" ]]; then
@@ -536,5 +555,52 @@ function test() {
     go test -v -p 1 ./... 2>&1 | sed -u 's/^/[TEST] /'
   fi
 }
+
+function help() {
+  echo "Helix Stack Management Tool"
+  echo ""
+  echo "Available commands:"
+  echo "  build              - Build docker containers (optionally with WITH_RUNNER or WITH_DEMOS)"
+  echo "  build-runner       - Build the helix-runner binary locally"
+  echo "  static-compile     - Build static Go binary"
+  echo "  start              - Start the development environment with tmux"
+  echo "  stop               - Stop docker containers"
+  echo "  mock-runner        - Start a mock runner for testing"
+  echo "  up [services]      - Start specific docker services"
+  echo "  rebuild [services] - Rebuild and start specific docker services"
+  echo ""
+  echo "Database commands:"
+  echo "  db [cli|pipe] [postgres|pgvector] - Access database"
+  echo "  psql               - PostgreSQL CLI"
+  echo "  pgvector           - PGVector CLI"
+  echo "  list-slots         - List all runner slots"
+  echo "  slots              - Formatted view of all slots"
+  echo "  active-slots       - Show only active slots"
+  echo "  slot-stats         - Show slot statistics"
+  echo "  wipe-slots         - Delete all slots from database"
+  echo ""
+  echo "Development commands:"
+  echo "  generate           - Generate test mocks"
+  echo "  update_openapi     - Update OpenAPI documentation"
+  echo "  lint               - Run linter"
+  echo "  test [path]        - Run tests"
+  echo "  test-integration   - Run integration tests"
+  echo "  ollama-sync        - Sync Ollama memory estimation files"
+  echo ""
+  echo "Environment variables:"
+  echo "  WITH_RUNNER=1      - Include runner containers"
+  echo "  WITH_DEMOS=1       - Include demo containers"
+  echo "  FORCE_CPU=1        - Force CPU-only mode"
+  echo "  WIPE_SLOTS=1       - Wipe database slots on start"
+  echo "  STOP_KEYCLOAK=1    - Stop Keycloak when stopping"
+  echo "  STOP_POSTGRES=1    - Stop PostgreSQL when stopping"
+  echo "  STOP_PGVECTOR=1    - Stop PGVector when stopping"
+}
+
+# Show help if no arguments provided
+if [[ $# -eq 0 ]]; then
+  help
+  exit 0
+fi
 
 eval "$@"
