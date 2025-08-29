@@ -159,7 +159,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       }
 
       // Get current session data to compare interaction counts
-      const currentSessionData = queryClient.getQueryData(GET_SESSION_QUERY_KEY(currentSessionId));
+      const currentSessionData = queryClient.getQueryData(GET_SESSION_QUERY_KEY(currentSessionId)) as TypesSession | undefined;
       if (currentSessionData && currentSessionData.interactions) {
         const currentInteractionCount = currentSessionData.interactions.length;
         // Reject updates with fewer interactions than current (stale updates)
