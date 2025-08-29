@@ -111,17 +111,7 @@ export const Interaction: FC<InteractionProps> = ({
         let isLoading =
             interaction.state == TypesInteractionState.InteractionStateWaiting;
 
-        // Debug logging for blank screen issue
-        console.log("Interaction component Debug:", {
-            interactionId: interaction?.id,
-            interactionState: interaction?.state,
-            hasResponseMessage: !!interaction?.response_message,
-            responseMessageLength: interaction?.response_message?.length || 0,
-            responseMessagePreview:
-                interaction?.response_message?.substring(0, 50) + "..." ||
-                "NO RESPONSE MESSAGE",
-            isLoading,
-        });
+        // Removed excessive debug logging
 
         // Extract user message from prompt_message or display_message
         if (interaction?.prompt_message) {

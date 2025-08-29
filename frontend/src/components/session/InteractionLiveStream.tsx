@@ -43,21 +43,7 @@ export const InteractionLiveStream: FC<{
     const { message, status, isStale, stepInfos, isComplete } =
         useLiveInteraction(session_id, interaction);
 
-    // Debug logging for blank screen issue
-    console.log("InteractionLiveStream Debug:", {
-        session_id,
-        interactionId: interaction?.id,
-        interactionState: interaction?.state,
-        message: message ? `${message.substring(0, 50)}...` : "NO MESSAGE",
-        messageLength: message?.length || 0,
-        status,
-        isStale,
-        stepInfosLength: stepInfos?.length || 0,
-        isComplete,
-        isActivelyStreaming: true, // Will be updated below
-        serverConfigExists: !!serverConfig,
-        filestorePrefix: serverConfig?.filestore_prefix,
-    });
+    // Removed excessive debug logging
 
     // Add state to track if we're still in streaming mode or completed
     const [isActivelyStreaming, setIsActivelyStreaming] = useState(true);
@@ -100,19 +86,19 @@ export const InteractionLiveStream: FC<{
     // Reset streaming state when a new interaction starts or interaction ID changes
     useEffect(() => {
         // Always reset to streaming state when interaction ID changes
-        console.log(
-            "InteractionLiveStream: Resetting streaming state for interaction",
-            interaction?.id,
-        );
+        // Removed excessive debug logging
         setIsActivelyStreaming(true);
     }, [interaction?.id]);
 
     // Effect to detect completion from the server (WebSocket)
     useEffect(() => {
         if (isComplete && isActivelyStreaming) {
-            console.log(
-                "InteractionLiveStream: Setting streaming to false - interaction complete",
-            );
+            console.log("🔄 STREAM_END: Setting streaming to false", {
+                sessionId: session_id,
+                interactionId: interaction?.id,
+                hasMessage: !!message,
+                messageLength: message?.length || 0
+            });
             setIsActivelyStreaming(false);
         }
     }, [isComplete, isActivelyStreaming]);
@@ -129,18 +115,16 @@ export const InteractionLiveStream: FC<{
     }, [message, onMessageUpdate]);
 
     if (!serverConfig || !serverConfig.filestore_prefix) {
-        console.log(
-            "InteractionLiveStream: Returning null - missing serverConfig or filestore_prefix",
-        );
         return null;
     }
 
-    console.log("InteractionLiveStream: Rendering with:", {
-        showLoading,
-        hasMessage: !!message,
-        stepInfosCount: stepInfos.length,
-        isActivelyStreaming,
-    });
+    // Minimal logging for debugging if needed
+    if (interaction.state === "complete" && !message) {
+        console.log("🚨 CRITICAL: Complete state but no message!", {
+            sessionId: session_id,
+            interactionId: interaction?.id
+        });
+    }
 
     return (
         <>
