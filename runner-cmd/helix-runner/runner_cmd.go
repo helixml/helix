@@ -1,4 +1,4 @@
-package helix
+package main
 
 import (
 	"fmt"
@@ -20,7 +20,7 @@ type RunnerOptions struct {
 	Janitor config.Janitor
 }
 
-func NewRunnerOptions() *RunnerOptions {
+func newRunnerOptions() *RunnerOptions {
 	return &RunnerOptions{
 		Runner: runner.Options{
 			ID:                           getDefaultServeOptionString("RUNNER_ID", ""),
@@ -51,7 +51,7 @@ func NewRunnerOptions() *RunnerOptions {
 }
 
 func newRunnerCmd() *cobra.Command {
-	allOptions := NewRunnerOptions()
+	allOptions := newRunnerOptions()
 
 	runnerCmd := &cobra.Command{
 		Use:     "runner",
