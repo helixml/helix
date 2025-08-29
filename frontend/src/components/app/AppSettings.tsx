@@ -150,6 +150,7 @@ const ResizableTextarea = styled('textarea')(({ theme }) => ({
   border: `1px solid ${theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.23)' : 'rgba(255, 255, 255, 0.23)'}`,
   borderRadius: '4px',
   backgroundColor: 'transparent',
+  color: theme.palette.text.primary,
   resize: 'vertical',
   outline: 'none',
   transition: theme.transitions.create(['border-color', 'box-shadow']),
