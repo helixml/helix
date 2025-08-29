@@ -14,7 +14,10 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/helixml/helix/api/pkg/system"
@@ -29,14 +32,16 @@ var (
 )
 
 type AxolotlRuntime struct {
-	version       string
-	axolotlClient *AxolotlClient
-	port          int
-	cmd           *exec.Cmd
-	cancel        context.CancelFunc
-	startTimeout  time.Duration
-	runnerOptions *Options
-	logBuffer     *system.ModelInstanceLogBuffer // Log buffer for this instance
+	version        string
+	axolotlClient  *AxolotlClient
+	port           int
+	cmd            *exec.Cmd
+	cancel         context.CancelFunc
+	startTimeout   time.Duration
+	runnerOptions  *Options
+	logBuffer      *system.ModelInstanceLogBuffer // Log buffer for this instance
+	processTracker *ProcessTracker                // Process tracker for monitoring
+	slotID         *uuid.UUID                     // Associated slot ID
 }
 type AxolotlRuntimeParams struct {
 	Port          *int           // If nil, will be assigned a random port
@@ -141,6 +146,12 @@ func (d *AxolotlRuntime) Stop() error {
 
 func (d *AxolotlRuntime) URL() string {
 	return fmt.Sprintf("http://localhost:%d", d.port)
+}
+
+// SetProcessTracker sets the process tracker for monitoring
+func (d *AxolotlRuntime) SetProcessTracker(tracker *ProcessTracker, slotID uuid.UUID) {
+	d.processTracker = tracker
+	d.slotID = &slotID
 }
 
 func (d *AxolotlRuntime) Runtime() types.Runtime {

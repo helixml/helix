@@ -728,6 +728,22 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
+		// Reload session to get any metadata updates that happened during streaming
+		// (e.g., document IDs from knowledge/RAG results). This prevents the WebSocket
+		// event from UpdateInteraction overriding the correct metadata sent earlier.
+		if updatedSession, err := s.Store.GetSession(ctx, session.ID); err != nil {
+			log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to reload session metadata for initial error update")
+		} else {
+			// Preserve the interactions array from the original session object
+			// but use the updated metadata from the database
+			updatedSession.Interactions = session.Interactions
+			session = updatedSession
+			log.Debug().
+				Str("session_id", session.ID).
+				Interface("document_ids", session.Metadata.DocumentIDs).
+				Msg("reloaded session metadata before initial error WebSocket update")
+		}
+
 		writeErr := s.Controller.UpdateInteraction(ctx, session, interaction)
 		if writeErr != nil {
 			return fmt.Errorf("error writing session: %w", writeErr)
@@ -774,6 +790,22 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
+			// Reload session to get any metadata updates that happened during streaming
+			// (e.g., document IDs from knowledge/RAG results). This prevents the WebSocket
+			// event from UpdateInteraction overriding the correct metadata sent earlier.
+			if updatedSession, err := s.Store.GetSession(ctx, session.ID); err != nil {
+				log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to reload session metadata for error update")
+			} else {
+				// Preserve the interactions array from the original session object
+				// but use the updated metadata from the database
+				updatedSession.Interactions = session.Interactions
+				session = updatedSession
+				log.Debug().
+					Str("session_id", session.ID).
+					Interface("document_ids", session.Metadata.DocumentIDs).
+					Msg("reloaded session metadata before error WebSocket update")
+			}
+
 			return s.Controller.UpdateInteraction(ctx, session, interaction)
 		}
 
@@ -809,6 +841,22 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	// Do not inherit the context from the caller, as it may be cancelled.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	// Reload session to get any metadata updates that happened during streaming
+	// (e.g., document IDs from knowledge/RAG results). This prevents the WebSocket
+	// event from UpdateInteraction overriding the correct metadata sent earlier.
+	if updatedSession, err := s.Store.GetSession(ctx, session.ID); err != nil {
+		log.Warn().Err(err).Str("session_id", session.ID).Msg("failed to reload session metadata for final update")
+	} else {
+		// Preserve the interactions array from the original session object
+		// but use the updated metadata from the database
+		updatedSession.Interactions = session.Interactions
+		session = updatedSession
+		log.Debug().
+			Str("session_id", session.ID).
+			Interface("document_ids", session.Metadata.DocumentIDs).
+			Msg("reloaded session metadata before final WebSocket update")
+	}
 
 	err = s.Controller.UpdateInteraction(ctx, session, interaction)
 	if err != nil {
