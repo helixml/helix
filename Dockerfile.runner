@@ -48,7 +48,7 @@ RUN apt-get update && apt-get install -y gcc g++ libc6-dev && rm -rf /var/lib/ap
 # Build the Go app
 # RUN go mod tidy && go mod download && CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
 ARG APP_VERSION="v0.0.0+unknown"
-RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=1 go build -tags "!rocm" -ldflags "-s -w -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix-runner ./runner/helix-runner
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=1 go build -tags "!rocm" -ldflags "-s -w -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix-runner ./runner-cmd/helix-runner
 
 # Stage for downloading vLLM templates
 FROM alpine:latest as vllm-templates
