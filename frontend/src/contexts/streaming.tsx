@@ -151,6 +151,23 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     
     // If there's a session update with state changes
     if (parsedData.type === "session_update" && parsedData.session) {
+      const newInteractionCount = parsedData.session.interactions?.length || 0;
+
+      // Always reject session updates with 0 interactions - these are invalid
+      if (newInteractionCount === 0) {
+        return;
+      }
+
+      // Get current session data to compare interaction counts
+      const currentSessionData = queryClient.getQueryData(GET_SESSION_QUERY_KEY(currentSessionId)) as TypesSession | undefined;
+      if (currentSessionData && currentSessionData.interactions) {
+        const currentInteractionCount = currentSessionData.interactions.length;
+        // Reject updates with fewer interactions than current (stale updates)
+        if (newInteractionCount < currentInteractionCount) {
+          return;
+        }
+      }
+
       const lastInteraction = parsedData.session.interactions?.[parsedData.session.interactions.length - 1];
 
       if (!lastInteraction) return;

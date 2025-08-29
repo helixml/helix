@@ -101,12 +101,15 @@ func (q *WorkQueue) TakeNext(hasWarmSlot func(*Workload) bool) *Workload {
 }
 
 // GetRequiredSlots analyzes the queue and returns the slot requirements
+// preserving FIFO order (first occurrence of each model type determines priority)
 func (q *WorkQueue) GetRequiredSlots() []SlotRequirement {
 	// Get a copy of the copy of the queue with an RLock to reduce contention
 	items := q.Queue()
 
-	// Map to accumulate requirements
+	// Map to accumulate requirements and track what we've seen
 	reqMap := make(map[string]*SlotRequirement)
+	// Slice to preserve order of first occurrence (FIFO)
+	orderedKeys := make([]string, 0)
 
 	for _, work := range items {
 		// Create a key that uniquely identifies this slot type
@@ -119,6 +122,7 @@ func (q *WorkQueue) GetRequiredSlots() []SlotRequirement {
 		if req, exists := reqMap[key]; exists {
 			req.Count++
 		} else {
+			// First time seeing this requirement - add to both map and ordered list
 			reqMap[key] = &SlotRequirement{
 				Runtime:         work.Runtime(),
 				Model:           work.ModelName(),
@@ -126,13 +130,14 @@ func (q *WorkQueue) GetRequiredSlots() []SlotRequirement {
 				Count:           1,
 				ExampleWorkload: work,
 			}
+			orderedKeys = append(orderedKeys, key)
 		}
 	}
 
-	// Convert map to slice
+	// Convert to slice preserving FIFO order
 	requirements := make([]SlotRequirement, 0, len(reqMap))
-	for _, req := range reqMap {
-		requirements = append(requirements, *req)
+	for _, key := range orderedKeys {
+		requirements = append(requirements, *reqMap[key])
 	}
 
 	return requirements

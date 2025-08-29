@@ -51,7 +51,7 @@ const RECOMMENDED_MODELS = {
     'Qwen/Qwen2.5-7B-Instruct-Turbo',     
   ],
   // No tool use required, can be any text generation model
-  smallGeneration: ['gpt-4o', 'gpt-4o-mini', 'Qwen/Qwen2.5-7B-Instruct-Turbo', 'meta-llama/Llama-3-8b-chat-hf']
+  smallGeneration: ['gpt-4o', 'gpt-4o-mini', 'Qwen/Qwen2.5-7B-Instruct-Turbo', 'openai/gpt-oss-20b']
 };
 
 interface AppSettingsProps {

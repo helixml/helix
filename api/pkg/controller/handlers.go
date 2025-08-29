@@ -3,7 +3,10 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 
+	"github.com/google/uuid"
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -112,17 +115,48 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 		allModels = []*types.Model{} // Continue with empty list
 	}
 
-	// Create a map for fast model memory lookups
+	// Create a map for fast model memory lookups with GGUF-based estimates for Ollama models
 	modelMemoryMap := make(map[string]uint64)
 	for _, model := range allModels {
-		modelMemoryMap[model.ID] = model.Memory
-		log.Trace().
+		memory := model.Memory
+
+		// For Ollama models, only use GGUF-based memory estimate - skip if not available
+		if model.Runtime == types.RuntimeOllama {
+			if c.scheduler == nil {
+				log.Debug().
+					Str("model_id", model.ID).
+					Msg("📋 scheduler not available for GGUF estimation, skipping model")
+				continue // Skip this model entirely
+			} else {
+				ggufMemory, err := c.getGGUFBasedMemoryEstimateForDashboard(ctx, model.ID)
+				if err != nil {
+					log.Debug().
+						Str("model_id", model.ID).
+						Err(err).
+						Msg("📋 GGUF estimation failed, skipping model")
+					continue // Skip this model entirely
+				} else {
+					memory = ggufMemory
+					log.Debug().
+						Str("model_id", model.ID).
+						Uint64("gguf_memory_bytes", ggufMemory).
+						Msg("📋 Using GGUF-based memory estimate for dashboard")
+				}
+			}
+		}
+
+		modelMemoryMap[model.ID] = memory
+
+		log.Debug().
+			Str("MEMORY_DEBUG", "storing_in_modelMemoryMap").
 			Str("model_id", model.ID).
 			Str("model_type", string(model.Type)).
 			Str("runtime", string(model.Runtime)).
-			Uint64("memory_bytes", model.Memory).
 			Bool("enabled", model.Enabled).
-			Msg("📋 Loaded model from store")
+			Uint64("memory_bytes", memory).
+			Uint64("memory_gb", memory/(1024*1024*1024)).
+			Float64("memory_gib", float64(memory)/(1024*1024*1024)).
+			Msg("🔥 MEMORY_DEBUG: Storing model memory in modelMemoryMap")
 	}
 
 	log.Trace().
@@ -153,35 +187,29 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 				Msg("🏃 Runner model")
 		}
 
-		// Add memory information to the models from our store lookup
-		modelsWithMemory := make([]*types.RunnerModelStatus, len(runnerStatus.Models))
-		for i, model := range runnerStatus.Models {
-			// Copy the model and add memory from store
-			modelWithMemory := *model // Copy the struct
+		// Only include models that have GGUF estimates (no fallback to store values)
+		modelsWithMemory := make([]*types.RunnerModelStatus, 0)
+		for _, model := range runnerStatus.Models {
 			if memory, exists := modelMemoryMap[model.ModelID]; exists {
+				// Copy the model and add GGUF memory estimate
+				modelWithMemory := *model // Copy the struct
 				modelWithMemory.Memory = memory
+				modelsWithMemory = append(modelsWithMemory, &modelWithMemory)
+				log.Debug().
+					Str("MEMORY_DEBUG", "adding_to_modelsWithMemory").
+					Str("runner_id", runnerStatus.ID).
+					Str("model_id", model.ModelID).
+					Uint64("gguf_memory_bytes", memory).
+					Uint64("gguf_memory_gb", memory/(1024*1024*1024)).
+					Float64("gguf_memory_gib", float64(memory)/(1024*1024*1024)).
+					Msg("🔥 MEMORY_DEBUG: Adding model with memory to runner models list")
+			} else {
+				// Skip models without GGUF estimates entirely (for Ollama models)
 				log.Debug().
 					Str("runner_id", runnerStatus.ID).
 					Str("model_id", model.ModelID).
-					Uint64("memory_bytes", memory).
-					Msg("✅ Found memory for model")
-			} else {
-				// Get a sample of available model IDs for debugging
-				var availableIDs []string
-				for id := range modelMemoryMap {
-					availableIDs = append(availableIDs, id)
-					if len(availableIDs) >= 5 { // Limit to first 5 for readability
-						availableIDs = append(availableIDs, "...")
-						break
-					}
-				}
-				log.Warn().
-					Str("runner_id", runnerStatus.ID).
-					Str("model_id", model.ModelID).
-					Interface("available_models", availableIDs).
-					Msg("❌ No memory found for model - ID mismatch?")
+					Msg("⏭️ Skipping model without GGUF estimate from dashboard")
 			}
-			modelsWithMemory[i] = &modelWithMemory
 		}
 
 		// Also create model entries for any running slots that aren't in the runner's model list
@@ -194,7 +222,7 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 		// Add models from running slots that aren't already in the models list
 		for _, slot := range runnerSlots {
 			if !slotModelMap[slot.Model] {
-				// This slot model isn't in the runner's reported models, so add it
+				// Only add slot models that have GGUF estimates (no fallback to store values)
 				if memory, exists := modelMemoryMap[slot.Model]; exists {
 					slotModel := &types.RunnerModelStatus{
 						ModelID: slot.Model,
@@ -208,17 +236,21 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 					modelsWithMemory = append(modelsWithMemory, slotModel)
 					slotModelMap[slot.Model] = true
 					log.Debug().
+						Str("MEMORY_DEBUG", "adding_slot_model_to_modelsWithMemory").
 						Str("runner_id", runnerStatus.ID).
 						Str("slot_id", slot.ID.String()).
 						Str("model", slot.Model).
-						Uint64("memory_bytes", memory).
-						Msg("✅ Added slot model to models list with memory")
+						Uint64("gguf_memory_bytes", memory).
+						Uint64("gguf_memory_gb", memory/(1024*1024*1024)).
+						Float64("gguf_memory_gib", float64(memory)/(1024*1024*1024)).
+						Msg("🔥 MEMORY_DEBUG: Adding slot model with memory to models list")
 				} else {
+					// Skip slot models without GGUF estimates entirely (for Ollama models)
 					log.Debug().
 						Str("runner_id", runnerStatus.ID).
 						Str("slot_id", slot.ID.String()).
 						Str("model", slot.Model).
-						Msg("⚠️ No memory found for slot model")
+						Msg("⏭️ Skipping slot model without GGUF estimate from dashboard")
 				}
 			}
 		}
@@ -237,6 +269,8 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 			Labels:          runnerStatus.Labels,
 			Slots:           runnerSlots,
 			Models:          modelsWithMemory, // Use models with memory info (now includes slot models)
+			ProcessStats:    runnerStatus.ProcessStats,
+			GPUMemoryStats:  runnerStatus.GPUMemoryStats,
 		})
 	}
 	queue, err := c.scheduler.Queue()
@@ -247,15 +281,208 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 	// Get recent scheduling decisions (last 50)
 	schedulingDecisions := c.scheduler.GetSchedulingDecisions(50)
 
+	// Get recent global allocation decisions (last 25)
+	globalAllocationDecisions := c.scheduler.GetGlobalAllocationDecisions(25)
+
 	return &types.DashboardData{
-		Runners:             runners,
-		Queue:               queue,
-		SchedulingDecisions: schedulingDecisions,
+		Runners:                   runners,
+		Queue:                     queue,
+		SchedulingDecisions:       schedulingDecisions,
+		GlobalAllocationDecisions: globalAllocationDecisions,
 	}, nil
+}
+
+// getGGUFBasedMemoryEstimateForDashboard attempts to get GGUF-based memory estimate for Ollama models for dashboard display
+func (c *Controller) getGGUFBasedMemoryEstimateForDashboard(ctx context.Context, modelID string) (uint64, error) {
+	// Access memory estimation service through scheduler
+	memEstService := c.scheduler.GetMemoryEstimationService()
+	if memEstService == nil {
+		return 0, fmt.Errorf("memory estimation service not available")
+	}
+
+	// Get model from store first
+	models, err := c.Options.Store.ListModels(ctx, &store.ListModelsQuery{})
+	if err != nil {
+		return 0, fmt.Errorf("failed to list models from store: %w", err)
+	}
+
+	var targetModel *types.Model
+	for _, model := range models {
+		if model.ID == modelID {
+			targetModel = model
+			break
+		}
+	}
+
+	if targetModel == nil {
+		return 0, fmt.Errorf("model %s not found in store", modelID)
+	}
+
+	if targetModel.Runtime != types.RuntimeOllama {
+		return 0, fmt.Errorf("GGUF-based estimation only available for Ollama models, got %s", targetModel.Runtime)
+	}
+
+	// Use model's actual context length - no fallbacks
+	log.Debug().
+		Str("CONTEXT_DEBUG", "dashboard").
+		Str("model_id", modelID).
+		Int64("context_length_from_store", targetModel.ContextLength).
+		Str("runtime", string(targetModel.Runtime)).
+		Msg("🦈 HAMMERHEAD Dashboard reading context length from model store")
+
+	if targetModel.ContextLength == 0 {
+		log.Error().
+			Str("model_id", modelID).
+			Msg("CRITICAL: model has no context length configured - cannot estimate memory for dashboard")
+		return 0, fmt.Errorf("model %s has no context length configured", modelID)
+	}
+
+	// Use model's actual context length and correct KV cache type
+	opts := memory.CreateAutoEstimateOptions(targetModel.ContextLength)
+
+	// CRITICAL: Use same concurrency setting as scheduler to ensure consistent cache keys and estimates
+	// This fixes the 14.848 GiB vs 47.75 GB discrepancy
+	if targetModel.Concurrency > 0 {
+		opts.NumParallel = targetModel.Concurrency
+		log.Debug().
+			Str("model_id", modelID).
+			Int("concurrency", targetModel.Concurrency).
+			Msg("🦈 HAMMERHEAD Dashboard using per-model concurrency setting")
+	} else if targetModel.Runtime == types.RuntimeOllama {
+		opts.NumParallel = memory.DefaultOllamaParallelSequences
+		log.Debug().
+			Str("model_id", modelID).
+			Int("concurrency", opts.NumParallel).
+			Msg("🦈 HAMMERHEAD Dashboard using Ollama default concurrency")
+	}
+
+	log.Debug().
+		Str("CONTEXT_DEBUG", "dashboard_opts").
+		Str("model_id", modelID).
+		Int("num_ctx_being_used", opts.NumCtx).
+		Int("num_parallel_being_used", opts.NumParallel).
+		Str("kv_cache_type", opts.KVCacheType).
+		Msg("🦈 HAMMERHEAD Dashboard using these estimation options")
+
+	// Get memory estimation
+	result, err := memEstService.EstimateModelMemory(ctx, modelID, opts)
+	if err != nil {
+		return 0, fmt.Errorf("failed to estimate model memory: %w", err)
+	}
+
+	log.Debug().
+		Str("MEMORY_DEBUG", "estimation_result_received").
+		Str("model_id", modelID).
+		Str("recommendation", result.Recommendation).
+		Uint64("single_gpu_total_size", func() uint64 {
+			if result.SingleGPU != nil {
+				return result.SingleGPU.TotalSize
+			}
+			return 0
+		}()).
+		Uint64("single_gpu_vram_size", func() uint64 {
+			if result.SingleGPU != nil {
+				return result.SingleGPU.VRAMSize
+			}
+			return 0
+		}()).
+		Msg("🔥 MEMORY_DEBUG: Raw estimation result from memory service")
+
+	// Select the appropriate estimate based on recommendation
+	var estimate *memory.MemoryEstimate
+	switch result.Recommendation {
+	case "single_gpu":
+		estimate = result.SingleGPU
+	case "tensor_parallel":
+		estimate = result.TensorParallel
+	case "insufficient_memory":
+		// For UI display, prefer GPU estimates to show actual VRAM requirements
+		log.Debug().
+			Str("model_id", modelID).
+			Str("recommendation", result.Recommendation).
+			Interface("single_gpu", result.SingleGPU).
+			Interface("tensor_parallel", result.TensorParallel).
+			Msg("📋 SALMON Memory estimation result details for insufficient_memory case")
+
+		if result.SingleGPU != nil && result.SingleGPU.TotalSize > 0 {
+			estimate = result.SingleGPU
+		} else if result.TensorParallel != nil && result.TensorParallel.TotalSize > 0 {
+			estimate = result.TensorParallel
+		} else {
+			log.Debug().
+				Str("model_id", modelID).
+				Bool("single_gpu_nil", result.SingleGPU == nil).
+				Uint64("single_gpu_vram", func() uint64 {
+					if result.SingleGPU != nil {
+						return result.SingleGPU.VRAMSize
+					} else {
+						return 0
+					}
+				}()).
+				Uint64("single_gpu_total", func() uint64 {
+					if result.SingleGPU != nil {
+						return result.SingleGPU.TotalSize
+					} else {
+						return 0
+					}
+				}()).
+				Bool("tensor_parallel_nil", result.TensorParallel == nil).
+				Uint64("tensor_parallel_vram", func() uint64 {
+					if result.TensorParallel != nil {
+						return result.TensorParallel.VRAMSize
+					} else {
+						return 0
+					}
+				}()).
+				Uint64("tensor_parallel_total", func() uint64 {
+					if result.TensorParallel != nil {
+						return result.TensorParallel.TotalSize
+					} else {
+						return 0
+					}
+				}()).
+				Msg("📋 SALMON No valid GPU estimates found for display")
+			return 0, fmt.Errorf("no GPU-based estimate available for model %s", modelID)
+		}
+	default:
+		return 0, fmt.Errorf("unknown recommendation %s for model %s", result.Recommendation, modelID)
+	}
+
+	if estimate == nil {
+		return 0, fmt.Errorf("invalid memory estimate for model %s", modelID)
+	}
+
+	// Always use TotalSize for consistent memory estimation
+	if estimate.TotalSize > 0 {
+		log.Debug().
+			Str("MEMORY_DEBUG", "final_dashboard_value").
+			Str("model_id", modelID).
+			Uint64("total_size", estimate.TotalSize).
+			Uint64("total_size_gb", estimate.TotalSize/(1024*1024*1024)).
+			Float64("total_size_gib", float64(estimate.TotalSize)/(1024*1024*1024)).
+			Uint64("vram_size", estimate.VRAMSize).
+			Msg("🔥 MEMORY_DEBUG: Final memory value being returned for dashboard")
+		return estimate.TotalSize, nil
+	} else {
+		return 0, fmt.Errorf("invalid memory estimate for model %s", modelID)
+	}
 }
 
 func (c *Controller) GetSchedulerHeartbeats(_ context.Context) (interface{}, error) {
 	return c.scheduler.GetGoroutineHeartbeats(), nil
+}
+
+// DeleteSlotFromScheduler removes a slot from the scheduler's desired state
+// This allows the reconciler to clean up the slot from the runner
+func (c *Controller) DeleteSlotFromScheduler(_ context.Context, slotID uuid.UUID) error {
+	log.Info().Str("slot_id", slotID.String()).Msg("DEBUG: Controller.DeleteSlotFromScheduler called")
+	err := c.scheduler.DeleteSlot(slotID)
+	if err != nil {
+		log.Error().Err(err).Str("slot_id", slotID.String()).Msg("DEBUG: scheduler.DeleteSlot failed")
+		return err
+	}
+	log.Info().Str("slot_id", slotID.String()).Msg("DEBUG: scheduler.DeleteSlot completed successfully")
+	return nil
 }
 
 func (c *Controller) updateSubscriptionUser(userID string, stripeCustomerID string, stripeSubscriptionID string, active bool) error {
