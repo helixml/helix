@@ -22,6 +22,7 @@ type SeedModelFromEnv struct {
 	Runtime       string                 `json:"runtime"`
 	Memory        interface{}            `json:"memory,omitempty"` // Can be number (bytes) or string ("8GB")
 	ContextLength int64                  `json:"context_length,omitempty"`
+	Concurrency   int                    `json:"concurrency,omitempty"`
 	Description   string                 `json:"description,omitempty"`
 	Enabled       *bool                  `json:"enabled,omitempty"` // Pointer to distinguish nil from false
 	Hide          *bool                  `json:"hide,omitempty"`
@@ -235,6 +236,7 @@ func (s *PostgresStore) convertSeedModelToTypesModel(seedModel *SeedModelFromEnv
 
 	// Set optional fields with defaults
 	model.ContextLength = seedModel.ContextLength
+	model.Concurrency = seedModel.Concurrency
 	model.Enabled = getBoolWithDefault(seedModel.Enabled, true)
 	model.Hide = getBoolWithDefault(seedModel.Hide, false)
 	model.AutoPull = getBoolWithDefault(seedModel.AutoPull, false)

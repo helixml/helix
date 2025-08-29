@@ -16,9 +16,13 @@ linters:
     - forbidigo
     # - gocritic
 
+#  disable:
+#    - goanalysis_metalinter
+
 issues:
-  exlude-dirs:
+  exclude-dirs:
     - vendor
+    - llama/llama.cpp
   exclude-rules:
     - path: 'api/cmd'
       linters:

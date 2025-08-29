@@ -127,3 +127,89 @@ func (t *SchedulingDecisionsTracker) Clear() {
 	t.index = 0
 	t.count = 0
 }
+
+// GlobalAllocationDecisionsTracker manages a circular buffer of global allocation decisions
+type GlobalAllocationDecisionsTracker struct {
+	mu        sync.RWMutex
+	decisions []*types.GlobalAllocationDecision
+	index     int
+	size      int
+	count     int
+}
+
+// NewGlobalAllocationDecisionsTracker creates a new tracker with the specified buffer size
+func NewGlobalAllocationDecisionsTracker(size int) *GlobalAllocationDecisionsTracker {
+	return &GlobalAllocationDecisionsTracker{
+		decisions: make([]*types.GlobalAllocationDecision, size),
+		size:      size,
+	}
+}
+
+// LogGlobalDecision adds a new global allocation decision to the tracker
+func (t *GlobalAllocationDecisionsTracker) LogGlobalDecision(decision *types.GlobalAllocationDecision) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// Generate ID if not provided
+	if decision.ID == "" {
+		decision.ID = uuid.New().String()
+	}
+
+	// Set created time if not provided
+	if decision.Created.IsZero() {
+		decision.Created = time.Now()
+	}
+
+	// Add to circular buffer
+	t.decisions[t.index] = decision
+	t.index = (t.index + 1) % t.size
+	if t.count < t.size {
+		t.count++
+	}
+}
+
+// GetRecentGlobalDecisions returns the most recent global decisions, newest first
+func (t *GlobalAllocationDecisionsTracker) GetRecentGlobalDecisions(limit int) []*types.GlobalAllocationDecision {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	if t.count == 0 {
+		return []*types.GlobalAllocationDecision{}
+	}
+
+	if limit <= 0 || limit > t.count {
+		limit = t.count
+	}
+
+	result := make([]*types.GlobalAllocationDecision, 0, limit)
+
+	// Start from the most recent and work backwards
+	currentIndex := t.index - 1
+	if currentIndex < 0 {
+		currentIndex = t.size - 1
+	}
+
+	for i := 0; i < limit; i++ {
+		if t.decisions[currentIndex] != nil {
+			result = append(result, t.decisions[currentIndex])
+		}
+		currentIndex--
+		if currentIndex < 0 {
+			currentIndex = t.size - 1
+		}
+	}
+
+	return result
+}
+
+// ClearGlobal removes all stored global allocation decisions
+func (t *GlobalAllocationDecisionsTracker) ClearGlobal() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for i := range t.decisions {
+		t.decisions[i] = nil
+	}
+	t.index = 0
+	t.count = 0
+}

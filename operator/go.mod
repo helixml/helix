@@ -1,8 +1,8 @@
 module github.com/helixml/helix/operator
 
-go 1.24
+go 1.24.0
 
-toolchain go1.24.3
+toolchain go1.24.5
 
 require (
 	github.com/helixml/helix v0.0.0

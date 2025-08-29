@@ -882,9 +882,73 @@ type WorkloadSummary struct {
 }
 
 type DashboardData struct {
-	Runners             []*DashboardRunner    `json:"runners"`
-	Queue               []*WorkloadSummary    `json:"queue"`
-	SchedulingDecisions []*SchedulingDecision `json:"scheduling_decisions"`
+	Runners                   []*DashboardRunner          `json:"runners"`
+	Queue                     []*WorkloadSummary          `json:"queue"`
+	SchedulingDecisions       []*SchedulingDecision       `json:"scheduling_decisions"`
+	GlobalAllocationDecisions []*GlobalAllocationDecision `json:"global_allocation_decisions"`
+}
+
+// GPUMemoryDataPoint represents a single point in time for GPU memory tracking
+type GPUMemoryDataPoint struct {
+	Timestamp     time.Time `json:"timestamp"`
+	GPUIndex      int       `json:"gpu_index"`
+	AllocatedMB   uint64    `json:"allocated_mb"`    // Memory allocated by Helix scheduler
+	ActualUsedMB  uint64    `json:"actual_used_mb"`  // Actual memory used (from nvidia-smi)
+	ActualFreeMB  uint64    `json:"actual_free_mb"`  // Actual free memory (from nvidia-smi)
+	ActualTotalMB uint64    `json:"actual_total_mb"` // Total GPU memory
+}
+
+// SchedulingEvent represents a scheduling event for correlation with memory usage
+type SchedulingEvent struct {
+	Timestamp   time.Time `json:"timestamp"`
+	EventType   string    `json:"event_type"` // "slot_created", "slot_deleted", "eviction", "stabilization_start", "stabilization_end"
+	SlotID      string    `json:"slot_id,omitempty"`
+	ModelName   string    `json:"model_name,omitempty"`
+	Runtime     string    `json:"runtime,omitempty"`
+	GPUIndices  []int     `json:"gpu_indices,omitempty"`
+	MemoryMB    uint64    `json:"memory_mb,omitempty"`
+	Description string    `json:"description,omitempty"`
+}
+
+// GPUMemoryReading represents a single memory reading during stabilization
+type GPUMemoryReading struct {
+	PollNumber  int    `json:"poll_number"`
+	MemoryMB    uint64 `json:"memory_mb"`
+	DeltaMB     int64  `json:"delta_mb"`
+	StableCount int    `json:"stable_count"`
+	IsStable    bool   `json:"is_stable"`
+}
+
+// GPUMemoryStabilizationEvent represents a single GPU memory stabilization event
+type GPUMemoryStabilizationEvent struct {
+	Timestamp              time.Time          `json:"timestamp"`
+	Context                string             `json:"context"` // "startup" or "deletion"
+	SlotID                 string             `json:"slot_id,omitempty"`
+	Runtime                string             `json:"runtime,omitempty"`
+	TimeoutSeconds         int                `json:"timeout_seconds"`
+	PollIntervalMs         int                `json:"poll_interval_ms"`
+	RequiredStablePolls    int                `json:"required_stable_polls"`
+	MemoryDeltaThresholdMB uint64             `json:"memory_delta_threshold_mb"`
+	Success                bool               `json:"success"`
+	PollsTaken             int                `json:"polls_taken"`
+	TotalWaitSeconds       int                `json:"total_wait_seconds"`
+	StabilizedMemoryMB     uint64             `json:"stabilized_memory_mb,omitempty"`
+	ErrorMessage           string             `json:"error_message,omitempty"`
+	MemoryReadings         []GPUMemoryReading `json:"memory_readings,omitempty"`
+}
+
+// GPUMemoryStats tracks GPU memory stabilization statistics
+type GPUMemoryStats struct {
+	TotalStabilizations      int                           `json:"total_stabilizations"`
+	SuccessfulStabilizations int                           `json:"successful_stabilizations"`
+	FailedStabilizations     int                           `json:"failed_stabilizations"`
+	LastStabilization        *time.Time                    `json:"last_stabilization,omitempty"`
+	RecentEvents             []GPUMemoryStabilizationEvent `json:"recent_events"` // Last 20 events
+	AverageWaitTimeSeconds   float64                       `json:"average_wait_time_seconds"`
+	MaxWaitTimeSeconds       int                           `json:"max_wait_time_seconds"`
+	MinWaitTimeSeconds       int                           `json:"min_wait_time_seconds"`
+	MemoryTimeSeries         []GPUMemoryDataPoint          `json:"memory_time_series"` // Last 10 minutes of memory data
+	SchedulingEvents         []SchedulingEvent             `json:"scheduling_events"`  // Last 10 minutes of scheduling events
 }
 
 type DashboardRunner struct {
@@ -900,7 +964,10 @@ type DashboardRunner struct {
 	GPUs            []*GPUStatus         `json:"gpus"`      // Per-GPU memory status
 	Labels          map[string]string    `json:"labels"`
 	Slots           []*RunnerSlot        `json:"slots"`
+	MemoryString    string               `json:"memory_string"`
 	Models          []*RunnerModelStatus `json:"models"`
+	ProcessStats    interface{}          `json:"process_stats,omitempty"`    // Process tracking and cleanup statistics
+	GPUMemoryStats  *GPUMemoryStats      `json:"gpu_memory_stats,omitempty"` // GPU memory stabilization statistics
 }
 
 type GlobalSchedulingDecision struct {
@@ -911,6 +978,79 @@ type GlobalSchedulingDecision struct {
 	ModelName     string        `json:"model_name"`
 	Mode          SessionMode   `json:"mode"`
 	Filter        SessionFilter `json:"filter"`
+}
+
+// AllocationPlanView represents a plan option for visualization
+type AllocationPlanView struct {
+	ID                  string         `json:"id"`
+	RunnerID            string         `json:"runner_id"`
+	GPUs                []int          `json:"gpus"`
+	GPUCount            int            `json:"gpu_count"`
+	IsMultiGPU          bool           `json:"is_multi_gpu"`
+	TotalMemoryRequired uint64         `json:"total_memory_required"`
+	MemoryPerGPU        uint64         `json:"memory_per_gpu"`
+	Cost                int            `json:"cost"`
+	RequiresEviction    bool           `json:"requires_eviction"`
+	EvictionsNeeded     []string       `json:"evictions_needed"` // Slot IDs
+	TensorParallelSize  int            `json:"tensor_parallel_size"`
+	Runtime             Runtime        `json:"runtime"`
+	IsValid             bool           `json:"is_valid"`
+	ValidationError     string         `json:"validation_error,omitempty"`
+	RunnerMemoryState   map[int]uint64 `json:"runner_memory_state"` // GPU index -> allocated memory
+	RunnerCapacity      map[int]uint64 `json:"runner_capacity"`     // GPU index -> total memory
+}
+
+// GlobalAllocationDecision represents a complete global allocation decision for visualization
+type GlobalAllocationDecision struct {
+	ID         string    `json:"id"`
+	Created    time.Time `json:"created"`
+	WorkloadID string    `json:"workload_id"`
+	SessionID  string    `json:"session_id"`
+	ModelName  string    `json:"model_name"`
+	Runtime    Runtime   `json:"runtime"`
+
+	// All plans considered
+	ConsideredPlans []*AllocationPlanView `json:"considered_plans"`
+	SelectedPlan    *AllocationPlanView   `json:"selected_plan"`
+
+	// Timing information
+	PlanningTimeMs  int64 `json:"planning_time_ms"`
+	ExecutionTimeMs int64 `json:"execution_time_ms"`
+	TotalTimeMs     int64 `json:"total_time_ms"`
+
+	// Decision outcome
+	Success      bool   `json:"success"`
+	Reason       string `json:"reason"`
+	ErrorMessage string `json:"error_message,omitempty"`
+
+	// Global state snapshots
+	BeforeState map[string]*RunnerStateView `json:"before_state"`
+	AfterState  map[string]*RunnerStateView `json:"after_state"`
+
+	// Decision metadata
+	TotalRunnersEvaluated int     `json:"total_runners_evaluated"`
+	TotalPlansGenerated   int     `json:"total_plans_generated"`
+	OptimizationScore     float64 `json:"optimization_score"` // How optimal the final decision was
+}
+
+// RunnerStateView represents a runner's state for visualization
+type RunnerStateView struct {
+	RunnerID    string            `json:"runner_id"`
+	GPUStates   map[int]*GPUState `json:"gpu_states"` // GPU index -> state
+	TotalSlots  int               `json:"total_slots"`
+	ActiveSlots int               `json:"active_slots"`
+	WarmSlots   int               `json:"warm_slots"`
+	IsConnected bool              `json:"is_connected"`
+}
+
+// GPUState represents a single GPU's state
+type GPUState struct {
+	Index           int      `json:"index"`
+	TotalMemory     uint64   `json:"total_memory"`
+	AllocatedMemory uint64   `json:"allocated_memory"`
+	FreeMemory      uint64   `json:"free_memory"`
+	ActiveSlots     []string `json:"active_slots"` // Slot IDs using this GPU
+	Utilization     float64  `json:"utilization"`  // 0.0 - 1.0
 }
 
 // keep track of the state of the data prep

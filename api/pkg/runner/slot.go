@@ -3,7 +3,9 @@ package runner
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/helixml/helix/api/pkg/system"
@@ -23,12 +25,15 @@ type Slot struct {
 	ContextLength          int64     // Optional context length override for the model
 	IntendedRuntime        types.Runtime
 	RuntimeArgs            map[string]any // Runtime-specific arguments
+	MemoryEstimationMeta   map[string]any // Metadata about memory estimation for tooltips
 	Active                 bool           // True if the slot is active
 	Ready                  bool           // True if the slot is ready to be used
+	activeRequests         int64          // Number of concurrent active requests (atomic)
 	GPUIndex               *int           // Primary GPU for single-GPU models (nil for CPU-only)
 	GPUIndices             []int          // All GPUs used for multi-GPU models
 	TensorParallelSize     int            // Number of GPUs for tensor parallelism (1 = single GPU, 0 = CPU-only)
 	CommandLine            string         // The actual command line executed for this slot
+	Created                time.Time      // When the slot was created
 	runnerOptions          *Options
 	runningRuntime         Runtime
 	apiServer              *HelixRunnerAPIServer // Reference to API server for system config
@@ -61,6 +66,7 @@ type CreateSlotParams struct {
 	ModelMemoryRequirement uint64
 	ContextLength          int64                 // Optional context length override
 	RuntimeArgs            map[string]any        // Runtime-specific arguments
+	MemoryEstimationMeta   map[string]any        // Metadata about memory estimation for tooltips
 	APIServer              *HelixRunnerAPIServer // Reference to API server for system config
 
 	// GPU allocation from scheduler - authoritative allocation decision
@@ -84,17 +90,15 @@ func NewEmptySlot(params CreateSlotParams) *Slot {
 		ContextLength:          params.ContextLength,
 		IntendedRuntime:        params.Runtime,
 		RuntimeArgs:            params.RuntimeArgs,
+		MemoryEstimationMeta:   params.MemoryEstimationMeta,
 		Active:                 false,
 		Ready:                  false,
-
-		// GPU allocation from scheduler - set during slot creation
-		GPUIndex:           params.GPUIndex,
-		GPUIndices:         params.GPUIndices,
-		TensorParallelSize: params.TensorParallelSize,
-
-		runnerOptions:  params.RunnerOptions,
-		runningRuntime: nil, // This is set during creation
-		apiServer:      params.APIServer,
+		GPUIndex:               params.GPUIndex,
+		GPUIndices:             params.GPUIndices,
+		TensorParallelSize:     params.TensorParallelSize,
+		Created:                time.Now(),
+		runnerOptions:          params.RunnerOptions,
+		apiServer:              params.APIServer,
 	}
 }
 
@@ -187,9 +191,80 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 				Msg("No specific GPU allocation from scheduler, using all available GPUs for Ollama model")
 		}
 
-		// Note, we don't pass through RuntimeArgs for Ollama because model
-		// params are defined by ollama model pulls rather than in commandline
-		// flags like vLLM
+		// Extract num_parallel from RuntimeArgs if provided by scheduler
+		log.Info().
+			Str("slot_id", s.ID.String()).
+			Str("model", s.Model).
+			Interface("runtime_args", s.RuntimeArgs).
+			Msg("🔍 TRACING: RuntimeArgs received in slot creation")
+
+		if s.RuntimeArgs != nil {
+			if numParallelVal, ok := s.RuntimeArgs["num_parallel"].(int); ok && numParallelVal > 0 {
+				runtimeParams.NumParallel = &numParallelVal
+				log.Info().
+					Str("slot_id", s.ID.String()).
+					Str("model", s.Model).
+					Int("num_parallel", numParallelVal).
+					Msg("🔍 TRACING: Successfully extracted num_parallel from RuntimeArgs for Ollama model")
+			} else {
+				// DEBUG: Check what type the value actually is
+				if val, exists := s.RuntimeArgs["num_parallel"]; exists {
+					log.Warn().
+						Str("slot_id", s.ID.String()).
+						Str("model", s.Model).
+						Interface("num_parallel_raw_value", val).
+						Str("actual_type", fmt.Sprintf("%T", val)).
+						Msg("🔍 TRACING: Type assertion failed - checking actual type")
+
+					// Try different type assertions
+					if float64Val, ok := val.(float64); ok {
+						numParallelInt := int(float64Val)
+						runtimeParams.NumParallel = &numParallelInt
+						log.Info().
+							Str("slot_id", s.ID.String()).
+							Str("model", s.Model).
+							Float64("num_parallel_float64", float64Val).
+							Int("num_parallel_converted", numParallelInt).
+							Msg("🔍 TRACING: Successfully extracted num_parallel as float64 and converted to int")
+					} else if stringVal, ok := val.(string); ok {
+						if numParallelInt, err := strconv.Atoi(stringVal); err == nil && numParallelInt > 0 {
+							runtimeParams.NumParallel = &numParallelInt
+							log.Info().
+								Str("slot_id", s.ID.String()).
+								Str("model", s.Model).
+								Str("num_parallel_string", stringVal).
+								Int("num_parallel_converted", numParallelInt).
+								Msg("🔍 TRACING: Successfully extracted num_parallel as string and converted to int")
+						} else {
+							log.Error().
+								Str("slot_id", s.ID.String()).
+								Str("model", s.Model).
+								Str("num_parallel_string", stringVal).
+								Err(err).
+								Msg("🔍 TRACING: Failed to convert num_parallel string to int")
+						}
+					} else {
+						log.Error().
+							Str("slot_id", s.ID.String()).
+							Str("model", s.Model).
+							Interface("num_parallel_value", val).
+							Str("actual_type", fmt.Sprintf("%T", val)).
+							Msg("🔍 TRACING: Unknown type for num_parallel - cannot convert")
+					}
+				} else {
+					log.Warn().
+						Str("slot_id", s.ID.String()).
+						Str("model", s.Model).
+						Interface("runtime_args", s.RuntimeArgs).
+						Msg("🔍 TRACING: num_parallel key does not exist in RuntimeArgs")
+				}
+			}
+		} else {
+			log.Warn().
+				Str("slot_id", s.ID.String()).
+				Str("model", s.Model).
+				Msg("🔍 TRACING: RuntimeArgs is nil - no num_parallel available")
+		}
 
 		log.Debug().
 			Str("model", s.Model).
@@ -199,6 +274,18 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 			Int("tensor_parallel_size", s.TensorParallelSize).
 			Msg("Creating Ollama runtime with scheduler GPU allocation")
 
+		log.Info().
+			Str("slot_id", s.ID.String()).
+			Str("model", s.Model).
+			Interface("num_parallel_ptr", runtimeParams.NumParallel).
+			Int("num_parallel_value", func() int {
+				if runtimeParams.NumParallel != nil {
+					return *runtimeParams.NumParallel
+				}
+				return 0
+			}()).
+			Msg("🔍 TRACING: Final runtimeParams.NumParallel being passed to NewOllamaRuntime")
+
 		s.runningRuntime, err = NewOllamaRuntime(ctx, runtimeParams)
 		if err != nil {
 			log.Error().
@@ -207,6 +294,14 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 				Interface("runtime_params", runtimeParams).
 				Msg("Failed to create Ollama runtime")
 			return
+		}
+
+		// Set up process tracking for Ollama runtime
+		if ollamaRuntime, ok := s.runningRuntime.(*OllamaRuntime); ok && s.apiServer != nil {
+			ollamaRuntime.SetProcessTracker(s.apiServer.processTracker, s.ID)
+			log.Debug().
+				Str("slot_id", s.ID.String()).
+				Msg("PROCESS_TRACKER: Set up process tracking for Ollama runtime")
 		}
 	case types.RuntimeDiffusers:
 		// Get effective HF token from API server (with fallback to env)
@@ -388,6 +483,14 @@ func (s *Slot) Create(ctx context.Context) (err error) {
 				Interface("runtime_params", runtimeParams).
 				Msg("Failed to create vLLM runtime")
 			return
+		}
+
+		// Set up process tracking for VLLM runtime
+		if vllmRuntime, ok := s.runningRuntime.(*VLLMRuntime); ok && s.apiServer != nil {
+			vllmRuntime.SetProcessTracker(s.apiServer.processTracker, s.ID)
+			log.Debug().
+				Str("slot_id", s.ID.String()).
+				Msg("PROCESS_TRACKER: Set up process tracking for VLLM runtime")
 		}
 	default:
 		err = fmt.Errorf("unknown runtime: %s", s.IntendedRuntime)

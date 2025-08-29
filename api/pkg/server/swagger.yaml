@@ -1,4 +1,15 @@
 definitions:
+  controller.MemoryEstimationResponse:
+    properties:
+      cached:
+        type: boolean
+      error:
+        type: string
+      estimate:
+        $ref: '#/definitions/memory.MemoryEstimate'
+      model_id:
+        type: string
+    type: object
   github_com_helixml_helix_api_pkg_types.Config:
     properties:
       rules:
@@ -461,6 +472,136 @@ definitions:
         description: Valid is true if Time is not NULL
         type: boolean
     type: object
+  memory.EstimateOptions:
+    properties:
+      flash_attention:
+        description: Advanced options
+        type: boolean
+      kv_cache_type:
+        description: '"f16", "q8_0", "q4_0"'
+        type: string
+      num_batch:
+        description: Batch size
+        type: integer
+      num_ctx:
+        description: Context size
+        type: integer
+      num_gpu:
+        description: |-
+          ⚠️  CRITICAL CONFUSION WARNING ⚠️
+          NumGPU is NOT the number of GPUs in your hardware configuration!
+          NumGPU is the number of MODEL LAYERS to offload to GPU (-1 for auto-detect all that fit)
+
+          Examples:
+          - NumGPU = -1: Auto-detect max layers that fit (RECOMMENDED - gives full model memory)
+          - NumGPU = 1:  Only offload 1 layer to GPU (gives tiny memory estimate)
+          - NumGPU = 0:  CPU only (no GPU layers)
+
+          To estimate for different GPU hardware configs (1 GPU vs 4 GPUs),
+          you pass different GPU configuration arrays to the estimation function,
+          NOT different NumGPU values!
+        type: integer
+      num_parallel:
+        description: Number of parallel sequences
+        type: integer
+    type: object
+  memory.GPUInfo:
+    properties:
+      compute:
+        type: string
+      dependency_path:
+        items:
+          type: string
+        type: array
+      driver_major:
+        type: integer
+      driver_minor:
+        type: integer
+      env_workarounds:
+        items:
+          items:
+            type: string
+          type: array
+        type: array
+      free_memory:
+        type: integer
+      id:
+        type: string
+      index:
+        type: integer
+      library:
+        description: '"cuda", "rocm", "metal", "cpu"'
+        type: string
+      minimum_memory:
+        type: integer
+      name:
+        type: string
+      total_memory:
+        type: integer
+      unreliable_free_memory:
+        type: boolean
+      variant:
+        description: Additional fields for compatibility with Ollama's estimation
+        type: string
+    type: object
+  memory.MemoryEstimate:
+    properties:
+      architecture:
+        description: Metadata
+        type: string
+      estimated_at:
+        type: string
+      fully_loaded:
+        description: Whether all layers fit on GPU
+        type: boolean
+      gpu_sizes:
+        description: Memory allocation per GPU
+        items:
+          type: integer
+        type: array
+      gpus:
+        items:
+          $ref: '#/definitions/memory.GPUInfo'
+        type: array
+      graph:
+        description: Graph memory requirement
+        type: integer
+      graph_mem:
+        description: Graph computation memory
+        type: integer
+      kv_cache:
+        description: Breakdown for analysis
+        type: integer
+      layers:
+        description: Core results
+        type: integer
+      model_path:
+        type: string
+      options:
+        allOf:
+        - $ref: '#/definitions/memory.EstimateOptions'
+        description: Configuration used for estimation
+      projectors:
+        description: Projector weights (for multimodal)
+        type: integer
+      requires_fallback:
+        description: Whether CPU fallback is needed
+        type: boolean
+      tensor_split:
+        description: Layers per GPU for tensor parallel
+        items:
+          type: integer
+        type: array
+      total_size:
+        description: Total memory requirement
+        type: integer
+      vram_size:
+        description: Total VRAM usage
+        type: integer
+      weights:
+        description: Model weights memory
+        type: integer
+    type: object
   openai.ChatCompletionResponseFormatJSONSchema:
     properties:
       description:
@@ -723,6 +864,52 @@ definitions:
         type: integer
       total_tokens:
         type: integer
+    type: object
+  types.AllocationPlanView:
+    properties:
+      cost:
+        type: integer
+      evictions_needed:
+        description: Slot IDs
+        items:
+          type: string
+        type: array
+      gpu_count:
+        type: integer
+      gpus:
+        items:
+          type: integer
+        type: array
+      id:
+        type: string
+      is_multi_gpu:
+        type: boolean
+      is_valid:
+        type: boolean
+      memory_per_gpu:
+        type: integer
+      requires_eviction:
+        type: boolean
+      runner_capacity:
+        additionalProperties:
+          type: integer
+        description: GPU index -> total memory
+        type: object
+      runner_id:
+        type: string
+      runner_memory_state:
+        additionalProperties:
+          type: integer
+        description: GPU index -> allocated memory
+        type: object
+      runtime:
+        $ref: '#/definitions/types.Runtime'
+      tensor_parallel_size:
+        type: integer
+      total_memory_required:
+        type: integer
+      validation_error:
+        type: string
     type: object
   types.ApiKey:
     properties:
@@ -1232,6 +1419,10 @@ definitions:
     type: object
   types.DashboardData:
     properties:
+      global_allocation_decisions:
+        items:
+          $ref: '#/definitions/types.GlobalAllocationDecision'
+        type: array
       queue:
         items:
           $ref: '#/definitions/types.WorkloadSummary'
@@ -1256,6 +1447,10 @@ definitions:
       gpu_count:
         description: Number of GPUs detected
         type: integer
+      gpu_memory_stats:
+        allOf:
+        - $ref: '#/definitions/types.GPUMemoryStats'
+        description: GPU memory stabilization statistics
       gpus:
         description: Per-GPU memory status
         items:
@@ -1267,10 +1462,14 @@ definitions:
         additionalProperties:
           type: string
         type: object
+      memory_string:
+        type: string
       models:
         items:
           $ref: '#/definitions/types.RunnerModelStatus'
         type: array
+      process_stats:
+        description: Process tracking and cleanup statistics
       slots:
         items:
           $ref: '#/definitions/types.RunnerSlot'
@@ -1385,6 +1584,123 @@ definitions:
       valid_until:
         type: string
     type: object
+  types.GPUMemoryDataPoint:
+    properties:
+      actual_free_mb:
+        description: Actual free memory (from nvidia-smi)
+        type: integer
+      actual_total_mb:
+        description: Total GPU memory
+        type: integer
+      actual_used_mb:
+        description: Actual memory used (from nvidia-smi)
+        type: integer
+      allocated_mb:
+        description: Memory allocated by Helix scheduler
+        type: integer
+      gpu_index:
+        type: integer
+      timestamp:
+        type: string
+    type: object
+  types.GPUMemoryReading:
+    properties:
+      delta_mb:
+        type: integer
+      is_stable:
+        type: boolean
+      memory_mb:
+        type: integer
+      poll_number:
+        type: integer
+      stable_count:
+        type: integer
+    type: object
+  types.GPUMemoryStabilizationEvent:
+    properties:
+      context:
+        description: '"startup" or "deletion"'
+        type: string
+      error_message:
+        type: string
+      memory_delta_threshold_mb:
+        type: integer
+      memory_readings:
+        items:
+          $ref: '#/definitions/types.GPUMemoryReading'
+        type: array
+      poll_interval_ms:
+        type: integer
+      polls_taken:
+        type: integer
+      required_stable_polls:
+        type: integer
+      runtime:
+        type: string
+      slot_id:
+        type: string
+      stabilized_memory_mb:
+        type: integer
+      success:
+        type: boolean
+      timeout_seconds:
+        type: integer
+      timestamp:
+        type: string
+      total_wait_seconds:
+        type: integer
+    type: object
+  types.GPUMemoryStats:
+    properties:
+      average_wait_time_seconds:
+        type: number
+      failed_stabilizations:
+        type: integer
+      last_stabilization:
+        type: string
+      max_wait_time_seconds:
+        type: integer
+      memory_time_series:
+        description: Last 10 minutes of memory data
+        items:
+          $ref: '#/definitions/types.GPUMemoryDataPoint'
+        type: array
+      min_wait_time_seconds:
+        type: integer
+      recent_events:
+        description: Last 20 events
+        items:
+          $ref: '#/definitions/types.GPUMemoryStabilizationEvent'
+        type: array
+      scheduling_events:
+        description: Last 10 minutes of scheduling events
+        items:
+          $ref: '#/definitions/types.SchedulingEvent'
+        type: array
+      successful_stabilizations:
+        type: integer
+      total_stabilizations:
+        type: integer
+    type: object
+  types.GPUState:
+    properties:
+      active_slots:
+        description: Slot IDs using this GPU
+        items:
+          type: string
+        type: array
+      allocated_memory:
+        type: integer
+      free_memory:
+        type: integer
+      index:
+        type: integer
+      total_memory:
+        type: integer
+      utilization:
+        description: 0.0 - 1.0
+        type: number
+    type: object
   types.GPUStatus:
     properties:
       cuda_version:
@@ -1409,6 +1725,59 @@ definitions:
       used_memory:
         description: Used memory in bytes
         type: integer
+    type: object
+  types.GlobalAllocationDecision:
+    properties:
+      after_state:
+        additionalProperties:
+          $ref: '#/definitions/types.RunnerStateView'
+        type: object
+      before_state:
+        additionalProperties:
+          $ref: '#/definitions/types.RunnerStateView'
+        description: Global state snapshots
+        type: object
+      considered_plans:
+        description: All plans considered
+        items:
+          $ref: '#/definitions/types.AllocationPlanView'
+        type: array
+      created:
+        type: string
+      error_message:
+        type: string
+      execution_time_ms:
+        type: integer
+      id:
+        type: string
+      model_name:
+        type: string
+      optimization_score:
+        description: How optimal the final decision was
+        type: number
+      planning_time_ms:
+        description: Timing information
+        type: integer
+      reason:
+        type: string
+      runtime:
+        $ref: '#/definitions/types.Runtime'
+      selected_plan:
+        $ref: '#/definitions/types.AllocationPlanView'
+      session_id:
+        type: string
+      success:
+        description: Decision outcome
+        type: boolean
+      total_plans_generated:
+        type: integer
+      total_runners_evaluated:
+        description: Decision metadata
+        type: integer
+      total_time_ms:
+        type: integer
+      workload_id:
+        type: string
     type: object
   types.ImageURLDetail:
     enum:
@@ -1859,9 +2228,29 @@ definitions:
     - ModalityFile
   types.Model:
     properties:
+      allocated_gpu_count:
+        type: integer
+      allocated_memory:
+        description: 'EXPORTED ALLOCATION FIELDS: Set by NewModelForGPUAllocation
+          based on scheduler''s GPU allocation decision'
+        type: integer
+      allocated_per_gpu_memory:
+        items:
+          type: integer
+        type: array
+      allocated_specific_gpus:
+        items:
+          type: integer
+        type: array
+      allocation_configured:
+        description: Safety flag
+        type: boolean
       auto_pull:
         description: Whether to automatically pull the model if missing in the runner
         type: boolean
+      concurrency:
+        description: max concurrent requests per slot (0 = use global default)
+        type: integer
       context_length:
         type: integer
       created:
@@ -1876,7 +2265,8 @@ definitions:
         description: for example 'phi3.5:3.8b-mini-instruct-q8_0'
         type: string
       memory:
-        description: in bytes, required
+        description: 'DATABASE FIELD: Admin-configured memory for VLLM models, MUST
+          be 0 for Ollama models'
         type: integer
       name:
         type: string
@@ -2587,39 +2977,72 @@ definitions:
     properties:
       active:
         type: boolean
+      active_requests:
+        type: integer
       command_line:
-        description: The actual command line executed for this slot
         type: string
       context_length:
-        description: Context length used for the model, if specified
         type: integer
+      created:
+        type: string
+      gpu_allocation_data:
+        additionalProperties: {}
+        type: object
       gpu_index:
-        description: Primary GPU for single-GPU models (for VLLM)
         type: integer
       gpu_indices:
-        description: All GPUs used for multi-GPU models
         items:
           type: integer
         type: array
       id:
         type: string
+      max_concurrency:
+        type: integer
+      memory_estimation_meta:
+        additionalProperties: {}
+        type: object
       model:
         type: string
+      model_memory_requirement:
+        type: integer
       ready:
         type: boolean
+      runner_id:
+        type: string
       runtime:
         $ref: '#/definitions/types.Runtime'
       runtime_args:
         additionalProperties: {}
-        description: Runtime-specific arguments
         type: object
       status:
         type: string
       tensor_parallel_size:
-        description: Number of GPUs for tensor parallelism (1 = single GPU)
         type: integer
+      updated:
+        type: string
       version:
         type: string
+      workload_data:
+        additionalProperties: {}
+        type: object
+    type: object
+  types.RunnerStateView:
+    properties:
+      active_slots:
+        type: integer
+      gpu_states:
+        additionalProperties:
+          $ref: '#/definitions/types.GPUState'
+        description: GPU index -> state
+        type: object
+      is_connected:
+        type: boolean
+      runner_id:
+        type: string
+      total_slots:
+        type: integer
+      warm_slots:
+        type: integer
     type: object
   types.Runtime:
     enum:
@@ -2702,6 +3125,29 @@ definitions:
     - SchedulingDecisionTypeRejected
     - SchedulingDecisionTypeError
     - SchedulingDecisionTypeUnschedulable
+  types.SchedulingEvent:
+    properties:
+      description:
+        type: string
+      event_type:
+        description: '"slot_created", "slot_deleted", "eviction", "stabilization_start",
+          "stabilization_end"'
+        type: string
+      gpu_indices:
+        items:
+          type: integer
+        type: array
+      memory_mb:
+        type: integer
+      model_name:
+        type: string
+      runtime:
+        type: string
+      slot_id:
+        type: string
+      timestamp:
+        type: string
+    type: object
   types.Secret:
     properties:
       app_id:
@@ -4528,6 +4974,85 @@ paths:
       summary: Update an existing Helix model
       tags:
       - models
+  /api/v1/helix-models/memory-estimate:
+    get:
+      description: Estimate memory requirements for a model on different GPU configurations
+      parameters:
+      - description: Model ID
+        in: query
+        name: model_id
+        required: true
+        type: string
+      - description: 'Number of GPUs (default: auto-detect)'
+        in: query
+        name: gpu_count
+        type: integer
+      - description: 'Context length (default: model default)'
+        in: query
+        name: context_length
+        type: integer
+      - description: 'Batch size (default: 512)'
+        in: query
+        name: batch_size
+        type: integer
+      - description: 'Number of parallel sequences/concurrent requests (default: 2)'
+        in: query
+        name: num_parallel
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/controller.MemoryEstimationResponse'
+        "400":
+          description: Invalid request parameters
+          schema:
+            type: string
+        "404":
+          description: Model not found
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Estimate model memory requirements
+      tags:
+      - models
+  /api/v1/helix-models/memory-estimates:
+    get:
+      description: Get memory estimates for multiple models with different GPU configurations
+      parameters:
+      - description: Comma-separated list of model IDs
+        in: query
+        name: model_ids
+        type: string
+      - description: 'Number of GPUs (default: auto-detect)'
+        in: query
+        name: gpu_count
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/controller.MemoryEstimationResponse'
+            type: array
+        "400":
+          description: Invalid request parameters
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: List memory estimates for multiple models
+      tags:
+      - models
   /api/v1/knowledge:
     get:
       responses:
@@ -5771,6 +6296,27 @@ paths:
       summary: Reload skills
       tags:
       - skills
+  /api/v1/slots/{slot_id}:
+    delete:
+      description: Delete a slot from the scheduler's desired state, allowing reconciliation
+        to clean it up from the runner
+      parameters:
+      - description: Slot ID
+        in: path
+        name: slot_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete a slot from scheduler state
+      tags:
+      - dashboard
   /api/v1/subscription/manage:
     post:
       description: Manage a subscription
