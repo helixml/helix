@@ -157,6 +157,11 @@ func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceReques
 
 // ProcessRunnerResponse is called on both partial streaming and full responses coming from the runner
 func (c *InternalHelixServer) ProcessRunnerResponse(ctx context.Context, resp *types.RunnerLLMInferenceResponse) error {
+	// Only release slot when request is completely done, not for streaming chunks
+	if resp.Done {
+		c.scheduler.CompleteActiveRequest(resp.RequestID)
+	}
+
 	bts, err := json.Marshal(resp)
 	if err != nil {
 		return fmt.Errorf("error marshalling runner response: %w", err)
