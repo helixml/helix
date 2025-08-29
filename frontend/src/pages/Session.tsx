@@ -165,15 +165,7 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
   const lastInteractionNotComplete = 
     isLastInteraction && nextProps.interaction.state !== 'complete' && nextProps.interaction.state !== 'error';
   
-  // Log critical state changes that might cause blank screen flickering
-  if (prevProps.interaction.state !== nextProps.interaction.state) {
-    if (nextProps.interaction.state === 'complete' || prevProps.interaction.state === 'waiting') {
-      console.log(`🔄 STATE_CHANGE: ${prevProps.interaction.state} → ${nextProps.interaction.state}`, {
-        interactionId: nextProps.interaction.id,
-        willRerender: interactionChanged
-      });
-    }
-  }
+
   
   // Return true if nothing changed (skip re-render), false if something changed (trigger re-render)
   return !interactionChanged && 
