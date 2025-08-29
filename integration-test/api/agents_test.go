@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/ptr"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/kelseyhightower/envconfig"
@@ -225,7 +226,71 @@ func (suite *AgentTestSuite) TestAgent_CurrencyExchange() {
 
 	// Compare the rate with the response, not too strict, but close
 	suite.Require().InDelta(rate, rateFloat, 0.00001)
+}
 
+func (suite *AgentTestSuite) TestAgent_BasicKnowledge() {
+	apiCLient, err := getAPIClient(suite.userAPIKey)
+	suite.Require().NoError(err)
+
+	name := "TestAgent_BasicKnowledge" + uuid.New().String()
+	description := "TestAgent_BasicKnowledge" + uuid.New().String()
+
+	app := &types.App{
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Name:        name,
+				Description: description,
+				Assistants: []types.AssistantConfig{
+					{
+						Name:                         name,
+						Description:                  description,
+						AgentMode:                    true,
+						SystemPrompt:                 `Provide answers to users based on the knowledge provided to you.`,
+						ReasoningModelProvider:       suite.agentConfig.ReasoningModelProvider,
+						ReasoningModel:               suite.agentConfig.ReasoningModel,
+						ReasoningModelEffort:         suite.agentConfig.ReasoningModelEffort,
+						GenerationModelProvider:      suite.agentConfig.GenerationModelProvider,
+						GenerationModel:              suite.agentConfig.GenerationModel,
+						SmallReasoningModelProvider:  suite.agentConfig.SmallReasoningModelProvider,
+						SmallReasoningModel:          suite.agentConfig.SmallReasoningModel,
+						SmallReasoningModelEffort:    suite.agentConfig.SmallReasoningModelEffort,
+						SmallGenerationModelProvider: suite.agentConfig.SmallGenerationModelProvider,
+						SmallGenerationModel:         suite.agentConfig.SmallGenerationModel,
+						Knowledge: []*types.AssistantKnowledge{
+							{
+								Name: "Cars",
+								Source: types.KnowledgeSource{
+									Text: ptr.To("Lotus is red, Porsche is black, Corvette is yellow"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	createdApp, err := createApp(suite.T(), apiCLient, app)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(app)
+
+	// Get API key for the app
+	apiKeys, err := apiCLient.GetAppAPIKeys(suite.ctx, createdApp.ID)
+	suite.Require().NoError(err)
+	suite.Require().Equal(1, len(apiKeys))
+
+	resp, err := chatCompletions(suite.T(), apiKeys[0].Key, &openai.ChatCompletionRequest{
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    "user",
+				Content: "What color is the Porsche?",
+			},
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Require().Equal("assistant", resp.Choices[0].Message.Role)
+
+	suite.Require().Contains(resp.Choices[0].Message.Content, "black")
 }
 
 func chatCompletions(t *testing.T, apiKey string, request *openai.ChatCompletionRequest) (*openai.ChatCompletionResponse, error) {
