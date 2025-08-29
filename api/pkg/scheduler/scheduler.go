@@ -820,22 +820,11 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 			// Use new global allocator architecture
 			s.ensureSlotWithGlobalAllocator(req)
 
-			// log.Debug().
-			//	Str("SLOT_RECONCILE_DEBUG", "ensure_slots_returned").
-			//	Str("model", req.Model.String()).
-			//	Int("remaining_needed", slotsNeeded-1).
-			//	Msg("SLOT_RECONCILE_DEBUG: ensureSlots returned - remaining slots will be created in next cycle")
-
 			// Exit early after creating one slot to allow GPU state to update
 			// The reconciler runs every 5 seconds, so remaining slots will be created in subsequent cycles
 			break
 		}
-		// log.Info().
-		//	Str("model", req.Model.String()).
-		//	Str("runtime", string(req.Runtime)).
-		//	Int("existing", existingCount).
-		//	Int("required", req.Count).
-		//	Msg("SLOT_RECONCILE_DEBUG: No new slots needed for requirement")
+
 	}
 
 	// Build a complete map of all actual slots across all runners
@@ -964,20 +953,7 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 		s.slots.UpdateSlotActivity(update.slotID, false, update.isRunning)
 		syncedSlotCount++
 
-		// log.Info().
-		// 	Str("slot_id", update.slotID.String()).
-		// 	Str("runner_id", update.runnerID).
-		// 	Str("model", update.modelName).
-		// 	Bool("old_running", update.oldRunning).
-		// 	Bool("new_running", update.isRunning).
-		// 	Bool("old_active", update.oldActive).
-		// 	Bool("new_active", update.isActive).
-		// 	Msg("APPLE: Synced slot status with runner state")
 	}
-
-	// log.Info().
-	// 	Int("synced_count", syncedSlotCount).
-	// 	Msg("APPLE: Completed slot status synchronization")
 
 	// Create new slots - collect failed slots for deletion after Range completes to avoid deadlock
 	type failedSlotInfo struct {
@@ -987,13 +963,7 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 	}
 	var failedSlots []failedSlotInfo
 
-	// log.Info().Int("desired_slots_count", s.slots.Size()).Msg("APPLE: Starting desired slot reconciliation")
-
 	s.slots.Range(func(slotID uuid.UUID, slot *Slot) bool {
-		// log.Info().
-		// 	Str("slot_id", slotID.String()).
-		// 	Str("desired_runner_id", slot.RunnerID).
-		// 	Msg("APPLE: Checking desired slot")
 
 		if runnerID, exists := allActualSlots[slotID]; !exists {
 			orphanedSlotCount++
@@ -1017,22 +987,7 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 			// 	Bool("is_running", slot.IsRunning()).
 			// 	Msg("APPLE: found slot on the scheduler that doesn't exist on the runner, creating...")
 
-			// log.Debug().
-			//	Str("SLOT_RECONCILE_DEBUG", "calling_create_new_slot").
-			//	Str("runner_id", slot.RunnerID).
-			//	Str("slot_id", slot.ID.String()).
-			//	Str("model", slot.InitialWork().ModelName().String()).
-			//	Msg("SLOT_RECONCILE_DEBUG: About to call createNewSlot for orphaned slot")
-
 			err := s.createNewSlot(ctx, slot)
-
-			// log.Debug().
-			//	Str("SLOT_RECONCILE_DEBUG", "create_new_slot_returned").
-			//	Str("runner_id", slot.RunnerID).
-			//	Str("slot_id", slot.ID.String()).
-			//	Str("model", slot.InitialWork().ModelName().String()).
-			//	Bool("had_error", err != nil).
-			//	Msg("SLOT_RECONCILE_DEBUG: createNewSlot returned for orphaned slot")
 
 			if err != nil {
 				// Check for nil work before proceeding
@@ -1096,7 +1051,6 @@ func (s *Scheduler) reconcileSlotsOnce(ctx context.Context) {
 // Returns error if runner status or memory information is unavailable - NO DEFAULTS
 func (s *Scheduler) calculateRunnerMemory(runnerID string) (uint64, uint64, uint64, error) {
 	// Get runner status
-	log.Debug().Str("runner_id", runnerID).Msg("PREWARM_DEBUG: Attempting to get runner status")
 	runnerStatus, err := s.controller.GetStatus(runnerID)
 	if err != nil {
 		log.Error().
@@ -1414,29 +1368,16 @@ func (s *Scheduler) TriggerQueueProcessing() {
 }
 
 func (s *Scheduler) processQueueOnce() {
-	// log.Info().Msg("APPLE: Starting queue processing cycle")
-
 	// Try to take next work item that has a warm slot available
 	work := s.queue.TakeNext(func(w *Workload) bool {
 		warmSlots := s.warmSlots(w)
-		// log.Info().
-		// 	Str("model", w.ModelName().String()).
-		// 	Int("warm_slots", len(warmSlots)).
-		// 	Msg("APPLE: Checking warm slots for workload")
+
 		return len(warmSlots) > 0
 	})
 
 	if work == nil {
-		// log.Info().Msg("APPLE: No work can be scheduled right now")
-		// Don't do expensive logging analysis in the hot path - it causes performance issues
-		// and prevents actual slot reconciliation from working properly
 		return // Nothing can be scheduled right now
 	}
-
-	// log.Info().
-	// 	Str("workload_id", work.ID()).
-	// 	Str("model", work.ModelName().String()).
-	// 	Msg("APPLE: Found schedulable work")
 
 	startTime := time.Now()
 
@@ -1920,10 +1861,6 @@ func (s *Scheduler) warmSlots(req *Workload) []*Slot {
 }
 
 func (s *Scheduler) warmSlotsWithReason(req *Workload, reasonOut *string) []*Slot {
-	// log.Info().
-	// 	Str("model", req.ModelName().String()).
-	// 	Str("runtime", string(req.Runtime())).
-	// 	Msg("APPLE: Looking for warm slots")
 
 	cosyWarm := make([]*Slot, 0, s.slots.Size())
 
@@ -1937,15 +1874,6 @@ func (s *Scheduler) warmSlotsWithReason(req *Workload, reasonOut *string) []*Slo
 
 	s.slots.Range(func(_ uuid.UUID, slot *Slot) bool {
 		totalSlots++
-
-		// log.Info().
-		// 	Str("slot_id", slot.ID.String()).
-		// 	Str("slot_runner_id", slot.RunnerID).
-		// 	Str("slot_model", slot.InitialWork().ModelName().String()).
-		// 	Str("req_model", req.ModelName().String()).
-		// 	Bool("is_running", slot.IsRunning()).
-		// 	Bool("is_active", slot.IsActive()).
-		// 	Msg("APPLE: Checking slot for warmth")
 
 		// If it's not the same model name, skip
 		if slot.InitialWork().ModelName() != req.ModelName() {
@@ -2020,23 +1948,10 @@ func (s *Scheduler) warmSlotsWithReason(req *Workload, reasonOut *string) []*Slo
 }
 
 func (s *Scheduler) pickBestWarmSlot(warmSlots []*Slot) *Slot {
-	// log.Info().Int("warm_slots_count", len(warmSlots)).Msg("APPLE: Picking best warm slot")
-
-	// for i, slot := range warmSlots {
-	// 	log.Info().
-	// 		Int("slot_index", i).
-	// 		Str("slot_id", slot.ID.String()).
-	// 		Str("runner_id", slot.RunnerID).
-	// 		Str("model", slot.InitialWork().ModelName().String()).
-	// 		Msg("APPLE: Available warm slot")
-	// }
 
 	// If we only have one slot, return it
 	if len(warmSlots) == 1 {
-		// log.Info().
-		// 	Str("slot_id", warmSlots[0].ID.String()).
-		// 	Str("runner_id", warmSlots[0].RunnerID).
-		// 	Msg("APPLE: Selected single warm slot")
+
 		return warmSlots[0]
 	}
 
@@ -2609,17 +2524,6 @@ func (s *Scheduler) getAllConfiguredPrewarmModels() []*types.Model {
 		return nil
 	}
 
-	// Debug: Log all models from store with their prewarm status
-	log.Warn().Msg("FLAMINGO: === DEBUG: All models from store ===")
-	for _, model := range allModels {
-		log.Warn().
-			Str("model_id", model.ID).
-			Str("runtime", string(model.Runtime)).
-			Bool("prewarm", model.Prewarm).
-			Bool("user_modified", model.UserModified).
-			Msg("FLAMINGO: Model from store")
-	}
-
 	// Filter for models with Prewarm=true and organize by runtime type for optimal ordering
 	var ollamaModels []*types.Model
 	var vllmModels []*types.Model
@@ -2627,10 +2531,6 @@ func (s *Scheduler) getAllConfiguredPrewarmModels() []*types.Model {
 
 	for _, model := range allModels {
 		if model.Prewarm {
-			log.Warn().
-				Str("model_id", model.ID).
-				Str("runtime", string(model.Runtime)).
-				Msg("FLAMINGO: DEBUG: Adding model to prewarm list because Prewarm=true")
 			switch model.Runtime {
 			case types.RuntimeOllama:
 				ollamaModels = append(ollamaModels, model)
@@ -2639,11 +2539,6 @@ func (s *Scheduler) getAllConfiguredPrewarmModels() []*types.Model {
 			case types.RuntimeDiffusers:
 				diffusersModels = append(diffusersModels, model)
 			}
-		} else {
-			log.Debug().
-				Str("model_id", model.ID).
-				Str("runtime", string(model.Runtime)).
-				Msg("FLAMINGO: DEBUG: Skipping model because Prewarm=false")
 		}
 	}
 
@@ -2654,25 +2549,6 @@ func (s *Scheduler) getAllConfiguredPrewarmModels() []*types.Model {
 	prewarmModels = append(prewarmModels, diffusersModels...)
 
 	// Log the prioritization order for debugging
-	if len(prewarmModels) > 0 {
-		log.Error().
-			Int("total_prewarm_models", len(prewarmModels)).
-			Int("ollama_models_first", len(ollamaModels)).
-			Int("vllm_models_second", len(vllmModels)).
-			Int("diffusers_models_last", len(diffusersModels)).
-			Msg("FLAMINGO: === CRITICAL: Found prewarm models despite dashboard settings! ===")
-
-		// Log the actual model order for verification
-		modelOrder := make([]string, len(prewarmModels))
-		for i, model := range prewarmModels {
-			modelOrder[i] = fmt.Sprintf("%s(%s)", model.ID, model.Runtime)
-		}
-		log.Error().
-			Strs("model_queue_order", modelOrder).
-			Msg("FLAMINGO: === CRITICAL: These models will be prewarmed despite dashboard settings ===")
-	} else {
-		log.Info().Msg("FLAMINGO: === GOOD: No prewarm models found in store - respecting dashboard settings ===")
-	}
 
 	return prewarmModels
 }

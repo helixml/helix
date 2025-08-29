@@ -253,8 +253,6 @@ func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool, options O
 		return openai.ChatCompletionMessage{}, fmt.Errorf("failed to render 'isInformativeOrActionablePrompt' template: %w", err)
 	}
 
-	// log.Info().Msgf("tools prompt: %s", sb.String())
-
 	return openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleSystem,
 		Content: sb.String(),

@@ -475,13 +475,10 @@ func (c *Controller) GetSchedulerHeartbeats(_ context.Context) (interface{}, err
 // DeleteSlotFromScheduler removes a slot from the scheduler's desired state
 // This allows the reconciler to clean up the slot from the runner
 func (c *Controller) DeleteSlotFromScheduler(_ context.Context, slotID uuid.UUID) error {
-	log.Info().Str("slot_id", slotID.String()).Msg("DEBUG: Controller.DeleteSlotFromScheduler called")
 	err := c.scheduler.DeleteSlot(slotID)
 	if err != nil {
-		log.Error().Err(err).Str("slot_id", slotID.String()).Msg("DEBUG: scheduler.DeleteSlot failed")
 		return err
 	}
-	log.Info().Str("slot_id", slotID.String()).Msg("DEBUG: scheduler.DeleteSlot completed successfully")
 	return nil
 }
 

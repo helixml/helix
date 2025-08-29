@@ -103,7 +103,6 @@ var applyCmd = &cobra.Command{
 
 		for _, app := range existingApps {
 			if app.Config.Helix.Name == appConfig.GetAppConfig().Name {
-				// log.Debug().Msgf("Existing app (%s) found, updating...", appConfig.GetAppConfig().Name)
 				existingApp = app
 				appID = app.ID
 				break

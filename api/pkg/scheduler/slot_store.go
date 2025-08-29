@@ -95,18 +95,13 @@ func (ss *SlotStore) Load(id uuid.UUID) (*Slot, bool) {
 
 // Delete removes a slot from cache and database
 func (ss *SlotStore) Delete(id uuid.UUID) {
-	log.Info().Str("slot_id", id.String()).Msg("DEBUG: SlotStore.Delete called")
 	// Remove from cache first while holding the lock
-	log.Info().Str("slot_id", id.String()).Msg("DEBUG: about to acquire mutex lock")
 	ss.mu.Lock()
-	log.Info().Str("slot_id", id.String()).Msg("DEBUG: mutex lock acquired, deleting from cache")
 	delete(ss.cache, id)
 	ss.mu.Unlock()
-	log.Info().Str("slot_id", id.String()).Msg("DEBUG: mutex lock released, about to delete from database")
 
 	// Remove from database without holding the lock to avoid deadlock
 	ss.deleteFromDatabase(id)
-	log.Info().Str("slot_id", id.String()).Msg("DEBUG: deleteFromDatabase completed, Delete method finished")
 }
 
 // Range iterates over all slots in cache
@@ -140,17 +135,10 @@ func (ss *SlotStore) loadFromDatabase() {
 		return
 	}
 
-	log.Info().Int("slot_count", len(dbSlots)).Msg("APPLE: Loading slots from database")
-
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
 	for _, dbSlot := range dbSlots {
-		log.Info().
-			Str("slot_id", dbSlot.ID.String()).
-			Str("runner_id", dbSlot.RunnerID).
-			Str("model", dbSlot.Model).
-			Msg("APPLE: Loading slot from database")
 
 		// CRITICAL SAFETY CHECK: Reject slots with zero memory requirement to prevent overscheduling
 		if dbSlot.ModelMemoryRequirement == 0 {
@@ -297,18 +285,14 @@ func (ss *SlotStore) saveToDatabase(slot *Slot) {
 
 // deleteFromDatabase removes a slot from the database asynchronously
 func (ss *SlotStore) deleteFromDatabase(id uuid.UUID) {
-	log.Info().Str("slot_id", id.String()).Msg("DEBUG: deleteFromDatabase called")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	log.Info().Str("slot_id", id.String()).Msg("DEBUG: about to call store.DeleteSlot")
 	err := ss.store.DeleteSlot(ctx, id.String())
 	if err != nil {
 		log.Error().Err(err).
 			Str("slot_id", id.String()).
 			Msg("failed to delete scheduler slot from database")
-	} else {
-		log.Info().Str("slot_id", id.String()).Msg("DEBUG: store.DeleteSlot completed successfully")
 	}
 }
 
