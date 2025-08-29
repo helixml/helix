@@ -29,6 +29,7 @@ type Session struct {
 
 	llm             *LLM
 	memory          Memory
+	knowledgeBlock  *MemoryBlock
 	agent           *Agent
 	messageHistory  *MessageList
 	stepInfoEmitter StepInfoEmitter
@@ -37,7 +38,7 @@ type Session struct {
 }
 
 // NewSession constructs a session with references to shared LLM & memory, but isolated state.
-func NewSession(ctx context.Context, stepInfoEmitter StepInfoEmitter, llm *LLM, mem Memory, ag *Agent, messageHistory *MessageList, meta Meta, conversational bool) *Session { //nolint:revive
+func NewSession(ctx context.Context, stepInfoEmitter StepInfoEmitter, llm *LLM, mem Memory, knowledgeBlock *MemoryBlock, ag *Agent, messageHistory *MessageList, meta Meta, conversational bool) *Session { //nolint:revive
 	ctx, cancel := context.WithCancel(ctx)
 	ctx = context.WithValue(ctx, ContextKey("userID"), meta.UserID)
 	ctx = context.WithValue(ctx, ContextKey("sessionID"), meta.SessionID)
@@ -54,6 +55,7 @@ func NewSession(ctx context.Context, stepInfoEmitter StepInfoEmitter, llm *LLM, 
 
 		llm:             llm,
 		memory:          mem,
+		knowledgeBlock:  knowledgeBlock,
 		agent:           ag,
 		messageHistory:  messageHistory,
 		stepInfoEmitter: stepInfoEmitter,
@@ -129,7 +131,7 @@ func (s *Session) run() {
 		// Ensure channel is closed when we're done with it
 		defer close(internalChannel)
 
-		go s.agent.Run(s.ctx, s.meta, s.llm, s.messageHistory, memoryBlock, internalChannel, s.conversational)
+		go s.agent.Run(s.ctx, s.meta, s.llm, s.messageHistory, memoryBlock, s.knowledgeBlock, internalChannel, s.conversational)
 
 		for response := range internalChannel {
 			s.outUserChannel <- response
