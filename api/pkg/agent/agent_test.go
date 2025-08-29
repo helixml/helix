@@ -83,7 +83,7 @@ func (s *AgentTestSuite) Test_Agent_NoSkills() {
 					Content: "Test question",
 				},
 			},
-		}, &MemoryBlock{}, respCh, false)
+		}, &MemoryBlock{}, &MemoryBlock{}, respCh, false)
 	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -162,7 +162,97 @@ func (s *AgentTestSuite) Test_Agent_NoSkills_Conversational() {
 					Content: "Test question",
 				},
 			},
-		}, &MemoryBlock{}, respCh, true)
+		}, &MemoryBlock{}, &MemoryBlock{}, respCh, true)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		s.Require().Fail("Context done")
+	case resp := <-respCh:
+		s.Require().Equal(resp.Content, "Test response")
+		s.Require().Equal(resp.Type, ResponseTypePartialText)
+	}
+}
+
+func (s *AgentTestSuite) Test_Agent_NoSkills_PlainTextKnowledge() {
+	agent := NewAgent(NewLogStepInfoEmitter(), "Test prompt", []Skill{}, 10)
+
+	respCh := make(chan Response)
+
+	stream, writer, err := helix_openai.NewOpenAIStreamingAdapter(openai.ChatCompletionRequest{})
+	s.Require().NoError(err)
+
+	// Should be direct call to LLM
+	s.generationalOpenaiClient.EXPECT().CreateChatCompletionStream(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+			// We should have the knowledge block in the messages
+			s.Require().Equal(openai.ChatMessageRoleDeveloper, req.Messages[0].Role)
+			s.Require().Contains(req.Messages[0].Content, "Test knowledge")
+			s.Require().Contains(req.Messages[0].Content, "Test description")
+			s.Require().Contains(req.Messages[0].Content, "Test contents")
+
+			return stream, nil
+		})
+
+	knowledgeBlock := NewMemoryBlock()
+	knowledgeBlock.AddString("name", "Test knowledge")
+	knowledgeBlock.AddString("description", "Test description")
+	knowledgeBlock.AddString("contents", "Test contents")
+
+	go func() {
+		defer writer.Close()
+
+		for i := 0; i < 3; i++ {
+			// Create a chat completion chunk and encode it to json
+			chunk := openai.ChatCompletionStreamResponse{
+				ID:     "chatcmpl-123",
+				Object: "chat.completion.chunk",
+				Model:  "mistralai/Mistral-7B-Instruct-v0.1",
+				Choices: []openai.ChatCompletionStreamChoice{
+					{
+						Delta: openai.ChatCompletionStreamChoiceDelta{
+							Content: "Test response",
+						},
+					},
+				},
+			}
+
+			if i == 0 {
+				chunk.Choices[0].Delta.Role = "assistant"
+			}
+
+			if i == 2 {
+				chunk.Choices[0].FinishReason = "stop"
+			}
+
+			bts, err := json.Marshal(chunk)
+			s.Require().NoError(err)
+
+			err = writeChunk(writer, bts)
+			s.Require().NoError(err)
+
+			// _, err = writer.Write([]byte(fmt.Sprintf("data: %s\n\n", string(bts))))
+			// suite.NoError(err)
+		}
+
+		_, err = writer.Write([]byte("[DONE]"))
+		s.Require().NoError(err)
+	}()
+
+	go func() {
+		defer close(respCh)
+
+		agent.Run(context.Background(), Meta{}, s.llm, &MessageList{
+			Messages: []*openai.ChatCompletionMessage{
+				{
+					Role:    openai.ChatMessageRoleUser,
+					Content: "Test question",
+				},
+			},
+		}, &MemoryBlock{}, knowledgeBlock, respCh, true)
 	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -192,6 +282,11 @@ func (s *AgentTestSuite) Test_Agent_DirectSkill() {
 			tool,
 		},
 	}
+
+	knowledgeBlock := NewMemoryBlock()
+	knowledgeBlock.AddString("name", "Test knowledge")
+	knowledgeBlock.AddString("description", "Test description")
+	knowledgeBlock.AddString("contents", "Test contents")
 
 	agent := NewAgent(NewLogStepInfoEmitter(), "Convert 100 USD to EUR", []Skill{skill}, 10)
 
@@ -320,7 +415,7 @@ func (s *AgentTestSuite) Test_Agent_DirectSkill() {
 					Content: "Convert 100 USD to EUR",
 				},
 			},
-		}, &MemoryBlock{}, respCh, false)
+		}, &MemoryBlock{}, knowledgeBlock, respCh, false)
 	}()
 
 	var aggregatedResponse string
@@ -535,7 +630,7 @@ func (s *AgentTestSuite) Test_Agent_DirectSkill_MultipleSkillsUsed() {
 					Content: "Whats on the news?",
 				},
 			},
-		}, &MemoryBlock{}, respCh, false)
+		}, &MemoryBlock{}, &MemoryBlock{}, respCh, false)
 	}()
 
 	var aggregatedResponse string

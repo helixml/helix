@@ -183,7 +183,7 @@ func (a *Agent) ConvertSkillsToTools() []openai.Tool {
 }
 
 // decideNextAction gets the initial response from the LLM that decides whether to use skills or stop execution
-func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *MessageList, memoryBlock *MemoryBlock, _ chan Response, iterationNumber int) (*openai.ChatCompletionResponse, error) {
+func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *MessageList, memoryBlock, knowledgeBlock *MemoryBlock, _ chan Response, iterationNumber int) (*openai.ChatCompletionResponse, error) {
 	skillFunctions := make([]string, len(a.skills))
 	for i, skill := range a.skills {
 		skillFunctions[i] = skill.Name
@@ -192,6 +192,7 @@ func (a *Agent) decideNextAction(ctx context.Context, llm *LLM, clonedMessages *
 	systemPromptData := prompts.SkillSelectionPromptData{
 		MainAgentSystemPrompt: a.prompt,
 		MemoryBlocks:          memoryBlock.Parse(),
+		KnowledgeBlocks:       knowledgeBlock.Parse(),
 		SkillFunctions:        skillFunctions,
 		MaxIterations:         a.maxIterations,
 		CurrentIteration:      iterationNumber,
@@ -272,11 +273,12 @@ func (a *Agent) handleLLMError(err error, outUserChannel chan Response) {
 }
 
 // runWithoutSkills handles the case when no skills are available by directly calling the LLM
-func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *MessageList, memoryBlock *MemoryBlock, outUserChannel chan Response, conversational bool) {
+func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *MessageList, memoryBlock, knowledgeBlock *MemoryBlock, outUserChannel chan Response, conversational bool) {
 	// Create a system prompt using the NoSkillsPrompt function
 	systemPromptData := prompts.NoSkillsPromptData{
 		MainAgentSystemPrompt: a.prompt,
 		MemoryBlocks:          memoryBlock.Parse(),
+		KnowledgeBlocks:       knowledgeBlock.Parse(),
 	}
 	systemPrompt, err := prompts.NoSkillsPrompt(systemPromptData)
 	if err != nil {
@@ -355,7 +357,7 @@ func (a *Agent) runWithoutSkills(ctx context.Context, llm *LLM, messageHistory *
 
 // Run processes a user message through the LLM, executes any requested skills. It returns only after the agent is done.
 // The intermediary messages are sent to the outUserChannel.
-func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *MessageList, memoryBlock *MemoryBlock, outUserChannel chan Response, conversational bool) {
+func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *MessageList, memoryBlock, knowledgeBlock *MemoryBlock, outUserChannel chan Response, conversational bool) {
 	// Create a cancel function from the context
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -384,7 +386,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 
 	if len(a.skills) == 0 {
 		// If no skills are available, use the runWithoutSkills function
-		a.runWithoutSkills(ctx, llm, messageHistory.Clone(), memoryBlock, outUserChannel, conversational)
+		a.runWithoutSkills(ctx, llm, messageHistory.Clone(), memoryBlock, knowledgeBlock, outUserChannel, conversational)
 		return
 	}
 
@@ -403,7 +405,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 
 		iterationNumber++
 
-		completion, err := a.decideNextAction(ctx, llm, messageHistory.Clone(), memoryBlock, outUserChannel, iterationNumber)
+		completion, err := a.decideNextAction(ctx, llm, messageHistory.Clone(), memoryBlock, knowledgeBlock, outUserChannel, iterationNumber)
 		if err != nil {
 			log.Error().Err(err).Msg("Error deciding next action")
 			a.handleLLMError(err, outUserChannel)
