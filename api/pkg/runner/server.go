@@ -305,6 +305,19 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 		GPUMemoryStats:  func() *types.GPUMemoryStats { stats := apiServer.gpuMemoryTracker.GetStats(); return &stats }(),
 	}
 
+	// Create a safe copy of modelStatus for logging
+	apiServer.modelStatusMu.Lock()
+	modelStatusCopy := make(map[string]*types.RunnerModelStatus)
+	for k, v := range apiServer.modelStatus {
+		modelStatusCopy[k] = v
+	}
+	apiServer.modelStatusMu.Unlock()
+
+	// Get models count safely
+	apiServer.modelsMu.Lock()
+	modelsCount := len(apiServer.models)
+	apiServer.modelsMu.Unlock()
+
 	// Add debug logging to see memory values
 	log.Debug().
 		Str("runner_id", apiServer.runnerOptions.ID).
@@ -313,8 +326,8 @@ func (apiServer *HelixRunnerAPIServer) status(w http.ResponseWriter, _ *http.Req
 		Uint64("used_memory", status.UsedMemory).
 		Uint64("allocated_memory", status.AllocatedMemory).
 		Int("slot_count", slotCount).
-		Int("models", len(apiServer.models)).
-		Any("models_status", apiServer.modelStatus).
+		Int("models", modelsCount).
+		Any("models_status", modelStatusCopy).
 		Msg("Runner status memory values")
 
 	w.Header().Set("Content-Type", "application/json")
@@ -823,11 +836,10 @@ func (apiServer *HelixRunnerAPIServer) markSlotAsComplete(slotUUID uuid.UUID) {
 func (apiServer *HelixRunnerAPIServer) listHelixModelsHandler(w http.ResponseWriter, _ *http.Request) {
 	log.Info().Msg("listing helix models")
 
-	apiServer.modelsMu.Lock()
-	defer apiServer.modelsMu.Unlock()
+	models := apiServer.listHelixModelsStatus()
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(apiServer.modelStatus)
+	_ = json.NewEncoder(w).Encode(models)
 }
 
 // setHelixModels - sets the helix models, used to sync from controller to runner currently enabled
