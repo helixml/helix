@@ -5616,6 +5616,10 @@ const docTemplate = `{
                 "markdown_post_processing": {
                     "description": "If true, the browser will return the HTML as markdown",
                     "type": "boolean"
+                },
+                "process_output": {
+                    "description": "If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser,",
+                    "type": "boolean"
                 }
             }
         },
@@ -9498,6 +9502,10 @@ const docTemplate = `{
                 },
                 "markdown_post_processing": {
                     "description": "If true, the browser will return the HTML as markdown",
+                    "type": "boolean"
+                },
+                "process_output": {
+                    "description": "If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser,",
                     "type": "boolean"
                 }
             }
