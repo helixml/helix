@@ -286,7 +286,7 @@ func (a *Agent) SkillContextRunner(ctx context.Context, meta Meta, messageHistor
 	}, nil
 }
 
-func (a *Agent) SkillDirectRunner(ctx context.Context, meta Meta, llm *LLM, skill *Skill, toolCall openai.ToolCall) (*openai.ChatCompletionMessage, error) {
+func (a *Agent) SkillDirectRunner(ctx context.Context, meta Meta, skill *Skill, toolCall openai.ToolCall) (*openai.ChatCompletionMessage, error) {
 	if len(skill.Tools) == 0 {
 		return nil, fmt.Errorf("skill %s has no tools", skill.Name)
 	}
@@ -315,19 +315,6 @@ func (a *Agent) SkillDirectRunner(ctx context.Context, meta Meta, llm *LLM, skil
 
 	output, err := tool.Execute(ctx, meta, arguments)
 
-	if skill.ProcessOutput {
-		processedOutput, err := a.processOutput(ctx, llm, skill, output)
-		if err != nil {
-			log.Error().
-				Err(err).
-				Str("skill", skill.Name).
-				Str("output", output).
-				Msg("error processing output")
-		} else {
-			output = processedOutput
-		}
-	}
-
 	stepInfo := &types.StepInfo{
 		Created:    startTime,
 		Name:       tool.Name(),
@@ -355,30 +342,4 @@ func (a *Agent) SkillDirectRunner(ctx context.Context, meta Meta, llm *LLM, skil
 		Content:    output,
 		ToolCallID: toolCall.ID,
 	}, nil
-}
-
-func (a *Agent) processOutput(ctx context.Context, llm *LLM, skill *Skill, output string) (string, error) {
-	modelToUse := llm.SmallGenerationModel
-
-	ctx = oai.SetStep(ctx, &oai.Step{
-		Step: types.LLMCallStep(fmt.Sprintf("skill_context_runner (%s | process_output)", skill.Name)),
-	})
-
-	completion, err := llm.New(ctx, modelToUse, openai.ChatCompletionRequest{
-		Model: modelToUse.Model,
-		Messages: []openai.ChatCompletionMessage{
-			{Role: openai.ChatMessageRoleSystem, Content: skill.SystemPrompt},
-			{Role: openai.ChatMessageRoleUser, Content: output},
-		},
-	})
-	if err != nil {
-		log.Error().Err(err).Msg("Error calling LLM while running skill")
-		return "", err
-	}
-
-	if completion.Choices[0].Message.Content == "" {
-		return "", fmt.Errorf("no output from LLM")
-	}
-
-	return completion.Choices[0].Message.Content, nil
 }

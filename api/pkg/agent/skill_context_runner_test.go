@@ -68,7 +68,7 @@ func (s *SkillDirectRunnerTestSuite) Test_SkillDirectRunner_NoTools() {
 
 	s.agent.skills = skills
 
-	result, err := s.agent.SkillDirectRunner(context.Background(), Meta{}, s.llm, &skills[0], toolCall)
+	result, err := s.agent.SkillDirectRunner(context.Background(), Meta{}, &skills[0], toolCall)
 
 	s.Require().Error(err)
 	s.Require().Equal(err.Error(), "skill TestSkill has no tools")
@@ -94,7 +94,7 @@ func (s *SkillDirectRunnerTestSuite) Test_SkillDirectRunner_MultipleTools() {
 		},
 	}
 
-	result, err := s.agent.SkillDirectRunner(context.Background(), Meta{}, s.llm, &skill, toolCall)
+	result, err := s.agent.SkillDirectRunner(context.Background(), Meta{}, &skill, toolCall)
 
 	s.Require().Error(err)
 	s.Require().Equal(err.Error(), "skill TestSkill has more than one tool, direct skills are not supported")
@@ -125,7 +125,7 @@ func (s *SkillDirectRunnerTestSuite) Test_SkillDirectRunner_ExecuteSuccess() {
 		},
 	}
 
-	result, err := s.agent.SkillDirectRunner(context.Background(), Meta{}, s.llm, &skill, toolCall)
+	result, err := s.agent.SkillDirectRunner(context.Background(), Meta{}, &skill, toolCall)
 
 	s.Require().NoError(err)
 	s.Require().NotNil(result)
