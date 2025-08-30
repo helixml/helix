@@ -471,7 +471,7 @@ func (a *Agent) Run(ctx context.Context, meta Meta, llm *LLM, messageHistory *Me
 
 				// Basic skill are executed directly, improves performance and reduces the number of tokens used
 				if skill.Direct {
-					result, err = a.SkillDirectRunner(ctx, meta, skill, tool)
+					result, err = a.SkillDirectRunner(ctx, meta, llm, skill, tool)
 					if err != nil {
 						log.Error().Err(err).Msg("Error running skill")
 						return
