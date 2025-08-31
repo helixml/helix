@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -155,6 +156,20 @@ func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Pl
 		if tool.Config.MCP.URL == "" {
 			return system.NewHTTPError400("URL is required for MCP tools")
 		}
+
+		// Get MCP config from assistant
+		mcpConfig := &types.AssistantMCP{
+			URL:     tool.Config.MCP.URL,
+			Headers: tool.Config.MCP.Headers,
+		}
+
+		// Attempt to initialize the MCP client
+		resp, err := mcp.InitializeMCPClientSkill(context.Background(), mcpConfig)
+		if err != nil {
+			return system.NewHTTPError400(fmt.Sprintf("failed to initialize MCP client, error: %s", err))
+		}
+
+		tool.Config.MCP.Tools = resp.Tools
 
 	case types.ToolTypeBrowser, types.ToolTypeCalculator, types.ToolTypeEmail, types.ToolTypeWebSearch:
 		// No validation needed
