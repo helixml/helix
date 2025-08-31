@@ -58,6 +58,7 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
   const [browserConfig, setBrowserConfig] = useState<TypesAssistantBrowser>({
     enabled: false,
     markdown_post_processing: false,
+    process_output: false,
   });
 
   useEffect(() => {
@@ -67,6 +68,7 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
       setBrowserConfig({
         enabled: false,
         markdown_post_processing: false,
+        process_output: false,
       });
     }
   }, [app.browserTool]);
@@ -129,6 +131,7 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
       appCopy.browserTool = {
         enabled: false,
         markdown_post_processing: false,
+        process_output: false,
       };
       
       // Update the application
@@ -155,6 +158,7 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
           setBrowserConfig({
             enabled: false,
             markdown_post_processing: false,
+            process_output: false,
           });
           setError(null);
           onClosed?.();
@@ -188,6 +192,28 @@ const BrowserSkill: React.FC<BrowserSkillProps> = ({
             />
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
               When enabled, the browser will convert HTML content to Markdown format, making it easier for the AI to process and present the information.
+            </Typography>
+          </SectionCard>
+
+          <SectionCard>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={browserConfig.process_output}
+                  onChange={(e) => handleChange('process_output', e.target.checked)}
+                  color="primary"
+                  disabled={!browserConfig.enabled}
+                />
+              }
+              label={
+                <Typography sx={{ color: '#F8FAFC' }}>
+                  Summarize Web Page Results
+                </Typography>
+              }
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              {/* This will use small generation model to summarize the web page results. This can greatly reduce the costs, however some information might be lost */}
+              When enabled, the browser will use a small generation model to summarize web page results. This can greatly reduce costs, however some information might be lost.
             </Typography>
           </SectionCard>
         </Box>

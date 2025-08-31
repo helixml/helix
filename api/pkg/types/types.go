@@ -1230,6 +1230,7 @@ type ToolAzureDevOpsConfig struct {
 type ToolBrowserConfig struct {
 	Enabled                bool `json:"enabled" yaml:"enabled"`
 	MarkdownPostProcessing bool `json:"markdown_post_processing" yaml:"markdown_post_processing"` // If true, the browser will return the HTML as markdown
+	ProcessOutput          bool `json:"process_output" yaml:"process_output"`                     // If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser,
 	// TODO: whitelist URLs?
 }
 
@@ -1465,6 +1466,7 @@ type AssistantConfig struct {
 type AssistantBrowser struct {
 	Enabled                bool `json:"enabled" yaml:"enabled"`
 	MarkdownPostProcessing bool `json:"markdown_post_processing" yaml:"markdown_post_processing"` // If true, the browser will return the HTML as markdown
+	ProcessOutput          bool `json:"process_output" yaml:"process_output"`                     // If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser,
 	// TODO: whitelist URLs?
 }
 

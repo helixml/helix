@@ -663,6 +663,8 @@ export interface TypesAssistantBrowser {
   enabled?: boolean;
   /** If true, the browser will return the HTML as markdown */
   markdown_post_processing?: boolean;
+  /** If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser, */
+  process_output?: boolean;
 }
 
 export interface TypesAssistantCalculator {
@@ -2282,6 +2284,8 @@ export interface TypesToolBrowserConfig {
   enabled?: boolean;
   /** If true, the browser will return the HTML as markdown */
   markdown_post_processing?: boolean;
+  /** If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser, */
+  process_output?: boolean;
 }
 
 export interface TypesToolCalculatorConfig {

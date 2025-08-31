@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/agent/prompts"
 	oai "github.com/helixml/helix/api/pkg/openai"
@@ -79,7 +80,11 @@ func (a *Agent) GetSkill(name string) (*Skill, error) {
 
 // summarizeMultipleToolResults summarizes results when multiple tools were called
 func (a *Agent) summarizeMultipleToolResults(ctx context.Context, clonedMessages *MessageList, llm *LLM, outUserChannel chan Response, conversational bool) error {
-	clonedMessages.AddFirst("Craft a helpful answer to user's question based on the tool call results. Be concise and to the point.")
+	clonedMessages.
+		AddFirst(
+			fmt.Sprintf("Today is %s. Craft a helpful answer to user's question based on the tool call results. Be concise and to the point.",
+				time.Now().Format("2006-01-02")),
+		)
 
 	model := llm.GenerationModel
 
