@@ -6419,6 +6419,26 @@ paths:
       summary: Reload skills
       tags:
       - skills
+  /api/v1/skills/validate:
+    post:
+      description: Validate MCP skill configuration
+      parameters:
+      - description: MCP skill configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AssistantMCP'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ToolMCPClientConfig'
+      security:
+      - BearerAuth: []
+      summary: Validate MCP skill configuration
+      tags:
+      - skills
   /api/v1/slots/{slot_id}:
     delete:
       description: Delete a slot from the scheduler's desired state, allowing reconciliation
