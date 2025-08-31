@@ -619,7 +619,7 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
     <Box sx={{ margin: 1 }}>
       <Box sx={{ mb: 2, p: 2, bgcolor: 'rgba(0, 0, 0, 0.2)', borderRadius: 1 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="subtitle2">Session Details</Typography>
+          <Typography variant="subtitle2">Interaction Details</Typography>
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button
               variant="outlined"
@@ -643,7 +643,7 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
             )}
           </Box>     
         </Box>
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2 }}>
           <Box>
             <Typography variant="caption" color="text.secondary">Session ID</Typography>
             <Typography variant="body2">
@@ -666,6 +666,20 @@ const InteractionDetails: FC<InteractionDetailsProps> = ({
             <Typography variant="caption" color="text.secondary">Duration</Typography>
             <Typography variant="body2">
               {interaction.duration_ms ? formatDuration(interaction.duration_ms) : 'N/A'}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">Total Cost</Typography>
+            <Typography variant="body2">
+              {(() => {
+                if (!llmCallsData?.calls || llmCallsData.calls.length === 0) return 'N/A';
+                
+                const totalCost = llmCallsData.calls.reduce((sum, call) => {
+                  return sum + (call.total_cost || 0);
+                }, 0);
+                
+                return totalCost > 0 ? `$${totalCost.toFixed(4)}` : 'N/A';
+              })()}
             </Typography>
           </Box>
         </Box>

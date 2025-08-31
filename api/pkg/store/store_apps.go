@@ -180,6 +180,7 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 					Browser: &types.ToolBrowserConfig{
 						Enabled:                assistant.Browser.Enabled,
 						MarkdownPostProcessing: assistant.Browser.MarkdownPostProcessing,
+						ProcessOutput:          assistant.Browser.ProcessOutput,
 					},
 				},
 			})

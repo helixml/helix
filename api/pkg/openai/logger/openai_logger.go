@@ -220,6 +220,9 @@ func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompleti
 }
 
 func (m *LoggingMiddleware) logLLMCall(ctx context.Context, createdAt time.Time, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, apiError error, stream bool, durationMs int64) {
+	// Remove the cancel function from the context
+	ctx = context.WithoutCancel(ctx)
+
 	reqBts, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal LLM request")
