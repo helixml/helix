@@ -3393,6 +3393,39 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/skills/validate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Validate MCP skill configuration",
+                "tags": [
+                    "skills"
+                ],
+                "summary": "Validate MCP skill configuration",
+                "parameters": [
+                    {
+                        "description": "MCP skill configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AssistantMCP"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ToolMCPClientConfig"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/skills/{id}": {
             "get": {
                 "security": [

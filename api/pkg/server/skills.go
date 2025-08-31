@@ -1,10 +1,12 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -155,4 +157,27 @@ func (s *HelixAPIServer) handleReloadSkills(_ http.ResponseWriter, r *http.Reque
 		"status":  "success",
 		"message": fmt.Sprintf("Successfully reloaded %d skills", skillCount),
 	}, nil
+}
+
+// handleValidateMcpSkill - validates MCP skill configuration
+// validateMcpSkill godoc
+// @Summary Validate MCP skill configuration
+// @Description Validate MCP skill configuration
+// @Tags    skills
+// @Param   request body types.AssistantMCP true "MCP skill configuration"
+// @Success 200 {object} types.ToolMCPClientConfig
+// @Router /api/v1/skills/validate [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) handleValidateMcpSkill(_ http.ResponseWriter, r *http.Request) (*types.ToolMCPClientConfig, error) {
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, fmt.Errorf("unauthorized")
+	}
+
+	var config types.AssistantMCP
+	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+		return nil, fmt.Errorf("failed to decode request body: %w", err)
+	}
+
+	return mcp.InitializeMCPClientSkill(r.Context(), &config)
 }
