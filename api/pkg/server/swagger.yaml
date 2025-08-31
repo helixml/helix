@@ -46,6 +46,7 @@ definitions:
     - email
     - web_search
     - azure_devops
+    - mcp
     type: string
     x-enum-varnames:
     - ToolTypeAPI
@@ -56,6 +57,7 @@ definitions:
     - ToolTypeEmail
     - ToolTypeWebSearch
     - ToolTypeAzureDevOps
+    - ToolTypeMCP
   github_com_helixml_helix_api_pkg_types.Usage:
     properties:
       completion_tokens:
@@ -471,6 +473,79 @@ definitions:
       valid:
         description: Valid is true if Time is not NULL
         type: boolean
+    type: object
+  mcp.Meta:
+    properties:
+      additionalFields:
+        additionalProperties: {}
+        description: |-
+          AdditionalFields are any fields present in the Meta that are not
+          otherwise defined in the protocol.
+        type: object
+      progressToken:
+        description: |-
+          If specified, the caller is requesting out-of-band progress
+          notifications for this request (as represented by
+          notifications/progress). The value of this parameter is an
+          opaque token that will be attached to any subsequent
+          notifications. The receiver is not obligated to provide these
+          notifications.
+    type: object
+  mcp.Tool:
+    properties:
+      _meta:
+        allOf:
+        - $ref: '#/definitions/mcp.Meta'
+        description: Meta is a metadata object that is reserved by MCP for storing
+          additional information.
+      annotations:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolAnnotation'
+        description: Optional properties describing tool behavior
+      description:
+        description: A human-readable description of the tool.
+        type: string
+      inputSchema:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolInputSchema'
+        description: A JSON Schema object defining the expected parameters for the
+          tool.
+      name:
+        description: The name of the tool.
+        type: string
+    type: object
+  mcp.ToolAnnotation:
+    properties:
+      destructiveHint:
+        description: If true, the tool may perform destructive updates
+        type: boolean
+      idempotentHint:
+        description: If true, repeated calls with same args have no additional effect
+        type: boolean
+      openWorldHint:
+        description: If true, tool interacts with external entities
+        type: boolean
+      readOnlyHint:
+        description: If true, the tool does not modify its environment
+        type: boolean
+      title:
+        description: Human-readable title for the tool
+        type: string
+    type: object
+  mcp.ToolInputSchema:
+    properties:
+      $defs:
+        additionalProperties: {}
+        type: object
+      properties:
+        additionalProperties: {}
+        type: object
+      required:
+        items:
+          type: string
+        type: array
+      type:
+        type: string
     type: object
   memory.EstimateOptions:
     properties:
@@ -1134,6 +1209,10 @@ definitions:
       max_tokens:
         description: The maximum number of tokens to generate before stopping.
         type: integer
+      mcps:
+        items:
+          $ref: '#/definitions/types.AssistantMCP'
+        type: array
       model:
         type: string
       name:
@@ -1262,6 +1341,19 @@ definitions:
         description: |-
           Source defines where the raw data is fetched from. It can be
           directly uploaded files, S3, GCS, Google Drive, Gmail, etc.
+    type: object
+  types.AssistantMCP:
+    properties:
+      description:
+        type: string
+      headers:
+        additionalProperties:
+          type: string
+        type: object
+      name:
+        type: string
+      url:
+        type: string
     type: object
   types.AssistantWebSearch:
     properties:
@@ -3831,6 +3923,8 @@ definitions:
         $ref: '#/definitions/types.ToolEmailConfig'
       gptscript:
         $ref: '#/definitions/types.ToolGPTScriptConfig'
+      mcp:
+        $ref: '#/definitions/types.ToolMCPClientConfig'
       web_search:
         $ref: '#/definitions/types.ToolWebSearchConfig'
       zapier:
@@ -3850,6 +3944,25 @@ definitions:
         type: string
       script_url:
         description: URL to download the script
+        type: string
+    type: object
+  types.ToolMCPClientConfig:
+    properties:
+      description:
+        type: string
+      enabled:
+        type: boolean
+      headers:
+        additionalProperties:
+          type: string
+        type: object
+      name:
+        type: string
+      tools:
+        items:
+          $ref: '#/definitions/mcp.Tool'
+        type: array
+      url:
         type: string
     type: object
   types.ToolWebSearchConfig:

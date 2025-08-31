@@ -265,6 +265,23 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 			})
 		}
 
+		// Convert MCP to Tools
+		for _, mcp := range assistant.MCP {
+			tools = append(tools, &types.Tool{
+				Name:        mcp.Name,
+				Description: mcp.Description,
+				ToolType:    types.ToolTypeMCP,
+				Config: types.ToolConfig{
+					MCP: &types.ToolMCPClientConfig{
+						Name:        mcp.Name,
+						Description: mcp.Description,
+						URL:         mcp.URL,
+						Headers:     mcp.Headers,
+					},
+				},
+			})
+		}
+
 		// Convert GPTScripts to Tools
 		for _, script := range assistant.GPTScripts {
 			tools = append(tools, &types.Tool{
