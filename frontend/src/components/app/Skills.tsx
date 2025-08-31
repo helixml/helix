@@ -20,6 +20,7 @@ import StorageIcon from '@mui/icons-material/Storage';
 import SearchIcon from '@mui/icons-material/Search';
 import { IAppFlatState, IAgentSkill } from '../../types';
 import AddApiSkillDialog from './AddApiSkillDialog';
+import AddMcpSkillDialog from './AddMcpSkillDialog';
 import BrowserSkill from './BrowserSkill';
 import CalculatorSkill from './CalculatorSkill';
 import EmailSkill from './EmailSkill';
@@ -73,6 +74,7 @@ const SKILL_TYPE_WEB_SEARCH = 'Web Search';
 const SKILL_TYPE_CALCULATOR = 'Calculator';
 const SKILL_TYPE_EMAIL = 'Email';
 const SKILL_TYPE_AZURE_DEVOPS = 'Azure DevOps';
+const SKILL_TYPE_MCP = 'MCP';
 
 const SKILL_CATEGORY_CORE = 'Core';
 const SKILL_CATEGORY_DATA = 'Data & APIs';
@@ -255,6 +257,27 @@ const CUSTOM_API_SKILL: ISkill = {
   },
 };
 
+const CUSTOM_MCP_SKILL: ISkill = {
+  id: 'new-custom-mcp',
+  icon: <ApiIcon />,
+  name: 'New MCP',
+  description: 'Add your own MCP (Model Context Protocol) server integration. Connect to external tools and services via MCP.',
+  type: SKILL_TYPE_MCP,
+  category: SKILL_CATEGORY_CORE,
+  skill: {
+    name: 'Custom MCP',
+    icon: <ApiIcon />,
+    description: 'Add your own MCP server integration.',
+    systemPrompt: '',
+    apiSkill: {
+      schema: '',
+      url: '',
+      requiredParameters: [],
+    },
+    configurable: true,
+  },
+};
+
 const getFirstLine = (text: string): string => {
   return text.split('\n')[0].trim();
 };
@@ -278,6 +301,7 @@ const Skills: React.FC<SkillsProps> = ({
 
   const [selectedSkill, setSelectedSkill] = useState<IAgentSkill | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [dialogType, setDialogType] = useState<'api' | 'mcp' | null>(null);
   const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedSkillForMenu, setSelectedSkillForMenu] = useState<string | null>(null);
   const [isDisableConfirmOpen, setIsDisableConfirmOpen] = useState(false);
@@ -491,10 +515,40 @@ const Skills: React.FC<SkillsProps> = ({
       });
   }, [app.apiTools, backendSkills]);
 
+  // Convert MCP tools to skills
+  const mcpSkills = useMemo(() => {
+    if (!app.mcpTools) return [];
+
+    return app.mcpTools.map(mcp => ({
+      id: `mcp-${mcp.name}`,
+      icon: <ApiIcon />,
+      name: mcp.name || 'Unknown MCP',
+      description: mcp.description || 'MCP server integration',
+      type: SKILL_TYPE_MCP,
+      category: SKILL_CATEGORY_CORE,
+      skill: {
+        name: mcp.name || 'Unknown MCP',
+        description: mcp.description || 'MCP server integration',
+        systemPrompt: '',
+        apiSkill: {
+          schema: '',
+          url: mcp.url || '',
+          requiredParameters: [],
+          headers: mcp.headers || {},
+          oauth_provider: '',
+          oauth_scopes: [],
+          skip_unknown_keys: false,
+          transform_output: false,
+        },
+        configurable: true,
+      },
+    }));
+  }, [app.mcpTools]);
+
   // All skills are now shown to everyone
   const allSkills = useMemo(() => {
-    return [...BASE_SKILLS, ...customApiSkills, ...backendSkills, CUSTOM_API_SKILL];
-  }, [customApiSkills, backendSkills]);
+    return [...BASE_SKILLS, ...customApiSkills, ...backendSkills, ...mcpSkills, CUSTOM_API_SKILL, CUSTOM_MCP_SKILL];
+  }, [customApiSkills, backendSkills, mcpSkills]);
 
   const availableCategories = useMemo(() => {
     const categories = new Set<string>();
@@ -515,7 +569,8 @@ const Skills: React.FC<SkillsProps> = ({
       skills = skills.filter(skill => 
         skill.name.toLowerCase().includes(query) ||
         skill.description.toLowerCase().includes(query) ||
-        (skill.skill.apiSkill?.oauth_provider && skill.skill.apiSkill.oauth_provider.toLowerCase().includes(query))
+        (skill.skill.apiSkill?.oauth_provider && skill.skill.apiSkill.oauth_provider.toLowerCase().includes(query)) ||
+        (skill.type === SKILL_TYPE_MCP && 'mcp'.includes(query))
       );
     }
     
@@ -603,6 +658,10 @@ const Skills: React.FC<SkillsProps> = ({
     if (skillName === 'Azure DevOps') {
       return app.azureDevOpsTool?.enabled ?? false;
     }
+    // Check for MCP skills
+    if (app.mcpTools?.some(tool => tool.name === skillName)) {
+      return true;
+    }
     return app.apiTools?.some(tool => tool.name === skillName) ?? false;
   };
 
@@ -649,6 +708,15 @@ const Skills: React.FC<SkillsProps> = ({
           });
           return
         }
+        // Check if it's an MCP skill
+        if (app.mcpTools?.some(tool => tool.name === skill.name)) {
+          const updatedMcpTools = app.mcpTools.filter(tool => tool.name !== skill.name);
+          await onUpdate({
+            ...app,
+            mcpTools: updatedMcpTools
+          });
+          return;
+        }
         // Remove the tool from app.apiTools
         const updatedTools = app.apiTools?.filter(tool => tool.name !== skill.name) || [];
         
@@ -683,17 +751,43 @@ const Skills: React.FC<SkillsProps> = ({
       }
     }
 
-    // For custom API tile, don't pass the skill template
+    // For custom tiles, don't pass the skill template and set dialog type
     if (skill.id === 'new-custom-api') {
       setSelectedSkill(null);
+      setDialogType('api');
+    } else if (skill.id === 'new-custom-mcp') {
+      setSelectedSkill(null);
+      setDialogType('mcp');
     } else {
       setSelectedSkill(skill.skill);
+      setDialogType(null);
     }
     setIsDialogOpen(true);
   };
 
   const renderSkillDialog = () => {
     if (!selectedSkill) {
+      // Show appropriate dialog based on dialogType
+      if (dialogType === 'mcp') {
+        return (
+          <AddMcpSkillDialog
+            open={isDialogOpen}
+            onClose={() => {
+              setIsDialogOpen(false);
+            }}
+            onClosed={() => {
+              setSelectedSkill(null);
+              setDialogType(null);
+            }}
+            skill={undefined}
+            app={app}
+            onUpdate={onUpdate}
+            isEnabled={false}
+          />
+        );
+      }
+      
+      // Default to API skill dialog for custom API tile
       return (
         <AddApiSkillDialog
           open={isDialogOpen}
@@ -702,6 +796,7 @@ const Skills: React.FC<SkillsProps> = ({
           }}
           onClosed={() => {
             setSelectedSkill(null);
+            setDialogType(null);
           }}
           skill={undefined}
           app={app}
@@ -720,6 +815,7 @@ const Skills: React.FC<SkillsProps> = ({
           }}
           onClosed={() => {
             setSelectedSkill(null);
+            setDialogType(null);
           }}
           app={app}
           onUpdate={onUpdate}
@@ -737,6 +833,7 @@ const Skills: React.FC<SkillsProps> = ({
           }}
           onClosed={() => {
             setSelectedSkill(null);
+            setDialogType(null);
           }}
           app={app}
           onUpdate={onUpdate}
@@ -754,6 +851,7 @@ const Skills: React.FC<SkillsProps> = ({
           }}
           onClosed={() => {
             setSelectedSkill(null);
+            setDialogType(null);
           }}
           app={app}
           onUpdate={onUpdate}
@@ -771,6 +869,7 @@ const Skills: React.FC<SkillsProps> = ({
           }}
           onClosed={() => {
             setSelectedSkill(null);
+            setDialogType(null);
           }}
           app={app}
           onUpdate={onUpdate}
@@ -788,10 +887,36 @@ const Skills: React.FC<SkillsProps> = ({
           }}
           onClosed={() => {
             setSelectedSkill(null);
+            setDialogType(null);
           }}
           app={app}
           onUpdate={onUpdate}
           isEnabled={isSkillEnabled('Azure DevOps')}
+        />
+      );
+    }
+
+    // Check if this is an MCP skill by looking it up in the mcpTools array
+    if (app.mcpTools?.some(tool => tool.name === selectedSkill.name)) {
+      return (
+        <AddMcpSkillDialog
+          open={isDialogOpen}
+          onClose={() => {
+            setIsDialogOpen(false);
+          }}
+          onClosed={() => {
+            setSelectedSkill(null);
+            setDialogType(null);
+          }}
+          skill={{
+            name: selectedSkill.name,
+            description: selectedSkill.description,
+            url: selectedSkill.apiSkill?.url || '',
+            headers: selectedSkill.apiSkill?.headers || {},
+          }}
+          app={app}
+          onUpdate={onUpdate}
+          isEnabled={isSkillEnabled(selectedSkill.name)}
         />
       );
     }
@@ -804,6 +929,7 @@ const Skills: React.FC<SkillsProps> = ({
         }}
         onClosed={() => {
           setSelectedSkill(null);
+          setDialogType(null);
         }}
         skill={selectedSkill}
         app={app}
@@ -860,17 +986,26 @@ const Skills: React.FC<SkillsProps> = ({
             severity="info" 
             sx={{ mb: 2 }}
             action={
-              <Button 
-                size="small" 
-                onClick={() => handleOpenDialog(CUSTOM_API_SKILL)}
-                sx={{ textTransform: 'none' }}
-              >
-                Add Custom API
-              </Button>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button 
+                  size="small" 
+                  onClick={() => handleOpenDialog(CUSTOM_API_SKILL)}
+                  sx={{ textTransform: 'none' }}
+                >
+                  Add Custom API
+                </Button>
+                <Button 
+                  size="small" 
+                  onClick={() => handleOpenDialog(CUSTOM_MCP_SKILL)}
+                  sx={{ textTransform: 'none' }}
+                >
+                  Add MCP Skill
+                </Button>
+              </Box>
             }
           >
             <Typography variant="body2">
-              Can't find what you're looking for? Try adding a custom API integration for "{searchQuery}".
+              Can't find what you're looking for? Try adding a custom API integration or MCP skill for "{searchQuery}".
             </Typography>
           </Alert>
         )}
@@ -1100,6 +1235,8 @@ const Skills: React.FC<SkillsProps> = ({
           const color = PROVIDER_COLORS[skill.type] || PROVIDER_COLORS['custom'];
           const isEnabled = isSkillEnabled(skill.name);
           const isCustomApiTile = skill.id === 'new-custom-api';
+          const isCustomMcpTile = skill.id === 'new-custom-mcp';
+          const isCustomTile = isCustomApiTile || isCustomMcpTile;
           
           // Check OAuth provider status for this skill (admin-only warnings)
           // const oauthProvider = skill.skill.apiSkill?.oauth_provider;
@@ -1158,7 +1295,7 @@ const Skills: React.FC<SkillsProps> = ({
                       transform: isEnabled ? 'translateY(-4px)' : 'none',
                       boxShadow: isEnabled ? 4 : 2,
                     },
-                    ...(isCustomApiTile && {
+                    ...(isCustomTile && {
                       position: 'relative',
                       '&::before': {
                         content: '""',
@@ -1272,7 +1409,7 @@ const Skills: React.FC<SkillsProps> = ({
                         variant="outlined"
                         onClick={() => handleOpenDialog(skill)}
                       >
-                        {isCustomApiTile ? 'Add' : 'Enable'}
+                        {isCustomTile ? 'Add' : 'Enable'}
                       </Button>
                     )}
                   </CardActions>
