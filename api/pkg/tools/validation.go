@@ -147,6 +147,14 @@ func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Pl
 		// if tool.Config.AzureDevOps.PersonalAccessToken == "" {
 		// 	return system.NewHTTPError400("Personal access token is required for Azure DevOps tools")
 		// }
+	case types.ToolTypeMCP:
+		if tool.Config.MCP == nil {
+			return system.NewHTTPError400("MCP config is required for MCP tools")
+		}
+
+		if tool.Config.MCP.URL == "" {
+			return system.NewHTTPError400("URL is required for MCP tools")
+		}
 
 	case types.ToolTypeBrowser, types.ToolTypeCalculator, types.ToolTypeEmail, types.ToolTypeWebSearch:
 		// No validation needed
