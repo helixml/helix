@@ -4210,7 +4210,8 @@ const docTemplate = `{
                 "calculator",
                 "email",
                 "web_search",
-                "azure_devops"
+                "azure_devops",
+                "mcp"
             ],
             "x-enum-varnames": [
                 "ToolTypeAPI",
@@ -4220,7 +4221,8 @@ const docTemplate = `{
                 "ToolTypeCalculator",
                 "ToolTypeEmail",
                 "ToolTypeWebSearch",
-                "ToolTypeAzureDevOps"
+                "ToolTypeAzureDevOps",
+                "ToolTypeMCP"
             ]
         },
         "github_com_helixml_helix_api_pkg_types.Usage": {
@@ -4772,6 +4774,103 @@ const docTemplate = `{
                 "valid": {
                     "description": "Valid is true if Time is not NULL",
                     "type": "boolean"
+                }
+            }
+        },
+        "mcp.Meta": {
+            "type": "object",
+            "properties": {
+                "additionalFields": {
+                    "description": "AdditionalFields are any fields present in the Meta that are not\notherwise defined in the protocol.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "progressToken": {
+                    "description": "If specified, the caller is requesting out-of-band progress\nnotifications for this request (as represented by\nnotifications/progress). The value of this parameter is an\nopaque token that will be attached to any subsequent\nnotifications. The receiver is not obligated to provide these\nnotifications."
+                }
+            }
+        },
+        "mcp.Tool": {
+            "type": "object",
+            "properties": {
+                "_meta": {
+                    "description": "Meta is a metadata object that is reserved by MCP for storing additional information.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.Meta"
+                        }
+                    ]
+                },
+                "annotations": {
+                    "description": "Optional properties describing tool behavior",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolAnnotation"
+                        }
+                    ]
+                },
+                "description": {
+                    "description": "A human-readable description of the tool.",
+                    "type": "string"
+                },
+                "inputSchema": {
+                    "description": "A JSON Schema object defining the expected parameters for the tool.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolInputSchema"
+                        }
+                    ]
+                },
+                "name": {
+                    "description": "The name of the tool.",
+                    "type": "string"
+                }
+            }
+        },
+        "mcp.ToolAnnotation": {
+            "type": "object",
+            "properties": {
+                "destructiveHint": {
+                    "description": "If true, the tool may perform destructive updates",
+                    "type": "boolean"
+                },
+                "idempotentHint": {
+                    "description": "If true, repeated calls with same args have no additional effect",
+                    "type": "boolean"
+                },
+                "openWorldHint": {
+                    "description": "If true, tool interacts with external entities",
+                    "type": "boolean"
+                },
+                "readOnlyHint": {
+                    "description": "If true, the tool does not modify its environment",
+                    "type": "boolean"
+                },
+                "title": {
+                    "description": "Human-readable title for the tool",
+                    "type": "string"
+                }
+            }
+        },
+        "mcp.ToolInputSchema": {
+            "type": "object",
+            "properties": {
+                "$defs": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "properties": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "required": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "type": {
+                    "type": "string"
                 }
             }
         },
@@ -5718,6 +5817,12 @@ const docTemplate = `{
                     "description": "The maximum number of tokens to generate before stopping.",
                     "type": "integer"
                 },
+                "mcps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantMCP"
+                    }
+                },
                 "model": {
                     "type": "string"
                 },
@@ -5870,6 +5975,26 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.KnowledgeSource"
                         }
                     ]
+                }
+            }
+        },
+        "types.AssistantMCP": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
                 }
             }
         },
@@ -9539,6 +9664,9 @@ const docTemplate = `{
                 "gptscript": {
                     "$ref": "#/definitions/types.ToolGPTScriptConfig"
                 },
+                "mcp": {
+                    "$ref": "#/definitions/types.ToolMCPClientConfig"
+                },
                 "web_search": {
                     "$ref": "#/definitions/types.ToolWebSearchConfig"
                 },
@@ -9567,6 +9695,35 @@ const docTemplate = `{
                 },
                 "script_url": {
                     "description": "URL to download the script",
+                    "type": "string"
+                }
+            }
+        },
+        "types.ToolMCPClientConfig": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mcp.Tool"
+                    }
+                },
+                "url": {
                     "type": "string"
                 }
             }
