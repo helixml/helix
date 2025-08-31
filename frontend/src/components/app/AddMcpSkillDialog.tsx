@@ -13,14 +13,22 @@ import {
   Grid,
   Alert,
   Tooltip,
+  CircularProgress,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Chip,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { IAppFlatState } from '../../types';
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
 import useApi from '../../hooks/useApi';
+import { TypesToolMCPClientConfig, McpTool } from '../../api/api';
 
 interface AddMcpSkillDialogProps {
   open: boolean;
@@ -108,6 +116,9 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
   const [existingSkillIndex, setExistingSkillIndex] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [urlError, setUrlError] = useState<string | null>(null);
+  const [validating, setValidating] = useState(false);
+  const [validationResult, setValidationResult] = useState<TypesToolMCPClientConfig | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialSkill) {
@@ -138,6 +149,9 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
       setExistingSkill(null);
       setExistingSkillIndex(null);
     }
+    // Reset validation state when dialog opens
+    setValidationResult(null);
+    setValidationError(null);
   }, [initialSkill, open, app.mcpTools]);
 
   const handleChange = (field: string, value: string) => {
@@ -188,6 +202,45 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
       ...prev,
       headers: newHeaders,
     }));
+  };
+
+  const handleValidate = async () => {
+    try {
+      setValidating(true);
+      setValidationError(null);
+      setValidationResult(null);
+      
+      // Validate URL before making the API call
+      if (!skill.url.toLowerCase().startsWith('http')) {
+        setUrlError('URL must start with http:// or https://');
+        setValidating(false);
+        return;
+      }
+
+      // Call the validation API
+      const result = await api.getApiClient().v1SkillsValidateCreate({
+        name: skill.name,
+        description: skill.description,
+        url: skill.url,
+        headers: skill.headers,
+      });
+      
+      setValidationResult(result.data);
+      setValidationError(null);
+    } catch (err) {
+      console.error('Validation error:', err);
+      const axiosError = err as AxiosError;
+      const errMessage = axiosError.response?.data ? 
+        typeof axiosError.response.data === 'string' ? 
+          axiosError.response.data : 
+          JSON.stringify(axiosError.response.data) : 
+        axiosError.message || 'Failed to validate MCP skill';
+      
+      setValidationError(errMessage);
+      setValidationResult(null);
+    } finally {
+      setValidating(false);
+    }
   };
 
   const handleSave = async () => {        
@@ -289,6 +342,84 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
     });
   };
 
+  const renderMcpTools = (tools: McpTool[]) => {
+    return (
+      <Box sx={{ mt: 3 }}>
+        <Typography variant="h6" sx={{ mb: 2, color: '#F8FAFC', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <CheckCircleIcon sx={{ color: '#10B981' }} />
+          Available MCP Tools ({tools.length})
+        </Typography>
+        {tools.map((tool, index) => (
+          <Accordion 
+            key={`tool-${index}`}
+            sx={{ 
+              background: '#23262F', 
+              mb: 1,
+              '&:before': { display: 'none' },
+              boxShadow: 'none',
+              '& .MuiAccordionSummary-root': {
+                minHeight: 48,
+              }
+            }}
+          >
+            <AccordionSummary
+              expandIcon={<ExpandMoreIcon sx={{ color: '#A0AEC0' }} />}
+              sx={{
+                '& .MuiAccordionSummary-content': {
+                  margin: '12px 0',
+                }
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+                <Typography sx={{ color: '#F8FAFC', fontWeight: 500 }}>
+                  {tool.name}
+                </Typography>
+                {tool.annotations?.readOnlyHint && (
+                  <Chip label="Read Only" size="small" sx={{ background: '#1E40AF', color: '#93C5FD' }} />
+                )}
+                {tool.annotations?.destructiveHint && (
+                  <Chip label="Destructive" size="small" sx={{ background: '#991B1B', color: '#FCA5A5' }} />
+                )}
+              </Box>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Typography sx={{ color: '#A0AEC0', mb: 2 }}>
+                {tool.description || 'No description available'}
+              </Typography>
+              {tool.inputSchema && tool.inputSchema.properties && (
+                <Box>
+                  <Typography variant="subtitle2" sx={{ color: '#F8FAFC', mb: 1 }}>
+                    Parameters:
+                  </Typography>
+                  <Box sx={{ pl: 2 }}>
+                    {Object.entries(tool.inputSchema.properties).map(([propName, propSchema]: [string, any]) => (
+                      <Box key={propName} sx={{ mb: 1 }}>
+                        <Typography variant="body2" sx={{ color: '#F8FAFC' }}>
+                          • {propName}
+                          {tool.inputSchema?.required?.includes(propName) && (
+                            <span style={{ color: '#EF4444' }}> *</span>
+                          )}
+                          {propSchema.type && (
+                            <span style={{ color: '#A0AEC0' }}> ({propSchema.type})</span>
+                          )}
+                        </Typography>
+                        {propSchema.description && (
+                          <Typography variant="caption" sx={{ color: '#A0AEC0', ml: 2, display: 'block' }}>
+                            {propSchema.description}
+                          </Typography>
+                        )}
+                      </Box>
+                    ))}
+                  </Box>
+                </Box>
+              )}
+            </AccordionDetails>
+          </Accordion>
+        ))}
+      </Box>
+    );
+  };
+
   return (
     <DarkDialog 
       open={open} 
@@ -313,6 +444,8 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
           setExistingSkill(null);
           setExistingSkillIndex(null);
           setUrlError(null);
+          setValidationResult(null);
+          setValidationError(null);
           onClosed?.();
         }
       }}
@@ -380,6 +513,44 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
                     },
                   }}
                 />
+
+                <Box sx={{ mt: 2, mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
+                  <Button
+                    variant="outlined"
+                    onClick={handleValidate}
+                    disabled={!skill.url.trim() || validating || !!urlError}
+                    startIcon={validating ? <CircularProgress size={16} /> : null}
+                    sx={{
+                      borderColor: '#6366F1',
+                      color: '#6366F1',
+                      '&:hover': {
+                        borderColor: '#818CF8',
+                        background: 'rgba(99, 102, 241, 0.1)',
+                      },
+                      '&:disabled': {
+                        borderColor: '#353945',
+                        color: '#6B7280',
+                      }
+                    }}
+                  >
+                    {validating ? 'Validating...' : 'Validate'}
+                  </Button>
+                </Box>
+
+                {validationError && (
+                  <Alert 
+                    variant="outlined" 
+                    severity="error" 
+                    sx={{ mb: 3 }}
+                    onClose={() => setValidationError(null)}
+                  >
+                    {validationError}
+                  </Alert>
+                )}
+
+                {validationResult && validationResult.tools && validationResult.tools.length > 0 && (
+                  renderMcpTools(validationResult.tools)
+                )}
 
                 <Box sx={{ mt: 3 }}>
                   <Typography variant="h6" sx={{ mb: 2, color: '#F8FAFC' }}>
@@ -462,7 +633,7 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
             variant="outlined"
             color="primary"
           >
-            Cancel
+            Close
           </Button>
           {/* Add spacer here */}
           <Box sx={{ flex: 1 }} />

@@ -4702,6 +4702,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Validate MCP skill configuration
+     *
+     * @tags skills
+     * @name V1SkillsValidateCreate
+     * @summary Validate MCP skill configuration
+     * @request POST:/api/v1/skills/validate
+     * @secure
+     */
+    v1SkillsValidateCreate: (request: TypesAssistantMCP, params: RequestParams = {}) =>
+      this.request<TypesToolMCPClientConfig, any>({
+        path: `/api/v1/skills/validate`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
      * @description Delete a slot from the scheduler's desired state, allowing reconciliation to clean it up from the runner
      *
      * @tags dashboard

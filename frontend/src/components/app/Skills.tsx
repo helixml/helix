@@ -25,6 +25,7 @@ import BrowserSkill from './BrowserSkill';
 import CalculatorSkill from './CalculatorSkill';
 import EmailSkill from './EmailSkill';
 import ApiIcon from '@mui/icons-material/Api';
+import HubIcon from '@mui/icons-material/Hub';
 import useApi from '../../hooks/useApi';
 import useAccount from '../../hooks/useAccount';
 import useRouter from '../../hooks/useRouter';
@@ -78,6 +79,7 @@ const SKILL_TYPE_MCP = 'MCP';
 
 const SKILL_CATEGORY_CORE = 'Core';
 const SKILL_CATEGORY_DATA = 'Data & APIs';
+const SKILL_CATEGORY_MCP = 'MCP Servers';
 const SKILL_CATEGORY_GOOGLE = 'Google';
 const SKILL_CATEGORY_MICROSOFT = 'Microsoft';
 const SKILL_CATEGORY_GITHUB = 'GitHub';
@@ -94,6 +96,8 @@ const getCategoryIcon = (category: string) => {
       return <SettingsIcon sx={{ fontSize: 16 }} />;
     case SKILL_CATEGORY_DATA:
       return <StorageIcon sx={{ fontSize: 16 }} />;
+    case SKILL_CATEGORY_MCP:
+      return <ApiIcon sx={{ fontSize: 16, color: '#6366F1' }} />;
     case SKILL_CATEGORY_GOOGLE:
       return <GoogleIcon sx={{ fontSize: 16, color: '#4285F4' }} />;
     case SKILL_CATEGORY_MICROSOFT:
@@ -259,14 +263,14 @@ const CUSTOM_API_SKILL: ISkill = {
 
 const CUSTOM_MCP_SKILL: ISkill = {
   id: 'new-custom-mcp',
-  icon: <ApiIcon />,
+  icon: <HubIcon sx={{ color: '#6366F1' }} />,
   name: 'New MCP',
   description: 'Add your own MCP (Model Context Protocol) server integration. Connect to external tools and services via MCP.',
   type: SKILL_TYPE_MCP,
-  category: SKILL_CATEGORY_CORE,
+  category: SKILL_CATEGORY_MCP,
   skill: {
     name: 'Custom MCP',
-    icon: <ApiIcon />,
+    icon: <HubIcon sx={{ color: '#6366F1' }} />,
     description: 'Add your own MCP server integration.',
     systemPrompt: '',
     apiSkill: {
@@ -517,18 +521,19 @@ const Skills: React.FC<SkillsProps> = ({
 
   // Convert MCP tools to skills
   const mcpSkills = useMemo(() => {
+    console.log('xxx', app.mcpTools);
     if (!app.mcpTools) return [];
 
     return app.mcpTools.map(mcp => ({
       id: `mcp-${mcp.name}`,
-      icon: <ApiIcon />,
+      icon: <HubIcon sx={{ color: '#6366F1' }} />,
       name: mcp.name || 'Unknown MCP',
-      description: mcp.description || 'MCP server integration',
+      description: mcp.description || `MCP server integration${mcp.url ? ` (${mcp.url})` : ''}`,
       type: SKILL_TYPE_MCP,
-      category: SKILL_CATEGORY_CORE,
+      category: SKILL_CATEGORY_MCP,
       skill: {
         name: mcp.name || 'Unknown MCP',
-        description: mcp.description || 'MCP server integration',
+        description: mcp.description || `MCP server integration${mcp.url ? ` (${mcp.url})` : ''}`,
         systemPrompt: '',
         apiSkill: {
           schema: '',
@@ -550,6 +555,8 @@ const Skills: React.FC<SkillsProps> = ({
     return [...BASE_SKILLS, ...customApiSkills, ...backendSkills, ...mcpSkills, CUSTOM_API_SKILL, CUSTOM_MCP_SKILL];
   }, [customApiSkills, backendSkills, mcpSkills]);
 
+  console.log('allSkills', allSkills);
+
   const availableCategories = useMemo(() => {
     const categories = new Set<string>();
     allSkills.forEach(skill => {
@@ -570,7 +577,7 @@ const Skills: React.FC<SkillsProps> = ({
         skill.name.toLowerCase().includes(query) ||
         skill.description.toLowerCase().includes(query) ||
         (skill.skill.apiSkill?.oauth_provider && skill.skill.apiSkill.oauth_provider.toLowerCase().includes(query)) ||
-        (skill.type === SKILL_TYPE_MCP && 'mcp'.includes(query))
+        (skill.type === SKILL_TYPE_MCP && ('mcp'.includes(query) || 'server'.includes(query) || 'protocol'.includes(query)))
       );
     }
     
@@ -1005,7 +1012,7 @@ const Skills: React.FC<SkillsProps> = ({
             }
           >
             <Typography variant="body2">
-              Can't find what you're looking for? Try adding a custom API integration or MCP skill for "{searchQuery}".
+              Can't find what you're looking for? Try adding a custom API integration or MCP server for "{searchQuery}".
             </Typography>
           </Alert>
         )}
@@ -1110,9 +1117,34 @@ const Skills: React.FC<SkillsProps> = ({
               }
             />
             
+            {/* MCP Servers fourth */}
+            <Tab
+              key={SKILL_CATEGORY_MCP}
+              value={SKILL_CATEGORY_MCP}
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  {getCategoryIcon(SKILL_CATEGORY_MCP)}
+                  <Typography variant="body2" sx={{ fontWeight: 'inherit' }}>
+                    MCP Servers
+                  </Typography>
+                  <Chip 
+                    label={allSkills.filter(skill => skill.category === SKILL_CATEGORY_MCP).length} 
+                    size="small"  
+                    sx={{ 
+                      minWidth: '18px',
+                      height: '18px',
+                      fontSize: '0.65rem',
+                      ...getBadgeColors(getCategorySkillStatus(SKILL_CATEGORY_MCP)),
+                      '& .MuiChip-label': { px: 0.6 }
+                    }} 
+                  />
+                </Box>
+              }
+            />
+            
             {/* Provider-specific categories */}
             {availableCategories
-              .filter(cat => cat !== 'All' && cat !== SKILL_CATEGORY_CORE && cat !== SKILL_CATEGORY_DATA)
+              .filter(cat => cat !== 'All' && cat !== SKILL_CATEGORY_CORE && cat !== SKILL_CATEGORY_DATA && cat !== SKILL_CATEGORY_MCP)
               .map(category => {
                 const skillCount = allSkills.filter(skill => skill.category === category).length;
                 // Shorten category names for better fit
@@ -1232,7 +1264,12 @@ const Skills: React.FC<SkillsProps> = ({
       <Grid container spacing={2}>
         {filteredSkills.map((skill) => {
           const defaultIcon = PROVIDER_ICONS[skill.type] || PROVIDER_ICONS['custom'];
-          const color = PROVIDER_COLORS[skill.type] || PROVIDER_COLORS['custom'];
+          let color = PROVIDER_COLORS[skill.type] || PROVIDER_COLORS['custom'];
+          
+          // Special handling for MCP skills
+          if (skill.type === SKILL_TYPE_MCP) {
+            color = '#6366F1'; // Purple color for MCP skills
+          }
           const isEnabled = isSkillEnabled(skill.name);
           const isCustomApiTile = skill.id === 'new-custom-api';
           const isCustomMcpTile = skill.id === 'new-custom-mcp';
@@ -1253,9 +1290,14 @@ const Skills: React.FC<SkillsProps> = ({
                     <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
                       Skill Type: {skill.type.toUpperCase()}
                     </Typography>
-                    <Typography variant="body2">
+                    <Typography variant="body2" sx={{ mb: 1 }}>
                       {skill.description}
                     </Typography>
+                    {skill.type === SKILL_TYPE_MCP && skill.skill.apiSkill?.url && (
+                      <Typography variant="caption" color="text.secondary">
+                        Server: {skill.skill.apiSkill.url}
+                      </Typography>
+                    )}
                   </Box>
                 }
                 arrow
@@ -1290,10 +1332,11 @@ const Skills: React.FC<SkillsProps> = ({
                     opacity: isEnabled ? 1 : 0.7,
                     borderStyle: 'dashed',
                     borderWidth: 1,
-                    borderColor: 'divider',
+                    borderColor: skill.type === SKILL_TYPE_MCP ? '#6366F1' : 'divider',
                     '&:hover': {
                       transform: isEnabled ? 'translateY(-4px)' : 'none',
                       boxShadow: isEnabled ? 4 : 2,
+                      borderColor: skill.type === SKILL_TYPE_MCP ? '#8B5CF6' : 'divider',
                     },
                     ...(isCustomTile && {
                       position: 'relative',
@@ -1335,6 +1378,13 @@ const Skills: React.FC<SkillsProps> = ({
                     }
                     title={skill.name}
                     titleTypographyProps={{ variant: 'h6' }}
+                    subheader={
+                      skill.type === SKILL_TYPE_MCP && skill.skill.apiSkill?.url ? (
+                        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                          {skill.skill.apiSkill.url}
+                        </Typography>
+                      ) : undefined
+                    }
                     action={
                       isEnabled && (
                         <IconButton
@@ -1350,6 +1400,23 @@ const Skills: React.FC<SkillsProps> = ({
                     <Typography variant="body2" color="text.secondary">
                       {getFirstLine(skill.description)}
                     </Typography>
+                    
+                    {/* MCP Badge */}
+                    {/* {skill.type === SKILL_TYPE_MCP && (
+                      <Box sx={{ mt: 1, display: 'flex', alignItems: 'center' }}>
+                        <Chip 
+                          label="MCP Server" 
+                          size="small"
+                          sx={{ 
+                            bgcolor: '#6366F1',
+                            color: 'white',
+                            fontSize: '0.7rem',
+                            height: '20px',
+                            '& .MuiChip-label': { px: 1 }
+                          }}
+                        />
+                      </Box>
+                    )} */}
                     
                     {/* OAuth Provider Warning for Admins
                     {showProviderWarning && (
@@ -1400,7 +1467,7 @@ const Skills: React.FC<SkillsProps> = ({
                         variant="outlined"     
                         onClick={() => handleOpenDialog(skill)}                                       
                       >
-                        Enabled
+                        {'Enabled'}
                       </Button>
                     ) : (
                       <Button
@@ -1409,7 +1476,7 @@ const Skills: React.FC<SkillsProps> = ({
                         variant="outlined"
                         onClick={() => handleOpenDialog(skill)}
                       >
-                        {isCustomTile ? 'Add' : 'Enable'}
+                        {isCustomTile ? 'Add' : skill.type === SKILL_TYPE_MCP ? 'Connect' : 'Enable'}
                       </Button>
                     )}
                   </CardActions>
@@ -1425,7 +1492,9 @@ const Skills: React.FC<SkillsProps> = ({
         open={Boolean(menuAnchorEl)}
         onClose={handleMenuClose}
       >
-        <MenuItem onClick={handleDisableClick}>Disable</MenuItem>
+        <MenuItem onClick={handleDisableClick}>
+          {selectedSkillForMenu && allSkills.find(s => s.name === selectedSkillForMenu)?.type === SKILL_TYPE_MCP ? 'Disconnect' : 'Disable'}
+        </MenuItem>
       </Menu>
 
       <Dialog
@@ -1435,10 +1504,16 @@ const Skills: React.FC<SkillsProps> = ({
           setSkillToDisable(null);
         }}
       >
-        <DialogTitle>Disable Skill</DialogTitle>
+        <DialogTitle>
+          {skillToDisable && allSkills.find(s => s.name === skillToDisable)?.type === SKILL_TYPE_MCP ? 'Disconnect MCP Server' : 'Disable Skill'}
+        </DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Are you sure you want to disable {skillToDisable ? `"${skillToDisable}"` : 'this skill'}? All configuration will be lost once the skill is disabled.
+            {skillToDisable && allSkills.find(s => s.name === skillToDisable)?.type === SKILL_TYPE_MCP ? (
+              `Are you sure you want to disconnect "${skillToDisable}"? The MCP server connection will be removed.`
+            ) : (
+              `Are you sure you want to disable ${skillToDisable ? `"${skillToDisable}"` : 'this skill'}? All configuration will be lost once the skill is disabled.`
+            )}
           </DialogContentText>
         </DialogContent>
         <DialogActions>
@@ -1447,7 +1522,7 @@ const Skills: React.FC<SkillsProps> = ({
             setSkillToDisable(null);
           }}>Cancel</Button>
           <Button onClick={handleDisableSkill} color="error" variant="contained">
-            Disable
+            {skillToDisable && allSkills.find(s => s.name === skillToDisable)?.type === SKILL_TYPE_MCP ? 'Disconnect' : 'Disable'}
           </Button>
         </DialogActions>
       </Dialog>

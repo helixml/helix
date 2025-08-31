@@ -49,6 +49,8 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
     // Extract assistant properties if available
     const assistant = app.config.helix.assistants?.[0]
     if (assistant) {
+      console.log('assistant', assistant.mcps);
+
       flatState.system_prompt = assistant.system_prompt
       flatState.provider = assistant.provider
       flatState.model = assistant.model

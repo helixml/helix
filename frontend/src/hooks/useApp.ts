@@ -163,8 +163,8 @@ export const useApp = (appId: string) => {
   const mcpTools = useMemo(() => {
     // Get the tools array and sort by name alphabetically, ignoring case
     return assistants.length > 0 
-      ? [...(assistants[0].mcp || [])].sort((a, b) => 
-          a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+      ? [...(assistants[0].mcps || [])].sort((a, b) => 
+          a.name?.toLowerCase().localeCompare(b.name?.toLowerCase() || '') || 0
         ) 
       : []
   }, [assistants])
@@ -425,7 +425,7 @@ export const useApp = (appId: string) => {
     }
 
     if (updates.mcpTools !== undefined) {
-      assistants[0].mcp = updates.mcpTools
+      assistants[0].mcps = updates.mcpTools
     }
 
     if (updates.browserTool !== undefined) {
