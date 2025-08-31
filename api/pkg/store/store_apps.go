@@ -266,7 +266,7 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 		}
 
 		// Convert MCP to Tools
-		for _, mcp := range assistant.MCP {
+		for _, mcp := range assistant.MCPs {
 			tools = append(tools, &types.Tool{
 				Name:        mcp.Name,
 				Description: mcp.Description,

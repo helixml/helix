@@ -40,6 +40,7 @@ export enum GithubComHelixmlHelixApiPkgTypesToolType {
   ToolTypeEmail = "email",
   ToolTypeWebSearch = "web_search",
   ToolTypeAzureDevOps = "azure_devops",
+  ToolTypeMCP = "mcp",
 }
 
 export interface GithubComHelixmlHelixApiPkgTypesUsage {
@@ -761,7 +762,7 @@ export interface TypesAssistantConfig {
   max_iterations?: number;
   /** The maximum number of tokens to generate before stopping. */
   max_tokens?: number;
-  mcp?: TypesAssistantMCP[];
+  mcps?: TypesAssistantMCP[];
   model?: string;
   name?: string;
   /**
