@@ -104,7 +104,7 @@ func (t *MCPClientTool) Execute(ctx context.Context, _ agent.Meta, args map[stri
 }
 
 func (t *MCPClientTool) Icon() string {
-	return ""
+	return "HubIcon"
 }
 
 func (t *MCPClientTool) String() string {
