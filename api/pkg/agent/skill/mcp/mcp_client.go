@@ -10,53 +10,9 @@ import (
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/sashabaranov/go-openai"
 )
 
-type MCPClientTool struct { //nolint:revive
-	tool *types.ToolMCPClientConfig
-}
-
-func (t *MCPClientTool) Name() string {
-	return t.tool.Name
-}
-
-func (t *MCPClientTool) Description() string {
-	return t.tool.Description
-}
-
-func (t *MCPClientTool) Execute(ctx context.Context, args map[string]interface{}) (string, error) {
-	// TODO: initialize client, call it and return the result
-	return "", nil
-}
-
-func (t *MCPClientTool) Icon() string {
-	return ""
-}
-
-func (t *MCPClientTool) String() string {
-	return "MCPClient"
-}
-
-func (t *MCPClientTool) StatusMessage() string {
-	return "MCPClient"
-}
-
-func (t *MCPClientTool) OpenAI() []openai.Tool {
-	return []openai.Tool{
-		{
-			// TODO: dynamically generate the function definition based on the MCP client
-			Type: openai.ToolTypeFunction,
-			Function: &openai.FunctionDefinition{
-				Name:        "mcp_",
-				Description: "mcp_description",
-				// TODOL: parameters
-			},
-		},
-	}
-}
-
-func InitializeMCPClientSkill(ctx context.Context, cfg *types.AssistantMCP) (*types.ToolMCPClientConfig, error) {
+func newMcpClient(ctx context.Context, cfg *types.AssistantMCP) (*client.Client, error) {
 	var t transport.Interface
 
 	switch {
@@ -105,6 +61,15 @@ func InitializeMCPClientSkill(ctx context.Context, cfg *types.AssistantMCP) (*ty
 	_, err = mcpClient.Initialize(ctx, initRequest)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize MCP session: %w", err)
+	}
+
+	return mcpClient, nil
+}
+
+func InitializeMCPClientSkill(ctx context.Context, cfg *types.AssistantMCP) (*types.ToolMCPClientConfig, error) {
+	mcpClient, err := newMcpClient(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MCP client: %w", err)
 	}
 
 	// List tools, server description
