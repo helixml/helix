@@ -273,8 +273,7 @@ const AddApiSkillDialog: React.FC<AddApiSkillDialogProps> = ({
 
       // Find the existing tool in app.tools
       const existingTool = app.tools?.find(tool => tool.name === initialSkill.name);
-      if (existingTool) {
-        console.log('xx existingTool', existingTool);
+      if (existingTool) {        
         setExistingTool(existingTool);
       }
     } else {
