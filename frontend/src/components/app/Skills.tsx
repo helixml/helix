@@ -521,7 +521,6 @@ const Skills: React.FC<SkillsProps> = ({
 
   // Convert MCP tools to skills
   const mcpSkills = useMemo(() => {
-    console.log('xxx', app.mcpTools);
     if (!app.mcpTools) return [];
 
     return app.mcpTools.map(mcp => ({
@@ -554,8 +553,6 @@ const Skills: React.FC<SkillsProps> = ({
   const allSkills = useMemo(() => {
     return [...BASE_SKILLS, ...customApiSkills, ...backendSkills, ...mcpSkills, CUSTOM_API_SKILL, CUSTOM_MCP_SKILL];
   }, [customApiSkills, backendSkills, mcpSkills]);
-
-  console.log('allSkills', allSkills);
 
   const availableCategories = useMemo(() => {
     const categories = new Set<string>();
@@ -649,8 +646,7 @@ const Skills: React.FC<SkillsProps> = ({
   const [selectedOAuthProvider, setSelectedOAuthProvider] = useState<string>('');
 
   const isSkillEnabled = (skillName: string): boolean => {    
-    if (skillName === 'Web Search') {
-      console.log(app.webSearchTool)
+    if (skillName === 'Web Search') {      
       return app.webSearchTool?.enabled ?? false;
     }
     if (skillName === 'Browser') {

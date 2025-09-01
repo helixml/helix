@@ -18,12 +18,15 @@ import {
   AccordionSummary,
   AccordionDetails,
   Chip,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import { IAppFlatState } from '../../types';
+import SettingsIcon from '@mui/icons-material/Settings';
+import { IAppFlatState, ITool } from '../../types';
 import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
@@ -119,6 +122,9 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState<TypesToolMCPClientConfig | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState(0);
+  const [parsedMcpTools, setParsedMcpTools] = useState<McpTool[]>([]);
+  const [existingTool, setExistingTool] = useState<ITool | null>(null);
 
   useEffect(() => {
     if (initialSkill) {
@@ -138,6 +144,11 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
       });
         setExistingSkillIndex(existingIndex);
       }
+
+      const existingTool = app.tools?.find(tool => tool.name === initialSkill.name);
+      if (existingTool) {        
+        setExistingTool(existingTool);
+      }
     } else {
       // Reset form when opening for new skill
       setSkill({
@@ -148,11 +159,20 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
       });
       setExistingSkill(null);
       setExistingSkillIndex(null);
+      setExistingTool(null);
     }
     // Reset validation state when dialog opens
     setValidationResult(null);
     setValidationError(null);
   }, [initialSkill, open, app.mcpTools]);
+
+  useEffect(() => {
+    if (existingTool) {      
+      if (existingTool.tool_type === 'mcp') {
+        setParsedMcpTools(existingTool.config.mcp?.tools || []);        
+      }
+    }
+  }, [existingTool, existingTool?.config.mcp?.tools]);
 
   const handleChange = (field: string, value: string) => {
     setSkill((prev) => ({
@@ -302,6 +322,10 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
 
   const handleClose = () => {
     onClose();
+  };
+
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setActiveTab(newValue);
   };
 
   const renderDescriptionWithLinks = (text: string) => {
@@ -460,161 +484,331 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
         }}>
           
           <Box sx={{ flex: 1, overflow: 'auto' }}>
-            <Box>
-              <NameTypography>
-                {skill.name || 'New MCP Skill'}
-              </NameTypography>
-              <DescriptionTypography>
-                {renderDescriptionWithLinks(skill.description || 'No description provided.')}
-              </DescriptionTypography>
-
-              <SectionCard>
-                <DarkTextField
-                  fullWidth
-                  label="Name"
-                  value={skill.name}
-                  helperText="The name of the MCP skill, make it informative and unique for the AI"
-                  onChange={(e) => handleChange('name', e.target.value)}
-                  margin="normal"
-                  required
-                />
-                <DarkTextField
-                  fullWidth
-                  label="Description"
-                  helperText="A short description of the MCP skill, make it informative and unique for the AI"
-                  value={skill.description}
-                  onChange={(e) => handleChange('description', e.target.value)}
-                  margin="normal"
-                  required
-                  multiline
-                  rows={2}
-                />
-                <DarkTextField
-                  fullWidth
-                  label="MCP Server URL"
-                  helperText={urlError || "The URL of the MCP server to connect to"}
-                  value={skill.url}
-                  onChange={(e) => handleUrlChange(e.target.value)}
-                  margin="normal"
-                  required
-                  error={!!urlError}
-                  sx={{
-                    '& .MuiFormHelperText-root': {
-                      color: urlError ? '#EF4444' : '#A0AEC0',
-                      fontSize: '0.875rem',
-                      marginTop: '4px',
+            {/* Tabs */}
+            <Box sx={{ borderBottom: 1, borderColor: '#353945', mb: 3 }}>
+              <Tabs 
+                value={activeTab} 
+                onChange={handleTabChange}
+                sx={{
+                  '& .MuiTab-root': {
+                    color: '#A0AEC0',
+                    textTransform: 'none',
+                    fontSize: '1rem',
+                    fontWeight: 500,
+                    '&.Mui-selected': {
+                      color: '#F8FAFC',
                     },
-                    '& .MuiOutlinedInput-root': {
-                      '&.Mui-error': {
-                        '& fieldset': {
-                          borderColor: '#EF4444',
+                  },
+                  '& .MuiTabs-indicator': {
+                    backgroundColor: '#6366F1',
+                  },
+                }}
+              >
+                <Tab label="General" />
+                <Tab label="Details" />
+              </Tabs>
+            </Box>
+
+            {/* Tab Content */}
+            {activeTab === 0 && (
+              <Box>
+                <NameTypography>
+                  {skill.name || 'New MCP Skill'}
+                </NameTypography>
+                <DescriptionTypography>
+                  {renderDescriptionWithLinks(skill.description || 'No description provided.')}
+                </DescriptionTypography>
+
+                <SectionCard>
+                  <DarkTextField
+                    fullWidth
+                    label="Name"
+                    value={skill.name}
+                    helperText="The name of the MCP skill, make it informative and unique for the AI"
+                    onChange={(e) => handleChange('name', e.target.value)}
+                    margin="normal"
+                    required
+                  />
+                  <DarkTextField
+                    fullWidth
+                    label="Description"
+                    helperText="A short description of the MCP skill, make it informative and unique for the AI"
+                    value={skill.description}
+                    onChange={(e) => handleChange('description', e.target.value)}
+                    margin="normal"
+                    required
+                    multiline
+                    rows={2}
+                  />
+                  <DarkTextField
+                    fullWidth
+                    label="MCP Server URL"
+                    helperText={urlError || "The URL of the MCP server to connect to"}
+                    value={skill.url}
+                    onChange={(e) => handleUrlChange(e.target.value)}
+                    margin="normal"
+                    required
+                    error={!!urlError}
+                    sx={{
+                      '& .MuiFormHelperText-root': {
+                        color: urlError ? '#EF4444' : '#A0AEC0',
+                        fontSize: '0.875rem',
+                        marginTop: '4px',
+                      },
+                      '& .MuiOutlinedInput-root': {
+                        '&.Mui-error': {
+                          '& fieldset': {
+                            borderColor: '#EF4444',
+                          },
                         },
                       },
-                    },
-                  }}
-                />
-
-                <Box sx={{ mt: 2, mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
-                  <Button
-                    variant="outlined"
-                    onClick={handleValidate}
-                    disabled={!skill.url.trim() || validating || !!urlError}
-                    startIcon={validating ? <CircularProgress size={16} /> : null}
-                    sx={{
-                      borderColor: '#6366F1',
-                      color: '#6366F1',
-                      '&:hover': {
-                        borderColor: '#818CF8',
-                        background: 'rgba(99, 102, 241, 0.1)',
-                      },
-                      '&:disabled': {
-                        borderColor: '#353945',
-                        color: '#6B7280',
-                      }
                     }}
-                  >
-                    {validating ? 'Validating...' : 'Validate'}
-                  </Button>
-                </Box>
+                  />
 
-                {validationError && (
-                  <Alert 
-                    variant="outlined" 
-                    severity="error" 
-                    sx={{ mb: 3 }}
-                    onClose={() => setValidationError(null)}
-                  >
-                    {validationError}
-                  </Alert>
-                )}
+                  <Box sx={{ mt: 2, mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
+                    <Button
+                      variant="outlined"
+                      onClick={handleValidate}
+                      disabled={!skill.url.trim() || validating || !!urlError}
+                      startIcon={validating ? <CircularProgress size={16} /> : null}
+                      sx={{
+                        borderColor: '#6366F1',
+                        color: '#6366F1',
+                        '&:hover': {
+                          borderColor: '#818CF8',
+                          background: 'rgba(99, 102, 241, 0.1)',
+                        },
+                        '&:disabled': {
+                          borderColor: '#353945',
+                          color: '#6B7280',
+                        }
+                      }}
+                    >
+                      {validating ? 'Validating...' : 'Validate'}
+                    </Button>
+                  </Box>
 
-                {validationResult && validationResult.tools && validationResult.tools.length > 0 && (
-                  renderMcpTools(validationResult.tools)
-                )}
+                  {validationError && (
+                    <Alert 
+                      variant="outlined" 
+                      severity="error" 
+                      sx={{ mb: 3 }}
+                      onClose={() => setValidationError(null)}
+                    >
+                      {validationError}
+                    </Alert>
+                  )}
 
-                <Box sx={{ mt: 3 }}>
-                  <Typography variant="h6" sx={{ mb: 2, color: '#F8FAFC' }}>
-                    Headers Configuration
-                  </Typography>
-                  <Tooltip title="Add additional headers that will be sent to the MCP server">
-                    <Typography variant="subtitle2" sx={{ mb: 1, color: '#A0AEC0' }}>
-                      Headers
+                  {validationResult && validationResult.tools && validationResult.tools.length > 0 && (
+                    renderMcpTools(validationResult.tools)
+                  )}
+
+                  <Box sx={{ mt: 3 }}>
+                    <Typography variant="h6" sx={{ mb: 2, color: '#F8FAFC' }}>
+                      Headers Configuration
                     </Typography>
-                  </Tooltip>
-                  <List>
-                    {Object.entries(skill.headers).map(([key, value], index) => (
-                      <ListItem key={`header-${index}`} sx={{ px: 0 }}>
-                        <Grid container spacing={1}>
-                          <Grid item xs={5}>
-                            <DarkTextField
-                              size="small"
-                              placeholder="Header Name"
-                              value={key}
-                              onChange={(e) => {
-                                const newHeaders = { ...skill.headers };
-                                delete newHeaders[key];
-                                newHeaders[e.target.value] = value;
-                                setSkill((prev) => ({
-                                  ...prev,
-                                  headers: newHeaders,
-                                }));
+                    <Tooltip title="Add additional headers that will be sent to the MCP server">
+                      <Typography variant="subtitle2" sx={{ mb: 1, color: '#A0AEC0' }}>
+                        Headers
+                      </Typography>
+                    </Tooltip>
+                    <List>
+                      {Object.entries(skill.headers).map(([key, value], index) => (
+                        <ListItem key={`header-${index}`} sx={{ px: 0 }}>
+                          <Grid container spacing={1}>
+                            <Grid item xs={5}>
+                              <DarkTextField
+                                size="small"
+                                placeholder="Header Name"
+                                value={key}
+                                onChange={(e) => {
+                                  const newHeaders = { ...skill.headers };
+                                  delete newHeaders[key];
+                                  newHeaders[e.target.value] = value;
+                                  setSkill((prev) => ({
+                                    ...prev,
+                                    headers: newHeaders,
+                                  }));
+                                }}
+                                fullWidth
+                              />
+                            </Grid>
+                            <Grid item xs={5}>
+                              <DarkTextField
+                                size="small"
+                                placeholder="Header Value"
+                                value={value}
+                                onChange={(e) => handleHeaderChange(key, e.target.value)}
+                                fullWidth
+                              />
+                            </Grid>
+                            <Grid item xs={2}>
+                              <IconButton
+                                size="small"
+                                onClick={() => removeHeader(key)}
+                                sx={{ color: '#F87171' }}
+                              >
+                                <DeleteIcon />
+                              </IconButton>
+                            </Grid>
+                          </Grid>
+                        </ListItem>
+                      ))}
+                    </List>
+                    <Button
+                      startIcon={<AddIcon />}
+                      onClick={addHeader}
+                      size="small"
+                      sx={{ mt: 1 }}
+                    >
+                      Add Header
+                    </Button>
+                  </Box>
+                </SectionCard>
+              </Box>
+            )}
+
+            {activeTab === 1 && (
+              <Box>
+                <Typography variant="h6" sx={{ mb: 3, color: '#F8FAFC' }}>
+                  MCP Tools
+                </Typography>
+                
+                {/* URL display */}
+                {skill.url && (
+                  <Box sx={{ mb: 3 }}>
+                    <Typography variant="subtitle2" sx={{ color: '#A0AEC0', mb: 1 }}>
+                      MCP Server URL:
+                    </Typography>
+                    <Typography variant="body1" sx={{ color: '#F1F1F1', fontFamily: 'monospace', bgcolor: '#23262F', p: 1, borderRadius: 1 }}>
+                      {skill.url}
+                    </Typography>
+                  </Box>
+                )}
+                
+                {/* Get MCP tools from the existing skill configuration */}
+                {(() => {
+                  // const existingMcpSkill = app.mcpTools?.find(mcp => mcp.name === skill.name);
+                  // const tools = existingMcpSkill ? [] : []; // For now, we don't have access to the actual tools array from the MCP server
+
+                  if (parsedMcpTools.length === 0) {
+                    return (
+                      <Box sx={{ 
+                        border: '1px solid #757575', 
+                        borderRadius: 2, 
+                        p: 3, 
+                        textAlign: 'center',
+                        color: '#A0AEC0'
+                      }}>
+                        <Typography variant="body1" sx={{ mb: 1 }}>
+                          No MCP tools found
+                        </Typography>
+                        <Typography variant="body2">
+                          {!parsedMcpTools ? 
+                            'This MCP skill has not been configured yet.' : 
+                            'No tools are available from this MCP server.'
+                          }
+                        </Typography>
+                      </Box>
+                    );
+                  }
+
+                  return (
+                    <Box sx={{ 
+                      border: '1px solid #353945', 
+                      borderRadius: 2,
+                      overflow: 'hidden'
+                    }}>
+                      <Box sx={{ 
+                        bgcolor: '#23262F', 
+                        p: 2, 
+                        borderBottom: '1px solid #353945',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1
+                      }}>
+                        <Tooltip title="MCP Tool">
+                          <SettingsIcon fontSize="small" sx={{ color: lightTheme.textColorFaded }} />
+                        </Tooltip>
+                        <Typography variant="subtitle2" sx={{ color: lightTheme.textColorFaded, fontWeight: 500 }}>
+                          Available MCP Tools ({parsedMcpTools.length})
+                        </Typography>
+                      </Box>
+                      
+                      <Box sx={{ maxHeight: '400px', overflow: 'auto' }}>
+                        {parsedMcpTools.map((tool: McpTool, index: number) => (
+                          <Accordion 
+                            key={`tool-${index}`}
+                            sx={{ 
+                              background: '#23262F', 
+                              mb: 1,
+                              '&:before': { display: 'none' },
+                              boxShadow: 'none',
+                              '& .MuiAccordionSummary-root': {
+                                minHeight: 48,
+                              }
+                            }}
+                          >
+                            <AccordionSummary
+                              expandIcon={<ExpandMoreIcon sx={{ color: '#A0AEC0' }} />}
+                              sx={{
+                                '& .MuiAccordionSummary-content': {
+                                  margin: '12px 0',
+                                }
                               }}
-                              fullWidth
-                            />
-                          </Grid>
-                          <Grid item xs={5}>
-                            <DarkTextField
-                              size="small"
-                              placeholder="Header Value"
-                              value={value}
-                              onChange={(e) => handleHeaderChange(key, e.target.value)}
-                              fullWidth
-                            />
-                          </Grid>
-                          <Grid item xs={2}>
-                            <IconButton
-                              size="small"
-                              onClick={() => removeHeader(key)}
-                              sx={{ color: '#F87171' }}
                             >
-                              <DeleteIcon />
-                            </IconButton>
-                          </Grid>
-                        </Grid>
-                      </ListItem>
-                    ))}
-                  </List>
-                  <Button
-                    startIcon={<AddIcon />}
-                    onClick={addHeader}
-                    size="small"
-                    sx={{ mt: 1 }}
-                  >
-                    Add Header
-                  </Button>
-                </Box>
-              </SectionCard>
-            </Box>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+                                <Typography sx={{ color: '#F8FAFC', fontWeight: 500 }}>
+                                  {tool.name}
+                                </Typography>
+                                {tool.annotations?.readOnlyHint && (
+                                  <Chip label="Read Only" size="small" sx={{ background: '#1E40AF', color: '#93C5FD' }} />
+                                )}
+                                {tool.annotations?.destructiveHint && (
+                                  <Chip label="Destructive" size="small" sx={{ background: '#991B1B', color: '#FCA5A5' }} />
+                                )}
+                              </Box>
+                            </AccordionSummary>
+                            <AccordionDetails>
+                              <Typography sx={{ color: '#A0AEC0', mb: 2 }}>
+                                {tool.description || 'No description available'}
+                              </Typography>
+                              {tool.inputSchema && tool.inputSchema.properties && (
+                                <Box>
+                                  <Typography variant="subtitle2" sx={{ color: '#F8FAFC', mb: 1 }}>
+                                    Parameters:
+                                  </Typography>
+                                  <Box sx={{ pl: 2 }}>
+                                    {Object.entries(tool.inputSchema.properties).map(([propName, propSchema]: [string, any]) => (
+                                      <Box key={propName} sx={{ mb: 1 }}>
+                                        <Typography variant="body2" sx={{ color: '#F8FAFC' }}>
+                                          • {propName}
+                                          {tool.inputSchema?.required?.includes(propName) && (
+                                            <span style={{ color: '#EF4444' }}> *</span>
+                                          )}
+                                          {propSchema.type && (
+                                            <span style={{ color: '#A0AEC0' }}> ({propSchema.type})</span>
+                                          )}
+                                        </Typography>
+                                        {propSchema.description && (
+                                          <Typography variant="caption" sx={{ color: '#A0AEC0', ml: 2, display: 'block' }}>
+                                            {propSchema.description}
+                                          </Typography>
+                                        )}
+                                      </Box>
+                                    ))}
+                                  </Box>
+                                </Box>
+                              )}
+                            </AccordionDetails>
+                          </Accordion>
+                        ))}
+                      </Box>
+                    </Box>
+                  );
+                })()}
+              </Box>
+            )}
           </Box>
         </Box>
       </DialogContent>
