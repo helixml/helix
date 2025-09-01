@@ -565,44 +565,6 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
                     }}
                   />
 
-                  <Box sx={{ mt: 2, mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
-                    <Button
-                      variant="outlined"
-                      onClick={handleValidate}
-                      disabled={!skill.url.trim() || validating || !!urlError}
-                      startIcon={validating ? <CircularProgress size={16} /> : null}
-                      sx={{
-                        borderColor: '#6366F1',
-                        color: '#6366F1',
-                        '&:hover': {
-                          borderColor: '#818CF8',
-                          background: 'rgba(99, 102, 241, 0.1)',
-                        },
-                        '&:disabled': {
-                          borderColor: '#353945',
-                          color: '#6B7280',
-                        }
-                      }}
-                    >
-                      {validating ? 'Validating...' : 'Validate'}
-                    </Button>
-                  </Box>
-
-                  {validationError && (
-                    <Alert 
-                      variant="outlined" 
-                      severity="error" 
-                      sx={{ mb: 3 }}
-                      onClose={() => setValidationError(null)}
-                    >
-                      {validationError}
-                    </Alert>
-                  )}
-
-                  {validationResult && validationResult.tools && validationResult.tools.length > 0 && (
-                    renderMcpTools(validationResult.tools)
-                  )}
-
                   <Box sx={{ mt: 3 }}>
                     <Typography variant="h6" sx={{ mb: 2, color: '#F8FAFC' }}>
                       Headers Configuration
@@ -664,6 +626,21 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
                       Add Header
                     </Button>
                   </Box>
+
+                  {validationError && (
+                    <Alert 
+                      variant="outlined" 
+                      severity="error" 
+                      sx={{ mb: 3 }}
+                      onClose={() => setValidationError(null)}
+                    >
+                      {validationError}
+                    </Alert>
+                  )}
+
+                  {validationResult && validationResult.tools && validationResult.tools.length > 0 && (
+                    renderMcpTools(validationResult.tools)
+                  )}
                 </SectionCard>
               </Box>
             )}
@@ -833,6 +810,27 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
           <Box sx={{ flex: 1 }} />
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1, mr: 2 }}>
             <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button
+                variant="outlined"
+                onClick={handleValidate}
+                disabled={!skill.url.trim() || validating || !!urlError}
+                startIcon={validating ? <CircularProgress size={16} /> : null}
+                size="small"
+                sx={{
+                  borderColor: '#6366F1',
+                  color: '#6366F1',
+                  '&:hover': {
+                    borderColor: '#818CF8',
+                    background: 'rgba(99, 102, 241, 0.1)',
+                  },
+                  '&:disabled': {
+                    borderColor: '#353945',
+                    color: '#6B7280',
+                  }
+                }}
+              >
+                {validating ? 'Validating...' : 'Validate'}
+              </Button>
               {existingSkill && (
                 <Button
                   onClick={handleDisable}
