@@ -55,8 +55,28 @@ func (t *MCPClientTool) Description() string {
 }
 
 func (t *MCPClientTool) Execute(ctx context.Context, meta agent.Meta, args map[string]any) (string, error) {
-	// TODO: initialize client, call it and return the result
-	return "", nil
+	client, err := newMcpClient(ctx, &types.AssistantMCP{
+		URL:     t.cfg.URL,
+		Headers: t.cfg.Headers,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	req := mcp.CallToolRequest{}
+	req.Params.Name = t.mcpTool.Name
+	req.Params.Arguments = args
+
+	res, err := client.CallTool(ctx, mcp.CallToolRequest{
+		Params: req.Params,
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	return res.Result.String(), nil
+
 }
 
 func (t *MCPClientTool) Icon() string {
