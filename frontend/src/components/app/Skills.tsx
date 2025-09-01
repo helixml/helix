@@ -1328,7 +1328,7 @@ const Skills: React.FC<SkillsProps> = ({
                     opacity: isEnabled ? 1 : 0.7,
                     borderStyle: 'dashed',
                     borderWidth: 1,
-                    borderColor: skill.type === SKILL_TYPE_MCP ? '#6366F1' : 'divider',
+                    borderColor:  'divider',
                     '&:hover': {
                       transform: isEnabled ? 'translateY(-4px)' : 'none',
                       boxShadow: isEnabled ? 4 : 2,
