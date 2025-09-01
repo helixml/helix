@@ -170,6 +170,12 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 		assistant := &app.Config.Helix.Assistants[i]
 		var tools []*types.Tool
 
+		initializedTools := make(map[string]*types.Tool)
+
+		for _, tool := range assistant.Tools {
+			initializedTools[tool.Name] = tool
+		}
+
 		// Browser is simple, just add it to the tools, nothing to validate for now
 		if assistant.Browser.Enabled {
 			tools = append(tools, &types.Tool{
@@ -267,6 +273,13 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 
 		// Convert MCP to Tools
 		for _, mcp := range assistant.MCPs {
+			// If already initialized, add it to the tools
+			t, ok := initializedTools[mcp.Name]
+			if ok {
+				tools = append(tools, t)
+				continue
+			}
+			// Otherwise, create a new tool, fallback mechanism
 			tools = append(tools, &types.Tool{
 				Name:        mcp.Name,
 				Description: mcp.Description,
