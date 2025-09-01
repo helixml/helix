@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 func (c *ChainStrategy) ValidateAndDefault(ctx context.Context, tool *types.Tool) (*types.Tool, error) {
@@ -166,10 +167,10 @@ func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Pl
 		// Attempt to initialize the MCP client
 		resp, err := mcp.InitializeMCPClientSkill(context.Background(), mcpConfig)
 		if err != nil {
-			return system.NewHTTPError400(fmt.Sprintf("failed to initialize MCP client, error: %s", err))
+			log.Warn().Err(err).Msg("failed to initialize MCP client, might not work during runtime")
+		} else {
+			tool.Config.MCP.Tools = resp.Tools
 		}
-
-		tool.Config.MCP.Tools = resp.Tools
 
 	case types.ToolTypeBrowser, types.ToolTypeCalculator, types.ToolTypeEmail, types.ToolTypeWebSearch:
 		// No validation needed

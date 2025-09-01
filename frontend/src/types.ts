@@ -14,6 +14,7 @@ import {
   TypesTrigger,
   TypesSession,
   TypesAssistantMCP,
+  TypesToolMCPClientConfig,
 } from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
@@ -471,7 +472,7 @@ export interface IShareSessionInstructions {
   addDocumentsMode?: boolean,
 }
 
-export type IToolType = 'api' | 'gptscript' | 'zapier' | 'web_search' | 'calculator' | 'email' | 'browser'
+export type IToolType = 'api' | 'gptscript' | 'zapier' | 'web_search' | 'calculator' | 'email' | 'browser' | 'mcp'
 
 export interface IToolApiAction {
   name: string,
@@ -514,6 +515,7 @@ export interface IToolConfig {
   calculator?: TypesToolCalculatorConfig,
   email?: TypesToolEmailConfig,
   web_search?: TypesToolWebSearchConfig,
+  mcp?: TypesToolMCPClientConfig,
 }
 
 export interface ITool {
