@@ -173,7 +173,6 @@ func buildParameters(inputSchema mcp.ToolInputSchema) jsonschema.Definition {
 
 	if len(result.Properties) > 0 {
 		result.Type = jsonschema.Object
-
 	}
 
 	log.Debug().

@@ -1,0 +1,11 @@
+[
+  {
+    "annotations": {},
+    "description": "List all schemas in the database",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "list_schemas"
+  }
+]
