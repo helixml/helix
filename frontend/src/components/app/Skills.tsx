@@ -913,7 +913,6 @@ const Skills: React.FC<SkillsProps> = ({
           }}
           skill={{
             name: selectedSkill.name,
-            description: selectedSkill.description,
             url: selectedSkill.apiSkill?.url || '',
             headers: selectedSkill.apiSkill?.headers || {},
           }}
