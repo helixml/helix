@@ -112,9 +112,7 @@ services:
             - POSTGRES_USER=postgres
             - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
             - POSTGRES_DATABASES=keycloak
-    # docker run -p 8000:8000 \
-    #   -e DATABASE_URI=postgresql://username:password@localhost:5432/dbname \
-    #   crystaldba/postgres-mcp --access-mode=unrestricted --transport=sse
+    # Example/test MCP server
     postgres-mcp:
         image: crystaldba/postgres-mcp:latest
         restart: always
