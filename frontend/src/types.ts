@@ -2,7 +2,6 @@ import {
   TypesUserAppAccessResponse,
   TypesStepInfo,
   TypesMessage,
-  TypesMessageContent,
   TypesAssistantCalculator,
   TypesToolCalculatorConfig,
   TypesAssistantBrowser,
@@ -13,7 +12,9 @@ import {
   TypesToolWebSearchConfig,
   TypesAssistantAzureDevOps,
   TypesTrigger,
-  TypesSession,  
+  TypesSession,
+  TypesAssistantMCP,
+  TypesToolMCPClientConfig,
 } from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
@@ -471,7 +472,7 @@ export interface IShareSessionInstructions {
   addDocumentsMode?: boolean,
 }
 
-export type IToolType = 'api' | 'gptscript' | 'zapier' | 'web_search' | 'calculator' | 'email' | 'browser'
+export type IToolType = 'api' | 'gptscript' | 'zapier' | 'web_search' | 'calculator' | 'email' | 'browser' | 'mcp'
 
 export interface IToolApiAction {
   name: string,
@@ -514,6 +515,7 @@ export interface IToolConfig {
   calculator?: TypesToolCalculatorConfig,
   email?: TypesToolEmailConfig,
   web_search?: TypesToolWebSearchConfig,
+  mcp?: TypesToolMCPClientConfig,
 }
 
 export interface ITool {
@@ -648,6 +650,7 @@ export interface IAssistantConfig {
   is_actionable_template?: string;
   is_actionable_history_length?: number;
   apis?: IAssistantApi[];
+  mcps?: TypesAssistantMCP[];
   gptscripts?: IAssistantGPTScript[];
   zapier?: IAssistantZapier[];
   browser?: TypesAssistantBrowser;
@@ -827,6 +830,7 @@ export interface IAppFlatState {
   apiTools?: IAssistantApi[]
   zapierTools?: IAssistantZapier[]
   gptscriptTools?: IAssistantGPTScript[]
+  mcpTools?: TypesAssistantMCP[]
   browserTool?: TypesAssistantBrowser
   webSearchTool?: TypesAssistantWebSearch
   calculatorTool?: TypesAssistantCalculator

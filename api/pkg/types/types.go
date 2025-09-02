@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/mark3labs/mcp-go/mcp"
 
 	openai "github.com/sashabaranov/go-openai"
 	"gorm.io/datatypes"
@@ -1138,39 +1139,6 @@ func GetMessageText(message *openai.ChatCompletionMessage) (string, error) {
 	return "", fmt.Errorf("unsupported message type %+v", message)
 }
 
-// func HistoryFromInteractions(interactions []*Interaction) []*ToolHistoryMessage {
-// 	var history []*ToolHistoryMessage
-
-// 	for _, interaction := range interactions {
-// 		switch interaction.Creator {
-// 		case CreatorTypeUser:
-// 			history = append(history, &ToolHistoryMessage{
-// 				Role:    openai.ChatMessageRoleUser,
-// 				Content: interaction.Message,
-// 			})
-// 		case CreatorTypeAssistant:
-// 			history = append(history, &ToolHistoryMessage{
-// 				Role:    openai.ChatMessageRoleAssistant,
-// 				Content: interaction.Message,
-// 			})
-// 		case CreatorTypeSystem:
-// 			history = append(history, &ToolHistoryMessage{
-// 				Role:    openai.ChatMessageRoleSystem,
-// 				Content: interaction.Message,
-// 			})
-// 		case CreatorTypeTool:
-// 			history = append(history, &ToolHistoryMessage{
-// 				Role:    openai.ChatMessageRoleTool,
-// 				Content: interaction.Message,
-// 			})
-// 		}
-// 	}
-
-// 	return history
-// }
-
-// Add this struct to the existing types.go file
-
 type PaginatedLLMCalls struct {
 	Calls      []*LLMCall `json:"calls"`
 	Page       int        `json:"page"`
@@ -1198,6 +1166,7 @@ const (
 	ToolTypeEmail       ToolType = "email"
 	ToolTypeWebSearch   ToolType = "web_search"
 	ToolTypeAzureDevOps ToolType = "azure_devops"
+	ToolTypeMCP         ToolType = "mcp"
 )
 
 type Tool struct {
@@ -1219,6 +1188,17 @@ type ToolConfig struct {
 	Calculator  *ToolCalculatorConfig  `json:"calculator"`
 	Email       *ToolEmailConfig       `json:"email"`
 	AzureDevOps *ToolAzureDevOpsConfig `json:"azure_devops"`
+	MCP         *ToolMCPClientConfig   `json:"mcp"`
+}
+
+type ToolMCPClientConfig struct {
+	Name        string            `json:"name" yaml:"name"`
+	Description string            `json:"description" yaml:"description"`
+	Enabled     bool              `json:"enabled" yaml:"enabled"`
+	URL         string            `json:"url" yaml:"url"`
+	Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+
+	Tools []mcp.Tool `json:"tools" yaml:"tools"`
 }
 
 type ToolAzureDevOpsConfig struct {
@@ -1332,6 +1312,13 @@ type AssistantZapier struct {
 	APIKey        string `json:"api_key" yaml:"api_key"`
 	Model         string `json:"model" yaml:"model"`
 	MaxIterations int    `json:"max_iterations" yaml:"max_iterations"`
+}
+
+type AssistantMCP struct {
+	Name        string            `json:"name" yaml:"name"`
+	Description string            `json:"description" yaml:"description"`
+	URL         string            `json:"url" yaml:"url"`
+	Headers     map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 }
 
 type AssistantAPI struct {
@@ -1448,6 +1435,7 @@ type AssistantConfig struct {
 	APIs       []AssistantAPI       `json:"apis,omitempty" yaml:"apis,omitempty"`
 	GPTScripts []AssistantGPTScript `json:"gptscripts,omitempty" yaml:"gptscripts,omitempty"`
 	Zapier     []AssistantZapier    `json:"zapier,omitempty" yaml:"zapier,omitempty"`
+	MCPs       []AssistantMCP       `json:"mcps,omitempty" yaml:"mcps,omitempty"`
 
 	Browser   AssistantBrowser   `json:"browser,omitempty" yaml:"browser,omitempty"`
 	WebSearch AssistantWebSearch `json:"web_search,omitempty" yaml:"web_search,omitempty"`
