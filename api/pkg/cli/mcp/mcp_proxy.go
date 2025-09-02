@@ -303,7 +303,7 @@ func (mcps *ModelContextProtocolServer) getAPIToolHandler(appID string, tool *ty
 
 		params := make(map[string]interface{})
 
-		for k, v := range request.Params.Arguments {
+		for k, v := range request.GetArguments() {
 			params[k] = v
 		}
 
@@ -329,22 +329,17 @@ func (mcps *ModelContextProtocolServer) zapierToolHandler(_ context.Context, _ m
 
 func (mcps *ModelContextProtocolServer) getKnowledgeToolHandler(knowledgeID string) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		query, ok := request.Params.Arguments["query"]
-		if !ok {
+		query, err := request.RequireString("query")
+		if err != nil {
 			return mcp.NewToolResultError("prompt is required"), nil
 		}
 
-		log.Info().Str("knowledge_id", knowledgeID).Str("query", query.(string)).Msg("searching knowledge")
-
-		queryStr, ok := query.(string)
-		if !ok {
-			return mcp.NewToolResultError("prompt must be a string"), nil
-		}
+		log.Info().Str("knowledge_id", knowledgeID).Str("query", query).Msg("searching knowledge")
 
 		results, err := mcps.apiClient.SearchKnowledge(ctx, &client.KnowledgeSearchQuery{
 			AppID:       mcps.appID,
 			KnowledgeID: knowledgeID,
-			Prompt:      queryStr,
+			Prompt:      query,
 		})
 		if err != nil {
 			log.Error().Err(err).Msg("failed to search knowledge")

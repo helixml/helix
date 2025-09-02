@@ -40,6 +40,7 @@ export enum GithubComHelixmlHelixApiPkgTypesToolType {
   ToolTypeEmail = "email",
   ToolTypeWebSearch = "web_search",
   ToolTypeAzureDevOps = "azure_devops",
+  ToolTypeMCP = "mcp",
 }
 
 export interface GithubComHelixmlHelixApiPkgTypesUsage {
@@ -315,6 +316,56 @@ export interface GormDeletedAt {
   time?: string;
   /** Valid is true if Time is not NULL */
   valid?: boolean;
+}
+
+export interface McpMeta {
+  /**
+   * AdditionalFields are any fields present in the Meta that are not
+   * otherwise defined in the protocol.
+   */
+  additionalFields?: Record<string, any>;
+  /**
+   * If specified, the caller is requesting out-of-band progress
+   * notifications for this request (as represented by
+   * notifications/progress). The value of this parameter is an
+   * opaque token that will be attached to any subsequent
+   * notifications. The receiver is not obligated to provide these
+   * notifications.
+   */
+  progressToken?: any;
+}
+
+export interface McpTool {
+  /** Meta is a metadata object that is reserved by MCP for storing additional information. */
+  _meta?: McpMeta;
+  /** Optional properties describing tool behavior */
+  annotations?: McpToolAnnotation;
+  /** A human-readable description of the tool. */
+  description?: string;
+  /** A JSON Schema object defining the expected parameters for the tool. */
+  inputSchema?: McpToolInputSchema;
+  /** The name of the tool. */
+  name?: string;
+}
+
+export interface McpToolAnnotation {
+  /** If true, the tool may perform destructive updates */
+  destructiveHint?: boolean;
+  /** If true, repeated calls with same args have no additional effect */
+  idempotentHint?: boolean;
+  /** If true, tool interacts with external entities */
+  openWorldHint?: boolean;
+  /** If true, the tool does not modify its environment */
+  readOnlyHint?: boolean;
+  /** Human-readable title for the tool */
+  title?: string;
+}
+
+export interface McpToolInputSchema {
+  $defs?: Record<string, any>;
+  properties?: Record<string, any>;
+  required?: string[];
+  type?: string;
 }
 
 export interface MemoryEstimateOptions {
@@ -711,6 +762,7 @@ export interface TypesAssistantConfig {
   max_iterations?: number;
   /** The maximum number of tokens to generate before stopping. */
   max_tokens?: number;
+  mcps?: TypesAssistantMCP[];
   model?: string;
   name?: string;
   /**
@@ -801,6 +853,13 @@ export interface TypesAssistantKnowledge {
    * directly uploaded files, S3, GCS, Google Drive, Gmail, etc.
    */
   source?: TypesKnowledgeSource;
+}
+
+export interface TypesAssistantMCP {
+  description?: string;
+  headers?: Record<string, string>;
+  name?: string;
+  url?: string;
 }
 
 export interface TypesAssistantWebSearch {
@@ -2299,6 +2358,7 @@ export interface TypesToolConfig {
   calculator?: TypesToolCalculatorConfig;
   email?: TypesToolEmailConfig;
   gptscript?: TypesToolGPTScriptConfig;
+  mcp?: TypesToolMCPClientConfig;
   web_search?: TypesToolWebSearchConfig;
   zapier?: TypesToolZapierConfig;
 }
@@ -2313,6 +2373,15 @@ export interface TypesToolGPTScriptConfig {
   script?: string;
   /** URL to download the script */
   script_url?: string;
+}
+
+export interface TypesToolMCPClientConfig {
+  description?: string;
+  enabled?: boolean;
+  headers?: Record<string, string>;
+  name?: string;
+  tools?: McpTool[];
+  url?: string;
 }
 
 export interface TypesToolWebSearchConfig {
@@ -4629,6 +4698,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/skills/reload`,
         method: "POST",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Validate MCP skill configuration
+     *
+     * @tags skills
+     * @name V1SkillsValidateCreate
+     * @summary Validate MCP skill configuration
+     * @request POST:/api/v1/skills/validate
+     * @secure
+     */
+    v1SkillsValidateCreate: (request: TypesAssistantMCP, params: RequestParams = {}) =>
+      this.request<TypesToolMCPClientConfig, any>({
+        path: `/api/v1/skills/validate`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 

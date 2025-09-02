@@ -7,8 +7,10 @@ import (
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 func (c *ChainStrategy) ValidateAndDefault(ctx context.Context, tool *types.Tool) (*types.Tool, error) {
@@ -147,6 +149,28 @@ func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Pl
 		// if tool.Config.AzureDevOps.PersonalAccessToken == "" {
 		// 	return system.NewHTTPError400("Personal access token is required for Azure DevOps tools")
 		// }
+	case types.ToolTypeMCP:
+		if tool.Config.MCP == nil {
+			return system.NewHTTPError400("MCP config is required for MCP tools")
+		}
+
+		if tool.Config.MCP.URL == "" {
+			return system.NewHTTPError400("URL is required for MCP tools")
+		}
+
+		// Get MCP config from assistant
+		mcpConfig := &types.AssistantMCP{
+			URL:     tool.Config.MCP.URL,
+			Headers: tool.Config.MCP.Headers,
+		}
+
+		// Attempt to initialize the MCP client
+		resp, err := mcp.InitializeMCPClientSkill(context.Background(), mcpConfig)
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to initialize MCP client, might not work during runtime")
+		} else {
+			tool.Config.MCP.Tools = resp.Tools
+		}
 
 	case types.ToolTypeBrowser, types.ToolTypeCalculator, types.ToolTypeEmail, types.ToolTypeWebSearch:
 		// No validation needed
