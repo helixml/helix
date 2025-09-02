@@ -39,7 +39,6 @@ interface AddMcpSkillDialogProps {
   onClosed?: () => void;
   skill?: {
     name: string;
-    description: string;
     url: string;
     headers?: Record<string, string>;
   };
@@ -55,11 +54,7 @@ const NameTypography = styled(Typography)(({ theme }) => ({
   marginBottom: theme.spacing(1),
 }));
 
-const DescriptionTypography = styled(Typography)(({ theme }) => ({
-  fontSize: '1.1rem',
-  color: '#A0AEC0',
-  marginBottom: theme.spacing(3),
-}));
+
 
 const SectionCard = styled(Box)(({ theme }) => ({
   background: '#23262F',
@@ -110,7 +105,6 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
 
   const [skill, setSkill] = useState({
     name: '',
-    description: '',
     url: '',
     headers: {} as Record<string, string>,
   });
@@ -130,7 +124,6 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
     if (initialSkill) {
       setSkill({
         name: initialSkill.name,
-        description: initialSkill.description,
         url: initialSkill.url,
         headers: initialSkill.headers ?? {},
       });
@@ -139,7 +132,8 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
       const existingIndex = app.mcpTools?.findIndex(mcp => mcp.name === initialSkill.name) ?? -1;
       if (existingIndex !== -1) {
         setExistingSkill({
-        ...initialSkill,
+        name: initialSkill.name,
+        url: initialSkill.url,
         headers: initialSkill.headers ?? {},
       });
         setExistingSkillIndex(existingIndex);
@@ -153,7 +147,6 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
       // Reset form when opening for new skill
       setSkill({
         name: '',
-        description: '',
         url: '',
         headers: {},
       });
@@ -240,7 +233,6 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
       // Call the validation API
       const result = await api.getApiClient().v1SkillsValidateCreate({
         name: skill.name,
-        description: skill.description,
         url: skill.url,
         headers: skill.headers,
       });
@@ -276,7 +268,6 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
       // Construct the MCP skill object
       const mcpSkill = {
         name: skill.name,
-        description: skill.description,
         url: skill.url,
         headers: skill.headers,
       };
@@ -328,43 +319,7 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
     setActiveTab(newValue);
   };
 
-  const renderDescriptionWithLinks = (text: string) => {
-    // URL regex pattern
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    
-    // First split by newlines
-    const lines = text.split('\n');
-    
-    return lines.map((line, lineIndex) => {
-      // Then split each line by URLs
-      const parts = line.split(urlRegex);
-      
-      const elements = parts.map((part, partIndex) => {
-        if (part.match(urlRegex)) {
-          return (
-            <a
-              key={`${lineIndex}-${partIndex}`}
-              href={part}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: '#6366F1', textDecoration: 'underline' }}
-            >
-              {part}
-            </a>
-          );
-        }
-        return part;
-      });
 
-      // Add line break after each line except the last one
-      return (
-        <React.Fragment key={lineIndex}>
-          {elements}
-          {lineIndex < lines.length - 1 && <br />}
-        </React.Fragment>
-      );
-    });
-  };
 
   const renderMcpTools = (tools: McpTool[]) => {
     return (
@@ -459,12 +414,11 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
       }}
       TransitionProps={{
         onExited: () => {
-          setSkill({
-            name: '',
-            description: '',
-            url: '',
-            headers: {},
-          });
+                  setSkill({
+          name: '',
+          url: '',
+          headers: {},
+        });
           setExistingSkill(null);
           setExistingSkillIndex(null);
           setUrlError(null);
@@ -515,9 +469,6 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
                 <NameTypography>
                   {skill.name || 'New MCP Skill'}
                 </NameTypography>
-                <DescriptionTypography>
-                  {renderDescriptionWithLinks(skill.description || 'No description provided.')}
-                </DescriptionTypography>
 
                 <SectionCard>
                   <DarkTextField
@@ -529,21 +480,11 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
                     margin="normal"
                     required
                   />
-                  <DarkTextField
-                    fullWidth
-                    label="Description"
-                    helperText="A short description of the MCP skill, make it informative and unique for the AI"
-                    value={skill.description}
-                    onChange={(e) => handleChange('description', e.target.value)}
-                    margin="normal"
-                    required
-                    multiline
-                    rows={2}
-                  />
+
                   <DarkTextField
                     fullWidth
                     label="MCP Server URL"
-                    helperText={urlError || "The URL of the MCP server to connect to"}
+                    helperText={urlError || "The URL of the MCP server to connect to. URLs ending with /sse will be treated as SSE endpoints."}
                     value={skill.url}
                     onChange={(e) => handleUrlChange(e.target.value)}
                     margin="normal"
@@ -847,7 +788,7 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
                 size="small"
                 variant="outlined"
                 color="secondary"
-                disabled={!skill.name.trim() || !skill.description.trim() || !skill.url.trim()}
+                disabled={!skill.name.trim() || !skill.url.trim()}
               >
                 {existingSkill ? 'Save' : 'Enable'}
               </Button>
