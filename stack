@@ -91,12 +91,149 @@ function build-runner() {
   fi
 }
 
+function build-zed() {
+  echo "Building Zed with External WebSocket Thread Sync..."
+  
+  local ZED_SOURCE_DIR="../zed"
+  local ZED_OUTPUT_DIR="./zed-build"
+  local BUILD_TYPE="${1:-release}"
+  
+  # Check if Zed source directory exists
+  if [ ! -d "$ZED_SOURCE_DIR" ]; then
+    echo "❌ Zed source directory not found at: $ZED_SOURCE_DIR"
+    echo "Expected directory structure:"
+    echo "  helix/                 (current directory)"
+    echo "  zed/                   (Zed fork with external_websocket_sync)"
+    return 1
+  fi
+  
+  # Check if external_websocket_sync exists in Zed source
+  if [ ! -d "$ZED_SOURCE_DIR/crates/external_websocket_sync" ]; then
+    echo "❌ external_websocket_sync crate not found in Zed source"
+    echo "Make sure you're using the Zed fork with External WebSocket Thread Sync"
+    return 1
+  fi
+  
+  # Check if Rust is installed
+  if ! command -v cargo &> /dev/null; then
+    echo "❌ Rust/Cargo not found. Please install Rust first."
+    echo "Install Rust: https://rustup.rs/"
+    return 1
+  fi
+  
+  # Create output directory
+  mkdir -p "$ZED_OUTPUT_DIR"
+  
+  # Change to Zed source directory
+  cd "$ZED_SOURCE_DIR"
+  
+  echo "🔨 Building Zed with External WebSocket Thread Sync..."
+  echo "Source directory: $(pwd)"
+  echo "Build type: $BUILD_TYPE"
+  
+  # Build Zed
+  if [ "$BUILD_TYPE" = "release" ]; then
+    if RUST_LOG=info cargo build --release; then
+      BINARY_PATH="target/release/zed"
+    else
+      echo "❌ Zed build failed"
+      cd - > /dev/null
+      return 1
+    fi
+  else
+    if RUST_LOG=info cargo build; then
+      BINARY_PATH="target/debug/zed"
+    else
+      echo "❌ Zed build failed"
+      cd - > /dev/null
+      return 1
+    fi
+  fi
+  
+  # Check if build was successful
+  if [ ! -f "$BINARY_PATH" ]; then
+    echo "❌ Build failed: Binary not found at $BINARY_PATH"
+    cd - > /dev/null
+    return 1
+  fi
+  
+  echo "✅ Zed compilation completed successfully"
+  
+  # Copy binary to output directory
+  cd - > /dev/null
+  cp "$ZED_SOURCE_DIR/$BINARY_PATH" "$ZED_OUTPUT_DIR/zed"
+  chmod +x "$ZED_OUTPUT_DIR/zed"
+  
+  # Get binary info
+  local BINARY_SIZE=$(du -h "$ZED_OUTPUT_DIR/zed" | cut -f1)
+  
+  echo "✅ Zed binary copied to: $ZED_OUTPUT_DIR/zed"
+  echo "📦 Binary size: $BINARY_SIZE"
+  
+  # Verify external WebSocket sync is included
+  if strings "$ZED_OUTPUT_DIR/zed" | grep -q "external_websocket_sync"; then
+    echo "✅ External WebSocket Thread Sync detected in binary"
+  else
+    echo "⚠️  External WebSocket Thread Sync not clearly detectable (this might be normal)"
+  fi
+  
+  # Create test configuration
+  cat > "$ZED_OUTPUT_DIR/test-settings.json" << EOF
+{
+  "external_websocket_sync": {
+    "enabled": true,
+    "server": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 3030
+    },
+    "websocket_sync": {
+      "enabled": true,
+      "external_url": "localhost:8080",
+      "use_tls": false,
+      "auto_reconnect": true
+    }
+  }
+}
+EOF
+  
+  echo "✅ Created test configuration: $ZED_OUTPUT_DIR/test-settings.json"
+  echo "🎉 Zed build completed successfully!"
+  echo ""
+  echo "Next steps:"
+  echo "  1. Test the binary: cd $ZED_OUTPUT_DIR && ./zed --version"
+  echo "  2. Build zed-agent: ./stack build-zed-agent"
+  echo "  3. Start services: ./stack zed-agent-up"
+}
+
 function start() {
   if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
     echo "Session $TMUX_SESSION already exists. Attaching..."
     sleep 1
     tmux -2 attach -t $TMUX_SESSION
     exit 0;
+  fi
+
+  # Check for Zed dependency and build if needed
+  if [ ! -d "../zed" ]; then
+    echo "❌ ERROR: Zed source code not found at ../zed/"
+    echo ""
+    echo "The Zed runner requires the Zed source code to be checked out alongside Helix."
+    echo ""
+    echo "Please run:"
+    echo "  cd .."
+    echo "  git clone https://github.com/helixml/zed.git"
+    echo "  cd helix"
+    echo "  ./stack start"
+    exit 1
+  fi
+
+  if [ ! -f "./zed-build/zed" ]; then
+    echo "🔨 Zed binary not found, building automatically..."
+    build-zed || {
+      echo "❌ Failed to build Zed. Please check the error messages above."
+      exit 1
+    }
   fi
 
   export MANUALRUN=1
@@ -255,6 +392,44 @@ function stop() {
 
 function up() {
   docker compose -f docker-compose.dev.yaml up -d $@
+}
+
+function zed-agent-up() {
+  echo "Starting Zed agent services..."
+  
+  # Build Zed if binary doesn't exist
+  if [ ! -f "./zed-build/zed" ]; then
+    echo "Zed binary not found, building first..."
+    build-zed || return 1
+  fi
+  
+  # Start Zed agent services using profile
+  docker compose -f docker-compose.dev.yaml --ent if image doesn't exist
+  if ! docker image inspect helix/zed-agent:latest &> /dev/null; then
+    echo "Zed agent image not found, building first..."
+    build-zed-agent || return 1
+  fi
+  
+  docker compose -f docker-compose.zed-agent.yaml up -d
+  
+  echo "✅ Zed agent services started"
+  echo "📋 Services running:"
+  echo "  - Helix API: http://localhost:8080"
+  echo "  - Zed HTTP API: http://localhost:3030"
+  echo "  - VNC Web Client: http://localhost:6080"
+  echo ""
+  echo "🧪 Test commands:"
+  echo "  curl http://localhost:8080/health    # Helix API"
+  echo "  curl http://localhost:3030/health    # Zed integration API"
+}
+
+function zed-agent-down() {
+  echo "Stopping Zed agent services..."
+  docker compose -f docker-compose.zed-agent.yaml down
+}
+
+function zed-agent-logs() {
+  docker compose -f docker-compose.zed-agent.yaml logs -f "${1:-zed-agent-runner}"
 }
 
 function rebuild() {
@@ -556,6 +731,39 @@ function test() {
   fi
 }
 
+function zed-test() {
+  echo "Testing Zed with External WebSocket Thread Sync..."
+  
+  if [ ! -f "./zed-build/zed" ]; then
+    echo "❌ Zed binary not found. Run: ./stack build-zed"
+    return 1
+  fi
+  
+  echo "🧪 Running basic tests..."
+  
+  # Test 1: Binary execution
+  if ./zed-build/zed --version > /dev/null 2>&1; then
+    echo "✅ Zed binary executes successfully"
+  else
+    echo "❌ Zed binary failed to execute"
+    return 1
+  fi
+  
+  # Test 2: Check for external sync feature
+  if strings ./zed-build/zed | grep -q "external_websocket_sync"; then
+    echo "✅ External WebSocket Thread Sync feature detected"
+  else
+    echo "⚠️  External WebSocket Thread Sync not clearly detectable"
+  fi
+  
+  echo "🎉 Basic Zed tests passed!"
+  echo ""
+  echo "For full integration testing:"
+  echo "  1. Start Zed: RUST_LOG=external_websocket_sync=debug ./zed-build/zed"
+  echo "  2. Open a project folder"
+  echo "  3. Test API: curl http://localhost:3030/health"
+}
+
 function help() {
   echo "Helix Stack Management Tool"
   echo ""
@@ -568,6 +776,14 @@ function help() {
   echo "  mock-runner        - Start a mock runner for testing"
   echo "  up [services]      - Start specific docker services"
   echo "  rebuild [services] - Rebuild and start specific docker services"
+  echo ""
+  echo "Zed Agent commands:"
+  echo "  build-zed [release|debug] - Build Zed with External WebSocket Thread Sync"
+  echo "  build-zed-agent    - Build Zed agent Docker image"
+  echo "  zed-agent-up       - Start Zed agent services"
+  echo "  zed-agent-down     - Stop Zed agent services"
+  echo "  zed-agent-logs [service] - View Zed agent logs"
+  echo "  zed-test           - Test Zed binary functionality"
   echo ""
   echo "Database commands:"
   echo "  db [cli|pipe] [postgres|pgvector] - Access database"

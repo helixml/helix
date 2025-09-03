@@ -28,12 +28,17 @@ const (
 // Runner connects using a WebSocket to the Control Plane
 // and listens for GPTScript tasks to run
 type Runner struct {
-	cfg *config.GPTScriptRunnerConfig
+	cfg         *config.GPTScriptRunnerConfig
+	zedExecutor *ZedExecutor
 }
 
 func NewRunner(cfg *config.GPTScriptRunnerConfig) *Runner {
+	// Initialize Zed executor with default settings
+	zedExecutor := NewZedExecutor(10, 5900, 5900, "/tmp/zed-workspaces")
+
 	return &Runner{
-		cfg: cfg,
+		cfg:         cfg,
+		zedExecutor: zedExecutor,
 	}
 }
 
@@ -181,6 +186,8 @@ func (r *Runner) processMessage(ctx context.Context, conn *websocket.Conn, messa
 		return r.processAppRequest(ctx, conn, &envelope)
 	case types.RunnerEventRequestTool:
 		return r.processToolRequest(ctx, conn, &envelope)
+	case types.RunnerEventRequestZedAgent:
+		return r.processZedAgentRequest(ctx, conn, &envelope)
 	default:
 		return fmt.Errorf("unknown message type: %s", envelope.Type)
 	}
@@ -234,6 +241,38 @@ func (r *Runner) processToolRequest(ctx context.Context, conn *websocket.Conn, r
 	}
 
 	logger.Info().TimeDiff("duration", time.Now(), start).Msg("message processed")
+
+	return r.respond(conn, req.RequestID, req.Reply, resp)
+}
+
+func (r *Runner) processZedAgentRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
+	logger := log.With().Str("request_id", req.RequestID).Logger()
+
+	var agent types.ZedAgent
+	if err := json.Unmarshal(req.Payload, &agent); err != nil {
+		logger.Err(err).Msgf("failed to unmarshal Zed agent (%s)", string(req.Payload))
+		return fmt.Errorf("failed to unmarshal Zed agent (%s): %w", string(req.Payload), err)
+	}
+
+	logger.Debug().
+		Str("session_id", agent.SessionID).
+		Str("input", agent.Input).
+		Str("project_path", agent.ProjectPath).
+		Msg("processing Zed agent request")
+
+	start := time.Now()
+
+	resp, err := r.zedExecutor.StartZedAgent(ctx, &agent)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to start Zed agent")
+		resp = &types.ZedAgentResponse{
+			SessionID: agent.SessionID,
+			Error:     err.Error(),
+			Status:    "error",
+		}
+	}
+
+	logger.Info().TimeDiff("duration", time.Now(), start).Msg("Zed agent request processed")
 
 	return r.respond(conn, req.RequestID, req.Reply, resp)
 }
