@@ -783,7 +783,7 @@ func (apiServer *HelixAPIServer) startUnixSocketServer(ctx context.Context) erro
 			ID: apiServer.Cfg.WebServer.EmbeddingsSocketUserID,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to get user: %w", err)
+			return fmt.Errorf("failed to get user '%s': %w (does it exist?)", apiServer.Cfg.WebServer.EmbeddingsSocketUserID, err)
 		}
 
 		log.Info().
