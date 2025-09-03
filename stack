@@ -403,8 +403,7 @@ function zed-agent-up() {
     build-zed || return 1
   fi
   
-  # Start Zed agent services using profile
-  docker compose -f docker-compose.dev.yaml --ent if image doesn't exist
+  # Check if image doesn't exist
   if ! docker image inspect helix/zed-agent:latest &> /dev/null; then
     echo "Zed agent image not found, building first..."
     build-zed-agent || return 1
