@@ -237,67 +237,35 @@ services:
         depends_on:
             - api
 
-    # Zed Agent Task Runner (always runs, replaces gptscript runner)
+    # Zed Agent Task Runner Pool (replaces gptscript runner entirely)
+    # Scale with: docker-compose up --scale zed-runner=5
     zed-runner:
         build:
             context: .
             dockerfile: Dockerfile.zed-agent
             args:
                 - BUILD_TYPE=release
-        container_name: helix-zed-runner
         environment:
             # Control plane connection
             - API_HOST=http://api:8080
             - API_TOKEN=${ZED_AGENT_RUNNER_TOKEN:-your-zed-agent-runner-token}
-            - RUNNER_ID=zed-runner-1
             
-            # Zed fork with Helix integration
-            - RUST_LOG=helix_integration=info,workspace=info
-            
-            # Runner configuration
-            - CONCURRENCY=5
-            - MAX_TASKS=0
+            # Zed runner configuration - one session per container, then exit
+            - CONCURRENCY=1
+            - MAX_TASKS=1  # Exit after one task for clean restart
             - SESSION_TIMEOUT=3600
-            - MAX_SESSIONS=10
             
-            # RDP configuration
-            - RDP_START_PORT=5900
-            - RDP_USER=zed
-            - RDP_PASSWORD=zed123
-            
-            # Zed configuration
-            - ZED_BINARY=/usr/local/bin/zed
-            - WORKSPACE_DIR=/tmp/zed-workspaces
-            
-            # X11 and GUI configuration
+            # Container uses fixed settings since each container is isolated
+            - WORKSPACE_DIR=/tmp/workspace
             - DISPLAY=:1
-            - DISPLAY_WIDTH=1920
-            - DISPLAY_HEIGHT=1080
-            
-            # Helix integration specific
-            - ZED_HELIX_INTEGRATION_ENABLED=1
-            - ZED_HELIX_URL=api:8080
-        ports:
-            - "3030:3030"  # Zed HTTP API
-            - "5900-5920:5900-5920"  # RDP ports
-        volumes:
-            - zed_workspaces:/tmp/zed-workspaces
-            - /tmp/.X11-unix:/tmp/.X11-unix:ro
+            - RDP_PORT=5900
+        # No port mapping needed - RDP proxied over WebSocket connection
+        restart: always
         depends_on:
             - api
-        restart: unless-stopped
-        security_opt:
-            - seccomp:unconfined
-        cap_add:
-            - SYS_ADMIN
-            - SYS_PTRACE
-        shm_size: 2gb
-        healthcheck:
-            test: ["CMD", "pgrep", "-f", "zed"]
-            interval: 30s
-            timeout: 10s
-            retries: 3
-            start_period: 60s
+        deploy:
+            # Default to 3 runners, scale with --scale zed-runner=N
+            replicas: 3
 
     # GPU-enabled runner (for LLM inference)
     runner_gpu:
@@ -411,7 +379,7 @@ volumes:
     go-pkg-mod: # Go module cache
     go-build-cache: # Go build cache
     go-sdk-cache: # Go toolchain/SDK cache
-    zed_workspaces: # Zed agent workspace persistence
+    # No persistent volumes for zed workspaces - using tmpfs for clean sessions
 
 networks:
     default:

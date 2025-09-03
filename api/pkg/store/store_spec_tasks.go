@@ -29,7 +29,7 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 			$23, $24, $25, $26, $27
 		)`
 
-	_, err := s.gormDB.WithContext(ctx).Exec(query,
+	result := s.gdb.WithContext(ctx).Exec(query,
 		task.ID, task.ProjectID, task.Name, task.Description, task.Type, task.Priority, task.Status,
 		task.OriginalPrompt, task.RequirementsSpec, task.TechnicalDesign, task.ImplementationPlan,
 		task.SpecAgent, task.ImplementationAgent, task.SpecSessionID, task.ImplementationSessionID,
@@ -37,8 +37,8 @@ func (s *PostgresStore) CreateSpecTask(ctx context.Context, task *types.SpecTask
 		task.EstimatedHours, task.StartedAt, task.CompletedAt,
 		task.CreatedBy, task.CreatedAt, task.UpdatedAt, task.LabelsDB, task.Metadata,
 	)
-	if err != nil {
-		return fmt.Errorf("failed to create spec task: %w", err)
+	if result.Error != nil {
+		return fmt.Errorf("failed to create spec task: %w", result.Error)
 	}
 
 	log.Info().
@@ -65,7 +65,7 @@ func (s *PostgresStore) GetSpecTask(ctx context.Context, id string) (*types.Spec
 		FROM spec_tasks
 		WHERE id = $1`
 
-	err := s.gormDB.WithContext(ctx).Raw(query, id).Scan(task).Error
+	err := s.gdb.WithContext(ctx).Raw(query, id).Scan(&task).Error
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("spec task not found: %s", id)
@@ -90,7 +90,7 @@ func (s *PostgresStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask
 			created_by = $23, updated_at = $24, labels = $25, metadata = $26
 		WHERE id = $1`
 
-	result := s.gormDB.WithContext(ctx).Exec(query,
+	result := s.gdb.WithContext(ctx).Exec(query,
 		task.ID, task.ProjectID, task.Name, task.Description, task.Type, task.Priority, task.Status,
 		task.OriginalPrompt, task.RequirementsSpec, task.TechnicalDesign, task.ImplementationPlan,
 		task.SpecAgent, task.ImplementationAgent, task.SpecSessionID, task.ImplementationSessionID,
@@ -187,7 +187,7 @@ func (s *PostgresStore) ListSpecTasks(ctx context.Context, filters *types.SpecTa
 		}
 	}
 
-	err := s.gormDB.WithContext(ctx).Raw(query, args...).Scan(&tasks).Error
+	err := s.gdb.WithContext(ctx).Raw(query, args...).Scan(&tasks).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list spec tasks: %w", err)
 	}

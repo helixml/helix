@@ -78,8 +78,10 @@ func GetSessionQueue(ownerID, sessionID string) string {
 const (
 	ScriptRunnerStream        = "SCRIPTS"
 	ExternalAgentRunnerStream = "EXTERNAL_AGENTS"
+	ZedAgentRunnerStream      = "ZED_AGENTS"
 	AppQueue                  = "apps"
 	ExternalAgentQueue        = "external_agents"
+	ZedAgentQueue             = "zed_agents"
 	RunnerQueue               = "runner"
 	HelixNatsReplyHeader      = "helix-nats-reply"
 )

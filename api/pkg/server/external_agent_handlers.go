@@ -206,10 +206,12 @@ func (apiServer *HelixAPIServer) getExternalAgentRDP(res http.ResponseWriter, re
 		"session_id":          session.SessionID,
 		"rdp_url":             fmt.Sprintf("rdp://localhost:%d", session.RDPPort),
 		"rdp_port":            session.RDPPort,
+		"rdp_password":        session.RDPPassword, // Secure random password
 		"display":             fmt.Sprintf(":%d", session.DisplayNum),
 		"status":              "running",
 		"username":            "zed", // Default RDP username
 		"host":                "localhost",
+		"proxy_url":           fmt.Sprintf("wss://%s/api/v1/external-agents/%s/rdp/proxy", req.Host, session.SessionID),
 		"websocket_url":       fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, session.SessionID),
 		"websocket_connected": apiServer.isExternalAgentConnected(session.SessionID),
 	}

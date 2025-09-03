@@ -12,14 +12,15 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/gptscript"
+	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/zedagent"
 )
 
 func NewZedAgentRunnerCmd() *cobra.Command {
 	runCmd := &cobra.Command{
 		Use:     "zed-agent-runner",
-		Short:   "Start the helix Zed agent runner.",
-		Long:    "Start the helix Zed agent runner that executes Zed editor instances as external agents.",
+		Short:   "Start the Helix Zed agent runner.",
+		Long:    "Start the Helix Zed agent runner that processes Zed editor tasks. Replaces gptscript runner entirely.",
 		Example: "helix zed-agent-runner",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			err := zedAgentRunner(cmd)
@@ -49,98 +50,61 @@ func zedAgentRunner(_ *cobra.Command) error {
 		Str("runner_id", cfg.RunnerID).
 		Int("concurrency", cfg.Concurrency).
 		Int("max_tasks", cfg.MaxTasks).
-		Int("rdp_start_port", cfg.RDPStartPort).
-		Str("workspace_dir", cfg.WorkspaceDir).
 		Msg("starting Zed agent runner")
 
-	// Create Zed executor
-	zedExecutor := gptscript.NewZedExecutor(
-		cfg.DisplayNum,   // Display base number
-		cfg.RDPStartPort, // RDP port base
-		cfg.VNCPort,      // VNC port base
-		cfg.WorkspaceDir, // Workspace directory
-	)
-
-	// Convert ZedAgentRunnerConfig to GPTScriptRunnerConfig for compatibility
-	// TODO: Create a proper ZedAgentRunner struct instead of reusing GPTScriptRunner
-	gptCfg := config.GPTScriptRunnerConfig{
-		APIHost:     cfg.APIHost,
-		APIToken:    cfg.APIToken,
-		RunnerID:    cfg.RunnerID,
-		Concurrency: cfg.Concurrency,
-		MaxTasks:    cfg.MaxTasks,
+	// Initialize pubsub for RDP data routing
+	pubsubInstance, err := pubsub.NewNats(&cfg.PubSub)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to initialize pubsub")
+		return err
 	}
 
-	runner := gptscript.NewZedAgentRunner(&gptCfg, zedExecutor)
+	// Initialize Zed runner using the new pattern
+	runner, err := zedagent.InitializeZedRunner(pubsubInstance)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to initialize Zed runner")
+		return err
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Handle graceful shutdown
+	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Start session cleanup goroutine
 	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				timeout := time.Duration(cfg.SessionTimeout) * time.Second
-				zedExecutor.CleanupExpiredSessions(ctx, timeout)
-			}
-		}
-	}()
-
-	// Start the runner in a goroutine
-	runnerDone := make(chan error, 1)
-	go func() {
-		runnerDone <- runner.Run(ctx)
-	}()
-
-	// Wait for either shutdown signal or runner completion
-	select {
-	case sig := <-sigChan:
+		sig := <-sigChan
 		log.Info().
 			Str("signal", sig.String()).
 			Msg("received shutdown signal, stopping Zed agent runner")
 		cancel()
+	}()
 
-		// Wait for runner to stop gracefully or timeout
+	// Run the Zed agent runner
+	log.Info().Msg("🟢 Zed agent runner started and ready for tasks")
+
+	err = runner.Run(ctx)
+	if err != nil {
 		select {
-		case err := <-runnerDone:
+		case <-ctx.Done():
+			// Graceful shutdown
+			log.Info().Msg("Zed agent runner gracefully shut down")
+
+			// Give any active sessions time to finish
+			time.Sleep(2 * time.Second)
+
+			return nil
+		default:
 			if err != nil && !errors.Is(err, context.Canceled) {
 				log.Error().Err(err).Msg("Zed agent runner stopped with error")
 				return err
 			}
-		case <-time.After(10 * time.Second):
-			log.Warn().Msg("Zed agent runner didn't stop gracefully, forcing shutdown")
 		}
-
-		// Cleanup all active sessions
-		sessions := zedExecutor.ListSessions()
-		for _, session := range sessions {
-			if err := zedExecutor.StopZedAgent(context.Background(), session.SessionID); err != nil {
-				log.Error().
-					Err(err).
-					Str("session_id", session.SessionID).
-					Msg("failed to stop session during shutdown")
-			}
-		}
-
-		log.Info().Msg("Zed agent runner stopped successfully")
-		return nil
-
-	case err := <-runnerDone:
-		if err != nil && !errors.Is(err, context.Canceled) {
-			log.Error().Err(err).Msg("Zed agent runner exited with error")
-			return err
-		}
-		log.Info().Msg("Zed agent runner completed")
-		return nil
+	case <-time.After(10 * time.Second):
+		log.Warn().Msg("Zed agent runner didn't stop gracefully, forcing shutdown")
 	}
+
+	log.Info().Msg("Zed agent runner stopped successfully")
+	return nil
 }

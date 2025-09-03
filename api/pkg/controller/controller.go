@@ -8,9 +8,9 @@ import (
 	agent "github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
-	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
@@ -23,19 +23,22 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/zedagent"
 )
 
 type Options struct {
-	Config            *config.ServerConfig
-	Store             store.Store
-	PubSub            pubsub.PubSub
-	Extractor         extract.Extractor
-	RAG               rag.RAG
-	GPTScriptExecutor gptscript.Executor
-	Filestore         filestore.FileStore
-	Janitor           *janitor.Janitor
-	Notifier          notification.Notifier
-	ProviderManager   manager.ProviderManager // OpenAI client provider
+	Config                *config.ServerConfig
+	Store                 store.Store
+	PubSub                pubsub.PubSub
+	Extractor             extract.Extractor
+	RAG                   rag.RAG
+	GPTScriptExecutor     zedagent.Executor
+	ZedExecutor           *external_agent.ZedExecutor // Replaces GPTScript for Zed agents
+	ExternalAgentExecutor external_agent.Executor     // Interface for external agents
+	Filestore             filestore.FileStore
+	Janitor               *janitor.Janitor
+	Notifier              notification.Notifier
+	ProviderManager       manager.ProviderManager // OpenAI client provider
 	// DataprepOpenAIClient openai.Client
 	Scheduler        *scheduler.Scheduler
 	RunnerController *scheduler.RunnerController
