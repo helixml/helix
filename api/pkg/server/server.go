@@ -24,7 +24,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
-	"github.com/helixml/helix/api/pkg/gptscript"
+	"github.com/helixml/helix/api/pkg/zedagent"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/oauth"
@@ -266,14 +266,10 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		"/ws/runner",
 	)
 
-	apiServer.startGptScriptRunnerWebSocketServer(
+	// Zed Agent Runner WebSocket Server (replaces gptscript runner entirely)
+	apiServer.startZedAgentRunnerWebSocketServer(
 		apiRouter,
-		"/ws/gptscript-runner",
-	)
-
-	apiServer.startExternalAgentRunnerWebSocketServer(
-		apiRouter,
-		"/ws/external-agent-runner",
+		"/ws/zed-runner",
 	)
 
 	// Start UNIX socket server for embeddings if configured
@@ -480,8 +476,12 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}", system.DefaultWrapper(apiServer.updateExternalAgent)).Methods("PUT")
 	authRouter.HandleFunc("/external-agents/{sessionID}", system.DefaultWrapper(apiServer.deleteExternalAgent)).Methods("DELETE")
 	authRouter.HandleFunc("/external-agents/{sessionID}/rdp", system.DefaultWrapper(apiServer.getExternalAgentRDP)).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/rdp/proxy", apiServer.proxyExternalAgentRDP).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/stats", system.DefaultWrapper(apiServer.getExternalAgentStats)).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/logs", system.DefaultWrapper(apiServer.getExternalAgentLogs)).Methods("GET")
+
+	// RDP proxy management endpoints
+	authRouter.HandleFunc("/rdp-proxy/health", system.DefaultWrapper(apiServer.getRDPProxyHealth)).Methods("GET")
 
 	// External agent WebSocket sync endpoint
 	subRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")

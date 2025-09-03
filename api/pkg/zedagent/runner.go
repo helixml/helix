@@ -1,4 +1,4 @@
-package gptscript
+package zedagent
 
 import (
 	"context"
@@ -20,26 +20,34 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// ZedAgentRunner connects using a WebSocket to the Control Plane
-// and listens for Zed agent tasks to run
-type ZedAgentRunner struct {
+const (
+	retries             = 100
+	delayBetweenRetries = 3 * time.Second
+)
+
+// Runner connects using a WebSocket to the Control Plane
+// and listens for GPTScript tasks to run
+type Runner struct {
 	cfg         *config.GPTScriptRunnerConfig
 	zedExecutor *ZedExecutor
 }
 
-func NewZedAgentRunner(cfg *config.GPTScriptRunnerConfig, zedExecutor *ZedExecutor) *ZedAgentRunner {
-	return &ZedAgentRunner{
+func NewRunner(cfg *config.GPTScriptRunnerConfig) *Runner {
+	// Initialize Zed executor with default settings
+	zedExecutor := NewZedExecutor(10, 5900, 5900, "/tmp/zed-workspaces")
+
+	return &Runner{
 		cfg:         cfg,
 		zedExecutor: zedExecutor,
 	}
 }
 
-func (r *ZedAgentRunner) Run(ctx context.Context) error {
+func (r *Runner) Run(ctx context.Context) error {
 	// TODO: retry loop?
 	return r.run(ctx)
 }
 
-func (r *ZedAgentRunner) run(ctx context.Context) error {
+func (r *Runner) run(ctx context.Context) error {
 	var conn *websocket.Conn
 
 	err := retry.Do(func() error {
@@ -76,7 +84,7 @@ func (r *ZedAgentRunner) run(ctx context.Context) error {
 	log.Info().
 		Int("concurrency", r.cfg.Concurrency).
 		Int("max_tasks", r.cfg.MaxTasks).
-		Msg("🟢 starting Zed agent task processing")
+		Msg("🟢 starting task processing")
 
 	go func() {
 		defer close(done)
@@ -120,7 +128,7 @@ func (r *ZedAgentRunner) run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		// ping every 5 seconds to keep the connection alive
+		// ping every 10 seconds to keep the connection alive
 		case <-ticker.C:
 			err := conn.WriteMessage(websocket.PingMessage, []byte{})
 			if err != nil {
@@ -135,7 +143,7 @@ func (r *ZedAgentRunner) run(ctx context.Context) error {
 	}
 }
 
-func (r *ZedAgentRunner) dial(ctx context.Context) (*websocket.Conn, error) {
+func (r *Runner) dial(ctx context.Context) (*websocket.Conn, error) {
 	var apiHost string
 
 	if strings.HasPrefix(r.cfg.APIHost, "https://") {
@@ -145,10 +153,9 @@ func (r *ZedAgentRunner) dial(ctx context.Context) (*websocket.Conn, error) {
 		apiHost = strings.Replace(r.cfg.APIHost, "http", "ws", 1)
 	}
 
-	// Use zed-agent-runner endpoint instead of gptscript-runner
 	apiHost = fmt.Sprintf("%s%s?access_token=%s&concurrency=%d&runnerid=%s",
 		apiHost,
-		system.GetAPIPath("/ws/zed-agent-runner"),
+		system.GetAPIPath("/ws/gptscript-runner"),
 		url.QueryEscape(r.cfg.APIToken), // Runner auth token to connect to the control plane
 		r.cfg.Concurrency,               // Concurrency is the number of tasks the runner can handle concurrently
 		r.cfg.RunnerID,                  // Runner ID is a unique identifier for the runner
@@ -168,25 +175,77 @@ func (r *ZedAgentRunner) dial(ctx context.Context) (*websocket.Conn, error) {
 	return conn, nil
 }
 
-func (r *ZedAgentRunner) processMessage(ctx context.Context, conn *websocket.Conn, message []byte) error {
+func (r *Runner) processMessage(ctx context.Context, conn *websocket.Conn, message []byte) error {
 	var envelope types.RunnerEventRequestEnvelope
 	if err := json.Unmarshal(message, &envelope); err != nil {
 		return fmt.Errorf("failed to unmarshal message: %w", err)
 	}
 
 	switch envelope.Type {
-	case types.RunnerEventRequestZedAgent:
-		return r.processZedAgentRequest(ctx, conn, &envelope)
 	case types.RunnerEventRequestApp:
 		return r.processAppRequest(ctx, conn, &envelope)
 	case types.RunnerEventRequestTool:
 		return r.processToolRequest(ctx, conn, &envelope)
+	case types.RunnerEventRequestZedAgent:
+		return r.processZedAgentRequest(ctx, conn, &envelope)
 	default:
 		return fmt.Errorf("unknown message type: %s", envelope.Type)
 	}
 }
 
-func (r *ZedAgentRunner) processZedAgentRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
+func (r *Runner) processAppRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
+	logger := log.With().Str("request_id", req.RequestID).Logger()
+
+	var app types.GptScriptGithubApp
+	if err := json.Unmarshal(req.Payload, &app); err != nil {
+		logger.Err(err).Msgf("failed to unmarshal GPTScript app (%s)", string(req.Payload))
+		return fmt.Errorf("failed to unmarshal GPTScript app (%s): %w", string(req.Payload), err)
+	}
+
+	logger.Debug().
+		Str("repo", app.Repo).
+		Str("script_input", app.Script.Input).
+		Msg("processing GPTScript app request")
+
+	start := time.Now()
+
+	resp, err := RunGPTAppScript(ctx, &app)
+	if err != nil {
+		return fmt.Errorf("failed to run GPTScript app: %w", err)
+	}
+
+	logger.Info().TimeDiff("duration", time.Now(), start).Msg("message processed")
+
+	return r.respond(conn, req.RequestID, req.Reply, resp)
+}
+
+func (r *Runner) processToolRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
+	logger := log.With().Str("request_id", req.RequestID).Logger()
+
+	var script types.GptScript
+	if err := json.Unmarshal(req.Payload, &script); err != nil {
+		return fmt.Errorf("failed to unmarshal GPTScript tool (%s): %w", string(req.Payload), err)
+	}
+
+	logger.Debug().
+		Str("script_input", script.Input).
+		Str("file_path", script.FilePath).
+		Str("source", script.Source).
+		Msg("processing GPTScript tool request")
+
+	start := time.Now()
+
+	resp, err := RunGPTScript(ctx, &script)
+	if err != nil {
+		return fmt.Errorf("failed to run GPTScript tool: %w", err)
+	}
+
+	logger.Info().TimeDiff("duration", time.Now(), start).Msg("message processed")
+
+	return r.respond(conn, req.RequestID, req.Reply, resp)
+}
+
+func (r *Runner) processZedAgentRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
 	logger := log.With().Str("request_id", req.RequestID).Logger()
 
 	var agent types.ZedAgent
@@ -199,7 +258,6 @@ func (r *ZedAgentRunner) processZedAgentRequest(ctx context.Context, conn *webso
 		Str("session_id", agent.SessionID).
 		Str("input", agent.Input).
 		Str("project_path", agent.ProjectPath).
-		Str("work_dir", agent.WorkDir).
 		Msg("processing Zed agent request")
 
 	start := time.Now()
@@ -219,60 +277,7 @@ func (r *ZedAgentRunner) processZedAgentRequest(ctx context.Context, conn *webso
 	return r.respond(conn, req.RequestID, req.Reply, resp)
 }
 
-// For backwards compatibility, keep support for GPTScript requests
-func (r *ZedAgentRunner) processAppRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
-	logger := log.With().Str("request_id", req.RequestID).Logger()
-
-	var app types.GptScriptGithubApp
-	if err := json.Unmarshal(req.Payload, &app); err != nil {
-		logger.Err(err).Msgf("failed to unmarshal GPTScript app (%s)", string(req.Payload))
-		return fmt.Errorf("failed to unmarshal GPTScript app (%s): %w", string(req.Payload), err)
-	}
-
-	logger.Debug().
-		Str("repo", app.Repo).
-		Str("script_input", app.Script.Input).
-		Msg("processing GPTScript app request (compatibility mode)")
-
-	start := time.Now()
-
-	resp, err := RunGPTAppScript(ctx, &app)
-	if err != nil {
-		return fmt.Errorf("failed to run GPTScript app: %w", err)
-	}
-
-	logger.Info().TimeDiff("duration", time.Now(), start).Msg("message processed")
-
-	return r.respond(conn, req.RequestID, req.Reply, resp)
-}
-
-func (r *ZedAgentRunner) processToolRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
-	logger := log.With().Str("request_id", req.RequestID).Logger()
-
-	var script types.GptScript
-	if err := json.Unmarshal(req.Payload, &script); err != nil {
-		return fmt.Errorf("failed to unmarshal GPTScript tool (%s): %w", string(req.Payload), err)
-	}
-
-	logger.Debug().
-		Str("script_input", script.Input).
-		Str("file_path", script.FilePath).
-		Str("source", script.Source).
-		Msg("processing GPTScript tool request (compatibility mode)")
-
-	start := time.Now()
-
-	resp, err := RunGPTScript(ctx, &script)
-	if err != nil {
-		return fmt.Errorf("failed to run GPTScript tool: %w", err)
-	}
-
-	logger.Info().TimeDiff("duration", time.Now(), start).Msg("message processed")
-
-	return r.respond(conn, req.RequestID, req.Reply, resp)
-}
-
-func (r *ZedAgentRunner) respond(conn *websocket.Conn, reqID, reply string, resp interface{}) error {
+func (r *Runner) respond(conn *websocket.Conn, reqID, reply string, resp interface{}) error {
 	bts, err := json.Marshal(resp)
 	if err != nil {
 		return fmt.Errorf("failed to marshal response: %w", err)
@@ -286,7 +291,7 @@ func (r *ZedAgentRunner) respond(conn *websocket.Conn, reqID, reply string, resp
 
 	bts, err = json.Marshal(env)
 	if err != nil {
-		return fmt.Errorf("failed to marshal Zed agent response envelope: %w", err)
+		return fmt.Errorf("failed to marshal GPTScript tool response envelope: %w", err)
 	}
 
 	if err := conn.WriteMessage(websocket.TextMessage, bts); err != nil {

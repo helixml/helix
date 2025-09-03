@@ -32,7 +32,7 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt_zed_agent apt-get update -qq
     # Window manager and desktop environment
     openbox obconf obmenu \
     # RDP/VNC support
-    socat tigervnc-standalone-server xrdp \
+    socat tigervnc-standalone-server xrdp openssh-server \
     # Development tools that Zed needs
     build-essential cmake \
     # Fonts for better display
@@ -177,6 +177,21 @@ user=root
 environment=DISPLAY=":%(ENV_DISPLAY_NUM)s"
 priority=400
 
+[program:xrdp]
+command=/usr/sbin/xrdp -nodaemon -port %(ENV_RDP_PORT)s
+autostart=true
+autorestart=true
+user=root
+environment=DISPLAY=":%(ENV_DISPLAY_NUM)s"
+priority=450
+
+[program:xrdp-sesman]
+command=/usr/sbin/xrdp-sesman --nodaemon
+autostart=true
+autorestart=true
+user=root
+priority=460
+
 [program:helix-zed-agent-runner]
 command=/helix zed-agent-runner
 autostart=true
@@ -188,12 +203,91 @@ environment=HOME="/root",USER="root"
 priority=500
 EOF
 
+# Create RDP user setup script
+COPY <<EOF /setup-rdp-user.sh
+#!/bin/bash
+set -e
+
+# Set up RDP user with dynamic password
+RDP_USER="\${RDP_USER:-zed}"
+RDP_PASSWORD="\${RDP_PASSWORD:-}"
+
+if [ -z "\$RDP_PASSWORD" ]; then
+    echo "ERROR: RDP_PASSWORD environment variable must be set"
+    exit 1
+fi
+
+# Create or update user password
+echo "\$RDP_USER:\$RDP_PASSWORD" | chpasswd
+
+# Ensure user is in required groups
+usermod -a -G video,audio,tty \$RDP_USER 2>/dev/null || true
+
+# Create XRDP session configuration for the user
+mkdir -p /home/\$RDP_USER/.xsession
+cat > /home/\$RDP_USER/.xsession << 'XSESSION_EOF'
+#!/bin/bash
+export DISPLAY=:$DISPLAY_NUM
+export HOME=/home/zed
+export USER=zed
+exec openbox-session
+XSESSION_EOF
+
+chmod +x /home/\$RDP_USER/.xsession
+chown \$RDP_USER:\$RDP_USER /home/\$RDP_USER/.xsession
+
+# Create XRDP configuration with dynamic port
+mkdir -p /etc/xrdp
+cat > /etc/xrdp/xrdp.ini << XRDP_EOF
+[Globals]
+port=\${RDP_PORT:-3389}
+use_vsock=false
+tcp_nodelay=true
+tcp_keepalive=true
+security_layer=rdp
+certificate=
+key_file=
+ssl_protocols=TLSv1.2, TLSv1.3
+autorun=
+allow_channels=true
+allow_multimon=true
+bitmap_cache=true
+bitmap_compression=true
+bulk_compression=true
+hidelogwindow=true
+max_bpp=32
+new_cursors=true
+use_fastpath=both
+
+[Xvfb]
+name=Xvfb Session
+lib=libxup.so
+username=ask
+password=ask
+ip=127.0.0.1
+port=-1
+code=20
+XRDP_EOF
+
+echo "RDP user setup completed for \$RDP_USER"
+EOF
+
+RUN chmod +x /setup-rdp-user.sh
+
 # Create startup script
 COPY <<EOF /start.sh
 #!/bin/bash
 set -e
 
 echo "Starting Helix Zed Agent Runner with External WebSocket Thread Sync..."
+
+# Setup RDP authentication with dynamic password
+if [ -n "\$RDP_PASSWORD" ]; then
+    echo "Setting up RDP authentication..."
+    /setup-rdp-user.sh
+else
+    echo "WARNING: No RDP_PASSWORD provided, RDP access will not be available"
+fi
 
 # Ensure workspace directory exists and has correct permissions
 mkdir -p \${WORKSPACE_DIR:-/tmp/zed-workspaces}

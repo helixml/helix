@@ -2,11 +2,12 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
-	"github.com/helixml/helix/api/pkg/gptscript"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -93,60 +94,86 @@ func (c *Controller) LaunchExternalAgent(ctx context.Context, sessionID, agentTy
 	}
 }
 
-// launchZedAgent launches a Zed external agent for the session
+// launchZedAgent dispatches a Zed agent task to the runner pool
 func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error {
-	// Create Zed agent configuration
+	// Get session information
+	session, err := c.Options.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for Zed agent launch")
+		return fmt.Errorf("failed to get session: %w", err)
+	}
+
+	// Extract external agent configuration from session metadata
+	var externalConfig *types.ExternalAgentConfig
+	if session.Metadata.ExternalAgentConfig != nil {
+		externalConfig = session.Metadata.ExternalAgentConfig
+
+		// Basic validation
+		if err := externalConfig.Validate(); err != nil {
+			log.Error().Err(err).
+				Str("session_id", sessionID).
+				Str("user_id", session.Owner).
+				Msg("Invalid external agent configuration")
+			return fmt.Errorf("invalid external agent configuration: %w", err)
+		}
+	}
+
+	// Create Zed agent request
 	zedAgent := &types.ZedAgent{
-		SessionID: sessionID,
-		Config: types.ZedAgentConfig{
-			HelixURL:    c.Options.Config.URL,
-			HelixToken:  "", // Will be generated
-			ProjectPath: "",
-			Environment: map[string]string{
-				"HELIX_SESSION_ID": sessionID,
-				"HELIX_URL":        c.Options.Config.URL,
-			},
-		},
-		Status:    "starting",
-		CreatedAt: time.Now(),
+		SessionID:   sessionID,
+		UserID:      session.Owner,
+		Input:       "Initialize Zed development environment",
+		ProjectPath: "",
+		WorkDir:     "",
+		Env:         []string{},
 	}
 
-	// Use the existing external agent system
-	if c.Options.ExternalAgentExecutor != nil {
-		response, err := c.Options.ExternalAgentExecutor.StartZedAgent(ctx, zedAgent)
-		if err != nil {
-			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to start Zed agent")
-			return fmt.Errorf("failed to start Zed agent: %w", err)
+	// Apply external agent configuration if provided
+	if externalConfig != nil {
+		if externalConfig.ProjectPath != "" {
+			zedAgent.ProjectPath = externalConfig.ProjectPath
 		}
+		if externalConfig.WorkspaceDir != "" {
+			zedAgent.WorkDir = externalConfig.WorkspaceDir
+		}
+		if len(externalConfig.EnvVars) > 0 {
+			zedAgent.Env = externalConfig.EnvVars
+		}
+	}
 
-		log.Info().
+	// Dispatch to Zed runner pool via pub/sub (following gptscript pattern)
+	data, err := json.Marshal(zedAgent)
+	if err != nil {
+		return fmt.Errorf("failed to marshal Zed agent request: %w", err)
+	}
+
+	header := map[string]string{
+		"kind": "zed_agent",
+	}
+
+	// Send to runner pool (runners will compete for the task)
+	_, err = c.Options.PubSub.StreamRequest(
+		ctx,
+		pubsub.ZedAgentRunnerStream,
+		pubsub.ZedAgentQueue,
+		data,
+		header,
+		30*time.Second,
+	)
+	if err != nil {
+		log.Error().Err(err).
 			Str("session_id", sessionID).
-			Str("rdp_url", response.RDPURL).
-			Int("pid", response.PID).
-			Msg("Successfully launched Zed external agent")
-
-		// Update session metadata with RDP info
-		session, err := c.Options.Store.GetSession(ctx, sessionID)
-		if err == nil {
-			if session.Metadata == nil {
-				session.Metadata = make(types.SessionMetadata)
-			}
-			session.Metadata["rdp_url"] = response.RDPURL
-			session.Metadata["agent_pid"] = response.PID
-			session.Metadata["agent_status"] = response.Status
-			c.Options.Store.UpdateSession(ctx, session)
-		}
-
-		return nil
+			Str("user_id", session.Owner).
+			Msg("Failed to dispatch Zed agent to runner pool")
+		return fmt.Errorf("failed to dispatch Zed agent to runner pool: %w", err)
 	}
 
-	// Fallback to GPTScript runner with Zed integration
-	if c.Options.GPTScriptRunner != nil {
-		runner := gptscript.NewZedAgentRunner(c.Options.GPTScriptRunner.Config, nil)
-		return runner.StartAgent(ctx, sessionID)
-	}
+	log.Info().
+		Str("session_id", sessionID).
+		Str("user_id", session.Owner).
+		Msg("Zed agent dispatched to runner pool successfully")
 
-	return fmt.Errorf("no external agent executor available")
+	return nil
 }
 
 // launchVSCodeAgent launches a VS Code external agent for the session
@@ -157,22 +184,61 @@ func (c *Controller) launchVSCodeAgent(ctx context.Context, sessionID string) er
 
 // StopExternalAgent stops an external agent for a session
 func (c *Controller) StopExternalAgent(ctx context.Context, sessionID string) error {
-	if c.Options.ExternalAgentExecutor != nil {
-		return c.Options.ExternalAgentExecutor.StopZedAgent(ctx, sessionID)
+	// In runner pool pattern, we send a stop signal to the pool
+	// The runner will complete its current task and exit (container restarts for cleanup)
+	stopRequest := map[string]string{
+		"action":     "stop",
+		"session_id": sessionID,
 	}
-	return fmt.Errorf("no external agent executor available")
+
+	data, err := json.Marshal(stopRequest)
+	if err != nil {
+		return fmt.Errorf("failed to marshal stop request: %w", err)
+	}
+
+	header := map[string]string{
+		"kind": "stop_zed_agent",
+	}
+
+	_, err = c.Options.PubSub.StreamRequest(
+		ctx,
+		pubsub.ZedAgentRunnerStream,
+		pubsub.ZedAgentQueue,
+		data,
+		header,
+		10*time.Second,
+	)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to send stop signal to Zed runner pool")
+		return fmt.Errorf("failed to send stop signal to runner pool: %w", err)
+	}
+
+	log.Info().Str("session_id", sessionID).Msg("Stop signal sent to Zed runner pool")
+	return nil
 }
 
 // GetExternalAgentStatus gets the status of an external agent
 func (c *Controller) GetExternalAgentStatus(ctx context.Context, sessionID string) (*external_agent.ZedSession, error) {
-	if c.Options.ExternalAgentExecutor != nil {
-		session, exists := c.Options.ExternalAgentExecutor.GetSession(sessionID)
-		if !exists {
-			return nil, fmt.Errorf("external agent session not found")
-		}
-		return session, nil
+	// In runner pool pattern, we check session status from the database/store
+	// The runners manage their own state and report back via pub/sub
+
+	// For now, return a basic status if we have a session record
+	session, err := c.Options.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("session not found: %w", err)
 	}
-	return nil, fmt.Errorf("no external agent executor available")
+
+	// Check if this session has external agent metadata
+	if session.Metadata.AgentType == "zed_external" {
+		return &external_agent.ZedSession{
+			SessionID:  sessionID,
+			Status:     "active", // Assume active if session exists
+			StartTime:  session.Created,
+			LastAccess: session.Updated,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("session is not using external agent")
 }
 
 // UpdateAgentSessionActivity updates the last activity timestamp for an agent session
@@ -257,7 +323,7 @@ func (c *Controller) HandleAgentCompletion(ctx context.Context, sessionID string
 	return nil
 }
 
-// CleanupExpiredAgentSessions removes sessions that have been inactive for too long
+// CleanupExpiredAgentSessions cleans up expired agent sessions
 func (c *Controller) CleanupExpiredAgentSessions(ctx context.Context, timeout time.Duration) error {
 	log.Info().Dur("timeout", timeout).Msg("Starting cleanup of expired agent sessions")
 
@@ -267,10 +333,9 @@ func (c *Controller) CleanupExpiredAgentSessions(ctx context.Context, timeout ti
 		return fmt.Errorf("failed to cleanup expired sessions in database: %w", err)
 	}
 
-	// Clean up external agent sessions if executor is available
-	if c.Options.ExternalAgentExecutor != nil {
-		c.Options.ExternalAgentExecutor.CleanupExpiredSessions(ctx, timeout)
-	}
+	// In runner pool pattern, cleanup is handled by container lifecycle
+	// Runners exit after completing tasks, containers restart fresh
+	log.Debug().Msg("External agent cleanup handled by runner pool container lifecycle")
 
 	return nil
 }

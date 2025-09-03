@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/davecgh/go-spew/spew"
-	gptscript_runner "github.com/helixml/helix/api/pkg/gptscript"
+	gptscript_runner "github.com/helixml/helix/api/pkg/zedagent"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"

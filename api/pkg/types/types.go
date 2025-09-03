@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -402,6 +403,94 @@ type ExternalAgentConfig struct {
 	ProjectPath    string   `json:"project_path,omitempty"`     // Relative path for the project directory
 	EnvVars        []string `json:"env_vars,omitempty"`         // Environment variables in KEY=VALUE format
 	AutoConnectRDP bool     `json:"auto_connect_rdp,omitempty"` // Whether to auto-connect RDP viewer
+}
+
+// Validate checks if the external agent configuration is secure and valid
+func (c *ExternalAgentConfig) Validate() error {
+	// Validate workspace directory
+	if c.WorkspaceDir != "" {
+		if err := validateWorkspacePath(c.WorkspaceDir); err != nil {
+			return fmt.Errorf("invalid workspace directory: %w", err)
+		}
+	}
+
+	// Validate project path
+	if c.ProjectPath != "" {
+		if err := validateProjectPath(c.ProjectPath); err != nil {
+			return fmt.Errorf("invalid project path: %w", err)
+		}
+	}
+
+	// Validate environment variables
+	if len(c.EnvVars) > 0 {
+		if err := validateEnvironmentVariables(c.EnvVars); err != nil {
+			return fmt.Errorf("invalid environment variables: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// validateWorkspacePath ensures workspace directory is safe
+func validateWorkspacePath(workspaceDir string) error {
+	if len(workspaceDir) > 255 {
+		return errors.New("workspace directory path too long")
+	}
+
+	// Clean the path and check for traversal attempts
+	cleanPath := filepath.Clean(workspaceDir)
+
+	// Disallow absolute paths
+	if filepath.IsAbs(cleanPath) {
+		return errors.New("workspace directory must be relative")
+	}
+
+	// Check for path traversal attempts
+	if strings.Contains(cleanPath, "..") {
+		return errors.New("workspace directory cannot contain '..' path components")
+	}
+
+	return nil
+}
+
+// validateProjectPath ensures project path is safe
+func validateProjectPath(projectPath string) error {
+	return validateWorkspacePath(projectPath) // Same validation rules
+}
+
+// validateEnvironmentVariables ensures env vars are safe
+func validateEnvironmentVariables(envVars []string) error {
+	if len(envVars) > 50 {
+		return errors.New("too many environment variables (max 50)")
+	}
+
+	allowedEnvVars := map[string]bool{
+		"NODE_ENV":    true,
+		"ENVIRONMENT": true,
+		"DEBUG":       true,
+		"RUST_LOG":    true,
+		"EDITOR":      true,
+		"TERM":        true,
+	}
+
+	for _, envVar := range envVars {
+		if len(envVar) > 1024 {
+			return errors.New("environment variable too long")
+		}
+
+		// Check format
+		parts := strings.SplitN(envVar, "=", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid environment variable format: %s", envVar)
+		}
+
+		key := strings.ToUpper(parts[0])
+		if !allowedEnvVars[key] {
+			return fmt.Errorf("environment variable not allowed: %s", key)
+		}
+	}
+
+	return nil
 }
 
 func (s *SessionChatRequest) Message() (string, bool) {
@@ -1692,6 +1781,8 @@ type GptScriptResponse struct {
 type ZedAgent struct {
 	// Session ID for tracking the Zed instance
 	SessionID string `json:"session_id"`
+	// User ID for security validation and access control
+	UserID string `json:"user_id"`
 	// Initial prompt or task for the agent
 	Input string `json:"input"`
 	// Environment variables for the Zed instance
@@ -1711,6 +1802,8 @@ type ZedAgentResponse struct {
 	SessionID string `json:"session_id"`
 	// RDP connection URL
 	RDPURL string `json:"rdp_url"`
+	// Secure RDP password for authentication
+	RDPPassword string `json:"rdp_password"`
 	// WebSocket URL for sync connection
 	WebSocketURL string `json:"websocket_url,omitempty"`
 	// Auth token for WebSocket connection
@@ -1728,6 +1821,14 @@ type ZedAgentResponse struct {
 // ZedAgentRequest represents a request to execute a Zed agent
 type ZedAgentRequest struct {
 	Agent ZedAgent `json:"agent"`
+}
+
+// ZedAgentRDPData represents RDP data being proxied over WebSocket/NATS connection
+type ZedAgentRDPData struct {
+	SessionID string `json:"session_id"`
+	Type      string `json:"type"` // "rdp_data", "rdp_control", etc.
+	Data      []byte `json:"data"` // Raw RDP protocol data
+	Timestamp int64  `json:"timestamp"`
 }
 
 func (g GptScriptResponse) Value() (driver.Value, error) {
