@@ -1,4 +1,4 @@
-package gptscript
+package zedagent
 
 import (
 	"context"

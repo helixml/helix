@@ -59,18 +59,17 @@ func (apiServer *HelixAPIServer) startZedAgentRunnerWebSocketServer(r *mux.Route
 			Int("concurrency", concurrency).
 			Msgf("connected zed agent runner websocket: %s\n", runnerID)
 
-		// Subscribe to both Zed agent tasks and legacy GPTScript tasks for compatibility
+		// Subscribe to Zed agent tasks only (replaces GPTScript entirely)
 		zedAgentSub, err := apiServer.pubsub.StreamConsume(ctx, pubsub.ZedAgentRunnerStream, pubsub.ZedAgentQueue, func(msg *pubsub.Message) error {
 			var messageType types.RunnerEventRequestType
 
 			switch msg.Header.Get("kind") {
 			case "zed_agent":
 				messageType = types.RunnerEventRequestZedAgent
-			case "app":
-				messageType = types.RunnerEventRequestApp
-			case "tool":
-				messageType = types.RunnerEventRequestTool
+			case "stop_zed_agent":
+				messageType = types.RunnerEventRequestZedAgent // Handle stop requests
 			default:
+				log.Warn().Str("kind", msg.Header.Get("kind")).Msg("Unknown message kind, defaulting to zed_agent")
 				messageType = types.RunnerEventRequestZedAgent
 			}
 
@@ -101,47 +100,7 @@ func (apiServer *HelixAPIServer) startZedAgentRunnerWebSocketServer(r *mux.Route
 			if err := zedAgentSub.Unsubscribe(); err != nil {
 				log.Err(err).Msg("failed to unsubscribe from zed agent queue")
 			}
-		}()
-
-		// Also subscribe to legacy GPTScript queue for compatibility
-		gptscriptSub, err := apiServer.pubsub.StreamConsume(ctx, pubsub.ScriptRunnerStream, pubsub.AppQueue, func(msg *pubsub.Message) error {
-			var messageType types.RunnerEventRequestType
-
-			switch msg.Header.Get("kind") {
-			case "app":
-				messageType = types.RunnerEventRequestApp
-			case "tool":
-				messageType = types.RunnerEventRequestTool
-			}
-
-			err := wsConn.WriteJSON(&types.RunnerEventRequestEnvelope{
-				RequestID: system.GenerateRequestID(),
-				Reply:     msg.Reply,
-				Type:      messageType,
-				Payload:   msg.Data,
-			})
-			if err != nil {
-				log.Error().Msgf("Error writing GPTScript task to Zed agent runner websocket: %s", err.Error())
-				if nakErr := msg.Nak(); nakErr != nil {
-					return fmt.Errorf("error writing GPTScript task to Zed agent runner websocket: %v, failed to Nak the message: %v", err, nakErr)
-				}
-				return err
-			}
-
-			if err := msg.Ack(); err != nil {
-				return fmt.Errorf("failed to ack the GPTScript message: %v", err)
-			}
-			return nil
-		})
-		if err != nil {
-			log.Error().Msgf("Error subscribing to GPTScript app queue for compatibility: %s", err.Error())
-			return
-		}
-		defer func() {
-			if err := gptscriptSub.Unsubscribe(); err != nil {
-				log.Err(err).Msg("failed to unsubscribe from gptscript queue")
-			}
-		}()
+			// No legacy GPTScript support - Zed agents only
 
 		// Block reads in order to detect disconnects and handle responses
 		for {
@@ -149,8 +108,9 @@ func (apiServer *HelixAPIServer) startZedAgentRunnerWebSocketServer(r *mux.Route
 			log.Trace().Msgf("Zed agent runner websocket event: %s", string(messageBytes))
 			if err != nil || messageType == websocket.CloseMessage {
 				log.Info().
-					Str("action", "🟠 Zed agent runner ws DISCONNECT").
-					Msgf("disconnected zed agent runner websocket: %s\n", runnerID)
+					Str("action", "🟠 Zed runner ws DISCONNECT").
+					Str("runner_id", runnerID).
+					Msg("Zed runner disconnected - container will restart for cleanup")
 				return
 			}
 
