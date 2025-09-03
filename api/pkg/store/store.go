@@ -362,6 +362,12 @@ type Store interface {
 
 	// model seeding
 	SeedModelsFromEnvironment(ctx context.Context) error
+
+	// spec-driven tasks
+	CreateSpecTask(ctx context.Context, task *types.SpecTask) error
+	GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error)
+	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
+	ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error)
 }
 
 type EmbeddingsStore interface {

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, ReactNode, useState, useCallback, useEffect, useRef } from 'react';
 import ReconnectingWebSocket from 'reconnecting-websocket';
-import { IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, ISessionChatRequest, ISessionType } from '../types';
+import { IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, ISessionChatRequest, ISessionType, IAgentType } from '../types';
 import useAccount from '../hooks/useAccount';
 import { TypesInteraction, TypesMessage, TypesSession } from '../api/api';
 import { GET_SESSION_QUERY_KEY, SESSION_STEPS_QUERY_KEY } from '../services/sessionService';
@@ -22,6 +22,8 @@ interface NewInferenceParams {
   sessionId?: string;
   orgId?: string;
   attachedImages?: File[];
+  agentType?: IAgentType;
+  externalAgentConfig?: any;
 }
 
 interface StreamingContextType {
@@ -244,6 +246,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     image = undefined,
     image_filename = undefined,
     attachedImages = [],
+    agentType = 'helix',
+    externalAgentConfig = undefined,
   }: NewInferenceParams): Promise<TypesSession> => {
     // Clear both buffer and history for new sessions
     messageBufferRef.current.delete(sessionId);
@@ -317,6 +321,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       provider: provider,
       model: modelName,      
       session_id: sessionId,
+      agent_type: agentType,
+      external_agent_config: externalAgentConfig,
       messages: [
         {
           role: 'user',

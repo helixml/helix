@@ -320,15 +320,17 @@ type SessionRAGResult struct {
 
 // gives us a quick way to add settings
 type SessionMetadata struct {
-	Avatar                  string              `json:"avatar"`
-	Priority                bool                `json:"priority"`
-	DocumentIDs             map[string]string   `json:"document_ids"`
-	SessionRAGResults       []*SessionRAGResult `json:"session_rag_results"`
-	DocumentGroupID         string              `json:"document_group_id"`
-	ManuallyReviewQuestions bool                `json:"manually_review_questions"`
-	SystemPrompt            string              `json:"system_prompt"`
-	HelixVersion            string              `json:"helix_version"`
-	Stream                  bool                `json:"stream"`
+	Avatar                  string               `json:"avatar"`
+	Priority                bool                 `json:"priority"`
+	DocumentIDs             map[string]string    `json:"document_ids"`
+	SessionRAGResults       []*SessionRAGResult  `json:"session_rag_results"`
+	DocumentGroupID         string               `json:"document_group_id"`
+	ManuallyReviewQuestions bool                 `json:"manually_review_questions"`
+	SystemPrompt            string               `json:"system_prompt"`
+	HelixVersion            string               `json:"helix_version"`
+	Stream                  bool                 `json:"stream"`
+	AgentType               string               `json:"agent_type,omitempty"`            // Agent type: "helix" or "zed_external"
+	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"` // Configuration for external agents
 	// Evals are cool. Scores are strings of floats so we can distinguish ""
 	// (not rated) from "0.0"
 	EvalRunID               string   `json:"eval_run_id"`
@@ -376,20 +378,30 @@ type PaginatedSessionsList struct {
 // the user wants to do inference against a model
 // we turn this into a InternalSessionRequest
 type SessionChatRequest struct {
-	AppID          string      `json:"app_id"`          // Assign the session settings from the specified app
-	OrganizationID string      `json:"organization_id"` // The organization this session belongs to, if any
-	AssistantID    string      `json:"assistant_id"`    // Which assistant are we speaking to?
-	SessionID      string      `json:"session_id"`      // If empty, we will start a new session
-	InteractionID  string      `json:"interaction_id"`  // If empty, we will start a new interaction
-	Stream         bool        `json:"stream"`          // If true, we will stream the response
-	Type           SessionType `json:"type"`            // e.g. text, image
-	LoraDir        string      `json:"lora_dir"`
-	SystemPrompt   string      `json:"system"`     // System message, only applicable when starting a new session
-	Messages       []*Message  `json:"messages"`   // Initial messages
-	Tools          []string    `json:"tools"`      // Available tools to use in the session
-	Provider       Provider    `json:"provider"`   // The provider to use
-	Model          string      `json:"model"`      // The model to use
-	Regenerate     bool        `json:"regenerate"` // If true, we will regenerate the response for the last message
+	AppID               string               `json:"app_id"`          // Assign the session settings from the specified app
+	OrganizationID      string               `json:"organization_id"` // The organization this session belongs to, if any
+	AssistantID         string               `json:"assistant_id"`    // Which assistant are we speaking to?
+	SessionID           string               `json:"session_id"`      // If empty, we will start a new session
+	InteractionID       string               `json:"interaction_id"`  // If empty, we will start a new interaction
+	Stream              bool                 `json:"stream"`          // If true, we will stream the response
+	Type                SessionType          `json:"type"`            // e.g. text, image
+	LoraDir             string               `json:"lora_dir"`
+	SystemPrompt        string               `json:"system"`                          // System message, only applicable when starting a new session
+	Messages            []*Message           `json:"messages"`                        // Initial messages
+	AgentType           string               `json:"agent_type"`                      // Agent type: "helix" or "zed_external"
+	ExternalAgentConfig *ExternalAgentConfig `json:"external_agent_config,omitempty"` // Configuration for external agents
+	Tools               []string             `json:"tools"`                           // Available tools to use in the session
+	Provider            Provider             `json:"provider"`                        // The provider to use
+	Model               string               `json:"model"`                           // The model to use
+	Regenerate          bool                 `json:"regenerate"`                      // If true, we will regenerate the response for the last message
+}
+
+// ExternalAgentConfig holds configuration for external agents like Zed
+type ExternalAgentConfig struct {
+	WorkspaceDir   string   `json:"workspace_dir,omitempty"`    // Custom working directory
+	ProjectPath    string   `json:"project_path,omitempty"`     // Relative path for the project directory
+	EnvVars        []string `json:"env_vars,omitempty"`         // Environment variables in KEY=VALUE format
+	AutoConnectRDP bool     `json:"auto_connect_rdp,omitempty"` // Whether to auto-connect RDP viewer
 }
 
 func (s *SessionChatRequest) Message() (string, bool) {
@@ -1561,11 +1573,14 @@ type AzureDevOpsTrigger struct {
 	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 }
 
+// AgentWorkQueueTrigger represents a trigger for agent work queue items
+
 type Trigger struct {
-	Discord     *DiscordTrigger     `json:"discord,omitempty" yaml:"discord,omitempty"`
-	Slack       *SlackTrigger       `json:"slack,omitempty" yaml:"slack,omitempty"`
-	Cron        *CronTrigger        `json:"cron,omitempty" yaml:"cron,omitempty"`
-	AzureDevOps *AzureDevOpsTrigger `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
+	Discord        *DiscordTrigger        `json:"discord,omitempty" yaml:"discord,omitempty"`
+	Slack          *SlackTrigger          `json:"slack,omitempty" yaml:"slack,omitempty"`
+	Cron           *CronTrigger           `json:"cron,omitempty" yaml:"cron,omitempty"`
+	AzureDevOps    *AzureDevOpsTrigger    `json:"azure_devops,omitempty" yaml:"azure_devops,omitempty"`
+	AgentWorkQueue *AgentWorkQueueTrigger `json:"agent_work_queue,omitempty" yaml:"agent_work_queue,omitempty"`
 }
 
 func (t Trigger) Value() (driver.Value, error) {
@@ -1673,6 +1688,48 @@ type GptScriptResponse struct {
 	Retries int    `json:"retries"`
 }
 
+// ZedAgent represents a Zed editor instance configuration
+type ZedAgent struct {
+	// Session ID for tracking the Zed instance
+	SessionID string `json:"session_id"`
+	// Initial prompt or task for the agent
+	Input string `json:"input"`
+	// Environment variables for the Zed instance
+	Env []string `json:"env"`
+	// Working directory for the Zed instance
+	WorkDir string `json:"work_dir"`
+	// Project path to open in Zed (optional)
+	ProjectPath string `json:"project_path"`
+	// RDP connection settings
+	RDPPort int    `json:"rdp_port"`
+	RDPUser string `json:"rdp_user"`
+}
+
+// ZedAgentResponse represents the response from a Zed agent execution
+type ZedAgentResponse struct {
+	// Session ID of the Zed instance
+	SessionID string `json:"session_id"`
+	// RDP connection URL
+	RDPURL string `json:"rdp_url"`
+	// WebSocket URL for sync connection
+	WebSocketURL string `json:"websocket_url,omitempty"`
+	// Auth token for WebSocket connection
+	AuthToken string `json:"auth_token,omitempty"`
+	// Error message if any
+	Error string `json:"error"`
+	// Status of the Zed instance (starting, running, stopped, error)
+	Status string `json:"status"`
+	// Process ID of the Zed instance
+	PID int `json:"pid"`
+	// Retries attempted
+	Retries int `json:"retries"`
+}
+
+// ZedAgentRequest represents a request to execute a Zed agent
+type ZedAgentRequest struct {
+	Agent ZedAgent `json:"agent"`
+}
+
 func (g GptScriptResponse) Value() (driver.Value, error) {
 	j, err := json.Marshal(g)
 	return j, err
@@ -1774,8 +1831,50 @@ type GptScriptRunsQuery struct {
 	State     ScriptRunState
 }
 
+// ZedAgentRunsQuery represents a query for Zed agent runs
+type ZedAgentRunsQuery struct {
+	Owner     string
+	OwnerType OwnerType
+	SessionID string
+	Status    string
+}
+
 type GptScriptRunnerRequest struct {
 	GithubApp *GptScriptGithubApp `json:"github_app"`
+}
+
+// ZedAgentRunnerRequest represents a request to run a Zed agent
+type ZedAgentRunnerRequest struct {
+	Agent *ZedAgent `json:"agent"`
+}
+
+// WebSocket sync message types for external agent communication
+type SyncMessage struct {
+	SessionID string                 `json:"session_id"`
+	EventType string                 `json:"event_type"`
+	Data      map[string]interface{} `json:"data"`
+	Timestamp time.Time              `json:"timestamp"`
+}
+
+// Commands sent from Helix to external agents (Zed)
+type ExternalAgentCommand struct {
+	Type string                 `json:"type"`
+	Data map[string]interface{} `json:"data"`
+}
+
+// External agent connection info
+type ExternalAgentConnection struct {
+	SessionID   string    `json:"session_id"`
+	ConnectedAt time.Time `json:"connected_at"`
+	LastPing    time.Time `json:"last_ping"`
+	Status      string    `json:"status"`
+}
+
+// External agent auth token
+type ExternalAgentToken struct {
+	Token     string    `json:"token"`
+	SessionID string    `json:"session_id"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 func (r GptScriptRunnerRequest) Value() (driver.Value, error) {
@@ -1804,18 +1903,15 @@ type RunnerEventRequestType int
 
 func (r RunnerEventRequestType) String() string {
 	switch r {
-	case RunnerEventRequestTool:
-		return "tool"
-	case RunnerEventRequestApp:
-		return "app"
+	case RunnerEventRequestZedAgent:
+		return "zed_agent"
 	default:
 		return "unknown"
 	}
 }
 
 const (
-	RunnerEventRequestTool RunnerEventRequestType = iota
-	RunnerEventRequestApp
+	RunnerEventRequestZedAgent RunnerEventRequestType = iota
 )
 
 type RunnerEventRequestEnvelope struct {

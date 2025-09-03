@@ -135,6 +135,8 @@ const CreateContent: FC<CreateContentProps> = ({
         modelName: useModel,
         orgId,
         attachedImages: attachedImages,
+        agentType: inputs.sessionConfig.agentType,
+        externalAgentConfig: inputs.sessionConfig.externalAgentConfig,
       });
 
       if (!session) return
