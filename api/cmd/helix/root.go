@@ -55,6 +55,7 @@ func NewRootCmd() *cobra.Command {
 
 	RootCmd.AddCommand(NewGptScriptCmd())
 	RootCmd.AddCommand(NewGptScriptRunnerCmd())
+	RootCmd.AddCommand(NewExternalAgentRunnerCmd())
 	RootCmd.AddCommand(NewQapairCommand())
 	RootCmd.AddCommand(NewEvalsCommand())
 	RootCmd.AddCommand(NewTestCmd()) // Use the NewTestCmd function from the current package

@@ -87,6 +87,43 @@ export const TEXT_DATA_PREP_DISPLAY_STAGES: ITextDataPrepStage[] = [
 
 export const SESSION_PAGINATION_PAGE_LIMIT = 30
 
+// Agent Types
+export type IAgentType = 'helix' | 'zed_external'
+export const AGENT_TYPE_HELIX: IAgentType = 'helix'
+export const AGENT_TYPE_ZED_EXTERNAL: IAgentType = 'zed_external'
+
+export interface IExternalAgentConfig {
+  workspace_dir?: string
+  project_path?: string
+  env_vars?: string[]
+  auto_connect_rdp?: boolean
+}
+
+export interface IAgentTypeOption {
+  value: IAgentType
+  label: string
+  description: string
+  icon?: string
+  disabled?: boolean
+}
+
+export const AGENT_TYPE_OPTIONS: IAgentTypeOption[] = [
+  {
+    value: AGENT_TYPE_HELIX,
+    label: 'Helix Built-In Agent',
+    description: 'Traditional conversational AI with skills and tools',
+    icon: 'chat',
+  },
+  {
+    value: AGENT_TYPE_ZED_EXTERNAL,
+    label: 'Zed External Agent', 
+    description: 'Full development environment with code editing via RDP',
+    icon: 'code',
+  },
+]
+
+
+
 export interface IKeycloakUser {
   id: string,
   email: string,
@@ -760,6 +797,9 @@ export interface IAppHelixConfig {
   assistants?: IAssistantConfig[];
   triggers?: TypesTrigger[];
   external_url: string;
+  default_agent_type?: IAgentType;
+  external_agent_enabled?: boolean;
+  external_agent_config?: IExternalAgentConfig;
   // Add any other properties that might be part of the helix config
 }
 
@@ -839,6 +879,9 @@ export interface IAppFlatState {
   conversation_starters?: string[];
   triggers?: TypesTrigger[];
   tests?: ITest[];
+  default_agent_type?: IAgentType;
+  external_agent_enabled?: boolean;
+  external_agent_config?: IExternalAgentConfig;
 
   tools?: ITool[]
 }
@@ -864,6 +907,8 @@ export interface ICreateSessionConfig {
   ragChunkSize: number,
   ragChunkOverflow: number,
   ragDisableChunking: boolean,
+  agentType: IAgentType,
+  externalAgentConfig?: IExternalAgentConfig,
 }
 
 export interface IHelixModel {
@@ -966,6 +1011,8 @@ export interface ISessionChatRequest {
   lora_dir?: string,
   system?: string,
   messages?: TypesMessage[],
+  agent_type?: IAgentType,
+  external_agent_config?: IExternalAgentConfig,
   tools?: string[],
   provider?: string,
   model?: string,

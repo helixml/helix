@@ -235,6 +235,11 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		// Create session
 		newSession = true
 
+		// Set default agent type if not specified
+		if startReq.AgentType == "" {
+			startReq.AgentType = "helix"
+		}
+
 		session = &types.Session{
 			ID:             system.GenerateSessionID(),
 			Name:           s.getTemporarySessionName(message),
@@ -249,10 +254,12 @@ If the user asks for information about Helix or installing Helix, refer them to 
 			Owner:          user.ID,
 			OwnerType:      user.Type,
 			Metadata: types.SessionMetadata{
-				Stream:       startReq.Stream,
-				SystemPrompt: startReq.SystemPrompt,
-				AssistantID:  startReq.AssistantID,
-				HelixVersion: data.GetHelixVersion(),
+				Stream:              startReq.Stream,
+				SystemPrompt:        startReq.SystemPrompt,
+				AssistantID:         startReq.AssistantID,
+				HelixVersion:        data.GetHelixVersion(),
+				AgentType:           startReq.AgentType,
+				ExternalAgentConfig: startReq.ExternalAgentConfig,
 			},
 		}
 
@@ -285,6 +292,17 @@ If the user asks for information about Helix or installing Helix, refer them to 
 	if err != nil {
 		http.Error(rw, "failed to write interactions: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Handle external agent routing if agent type is zed_external
+	if newSession && startReq.AgentType == "zed_external" {
+		err = s.Controller.LaunchExternalAgent(req.Context(), session.ID, "zed")
+		if err != nil {
+			log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to launch external agent")
+			// Don't fail the request - session is created, external agent launch is best effort
+		} else {
+			log.Info().Str("session_id", session.ID).Msg("Successfully launched external Zed agent")
+		}
 	}
 
 	if newSession {

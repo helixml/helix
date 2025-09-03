@@ -76,10 +76,12 @@ func GetSessionQueue(ownerID, sessionID string) string {
 }
 
 const (
-	ScriptRunnerStream   = "SCRIPTS"
-	AppQueue             = "apps"
-	RunnerQueue          = "runner"
-	HelixNatsReplyHeader = "helix-nats-reply"
+	ScriptRunnerStream        = "SCRIPTS"
+	ExternalAgentRunnerStream = "EXTERNAL_AGENTS"
+	AppQueue                  = "apps"
+	ExternalAgentQueue        = "external_agents"
+	RunnerQueue               = "runner"
+	HelixNatsReplyHeader      = "helix-nats-reply"
 )
 
 func getStreamSub(stream, sub string) string {

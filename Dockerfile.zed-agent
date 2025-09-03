@@ -1,0 +1,294 @@
+# Multi-stage build for Helix Zed Agent with pre-built Zed fork
+FROM golang:1.24 AS go-build-env
+WORKDIR /app
+
+# Copy go.mod and go.sum files
+COPY go.mod .
+COPY go.sum .
+
+RUN go mod download
+
+# Copy the source code
+COPY api ./api
+COPY .git /.git
+
+WORKDIR /app/api
+
+# Install C++ compiler for CGO compilation
+RUN apt-get update && apt-get install -y gcc g++ libc6-dev && rm -rf /var/lib/apt/lists/*
+
+# Build the Go app with Zed agent support
+RUN CGO_ENABLED=1 go build -tags "!rocm" -ldflags "-s -w" -o /helix
+
+# Main runtime image with GUI support
+FROM ubuntu:24.04
+
+# Install system dependencies for GUI, RDP, Zed, and development
+RUN --mount=type=cache,target=/var/cache/apt,id=apt_zed_agent apt-get update -qq && apt-get install -qqy \
+    # Basic utilities
+    wget git unzip curl sqlite3 ca-certificates \
+    # X11 and GUI support
+    xvfb x11vnc xauth xterm dbus-x11 \
+    # Window manager and desktop environment
+    openbox obconf obmenu \
+    # RDP/VNC support
+    socat tigervnc-standalone-server xrdp \
+    # Development tools that Zed needs
+    build-essential cmake \
+    # Fonts for better display
+    fonts-dejavu-core fonts-liberation fonts-noto \
+    # Process management
+    supervisor \
+    # Network tools
+    net-tools iproute2 \
+    # Node.js and npm (for Zed extensions and MCP)
+    nodejs npm \
+    # Python (common development dependency)
+    python3 python3-pip \
+    # Additional libraries Zed might need at runtime
+    libfontconfig1 \
+    libfreetype6 \
+    libxcb1 \
+    libxcb-render0 \
+    libxcb-shape0 \
+    libxcb-xfixes0 \
+    libxcb-shm0 \
+    libxkbcommon0 \
+    libasound2 \
+    libssl3 \
+    # Additional GUI libraries
+    libgtk-3-0 \
+    libgdk-pixbuf2.0-0 \
+    libpango-1.0-0 \
+    libcairo2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the pre-built Zed binary from local build
+COPY ./zed-build/zed /usr/local/bin/zed
+
+# Make sure Zed binary is executable
+RUN chmod +x /usr/local/bin/zed
+
+# Copy the compiled Helix binary
+COPY --from=go-build-env /helix /helix
+
+# Create zed user and setup directories
+RUN useradd -m -s /bin/bash zed \
+    && mkdir -p /home/zed/.config/zed \
+    && mkdir -p /home/zed/.local/share/zed \
+    && mkdir -p /tmp/zed-workspaces \
+    && chown -R zed:zed /home/zed /tmp/zed-workspaces
+
+# Setup X11 authentication and permissions
+RUN mkdir -p /tmp/.X11-unix \
+    && chmod 1777 /tmp/.X11-unix \
+    && mkdir -p /var/run/dbus
+
+# Create default Zed configuration with External WebSocket Thread Sync enabled
+RUN mkdir -p /home/zed/.config/zed && cat > /home/zed/.config/zed/settings.json << 'EOF'
+{
+  "external_websocket_sync": {
+    "enabled": true,
+    "server": {
+      "enabled": true,
+      "host": "0.0.0.0",
+      "port": 3030,
+      "enable_cors": true
+    },
+    "websocket_sync": {
+      "enabled": true,
+      "external_url": "api:8080",
+      "use_tls": false,
+      "auto_reconnect": true,
+      "reconnect_delay_seconds": 5
+    },
+    "mcp": {
+      "enabled": true,
+      "servers": [
+        {
+          "name": "filesystem",
+          "command": "npx",
+          "args": ["@modelcontextprotocol/server-filesystem", "/tmp/zed-workspaces"],
+          "auto_restart": true
+        }
+      ]
+    }
+  },
+  "terminal": {
+    "shell": {
+      "program": "/bin/bash"
+    }
+  },
+  "ui_font_size": 14,
+  "buffer_font_size": 14,
+  "theme": "One Dark",
+  "vim_mode": false,
+  "auto_update": false,
+  "telemetry": {
+    "diagnostics": false,
+    "metrics": false
+  }
+}
+EOF
+
+# Set ownership of Zed config
+RUN chown -R zed:zed /home/zed/.config
+
+# Install MCP filesystem server globally
+RUN npm install -g @modelcontextprotocol/server-filesystem || echo "MCP server install failed, continuing..."
+
+# Create supervisor configuration
+RUN mkdir -p /etc/supervisor/conf.d
+COPY <<EOF /etc/supervisor/conf.d/supervisord.conf
+[supervisord]
+nodaemon=true
+user=root
+logfile=/var/log/supervisor/supervisord.log
+pidfile=/var/run/supervisord.pid
+
+[program:dbus]
+command=/usr/bin/dbus-daemon --system --nofork
+autostart=true
+autorestart=true
+user=root
+priority=100
+
+[program:xvfb]
+command=/usr/bin/Xvfb :%(ENV_DISPLAY_NUM)s -screen 0 %(ENV_DISPLAY_WIDTH)sx%(ENV_DISPLAY_HEIGHT)sx24 -ac -extension GLX +extension RANDR +extension RENDER
+autostart=true
+autorestart=true
+user=root
+environment=DISPLAY=":%(ENV_DISPLAY_NUM)s"
+priority=200
+
+[program:window-manager]
+command=/usr/bin/openbox --config-file /etc/xdg/openbox/rc.xml
+autostart=true
+autorestart=true
+user=zed
+environment=HOME="/home/zed",USER="zed",DISPLAY=":%(ENV_DISPLAY_NUM)s"
+priority=300
+
+[program:vnc-server]
+command=/usr/bin/x11vnc -display :%(ENV_DISPLAY_NUM)s -nopw -listen localhost -xkb -ncache 10 -ncache_cr -forever -shared
+autostart=true
+autorestart=true
+user=root
+environment=DISPLAY=":%(ENV_DISPLAY_NUM)s"
+priority=400
+
+[program:helix-zed-agent-runner]
+command=/helix zed-agent-runner
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/helix-zed-agent-runner.err.log
+stdout_logfile=/var/log/helix-zed-agent-runner.out.log
+user=root
+environment=HOME="/root",USER="root"
+priority=500
+EOF
+
+# Create startup script
+COPY <<EOF /start.sh
+#!/bin/bash
+set -e
+
+echo "Starting Helix Zed Agent Runner with External WebSocket Thread Sync..."
+
+# Ensure workspace directory exists and has correct permissions
+mkdir -p \${WORKSPACE_DIR:-/tmp/zed-workspaces}
+chown -R zed:zed \${WORKSPACE_DIR:-/tmp/zed-workspaces}
+
+# Verify Zed binary exists and works
+if [ ! -f "/usr/local/bin/zed" ]; then
+    echo "ERROR: Zed binary not found at /usr/local/bin/zed"
+    echo "Make sure you ran './stack build-zed' before building the Docker image"
+    exit 1
+fi
+
+# Test Zed binary
+echo "Testing Zed binary..."
+if ! /usr/local/bin/zed --version; then
+    echo "ERROR: Zed binary failed to execute"
+    exit 1
+fi
+
+echo "Zed binary test passed"
+
+# Check if External WebSocket Thread Sync is detected in the binary
+if strings /usr/local/bin/zed | grep -q "external_websocket_sync"; then
+    echo "✓ External WebSocket Thread Sync detected in Zed binary"
+else
+    echo "⚠ External WebSocket Thread Sync not clearly detectable in binary"
+fi
+
+# Set display dimensions from environment or defaults
+export DISPLAY_WIDTH=\${DISPLAY_WIDTH:-1920}
+export DISPLAY_HEIGHT=\${DISPLAY_HEIGHT:-1080}
+export DISPLAY_NUM=\${DISPLAY_NUM:-1}
+export DISPLAY=:\${DISPLAY_NUM}
+
+# Start dbus
+mkdir -p /var/run/dbus
+dbus-daemon --system --fork || echo "dbus already running"
+
+echo "Starting supervisor with display :$DISPLAY_NUM (\${DISPLAY_WIDTH}x\${DISPLAY_HEIGHT})"
+
+# Start supervisor to manage all processes
+exec supervisord -c /etc/supervisor/conf.d/supervisord.conf
+EOF
+
+RUN chmod +x /start.sh
+
+# Default environment variables
+ENV DISPLAY=:1 \
+    API_HOST=http://api:8080 \
+    CONCURRENCY=5 \
+    MAX_TASKS=0 \
+    RDP_START_PORT=5900 \
+    RDP_USER=zed \
+    RDP_PASSWORD=zed123 \
+    WORKSPACE_DIR=/tmp/zed-workspaces \
+    ZED_BINARY=/usr/local/bin/zed \
+    DISPLAY_NUM=1 \
+    DISPLAY_WIDTH=1920 \
+    DISPLAY_HEIGHT=1080 \
+    VNC_PORT=5901 \
+    SESSION_TIMEOUT=3600 \
+    MAX_SESSIONS=10 \
+    RUST_LOG=external_websocket_sync=info
+
+# Expose ports for external sync and remote access
+EXPOSE 3030 5900-5920 3389-3409 5901-5921
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD pgrep -f "helix zed-agent-runner" > /dev/null && \
+        curl -f http://localhost:3030/health > /dev/null 2>&1 || exit 1
+
+# Create test script for debugging
+COPY <<EOF /test-integration.sh
+#!/bin/bash
+echo "Testing External WebSocket Thread Sync Integration..."
+echo "1. Testing Zed binary:"
+/usr/local/bin/zed --version
+
+echo "2. Testing external sync API:"
+timeout 5 bash -c 'while ! curl -s http://localhost:3030/health; do sleep 1; done' || echo "API not ready yet"
+
+echo "3. Checking processes:"
+pgrep -af "helix\|zed\|supervisor"
+
+echo "4. Checking ports:"
+netstat -tlnp | grep -E ":3030|:5901"
+
+echo "5. Testing Zed with external sync (quick test):"
+RUST_LOG=external_websocket_sync=debug timeout 10 /usr/local/bin/zed --version || echo "Integration test completed"
+EOF
+
+RUN chmod +x /test-integration.sh
+
+# Use root user for container management (supervisor will handle user switching)
+USER root
+
+ENTRYPOINT ["/start.sh"]
