@@ -9,7 +9,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
-	"github.com/helixml/helix/api/pkg/gptscript"
+	"github.com/helixml/helix/api/pkg/zedagent"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )

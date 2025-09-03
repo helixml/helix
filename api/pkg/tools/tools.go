@@ -11,7 +11,7 @@ import (
 	oai "github.com/sashabaranov/go-openai"
 
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/gptscript"
+	"github.com/helixml/helix/api/pkg/zedagent"
 	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"

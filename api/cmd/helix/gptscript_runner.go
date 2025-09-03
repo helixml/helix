@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/gptscript"
+	"github.com/helixml/helix/api/pkg/zedagent"
 )
 
 func NewGptScriptRunnerCmd() *cobra.Command {

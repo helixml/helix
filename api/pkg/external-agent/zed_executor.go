@@ -2,6 +2,7 @@ package external_agent
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,70 +20,74 @@ import (
 
 // ZedSession represents an active Zed editor session
 type ZedSession struct {
-	SessionID    string
-	PID          int
-	DisplayNum   int
-	RDPPort      int
-	WorkspaceDir string
-	Cmd          *exec.Cmd
-	StartTime    time.Time
-	LastAccess   time.Time
-	mu           sync.RWMutex
+	SessionID    string       `json:"session_id"`
+	PID          int          `json:"pid"`
+	DisplayNum   int          `json:"display_num"`
+	RDPPort      int          `json:"rdp_port"`
+	RDPPassword  string       `json:"rdp_password"`
+	WorkspaceDir string       `json:"workspace_dir"`
+	Status       string       `json:"status"`
+	Cmd          *exec.Cmd    `json:"-"`
+	StartTime    time.Time    `json:"start_time"`
+	LastAccess   time.Time    `json:"last_access"`
+	mu           sync.RWMutex `json:"-"`
 }
 
 // ZedExecutor manages Zed editor instances with RDP access
+// Each container is isolated so we use fixed display/port numbers
 type ZedExecutor struct {
 	sessions      map[string]*ZedSession
 	mu            sync.RWMutex
-	displayBase   int
-	portBase      int
 	workspaceBase string
 	rdpUser       string
-	rdpPassword   string
 }
 
-// NewZedExecutor creates a new Zed executor with RDP support
-func NewZedExecutor(displayBase, portBase int, workspaceBase, rdpUser, rdpPassword string) *ZedExecutor {
+// NewZedExecutor creates a new Zed executor for container pattern
+// Each container is isolated so we use fixed display :1 and port 5900
+func NewZedExecutor(workspaceDir string) *ZedExecutor {
 	return &ZedExecutor{
 		sessions:      make(map[string]*ZedSession),
-		displayBase:   displayBase,
-		portBase:      portBase,
-		workspaceBase: workspaceBase,
-		rdpUser:       rdpUser,
-		rdpPassword:   rdpPassword,
+		workspaceBase: workspaceDir,
+		rdpUser:       "zed",
 	}
 }
 
-// StartZedAgent starts a new Zed agent instance with RDP access
+// StartZedAgent starts Zed in this container (one session per container)
 func (ze *ZedExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
 	ze.mu.Lock()
 	defer ze.mu.Unlock()
 
-	// Check if session already exists
-	if session, exists := ze.sessions[agent.SessionID]; exists {
-		log.Info().Str("session_id", agent.SessionID).Msg("Zed session already exists")
-		return &types.ZedAgentResponse{
-			SessionID: agent.SessionID,
-			RDPURL:    fmt.Sprintf("rdp://localhost:%d", session.RDPPort),
-			Status:    "running",
-			PID:       session.PID,
-		}, nil
-	}
+	log.Info().
+		Str("session_id", agent.SessionID).
+		Str("user_id", agent.UserID).
+		Msg("Starting Zed agent in isolated container")
 
-	// Create new session
-	displayNum := ze.displayBase + len(ze.sessions)
-	rdpPort := ze.portBase + len(ze.sessions)
+	// Container isolation: each container uses fixed display :1 and port 5900
+	const (
+		displayNum = 1    // Always use display :1 since container is isolated
+		rdpPort    = 5900 // Always use port 5900 since container is isolated
+	)
 
-	workspaceDir := filepath.Join(ze.workspaceBase, agent.SessionID)
+	workspaceDir := ze.workspaceBase
+
+	// Ensure workspace exists (ephemeral - lost when container exits)
 	if err := os.MkdirAll(workspaceDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create workspace directory: %w", err)
+	}
+
+	// Generate cryptographically secure password for this session
+	password, err := generateSecurePassword()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate secure RDP password: %w", err)
 	}
 
 	session := &ZedSession{
 		SessionID:    agent.SessionID,
 		DisplayNum:   displayNum,
 		RDPPort:      rdpPort,
+		RDPPassword:  password,
 		WorkspaceDir: workspaceDir,
+		Status:       "starting",
 		StartTime:    time.Now(),
 		LastAccess:   time.Now(),
 	}
@@ -151,17 +156,20 @@ func (ze *ZedExecutor) StopZedAgent(ctx context.Context, sessionID string) error
 }
 
 // GetSession returns information about a session
-func (ze *ZedExecutor) GetSession(sessionID string) (*ZedSession, bool) {
+func (ze *ZedExecutor) GetSession(sessionID string) (*ZedSession, error) {
 	ze.mu.RLock()
 	defer ze.mu.RUnlock()
 
 	session, exists := ze.sessions[sessionID]
-	if exists {
-		session.mu.Lock()
-		session.LastAccess = time.Now()
-		session.mu.Unlock()
+	if !exists {
+		return nil, fmt.Errorf("session not found: %s", sessionID)
 	}
-	return session, exists
+
+	session.mu.Lock()
+	session.LastAccess = time.Now()
+	session.mu.Unlock()
+
+	return session, nil
 }
 
 // ListSessions returns all active sessions
@@ -222,7 +230,7 @@ username=%s
 password=%s
 xserverbpp=24
 code=20
-`, session.RDPPort, ze.rdpUser, ze.rdpPassword)
+`, session.RDPPort, ze.rdpUser, session.RDPPassword)
 
 	configFile := filepath.Join(configDir, "xrdp.ini")
 	if err := os.WriteFile(configFile, []byte(xrdpConfig), 0644); err != nil {
@@ -470,4 +478,27 @@ func (ze *ZedExecutor) generateZedConfig(session *ZedSession, agent *types.ZedAg
 		Msg("Generated Zed configuration with WebSocket sync")
 
 	return nil
+}
+
+// generateSecurePassword creates a cryptographically secure random password
+func generateSecurePassword() (string, error) {
+	const (
+		passwordLength = 24
+		charset        = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
+	)
+
+	password := make([]byte, passwordLength)
+
+	// Generate cryptographically secure random bytes
+	_, err := rand.Read(password)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate secure random password: %w", err)
+	}
+
+	// Map to charset
+	for i := range password {
+		password[i] = charset[int(password[i])%len(charset)]
+	}
+
+	return string(password), nil
 }

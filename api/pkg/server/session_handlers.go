@@ -294,12 +294,45 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		return
 	}
 
+	// Validate external agent configuration if specified
+	if startReq.AgentType == "zed_external" {
+		if startReq.ExternalAgentConfig == nil {
+			log.Warn().
+				Str("session_id", session.ID).
+				Str("user_id", user.ID).
+				Msg("External agent type specified but no configuration provided")
+			http.Error(rw, "external agent configuration required for zed_external type", http.StatusBadRequest)
+			return
+		}
+
+		// Validate external agent configuration for security
+		if err := startReq.ExternalAgentConfig.Validate(); err != nil {
+			log.Warn().
+				Err(err).
+				Str("session_id", session.ID).
+				Str("user_id", user.ID).
+				Msg("Invalid external agent configuration")
+			http.Error(rw, fmt.Sprintf("invalid external agent configuration: %s", err.Error()), http.StatusBadRequest)
+			return
+		}
+
+		log.Info().
+			Str("session_id", session.ID).
+			Str("user_id", user.ID).
+			Msg("External agent configuration validated successfully")
+	}
+
 	// Handle external agent routing if agent type is zed_external
 	if newSession && startReq.AgentType == "zed_external" {
 		err = s.Controller.LaunchExternalAgent(req.Context(), session.ID, "zed")
 		if err != nil {
 			log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to launch external agent")
-			// Don't fail the request - session is created, external agent launch is best effort
+			// Clean up the session since external agent launch failed
+			if deleteErr := s.Controller.DeleteSession(req.Context(), session.ID); deleteErr != nil {
+				log.Error().Err(deleteErr).Str("session_id", session.ID).Msg("Failed to cleanup session after external agent launch failure")
+			}
+			http.Error(rw, "failed to launch external agent: "+err.Error(), http.StatusInternalServerError)
+			return
 		} else {
 			log.Info().Str("session_id", session.ID).Msg("Successfully launched external Zed agent")
 		}

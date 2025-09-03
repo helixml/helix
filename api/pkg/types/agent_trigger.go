@@ -221,6 +221,14 @@ type AgentWorkItemsResponse struct {
 	PageSize int              `json:"page_size"`
 }
 
+// AgentWorkItemsListResponse represents the response for listing work items
+type AgentWorkItemsListResponse struct {
+	WorkItems []*AgentWorkItem `json:"work_items"`
+	Total     int              `json:"total"`
+	Page      int              `json:"page"`
+	PageSize  int              `json:"page_size"`
+}
+
 type AgentSessionsResponse struct {
 	Sessions []*AgentSessionStatus `json:"sessions"`
 	Total    int                   `json:"total"`
