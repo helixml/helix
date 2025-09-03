@@ -237,27 +237,69 @@ services:
         depends_on:
             - api
 
-    # Base runner without GPU, fakes GPU by using CPU memory
-    runner:
-        <<: *runner-config
-        profiles: ["runner"]
+    # Zed Agent Task Runner (always runs, replaces gptscript runner)
+    zed-runner:
         build:
             context: .
-            dockerfile: Dockerfile.runner
+            dockerfile: Dockerfile.zed-agent
             args:
-                TAG: 2025-08-13c-small
-                # Builds vllm in CPU-only mode per https://github.com/vllm-project/vllm/discussions/8090
-                DEVELOPMENT_CPU_ONLY: "true"
+                - BUILD_TYPE=release
+        container_name: helix-zed-runner
         environment:
-            # Passes cpu-only flags to vllm
-            - DEVELOPMENT_CPU_ONLY=true
-            # Prevent toolchain downloads
-            - GOTOOLCHAIN=local
-            # Force vLLM to use CPU
-            - VLLM_DEVICE=cpu
-            - VLLM_LOGGING_LEVEL=DEBUG
+            # Control plane connection
+            - API_HOST=http://api:8080
+            - API_TOKEN=${ZED_AGENT_RUNNER_TOKEN:-your-zed-agent-runner-token}
+            - RUNNER_ID=zed-runner-1
+            
+            # Zed fork with Helix integration
+            - RUST_LOG=helix_integration=info,workspace=info
+            
+            # Runner configuration
+            - CONCURRENCY=5
+            - MAX_TASKS=0
+            - SESSION_TIMEOUT=3600
+            - MAX_SESSIONS=10
+            
+            # RDP configuration
+            - RDP_START_PORT=5900
+            - RDP_USER=zed
+            - RDP_PASSWORD=zed123
+            
+            # Zed configuration
+            - ZED_BINARY=/usr/local/bin/zed
+            - WORKSPACE_DIR=/tmp/zed-workspaces
+            
+            # X11 and GUI configuration
+            - DISPLAY=:1
+            - DISPLAY_WIDTH=1920
+            - DISPLAY_HEIGHT=1080
+            
+            # Helix integration specific
+            - ZED_HELIX_INTEGRATION_ENABLED=1
+            - ZED_HELIX_URL=api:8080
+        ports:
+            - "3030:3030"  # Zed HTTP API
+            - "5900-5920:5900-5920"  # RDP ports
+        volumes:
+            - zed_workspaces:/tmp/zed-workspaces
+            - /tmp/.X11-unix:/tmp/.X11-unix:ro
+        depends_on:
+            - api
+        restart: unless-stopped
+        security_opt:
+            - seccomp:unconfined
+        cap_add:
+            - SYS_ADMIN
+            - SYS_PTRACE
+        shm_size: 2gb
+        healthcheck:
+            test: ["CMD", "pgrep", "-f", "zed"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 60s
 
-    # GPU-enabled runner
+    # GPU-enabled runner (for LLM inference)
     runner_gpu:
         <<: *runner-config
         profiles: ["runner_gpu"]
@@ -356,6 +398,9 @@ services:
         extra_hosts:
             - "host.docker.internal:host-gateway"
 
+
+
+
 volumes:
     helix-keycloak-db:
     helix-postgres-db:
@@ -366,6 +411,7 @@ volumes:
     go-pkg-mod: # Go module cache
     go-build-cache: # Go build cache
     go-sdk-cache: # Go toolchain/SDK cache
+    zed_workspaces: # Zed agent workspace persistence
 
 networks:
     default:

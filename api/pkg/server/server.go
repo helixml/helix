@@ -23,6 +23,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
@@ -32,6 +33,7 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server/spa"
+	"github.com/helixml/helix/api/pkg/services"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
@@ -69,28 +71,32 @@ type Options struct {
 }
 
 type HelixAPIServer struct {
-	Cfg               *config.ServerConfig
-	Store             store.Store
-	Stripe            *stripe.Stripe
-	Controller        *controller.Controller
-	Janitor           *janitor.Janitor
-	authMiddleware    *authMiddleware
-	pubsub            pubsub.PubSub
-	providerManager   manager.ProviderManager
-	modelInfoProvider model.ModelInfoProvider
-	gptScriptExecutor gptscript.Executor
-	inferenceServer   *openai.InternalHelixServer
-	knowledgeManager  knowledge.Manager
-	skillManager      *api_skill.Manager
-	router            *mux.Router
-	scheduler         *scheduler.Scheduler
-	pingService       *version.PingService
-	oidcClient        auth.OIDC
-	oauthManager      *oauth.Manager
-	fileServerHandler http.Handler
-	cache             *ristretto.Cache[string, string]
-	avatarsBucket     *blob.Bucket
-	trigger           *trigger.Manager
+	Cfg                      *config.ServerConfig
+	Store                    store.Store
+	Stripe                   *stripe.Stripe
+	Controller               *controller.Controller
+	Janitor                  *janitor.Janitor
+	authMiddleware           *authMiddleware
+	pubsub                   pubsub.PubSub
+	providerManager          manager.ProviderManager
+	modelInfoProvider        model.ModelInfoProvider
+	gptScriptExecutor        gptscript.Executor
+	externalAgentExecutor    external_agent.Executor
+	externalAgentWSManager   *ExternalAgentWSManager
+	inferenceServer          *openai.InternalHelixServer
+	knowledgeManager         knowledge.Manager
+	skillManager             *api_skill.Manager
+	router                   *mux.Router
+	scheduler                *scheduler.Scheduler
+	pingService              *version.PingService
+	oidcClient               auth.OIDC
+	oauthManager             *oauth.Manager
+	fileServerHandler        http.Handler
+	cache                    *ristretto.Cache[string, string]
+	avatarsBucket            *blob.Bucket
+	trigger                  *trigger.Manager
+	specDrivenTaskService    *services.SpecDrivenTaskService
+	sampleProjectCodeService *services.SampleProjectCodeService
 }
 
 func NewServer(
@@ -187,14 +193,22 @@ func NewServer(
 	// Initialize skill manager
 	skillManager := api_skill.NewManager()
 
+	// Initialize external agent executor
+	externalAgentExecutor := external_agent.NewExecutor(cfg, ps)
+
+	// Initialize external agent WebSocket manager
+	externalAgentWSManager := NewExternalAgentWSManager()
+
 	return &HelixAPIServer{
-		Cfg:               cfg,
-		Store:             store,
-		Stripe:            stripe,
-		Controller:        controller,
-		Janitor:           janitor,
-		gptScriptExecutor: gptScriptExecutor,
-		inferenceServer:   inferenceServer,
+		Cfg:                    cfg,
+		Store:                  store,
+		Stripe:                 stripe,
+		Controller:             controller,
+		Janitor:                janitor,
+		gptScriptExecutor:      gptScriptExecutor,
+		externalAgentExecutor:  externalAgentExecutor,
+		externalAgentWSManager: externalAgentWSManager,
+		inferenceServer:        inferenceServer,
 		authMiddleware: newAuthMiddleware(
 			oidcClient,
 			authenticator,
@@ -218,6 +232,13 @@ func NewServer(
 		cache:             cache,
 		avatarsBucket:     avatarsBucket,
 		trigger:           trigger,
+		specDrivenTaskService: services.NewSpecDrivenTaskService(
+			store,
+			controller,
+			"helix-spec-agent",         // Default Helix agent for spec generation
+			[]string{"zed-1", "zed-2"}, // Pool of Zed agents for implementation
+		),
+		sampleProjectCodeService: services.NewSampleProjectCodeService(),
 	}, nil
 }
 
@@ -248,6 +269,11 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	apiServer.startGptScriptRunnerWebSocketServer(
 		apiRouter,
 		"/ws/gptscript-runner",
+	)
+
+	apiServer.startExternalAgentRunnerWebSocketServer(
+		apiRouter,
+		"/ws/external-agent-runner",
 	)
 
 	// Start UNIX socket server for embeddings if configured
@@ -447,6 +473,34 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/skills/reload", system.DefaultWrapper(apiServer.handleReloadSkills)).Methods("POST")
 	authRouter.HandleFunc("/skills/validate", system.DefaultWrapper(apiServer.handleValidateMcpSkill)).Methods("POST")
 
+	// External agent routes
+	authRouter.HandleFunc("/external-agents", system.DefaultWrapper(apiServer.createExternalAgent)).Methods("POST")
+	authRouter.HandleFunc("/external-agents", system.DefaultWrapper(apiServer.listExternalAgents)).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}", system.DefaultWrapper(apiServer.getExternalAgent)).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}", system.DefaultWrapper(apiServer.updateExternalAgent)).Methods("PUT")
+	authRouter.HandleFunc("/external-agents/{sessionID}", system.DefaultWrapper(apiServer.deleteExternalAgent)).Methods("DELETE")
+	authRouter.HandleFunc("/external-agents/{sessionID}/rdp", system.DefaultWrapper(apiServer.getExternalAgentRDP)).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/stats", system.DefaultWrapper(apiServer.getExternalAgentStats)).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/logs", system.DefaultWrapper(apiServer.getExternalAgentLogs)).Methods("GET")
+
+	// External agent WebSocket sync endpoint
+	subRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")
+
+	// External agent management routes
+	authRouter.HandleFunc("/external-agents/connections", system.DefaultWrapper(apiServer.getExternalAgentConnections)).Methods("GET")
+
+	// Agent dashboard and management routes
+	authRouter.HandleFunc("/dashboard/agent", system.DefaultWrapper(apiServer.getAgentDashboard)).Methods("GET")
+	authRouter.HandleFunc("/agents/sessions", system.DefaultWrapper(apiServer.listAgentSessions)).Methods("GET")
+	authRouter.HandleFunc("/agents/work", system.DefaultWrapper(apiServer.listAgentWorkItems)).Methods("GET")
+	authRouter.HandleFunc("/agents/work", system.DefaultWrapper(apiServer.createAgentWorkItem)).Methods("POST")
+	authRouter.HandleFunc("/agents/work/{work_item_id}", system.DefaultWrapper(apiServer.getAgentWorkItem)).Methods("GET")
+	authRouter.HandleFunc("/agents/work/{work_item_id}", system.DefaultWrapper(apiServer.updateAgentWorkItem)).Methods("PUT")
+	authRouter.HandleFunc("/agents/help-requests", system.DefaultWrapper(apiServer.listHelpRequests)).Methods("GET")
+	authRouter.HandleFunc("/agents/help-requests/{request_id}/resolve", system.DefaultWrapper(apiServer.resolveHelpRequest)).Methods("POST")
+	authRouter.HandleFunc("/agents/stats", system.DefaultWrapper(apiServer.getWorkQueueStats)).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/command", system.DefaultWrapper(apiServer.sendCommandToExternalAgentHandler)).Methods("POST")
+
 	// UI @ functionality
 	authRouter.HandleFunc("/context-menu", system.Wrapper(apiServer.contextMenuHandler)).Methods(http.MethodGet)
 
@@ -606,6 +660,19 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// OAuth routes
 	// These routes are already set up by apiServer.setupOAuthRoutes(authRouter) above
+
+	// Spec-driven task routes
+	authRouter.HandleFunc("/spec-tasks/from-prompt", apiServer.createTaskFromPrompt).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks", apiServer.listTasks).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}", apiServer.getTask).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/specs", apiServer.getTaskSpecs).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/progress", apiServer.getTaskProgress).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/approve-specs", apiServer.approveSpecs).Methods(http.MethodPost)
+
+	// Sample project code routes
+	authRouter.HandleFunc("/sample-projects", apiServer.listSampleProjects).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sample-projects/{projectId}/code", apiServer.getSampleProjectCode).Methods(http.MethodGet)
+	authRouter.HandleFunc("/sample-projects/{projectId}/archive", apiServer.getSampleProjectCodeArchive).Methods(http.MethodGet)
 
 	apiServer.router = router
 

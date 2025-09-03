@@ -20,8 +20,13 @@ import { styled } from '@mui/material/styles'
 
 import {
   IAppFlatState,
+  IAgentType,
+  IExternalAgentConfig,
+  AGENT_TYPE_HELIX,
+  AGENT_TYPE_ZED_EXTERNAL,
 } from '../../types'
 import { AdvancedModelPicker } from '../create/AdvancedModelPicker'
+import { AgentTypeSelector } from '../agent'
 import Divider from '@mui/material/Divider'
 
 // Recommended models configuration
@@ -203,6 +208,11 @@ const AppSettings: FC<AppSettingsProps> = ({
   // Agent mode settings
   const [agent_mode, setAgentMode] = useState(app.agent_mode || false)
   const [max_iterations, setMaxIterations] = useState(app.max_iterations ?? DEFAULT_VALUES.max_iterations)
+  
+  // Agent type settings
+  const [default_agent_type, setDefaultAgentType] = useState(app.default_agent_type || 'helix')
+  const [external_agent_enabled, setExternalAgentEnabled] = useState(app.external_agent_enabled || false)
+  const [external_agent_config, setExternalAgentConfig] = useState(app.external_agent_config || {})
   const [reasoning_model, setReasoningModel] = useState(app.reasoning_model || '')
   const [reasoning_model_provider, setReasoningModelProvider] = useState(app.reasoning_model_provider || '')
   const [reasoning_model_effort, setReasoningModelEffort] = useState(app.reasoning_model_effort || 'none')
@@ -235,6 +245,9 @@ const AppSettings: FC<AppSettingsProps> = ({
       setModel(app.model || '')
       // Agent configuration
       setAgentMode(app.agent_mode || false)
+      setDefaultAgentType(app.default_agent_type || 'helix')
+      setExternalAgentEnabled(app.external_agent_enabled || false)
+      setExternalAgentConfig(app.external_agent_config || {})
       // Reasoning configuration
       setReasoningModel(app.reasoning_model || '')
       setReasoningModelProvider(app.reasoning_model_provider || '')
@@ -270,6 +283,9 @@ const AppSettings: FC<AppSettingsProps> = ({
       global,
       model,
       agent_mode,
+      default_agent_type,
+      external_agent_enabled,
+      external_agent_config,
       reasoning_model,
       reasoning_model_provider,
       reasoning_model_effort,
@@ -314,6 +330,9 @@ const AppSettings: FC<AppSettingsProps> = ({
       ...app,
       global: field === 'global' ? value : global,
       agent_mode: field === 'agent_mode' ? value : agent_mode,
+      default_agent_type,
+      external_agent_enabled,
+      external_agent_config,
       model,
       provider,
       context_limit: contextLimit,
@@ -323,6 +342,36 @@ const AppSettings: FC<AppSettingsProps> = ({
       reasoning_effort: reasoningEffort,
       temperature,
       top_p: topP,
+      max_iterations: max_iterations
+    }
+    
+    onUpdate(updatedApp)
+  }
+
+  // Handle agent type changes
+  const handleAgentTypeChange = (agentType: IAgentType, config?: IExternalAgentConfig) => {
+    setDefaultAgentType(agentType)
+    if (config !== undefined) {
+      setExternalAgentConfig(config)
+    }
+
+    const updatedApp: IAppFlatState = {
+      ...app,
+      global,
+      agent_mode,
+      default_agent_type: agentType,
+      external_agent_enabled: agentType === 'zed_external',
+      external_agent_config: config || external_agent_config,
+      model,
+      provider,
+      context_limit: contextLimit,
+      frequency_penalty: frequencyPenalty,
+      max_tokens: maxTokens,
+      presence_penalty: presencePenalty,
+      reasoning_effort: reasoningEffort,
+      temperature: temperature,
+      top_p: topP,
+      system_prompt: system_prompt,
       max_iterations: max_iterations
     }
     
@@ -842,6 +891,20 @@ const AppSettings: FC<AppSettingsProps> = ({
             </Box>
           </Box>
         )}
+      </Box>
+
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="subtitle1" sx={{ mb: 2 }}>Default Agent Type</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Choose the default agent type for new sessions with this app. External agents provide full development environments with code editing capabilities.
+        </Typography>
+        <AgentTypeSelector
+          value={default_agent_type as IAgentType}
+          onChange={handleAgentTypeChange}
+          externalAgentConfig={external_agent_config}
+          disabled={readOnly}
+          size="medium"
+        />
       </Box>
 
       <Box sx={{ mb: 3 }}>
