@@ -58,6 +58,15 @@ import specTaskService, {
   useSpecTask,
   useMultiSessionOverview,
 } from '../../services/specTaskService';
+import gitRepositoryService, {
+  SampleType,
+  useSampleTypes,
+  useCreateSampleRepository,
+  getSampleTypeIcon,
+  getSampleTypeCategory,
+  isBusinessTask,
+  getBusinessTaskDescription,
+} from '../../services/gitRepositoryService';
 
 // SpecTask types and statuses
 type SpecTaskPhase = 'backlog' | 'planning' | 'review' | 'implementation' | 'completed';
@@ -274,21 +283,24 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     }
   }, [api, projectId, userId, account.user?.id]);
 
-  // Load sample types for planning
-  const loadSampleTypes = useCallback(async () => {
-    try {
-      const response = await api.get('/api/v1/zed/planning/sample-types');
-      setSampleTypes(response.data.sample_types || []);
-    } catch (err) {
-      console.warn('Failed to load sample types:', err);
+  // Load sample types using generated client
+  const { data: sampleTypesData, isLoading: sampleTypesLoading } = useSampleTypes();
+  
+  const loadSampleTypes = useCallback(() => {
+    if (sampleTypesData?.sample_types) {
+      setSampleTypes(sampleTypesData.sample_types);
     }
-  }, [api]);
+  }, [sampleTypesData]);
 
   // Load initial data
   useEffect(() => {
     loadTasks();
+  }, [loadTasks]);
+
+  // Update sample types when data changes
+  useEffect(() => {
     loadSampleTypes();
-  }, [loadTasks, loadSampleTypes]);
+  }, [loadSampleTypes]);
 
   // Auto-refresh every 30 seconds
   useEffect(() => {
@@ -350,25 +362,34 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
   };
 
   // Start planning session for a task
+  const createSampleRepoMutation = useCreateSampleRepository();
+  
   const startPlanning = async (task: SpecTaskWithExtras, sampleType?: string) => {
     try {
-      const planningRequest = {
-        spec_task_id: task.id,
-        project_name: task.name,
-        description: task.description,
-        requirements: newTaskRequirements || task.description,
-        owner_id: account.user?.id,
-        create_repo: true,
-        sample_type: sampleType,
-      };
+      if (!sampleType || !account.user?.id) {
+        setError('Sample type and user ID are required');
+        return;
+      }
 
-      const response = await api.post('/api/v1/zed/planning/from-sample', planningRequest);
-      
-      if (response.data.success) {
-        // Update task status
+      // First create the sample repository
+      const sampleRepo = await createSampleRepoMutation.mutateAsync({
+        name: `${task.name} - ${sampleType}`,
+        description: task.description,
+        owner_id: account.user.id,
+        sample_type: sampleType,
+      });
+
+      if (sampleRepo) {
+        // Update task with repository info
         setTasks(prev => prev.map(t => 
           t.id === task.id 
-            ? { ...t, phase: 'planning', planningStatus: 'active' }
+            ? { 
+                ...t, 
+                phase: 'planning', 
+                planningStatus: 'active',
+                gitRepositoryId: sampleRepo.id,
+                gitRepositoryUrl: sampleRepo.clone_url
+              }
             : t
         ));
         
@@ -750,16 +771,49 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
             />
             
             <FormControl fullWidth>
-              <InputLabel>Sample Project Type</InputLabel>
+              <InputLabel>Project Template</InputLabel>
               <Select
                 value={selectedSampleType}
                 onChange={(e) => setSelectedSampleType(e.target.value)}
+                helperText="Choose a template or start with an empty repository"
               >
-                {sampleTypes.map((type) => (
-                  <MenuItem key={type.id} value={type.id}>
-                    {type.name} - {type.description}
-                  </MenuItem>
-                ))}
+                {sampleTypes.map((type: SampleType) => {
+                  const category = getSampleTypeCategory(type.id);
+                  const isBusiness = isBusinessTask(type.id);
+                  
+                  return (
+                    <MenuItem key={type.id} value={type.id}>
+                      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, width: '100%' }}>
+                        <Typography sx={{ fontSize: '1.2em' }}>
+                          {getSampleTypeIcon(type.id)}
+                        </Typography>
+                        <Box sx={{ flex: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              {type.name}
+                            </Typography>
+                            {isBusiness && (
+                              <Chip 
+                                label="Business" 
+                                size="small" 
+                                color="primary" 
+                                sx={{ height: 16 }}
+                              />
+                            )}
+                          </Box>
+                          <Typography variant="caption" color="text.secondary">
+                            {isBusiness ? getBusinessTaskDescription(type.id) : type.description}
+                          </Typography>
+                          {type.tech_stack && (
+                            <Typography variant="caption" sx={{ display: 'block', fontStyle: 'italic', color: 'primary.main' }}>
+                              {type.tech_stack.join(', ')}
+                            </Typography>
+                          )}
+                        </Box>
+                      </Box>
+                    </MenuItem>
+                  );
+                })}
               </Select>
             </FormControl>
           </Stack>

@@ -135,7 +135,7 @@ func (s *ZedToHelixSessionService) CreateHelixSessionFromZedThread(
 
 	// Start the session (unless in test mode)
 	if !s.testMode {
-		go s.startCreatedSession(context.Background(), workSession, helixSession, specTask)
+		go s.startCreatedSession(context.Background(), workSession, helixSession, specTask, creationContext)
 	}
 
 	result := &ZedSessionCreationResult{
@@ -337,12 +337,9 @@ func (s *ZedToHelixSessionService) createSessionPair(
 		},
 	}
 
-	// Set organization context if available
-	if specTask.OrganizationID != "" {
-		helixSession.OrganizationID = specTask.OrganizationID
-	}
-	if specTask.AppID != "" {
-		helixSession.ParentApp = specTask.AppID
+	// Set project context if available
+	if specTask.ProjectID != "" {
+		helixSession.ParentApp = specTask.ProjectID
 	}
 
 	// Create the Helix session
@@ -576,6 +573,7 @@ func (s *ZedToHelixSessionService) startCreatedSession(
 	workSession *types.SpecTaskWorkSession,
 	helixSession *types.Session,
 	specTask *types.SpecTask,
+	creationContext *ZedThreadCreationContext,
 ) {
 	// Mark work session as active
 	err := s.multiSessionManager.UpdateWorkSessionStatus(

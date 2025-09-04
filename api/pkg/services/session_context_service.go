@@ -417,8 +417,6 @@ func (s *SessionContextService) AcknowledgeCoordinationEvent(
 	defer s.cacheMutex.RUnlock()
 
 	// Find the context containing this event
-	var taskContext *SpecTaskSessionContext
-
 	for _, context := range s.contextCache {
 		context.Mutex.Lock()
 		for i := range context.CoordinationLog {
@@ -644,7 +642,7 @@ func (s *SessionContextService) updateSessionCounters(taskContext *SpecTaskSessi
 }
 
 func (s *SessionContextService) copyContext(original *SpecTaskSessionContext) *SpecTaskSessionContext {
-	copy := &SpecTaskSessionContext{
+	contextCopy := &SpecTaskSessionContext{
 		SpecTaskID:        original.SpecTaskID,
 		SharedState:       make(map[string]interface{}),
 		SessionRegistry:   make(map[string]*SessionInfo),
@@ -656,19 +654,19 @@ func (s *SessionContextService) copyContext(original *SpecTaskSessionContext) *S
 
 	// Deep copy shared state
 	for k, v := range original.SharedState {
-		copy.SharedState[k] = v
+		contextCopy.SharedState[k] = v
 	}
 
 	// Deep copy session registry
 	for k, v := range original.SessionRegistry {
 		sessionCopy := *v
-		copy.SessionRegistry[k] = &sessionCopy
+		contextCopy.SessionRegistry[k] = &sessionCopy
 	}
 
 	// Copy coordination log
-	copy(copy.CoordinationLog, original.CoordinationLog)
+	copy(contextCopy.CoordinationLog, original.CoordinationLog)
 
-	return copy
+	return contextCopy
 }
 
 func (s *SessionContextService) loadContextFromStore(ctx context.Context, specTaskID string) (*SpecTaskSessionContext, error) {
