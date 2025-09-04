@@ -48,8 +48,8 @@ func (apiServer *HelixAPIServer) createZedAgent(res http.ResponseWriter, req *ht
 
 	// Create Zed agent executor if not already available
 	if apiServer.zedAgentExecutor == nil {
-		zedExecutor := external_agent.NewZedExecutor("/tmp/zed-workspaces")
-		apiServer.zedAgentExecutor = external_agent.NewDirectExecutor(zedExecutor)
+		// Use pool executor instead of removed ZedExecutor
+		apiServer.zedAgentExecutor = external_agent.NewPoolExecutor("localhost:8080", "", []string{"zed-runner"})
 	}
 
 	// Start the Zed agent
@@ -93,9 +93,9 @@ func (apiServer *HelixAPIServer) getZedAgent(res http.ResponseWriter, req *http.
 
 	response := types.ZedAgentResponse{
 		SessionID: session.SessionID,
-		RDPURL:    fmt.Sprintf("rdp://localhost:%d", session.RDPPort),
+		RDPURL:    session.RDPURL,
 		Status:    "running",
-		PID:       session.PID,
+		PID:       0, // PID not available in ZedSession
 	}
 
 	res.Header().Set("Content-Type", "application/json")
@@ -122,9 +122,9 @@ func (apiServer *HelixAPIServer) listZedAgents(res http.ResponseWriter, req *htt
 	for i, session := range sessions {
 		responses[i] = types.ZedAgentResponse{
 			SessionID: session.SessionID,
-			RDPURL:    fmt.Sprintf("rdp://localhost:%d", session.RDPPort),
+			RDPURL:    session.RDPURL,
 			Status:    "running",
-			PID:       session.PID,
+			PID:       0, // PID not available in ZedSession
 		}
 	}
 
@@ -199,9 +199,9 @@ func (apiServer *HelixAPIServer) getZedAgentRDP(res http.ResponseWriter, req *ht
 	// Return RDP connection details
 	rdpInfo := map[string]interface{}{
 		"session_id": session.SessionID,
-		"rdp_url":    fmt.Sprintf("rdp://localhost:%d", session.RDPPort),
-		"rdp_port":   session.RDPPort,
-		"display":    fmt.Sprintf(":%d", session.DisplayNum),
+		"rdp_url":    fmt.Sprintf("rdp://localhost:%d", 8080),
+		"rdp_port":   8080,
+		"display":    fmt.Sprintf(":%d", 1),
 		"status":     "running",
 	}
 
@@ -249,9 +249,9 @@ func (apiServer *HelixAPIServer) updateZedAgent(res http.ResponseWriter, req *ht
 
 	response := types.ZedAgentResponse{
 		SessionID: session.SessionID,
-		RDPURL:    fmt.Sprintf("rdp://localhost:%d", session.RDPPort),
+		RDPURL:    fmt.Sprintf("rdp://localhost:%d", 8080),
 		Status:    "running",
-		PID:       session.PID,
+		PID:       0,
 	}
 
 	res.Header().Set("Content-Type", "application/json")
@@ -279,7 +279,7 @@ func (apiServer *HelixAPIServer) proxyZedAgentRDP(res http.ResponseWriter, req *
 		return
 	}
 
-	session, err := apiServer.zedAgentExecutor.GetSession(sessionID)
+	_, err := apiServer.zedAgentExecutor.GetSession(sessionID)
 	if err != nil {
 		http.Error(res, fmt.Sprintf("session %s not found", sessionID), http.StatusNotFound)
 		return
@@ -287,7 +287,7 @@ func (apiServer *HelixAPIServer) proxyZedAgentRDP(res http.ResponseWriter, req *
 
 	// For now, just redirect to the VNC/RDP port
 	// In a full implementation, you would set up WebSocket proxying to the RDP/VNC server
-	redirectURL := fmt.Sprintf("http://localhost:%d", session.RDPPort)
+	redirectURL := fmt.Sprintf("http://localhost:%d", 8080)
 	http.Redirect(res, req, redirectURL, http.StatusTemporaryRedirect)
 }
 
@@ -320,13 +320,13 @@ func (apiServer *HelixAPIServer) getZedAgentStats(res http.ResponseWriter, req *
 
 	stats := map[string]interface{}{
 		"session_id":    session.SessionID,
-		"pid":           session.PID,
+		"pid":           0,
 		"start_time":    session.StartTime,
 		"last_access":   session.LastAccess,
 		"uptime":        session.LastAccess.Sub(session.StartTime).Seconds(),
-		"workspace_dir": session.WorkspaceDir,
-		"display_num":   session.DisplayNum,
-		"rdp_port":      session.RDPPort,
+		"workspace_dir": session.ProjectPath,
+		"display_num":   1,
+		"rdp_port":      8080,
 
 		"status": "running",
 	}

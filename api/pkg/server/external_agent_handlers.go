@@ -104,9 +104,9 @@ func (apiServer *HelixAPIServer) getExternalAgent(res http.ResponseWriter, req *
 
 	response := types.ZedAgentResponse{
 		SessionID: session.SessionID,
-		RDPURL:    fmt.Sprintf("rdp://localhost:%d", session.RDPPort),
+		RDPURL:    session.RDPURL,
 		Status:    "running",
-		PID:       session.PID,
+		PID:       0, // PID not available in ZedSession
 	}
 
 	res.Header().Set("Content-Type", "application/json")
@@ -133,9 +133,9 @@ func (apiServer *HelixAPIServer) listExternalAgents(res http.ResponseWriter, req
 	for i, session := range sessions {
 		responses[i] = types.ZedAgentResponse{
 			SessionID: session.SessionID,
-			RDPURL:    fmt.Sprintf("rdp://localhost:%d", session.RDPPort),
-			Status:    "running",
-			PID:       session.PID,
+			RDPURL:    session.RDPURL,
+			Status:    session.Status,
+			PID:       0, // PID not available in ZedSession
 		}
 	}
 
@@ -210,10 +210,10 @@ func (apiServer *HelixAPIServer) getExternalAgentRDP(res http.ResponseWriter, re
 	// Return RDP connection details with WebSocket info
 	rdpInfo := map[string]interface{}{
 		"session_id":          session.SessionID,
-		"rdp_url":             fmt.Sprintf("rdp://localhost:%d", session.RDPPort),
-		"rdp_port":            session.RDPPort,
+		"rdp_url":             fmt.Sprintf("rdp://localhost:%d", 8080),
+		"rdp_port":            8080,
 		"rdp_password":        session.RDPPassword, // Secure random password
-		"display":             fmt.Sprintf(":%d", session.DisplayNum),
+		"display":             fmt.Sprintf(":%d", 1),
 		"status":              "running",
 		"username":            "zed", // Default RDP username
 		"host":                "localhost",
@@ -266,9 +266,9 @@ func (apiServer *HelixAPIServer) updateExternalAgent(res http.ResponseWriter, re
 
 	response := types.ZedAgentResponse{
 		SessionID: session.SessionID,
-		RDPURL:    fmt.Sprintf("rdp://localhost:%d", session.RDPPort),
-		Status:    "running",
-		PID:       session.PID,
+		RDPURL:    session.RDPURL,
+		Status:    session.Status,
+		PID:       0, // PID not available in ZedSession
 	}
 
 	res.Header().Set("Content-Type", "application/json")
@@ -304,13 +304,13 @@ func (apiServer *HelixAPIServer) getExternalAgentStats(res http.ResponseWriter, 
 
 	stats := map[string]interface{}{
 		"session_id":    session.SessionID,
-		"pid":           session.PID,
+		"pid":           0,
 		"start_time":    session.StartTime,
 		"last_access":   session.LastAccess,
 		"uptime":        session.LastAccess.Sub(session.StartTime).Seconds(),
-		"workspace_dir": session.WorkspaceDir,
-		"display_num":   session.DisplayNum,
-		"rdp_port":      session.RDPPort,
+		"workspace_dir": session.ProjectPath,
+		"display_num":   1,
+		"rdp_port":      8080,
 		"status":        "running",
 	}
 

@@ -485,6 +485,13 @@ export interface ServerApprovalWithHandoffRequest {
   project_path?: string;
 }
 
+export interface ServerCloneCommandResponse {
+  clone_command?: string;
+  clone_url?: string;
+  repository_id?: string;
+  target_dir?: string;
+}
+
 export interface ServerCombinedApprovalHandoffResult {
   approval?: TypesSpecApprovalResponse;
   handoff_result?: ServicesHandoffResult;
@@ -503,6 +510,22 @@ export interface ServerCoordinationLogResponse {
   last_activity?: string;
   spec_task_id?: string;
   total_events?: number;
+}
+
+export interface ServerCreateSampleRepositoryRequest {
+  description?: string;
+  name?: string;
+  owner_id?: string;
+  sample_type?: string;
+}
+
+export interface ServerCreateSpecTaskRepositoryRequest {
+  description?: string;
+  name?: string;
+  owner_id?: string;
+  project_id?: string;
+  spec_task_id?: string;
+  template_files?: Record<string, string>;
 }
 
 export interface ServerCreateTopUpRequest {
@@ -534,6 +557,19 @@ export interface ServerForkSimpleProjectResponse {
   message?: string;
   project_id?: string;
   tasks_created?: number;
+}
+
+export interface ServerInitializeSampleRepositoriesRequest {
+  owner_id?: string;
+  /** If empty, creates all samples */
+  sample_types?: string[];
+}
+
+export interface ServerInitializeSampleRepositoriesResponse {
+  created_count?: number;
+  created_repositories?: ServicesGitRepository[];
+  errors?: string[];
+  success?: boolean;
 }
 
 export interface ServerLicenseKeyRequest {
@@ -610,6 +646,18 @@ export interface ServerSampleTaskPrompt {
   priority?: string;
   /** Natural language request */
   prompt?: string;
+}
+
+export interface ServerSampleType {
+  description?: string;
+  id?: string;
+  name?: string;
+  tech_stack?: string[];
+}
+
+export interface ServerSampleTypesResponse {
+  count?: number;
+  sample_types?: ServerSampleType[];
 }
 
 export interface ServerSessionHistoryEntry {
@@ -735,6 +783,50 @@ export interface ServicesDocumentHandoffStatus {
   last_commit_time?: string;
   session_recording_active?: boolean;
   spec_task_id?: string;
+}
+
+export interface ServicesGitRepository {
+  branches?: string[];
+  clone_url?: string;
+  created_at?: string;
+  default_branch?: string;
+  description?: string;
+  id?: string;
+  last_activity?: string;
+  local_path?: string;
+  metadata?: Record<string, any>;
+  name?: string;
+  owner_id?: string;
+  project_id?: string;
+  repo_type?: ServicesGitRepositoryType;
+  spec_task_id?: string;
+  status?: ServicesGitRepositoryStatus;
+  updated_at?: string;
+}
+
+export interface ServicesGitRepositoryCreateRequest {
+  default_branch?: string;
+  description?: string;
+  initial_files?: Record<string, string>;
+  metadata?: Record<string, any>;
+  name?: string;
+  owner_id?: string;
+  project_id?: string;
+  repo_type?: ServicesGitRepositoryType;
+  spec_task_id?: string;
+}
+
+export enum ServicesGitRepositoryStatus {
+  GitRepositoryStatusActive = "active",
+  GitRepositoryStatusArchived = "archived",
+  GitRepositoryStatusDeleted = "deleted",
+}
+
+export enum ServicesGitRepositoryType {
+  GitRepositoryTypeProject = "project",
+  GitRepositoryTypeSpecTask = "spec_task",
+  GitRepositoryTypeSample = "sample",
+  GitRepositoryTypeTemplate = "template",
 }
 
 export interface ServicesHandoffResult {
@@ -3340,10 +3432,10 @@ export interface TypesTriggerStatus {
 }
 
 export enum TypesTriggerType {
+  TriggerTypeAgentWorkQueue = "agent_work_queue",
   TriggerTypeSlack = "slack",
   TriggerTypeAzureDevOps = "azure_devops",
   TriggerTypeCron = "cron",
-  TriggerTypeAgentWorkQueue = "agent_work_queue",
 }
 
 export interface TypesUpdateOrganizationMemberRequest {
@@ -4479,6 +4571,178 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/dashboard/agent`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description List all git repositories, optionally filtered by owner and type
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesList
+     * @summary List git repositories
+     * @request GET:/api/v1/git/repositories
+     * @secure
+     */
+    v1GitRepositoriesList: (
+      query?: {
+        /** Filter by owner ID */
+        owner_id?: string;
+        /** Filter by repository type */
+        repo_type?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServicesGitRepository[], TypesAPIError>({
+        path: `/api/v1/git/repositories`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a new git repository on the server
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesCreate
+     * @summary Create git repository
+     * @request POST:/api/v1/git/repositories
+     * @secure
+     */
+    v1GitRepositoriesCreate: (repository: ServicesGitRepositoryCreateRequest, params: RequestParams = {}) =>
+      this.request<ServicesGitRepository, TypesAPIError>({
+        path: `/api/v1/git/repositories`,
+        method: "POST",
+        body: repository,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get information about a specific git repository
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesDetail
+     * @summary Get git repository
+     * @request GET:/api/v1/git/repositories/{id}
+     * @secure
+     */
+    v1GitRepositoriesDetail: (id: string, params: RequestParams = {}) =>
+      this.request<ServicesGitRepository, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get the git clone command for a repository with authentication
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesCloneCommandDetail
+     * @summary Get clone command
+     * @request GET:/api/v1/git/repositories/{id}/clone-command
+     * @secure
+     */
+    v1GitRepositoriesCloneCommandDetail: (
+      id: string,
+      query?: {
+        /** Target directory for clone */
+        target_dir?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerCloneCommandResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/${id}/clone-command`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create default sample repositories for demos and testing
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesInitializeSamplesCreate
+     * @summary Initialize sample repositories
+     * @request POST:/api/v1/git/repositories/initialize-samples
+     * @secure
+     */
+    v1GitRepositoriesInitializeSamplesCreate: (
+      request: ServerInitializeSampleRepositoriesRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<ServerInitializeSampleRepositoriesResponse, TypesAPIError>({
+        path: `/api/v1/git/repositories/initialize-samples`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a sample/demo git repository from available templates
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesSampleCreate
+     * @summary Create sample repository
+     * @request POST:/api/v1/git/repositories/sample
+     * @secure
+     */
+    v1GitRepositoriesSampleCreate: (request: ServerCreateSampleRepositoryRequest, params: RequestParams = {}) =>
+      this.request<ServicesGitRepository, TypesAPIError>({
+        path: `/api/v1/git/repositories/sample`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get list of available sample repository types and templates
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesSampleTypesList
+     * @summary Get sample repository types
+     * @request GET:/api/v1/git/repositories/sample-types
+     * @secure
+     */
+    v1GitRepositoriesSampleTypesList: (params: RequestParams = {}) =>
+      this.request<ServerSampleTypesResponse, any>({
+        path: `/api/v1/git/repositories/sample-types`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a git repository specifically for a SpecTask
+     *
+     * @tags git-repositories
+     * @name V1GitRepositoriesSpecTaskCreate
+     * @summary Create SpecTask repository
+     * @request POST:/api/v1/git/repositories/spec-task
+     * @secure
+     */
+    v1GitRepositoriesSpecTaskCreate: (request: ServerCreateSpecTaskRepositoryRequest, params: RequestParams = {}) =>
+      this.request<ServicesGitRepository, TypesAPIError>({
+        path: `/api/v1/git/repositories/spec-task`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
         ...params,
       }),
 
