@@ -129,7 +129,7 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 		}
 	}
 
-	// Dispatch to Zed runner pool via pub/sub (following gptscript pattern)
+	// Dispatch to Zed runner pool via pub/sub
 	data, err := json.Marshal(zedAgent)
 	if err != nil {
 		return fmt.Errorf("failed to marshal Zed agent request: %w", err)

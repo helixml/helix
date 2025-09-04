@@ -14,7 +14,6 @@ const (
 	SessionPrefix              = "ses_"
 	InteractionPrefix          = "int_"
 	AppPrefix                  = "app_"
-	GptScriptRunnerTaskPrefix  = "gst_"
 	RequestPrefix              = "req_"
 	DataEntityPrefix           = "dent_"
 	LLMCallPrefix              = "llmc_"
@@ -73,10 +72,6 @@ func GenerateAppID() string {
 
 func GenerateDataEntityID() string {
 	return fmt.Sprintf("%s%s", DataEntityPrefix, newID())
-}
-
-func GenerateGptScriptTaskID() string {
-	return fmt.Sprintf("%s%s", GptScriptRunnerTaskPrefix, newID())
 }
 
 func GenerateRequestID() string {
