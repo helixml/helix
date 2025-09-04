@@ -19,7 +19,6 @@ import (
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
-	"github.com/helixml/helix/api/pkg/zedagent"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/license"
 	"github.com/helixml/helix/api/pkg/model"
@@ -39,6 +38,7 @@ import (
 	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/version"
+	"github.com/helixml/helix/api/pkg/zedagent"
 
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -271,8 +271,10 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	if cfg.GPTScript.TestFaster.URL != "" {
 		return fmt.Errorf("HELIX_TESTFASTER_URL is deprecated, please use runner based GPTScript executor")
 	}
-	log.Info().Msg("using runner based GPTScript executor")
-	gse := gptscript.NewExecutor(cfg, ps)
+	// TODO: Replace with zedagent executor
+	log.Info().Msg("GPTScript executor disabled - transitioning to zedagent")
+	// gse := gptscript.NewExecutor(cfg, ps)
+	var gse zedagent.Executor // nil executor placeholder
 
 	var extractor extract.Extractor
 
@@ -426,7 +428,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		PubSub:            ps,
 		RAG:               ragClient,
 		Extractor:         extractor,
-		GPTScriptExecutor: gse,
+		GPTScriptExecutor: gse, // TODO: Replace with zedagent
 		Filestore:         fs,
 		Janitor:           janitor,
 		Notifier:          notifier,

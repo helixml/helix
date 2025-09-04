@@ -16,7 +16,6 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/helixml/helix/api/pkg/zedagent"
 )
 
 // TODO: probably move planner into a separate package so we can decide when we want to call APIs, when to go with RAG, etc.
@@ -46,13 +45,12 @@ type ChainStrategy struct {
 
 	apiClient                 openai.Client // Default API client is none is passed through the options
 	httpClient                *http.Client
-	gptScriptExecutor         zedagent.Executor
 	isActionableTemplate      string
 	isActionableHistoryLength int
 	wg                        sync.WaitGroup
 }
 
-func NewChainStrategy(cfg *config.ServerConfig, store store.Store, gptScriptExecutor zedagent.Executor, client openai.Client) (*ChainStrategy, error) {
+func NewChainStrategy(cfg *config.ServerConfig, store store.Store, client openai.Client) (*ChainStrategy, error) {
 	isActionableTemplate, err := getIsActionablePromptTemplate(cfg)
 	if err != nil {
 		log.Err(err).Msg("failed to get actionable template, falling back to default")
@@ -65,7 +63,6 @@ func NewChainStrategy(cfg *config.ServerConfig, store store.Store, gptScriptExec
 		cfg:                       cfg,
 		store:                     store,
 		apiClient:                 client,
-		gptScriptExecutor:         gptScriptExecutor,
 		httpClient:                retryClient.StandardClient(),
 		isActionableTemplate:      isActionableTemplate,
 		isActionableHistoryLength: cfg.Tools.IsActionableHistoryLength,

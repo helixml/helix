@@ -54,13 +54,7 @@ func externalAgentRunner(_ *cobra.Command) error {
 		Msg("starting external agent runner")
 
 	// Create Zed executor
-	zedExecutor := external_agent.NewZedExecutor(
-		cfg.DisplayNum,   // Display base number
-		cfg.RDPStartPort, // RDP port base
-		cfg.WorkspaceDir, // Workspace directory
-		cfg.RDPUser,      // RDP username
-		cfg.RDPPassword,  // RDP password
-	)
+	zedExecutor := external_agent.NewZedExecutor(cfg.WorkspaceDir)
 
 	runner := external_agent.NewExternalAgentRunner(&cfg, zedExecutor)
 

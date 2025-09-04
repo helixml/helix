@@ -25,7 +25,7 @@ import (
 // @Router  /api/v1/spec-tasks/from-prompt [post]
 func (s *HelixAPIServer) createTaskFromPrompt(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	user := getUserFromContext(ctx)
+	user := getRequestUser(r)
 	if user == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -152,7 +152,7 @@ func (s *HelixAPIServer) listTasks(w http.ResponseWriter, r *http.Request) {
 // @Router  /api/v1/spec-tasks/{taskId}/approve-specs [post]
 func (s *HelixAPIServer) approveSpecs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	user := getUserFromContext(ctx)
+	user := getRequestUser(r)
 	if user == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -290,7 +290,7 @@ func (s *HelixAPIServer) getTaskProgress(w http.ResponseWriter, r *http.Request)
 			Status:        getSpecificationStatus(task.Status),
 			Agent:         task.SpecAgent,
 			SessionID:     task.SpecSessionID,
-			StartedAt:     task.CreatedAt, // Spec generation starts when task is created
+			StartedAt:     &task.CreatedAt, // Spec generation starts when task is created
 			CompletedAt:   task.SpecApprovedAt,
 			RevisionCount: task.SpecRevisionCount,
 		},

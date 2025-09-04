@@ -24,7 +24,6 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
-	"github.com/helixml/helix/api/pkg/zedagent"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/oauth"
@@ -80,7 +79,7 @@ type HelixAPIServer struct {
 	pubsub                   pubsub.PubSub
 	providerManager          manager.ProviderManager
 	modelInfoProvider        model.ModelInfoProvider
-	gptScriptExecutor        gptscript.Executor
+	zedAgentExecutor         external_agent.Executor
 	externalAgentExecutor    external_agent.Executor
 	externalAgentWSManager   *ExternalAgentWSManager
 	inferenceServer          *openai.InternalHelixServer
@@ -103,7 +102,7 @@ func NewServer(
 	cfg *config.ServerConfig,
 	store store.Store,
 	ps pubsub.PubSub,
-	gptScriptExecutor gptscript.Executor,
+	zedAgentExecutor external_agent.Executor,
 	providerManager manager.ProviderManager,
 	modelInfoProvider model.ModelInfoProvider,
 	inferenceServer *openai.InternalHelixServer,
@@ -194,7 +193,9 @@ func NewServer(
 	skillManager := api_skill.NewManager()
 
 	// Initialize external agent executor
-	externalAgentExecutor := external_agent.NewExecutor(cfg, ps)
+	// TODO: Fix this - NewExecutor doesn't exist, should be passed in constructor
+	// externalAgentExecutor := external_agent.NewExecutor(cfg, ps)
+	var externalAgentExecutor external_agent.Executor
 
 	// Initialize external agent WebSocket manager
 	externalAgentWSManager := NewExternalAgentWSManager()
@@ -205,7 +206,7 @@ func NewServer(
 		Stripe:                 stripe,
 		Controller:             controller,
 		Janitor:                janitor,
-		gptScriptExecutor:      gptScriptExecutor,
+		zedAgentExecutor:       zedAgentExecutor,
 		externalAgentExecutor:  externalAgentExecutor,
 		externalAgentWSManager: externalAgentWSManager,
 		inferenceServer:        inferenceServer,
@@ -470,36 +471,36 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/skills/validate", system.DefaultWrapper(apiServer.handleValidateMcpSkill)).Methods("POST")
 
 	// External agent routes
-	authRouter.HandleFunc("/external-agents", system.DefaultWrapper(apiServer.createExternalAgent)).Methods("POST")
-	authRouter.HandleFunc("/external-agents", system.DefaultWrapper(apiServer.listExternalAgents)).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}", system.DefaultWrapper(apiServer.getExternalAgent)).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}", system.DefaultWrapper(apiServer.updateExternalAgent)).Methods("PUT")
-	authRouter.HandleFunc("/external-agents/{sessionID}", system.DefaultWrapper(apiServer.deleteExternalAgent)).Methods("DELETE")
-	authRouter.HandleFunc("/external-agents/{sessionID}/rdp", system.DefaultWrapper(apiServer.getExternalAgentRDP)).Methods("GET")
+	authRouter.HandleFunc("/external-agents", apiServer.createExternalAgent).Methods("POST")
+	authRouter.HandleFunc("/external-agents", apiServer.listExternalAgents).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.getExternalAgent).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.updateExternalAgent).Methods("PUT")
+	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.deleteExternalAgent).Methods("DELETE")
+	authRouter.HandleFunc("/external-agents/{sessionID}/rdp", apiServer.getExternalAgentRDP).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/rdp/proxy", apiServer.proxyExternalAgentRDP).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}/stats", system.DefaultWrapper(apiServer.getExternalAgentStats)).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}/logs", system.DefaultWrapper(apiServer.getExternalAgentLogs)).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/stats", apiServer.getExternalAgentStats).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/logs", apiServer.getExternalAgentLogs).Methods("GET")
 
 	// RDP proxy management endpoints
-	authRouter.HandleFunc("/rdp-proxy/health", system.DefaultWrapper(apiServer.getRDPProxyHealth)).Methods("GET")
+	authRouter.HandleFunc("/rdp-proxy/health", apiServer.getRDPProxyHealth).Methods("GET")
 
 	// External agent WebSocket sync endpoint
 	subRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")
 
 	// External agent management routes
-	authRouter.HandleFunc("/external-agents/connections", system.DefaultWrapper(apiServer.getExternalAgentConnections)).Methods("GET")
+	authRouter.HandleFunc("/external-agents/connections", apiServer.getExternalAgentConnections).Methods("GET")
 
 	// Agent dashboard and management routes
-	authRouter.HandleFunc("/dashboard/agent", system.DefaultWrapper(apiServer.getAgentDashboard)).Methods("GET")
-	authRouter.HandleFunc("/agents/sessions", system.DefaultWrapper(apiServer.listAgentSessions)).Methods("GET")
-	authRouter.HandleFunc("/agents/work", system.DefaultWrapper(apiServer.listAgentWorkItems)).Methods("GET")
-	authRouter.HandleFunc("/agents/work", system.DefaultWrapper(apiServer.createAgentWorkItem)).Methods("POST")
-	authRouter.HandleFunc("/agents/work/{work_item_id}", system.DefaultWrapper(apiServer.getAgentWorkItem)).Methods("GET")
-	authRouter.HandleFunc("/agents/work/{work_item_id}", system.DefaultWrapper(apiServer.updateAgentWorkItem)).Methods("PUT")
-	authRouter.HandleFunc("/agents/help-requests", system.DefaultWrapper(apiServer.listHelpRequests)).Methods("GET")
-	authRouter.HandleFunc("/agents/help-requests/{request_id}/resolve", system.DefaultWrapper(apiServer.resolveHelpRequest)).Methods("POST")
-	authRouter.HandleFunc("/agents/stats", system.DefaultWrapper(apiServer.getWorkQueueStats)).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}/command", system.DefaultWrapper(apiServer.sendCommandToExternalAgentHandler)).Methods("POST")
+	authRouter.HandleFunc("/dashboard/agent", system.Wrapper(apiServer.getAgentDashboard)).Methods("GET")
+	authRouter.HandleFunc("/agents/sessions", system.Wrapper(apiServer.listAgentSessions)).Methods("GET")
+	authRouter.HandleFunc("/agents/work", system.Wrapper(apiServer.listAgentWorkItems)).Methods("GET")
+	authRouter.HandleFunc("/agents/work", system.Wrapper(apiServer.createAgentWorkItem)).Methods("POST")
+	authRouter.HandleFunc("/agents/work/{work_item_id}", system.Wrapper(apiServer.getAgentWorkItem)).Methods("GET")
+	authRouter.HandleFunc("/agents/work/{work_item_id}", system.Wrapper(apiServer.updateAgentWorkItem)).Methods("PUT")
+	authRouter.HandleFunc("/agents/help-requests", system.Wrapper(apiServer.listHelpRequests)).Methods("GET")
+	authRouter.HandleFunc("/agents/help-requests/{request_id}/resolve", system.Wrapper(apiServer.resolveHelpRequest)).Methods("POST")
+	authRouter.HandleFunc("/agents/stats", system.Wrapper(apiServer.getWorkQueueStats)).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{sessionID}/command", apiServer.sendCommandToExternalAgentHandler).Methods("POST")
 
 	// UI @ functionality
 	authRouter.HandleFunc("/context-menu", system.Wrapper(apiServer.contextMenuHandler)).Methods(http.MethodGet)

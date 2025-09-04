@@ -1,13 +1,11 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -91,7 +89,7 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 			{
 				Prompt:   "Add full-text search for products with filters and sorting",
 				Priority: "high",
-				Labels:   []string{"search", "performance"],
+				Labels:   []string{"search", "performance"},
 				Context:  "Users need to search products by name, description, and tags. Include filters for price range, category, and availability.",
 			},
 			{
@@ -101,10 +99,10 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 				Context:  "Under high load, the same product can be oversold. This causes major business issues and customer complaints.",
 			},
 			{
-				Prompt:   "Add order cancellation feature with automatic refunds",
-				Priority: "medium",
-				Labels:   []string{"orders", "payments"},
-				Context:  "Customers should be able to cancel orders within 1 hour of placement. Refunds should process automatically via Stripe.",
+				Prompt:      "Add order cancellation feature with automatic refunds",
+				Priority:    "medium",
+				Labels:      []string{"orders", "payments"},
+				Context:     "Customers should be able to cancel orders within 1 hour of placement. Refunds should process automatically via Stripe.",
 				Constraints: "Must integrate with existing Stripe payment system and maintain order audit trail",
 			},
 		},
@@ -129,7 +127,7 @@ var SIMPLE_SAMPLE_PROJECTS = []SimpleSampleProject{
 			{
 				Prompt:   "Implement offline mode so the app works without internet",
 				Priority: "medium",
-				Labels:   []string{"offline", "caching"],
+				Labels:   []string{"offline", "caching"},
 				Context:  "Users need weather info even when offline. Cache recent weather data and show it with a 'last updated' timestamp.",
 			},
 		},
@@ -252,7 +250,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 	// Create project name
 	projectName := req.ProjectName
 	if projectName == "" {
-		projectName = fmt.Sprintf("%s - %s", sampleProject.Name, user.Name)
+		projectName = fmt.Sprintf("%s - %s", sampleProject.Name, user.Username)
 	}
 
 	log.Info().
@@ -262,7 +260,7 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 		Msg("Forking simple sample project")
 
 	// Simulated GitHub repo URL (in real implementation, this would fork the actual repo)
-	forkedRepoURL := fmt.Sprintf("https://github.com/%s/helix-%s", user.Name, req.SampleProjectID)
+	forkedRepoURL := fmt.Sprintf("https://github.com/%s/helix-%s", user.Username, req.SampleProjectID)
 
 	// Create spec-driven tasks from the natural language prompts
 	tasksCreated := 0
@@ -297,12 +295,12 @@ func (s *HelixAPIServer) forkSimpleProject(_ http.ResponseWriter, r *http.Reques
 
 		// Store context and constraints in metadata
 		metadata := map[string]interface{}{
-			"project_id":      projectID,
-			"github_repo":     forkedRepoURL,
-			"context":         taskPrompt.Context,
-			"constraints":     taskPrompt.Constraints,
-			"sample_project":  sampleProject.ID,
-			"technologies":    sampleProject.Technologies,
+			"project_id":     projectID,
+			"github_repo":    forkedRepoURL,
+			"context":        taskPrompt.Context,
+			"constraints":    taskPrompt.Constraints,
+			"sample_project": sampleProject.ID,
+			"technologies":   sampleProject.Technologies,
 		}
 		metadataJSON, _ := json.Marshal(metadata)
 		task.Metadata = metadataJSON

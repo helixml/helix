@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"time"
 
+	"encoding/json"
+
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	"gorm.io/datatypes"
 )
 
 // GetAgentDashboardData returns comprehensive dashboard data including agent sessions and work items
@@ -128,6 +131,33 @@ func (c *Controller) UpdateAgentSessionStatus(ctx context.Context, sessionID, st
 
 // CreateWorkItem creates a new work item in the agent scheduler
 func (c *Controller) CreateWorkItem(ctx context.Context, req *CreateWorkItemRequest) (*types.AgentWorkItem, error) {
+	// Convert map[string]interface{} to datatypes.JSON
+	var workData, config, metadata datatypes.JSON
+
+	if req.WorkData != nil {
+		workDataBytes, err := json.Marshal(req.WorkData)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal work data: %w", err)
+		}
+		workData = datatypes.JSON(workDataBytes)
+	}
+
+	if req.Config != nil {
+		configBytes, err := json.Marshal(req.Config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal config: %w", err)
+		}
+		config = datatypes.JSON(configBytes)
+	}
+
+	if req.Metadata != nil {
+		metadataBytes, err := json.Marshal(req.Metadata)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal metadata: %w", err)
+		}
+		metadata = datatypes.JSON(metadataBytes)
+	}
+
 	workItem := &types.AgentWorkItem{
 		ID:          fmt.Sprintf("work-%d", time.Now().UnixNano()),
 		Name:        req.Name,
@@ -139,12 +169,12 @@ func (c *Controller) CreateWorkItem(ctx context.Context, req *CreateWorkItemRequ
 		AgentType:   req.AgentType,
 		UserID:      req.UserID,
 		AppID:       req.AppID,
-		WorkData:    req.WorkData,
-		Config:      req.Config,
+		WorkData:    workData,
+		Config:      config,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 		MaxRetries:  3,
-		Metadata:    req.Metadata,
+		Metadata:    metadata,
 	}
 
 	if err := c.Options.Store.CreateAgentWorkItem(ctx, workItem); err != nil {
@@ -171,7 +201,7 @@ func (c *Controller) AssignWorkToAgent(ctx context.Context, workItemID, sessionI
 
 	// Update work item status
 	workItem.Status = "in_progress"
-	workItem.SessionID = sessionID
+	workItem.AssignedSessionID = sessionID
 	workItem.UpdatedAt = time.Now()
 	workItem.StartedAt = &time.Time{}
 	*workItem.StartedAt = time.Now()
@@ -216,13 +246,13 @@ func (c *Controller) CompleteWorkItem(ctx context.Context, workItemID string, su
 	}
 
 	// Update agent session status
-	if workItem.SessionID != "" {
+	if workItem.AssignedSessionID != "" {
 		sessionStatus := "completed"
 		if !success {
 			sessionStatus = "failed"
 		}
-		if err := c.UpdateAgentSessionStatus(ctx, workItem.SessionID, sessionStatus, "Work completed"); err != nil {
-			log.Warn().Err(err).Str("session_id", workItem.SessionID).Msg("failed to update agent session status")
+		if err := c.UpdateAgentSessionStatus(ctx, workItem.AssignedSessionID, sessionStatus, "Work completed"); err != nil {
+			log.Warn().Err(err).Str("session_id", workItem.AssignedSessionID).Msg("failed to update agent session status")
 		}
 	}
 
