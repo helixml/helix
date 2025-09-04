@@ -23,11 +23,6 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-const (
-	retries             = 100
-	delayBetweenRetries = 3 * time.Second
-)
-
 // ZedRunner connects to Control Plane and processes Zed agent tasks
 // Replaces GPTScript runner entirely - each runner handles one session then exits
 type ZedRunner struct {
@@ -222,10 +217,10 @@ func (r *ZedRunner) processMessage(ctx context.Context, conn *websocket.Conn, me
 	}
 
 	switch envelope.Type {
-	case "zed_agent_request":
+	case types.RunnerEventRequestZedAgent:
 		return r.processZedAgentRequest(ctx, conn, &envelope)
 	default:
-		return fmt.Errorf("unknown message type: %s", envelope.Type)
+		return fmt.Errorf("unknown message type: %v", envelope.Type)
 	}
 }
 

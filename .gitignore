@@ -19,3 +19,4 @@ build-errors.log
 vendor
 */**/out.md
 helix-runner
+zed-build
