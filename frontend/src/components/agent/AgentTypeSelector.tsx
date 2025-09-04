@@ -172,25 +172,10 @@ const AgentTypeSelector: React.FC<AgentTypeSelectorProps> = ({
               </Typography>
               
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <TextField
-                  label="Project Path"
-                  placeholder="my-project"
-                  size="small"
-                  fullWidth
-                  value={localConfig.project_path || ''}
-                  onChange={(e) => handleConfigChange({ ...localConfig, project_path: e.target.value })}
-                  helperText="Relative path for the project directory"
-                />
-                
-                <TextField
-                  label="Workspace Directory"
-                  placeholder="/workspace/custom-path"
-                  size="small"
-                  fullWidth
-                  value={localConfig.workspace_dir || ''}
-                  onChange={(e) => handleConfigChange({ ...localConfig, workspace_dir: e.target.value })}
-                  helperText="Custom working directory (optional)"
-                />
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Zed agents will automatically clone git repositories from the Helix server into their workspace. 
+                  No manual path configuration needed.
+                </Typography>
 
                 {/* Environment Variables */}
                 <Box>

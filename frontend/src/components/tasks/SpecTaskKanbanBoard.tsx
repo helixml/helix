@@ -46,8 +46,23 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
 } from '@mui/icons-material';
-// Temporarily disabled drag-and-drop to fix TypeScript issues
-// import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
+import {
+  DndContext,
+  DragEndEvent,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  useDroppable,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useTheme } from '@mui/material/styles';
 // Removed date-fns dependency - using native JavaScript instead
 
@@ -314,7 +329,30 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     return () => clearInterval(interval);
   }, [loadTasks]);
 
-  // Drag and drop temporarily disabled - use click handlers instead
+  // Set up drag and drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  // Handle drag and drop
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (!over) return;
+    if (active.id === over.id) return;
+
+    const taskId = active.id as string;
+    const newPhase = over.id as SpecTaskPhase;
+    
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    handleTaskPhaseChange(task, newPhase);
+  }, [tasks]);
+
   const handleTaskPhaseChange = useCallback((task: SpecTaskWithExtras, newPhase: SpecTaskPhase) => {
     const column = columns.find(c => c.id === newPhase);
 
@@ -507,18 +545,36 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     return { icon: <SpecIcon />, color: theme.palette.grey[500], text: 'Unknown' };
   };
 
-  // Render task card
-  const renderTaskCard = (task: SpecTaskWithExtras, index: number) => {
+  // Render draggable task card
+  const DraggableTaskCard = ({ task, index }: { task: SpecTaskWithExtras; index: number }) => {
     const specStatus = getSpecStatusInfo(task);
     const taskId = task.id || `task-${index}`;
     
+    const {
+      attributes,
+      listeners,
+      setNodeRef,
+      transform,
+      transition,
+      isDragging,
+    } = useSortable({ id: taskId });
+
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+    };
+    
     return (
       <Card
-        key={taskId}
+        ref={setNodeRef}
+        style={style}
+        {...attributes}
+        {...listeners}
         sx={{
           mb: 1,
-          cursor: 'pointer',
+          cursor: isDragging ? 'grabbing' : 'grab',
           borderLeft: `4px solid ${getPriorityColor(task.priority || 'medium')}`,
+          opacity: isDragging ? 0.8 : 1,
           '&:hover': {
             boxShadow: theme.shadows[4],
           },
@@ -617,41 +673,56 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
     );
   };
 
-  // Render column
-  const renderColumn = (column: KanbanColumn) => (
-    <Box key={column.id} sx={{ width: 320, mx: 1 }}>
-      <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-        <CardHeader
-          title={
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="h6" sx={{ color: column.color }}>
-                {column.title}
-              </Typography>
-              <Badge badgeContent={column.tasks.length} color="primary" />
-              {column.limit && column.tasks.length >= column.limit && (
-                <Chip label="WIP Limit" size="small" color="warning" />
-              )}
-            </Box>
-          }
-          subheader={column.description}
-          sx={{ 
-            backgroundColor: column.backgroundColor,
-            borderBottom: `3px solid ${column.color}`,
-          }}
-        />
-        
-        <Box
-          sx={{
-            flex: 1,
-            p: 1,
-            minHeight: 200,
-          }}
-        >
-          {column.tasks.map((task, index) => renderTaskCard(task, index))}
-        </Box>
-      </Card>
-    </Box>
-  );
+  // Render task card wrapper
+  const renderTaskCard = (task: SpecTaskWithExtras, index: number) => {
+    return <DraggableTaskCard key={task.id || `task-${index}`} task={task} index={index} />;
+  };
+
+  // Render droppable column
+  const renderColumn = (column: KanbanColumn) => {
+    const { setNodeRef, isOver } = useDroppable({
+      id: column.id,
+    });
+
+    return (
+      <Box key={column.id} sx={{ width: 320, mx: 1 }}>
+        <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <CardHeader
+            title={
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="h6" sx={{ color: column.color }}>
+                  {column.title}
+                </Typography>
+                <Badge badgeContent={column.tasks.length} color="primary" />
+                {column.limit && column.tasks.length >= column.limit && (
+                  <Chip label="WIP Limit" size="small" color="warning" />
+                )}
+              </Box>
+            }
+            subheader={column.description}
+            sx={{ 
+              backgroundColor: column.backgroundColor,
+              borderBottom: `3px solid ${column.color}`,
+            }}
+          />
+          
+          <Box
+            ref={setNodeRef}
+            sx={{
+              flex: 1,
+              p: 1,
+              minHeight: 200,
+              backgroundColor: isOver ? theme.palette.action.hover : 'transparent',
+            }}
+          >
+            <SortableContext items={column.tasks.map(t => t.id || '')} strategy={verticalListSortingStrategy}>
+              {column.tasks.map((task, index) => renderTaskCard(task, index))}
+            </SortableContext>
+          </Box>
+        </Card>
+      </Box>
+    );
+  };
 
   if (loading) {
     return (
@@ -694,10 +765,16 @@ const SpecTaskKanbanBoard: React.FC<SpecTaskKanbanBoardProps> = ({
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
 
-      {/* Kanban Board - Drag and drop temporarily disabled */}
-      <Box sx={{ display: 'flex', gap: 1, height: 'calc(100vh - 200px)', overflow: 'auto' }}>
-        {columns.map(renderColumn)}
-      </Box>
+      {/* Kanban Board with @dnd-kit */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <Box sx={{ display: 'flex', gap: 1, height: 'calc(100vh - 200px)', overflow: 'auto' }}>
+          {columns.map(renderColumn)}
+        </Box>
+      </DndContext>
 
       {/* Create Task Dialog */}
       <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="md" fullWidth>
