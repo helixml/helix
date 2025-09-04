@@ -35,7 +35,7 @@ export function useGitRepositories(ownerId?: string, repoType?: string) {
   return useQuery({
     queryKey: [...QUERY_KEYS.gitRepositories, ownerId, repoType],
     queryFn: async () => {
-      const response = await api.api.v1GitRepositoriesList({
+      const response = await api.getApiClient().v1GitRepositoriesList({
         owner_id: ownerId,
         repo_type: repoType,
       });
@@ -50,7 +50,7 @@ export function useGitRepository(repositoryId: string) {
   return useQuery({
     queryKey: QUERY_KEYS.gitRepository(repositoryId),
     queryFn: async () => {
-      const response = await api.api.v1GitRepositoriesDetail(repositoryId);
+      const response = await api.getApiClient().v1GitRepositoriesDetail(repositoryId);
       return response.data;
     },
     enabled: !!repositoryId,
@@ -63,7 +63,7 @@ export function useSampleTypes() {
   return useQuery({
     queryKey: QUERY_KEYS.sampleTypes,
     queryFn: async () => {
-      const response = await api.api.v1GitRepositoriesSampleTypesList();
+      const response = await api.getApiClient().v1GitRepositoriesSampleTypesList();
       return response.data;
     },
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
@@ -76,7 +76,7 @@ export function useCloneCommand(repositoryId: string, targetDir?: string) {
   return useQuery({
     queryKey: [...QUERY_KEYS.cloneCommand(repositoryId), targetDir],
     queryFn: async () => {
-      const response = await api.api.v1GitRepositoriesCloneCommandDetail(repositoryId, {
+      const response = await api.getApiClient().v1GitRepositoriesCloneCommandDetail(repositoryId, {
         target_dir: targetDir,
       });
       return response.data;
@@ -91,7 +91,7 @@ export function useUserGitRepositories(userId: string) {
   return useQuery({
     queryKey: QUERY_KEYS.userRepositories(userId),
     queryFn: async () => {
-      const response = await api.api.v1GitRepositoriesList({
+      const response = await api.getApiClient().v1GitRepositoriesList({
         owner_id: userId,
       });
       return response.data;
@@ -108,7 +108,7 @@ export function useCreateGitRepository() {
   
   return useMutation({
     mutationFn: async (request: any) => { // ServicesGitRepositoryCreateRequest
-      const response = await api.api.v1GitRepositoriesCreate(request);
+      const response = await api.getApiClient().v1GitRepositoriesCreate(request);
       return response.data;
     },
     onSuccess: (_, variables) => {
@@ -127,7 +127,7 @@ export function useCreateSampleRepository() {
   
   return useMutation({
     mutationFn: async (request: any) => { // ServerCreateSampleRepositoryRequest
-      const response = await api.api.v1GitRepositoriesSampleCreate(request);
+      const response = await api.getApiClient().v1GitRepositoriesSampleCreate(request);
       return response.data;
     },
     onSuccess: (_, variables) => {
@@ -145,7 +145,7 @@ export function useCreateSpecTaskRepository() {
   
   return useMutation({
     mutationFn: async (request: any) => { // ServerCreateSpecTaskRepositoryRequest
-      const response = await api.api.v1GitRepositoriesSpecTaskCreate(request);
+      const response = await api.getApiClient().v1GitRepositoriesSpecTaskCreate(request);
       return response.data;
     },
     onSuccess: (_, variables) => {
@@ -163,7 +163,7 @@ export function useInitializeSampleRepositories() {
   
   return useMutation({
     mutationFn: async (request: any) => { // ServerInitializeSampleRepositoriesRequest
-      const response = await api.api.v1GitRepositoriesInitializeSamplesCreate(request);
+      const response = await api.getApiClient().v1GitRepositoriesInitializeSamplesCreate(request);
       return response.data;
     },
     onSuccess: (_, variables) => {

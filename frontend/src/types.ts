@@ -88,8 +88,9 @@ export const TEXT_DATA_PREP_DISPLAY_STAGES: ITextDataPrepStage[] = [
 export const SESSION_PAGINATION_PAGE_LIMIT = 30
 
 // Agent Types
-export type IAgentType = 'helix' | 'zed_external'
-export const AGENT_TYPE_HELIX: IAgentType = 'helix'
+export type IAgentType = 'helix_basic' | 'helix_agent' | 'zed_external'
+export const AGENT_TYPE_HELIX_BASIC: IAgentType = 'helix_basic'
+export const AGENT_TYPE_HELIX_AGENT: IAgentType = 'helix_agent'
 export const AGENT_TYPE_ZED_EXTERNAL: IAgentType = 'zed_external'
 
 export interface IExternalAgentConfig {
@@ -109,17 +110,23 @@ export interface IAgentTypeOption {
 
 export const AGENT_TYPE_OPTIONS: IAgentTypeOption[] = [
   {
-    value: AGENT_TYPE_HELIX,
-    label: 'Helix Built-In Agent',
-    description: 'Traditional conversational AI with skills and tools',
+    value: AGENT_TYPE_HELIX_BASIC,
+    label: 'Basic Helix Agent',
+    description: 'Simple conversational AI (no multi-turn, useful for RAG)',
     icon: 'chat',
+  },
+  {
+    value: AGENT_TYPE_HELIX_AGENT,
+    label: 'Multi-Turn Helix Agent',
+    description: 'Advanced conversational AI with multi-turn tool use and reasoning',
+    icon: 'auto_awesome',
   },
   {
     value: AGENT_TYPE_ZED_EXTERNAL,
     label: 'Zed External Agent', 
     description: 'Full development environment with code editing via RDP',
     icon: 'code',
-  },
+  }
 ]
 
 

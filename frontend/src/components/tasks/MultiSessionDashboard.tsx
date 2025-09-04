@@ -63,7 +63,7 @@ import {
   formatTimestamp,
   type SpecTask,
   type WorkSession,
-  type CoordinationEvent,
+
   type ZedInstanceStatus,
   type MultiSessionOverview,
   type ImplementationSessionsCreateRequest,
@@ -113,7 +113,10 @@ const MultiSessionDashboard: React.FC<MultiSessionDashboardProps> = ({
     try {
       await createImplementationSessions.mutateAsync({
         taskId,
-        request: newSessionConfig as ImplementationSessionsCreateRequest,
+        request: {
+          ...newSessionConfig,
+          spec_task_id: taskId,
+        } as ImplementationSessionsCreateRequest,
       });
       setCreateDialogOpen(false);
       setNewSessionConfig({
@@ -244,7 +247,7 @@ const MultiSessionDashboard: React.FC<MultiSessionDashboardProps> = ({
                 </TableRow>
               </TableHead>
               <TableBody>
-                {workSessions?.sessions?.map((session: any) => (
+                {workSessions?.work_sessions?.map((session: any) => (
                   <TableRow key={session.id} hover>
                     <TableCell>
                       <Box display="flex" alignItems="center">
