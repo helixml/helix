@@ -333,10 +333,9 @@ func (s *GitRepositoryService) generateRepositoryID(repoType GitRepositoryType, 
 
 // generateCloneURL generates the clone URL for a repository
 func (s *GitRepositoryService) generateCloneURL(repoID string) string {
-	// For now, use file:// URLs for local access
-	// In production, this would be HTTP/HTTPS with git server
-	repoPath := filepath.Join(s.gitRepoBase, repoID)
-	return fmt.Sprintf("file://%s", repoPath)
+	// Use HTTP URLs for network access by Zed agents
+	// Format: http://api-server/git/{repo_id}
+	return fmt.Sprintf("%s/git/%s", s.serverBaseURL, repoID)
 }
 
 // initializeGitRepository initializes a new git repository with initial files
@@ -510,6 +509,11 @@ func (s *GitRepositoryService) getSampleProjectFiles(sampleType string) map[stri
 	files := make(map[string]string)
 
 	switch sampleType {
+	case "empty":
+		files["README.md"] = fmt.Sprintf("# %s\n\nAn empty project repository ready for development.\n\n## Getting Started\n\nThis repository was created as an empty project. Add your code and documentation as needed.\n", sampleType)
+		// Just basic structure - no framework-specific files
+		return files
+
 	case "nodejs-todo":
 		files["README.md"] = "# Node.js Todo App\n\nA simple todo application built with Node.js and Express.\n"
 		files["package.json"] = `{
@@ -657,6 +661,258 @@ export default App;
     <div id="root"></div>
 </body>
 </html>
+`
+
+	case "linkedin-outreach":
+		files["README.md"] = "# LinkedIn Outreach Campaign\n\nMulti-session campaign to reach out to 100 prospects using Helix LinkedIn integration.\n"
+		files["campaign/README.md"] = `# LinkedIn Outreach Campaign
+
+## Campaign Overview
+Goal: Reach out to 100 qualified prospects using Helix LinkedIn skill integration
+
+## Multi-Session Strategy
+- **Session A**: Prospect research and list building
+- **Session B**: Message personalization and outreach
+- **Session C**: Follow-up tracking and relationship management
+- **Session D**: Campaign analysis and optimization
+
+## Campaign Structure
+- Target: 100 prospects in AI/ML industry
+- Personalized messaging based on profile analysis
+- Multi-touch follow-up sequence
+- Conversion tracking and analysis
+`
+		files["campaign/prospect-criteria.md"] = `# Prospect Criteria
+
+## Ideal Customer Profile
+- **Industry**: AI/ML, Software Development, Tech Startups
+- **Role**: CTO, VP Engineering, AI Lead, Technical Founder
+- **Company Size**: 10-500 employees
+- **Location**: Global (English-speaking)
+- **Activity**: Active on LinkedIn, posts about AI/ML
+
+## Qualification Criteria
+- Has engineering team (5+ developers)
+- Shows interest in AI/automation tools
+- Posts about development challenges
+- Engages with technical content
+
+## Exclusion Criteria
+- Competitors or similar companies
+- Non-technical decision makers only
+- Inactive LinkedIn profiles (no posts in 6 months)
+- Already contacted in previous campaigns
+`
+		files["campaign/message-templates.md"] = `# Message Templates
+
+## Initial Outreach Message
+Hi [First Name],
+
+I noticed your recent post about [specific topic from their profile]. Your insights on [specific detail] really resonated with me.
+
+I'm reaching out because we've built something that might interest you - Helix is an AI development platform that helps engineering teams like yours accelerate development with AI-powered coding assistants.
+
+What caught my attention about your work is [personalized observation based on their posts/company].
+
+Would you be open to a brief conversation about how teams like yours are using AI to enhance their development workflows?
+
+Best regards,
+[Your name]
+
+## Follow-up Message 1 (1 week later)
+Hi [First Name],
+
+I hope you don't mind the follow-up. I shared some insights about AI-powered development workflows that might be relevant to [their company/challenges].
+
+I noticed [specific recent activity or post], which aligns with what we're seeing across the industry.
+
+Would a quick 15-minute call work to discuss how other teams are solving [specific challenge they've mentioned]?
+
+## Follow-up Message 2 (2 weeks later)
+[Personalized based on new activity/posts]
+`
+		files["campaign/tracking-template.md"] = `# Campaign Tracking
+
+## Prospect Status Tracking
+| Name | Company | Role | Outreach Date | Status | Response | Next Action |
+|------|---------|------|---------------|--------|----------|-------------|
+| | | | | pending | | |
+
+## Response Categories
+- **Interested**: Wants to learn more / schedule call
+- **Not Now**: Interested but timing not right
+- **Not Relevant**: Not a good fit
+- **No Response**: No reply after 3 touches
+- **Connected**: Accepted invitation, ready for outreach
+
+## Campaign Metrics
+- **Total Prospects**: 100
+- **Messages Sent**: 0
+- **Responses Received**: 0
+- **Positive Responses**: 0
+- **Meetings Scheduled**: 0
+- **Response Rate**: 0%
+- **Conversion Rate**: 0%
+`
+
+	case "helix-blog-posts":
+		files["README.md"] = "# Helix Technical Blog Posts\n\nWrite 10 technical blog posts about the Helix system by analyzing the actual codebase.\n"
+		files["blog-project/README.md"] = `# Helix Blog Post Project
+
+## Project Overview
+Write 10 comprehensive blog posts about different aspects of the Helix AI development platform by analyzing the actual codebase.
+
+## Multi-Session Strategy
+- **Session A**: Repository analysis and content planning
+- **Session B**: Technical deep-dive posts (architecture, APIs)
+- **Session C**: User-focused posts (tutorials, use cases)
+- **Session D**: Advanced topics and future roadmap
+
+## Blog Post Topics
+1. "Getting Started with Helix: Your First AI Assistant"
+2. "Understanding Helix Architecture: From API to Models"
+3. "Building Custom Skills: Extending Helix with APIs"
+4. "Multi-Model Orchestration in Helix"
+5. "Helix Security: Authentication and Access Control"
+6. "Scaling Helix: Deployment and Operations"
+7. "Advanced Helix: Custom Agents and Workflows"
+8. "Helix vs. Other AI Platforms: Technical Comparison"
+9. "Contributing to Helix: Developer Guide"
+10. "The Future of Helix: Roadmap and Vision"
+
+## Content Strategy
+- Technical accuracy through code analysis
+- Practical examples and tutorials
+- Screenshots and diagrams
+- Code samples from actual implementation
+- User journey and use case focus
+`
+		files["blog-project/helix-repo-analysis.md"] = `# Helix Repository Analysis Plan
+
+## Repository Information
+- **Source**: https://github.com/helixml/helix
+- **Clone Strategy**: Use Zed agent git access for live code analysis
+- **Update Frequency**: Re-clone periodically to capture latest changes
+
+## Code Analysis Approach
+
+### 1. Architecture Analysis
+- Main entry points: cmd/, main.go
+- API structure: api/pkg/
+- Frontend: frontend/src/
+- Documentation: docs/, README.md
+
+### 2. Key Components to Analyze
+- **Session Management**: api/pkg/controller/
+- **Model Integration**: api/pkg/model/
+- **Skills System**: api/pkg/agent/skill/
+- **Authentication**: api/pkg/auth/
+- **Storage**: api/pkg/store/
+- **WebSocket**: api/pkg/pubsub/
+
+### 3. Content Generation Strategy
+- Extract code examples for blog posts
+- Understand data flows and interactions
+- Identify key features and capabilities
+- Generate practical tutorials from actual usage patterns
+
+## Git Commands for Zed Agent
+` + "```bash" + `
+# Clone Helix repository
+git clone https://github.com/helixml/helix.git /workspace/helix-analysis
+cd /workspace/helix-analysis
+
+# Analyze codebase structure
+find . -name "*.go" | head -20
+find . -name "*.ts" -o -name "*.tsx" | head -20
+cat README.md
+cat docs/*.md
+
+# Understand main components
+ls -la api/pkg/
+ls -la frontend/src/
+cat main.go
+` + "```" + `
+`
+		files["blog-project/post-templates/"] = ""
+		files["blog-project/post-templates/technical-post-template.md"] = `# [Blog Post Title]
+
+*Part [X] of the Helix Technical Series*
+
+## Introduction
+[Brief introduction explaining what this post covers and why it matters]
+
+## Overview
+[High-level explanation of the topic]
+
+## Technical Deep Dive
+
+### Architecture
+[Explain the architecture with references to actual code]
+
+### Implementation Details
+[Code examples from the actual Helix repository]
+
+` + "```go" + `
+// Example from helix/api/pkg/[component]/[file].go
+[actual code snippet with explanation]
+` + "```" + `
+
+### Key Features
+[Highlight important features and capabilities]
+
+## Practical Examples
+
+### Basic Usage
+[Step-by-step tutorial with real examples]
+
+### Advanced Usage
+[More complex scenarios and configurations]
+
+## Best Practices
+[Recommendations based on codebase analysis]
+
+## Troubleshooting
+[Common issues and solutions based on code understanding]
+
+## Conclusion
+[Summary and next steps]
+
+## Related Resources
+- [Link to relevant documentation]
+- [Link to code examples]
+- [Link to other blog posts in series]
+
+---
+*This post was generated by analyzing the Helix codebase at [commit hash] on [date]*
+`
+		files["blog-project/content-calendar.md"] = `# Blog Post Content Calendar
+
+## Publishing Schedule
+| Post # | Title | Focus Area | Target Date | Status | Session |
+|--------|-------|------------|-------------|--------|---------|
+| 1 | Getting Started with Helix | User Tutorial | Week 1 | Planned | Session C |
+| 2 | Helix Architecture Deep Dive | Technical | Week 1 | Planned | Session B |
+| 3 | Building Custom Skills | Developer Guide | Week 2 | Planned | Session B |
+| 4 | Multi-Model Orchestration | Technical | Week 2 | Planned | Session B |
+| 5 | Authentication & Security | Technical | Week 3 | Planned | Session B |
+| 6 | Deployment & Operations | DevOps | Week 3 | Planned | Session D |
+| 7 | Advanced Workflows | Advanced | Week 4 | Planned | Session D |
+| 8 | Platform Comparison | Business | Week 4 | Planned | Session C |
+| 9 | Contributing Guide | Community | Week 5 | Planned | Session C |
+| 10 | Future Roadmap | Vision | Week 5 | Planned | Session D |
+
+## Content Distribution
+- **Technical Posts (40%)**: Architecture, APIs, advanced features
+- **Tutorial Posts (30%)**: Getting started, how-to guides
+- **Business Posts (20%)**: Use cases, comparisons, ROI
+- **Community Posts (10%)**: Contributing, roadmap, vision
+
+## Session Coordination
+- **Session A**: Repository analysis, research, planning
+- **Session B**: Technical deep-dive content creation
+- **Session C**: User-focused tutorials and guides
+- **Session D**: Advanced topics and strategic content
 `
 
 	default:

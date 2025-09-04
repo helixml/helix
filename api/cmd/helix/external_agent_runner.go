@@ -53,10 +53,8 @@ func externalAgentRunner(_ *cobra.Command) error {
 		Str("workspace_dir", cfg.WorkspaceDir).
 		Msg("starting external agent runner")
 
-	// Create Zed executor
-	zedExecutor := external_agent.NewZedExecutor(cfg.WorkspaceDir)
-
-	runner := external_agent.NewExternalAgentRunner(&cfg, zedExecutor)
+	// Create external agent runner (ZedExecutor no longer available)
+	runner := external_agent.NewExternalAgentRunner(&cfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -75,8 +73,8 @@ func externalAgentRunner(_ *cobra.Command) error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				timeout := time.Duration(cfg.SessionTimeout) * time.Second
-				zedExecutor.CleanupExpiredSessions(ctx, timeout)
+				// ZedExecutor cleanup no longer available
+				log.Debug().Msg("Session cleanup skipped - ZedExecutor not available")
 			}
 		}
 	}()
@@ -106,16 +104,8 @@ func externalAgentRunner(_ *cobra.Command) error {
 			log.Warn().Msg("external agent runner didn't stop gracefully, forcing shutdown")
 		}
 
-		// Cleanup all active sessions
-		sessions := zedExecutor.ListSessions()
-		for _, session := range sessions {
-			if err := zedExecutor.StopZedAgent(context.Background(), session.SessionID); err != nil {
-				log.Error().
-					Err(err).
-					Str("session_id", session.SessionID).
-					Msg("failed to stop session during shutdown")
-			}
-		}
+		// Cleanup all active sessions (ZedExecutor no longer available)
+		log.Info().Msg("Skipping session cleanup - ZedExecutor not available")
 
 		log.Info().Msg("external agent runner stopped successfully")
 		return nil

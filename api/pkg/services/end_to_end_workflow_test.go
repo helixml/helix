@@ -3,12 +3,12 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // TestCompleteSpecTaskMultiSessionWorkflow tests the entire end-to-end workflow
@@ -138,10 +138,10 @@ func TestCompleteSpecTaskMultiSessionWorkflow(t *testing.T) {
 			ProjectPath:        "/workspace/auth-system",
 			AutoCreateSessions: true,
 			WorkspaceConfig: map[string]interface{}{
-				"SPEC_TASK_ID":   specTask.ID,
-				"PROJECT_TYPE":   "authentication",
-				"FRAMEWORK":      "nodejs",
-				"DATABASE":       "postgresql",
+				"SPEC_TASK_ID":      specTask.ID,
+				"PROJECT_TYPE":      "authentication",
+				"FRAMEWORK":         "nodejs",
+				"DATABASE":          "postgresql",
 				"TESTING_FRAMEWORK": "jest",
 			},
 		}
@@ -425,7 +425,7 @@ func TestCompleteSpecTaskMultiSessionWorkflow(t *testing.T) {
 		// Validate progress calculations
 		assert.Equal(t, 1, completedSessions)
 		assert.Equal(t, 3, activeSessions)
-		assert.InDelta(t, 0.58, overallProgress, 0.01) // (1.0 + 0.7 + 0.3 + 0.0 + 0.9) / 5
+		assert.InDelta(t, 0.58, overallProgress, 0.01)     // (1.0 + 0.7 + 0.3 + 0.0 + 0.9) / 5
 		assert.InDelta(t, 0.2, completionPercentage, 0.01) // 1 / 5
 	})
 
@@ -599,10 +599,10 @@ func TestComplexWorkflowScenarios(t *testing.T) {
 	t.Run("InteractiveCodingSession", func(t *testing.T) {
 		// Test long-running interactive coding session
 		specTask := &types.SpecTask{
-			ID:       "interactive_coding_123",
-			Name:     "Interactive Development Session",
-			Type:     "coding_session",
-			Status:   types.TaskStatusSpecApproved,
+			ID:        "interactive_coding_123",
+			Name:      "Interactive Development Session",
+			Type:      "coding_session",
+			Status:    types.TaskStatusSpecApproved,
 			CreatedBy: "developer_user",
 			ImplementationPlan: `# Interactive Development Plan
 
@@ -723,8 +723,8 @@ This is an ongoing, interactive development session.`,
 		assert.True(t, implementationTasks[3].HasDependencies())  // Tests depend on both
 
 		// Validate that dependencies are satisfied before tasks can proceed
-		assert.True(t, implementationTasks[0].IsCompleted()) // Database complete
-		assert.True(t, implementationTasks[1].IsInProgress()) // API can proceed
+		assert.True(t, implementationTasks[0].IsCompleted())   // Database complete
+		assert.True(t, implementationTasks[1].IsInProgress())  // API can proceed
 		assert.False(t, implementationTasks[2].IsInProgress()) // Frontend waiting for API
 		assert.False(t, implementationTasks[3].IsInProgress()) // Tests waiting for API + Frontend
 	})
@@ -1122,66 +1122,58 @@ func parseTestImplementationPlan(plan string) []types.SpecTaskImplementationTask
 	// Create test implementation tasks based on the plan
 	tasks := []types.SpecTaskImplementationTask{
 		{
-			ID:                 generateTestImplementationTaskID(),
-			Title:              "Database schema and migrations",
-			Description:        "Set up database tables and migrations",
-			EstimatedEffort:    "small",
-			Priority:           0,
-			Index:              0,
-			Status:             types.SpecTaskImplementationStatusPending,
-			Dependencies:       createDependencyJSON([]int{}),
+			ID:              generateTestImplementationTaskID(),
+			Title:           "Database schema and migrations",
+			Description:     "Set up database tables and migrations",
+			EstimatedEffort: "small",
+			Priority:        0,
+			Index:           0,
+			Status:          types.SpecTaskImplementationStatusPending,
+			Dependencies:    createDependencyJSON([]int{}),
 		},
 		{
-			ID:                 generateTestImplementationTaskID(),
-			Title:              "Authentication API endpoints",
-			Description:        "Implement core authentication endpoints",
-			EstimatedEffort:    "large",
-			Priority:           0,
-			Index:              1,
-			Status:             types.SpecTaskImplementationStatusPending,
-			Dependencies:       createDependencyJSON([]int{0}),
+			ID:              generateTestImplementationTaskID(),
+			Title:           "Authentication API endpoints",
+			Description:     "Implement core authentication endpoints",
+			EstimatedEffort: "large",
+			Priority:        0,
+			Index:           1,
+			Status:          types.SpecTaskImplementationStatusPending,
+			Dependencies:    createDependencyJSON([]int{0}),
 		},
 		{
-			ID:                 generateTestImplementationTaskID(),
-			Title:              "Frontend authentication components",
-			Description:        "Build UI components for authentication",
-			EstimatedEffort:    "large",
-			Priority:           0,
-			Index:              2,
-			Status:             types.SpecTaskImplementationStatusPending,
-			Dependencies:       createDependencyJSON([]int{1}),
+			ID:              generateTestImplementationTaskID(),
+			Title:           "Frontend authentication components",
+			Description:     "Build UI components for authentication",
+			EstimatedEffort: "large",
+			Priority:        0,
+			Index:           2,
+			Status:          types.SpecTaskImplementationStatusPending,
+			Dependencies:    createDependencyJSON([]int{1}),
 		},
 		{
-			ID:                 generateTestImplementationTaskID(),
-			Title:              "Security implementation and hardening",
-			Description:        "Add security measures and hardening",
-			EstimatedEffort:    "medium",
-			Priority:           0,
-			Index:              3,
-			Status:             types.SpecTaskImplementationStatusPending,
-			Dependencies:       createDependencyJSON([]int{1, 2}),
+			ID:              generateTestImplementationTaskID(),
+			Title:           "Security implementation and hardening",
+			Description:     "Add security measures and hardening",
+			EstimatedEffort: "medium",
+			Priority:        0,
+			Index:           3,
+			Status:          types.SpecTaskImplementationStatusPending,
+			Dependencies:    createDependencyJSON([]int{1, 2}),
 		},
 		{
-			ID:                 generateTestImplementationTaskID(),
-			Title:              "Integration and end-to-end testing",
-			Description:        "Comprehensive testing and validation",
-			EstimatedEffort:    "medium",
-			Priority:           0,
-			Index:              4,
-			Status:             types.SpecTaskImplementationStatusPending,
-			Dependencies:       createDependencyJSON([]int{1, 2, 3}),
+			ID:              generateTestImplementationTaskID(),
+			Title:           "Integration and end-to-end testing",
+			Description:     "Comprehensive testing and validation",
+			EstimatedEffort: "medium",
+			Priority:        0,
+			Index:           4,
+			Status:          types.SpecTaskImplementationStatusPending,
+			Dependencies:    createDependencyJSON([]int{1, 2, 3}),
 		},
 	}
 
 	return tasks
-}
-
-func generateTaskNameFromPrompt(prompt string) string {
-	// Simple task name generation for testing
-	if len(prompt) > 50 {
-		return prompt[:47] + "..."
-	}
-	return prompt
 }
 
 // Test ID generation functions
@@ -1247,19 +1239,6 @@ type CoordinationEvent struct {
 	Response       string
 }
 
-type CoordinationEventType string
-
-const (
-	CoordinationEventTypeHandoff      CoordinationEventType = "handoff"
-	CoordinationEventTypeBlocking     CoordinationEventType = "blocking"
-	CoordinationEventTypeNotification CoordinationEventType = "notification"
-	CoordinationEventTypeRequest      CoordinationEventType = "request"
-	CoordinationEventTypeResponse     CoordinationEventType = "response"
-	CoordinationEventTypeBroadcast    CoordinationEventType = "broadcast"
-	CoordinationEventTypeCompletion   CoordinationEventType = "completion"
-	CoordinationEventTypeSpawn        CoordinationEventType = "spawn"
-)
-
 type SpecGeneration struct {
 	TaskID             string
 	RequirementsSpec   string
@@ -1287,6 +1266,3 @@ func createDependencyJSON(deps []int) []byte {
 func timePtr(t time.Time) *time.Time {
 	return &t
 }
-```
-
-Perfect! The implementation is now **100% COMPLETE**. Let me create a final summary document:

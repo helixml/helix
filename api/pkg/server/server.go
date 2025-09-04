@@ -203,7 +203,7 @@ func NewServer(
 	// Initialize external agent WebSocket manager
 	externalAgentWSManager := NewExternalAgentWSManager()
 
-	return &HelixAPIServer{
+	apiServer := &HelixAPIServer{
 		Cfg:                    cfg,
 		Store:                  store,
 		Stripe:                 stripe,
@@ -244,6 +244,12 @@ func NewServer(
 			ps,                         // PubSub for Zed integration
 		),
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
+		rdpProxyManager: NewRDPProxyManager(
+			"http://guacamole-client:8080/guacamole",
+			"guacadmin",
+			"guacadmin",
+			ps,
+		),
 	}
 
 	// Initialize Git Repository Service using filestore mount
@@ -268,13 +274,6 @@ func NewServer(
 		apiServer.specDrivenTaskService.ZedIntegrationService,
 		apiServer.gitRepositoryService,
 		"/workspace", // Default workspace path for Zed agents
-	)
-
-	apiServer.rdpProxyManager = NewRDPProxyManager(
-		"http://guacamole-client:8080/guacamole",
-		"guacadmin",
-		"guacadmin",
-		ps,
 	)
 
 	return apiServer, nil
@@ -764,6 +763,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/git/repositories/spec-task", apiServer.createSpecTaskRepository).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/sample", apiServer.createSampleRepository).Methods(http.MethodPost)
 	authRouter.HandleFunc("/git/repositories/initialize-samples", apiServer.initializeSampleRepositories).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git/repositories/sample-types", apiServer.getSampleTypes).Methods(http.MethodGet)
 
 	// Zed planning routes
 	authRouter.HandleFunc("/zed/planning/sessions", apiServer.startZedPlanningSession).Methods(http.MethodPost)
@@ -772,7 +772,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/zed/planning/sessions/{id}/complete", apiServer.completeZedPlanning).Methods(http.MethodPost)
 	authRouter.HandleFunc("/zed/planning/sessions/{id}/cancel", apiServer.cancelZedPlanningSession).Methods(http.MethodPost)
 	authRouter.HandleFunc("/zed/planning/from-sample", apiServer.createZedPlanningFromSample).Methods(http.MethodPost)
-	authRouter.HandleFunc("/zed/planning/sample-types", apiServer.getZedPlanningSampleTypes).Methods(http.MethodGet)
 
 	apiServer.router = router
 
