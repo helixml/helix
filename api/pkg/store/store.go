@@ -259,11 +259,6 @@ type Store interface {
 	ListKnowledgeVersions(ctx context.Context, q *ListKnowledgeVersionQuery) ([]*types.KnowledgeVersion, error)
 	DeleteKnowledgeVersion(ctx context.Context, id string) error
 
-	// GPTScript runs history table
-	CreateScriptRun(ctx context.Context, task *types.ScriptRun) (*types.ScriptRun, error)
-	ListScriptRuns(ctx context.Context, q *types.GptScriptRunsQuery) ([]*types.ScriptRun, error)
-	DeleteScriptRun(ctx context.Context, id string) error
-
 	CreateLLMCall(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error)
 	ListLLMCalls(ctx context.Context, q *ListLLMCallsQuery) ([]*types.LLMCall, int64, error)
 

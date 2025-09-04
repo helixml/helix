@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/browser"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
@@ -38,7 +39,6 @@ import (
 	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/version"
-	"github.com/helixml/helix/api/pkg/zedagent"
 
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -268,13 +268,9 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	if cfg.GPTScript.TestFaster.URL != "" {
-		return fmt.Errorf("HELIX_TESTFASTER_URL is deprecated, please use runner based GPTScript executor")
-	}
-	// TODO: Replace with zedagent executor
-	log.Info().Msg("GPTScript executor disabled - transitioning to zedagent")
-	// gse := gptscript.NewExecutor(cfg, ps)
-	var gse zedagent.Executor // nil executor placeholder
+	// Using external agent executor
+	log.Info().Msg("Using external agent executor")
+	var gse external_agent.Executor // nil executor placeholder
 
 	var extractor extract.Extractor
 
@@ -423,20 +419,20 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	})
 
 	controllerOptions := controller.Options{
-		Config:            cfg,
-		Store:             postgresStore,
-		PubSub:            ps,
-		RAG:               ragClient,
-		Extractor:         extractor,
-		GPTScriptExecutor: gse, // TODO: Replace with zedagent
-		Filestore:         fs,
-		Janitor:           janitor,
-		Notifier:          notifier,
-		ProviderManager:   providerManager,
-		Scheduler:         scheduler,
-		RunnerController:  runnerController,
-		Browser:           browserPool,
-		SearchProvider:    searchProvider,
+		Config:                cfg,
+		Store:                 postgresStore,
+		PubSub:                ps,
+		RAG:                   ragClient,
+		Extractor:             extractor,
+		ExternalAgentExecutor: gse, // Using external agent executor
+		Filestore:             fs,
+		Janitor:               janitor,
+		Notifier:              notifier,
+		ProviderManager:       providerManager,
+		Scheduler:             scheduler,
+		RunnerController:      runnerController,
+		Browser:               browserPool,
+		SearchProvider:        searchProvider,
 	}
 
 	// Create the OAuth manager
