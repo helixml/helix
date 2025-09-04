@@ -36,7 +36,7 @@ func NewZedAgentRunnerCmd() *cobra.Command {
 }
 
 func zedAgentRunner(_ *cobra.Command) error {
-	cfg, err := config.LoadZedAgentRunnerConfig()
+	cfg, err := config.LoadExternalAgentRunnerConfig()
 	if err != nil {
 		log.Error().Err(err).Msg("failed to load Zed agent runner config")
 		return err

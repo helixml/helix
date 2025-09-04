@@ -481,6 +481,17 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}/stats", apiServer.getExternalAgentStats).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/logs", apiServer.getExternalAgentLogs).Methods("GET")
 
+	// Zed agent routes
+	authRouter.HandleFunc("/zed-agents", apiServer.createZedAgent).Methods("POST")
+	authRouter.HandleFunc("/zed-agents", apiServer.listZedAgents).Methods("GET")
+	authRouter.HandleFunc("/zed-agents/{sessionID}", apiServer.getZedAgent).Methods("GET")
+	authRouter.HandleFunc("/zed-agents/{sessionID}", apiServer.updateZedAgent).Methods("PUT")
+	authRouter.HandleFunc("/zed-agents/{sessionID}", apiServer.deleteZedAgent).Methods("DELETE")
+	authRouter.HandleFunc("/zed-agents/{sessionID}/rdp", apiServer.getZedAgentRDP).Methods("GET")
+	authRouter.HandleFunc("/zed-agents/{sessionID}/rdp/proxy", apiServer.proxyZedAgentRDP).Methods("GET")
+	authRouter.HandleFunc("/zed-agents/{sessionID}/stats", apiServer.getZedAgentStats).Methods("GET")
+	authRouter.HandleFunc("/zed-agents/{sessionID}/logs", apiServer.getZedAgentLogs).Methods("GET")
+
 	// RDP proxy management endpoints
 	authRouter.HandleFunc("/rdp-proxy/health", apiServer.getRDPProxyHealth).Methods("GET")
 

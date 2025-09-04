@@ -12,7 +12,7 @@ import (
 )
 
 // processLocalFiles takes an AppHelixConfig and a base directory path,
-// and processes any file references (GPTScripts and API schemas) relative to that directory,
+// and processes any file references (API schemas) relative to that directory,
 // loading the contents of the files into the config.
 func processLocalFiles(config *types.AppHelixConfig, basePath string) error {
 	if config.Assistants == nil {
@@ -26,47 +26,6 @@ func processLocalFiles(config *types.AppHelixConfig, basePath string) error {
 		if assistant.APIs == nil {
 			assistant.APIs = []types.AssistantAPI{}
 		}
-		if assistant.GPTScripts == nil {
-			assistant.GPTScripts = []types.AssistantGPTScript{}
-		}
-
-		// Process GPTScripts
-		var newScripts []types.AssistantGPTScript
-		for _, script := range assistant.GPTScripts {
-			if script.File != "" {
-				// Load script from file(s), this can contain a glob pattern
-				scriptPath := filepath.Join(basePath, script.File)
-				expandedFiles, err := filepath.Glob(scriptPath)
-				if err != nil {
-					return fmt.Errorf("error globbing file %s: %w", script.File, err)
-				}
-
-				for _, file := range expandedFiles {
-					content, err := os.ReadFile(file)
-					if err != nil {
-						return fmt.Errorf("error reading file %s: %w", file, err)
-					}
-
-					name := script.Name
-					if name == "" {
-						name = filepath.Base(file)
-					}
-
-					newScripts = append(newScripts, types.AssistantGPTScript{
-						Name:        name,
-						File:        file,
-						Content:     string(content),
-						Description: script.Description,
-					})
-				}
-			} else {
-				if script.Content == "" {
-					return fmt.Errorf("gpt script %s has no content", script.Name)
-				}
-				newScripts = append(newScripts, script)
-			}
-		}
-		assistant.GPTScripts = newScripts
 
 		// Process API schemas
 		for j, api := range assistant.APIs {

@@ -30,7 +30,6 @@ type ServerConfig struct {
 	GitHub             GitHub
 	FineTuning         FineTuning
 	Apps               Apps
-	GPTScript          GPTScript
 	Triggers           Triggers
 	Search             Search
 	SSL                SSL
@@ -475,19 +474,6 @@ type Apps struct {
 	Enabled  bool           `envconfig:"APPS_ENABLED" default:"true" description:"Enable apps."` // Enable/disable apps for the server
 	Provider types.Provider `envconfig:"APPS_PROVIDER" default:"togetherai" description:"Which LLM provider to use for apps."`
 	Model    string         `envconfig:"APPS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1" description:"Which LLM model to use for apps."` // gpt-4-1106-preview
-}
-
-type GPTScript struct {
-	Enabled bool `envconfig:"GPTSCRIPT_ENABLED" default:"true" description:"Enable gptscript."` // Enable/disable gptscript for the server
-
-	Runner struct {
-		RequestTimeout time.Duration `envconfig:"GPTSCRIPT_RUNNER_REQUEST_TIMEOUT" default:"10s" description:"How long to wait for the script response."`
-		Retries        uint          `envconfig:"GPTSCRIPT_RUNNER_RETRIES" default:"3" description:"How many retries."`
-	}
-
-	TestFaster struct {
-		URL string `envconfig:"HELIX_TESTFASTER_URL" description:"(Deprecated) The URL to the testfaster cluster."`
-	}
 }
 
 type Triggers struct {

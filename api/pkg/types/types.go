@@ -1281,7 +1281,6 @@ type Tool struct {
 
 type ToolConfig struct {
 	API         *ToolAPIConfig         `json:"api"`
-	GPTScript   *ToolGPTScriptConfig   `json:"gptscript"`
 	Zapier      *ToolZapierConfig      `json:"zapier"`
 	Browser     *ToolBrowserConfig     `json:"browser"`
 	WebSearch   *ToolWebSearchConfig   `json:"web_search"`
@@ -1388,22 +1387,10 @@ type ToolAPIAction struct {
 	Path        string `json:"path" yaml:"path"`
 }
 
-type ToolGPTScriptConfig struct {
-	Script    string `json:"script"`     // Program code
-	ScriptURL string `json:"script_url"` // URL to download the script
-}
-
 type ToolZapierConfig struct {
 	APIKey        string `json:"api_key"`
 	Model         string `json:"model"`
 	MaxIterations int    `json:"max_iterations"`
-}
-
-type AssistantGPTScript struct {
-	Name        string `json:"name" yaml:"name"`
-	Description string `json:"description" yaml:"description"` // When to use this tool (required)
-	File        string `json:"file" yaml:"file"`
-	Content     string `json:"content" yaml:"content"`
 }
 
 type AssistantZapier struct {
@@ -1532,10 +1519,10 @@ type AssistantConfig struct {
 	IsActionableTemplate      string `json:"is_actionable_template,omitempty" yaml:"is_actionable_template,omitempty"`
 	IsActionableHistoryLength int    `json:"is_actionable_history_length,omitempty" yaml:"is_actionable_history_length,omitempty"` // Defaults to 4
 
-	APIs       []AssistantAPI       `json:"apis,omitempty" yaml:"apis,omitempty"`
-	GPTScripts []AssistantGPTScript `json:"gptscripts,omitempty" yaml:"gptscripts,omitempty"`
-	Zapier     []AssistantZapier    `json:"zapier,omitempty" yaml:"zapier,omitempty"`
-	MCPs       []AssistantMCP       `json:"mcps,omitempty" yaml:"mcps,omitempty"`
+	APIs []AssistantAPI `json:"apis,omitempty" yaml:"apis,omitempty"`
+
+	Zapier []AssistantZapier `json:"zapier,omitempty" yaml:"zapier,omitempty"`
+	MCPs   []AssistantMCP    `json:"mcps,omitempty" yaml:"mcps,omitempty"`
 
 	Browser   AssistantBrowser   `json:"browser,omitempty" yaml:"browser,omitempty"`
 	WebSearch AssistantWebSearch `json:"web_search,omitempty" yaml:"web_search,omitempty"`
@@ -1739,42 +1726,10 @@ type KeyPair struct {
 }
 
 // the low level "please run me a gptsript" request
-type GptScript struct {
-	// if the script is inline then we use loader.ProgramFromSource
-	Source string `json:"source"`
-	// if we have a file path then we use loader.Program
-	// and gptscript will sort out relative paths
-	// if this script is part of a github app
-	// it will be a relative path inside the repo
-	FilePath string `json:"file_path"`
-	// if the script lives on a URL then we download it
-	URL string `json:"url"`
-	// the program inputs
-	Input string `json:"input"`
-	// this is the env passed into the program
-	Env []string `json:"env"`
-}
 
 // higher level "run a script inside this repo" request
-type GptScriptGithubApp struct {
-	Script     GptScript `json:"script"`
-	Repo       string    `json:"repo"`
-	CommitHash string    `json:"commit"`
-	// we will need this to clone the repo (in the case of private repos)
-	KeyPair KeyPair `json:"key_pair"`
-}
 
 // for an app, run which script with what input?
-type GptScriptRequest struct {
-	FilePath string `json:"file_path"`
-	Input    string `json:"input"`
-}
-
-type GptScriptResponse struct {
-	Output  string `json:"output"`
-	Error   string `json:"error"`
-	Retries int    `json:"retries"`
-}
 
 // ZedAgent represents a Zed editor instance configuration
 type ZedAgent struct {
@@ -1830,28 +1785,6 @@ type ZedAgentRDPData struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
-func (g GptScriptResponse) Value() (driver.Value, error) {
-	j, err := json.Marshal(g)
-	return j, err
-}
-
-func (g *GptScriptResponse) Scan(src interface{}) error {
-	source, ok := src.([]byte)
-	if !ok {
-		return errors.New("type assertion .([]byte) failed")
-	}
-	var result GptScriptResponse
-	if err := json.Unmarshal(source, &result); err != nil {
-		return err
-	}
-	*g = result
-	return nil
-}
-
-func (GptScriptResponse) GormDataType() string {
-	return "json"
-}
-
 type DataEntityConfig struct {
 	FilestorePath string      `json:"filestore_path"`
 	RAGSettings   RAGSettings `json:"rag_settings"`
@@ -1899,48 +1832,12 @@ type DataEntity struct {
 
 type ScriptRunType string
 
-const (
-	GptScriptRunnerTaskTypeGithubApp ScriptRunType = "github_app"
-	GptScriptRunnerTaskTypeTool      ScriptRunType = "tool"
-	// TODO: add more types, like python script, etc.
-)
-
-// ScriptRun is an internal type that is used when GPTScript
-// tasks are invoked by the user and the runner runs
-type ScriptRun struct {
-	ID         string         `json:"id" gorm:"primaryKey"`
-	Created    time.Time      `json:"created"`
-	Updated    time.Time      `json:"updated"`
-	Owner      string         `json:"owner" gorm:"index"` // uuid of owner entity
-	OwnerType  OwnerType      `json:"owner_type"`         // e.g. user, system, org
-	AppID      string         `json:"app_id"`
-	State      ScriptRunState `json:"state"`
-	Type       ScriptRunType  `json:"type"`
-	Retries    int            `json:"retries"`
-	DurationMs int            `json:"duration_ms"`
-
-	Request     *GptScriptRunnerRequest `json:"request" gorm:"jsonb"`
-	Response    *GptScriptResponse      `json:"response" gorm:"jsonb"`
-	SystemError string                  `json:"system_error"` // If we didn't get the response from the runner
-}
-
-type GptScriptRunsQuery struct {
-	Owner     string
-	OwnerType OwnerType
-	AppID     string
-	State     ScriptRunState
-}
-
 // ZedAgentRunsQuery represents a query for Zed agent runs
 type ZedAgentRunsQuery struct {
 	Owner     string
 	OwnerType OwnerType
 	SessionID string
 	Status    string
-}
-
-type GptScriptRunnerRequest struct {
-	GithubApp *GptScriptGithubApp `json:"github_app"`
 }
 
 // ZedAgentRunnerRequest represents a request to run a Zed agent
@@ -1975,28 +1872,6 @@ type ExternalAgentToken struct {
 	Token     string    `json:"token"`
 	SessionID string    `json:"session_id"`
 	ExpiresAt time.Time `json:"expires_at"`
-}
-
-func (r GptScriptRunnerRequest) Value() (driver.Value, error) {
-	j, err := json.Marshal(r)
-	return j, err
-}
-
-func (r *GptScriptRunnerRequest) Scan(src interface{}) error {
-	source, ok := src.([]byte)
-	if !ok {
-		return errors.New("type assertion .([]byte) failed")
-	}
-	var result GptScriptRunnerRequest
-	if err := json.Unmarshal(source, &result); err != nil {
-		return err
-	}
-	*r = result
-	return nil
-}
-
-func (GptScriptRunnerRequest) GormDataType() string {
-	return "json"
 }
 
 type RunnerEventRequestType int
