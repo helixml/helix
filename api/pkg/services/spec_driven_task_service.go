@@ -8,6 +8,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -19,11 +20,17 @@ import (
 // Specification: Helix agent generates specs from simple descriptions
 // Implementation: Zed agent implements code from approved specs
 type SpecDrivenTaskService struct {
-	store        store.Store
-	controller   *controller.Controller
-	helixAgentID string   // ID of Helix agent for spec generation
-	zedAgentPool []string // Pool of available Zed agents
-	testMode     bool     // If true, skip async operations for testing
+	store                    store.Store
+	controller               *controller.Controller
+	helixAgentID             string                       // ID of Helix agent for spec generation
+	zedAgentPool             []string                     // Pool of available Zed agents
+	testMode                 bool                         // If true, skip async operations for testing
+	MultiSessionManager      *SpecTaskMultiSessionManager // Manager for multi-session workflows
+	ZedIntegrationService    *ZedIntegrationService       // Service for Zed instance and thread management
+	DocumentHandoffService   *DocumentHandoffService      // Service for git-based document handoff
+	SpecDocumentService      *SpecDocumentService         // Service for Kiro-style document generation
+	ZedToHelixSessionService *ZedToHelixSessionService    // Service for Zed→Helix session creation
+	SessionContextService    *SessionContextService       // Service for inter-session coordination
 }
 
 // NewSpecDrivenTaskService creates a new service instance
@@ -32,19 +39,90 @@ func NewSpecDrivenTaskService(
 	controller *controller.Controller,
 	helixAgentID string,
 	zedAgentPool []string,
+	pubsub pubsub.PubSub,
 ) *SpecDrivenTaskService {
-	return &SpecDrivenTaskService{
+	service := &SpecDrivenTaskService{
 		store:        store,
 		controller:   controller,
 		helixAgentID: helixAgentID,
 		zedAgentPool: zedAgentPool,
 		testMode:     false,
 	}
+
+	// Initialize Zed integration service
+	service.ZedIntegrationService = NewZedIntegrationService(
+		store,
+		controller,
+		pubsub,
+	)
+
+	// Initialize document services
+	service.SpecDocumentService = NewSpecDocumentService(
+		store,
+		"/workspace/git",  // Default git base path
+		"Helix System",    // Default git user name
+		"system@helix.ml", // Default git email
+	)
+
+	service.SessionContextService = NewSessionContextService(store)
+
+	service.DocumentHandoffService = NewDocumentHandoffService(
+		store,
+		service.SpecDocumentService,
+		nil, // Will be set after MultiSessionManager is created
+		"/workspace/git",
+		"Helix System",
+		"system@helix.ml",
+	)
+
+	// Initialize multi-session manager
+	var defaultImplementationApp string
+	if len(zedAgentPool) > 0 {
+		defaultImplementationApp = zedAgentPool[0]
+	}
+
+	service.MultiSessionManager = NewSpecTaskMultiSessionManager(
+		store,
+		controller,
+		service,
+		service.ZedIntegrationService,
+		defaultImplementationApp,
+	)
+
+	// Set MultiSessionManager reference in DocumentHandoffService
+	service.DocumentHandoffService.multiSessionManager = service.MultiSessionManager
+
+	// Initialize Zed-to-Helix session service
+	service.ZedToHelixSessionService = NewZedToHelixSessionService(
+		store,
+		service.MultiSessionManager,
+		service.SessionContextService,
+	)
+
+	return service
 }
 
 // SetTestMode enables or disables test mode (prevents async operations)
 func (s *SpecDrivenTaskService) SetTestMode(enabled bool) {
 	s.testMode = enabled
+	if s.MultiSessionManager != nil {
+		s.MultiSessionManager.SetTestMode(enabled)
+	}
+	if s.ZedIntegrationService != nil {
+		s.ZedIntegrationService.SetTestMode(enabled)
+	}
+	if s.DocumentHandoffService != nil {
+		s.DocumentHandoffService.SetTestMode(enabled)
+	}
+	if s.SpecDocumentService != nil {
+		s.SpecDocumentService.SetTestMode(enabled)
+	}
+	if s.ZedToHelixSessionService != nil {
+		s.ZedToHelixSessionService.SetTestMode(enabled)
+	}
+	if s.SessionContextService != nil {
+		s.SessionContextService.SetTestMode(enabled)
+	}
 }
 
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
@@ -233,9 +311,9 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 			return fmt.Errorf("failed to update task approval: %w", err)
 		}
 
-		// Start implementation (unless in test mode)
+		// Start multi-session implementation (unless in test mode)
 		if !s.testMode {
-			go s.startImplementation(context.Background(), task)
+			go s.startMultiSessionImplementation(context.Background(), task)
 		}
 
 	} else {
@@ -258,7 +336,58 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 	return nil
 }
 
-// startImplementation kicks off implementation with a Zed agent
+// startMultiSessionImplementation kicks off multi-session implementation using the MultiSessionManager
+func (s *SpecDrivenTaskService) startMultiSessionImplementation(ctx context.Context, task *types.SpecTask) {
+	log.Info().
+		Str("task_id", task.ID).
+		Msg("Starting multi-session implementation")
+
+	// Select available Zed agent for implementation
+	zedAgent := s.selectZedAgent()
+	if zedAgent == "" {
+		log.Error().Str("task_id", task.ID).Msg("No Zed agents available")
+		s.markTaskFailed(ctx, task, types.TaskStatusImplementationFailed)
+		return
+	}
+
+	// Update task with implementation agent
+	task.ImplementationAgent = zedAgent
+	task.UpdatedAt = time.Now()
+
+	err := s.store.UpdateSpecTask(ctx, task)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with implementation agent")
+		s.markTaskFailed(ctx, task, types.TaskStatusImplementationFailed)
+		return
+	}
+
+	// Create implementation sessions configuration
+	config := &types.SpecTaskImplementationSessionsCreateRequest{
+		SpecTaskID:         task.ID,
+		ProjectPath:        "/workspace/" + task.ID, // Default project path
+		AutoCreateSessions: true,
+		WorkspaceConfig: map[string]interface{}{
+			"TASK_ID":    task.ID,
+			"TASK_NAME":  task.Name,
+			"AGENT_TYPE": zedAgent,
+		},
+	}
+
+	// Create implementation sessions via MultiSessionManager
+	_, err = s.MultiSessionManager.CreateImplementationSessions(ctx, task.ID, config)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create implementation sessions")
+		s.markTaskFailed(ctx, task, types.TaskStatusImplementationFailed)
+		return
+	}
+
+	log.Info().
+		Str("task_id", task.ID).
+		Str("implementation_agent", zedAgent).
+		Msg("Multi-session implementation started successfully")
+}
+
+// startImplementation kicks off implementation with a Zed agent (legacy single-session)
 func (s *SpecDrivenTaskService) startImplementation(ctx context.Context, task *types.SpecTask) {
 	log.Info().
 		Str("task_id", task.ID).

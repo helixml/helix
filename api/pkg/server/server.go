@@ -96,6 +96,8 @@ type HelixAPIServer struct {
 	trigger                  *trigger.Manager
 	specDrivenTaskService    *services.SpecDrivenTaskService
 	sampleProjectCodeService *services.SampleProjectCodeService
+	gitRepositoryService     *services.GitRepositoryService
+	zedPlanningService       *services.ZedPlanningService
 	rdpProxyManager          *RDPProxyManager
 }
 
@@ -239,15 +241,43 @@ func NewServer(
 			controller,
 			"helix-spec-agent",         // Default Helix agent for spec generation
 			[]string{"zed-1", "zed-2"}, // Pool of Zed agents for implementation
+			ps,                         // PubSub for Zed integration
 		),
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
-		rdpProxyManager: NewRDPProxyManager(
-			"http://guacamole-client:8080/guacamole",
-			"guacadmin",
-			"guacadmin",
-			ps,
-		),
-	}, nil
+	}
+
+	// Initialize Git Repository Service using filestore mount
+	apiServer.gitRepositoryService = services.NewGitRepositoryService(
+		store,
+		cfg.FileStore.LocalFSPath, // Use filestore mount for git repositories
+		cfg.WebServer.URL,         // Server base URL
+		"Helix System",            // Git user name
+		"system@helix.ml",         // Git user email
+	)
+
+	// Initialize git repository base directory
+	if err := apiServer.gitRepositoryService.Initialize(context.Background()); err != nil {
+		return nil, fmt.Errorf("failed to initialize git repository service: %w", err)
+	}
+
+	// Initialize Zed Planning Service
+	apiServer.zedPlanningService = services.NewZedPlanningService(
+		store,
+		controller,
+		ps,
+		apiServer.specDrivenTaskService.ZedIntegrationService,
+		apiServer.gitRepositoryService,
+		"/workspace", // Default workspace path for Zed agents
+	)
+
+	apiServer.rdpProxyManager = NewRDPProxyManager(
+		"http://guacamole-client:8080/guacamole",
+		"guacadmin",
+		"guacadmin",
+		ps,
+	)
+
+	return apiServer, nil
 }
 
 func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.CleanupManager) error {
@@ -688,10 +718,61 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/spec-tasks/{taskId}/progress", apiServer.getTaskProgress).Methods(http.MethodGet)
 	authRouter.HandleFunc("/spec-tasks/{taskId}/approve-specs", apiServer.approveSpecs).Methods(http.MethodPost)
 
+	// Multi-session spec-driven task routes
+	authRouter.HandleFunc("/spec-tasks/{taskId}/implementation-sessions", apiServer.createImplementationSessions).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/multi-session-overview", apiServer.getSpecTaskMultiSessionOverview).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/work-sessions", apiServer.listSpecTaskWorkSessions).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/implementation-tasks", apiServer.listImplementationTasks).Methods(http.MethodGet)
+	authRouter.HandleFunc("/work-sessions/{sessionId}", apiServer.getWorkSessionDetail).Methods(http.MethodGet)
+	authRouter.HandleFunc("/work-sessions/{sessionId}/spawn", apiServer.spawnWorkSession).Methods(http.MethodPost)
+	authRouter.HandleFunc("/work-sessions/{sessionId}/status", apiServer.updateWorkSessionStatus).Methods(http.MethodPut)
+	authRouter.HandleFunc("/work-sessions/{sessionId}/zed-thread", apiServer.updateZedThreadStatus).Methods(http.MethodPut)
+
+	// Document handoff and git integration routes
+	authRouter.HandleFunc("/spec-tasks/{taskId}/generate-documents", apiServer.generateSpecDocuments).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/execute-handoff", apiServer.executeDocumentHandoff).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/approve-with-handoff", apiServer.approveSpecsWithHandoff).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/commit-progress", apiServer.commitProgressUpdate).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/document-status", apiServer.getDocumentHandoffStatus).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/download-documents", apiServer.downloadSpecDocuments).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/documents/{document}", apiServer.getSpecDocumentContent).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/coordination-log", apiServer.getCoordinationLog).Methods(http.MethodGet)
+	authRouter.HandleFunc("/work-sessions/{sessionId}/record-history", apiServer.recordSessionHistory).Methods(http.MethodPost)
+	authRouter.HandleFunc("/work-sessions/{sessionId}/history", apiServer.getSessionHistoryLog).Methods(http.MethodGet)
+	authRouter.HandleFunc("/zed-threads/create-session", apiServer.createSessionFromZedThread).Methods(http.MethodPost)
+
+	// Zed integration routes
+	authRouter.HandleFunc("/zed/events", apiServer.handleZedInstanceEvent).Methods(http.MethodPost)
+	authRouter.HandleFunc("/zed/instances/{instanceId}/threads/{threadId}/events", apiServer.handleZedThreadEvent).Methods(http.MethodPost)
+	authRouter.HandleFunc("/zed/instances/{instanceId}/heartbeat", apiServer.handleZedConnectionHeartbeat).Methods(http.MethodPost)
+	authRouter.HandleFunc("/zed/threads/{threadId}/activity", apiServer.updateZedThreadActivity).Methods(http.MethodPost)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/zed-instance", apiServer.getZedInstanceStatus).Methods(http.MethodGet)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/zed-instance", apiServer.shutdownZedInstance).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/spec-tasks/{taskId}/zed-threads", apiServer.listZedThreads).Methods(http.MethodGet)
+	authRouter.HandleFunc("/work-sessions/{sessionId}/zed-thread", apiServer.createZedThreadForWorkSession).Methods(http.MethodPost)
+
 	// Sample project code routes
 	authRouter.HandleFunc("/sample-projects", apiServer.listSampleProjects).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sample-projects/{projectId}/code", apiServer.getSampleProjectCode).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sample-projects/{projectId}/archive", apiServer.getSampleProjectCodeArchive).Methods(http.MethodGet)
+
+	// Git repository routes
+	authRouter.HandleFunc("/git/repositories", apiServer.createGitRepository).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git/repositories", apiServer.listGitRepositories).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}", apiServer.getGitRepository).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/{id}/clone-command", apiServer.getGitRepositoryCloneCommand).Methods(http.MethodGet)
+	authRouter.HandleFunc("/git/repositories/spec-task", apiServer.createSpecTaskRepository).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git/repositories/sample", apiServer.createSampleRepository).Methods(http.MethodPost)
+	authRouter.HandleFunc("/git/repositories/initialize-samples", apiServer.initializeSampleRepositories).Methods(http.MethodPost)
+
+	// Zed planning routes
+	authRouter.HandleFunc("/zed/planning/sessions", apiServer.startZedPlanningSession).Methods(http.MethodPost)
+	authRouter.HandleFunc("/zed/planning/sessions", apiServer.listZedPlanningSessions).Methods(http.MethodGet)
+	authRouter.HandleFunc("/zed/planning/sessions/{id}", apiServer.getZedPlanningSession).Methods(http.MethodGet)
+	authRouter.HandleFunc("/zed/planning/sessions/{id}/complete", apiServer.completeZedPlanning).Methods(http.MethodPost)
+	authRouter.HandleFunc("/zed/planning/sessions/{id}/cancel", apiServer.cancelZedPlanningSession).Methods(http.MethodPost)
+	authRouter.HandleFunc("/zed/planning/from-sample", apiServer.createZedPlanningFromSample).Methods(http.MethodPost)
+	authRouter.HandleFunc("/zed/planning/sample-types", apiServer.getZedPlanningSampleTypes).Methods(http.MethodGet)
 
 	apiServer.router = router
 
