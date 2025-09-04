@@ -178,6 +178,13 @@ func (t *AgentWorkQueueTrigger) createSessionForWorkItem(ctx context.Context, wo
 		return nil, fmt.Errorf("failed to get app: %w", err)
 	}
 
+	// Get the assistant system prompt
+	var assistantSystemPrompt string
+	if len(app.Config.Helix.Assistants) == 0 {
+		return nil, fmt.Errorf("app %s has no agents configured", workItem.AppID)
+	}
+	assistantSystemPrompt = app.Config.Helix.Assistants[0].SystemPrompt
+
 	// Create system prompt that includes the work item context
 	systemPrompt := fmt.Sprintf(`You are an AI agent working on a specific task. Your task details:
 
@@ -198,7 +205,7 @@ Work methodically and document your progress. When you're done, use the JobCompl
 		workItem.Source,
 		workItem.SourceURL,
 		workItem.Priority,
-		app.Config.Helix.SystemPrompt)
+		assistantSystemPrompt)
 
 	// Create session request
 	sessionReq := &CreateSessionRequest{
@@ -354,7 +361,7 @@ func (t *AgentWorkQueueTrigger) GetWorkItemMetrics(ctx context.Context, triggerC
 	var completionTimes []float64
 	statusCounts := make(map[string]int)
 
-	for _, item := range response.Items {
+	for _, item := range response.WorkItems {
 		statusCounts[item.Status]++
 
 		// Calculate completion time if completed

@@ -295,20 +295,6 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 			})
 		}
 
-		// Convert GPTScripts to Tools
-		for _, script := range assistant.GPTScripts {
-			tools = append(tools, &types.Tool{
-				Name:        script.Name,
-				Description: script.Description,
-				ToolType:    types.ToolTypeGPTScript,
-				Config: types.ToolConfig{
-					GPTScript: &types.ToolGPTScriptConfig{
-						Script: script.Content,
-					},
-				},
-			})
-		}
-
 		assistant.Tools = tools
 	}
 

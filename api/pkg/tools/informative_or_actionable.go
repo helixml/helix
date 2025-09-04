@@ -225,12 +225,7 @@ func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool, options O
 					ToolType:    string(tool.ToolType),
 				})
 			}
-		case types.ToolTypeGPTScript:
-			modelTools = append(modelTools, &modelTool{
-				Name:        tool.Name,
-				Description: tool.Description,
-				ToolType:    string(tool.ToolType),
-			})
+
 		case types.ToolTypeZapier:
 			modelTools = append(modelTools, &modelTool{
 				Name:        tool.Name,
@@ -266,7 +261,7 @@ type modelTool struct {
 	ToolType    string
 }
 
-const isInformativeOrActionablePrompt = `You are an AI that classifies whether user input requires the use of a tool or not. You should ONLY recommend using a tool if the user request MATCHES ONE OF THE TOOLS descriptions below. Such user requests can be fulfilled by calling a tool or external API to either execute something or fetch more data to help in answering the question. Also, if the user question is asking you to perform actions (e.g. list, create, update, delete) then you will need to use a tool but ONLY if you have a tool that exactly matches what they are trying to do. NEVER invent tools, only use the ones provided below in "the available tools". If the user asks about a specific item or person, always check with an appropriate tool if there is one rather than making something up/depending on your background knowledge. There are two types of tools: api tools and gptscript tools. API tools are used to call APIs. gptscript tools can do anything. If the user mentions gptscript, use one of the gptscript tools.
+const isInformativeOrActionablePrompt = `You are an AI that classifies whether user input requires the use of a tool or not. You should ONLY recommend using a tool if the user request MATCHES ONE OF THE TOOLS descriptions below. Such user requests can be fulfilled by calling a tool or external API to either execute something or fetch more data to help in answering the question. Also, if the user question is asking you to perform actions (e.g. list, create, update, delete) then you will need to use a tool but ONLY if you have a tool that exactly matches what they are trying to do. NEVER invent tools, only use the ones provided below in "the available tools". If the user asks about a specific item or person, always check with an appropriate tool if there is one rather than making something up/depending on your background knowledge. API tools are used to call APIs.
 
 Examples:
 

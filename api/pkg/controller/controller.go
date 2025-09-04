@@ -31,8 +31,7 @@ type Options struct {
 	PubSub                pubsub.PubSub
 	Extractor             extract.Extractor
 	RAG                   rag.RAG
-	ZedExecutor           *external_agent.ZedExecutor // Zed agents
-	ExternalAgentExecutor external_agent.Executor     // Interface for external agents
+	ExternalAgentExecutor external_agent.Executor // Interface for external agents
 	Filestore             filestore.FileStore
 	Janitor               *janitor.Janitor
 	Notifier              notification.Notifier
