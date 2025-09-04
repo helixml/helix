@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,58 +10,59 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	"gorm.io/datatypes"
 )
 
 // SampleProject represents a sample project template
 type SampleProject struct {
-	ID           string                `json:"id"`
-	Name         string                `json:"name"`
-	Description  string                `json:"description"`
-	GitHubRepo   string                `json:"github_repo"`
-	DefaultBranch string               `json:"default_branch"`
-	Technologies []string              `json:"technologies"`
-	SampleTasks  []SampleProjectTask   `json:"sample_tasks"`
-	ReadmeURL    string                `json:"readme_url"`
-	DemoURL      string                `json:"demo_url,omitempty"`
-	Difficulty   string                `json:"difficulty"` // "beginner", "intermediate", "advanced"
-	Category     string                `json:"category"`   // "web", "api", "mobile", "data", "ai"
+	ID            string              `json:"id"`
+	Name          string              `json:"name"`
+	Description   string              `json:"description"`
+	GitHubRepo    string              `json:"github_repo"`
+	DefaultBranch string              `json:"default_branch"`
+	Technologies  []string            `json:"technologies"`
+	SampleTasks   []SampleProjectTask `json:"sample_tasks"`
+	ReadmeURL     string              `json:"readme_url"`
+	DemoURL       string              `json:"demo_url,omitempty"`
+	Difficulty    string              `json:"difficulty"` // "beginner", "intermediate", "advanced"
+	Category      string              `json:"category"`   // "web", "api", "mobile", "data", "ai"
 }
 
 type SampleProjectTask struct {
-	Title         string   `json:"title"`
-	Description   string   `json:"description"`
-	Type          string   `json:"type"`          // "feature", "bug", "task", "epic"
-	Priority      string   `json:"priority"`      // "low", "medium", "high", "critical"
-	Status        string   `json:"status"`        // "backlog", "ready", "in_progress", "review", "done"
-	EstimatedHours int     `json:"estimated_hours,omitempty"`
-	Labels        []string `json:"labels"`
+	Title              string   `json:"title"`
+	Description        string   `json:"description"`
+	Type               string   `json:"type"`     // "feature", "bug", "task", "epic"
+	Priority           string   `json:"priority"` // "low", "medium", "high", "critical"
+	Status             string   `json:"status"`   // "backlog", "ready", "in_progress", "review", "done"
+	EstimatedHours     int      `json:"estimated_hours,omitempty"`
+	Labels             []string `json:"labels"`
 	AcceptanceCriteria []string `json:"acceptance_criteria,omitempty"`
-	TechnicalNotes string   `json:"technical_notes,omitempty"`
-	FilesToModify  []string `json:"files_to_modify,omitempty"`
+	TechnicalNotes     string   `json:"technical_notes,omitempty"`
+	FilesToModify      []string `json:"files_to_modify,omitempty"`
 }
 
 // Built-in sample projects
 var SAMPLE_PROJECTS = []SampleProject{
 	{
-		ID:          "modern-todo-app",
-		Name:        "Modern Todo App",
-		Description: "A full-stack todo application with React, Node.js, and PostgreSQL. Perfect for learning modern web development patterns.",
-		GitHubRepo:  "helix-ai/sample-todo-app",
+		ID:            "modern-todo-app",
+		Name:          "Modern Todo App",
+		Description:   "A full-stack todo application with React, Node.js, and PostgreSQL. Perfect for learning modern web development patterns.",
+		GitHubRepo:    "helix-ai/sample-todo-app",
 		DefaultBranch: "main",
-		Technologies: []string{"React", "TypeScript", "Node.js", "Express", "PostgreSQL", "Tailwind CSS", "Prisma"},
-		ReadmeURL:   "https://github.com/helix-ai/sample-todo-app/blob/main/README.md",
-		DemoURL:     "https://sample-todo-app.vercel.app",
-		Difficulty:  "intermediate",
-		Category:    "web",
+		Technologies:  []string{"React", "TypeScript", "Node.js", "Express", "PostgreSQL", "Tailwind CSS", "Prisma"},
+		ReadmeURL:     "https://github.com/helix-ai/sample-todo-app/blob/main/README.md",
+		DemoURL:       "https://sample-todo-app.vercel.app",
+		Difficulty:    "intermediate",
+		Category:      "web",
 		SampleTasks: []SampleProjectTask{
 			{
-				Title:       "Implement dark mode toggle",
-				Description: "Add a dark/light mode toggle with persistent user preference using localStorage. The toggle should smoothly transition between themes and remember the user's choice across sessions.",
-				Type:        "feature",
-				Priority:    "medium",
-				Status:      "backlog",
+				Title:          "Implement dark mode toggle",
+				Description:    "Add a dark/light mode toggle with persistent user preference using localStorage. The toggle should smoothly transition between themes and remember the user's choice across sessions.",
+				Type:           "feature",
+				Priority:       "medium",
+				Status:         "backlog",
 				EstimatedHours: 3,
-				Labels:      []string{"frontend", "ui/ux", "react"},
+				Labels:         []string{"frontend", "ui/ux", "react"},
 				AcceptanceCriteria: []string{
 					"Toggle button in the header switches between light and dark themes",
 					"Theme preference persists across browser sessions",
@@ -70,32 +70,32 @@ var SAMPLE_PROJECTS = []SampleProject{
 					"All components properly styled in both themes",
 				},
 				TechnicalNotes: "Use React Context for theme state management and CSS variables for theme colors",
-				FilesToModify: []string{"src/contexts/ThemeContext.tsx", "src/components/Header.tsx", "src/styles/globals.css"},
+				FilesToModify:  []string{"src/contexts/ThemeContext.tsx", "src/components/Header.tsx", "src/styles/globals.css"},
 			},
 			{
-				Title:       "Fix todo deletion race condition",
-				Description: "When multiple users try to delete the same todo item simultaneously, it causes database inconsistencies. Implement proper concurrency control.",
-				Type:        "bug",
-				Priority:    "high",
-				Status:      "ready",
+				Title:          "Fix todo deletion race condition",
+				Description:    "When multiple users try to delete the same todo item simultaneously, it causes database inconsistencies. Implement proper concurrency control.",
+				Type:           "bug",
+				Priority:       "high",
+				Status:         "ready",
 				EstimatedHours: 2,
-				Labels:      []string{"backend", "database", "concurrency"},
+				Labels:         []string{"backend", "database", "concurrency"},
 				AcceptanceCriteria: []string{
 					"Only one delete operation succeeds for the same todo item",
 					"Proper error handling for concurrent delete attempts",
 					"Database integrity maintained under high concurrency",
 				},
 				TechnicalNotes: "Implement optimistic locking or use database transactions with proper isolation levels",
-				FilesToModify: []string{"server/routes/todos.js", "server/models/Todo.js"},
+				FilesToModify:  []string{"server/routes/todos.js", "server/models/Todo.js"},
 			},
 			{
-				Title:       "Add todo categories and filtering",
-				Description: "Allow users to organize todos into custom categories (Work, Personal, Shopping, etc.) with filtering and color-coding capabilities.",
-				Type:        "feature",
-				Priority:    "low",
-				Status:      "backlog",
+				Title:          "Add todo categories and filtering",
+				Description:    "Allow users to organize todos into custom categories (Work, Personal, Shopping, etc.) with filtering and color-coding capabilities.",
+				Type:           "feature",
+				Priority:       "low",
+				Status:         "backlog",
 				EstimatedHours: 6,
-				Labels:      []string{"frontend", "backend", "database", "ui/ux"},
+				Labels:         []string{"frontend", "backend", "database", "ui/ux"},
 				AcceptanceCriteria: []string{
 					"Users can create custom categories",
 					"Each todo can be assigned to a category",
@@ -112,13 +112,13 @@ var SAMPLE_PROJECTS = []SampleProject{
 				},
 			},
 			{
-				Title:       "Implement user authentication with JWT",
-				Description: "Add secure user authentication system with JWT tokens, registration, login, and protected routes.",
-				Type:        "feature",
-				Priority:    "critical",
-				Status:      "ready",
+				Title:          "Implement user authentication with JWT",
+				Description:    "Add secure user authentication system with JWT tokens, registration, login, and protected routes.",
+				Type:           "feature",
+				Priority:       "critical",
+				Status:         "ready",
 				EstimatedHours: 10,
-				Labels:      []string{"backend", "security", "frontend", "authentication"},
+				Labels:         []string{"backend", "security", "frontend", "authentication"},
 				AcceptanceCriteria: []string{
 					"User registration with email validation",
 					"Secure login with JWT tokens",
@@ -140,24 +140,24 @@ var SAMPLE_PROJECTS = []SampleProject{
 		},
 	},
 	{
-		ID:          "ecommerce-api",
-		Name:        "E-commerce REST API",
-		Description: "A comprehensive RESTful API for an e-commerce platform with product management, order processing, and payment integration.",
-		GitHubRepo:  "helix-ai/sample-ecommerce-api",
+		ID:            "ecommerce-api",
+		Name:          "E-commerce REST API",
+		Description:   "A comprehensive RESTful API for an e-commerce platform with product management, order processing, and payment integration.",
+		GitHubRepo:    "helix-ai/sample-ecommerce-api",
 		DefaultBranch: "main",
-		Technologies: []string{"Node.js", "Express", "MongoDB", "Redis", "Stripe", "JWT", "Docker"},
-		ReadmeURL:   "https://github.com/helix-ai/sample-ecommerce-api/blob/main/README.md",
-		Difficulty:  "advanced",
-		Category:    "api",
+		Technologies:  []string{"Node.js", "Express", "MongoDB", "Redis", "Stripe", "JWT", "Docker"},
+		ReadmeURL:     "https://github.com/helix-ai/sample-ecommerce-api/blob/main/README.md",
+		Difficulty:    "advanced",
+		Category:      "api",
 		SampleTasks: []SampleProjectTask{
 			{
-				Title:       "Implement product search with Elasticsearch",
-				Description: "Add full-text search functionality for products with advanced filtering, sorting, and faceted search capabilities.",
-				Type:        "feature",
-				Priority:    "high",
-				Status:      "backlog",
+				Title:          "Implement product search with Elasticsearch",
+				Description:    "Add full-text search functionality for products with advanced filtering, sorting, and faceted search capabilities.",
+				Type:           "feature",
+				Priority:       "high",
+				Status:         "backlog",
 				EstimatedHours: 8,
-				Labels:      []string{"search", "elasticsearch", "performance"},
+				Labels:         []string{"search", "elasticsearch", "performance"},
 				AcceptanceCriteria: []string{
 					"Full-text search across product name, description, and tags",
 					"Filter by price range, category, brand, and availability",
@@ -173,13 +173,13 @@ var SAMPLE_PROJECTS = []SampleProject{
 				},
 			},
 			{
-				Title:       "Fix inventory race condition in high concurrency",
-				Description: "When multiple users purchase the same item simultaneously, inventory can go negative. Implement proper concurrency control.",
-				Type:        "bug",
-				Priority:    "critical",
-				Status:      "ready",
+				Title:          "Fix inventory race condition in high concurrency",
+				Description:    "When multiple users purchase the same item simultaneously, inventory can go negative. Implement proper concurrency control.",
+				Type:           "bug",
+				Priority:       "critical",
+				Status:         "ready",
 				EstimatedHours: 4,
-				Labels:      []string{"concurrency", "inventory", "database"},
+				Labels:         []string{"concurrency", "inventory", "database"},
 				AcceptanceCriteria: []string{
 					"Inventory cannot go below zero under any circumstances",
 					"Proper error handling for out-of-stock scenarios",
@@ -192,13 +192,13 @@ var SAMPLE_PROJECTS = []SampleProject{
 				},
 			},
 			{
-				Title:       "Add order cancellation workflow",
-				Description: "Implement order cancellation with automatic refund processing and inventory restoration within the allowed time window.",
-				Type:        "feature",
-				Priority:    "medium",
-				Status:      "backlog",
+				Title:          "Add order cancellation workflow",
+				Description:    "Implement order cancellation with automatic refund processing and inventory restoration within the allowed time window.",
+				Type:           "feature",
+				Priority:       "medium",
+				Status:         "backlog",
 				EstimatedHours: 6,
-				Labels:      []string{"orders", "payments", "business-logic"],
+				Labels:         []string{"orders", "payments", "business-logic"},
 				AcceptanceCriteria: []string{
 					"Orders can be cancelled within 1 hour of placement",
 					"Automatic refund processing via Stripe",
@@ -216,24 +216,24 @@ var SAMPLE_PROJECTS = []SampleProject{
 		},
 	},
 	{
-		ID:          "react-native-weather",
-		Name:        "Weather App - React Native",
-		Description: "Cross-platform weather application with location services, weather forecasts, and offline caching.",
-		GitHubRepo:  "helix-ai/sample-weather-app",
+		ID:            "react-native-weather",
+		Name:          "Weather App - React Native",
+		Description:   "Cross-platform weather application with location services, weather forecasts, and offline caching.",
+		GitHubRepo:    "helix-ai/sample-weather-app",
 		DefaultBranch: "main",
-		Technologies: []string{"React Native", "TypeScript", "Expo", "AsyncStorage", "Reanimated"},
-		ReadmeURL:   "https://github.com/helix-ai/sample-weather-app/blob/main/README.md",
-		Difficulty:  "beginner",
-		Category:    "mobile",
+		Technologies:  []string{"React Native", "TypeScript", "Expo", "AsyncStorage", "Reanimated"},
+		ReadmeURL:     "https://github.com/helix-ai/sample-weather-app/blob/main/README.md",
+		Difficulty:    "beginner",
+		Category:      "mobile",
 		SampleTasks: []SampleProjectTask{
 			{
-				Title:       "Add weather animations",
-				Description: "Implement animated weather icons and background effects that reflect current weather conditions.",
-				Type:        "feature",
-				Priority:    "low",
-				Status:      "backlog",
+				Title:          "Add weather animations",
+				Description:    "Implement animated weather icons and background effects that reflect current weather conditions.",
+				Type:           "feature",
+				Priority:       "low",
+				Status:         "backlog",
 				EstimatedHours: 5,
-				Labels:      []string{"ui/ux", "animations", "react-native"},
+				Labels:         []string{"ui/ux", "animations", "react-native"},
 				AcceptanceCriteria: []string{
 					"Animated weather icons (rain, snow, sun, clouds)",
 					"Dynamic background colors based on weather",
@@ -256,7 +256,7 @@ var SAMPLE_PROJECTS = []SampleProject{
 // @Success 200 {array} SampleProject
 // @Router /api/v1/sample-projects [get]
 // @Security BearerAuth
-func (s *HelixAPIServer) listSampleProjects(_ http.ResponseWriter, r *http.Request) ([]SampleProject, *system.HTTPError) {
+func (s *HelixAPIServer) listSampleProjectTemplates(_ http.ResponseWriter, r *http.Request) ([]SampleProject, *system.HTTPError) {
 	user := getRequestUser(r)
 	if user == nil {
 		return nil, system.NewHTTPError401("unauthorized")
@@ -360,7 +360,7 @@ func (s *HelixAPIServer) forkSampleProject(_ http.ResponseWriter, r *http.Reques
 	// Create project name if not provided
 	projectName := req.ProjectName
 	if projectName == "" {
-		projectName = fmt.Sprintf("%s - %s", sampleProject.Name, user.Name)
+		projectName = fmt.Sprintf("%s - %s", sampleProject.Name, user.Username)
 	}
 
 	log.Info().
@@ -371,7 +371,7 @@ func (s *HelixAPIServer) forkSampleProject(_ http.ResponseWriter, r *http.Reques
 
 	// TODO: Implement actual GitHub forking using GitHub API
 	// For now, we'll simulate the forking process
-	forkedRepoURL := fmt.Sprintf("https://github.com/%s/%s", user.Name,
+	forkedRepoURL := fmt.Sprintf("https://github.com/%s/%s", user.Username,
 		fmt.Sprintf("helix-%s", req.SampleProjectID))
 
 	// Create Helix project record
@@ -380,54 +380,63 @@ func (s *HelixAPIServer) forkSampleProject(_ http.ResponseWriter, r *http.Reques
 		Name:           projectName,
 		Description:    req.Description,
 		UserID:         user.ID,
-		OrganizationID: user.OrganizationID,
+		OrganizationID: "", // TODO: Get organization ID from user context
 		GitHubRepoURL:  forkedRepoURL,
 		DefaultBranch:  sampleProject.DefaultBranch,
 		Technologies:   sampleProject.Technologies,
 		Status:         "active",
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
-		Metadata: map[string]interface{}{
-			"sample_project_id": req.SampleProjectID,
-			"original_repo":     sampleProject.GitHubRepo,
-			"forked_from":       "sample_project",
-		},
+		Metadata: func() datatypes.JSON {
+			metadataMap := map[string]interface{}{
+				"sample_project_id": req.SampleProjectID,
+				"original_repo":     sampleProject.GitHubRepo,
+				"forked_from":       "sample_project",
+			}
+			metadataBytes, _ := json.Marshal(metadataMap)
+			return datatypes.JSON(metadataBytes)
+		}(),
 	}
 
 	// Store project (assuming we have a projects store)
-	err := s.Store.CreateProject(ctx, project)
+	createdProject, err := s.Store.CreateProject(ctx, project)
 	if err != nil {
 		log.Error().Err(err).Str("project_id", projectID).Msg("Failed to create project")
-		return nil, system.NewHTTPError500("failed to create project")
+		return nil, system.NewHTTPError500("Failed to create project")
 	}
+	_ = createdProject // Use the created project if needed
 
 	// Create sample tasks for the project
 	for i, taskTemplate := range sampleProject.SampleTasks {
 		task := &types.AgentWorkItem{
-			ID:             fmt.Sprintf("task_%s_%d", projectID, i),
+			ID:              fmt.Sprintf("task_%s_%d", projectID, i),
 			TriggerConfigID: "", // Will be set when trigger is created
-			Name:           taskTemplate.Title,
-			Description:    taskTemplate.Description,
-			Source:         "sample_project",
-			SourceID:       fmt.Sprintf("%d", i+1),
-			Priority:       getPriorityNumber(taskTemplate.Priority),
-			Status:         taskTemplate.Status,
-			AgentType:      "zed", // Default to Zed for sample projects
-			UserID:         user.ID,
-			AppID:          "", // Will be linked to app if needed
-			OrganizationID: user.OrganizationID,
-			MaxRetries:     3,
-			CreatedAt:      time.Now(),
-			UpdatedAt:      time.Now(),
-			Metadata: map[string]interface{}{
-				"project_id":           projectID,
-				"task_type":           taskTemplate.Type,
-				"estimated_hours":     taskTemplate.EstimatedHours,
-				"labels":              taskTemplate.Labels,
-				"acceptance_criteria": taskTemplate.AcceptanceCriteria,
-				"technical_notes":     taskTemplate.TechnicalNotes,
-				"files_to_modify":     taskTemplate.FilesToModify,
-			},
+			Name:            taskTemplate.Title,
+			Description:     taskTemplate.Description,
+			Source:          "sample_project",
+			SourceID:        fmt.Sprintf("%d", i+1),
+			Priority:        getPriorityNumber(taskTemplate.Priority),
+			Status:          taskTemplate.Status,
+			AgentType:       "zed", // Default to Zed for sample projects
+			UserID:          user.ID,
+			AppID:           "", // Will be linked to app if needed
+			OrganizationID:  "", // TODO: Get organization ID from user context
+			MaxRetries:      3,
+			CreatedAt:       time.Now(),
+			UpdatedAt:       time.Now(),
+			Metadata: func() datatypes.JSON {
+				metadataMap := map[string]interface{}{
+					"project_id":          projectID,
+					"task_type":           taskTemplate.Type,
+					"estimated_hours":     taskTemplate.EstimatedHours,
+					"labels":              taskTemplate.Labels,
+					"acceptance_criteria": taskTemplate.AcceptanceCriteria,
+					"technical_notes":     taskTemplate.TechnicalNotes,
+					"files_to_modify":     taskTemplate.FilesToModify,
+				}
+				metadataBytes, _ := json.Marshal(metadataMap)
+				return datatypes.JSON(metadataBytes)
+			}(),
 		}
 
 		// Convert work data to JSON

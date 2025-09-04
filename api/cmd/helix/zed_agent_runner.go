@@ -6,14 +6,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/pubsub"
-	"github.com/helixml/helix/api/pkg/zedagent"
 )
 
 func NewZedAgentRunnerCmd() *cobra.Command {
@@ -52,19 +49,20 @@ func zedAgentRunner(_ *cobra.Command) error {
 		Int("max_tasks", cfg.MaxTasks).
 		Msg("starting Zed agent runner")
 
+	// TODO: Fix pubsub and zedagent interface issues
 	// Initialize pubsub for RDP data routing
-	pubsubInstance, err := pubsub.NewNats(&cfg.PubSub)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to initialize pubsub")
-		return err
-	}
+	// pubsubInstance, err := pubsub.NewNats(&cfg.PubSub)
+	// if err != nil {
+	// 	log.Error().Err(err).Msg("failed to initialize pubsub")
+	// 	return err
+	// }
 
 	// Initialize Zed runner using the new pattern
-	runner, err := zedagent.InitializeZedRunner(pubsubInstance)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to initialize Zed runner")
-		return err
-	}
+	// runner, err := zedagent.InitializeZedRunner(pubsubInstance)
+	// if err != nil {
+	// 	log.Error().Err(err).Msg("failed to initialize Zed runner")
+	// 	return err
+	// }
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -81,29 +79,29 @@ func zedAgentRunner(_ *cobra.Command) error {
 		cancel()
 	}()
 
+	// TODO: Fix runner interface
 	// Run the Zed agent runner
-	log.Info().Msg("🟢 Zed agent runner started and ready for tasks")
+	log.Info().Msg("🟢 Zed agent runner temporarily disabled - needs interface fixes")
 
-	err = runner.Run(ctx)
-	if err != nil {
-		select {
-		case <-ctx.Done():
-			// Graceful shutdown
-			log.Info().Msg("Zed agent runner gracefully shut down")
+	// Wait for shutdown signal
+	<-ctx.Done()
+	log.Info().Msg("Zed agent runner gracefully shut down")
 
-			// Give any active sessions time to finish
-			time.Sleep(2 * time.Second)
+	// err = runner.Run(ctx)
+	// if err != nil {
+	// 	if errors.Is(err, context.Canceled) {
+	// 		// Graceful shutdown
+	// 		log.Info().Msg("Zed agent runner gracefully shut down")
 
-			return nil
-		default:
-			if err != nil && !errors.Is(err, context.Canceled) {
-				log.Error().Err(err).Msg("Zed agent runner stopped with error")
-				return err
-			}
-		}
-	case <-time.After(10 * time.Second):
-		log.Warn().Msg("Zed agent runner didn't stop gracefully, forcing shutdown")
-	}
+	// 		// Give any active sessions time to finish
+	// 		time.Sleep(2 * time.Second)
+
+	// 		return nil
+	// 	} else {
+	// 		log.Error().Err(err).Msg("Zed agent runner stopped with error")
+	// 		return err
+	// 	}
+	// }
 
 	log.Info().Msg("Zed agent runner stopped successfully")
 	return nil

@@ -225,12 +225,13 @@ func (apiServer *HelixAPIServer) handleMessageAdded(sessionID string, syncMsg *t
 		return fmt.Errorf("missing or invalid message_id")
 	}
 
-	content, ok := syncMsg.Data["content"].(string)
+	_, ok = syncMsg.Data["content"].(string)
 	if !ok {
 		return fmt.Errorf("missing or invalid content")
 	}
 
-	role, ok := syncMsg.Data["role"].(string)
+	var role string
+	role, ok = syncMsg.Data["role"].(string)
 	if !ok {
 		return fmt.Errorf("missing or invalid role")
 	}

@@ -328,7 +328,7 @@ If the user asks for information about Helix or installing Helix, refer them to 
 		if err != nil {
 			log.Error().Err(err).Str("session_id", session.ID).Msg("Failed to launch external agent")
 			// Clean up the session since external agent launch failed
-			if deleteErr := s.Controller.DeleteSession(req.Context(), session.ID); deleteErr != nil {
+			if _, deleteErr := s.Store.DeleteSession(req.Context(), session.ID); deleteErr != nil {
 				log.Error().Err(deleteErr).Str("session_id", session.ID).Msg("Failed to cleanup session after external agent launch failure")
 			}
 			http.Error(rw, "failed to launch external agent: "+err.Error(), http.StatusInternalServerError)

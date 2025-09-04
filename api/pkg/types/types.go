@@ -1261,7 +1261,6 @@ type ToolType string
 const (
 	ToolTypeAPI         ToolType = "api"
 	ToolTypeBrowser     ToolType = "browser"
-	ToolTypeGPTScript   ToolType = "gptscript"
 	ToolTypeZapier      ToolType = "zapier"
 	ToolTypeCalculator  ToolType = "calculator"
 	ToolTypeEmail       ToolType = "email"

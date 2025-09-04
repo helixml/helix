@@ -390,6 +390,35 @@ type Store interface {
 	GetSessionsNeedingHelp(ctx context.Context) ([]*types.AgentSession, error)
 	GetRecentCompletions(ctx context.Context, limit int) ([]*types.JobCompletion, error)
 	GetPendingReviews(ctx context.Context) ([]*types.JobCompletion, error)
+
+	// Session management methods
+	MarkSessionAsNeedingHelp(ctx context.Context, sessionID string, task string) error
+	MarkSessionAsCompleted(ctx context.Context, sessionID string, completionType string) error
+	CleanupExpiredSessions(ctx context.Context, timeout time.Duration) error
+
+	// Help request methods (additional)
+	CreateHelpRequest(ctx context.Context, request *types.HelpRequest) error
+
+	// Job completion methods
+	CreateJobCompletion(ctx context.Context, completion *types.JobCompletion) error
+
+	// Agent session status methods (additional)
+	GetAgentSessionStatus(ctx context.Context, sessionID string) (*types.AgentSessionStatus, error)
+	CreateAgentSessionStatus(ctx context.Context, status *types.AgentSessionStatus) error
+	UpdateAgentSessionStatus(ctx context.Context, status *types.AgentSessionStatus) error
+	ListAgentSessionStatus(ctx context.Context, query *ListAgentSessionsQuery) (*types.AgentSessionsResponse, error)
+
+	// Agent work queue stats
+	GetAgentWorkQueueStats(ctx context.Context) (*types.AgentWorkQueueStats, error)
+
+	// Additional help request methods
+	ListHelpRequests(ctx context.Context, query *ListHelpRequestsQuery) (*types.HelpRequestsListResponse, error)
+
+	// Additional session management methods
+	MarkSessionAsActive(ctx context.Context, sessionID string, task string) error
+
+	// Project methods
+	CreateProject(ctx context.Context, project *types.Project) (*types.Project, error)
 }
 
 type EmbeddingsStore interface {
