@@ -1,55 +1,257 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+
+	"github.com/helixml/helix/api/pkg/types"
 )
 
-// RDPProxyConnection represents an active RDP proxy connection
-// Proxies between frontend WebSocket and runner via NATS
-type RDPProxyConnection struct {
-	SessionID    string
-	UserID       string
-	WebSocket    *websocket.Conn // Frontend connection
-	LastActivity time.Time
-	mu           sync.RWMutex
+// GuacamoleClient handles interactions with the Guacamole REST API
+type GuacamoleClient struct {
+	baseURL    string
+	username   string
+	password   string
+	authToken  string
+	dataSource string
+	httpClient *http.Client
+	mu         sync.RWMutex
 }
 
-// RDPProxyManager manages active RDP proxy connections
+// GuacamoleAuthRequest represents the authentication request to Guacamole
+type GuacamoleAuthRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// GuacamoleAuthResponse represents the authentication response from Guacamole
+type GuacamoleAuthResponse struct {
+	AuthToken            string   `json:"authToken"`
+	Username             string   `json:"username"`
+	DataSource           string   `json:"dataSource"`
+	AvailableDataSources []string `json:"availableDataSources"`
+}
+
+// GuacamoleConnection represents a connection in Guacamole
+type GuacamoleConnection struct {
+	Name             string            `json:"name"`
+	ParentIdentifier string            `json:"parentIdentifier"`
+	Protocol         string            `json:"protocol"`
+	Parameters       map[string]string `json:"parameters"`
+	Attributes       map[string]string `json:"attributes"`
+}
+
+// GuacamoleConnectionResponse represents the response when creating a connection
+type GuacamoleConnectionResponse struct {
+	Identifier string `json:"identifier"`
+	Name       string `json:"name"`
+	Protocol   string `json:"protocol"`
+}
+
+// NewGuacamoleClient creates a new Guacamole REST API client
+func NewGuacamoleClient(baseURL, username, password string) *GuacamoleClient {
+	return &GuacamoleClient{
+		baseURL:    strings.TrimSuffix(baseURL, "/"),
+		username:   username,
+		password:   password,
+		dataSource: "postgresql", // Default data source name
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+	}
+}
+
+// authenticate gets an auth token from Guacamole
+func (gc *GuacamoleClient) authenticate() error {
+	gc.mu.Lock()
+	defer gc.mu.Unlock()
+
+	authReq := GuacamoleAuthRequest{
+		Username: gc.username,
+		Password: gc.password,
+	}
+
+	reqBody, err := json.Marshal(authReq)
+	if err != nil {
+		return fmt.Errorf("failed to marshal auth request: %w", err)
+	}
+
+	resp, err := gc.httpClient.Post(
+		gc.baseURL+"/api/tokens",
+		"application/json",
+		bytes.NewBuffer(reqBody),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to authenticate with Guacamole: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Guacamole authentication failed: %s (status: %d)", string(body), resp.StatusCode)
+	}
+
+	var authResp GuacamoleAuthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&authResp); err != nil {
+		return fmt.Errorf("failed to decode auth response: %w", err)
+	}
+
+	gc.authToken = authResp.AuthToken
+	if authResp.DataSource != "" {
+		gc.dataSource = authResp.DataSource
+	}
+
+	log.Info().
+		Str("username", gc.username).
+		Str("data_source", gc.dataSource).
+		Msg("Successfully authenticated with Guacamole")
+
+	return nil
+}
+
+// createRDPConnection creates a new RDP connection in Guacamole
+func (gc *GuacamoleClient) createRDPConnection(sessionID, hostname string, port int, username, password string) (string, error) {
+	if gc.authToken == "" {
+		if err := gc.authenticate(); err != nil {
+			return "", err
+		}
+	}
+
+	connection := GuacamoleConnection{
+		Name:             fmt.Sprintf("Helix-Session-%s", sessionID),
+		ParentIdentifier: "ROOT",
+		Protocol:         "rdp",
+		Parameters: map[string]string{
+			"hostname":                   hostname,
+			"port":                       fmt.Sprintf("%d", port),
+			"username":                   username,
+			"password":                   password,
+			"security":                   "any",
+			"ignore-cert":                "true",
+			"resize-method":              "reconnect",
+			"enable-wallpaper":           "false",
+			"enable-theming":             "false",
+			"enable-font-smoothing":      "false",
+			"enable-full-window-drag":    "false",
+			"enable-desktop-composition": "false",
+			"enable-menu-animations":     "false",
+		},
+		Attributes: map[string]string{
+			"guac-full-screen": "false",
+		},
+	}
+
+	reqBody, err := json.Marshal(connection)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal connection request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/session/data/%s/connections", gc.baseURL, gc.dataSource)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Guacamole-Token", gc.authToken)
+
+	resp, err := gc.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to create connection: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to create Guacamole connection: %s (status: %d)", string(body), resp.StatusCode)
+	}
+
+	var connResp GuacamoleConnectionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&connResp); err != nil {
+		return "", fmt.Errorf("failed to decode connection response: %w", err)
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("connection_id", connResp.Identifier).
+		Str("hostname", hostname).
+		Int("port", port).
+		Msg("Created Guacamole RDP connection")
+
+	return connResp.Identifier, nil
+}
+
+// deleteConnection removes a connection from Guacamole
+func (gc *GuacamoleClient) deleteConnection(connectionID string) error {
+	if gc.authToken == "" {
+		return fmt.Errorf("not authenticated")
+	}
+
+	url := fmt.Sprintf("%s/api/session/data/%s/connections/%s", gc.baseURL, gc.dataSource, connectionID)
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create delete request: %w", err)
+	}
+
+	req.Header.Set("Guacamole-Token", gc.authToken)
+
+	resp, err := gc.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to delete connection: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		log.Warn().
+			Str("connection_id", connectionID).
+			Int("status", resp.StatusCode).
+			Str("response", string(body)).
+			Msg("Failed to delete Guacamole connection")
+	}
+
+	return nil
+}
+
+// RDPProxyManager manages RDP proxy connections via Guacamole
 type RDPProxyManager struct {
-	connections map[string]*RDPProxyConnection
-	mu          sync.RWMutex
+	guacamoleClient *GuacamoleClient
+	connections     map[string]*RDPProxyConnection
+	mu              sync.RWMutex
 }
 
-// Global proxy manager instance
-var rdpProxyManager = &RDPProxyManager{
-	connections: make(map[string]*RDPProxyConnection),
+// RDPProxyConnection represents an active RDP proxy connection
+type RDPProxyConnection struct {
+	SessionID      string
+	ConnectionID   string
+	GuacamoleToken string
+	CreatedAt      time.Time
+	LastActivity   time.Time
 }
 
-// WebSocket upgrader for RDP proxy
-var rdpUpgrader = websocket.Upgrader{
-	ReadBufferSize:  8192,
-	WriteBufferSize: 8192,
-	CheckOrigin: func(r *http.Request) bool {
-		// Allow connections from same origin only for security
-		origin := r.Header.Get("Origin")
-		host := r.Header.Get("Host")
-		return origin == "http://"+host || origin == "https://"+host || origin == ""
-	},
+// NewRDPProxyManager creates a new RDP proxy manager
+func NewRDPProxyManager(guacamoleURL, guacamoleUser, guacamolePass string) *RDPProxyManager {
+	return &RDPProxyManager{
+		guacamoleClient: NewGuacamoleClient(guacamoleURL, guacamoleUser, guacamolePass),
+		connections:     make(map[string]*RDPProxyConnection),
+	}
 }
 
-// proxyExternalAgentRDP handles WebSocket connections for RDP proxy via NATS to runner
-// GET /api/v1/external-agents/{sessionID}/rdp/proxy
-func (s *HelixAPIServer) proxyExternalAgentRDP(w http.ResponseWriter, r *http.Request) {
+// startRDPProxy handles RDP proxy WebSocket connections
+func (s *HelixAPIServer) startRDPProxy(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	user := getRequestUser(r)
 	if user == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -57,287 +259,254 @@ func (s *HelixAPIServer) proxyExternalAgentRDP(w http.ResponseWriter, r *http.Re
 	}
 
 	vars := mux.Vars(r)
-	sessionID := vars["sessionID"]
-
+	sessionID := vars["session_id"]
 	if sessionID == "" {
-		http.Error(w, "session ID required", http.StatusBadRequest)
+		http.Error(w, "session_id is required", http.StatusBadRequest)
 		return
 	}
 
-	// Security check: verify user owns this session
-	sessionData, err := s.Store.GetSession(r.Context(), sessionID)
+	// Verify user has access to this session
+	session, err := s.Controller.Options.Store.GetSession(ctx, sessionID)
 	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session for ownership check")
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get session")
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
 
-	if sessionData.Owner != user.ID {
-		log.Warn().
-			Str("user_id", user.ID).
-			Str("session_owner", sessionData.Owner).
-			Str("session_id", sessionID).
-			Msg("RDP access denied: user does not own session")
+	if session.Owner != user.ID {
 		http.Error(w, "access denied", http.StatusForbidden)
 		return
 	}
 
-	// Upgrade HTTP connection to WebSocket
-	frontendConn, err := rdpUpgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to upgrade WebSocket connection")
+	// Check if session has external agent running
+	if session.Type != types.SessionTypeText || session.Mode != types.SessionModeInference {
+		http.Error(w, "session does not support RDP access", http.StatusBadRequest)
 		return
 	}
-	defer frontendConn.Close()
 
-	// Register the connection for management
-	proxyConn := &RDPProxyConnection{
-		SessionID:    sessionID,
-		UserID:       user.ID,
-		WebSocket:    frontendConn,
-		LastActivity: time.Now(),
-	}
-	rdpProxyManager.addConnection(sessionID, proxyConn)
-	defer rdpProxyManager.removeConnection(sessionID)
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("user_id", user.ID).
-		Msg("Starting RDP proxy via NATS to runner")
-
-	// Start RDP proxy via NATS
-	err = s.startRDPProxyViaNATS(r.Context(), sessionID, frontendConn)
+	// Get Zed agent session info (this would need to be implemented)
+	zedSession, err := s.getZedSessionInfo(ctx, sessionID)
 	if err != nil {
-		log.Error().Err(err).
-			Str("session_id", sessionID).
-			Msg("RDP proxy via NATS failed")
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get Zed session info")
+		http.Error(w, "Zed session not found", http.StatusNotFound)
+		return
 	}
+
+	// Create or get Guacamole connection
+	connectionID, err := s.rdpProxyManager.createOrGetConnection(sessionID, zedSession)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to create Guacamole connection")
+		http.Error(w, "failed to create RDP connection", http.StatusInternalServerError)
+		return
+	}
+
+	// Upgrade to WebSocket
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true // Allow all origins in development
+		},
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to upgrade WebSocket connection")
+		return
+	}
+	defer conn.Close()
+
+	// Proxy WebSocket traffic to Guacamole
+	s.proxyWebSocketToGuacamole(ctx, conn, connectionID, sessionID)
+}
+
+// createOrGetConnection creates or retrieves a Guacamole connection for a Zed session
+func (rpm *RDPProxyManager) createOrGetConnection(sessionID string, zedSession *ZedAgentSession) (string, error) {
+	rpm.mu.Lock()
+	defer rpm.mu.Unlock()
+
+	// Check if connection already exists
+	if existing, exists := rpm.connections[sessionID]; exists {
+		existing.LastActivity = time.Now()
+		return existing.ConnectionID, nil
+	}
+
+	// Create new Guacamole connection
+	connectionID, err := rpm.guacamoleClient.createRDPConnection(
+		sessionID,
+		"localhost", // RDP hostname (would be container hostname in real implementation)
+		zedSession.RDPPort,
+		zedSession.RDPUsername,
+		zedSession.RDPPassword,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	// Store connection info
+	rpm.connections[sessionID] = &RDPProxyConnection{
+		SessionID:      sessionID,
+		ConnectionID:   connectionID,
+		GuacamoleToken: rpm.guacamoleClient.authToken,
+		CreatedAt:      time.Now(),
+		LastActivity:   time.Now(),
+	}
+
+	return connectionID, nil
+}
+
+// proxyWebSocketToGuacamole proxies WebSocket traffic between frontend and Guacamole
+func (s *HelixAPIServer) proxyWebSocketToGuacamole(ctx context.Context, frontendConn *websocket.Conn, connectionID, sessionID string) {
+	// Build Guacamole WebSocket URL
+	guacamoleWS := fmt.Sprintf("ws://guacamole-client:8080/guacamole/websocket-tunnel?token=%s&GUAC_DATA_SOURCE=%s&GUAC_ID=%s&GUAC_TYPE=c&GUAC_WIDTH=1024&GUAC_HEIGHT=768&GUAC_DPI=96",
+		url.QueryEscape(s.rdpProxyManager.guacamoleClient.authToken),
+		url.QueryEscape(s.rdpProxyManager.guacamoleClient.dataSource),
+		url.QueryEscape(connectionID),
+	)
+
+	// Connect to Guacamole WebSocket
+	guacamoleConn, _, err := websocket.DefaultDialer.Dial(guacamoleWS, nil)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to connect to Guacamole WebSocket")
+		frontendConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "Failed to connect to RDP server"))
+		return
+	}
+	defer guacamoleConn.Close()
 
 	log.Info().
 		Str("session_id", sessionID).
-		Str("user_id", user.ID).
+		Str("connection_id", connectionID).
+		Msg("Established RDP proxy connection via Guacamole")
+
+	// Set up bidirectional proxy
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Proxy frontend -> Guacamole
+	go func() {
+		defer cancel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				messageType, data, err := frontendConn.ReadMessage()
+				if err != nil {
+					if !websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+						log.Error().Err(err).Str("session_id", sessionID).Msg("Error reading from frontend WebSocket")
+					}
+					return
+				}
+
+				if err := guacamoleConn.WriteMessage(messageType, data); err != nil {
+					log.Error().Err(err).Str("session_id", sessionID).Msg("Error writing to Guacamole WebSocket")
+					return
+				}
+			}
+		}
+	}()
+
+	// Proxy Guacamole -> frontend
+	go func() {
+		defer cancel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				messageType, data, err := guacamoleConn.ReadMessage()
+				if err != nil {
+					if !websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+						log.Error().Err(err).Str("session_id", sessionID).Msg("Error reading from Guacamole WebSocket")
+					}
+					return
+				}
+
+				if err := frontendConn.WriteMessage(messageType, data); err != nil {
+					log.Error().Err(err).Str("session_id", sessionID).Msg("Error writing to frontend WebSocket")
+					return
+				}
+			}
+		}
+	}()
+
+	// Wait for context cancellation
+	<-ctx.Done()
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("connection_id", connectionID).
 		Msg("RDP proxy connection closed")
 }
 
-// startRDPProxyViaNATS handles RDP data routing via NATS to the specific runner
-func (s *HelixAPIServer) startRDPProxyViaNATS(ctx context.Context, sessionID string, frontendConn *websocket.Conn) error {
-	// Subscribe to RDP responses from the runner for this session
-	rdpResponseTopic := fmt.Sprintf("rdp.responses.%s", sessionID)
-
-	rdpSub, err := s.pubsub.Subscribe(ctx, rdpResponseTopic, func(payload []byte) error {
-		// Forward RDP data from runner to frontend as Guacamole protocol
-		return s.forwardRDPDataToFrontend(frontendConn, payload)
-	})
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to RDP responses: %w", err)
-	}
-	defer rdpSub.Unsubscribe()
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("topic", rdpResponseTopic).
-		Msg("Subscribed to RDP responses from runner")
-
-	// Handle frontend messages and route to runner via NATS
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		frontendConn.SetReadDeadline(time.Now().Add(30 * time.Second))
-		messageType, data, err := frontendConn.ReadMessage()
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Error().Err(err).Str("session_id", sessionID).Msg("Frontend WebSocket error")
-			}
-			return err
-		}
-
-		// Route frontend data to runner via NATS
-		if err := s.routeRDPDataToRunner(ctx, sessionID, messageType, data); err != nil {
-			log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to route RDP data to runner")
-			return err
-		}
-	}
+// ZedAgentSession represents a Zed agent session for RDP access
+type ZedAgentSession struct {
+	SessionID   string `json:"session_id"`
+	RDPPort     int    `json:"rdp_port"`
+	RDPUsername string `json:"rdp_username"`
+	RDPPassword string `json:"rdp_password"`
+	Status      string `json:"status"`
 }
 
-// routeRDPDataToRunner sends RDP data to the specific runner via NATS
-func (s *HelixAPIServer) routeRDPDataToRunner(ctx context.Context, sessionID string, messageType int, data []byte) error {
-	// Create RDP proxy message
-	rdpMessage := types.ZedAgentRDPData{
-		SessionID: sessionID,
-		Type:      "rdp_frontend_data",
-		Data:      data,
-		Timestamp: time.Now().Unix(),
-	}
-
-	payload, err := json.Marshal(rdpMessage)
-	if err != nil {
-		return fmt.Errorf("failed to marshal RDP message: %w", err)
-	}
-
-	// Send to the runner handling this session via NATS
-	rdpTopic := fmt.Sprintf("rdp.commands.%s", sessionID)
-
-	err = s.pubsub.Publish(ctx, rdpTopic, payload)
-	if err != nil {
-		return fmt.Errorf("failed to publish RDP data to runner: %w", err)
-	}
-
-	log.Debug().
-		Str("session_id", sessionID).
-		Str("topic", rdpTopic).
-		Int("data_size", len(data)).
-		Msg("Routed RDP data to runner via NATS")
-
-	return nil
+// getZedSessionInfo retrieves Zed session information (placeholder implementation)
+func (s *HelixAPIServer) getZedSessionInfo(ctx context.Context, sessionID string) (*ZedAgentSession, error) {
+	// This would need to be implemented to retrieve actual Zed session info
+	// For now, return a placeholder
+	return &ZedAgentSession{
+		SessionID:   sessionID,
+		RDPPort:     5900,
+		RDPUsername: "zed",
+		RDPPassword: "zed123", // This would be the actual secure password
+		Status:      "running",
+	}, nil
 }
 
-// forwardRDPDataToFrontend converts RDP data from runner to Guacamole protocol for frontend
-func (s *HelixAPIServer) forwardRDPDataToFrontend(frontendConn *websocket.Conn, payload []byte) error {
-	var rdpData types.ZedAgentRDPData
-	if err := json.Unmarshal(payload, &rdpData); err != nil {
-		return fmt.Errorf("failed to unmarshal RDP data: %w", err)
-	}
-
-	// Convert RDP data to Guacamole protocol instruction
-	// In a full implementation, this would parse RDP packets and convert to Guacamole
-	guacamoleInstruction := s.convertRDPToGuacamole(rdpData.Data)
-
-	// Send to frontend
-	frontendConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-	err := frontendConn.WriteMessage(websocket.TextMessage, []byte(guacamoleInstruction))
-	if err != nil {
-		return fmt.Errorf("failed to send Guacamole instruction to frontend: %w", err)
-	}
-
-	log.Debug().
-		Str("session_id", rdpData.SessionID).
-		Int("rdp_data_size", len(rdpData.Data)).
-		Str("guacamole_instruction", guacamoleInstruction).
-		Msg("Forwarded RDP data to frontend as Guacamole")
-
-	return nil
-}
-
-// convertRDPToGuacamole converts RDP protocol data to Guacamole protocol instructions
-func (s *HelixAPIServer) convertRDPToGuacamole(rdpData []byte) string {
-	// This is a simplified RDP-to-Guacamole converter
-	// In a full implementation, you would parse RDP packets properly
-
-	if len(rdpData) == 0 {
-		return "nop;"
-	}
-
-	// Simple heuristics for RDP packet types
-	if len(rdpData) > 100 {
-		// Likely bitmap update - convert to PNG instruction
-		return fmt.Sprintf("png,0,0,0,%s;", "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
-	} else if len(rdpData) < 20 {
-		// Likely cursor or control data
-		return "cursor,0,0;"
-	} else {
-		// Medium size - likely screen region update
-		return "rect,0,0,0,100,100;"
-	}
-}
-
-// addConnection adds a new proxy connection
-func (rpm *RDPProxyManager) addConnection(sessionID string, conn *RDPProxyConnection) {
+// cleanupConnection removes a connection when the session ends
+func (rpm *RDPProxyManager) cleanupConnection(sessionID string) {
 	rpm.mu.Lock()
 	defer rpm.mu.Unlock()
-	rpm.connections[sessionID] = conn
-}
 
-// removeConnection removes a proxy connection
-func (rpm *RDPProxyManager) removeConnection(sessionID string) {
-	rpm.mu.Lock()
-	defer rpm.mu.Unlock()
 	if conn, exists := rpm.connections[sessionID]; exists {
-		conn.WebSocket.Close()
-		delete(rpm.connections, sessionID)
-	}
-}
-
-// getConnectionStats returns statistics about active connections
-func (rpm *RDPProxyManager) getConnectionStats() map[string]interface{} {
-	rpm.mu.RLock()
-	defer rpm.mu.RUnlock()
-
-	stats := map[string]interface{}{
-		"active_connections": len(rpm.connections),
-		"connections":        make([]map[string]interface{}, 0, len(rpm.connections)),
-	}
-
-	for sessionID, conn := range rpm.connections {
-		conn.mu.RLock()
-		connInfo := map[string]interface{}{
-			"session_id":    sessionID,
-			"user_id":       conn.UserID,
-			"last_activity": conn.LastActivity,
-			"duration":      time.Since(conn.LastActivity).Seconds(),
+		// Delete from Guacamole
+		if err := rpm.guacamoleClient.deleteConnection(conn.ConnectionID); err != nil {
+			log.Error().Err(err).
+				Str("session_id", sessionID).
+				Str("connection_id", conn.ConnectionID).
+				Msg("Failed to delete Guacamole connection")
 		}
-		conn.mu.RUnlock()
 
-		stats["connections"] = append(stats["connections"].([]map[string]interface{}), connInfo)
+		// Remove from local cache
+		delete(rpm.connections, sessionID)
+
+		log.Info().
+			Str("session_id", sessionID).
+			Str("connection_id", conn.ConnectionID).
+			Msg("Cleaned up RDP proxy connection")
 	}
-
-	return stats
 }
 
-// cleanupInactiveConnections removes connections that have been inactive
-func (rpm *RDPProxyManager) cleanupInactiveConnections(timeout time.Duration) {
+// cleanupExpiredConnections removes connections that haven't been used recently
+func (rpm *RDPProxyManager) cleanupExpiredConnections(maxAge time.Duration) {
 	rpm.mu.Lock()
 	defer rpm.mu.Unlock()
 
 	now := time.Now()
-	toRemove := []string{}
-
 	for sessionID, conn := range rpm.connections {
-		conn.mu.RLock()
-		if now.Sub(conn.LastActivity) > timeout {
-			toRemove = append(toRemove, sessionID)
-		}
-		conn.mu.RUnlock()
-	}
+		if now.Sub(conn.LastActivity) > maxAge {
+			// Delete from Guacamole
+			if err := rpm.guacamoleClient.deleteConnection(conn.ConnectionID); err != nil {
+				log.Error().Err(err).
+					Str("session_id", sessionID).
+					Str("connection_id", conn.ConnectionID).
+					Msg("Failed to delete expired Guacamole connection")
+			}
 
-	for _, sessionID := range toRemove {
-		if conn, exists := rpm.connections[sessionID]; exists {
-			conn.WebSocket.Close()
+			// Remove from local cache
 			delete(rpm.connections, sessionID)
 
 			log.Info().
 				Str("session_id", sessionID).
-				Str("user_id", conn.UserID).
-				Msg("Cleaned up inactive RDP proxy connection")
+				Str("connection_id", conn.ConnectionID).
+				Dur("age", now.Sub(conn.LastActivity)).
+				Msg("Cleaned up expired RDP proxy connection")
 		}
 	}
-}
-
-// RDP proxy health check endpoint
-func (s *HelixAPIServer) getRDPProxyHealth(w http.ResponseWriter, r *http.Request) {
-	stats := rdpProxyManager.getConnectionStats()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":     "healthy",
-		"timestamp":  time.Now(),
-		"statistics": stats,
-	})
-}
-
-// Start background cleanup routine for RDP proxy connections
-func (s *HelixAPIServer) startRDPProxyCleanup() {
-	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			// Clean up connections inactive for more than 30 minutes
-			rdpProxyManager.cleanupInactiveConnections(30 * time.Minute)
-		}
-	}()
-
-	log.Info().Msg("RDP proxy cleanup routine started")
 }

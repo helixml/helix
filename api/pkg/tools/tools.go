@@ -29,7 +29,6 @@ type Planner interface {
 
 	// Low level methods for Model Context Protocol (MCP)
 	RunAPIActionWithParameters(ctx context.Context, req *types.RunAPIActionRequest, options ...Option) (*types.RunAPIActionResponse, error)
-	// TODO: GPTScript, Zapier.
 }
 
 // Static check
