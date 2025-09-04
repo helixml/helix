@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -228,6 +230,7 @@ func (gc *GuacamoleClient) deleteConnection(connectionID string) error {
 // RDPProxyManager manages RDP proxy connections via Guacamole
 type RDPProxyManager struct {
 	guacamoleClient *GuacamoleClient
+	pubsub          pubsub.PubSub
 	connections     map[string]*RDPProxyConnection
 	mu              sync.RWMutex
 }
@@ -237,19 +240,24 @@ type RDPProxyConnection struct {
 	SessionID      string
 	ConnectionID   string
 	GuacamoleToken string
+	LocalPort      int              // Local TCP port for this proxy
+	ZedSession     *ZedAgentSession // Zed session info
 	CreatedAt      time.Time
 	LastActivity   time.Time
+	listener       net.Listener       // TCP listener for cleanup
+	cancel         context.CancelFunc // Cancel function to stop proxy
 }
 
 // NewRDPProxyManager creates a new RDP proxy manager
-func NewRDPProxyManager(guacamoleURL, guacamoleUser, guacamolePass string) *RDPProxyManager {
+func NewRDPProxyManager(guacamoleURL, guacamoleUser, guacamolePass string, pubsub pubsub.PubSub) *RDPProxyManager {
 	return &RDPProxyManager{
 		guacamoleClient: NewGuacamoleClient(guacamoleURL, guacamoleUser, guacamolePass),
+		pubsub:          pubsub,
 		connections:     make(map[string]*RDPProxyConnection),
 	}
 }
 
-// startRDPProxy handles RDP proxy WebSocket connections
+// startRDPProxy handles RDP proxy WebSocket connections (now via local RDP proxy ports)
 func (s *HelixAPIServer) startRDPProxy(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := getRequestUser(r)
@@ -284,7 +292,7 @@ func (s *HelixAPIServer) startRDPProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get Zed agent session info (this would need to be implemented)
+	// Get Zed agent session info
 	zedSession, err := s.getZedSessionInfo(ctx, sessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to get Zed session info")
@@ -292,15 +300,23 @@ func (s *HelixAPIServer) startRDPProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create or get Guacamole connection
-	connectionID, err := s.rdpProxyManager.createOrGetConnection(sessionID, zedSession)
+	// Start local RDP proxy for this session (if not already running)
+	proxyPort, err := s.rdpProxyManager.startRDPProxy(sessionID, zedSession)
+	if err != nil {
+		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to start RDP proxy")
+		http.Error(w, "failed to start RDP proxy", http.StatusInternalServerError)
+		return
+	}
+
+	// Create or get Guacamole connection pointing to our API container proxy
+	connectionID, err := s.rdpProxyManager.createOrGetConnection(sessionID, "api", proxyPort)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("Failed to create Guacamole connection")
 		http.Error(w, "failed to create RDP connection", http.StatusInternalServerError)
 		return
 	}
 
-	// Upgrade to WebSocket
+	// Upgrade to WebSocket and proxy to Guacamole
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true // Allow all origins in development
@@ -318,37 +334,64 @@ func (s *HelixAPIServer) startRDPProxy(w http.ResponseWriter, r *http.Request) {
 	s.proxyWebSocketToGuacamole(ctx, conn, connectionID, sessionID)
 }
 
-// createOrGetConnection creates or retrieves a Guacamole connection for a Zed session
-func (rpm *RDPProxyManager) createOrGetConnection(sessionID string, zedSession *ZedAgentSession) (string, error) {
+// startRDPProxy starts a local TCP RDP proxy for a Zed session
+func (rpm *RDPProxyManager) startRDPProxy(sessionID string, zedSession *ZedAgentSession) (int, error) {
 	rpm.mu.Lock()
 	defer rpm.mu.Unlock()
 
-	// Check if connection already exists
+	// Check if proxy already exists
 	if existing, exists := rpm.connections[sessionID]; exists {
 		existing.LastActivity = time.Now()
-		return existing.ConnectionID, nil
+		return existing.LocalPort, nil
 	}
 
-	// Create new Guacamole connection
+	// Allocate a local port for this session's RDP proxy
+	proxyPort := rpm.allocatePort()
+
+	// Start TCP proxy server
+	ctx, cancel := context.WithCancel(context.Background())
+	proxy := &RDPProxyConnection{
+		SessionID:    sessionID,
+		LocalPort:    proxyPort,
+		ZedSession:   zedSession,
+		CreatedAt:    time.Now(),
+		LastActivity: time.Now(),
+		cancel:       cancel,
+	}
+
+	// Start the TCP server in a goroutine
+	go rpm.runTCPProxy(ctx, proxy)
+
+	// Store connection info
+	rpm.connections[sessionID] = proxy
+
+	log.Info().
+		Str("session_id", sessionID).
+		Int("local_port", proxyPort).
+		Msg("Started RDP TCP proxy")
+
+	return proxyPort, nil
+}
+
+// createOrGetConnection creates or retrieves a Guacamole connection
+func (rpm *RDPProxyManager) createOrGetConnection(sessionID, hostname string, port int) (string, error) {
+	// Create new Guacamole connection pointing to our local proxy
 	connectionID, err := rpm.guacamoleClient.createRDPConnection(
 		sessionID,
-		"localhost", // RDP hostname (would be container hostname in real implementation)
-		zedSession.RDPPort,
-		zedSession.RDPUsername,
-		zedSession.RDPPassword,
+		hostname,
+		port,
+		"zed",    // Standard username for Zed sessions
+		"zed123", // This would come from the actual session
 	)
 	if err != nil {
 		return "", err
 	}
 
-	// Store connection info
-	rpm.connections[sessionID] = &RDPProxyConnection{
-		SessionID:      sessionID,
-		ConnectionID:   connectionID,
-		GuacamoleToken: rpm.guacamoleClient.authToken,
-		CreatedAt:      time.Now(),
-		LastActivity:   time.Now(),
-	}
+	log.Info().
+		Str("session_id", sessionID).
+		Str("connection_id", connectionID).
+		Str("proxy_target", fmt.Sprintf("%s:%d", hostname, port)).
+		Msg("Created Guacamole connection to local RDP proxy")
 
 	return connectionID, nil
 }
@@ -446,6 +489,173 @@ type ZedAgentSession struct {
 	Status      string `json:"status"`
 }
 
+// runTCPProxy runs a TCP proxy that forwards RDP traffic via NATS
+func (rpm *RDPProxyManager) runTCPProxy(ctx context.Context, proxy *RDPProxyConnection) {
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", proxy.LocalPort))
+	if err != nil {
+		log.Error().Err(err).
+			Str("session_id", proxy.SessionID).
+			Int("port", proxy.LocalPort).
+			Msg("Failed to start TCP proxy listener")
+		return
+	}
+	defer listener.Close()
+
+	// Store listener for cleanup
+	proxy.listener = listener
+
+	log.Info().
+		Str("session_id", proxy.SessionID).
+		Int("port", proxy.LocalPort).
+		Msg("RDP TCP proxy listening")
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info().
+				Str("session_id", proxy.SessionID).
+				Int("port", proxy.LocalPort).
+				Msg("RDP TCP proxy shutting down")
+			return
+		default:
+		}
+
+		conn, err := listener.Accept()
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				// Expected error due to context cancellation
+				return
+			default:
+				log.Error().Err(err).
+					Str("session_id", proxy.SessionID).
+					Msg("Failed to accept TCP connection")
+				continue
+			}
+		}
+
+		// Handle each connection in a goroutine
+		go rpm.handleTCPConnection(ctx, proxy, conn)
+	}
+}
+
+// handleTCPConnection handles a single TCP connection by proxying over NATS
+func (rpm *RDPProxyManager) handleTCPConnection(ctx context.Context, proxy *RDPProxyConnection, conn net.Conn) {
+	defer conn.Close()
+
+	log.Info().
+		Str("session_id", proxy.SessionID).
+		Str("remote_addr", conn.RemoteAddr().String()).
+		Msg("New RDP TCP connection")
+
+	// Set up NATS topics for this connection
+	rdpCommandTopic := fmt.Sprintf("rdp.commands.%s", proxy.SessionID)
+	rdpResponseTopic := fmt.Sprintf("rdp.responses.%s", proxy.SessionID)
+
+	// Subscribe to RDP responses from the Zed container
+	connCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Subscribe to NATS responses and forward to TCP connection
+	rdpSub, err := rpm.pubsub.Subscribe(connCtx, rdpResponseTopic, func(payload []byte) error {
+		var rdpData types.ZedAgentRDPData
+		if err := json.Unmarshal(payload, &rdpData); err != nil {
+			log.Error().Err(err).Str("session_id", proxy.SessionID).Msg("Failed to unmarshal RDP response")
+			return err
+		}
+
+		// Forward RDP data from Zed container to TCP connection
+		_, writeErr := conn.Write(rdpData.Data)
+		if writeErr != nil {
+			log.Error().Err(writeErr).Str("session_id", proxy.SessionID).Msg("Failed to write RDP data to TCP connection")
+			return writeErr
+		}
+
+		return nil
+	})
+	if err != nil {
+		log.Error().Err(err).Str("session_id", proxy.SessionID).Msg("Failed to subscribe to RDP responses")
+		return
+	}
+	defer rdpSub.Unsubscribe()
+
+	// Handle the TCP connection lifecycle
+	buffer := make([]byte, 4096)
+	for {
+		select {
+		case <-connCtx.Done():
+			log.Debug().
+				Str("session_id", proxy.SessionID).
+				Msg("TCP connection context cancelled")
+			return
+		default:
+		}
+
+		// Set read timeout to allow context cancellation
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		n, err := conn.Read(buffer)
+		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				// Timeout, check context and continue
+				continue
+			}
+			log.Debug().Err(err).
+				Str("session_id", proxy.SessionID).
+				Msg("TCP connection closed")
+			break
+		}
+
+		// Forward RDP data to Zed container via NATS
+		rdpMessage := types.ZedAgentRDPData{
+			SessionID: proxy.SessionID,
+			Type:      "rdp_data",
+			Data:      buffer[:n],
+			Timestamp: time.Now().Unix(),
+		}
+
+		// Publish RDP data to NATS for forwarding to Zed container
+		messageData, err := json.Marshal(rdpMessage)
+		if err != nil {
+			log.Error().Err(err).Str("session_id", proxy.SessionID).Msg("Failed to marshal RDP message")
+			continue
+		}
+
+		err = rpm.pubsub.Publish(connCtx, rdpCommandTopic, messageData)
+		if err != nil {
+			log.Error().Err(err).Str("session_id", proxy.SessionID).Msg("Failed to publish RDP data to NATS")
+			continue
+		}
+
+		log.Debug().
+			Str("session_id", proxy.SessionID).
+			Int("bytes", n).
+			Msg("Forwarded RDP data to NATS")
+	}
+}
+
+// allocatePort allocates a free local port for RDP proxy
+func (rpm *RDPProxyManager) allocatePort() int {
+	// Simple port allocation - start from 15900 and increment
+	// In production, this should check for availability
+	basePort := 15900
+	for i := 0; i < 100; i++ {
+		port := basePort + i
+		// Check if port is already in use
+		inUse := false
+		for _, conn := range rpm.connections {
+			if conn.LocalPort == port {
+				inUse = true
+				break
+			}
+		}
+		if !inUse {
+			return port
+		}
+	}
+	// Fallback to a high port
+	return basePort + len(rpm.connections)
+}
+
 // getZedSessionInfo retrieves Zed session information (placeholder implementation)
 func (s *HelixAPIServer) getZedSessionInfo(ctx context.Context, sessionID string) (*ZedAgentSession, error) {
 	// This would need to be implemented to retrieve actual Zed session info
@@ -459,12 +669,43 @@ func (s *HelixAPIServer) getZedSessionInfo(ctx context.Context, sessionID string
 	}, nil
 }
 
+// stopRDPProxy stops the RDP proxy for a session
+func (rpm *RDPProxyManager) stopRDPProxy(sessionID string) {
+	rpm.mu.Lock()
+	defer rpm.mu.Unlock()
+
+	if conn, exists := rpm.connections[sessionID]; exists {
+		// Cancel the proxy context to stop all goroutines
+		if conn.cancel != nil {
+			conn.cancel()
+		}
+
+		// Close the TCP listener
+		if conn.listener != nil {
+			conn.listener.Close()
+		}
+
+		log.Info().
+			Str("session_id", sessionID).
+			Int("local_port", conn.LocalPort).
+			Msg("Stopped RDP TCP proxy")
+	}
+}
+
 // cleanupConnection removes a connection when the session ends
 func (rpm *RDPProxyManager) cleanupConnection(sessionID string) {
 	rpm.mu.Lock()
 	defer rpm.mu.Unlock()
 
 	if conn, exists := rpm.connections[sessionID]; exists {
+		// Stop the RDP proxy first
+		if conn.cancel != nil {
+			conn.cancel()
+		}
+		if conn.listener != nil {
+			conn.listener.Close()
+		}
+
 		// Delete from Guacamole
 		if err := rpm.guacamoleClient.deleteConnection(conn.ConnectionID); err != nil {
 			log.Error().Err(err).
@@ -491,6 +732,14 @@ func (rpm *RDPProxyManager) cleanupExpiredConnections(maxAge time.Duration) {
 	now := time.Now()
 	for sessionID, conn := range rpm.connections {
 		if now.Sub(conn.LastActivity) > maxAge {
+			// Stop the RDP proxy first
+			if conn.cancel != nil {
+				conn.cancel()
+			}
+			if conn.listener != nil {
+				conn.listener.Close()
+			}
+
 			// Delete from Guacamole
 			if err := rpm.guacamoleClient.deleteConnection(conn.ConnectionID); err != nil {
 				log.Error().Err(err).
