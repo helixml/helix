@@ -57,6 +57,29 @@ function build() {
   setup_runner_profile
 
   if [[ -n "$WITH_RUNNER" ]]; then
+    # Check for Zed dependency and build if needed
+    if [ ! -d "../zed" ]; then
+      echo "❌ ERROR: Zed source code not found at ../zed/"
+      echo ""
+      echo "The Zed runner requires the Zed source code to be checked out alongside Helix."
+      echo ""
+      echo "Please run:"
+      echo "  cd .."
+      echo "  git clone https://github.com/helixml/zed.git"
+      echo "  cd helix"
+      echo "  WITH_RUNNER=1 ./stack build"
+      exit 1
+    fi
+
+    if [ ! -f "./zed-build/zed" ]; then
+      echo "🔨 Zed binary not found, building automatically..."
+      build-zed || {
+        echo "❌ Failed to build Zed. Please check the error messages above."
+        echo "Note: Rust/Cargo is required to build Zed. Install from: https://rustup.rs/"
+        exit 1
+      }
+    fi
+
     echo "Building runner: $RUNNER_CONTAINER"
     docker compose -f docker-compose.dev.yaml --profile "$RUNNER_CONTAINER" build
     return
