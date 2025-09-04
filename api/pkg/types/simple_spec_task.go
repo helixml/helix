@@ -30,6 +30,11 @@ type SpecTask struct {
 	ImplementationSessionID string `json:"implementation_session_id,omitempty"` // Zed session for implementation
 	BranchName              string `json:"branch_name,omitempty"`
 
+	// Multi-session support
+	ZedInstanceID   string         `json:"zed_instance_id,omitempty" gorm:"size:255;index"`
+	ProjectPath     string         `json:"project_path,omitempty" gorm:"size:500"`
+	WorkspaceConfig datatypes.JSON `json:"workspace_config,omitempty" gorm:"type:jsonb"`
+
 	// Approval tracking
 	SpecApprovedBy    string     `json:"spec_approved_by,omitempty"` // User who approved specs
 	SpecApprovedAt    *time.Time `json:"spec_approved_at,omitempty"`
@@ -47,6 +52,10 @@ type SpecTask struct {
 	Labels    []string       `json:"labels" gorm:"-"`
 	LabelsDB  datatypes.JSON `json:"-" gorm:"column:labels;type:jsonb"`
 	Metadata  datatypes.JSON `json:"metadata,omitempty" gorm:"type:jsonb"`
+
+	// Relationships (loaded via joins, not stored)
+	WorkSessions []SpecTaskWorkSession `json:"work_sessions,omitempty" gorm:"foreignKey:SpecTaskID"`
+	ZedThreads   []SpecTaskZedThread   `json:"zed_threads,omitempty" gorm:"foreignKey:SpecTaskID"`
 }
 
 // SampleSpecProject - simplified sample projects with proper spec-driven tasks

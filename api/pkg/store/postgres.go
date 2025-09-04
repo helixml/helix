@@ -146,6 +146,9 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.Transaction{},
 		&types.TopUp{},
 		&types.SpecTask{},
+		&types.SpecTaskWorkSession{},
+		&types.SpecTaskZedThread{},
+		&types.SpecTaskImplementationTask{},
 	)
 	if err != nil {
 		return err

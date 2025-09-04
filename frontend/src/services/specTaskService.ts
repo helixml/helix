@@ -1,0 +1,309 @@
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Api } from '../api/api';
+import useApi from '../hooks/useApi';
+
+// Re-export generated types for convenience
+export type {
+  TypesSpecTask as SpecTask,
+  TypesSpecTaskWorkSession as WorkSession,
+  TypesSpecTaskZedThread as ZedThread,
+  TypesSpecTaskMultiSessionOverview as MultiSessionOverview,
+  TypesSpecTaskCoordinationEvent as CoordinationEvent,
+  TypesZedInstanceStatus as ZedInstanceStatus,
+  TypesSpecTaskImplementationSessionsCreateRequest as ImplementationSessionsCreateRequest,
+  TypesSpecTaskImplementationTaskListResponse as ImplementationTaskListResponse,
+  TypesSpecTaskMultiSessionOverviewResponse as MultiSessionOverviewResponse,
+  TypesSpecTaskCoordinationLogResponse as CoordinationLogResponse,
+  TypesZedInstanceEvent as ZedInstanceEvent
+} from '../api/api';
+
+// Query keys
+const QUERY_KEYS = {
+  specTasks: ['spec-tasks'] as const,
+  specTask: (id: string) => ['spec-tasks', id] as const,
+  multiSessionOverview: (id: string) => ['spec-tasks', id, 'multi-session-overview'] as const,
+  workSessions: (id: string) => ['spec-tasks', id, 'work-sessions'] as const,
+  implementationTasks: (id: string) => ['spec-tasks', id, 'implementation-tasks'] as const,
+  coordinationLog: (id: string) => ['spec-tasks', id, 'coordination-log'] as const,
+  zedInstanceStatus: (id: string) => ['spec-tasks', id, 'zed-instance'] as const,
+  sessionHistory: (sessionId: string) => ['work-sessions', sessionId, 'history'] as const,
+};
+
+// Custom hooks for SpecTask operations
+export function useSpecTask(taskId: string) {
+  const api = useApi();
+  
+  return useQuery({
+    queryKey: QUERY_KEYS.specTask(taskId),
+    queryFn: async () => {
+      const response = await api.api.v1SpecTasksDetail(taskId);
+      return response.data;
+    },
+    enabled: !!taskId,
+  });
+}
+
+export function useMultiSessionOverview(taskId: string) {
+  const api = useApi();
+  
+  return useQuery({
+    queryKey: QUERY_KEYS.multiSessionOverview(taskId),
+    queryFn: async () => {
+      const response = await api.api.v1SpecTasksMultiSessionOverviewDetail(taskId);
+      return response.data;
+    },
+    enabled: !!taskId,
+  });
+}
+
+export function useSpecTaskWorkSessions(taskId: string) {
+  const api = useApi();
+  
+  return useQuery({
+    queryKey: QUERY_KEYS.workSessions(taskId),
+    queryFn: async () => {
+      const response = await api.api.v1SpecTasksWorkSessionsList(taskId);
+      return response.data;
+    },
+    enabled: !!taskId,
+  });
+}
+
+export function useImplementationTasks(taskId: string) {
+  const api = useApi();
+  
+  return useQuery({
+    queryKey: QUERY_KEYS.implementationTasks(taskId),
+    queryFn: async () => {
+      const response = await api.api.v1SpecTasksImplementationTasksList(taskId);
+      return response.data;
+    },
+    enabled: !!taskId,
+  });
+}
+
+export function useCoordinationEvents(taskId: string) {
+  const api = useApi();
+  
+  return useQuery({
+    queryKey: QUERY_KEYS.coordinationLog(taskId),
+    queryFn: async () => {
+      const response = await api.api.v1SpecTasksCoordinationLogDetail(taskId);
+      return response.data;
+    },
+    enabled: !!taskId,
+    refetchInterval: 5000, // Refresh every 5 seconds for real-time updates
+  });
+}
+
+export function useZedInstanceStatus(taskId: string) {
+  const api = useApi();
+  
+  return useQuery({
+    queryKey: QUERY_KEYS.zedInstanceStatus(taskId),
+    queryFn: async () => {
+      const response = await api.api.v1SpecTasksZedInstanceDetail(taskId);
+      return response.data;
+    },
+    enabled: !!taskId,
+    refetchInterval: 10000, // Refresh every 10 seconds
+  });
+}
+
+export function useSessionHistory(sessionId: string) {
+  const api = useApi();
+  
+  return useQuery({
+    queryKey: QUERY_KEYS.sessionHistory(sessionId),
+    queryFn: async () => {
+      const response = await api.api.v1WorkSessionsHistoryDetail(sessionId);
+      return response.data;
+    },
+    enabled: !!sessionId,
+  });
+}
+
+// Mutation hooks
+export function useCreateImplementationSessions() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ taskId, request }: { 
+      taskId: string; 
+      request: any; // TypesSpecTaskImplementationSessionsCreateRequest
+    }) => {
+      const response = await api.api.v1SpecTasksImplementationSessionsCreate(taskId, request);
+      return response.data;
+    },
+    onSuccess: (_, { taskId }) => {
+      // Invalidate related queries
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.multiSessionOverview(taskId) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.workSessions(taskId) });
+    },
+  });
+}
+
+export function useUpdateSpecTaskStatus() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ taskId, status }: { taskId: string; status: string }) => {
+      const response = await api.api.v1SpecTasksUpdate(taskId, { status });
+      return response.data;
+    },
+    onSuccess: (_, { taskId }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.multiSessionOverview(taskId) });
+    },
+  });
+}
+
+export function useApproveSpecTask() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (taskId: string) => {
+      const response = await api.api.v1SpecTasksApprovalCreate(taskId);
+      return response.data;
+    },
+    onSuccess: (_, taskId) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.specTask(taskId) });
+    },
+  });
+}
+
+export function useRecordSessionHistory() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ sessionId, entry }: { 
+      sessionId: string; 
+      entry: { content: string; timestamp: string; type: string; }
+    }) => {
+      const response = await api.api.v1WorkSessionsRecordHistoryCreate(sessionId, entry);
+      return response.data;
+    },
+    onSuccess: (_, { sessionId }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sessionHistory(sessionId) });
+    },
+  });
+}
+
+export function useSendZedEvent() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (event: any) => { // TypesZedInstanceEvent
+      const response = await api.api.v1ZedEventsCreate(event);
+      return response.data;
+    },
+    onSuccess: (_, event) => {
+      // Invalidate coordination events for the affected SpecTask
+      if (event.spec_task_id) {
+        queryClient.invalidateQueries({ 
+          queryKey: QUERY_KEYS.coordinationLog(event.spec_task_id) 
+        });
+      }
+    },
+  });
+}
+
+// Real-time updates hook
+export function useSpecTaskRealTimeUpdates(taskId: string) {
+  const queryClient = useQueryClient();
+  
+  // This would typically use WebSocket or Server-Sent Events
+  // For now, we'll use polling via the existing queries
+  const multiSessionQuery = useMultiSessionOverview(taskId);
+  const coordinationQuery = useCoordinationEvents(taskId);
+  const zedStatusQuery = useZedInstanceStatus(taskId);
+  
+  return {
+    multiSession: multiSessionQuery.data,
+    coordination: coordinationQuery.data,
+    zedStatus: zedStatusQuery.data,
+    isLoading: multiSessionQuery.isLoading || coordinationQuery.isLoading || zedStatusQuery.isLoading,
+    error: multiSessionQuery.error || coordinationQuery.error || zedStatusQuery.error,
+  };
+}
+
+// Helper functions
+export function getSessionStatusColor(status: string): string {
+  switch (status) {
+    case 'active':
+      return 'green';
+    case 'completed':
+      return 'blue';
+    case 'failed':
+    case 'cancelled':
+      return 'red';
+    case 'blocked':
+      return 'orange';
+    case 'pending':
+    default:
+      return 'gray';
+  }
+}
+
+export function getSpecTaskStatusColor(status: string): string {
+  switch (status) {
+    case 'active':
+    case 'implementing':
+      return 'green';
+    case 'completed':
+      return 'blue';
+    case 'failed':
+    case 'cancelled':
+      return 'red';
+    case 'blocked':
+    case 'pending_approval':
+      return 'orange';
+    case 'draft':
+    case 'planning':
+    default:
+      return 'gray';
+  }
+}
+
+export function formatTimestamp(timestamp: string | undefined): string {
+  if (!timestamp) return 'N/A';
+  return new Date(timestamp).toLocaleString();
+}
+
+// Default export for the service
+const specTaskService = {
+  // Query functions
+  useSpecTask,
+  useMultiSessionOverview,
+  useSpecTaskWorkSessions,
+  useImplementationTasks,
+  useCoordinationEvents,
+  useZedInstanceStatus,
+  useSessionHistory,
+  
+  // Mutation functions
+  useCreateImplementationSessions,
+  useUpdateSpecTaskStatus,
+  useApproveSpecTask,
+  useRecordSessionHistory,
+  useSendZedEvent,
+  
+  // Real-time updates
+  useSpecTaskRealTimeUpdates,
+  
+  // Helper functions
+  getSessionStatusColor,
+  getSpecTaskStatusColor,
+  formatTimestamp,
+  
+  // Query keys for external use
+  QUERY_KEYS,
+};
+
+export default specTaskService;
