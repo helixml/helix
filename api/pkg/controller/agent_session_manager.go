@@ -91,42 +91,115 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 		return fmt.Errorf("failed to get session: %w", err)
 	}
 
-	// Extract external agent configuration from session metadata
-	var externalConfig *types.ExternalAgentConfig
-	if session.Metadata.ExternalAgentConfig != nil {
-		externalConfig = session.Metadata.ExternalAgentConfig
+	// Check if this session is part of a multi-session SpecTask
+	var specTaskContext *types.SpecTask
+	var workSessionContext *types.SpecTaskWorkSession
+	var isMultiSession bool
 
-		// Basic validation
-		if err := externalConfig.Validate(); err != nil {
-			log.Error().Err(err).
-				Str("session_id", sessionID).
-				Str("user_id", session.Owner).
-				Msg("Invalid external agent configuration")
-			return fmt.Errorf("invalid external agent configuration: %w", err)
+	if session.Metadata.WorkSessionID != "" {
+		// This session is part of a SpecTask work session
+		workSession, err := c.Options.Store.GetSpecTaskWorkSession(ctx, session.Metadata.WorkSessionID)
+		if err != nil {
+			log.Warn().Err(err).Str("work_session_id", session.Metadata.WorkSessionID).Msg("Failed to get work session, proceeding as single session")
+		} else {
+			workSessionContext = workSession
+			isMultiSession = true
+
+			specTask, err := c.Options.Store.GetSpecTask(ctx, workSession.SpecTaskID)
+			if err != nil {
+				log.Warn().Err(err).Str("spec_task_id", workSession.SpecTaskID).Msg("Failed to get spec task, proceeding as single session")
+				isMultiSession = false
+			} else {
+				specTaskContext = specTask
+			}
 		}
 	}
 
 	// Create Zed agent request
 	zedAgent := &types.ZedAgent{
-		SessionID:   sessionID,
-		UserID:      session.Owner,
-		Input:       "Initialize Zed development environment",
-		ProjectPath: "",
-		WorkDir:     "",
-		Env:         []string{},
+		SessionID: sessionID,
+		UserID:    session.Owner,
+		Input:     "Initialize Zed development environment",
 	}
 
-	// Apply external agent configuration if provided
-	if externalConfig != nil {
-		if externalConfig.ProjectPath != "" {
-			zedAgent.ProjectPath = externalConfig.ProjectPath
+	// Configure Zed agent based on context (SpecTask vs regular session)
+	if isMultiSession && specTaskContext != nil && workSessionContext != nil {
+		// Multi-session SpecTask configuration
+		zedAgent.ProjectPath = specTaskContext.ProjectPath
+		if zedAgent.ProjectPath == "" {
+			zedAgent.ProjectPath = "/workspace/" + specTaskContext.ID
 		}
-		if externalConfig.WorkspaceDir != "" {
-			zedAgent.WorkDir = externalConfig.WorkspaceDir
+		zedAgent.WorkDir = zedAgent.ProjectPath
+
+		// Use SpecTask ID as the Zed instance identifier
+		zedAgent.InstanceID = specTaskContext.ZedInstanceID
+		if zedAgent.InstanceID == "" {
+			zedAgent.InstanceID = "zed_instance_" + specTaskContext.ID
 		}
-		if len(externalConfig.EnvVars) > 0 {
-			zedAgent.Env = externalConfig.EnvVars
+
+		// Set work session specific context
+		zedAgent.ThreadID = session.Metadata.ZedThreadID
+		if zedAgent.ThreadID == "" {
+			zedAgent.ThreadID = "thread_" + workSessionContext.ID
 		}
+
+		// Add SpecTask context to environment
+		zedAgent.Env = []string{
+			"SPEC_TASK_ID=" + specTaskContext.ID,
+			"WORK_SESSION_ID=" + workSessionContext.ID,
+			"IMPLEMENTATION_TASK_TITLE=" + workSessionContext.ImplementationTaskTitle,
+			"IMPLEMENTATION_TASK_INDEX=" + fmt.Sprintf("%d", workSessionContext.ImplementationTaskIndex),
+		}
+
+		// Add workspace config if available
+		if len(specTaskContext.WorkspaceConfig) > 0 {
+			var workspaceEnv map[string]interface{}
+			if err := json.Unmarshal(specTaskContext.WorkspaceConfig, &workspaceEnv); err == nil {
+				for key, value := range workspaceEnv {
+					if strValue, ok := value.(string); ok {
+						zedAgent.Env = append(zedAgent.Env, fmt.Sprintf("%s=%s", key, strValue))
+					}
+				}
+			}
+		}
+
+		log.Info().
+			Str("spec_task_id", specTaskContext.ID).
+			Str("work_session_id", workSessionContext.ID).
+			Str("zed_instance_id", zedAgent.InstanceID).
+			Str("zed_thread_id", zedAgent.ThreadID).
+			Msg("Launching Zed agent for multi-session SpecTask")
+
+	} else {
+		// Single session configuration (existing behavior)
+		var externalConfig *types.ExternalAgentConfig
+		if session.Metadata.ExternalAgentConfig != nil {
+			externalConfig = session.Metadata.ExternalAgentConfig
+
+			// Basic validation
+			if err := externalConfig.Validate(); err != nil {
+				log.Error().Err(err).
+					Str("session_id", sessionID).
+					Str("user_id", session.Owner).
+					Msg("Invalid external agent configuration")
+				return fmt.Errorf("invalid external agent configuration: %w", err)
+			}
+
+			// Apply external agent configuration
+			if externalConfig.ProjectPath != "" {
+				zedAgent.ProjectPath = externalConfig.ProjectPath
+			}
+			if externalConfig.WorkspaceDir != "" {
+				zedAgent.WorkDir = externalConfig.WorkspaceDir
+			}
+			if len(externalConfig.EnvVars) > 0 {
+				zedAgent.Env = externalConfig.EnvVars
+			}
+		}
+
+		log.Info().
+			Str("session_id", sessionID).
+			Msg("Launching Zed agent for single session")
 	}
 
 	// Dispatch to Zed runner pool via pub/sub
@@ -137,6 +210,15 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 
 	header := map[string]string{
 		"kind": "zed_agent",
+	}
+
+	// Add multi-session context to headers if applicable
+	if isMultiSession && specTaskContext != nil {
+		header["spec_task_id"] = specTaskContext.ID
+		header["multi_session"] = "true"
+		if workSessionContext != nil {
+			header["work_session_id"] = workSessionContext.ID
+		}
 	}
 
 	// Send to runner pool (runners will compete for the task)
@@ -156,10 +238,46 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 		return fmt.Errorf("failed to dispatch Zed agent to runner pool: %w", err)
 	}
 
+	// Update Zed thread status if this is a multi-session work session
+	if isMultiSession && workSessionContext != nil {
+		err = c.updateZedThreadStatus(ctx, workSessionContext.ID, "pending")
+		if err != nil {
+			log.Warn().Err(err).Str("work_session_id", workSessionContext.ID).Msg("Failed to update Zed thread status")
+		}
+	}
+
 	log.Info().
 		Str("session_id", sessionID).
 		Str("user_id", session.Owner).
+		Bool("multi_session", isMultiSession).
 		Msg("Zed agent dispatched to runner pool successfully")
+
+	return nil
+}
+
+// updateZedThreadStatus updates the status of a Zed thread for a work session
+func (c *Controller) updateZedThreadStatus(ctx context.Context, workSessionID string, status string) error {
+	zedThread, err := c.Options.Store.GetSpecTaskZedThreadByWorkSession(ctx, workSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get Zed thread: %w", err)
+	}
+
+	zedThread.Status = types.SpecTaskZedStatus(status)
+	if status == "active" {
+		now := time.Now()
+		zedThread.LastActivityAt = &now
+	}
+
+	err = c.Options.Store.UpdateSpecTaskZedThread(ctx, zedThread)
+	if err != nil {
+		return fmt.Errorf("failed to update Zed thread status: %w", err)
+	}
+
+	log.Info().
+		Str("work_session_id", workSessionID).
+		Str("zed_thread_id", zedThread.ID).
+		Str("status", status).
+		Msg("Updated Zed thread status")
 
 	return nil
 }

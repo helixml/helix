@@ -364,6 +364,38 @@ type Store interface {
 	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
 	ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error)
 
+	// spec-driven task work sessions
+	CreateSpecTaskWorkSession(ctx context.Context, workSession *types.SpecTaskWorkSession) error
+	GetSpecTaskWorkSession(ctx context.Context, id string) (*types.SpecTaskWorkSession, error)
+	UpdateSpecTaskWorkSession(ctx context.Context, workSession *types.SpecTaskWorkSession) error
+	DeleteSpecTaskWorkSession(ctx context.Context, id string) error
+	ListSpecTaskWorkSessions(ctx context.Context, specTaskID string) ([]*types.SpecTaskWorkSession, error)
+	ListWorkSessionsBySpecTask(ctx context.Context, specTaskID string, phase *types.SpecTaskPhase) ([]*types.SpecTaskWorkSession, error)
+	GetSpecTaskWorkSessionByHelixSession(ctx context.Context, helixSessionID string) (*types.SpecTaskWorkSession, error)
+
+	// spec-driven task zed threads
+	CreateSpecTaskZedThread(ctx context.Context, zedThread *types.SpecTaskZedThread) error
+	GetSpecTaskZedThread(ctx context.Context, id string) (*types.SpecTaskZedThread, error)
+	GetSpecTaskZedThreadByWorkSession(ctx context.Context, workSessionID string) (*types.SpecTaskZedThread, error)
+	UpdateSpecTaskZedThread(ctx context.Context, zedThread *types.SpecTaskZedThread) error
+	DeleteSpecTaskZedThread(ctx context.Context, id string) error
+	ListSpecTaskZedThreads(ctx context.Context, specTaskID string) ([]*types.SpecTaskZedThread, error)
+
+	// spec-driven task implementation tasks
+	CreateSpecTaskImplementationTask(ctx context.Context, implTask *types.SpecTaskImplementationTask) error
+	GetSpecTaskImplementationTask(ctx context.Context, id string) (*types.SpecTaskImplementationTask, error)
+	UpdateSpecTaskImplementationTask(ctx context.Context, implTask *types.SpecTaskImplementationTask) error
+	DeleteSpecTaskImplementationTask(ctx context.Context, id string) error
+	ListSpecTaskImplementationTasks(ctx context.Context, specTaskID string) ([]*types.SpecTaskImplementationTask, error)
+	ParseAndCreateImplementationTasks(ctx context.Context, specTaskID string, implementationPlan string) ([]*types.SpecTaskImplementationTask, error)
+
+	// spec-driven task multi-session management
+	CreateImplementationSessions(ctx context.Context, specTaskID string, config *types.SpecTaskImplementationSessionsCreateRequest) ([]*types.SpecTaskWorkSession, error)
+	SpawnWorkSession(ctx context.Context, parentSessionID string, config *types.SpecTaskWorkSessionSpawnRequest) (*types.SpecTaskWorkSession, error)
+	GetSpecTaskMultiSessionOverview(ctx context.Context, specTaskID string) (*types.SpecTaskMultiSessionOverviewResponse, error)
+	GetSpecTaskProgress(ctx context.Context, specTaskID string) (*types.SpecTaskProgressResponse, error)
+	UpdateSpecTaskZedInstance(ctx context.Context, specTaskID string, zedInstanceID string) error
+
 	// Agent session methods
 	CreateAgentSession(ctx context.Context, session *types.AgentSession) error
 	GetAgentSession(ctx context.Context, sessionID string) (*types.AgentSession, error)
