@@ -246,7 +246,7 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     image = undefined,
     image_filename = undefined,
     attachedImages = [],
-    agentType = 'helix',
+    agentType = 'helix_basic',
     externalAgentConfig = undefined,
   }: NewInferenceParams): Promise<TypesSession> => {
     // Clear both buffer and history for new sessions

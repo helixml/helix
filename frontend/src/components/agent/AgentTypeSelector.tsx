@@ -19,6 +19,7 @@ import {
   Chat as ChatIcon,
   Code as CodeIcon,
   Computer as ComputerIcon,
+  AutoAwesome as AutoAwesomeIcon,
   Info as InfoIcon,
   Add as AddIcon,
   Delete as DeleteIcon,
@@ -26,7 +27,8 @@ import {
 import { 
   IAgentType, 
   IExternalAgentConfig,
-  AGENT_TYPE_HELIX,
+  AGENT_TYPE_HELIX_BASIC,
+  AGENT_TYPE_HELIX_AGENT,
   AGENT_TYPE_ZED_EXTERNAL,
   AGENT_TYPE_OPTIONS 
 } from '../../types';
@@ -80,8 +82,10 @@ const AgentTypeSelector: React.FC<AgentTypeSelectorProps> = ({
 
   const getAgentIcon = (agentType: IAgentType) => {
     switch (agentType) {
-      case AGENT_TYPE_HELIX:
+      case AGENT_TYPE_HELIX_BASIC:
         return <ChatIcon />;
+      case AGENT_TYPE_HELIX_AGENT:
+        return <AutoAwesomeIcon />;
       case AGENT_TYPE_ZED_EXTERNAL:
         return <CodeIcon />;
       default:
@@ -160,9 +164,9 @@ const AgentTypeSelector: React.FC<AgentTypeSelectorProps> = ({
       {/* External Agent Configuration */}
       {showExternalConfig && (
         <Collapse in={value === AGENT_TYPE_ZED_EXTERNAL}>
-          <Card variant="outlined" sx={{ mt: 2, backgroundColor: 'grey.50' }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Card variant="outlined" sx={{ mt: 2, backgroundColor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+            <CardContent sx={{ color: 'text.primary' }}>
+              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'text.primary' }}>
                 <CodeIcon />
                 External Agent Configuration
               </Typography>
@@ -191,7 +195,7 @@ const AgentTypeSelector: React.FC<AgentTypeSelectorProps> = ({
                 {/* Environment Variables */}
                 <Box>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                    <Typography variant="subtitle2">Environment Variables</Typography>
+                    <Typography variant="subtitle2" sx={{ color: 'text.primary' }}>Environment Variables</Typography>
                     <IconButton size="small" onClick={handleEnvVarAdd}>
                       <AddIcon />
                     </IconButton>

@@ -21,6 +21,7 @@ import Secrets from './pages/Secrets'
 import NewAgent from './pages/NewAgent'
 import ImportAgent from './pages/ImportAgent'
 import Tasks from './pages/Tasks'
+import SpecTasksPage from './pages/SpecTasksPage'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
@@ -93,6 +94,17 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     },
     render: () => (
       <Tasks />
+    ),
+  }, {
+    name: namePrefix + 'spec-tasks',
+    path: routePrefix + '/spec-tasks',
+    meta: {
+      drawer: true,
+      orgRouteAware: true,
+      title: 'SpecTasks',
+    },
+    render: () => (
+      <SpecTasksPage />
     ),
   }, {
     name: namePrefix + 'app',
