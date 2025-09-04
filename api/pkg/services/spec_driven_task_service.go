@@ -2,13 +2,17 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+	"gorm.io/datatypes"
 )
 
 // SpecDrivenTaskService manages the spec-driven development workflow:
@@ -19,6 +23,7 @@ type SpecDrivenTaskService struct {
 	controller   *controller.Controller
 	helixAgentID string   // ID of Helix agent for spec generation
 	zedAgentPool []string // Pool of available Zed agents
+	testMode     bool     // If true, skip async operations for testing
 }
 
 // NewSpecDrivenTaskService creates a new service instance
@@ -33,7 +38,13 @@ func NewSpecDrivenTaskService(
 		controller:   controller,
 		helixAgentID: helixAgentID,
 		zedAgentPool: zedAgentPool,
+		testMode:     false,
 	}
+}
+
+// SetTestMode enables or disables test mode (prevents async operations)
+func (s *SpecDrivenTaskService) SetTestMode(enabled bool) {
+	s.testMode = enabled
 }
 
 // CreateTaskFromPrompt creates a new task in the backlog and kicks off spec generation
@@ -58,8 +69,10 @@ func (s *SpecDrivenTaskService) CreateTaskFromPrompt(ctx context.Context, req *C
 		return nil, fmt.Errorf("failed to create task: %w", err)
 	}
 
-	// Immediately start spec generation
-	go s.startSpecGeneration(context.Background(), task)
+	// Immediately start spec generation (unless in test mode)
+	if !s.testMode {
+		go s.startSpecGeneration(context.Background(), task)
+	}
 
 	return task, nil
 }
@@ -83,45 +96,71 @@ func (s *SpecDrivenTaskService) startSpecGeneration(ctx context.Context, task *t
 	}
 
 	// Create Helix session for spec generation
-	// TODO: Fix undefined types and methods
-	/*
-		// Create system prompt for spec generation
-		systemPrompt := s.buildSpecGenerationPrompt(task)
-			sessionReq := &types.CreateSessionRequest{
-				UserID:       task.CreatedBy,
-				ProjectID:    task.ProjectID,
-				SessionMode:  types.SessionModeInference,
-				SystemPrompt: systemPrompt,
-				Metadata: map[string]interface{}{
-					"task_id":    task.ID,
-					"task_type":  "spec_generation",
-					"project_id": task.ProjectID,
-				},
-			}
+	systemPrompt := s.buildSpecGenerationPrompt(task)
 
-			session, err := s.controller.CreateSession(ctx, sessionReq)
-			if err != nil {
-				return fmt.Errorf("failed to create spec generation session: %w", err)
-			}
+	sessionMetadata := types.SessionMetadata{
+		SystemPrompt: systemPrompt,
+		AgentType:    "helix",
+		Stream:       false,
+	}
 
-			// Update task with session ID
-			task.SpecSessionID = session.ID
-			s.store.UpdateSpecTask(ctx, task)
+	session := &types.Session{
+		ID:             system.GenerateSessionID(),
+		Name:           fmt.Sprintf("Spec Generation: %s", task.Name),
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		Mode:           types.SessionModeInference,
+		Type:           types.SessionTypeText,
+		Provider:       "openai", // Use OpenAI for spec generation
+		ModelName:      "gpt-4",  // Use GPT-4 for better reasoning
+		Owner:          task.CreatedBy,
+		ParentApp:      "",
+		OrganizationID: "",
+		Metadata:       sessionMetadata,
+		OwnerType:      types.OwnerTypeUser,
+	}
 
-			// Send the original prompt to start spec generation
-			messageReq := &types.CreateMessageRequest{
-				SessionID: session.ID,
-				UserID:    task.CreatedBy,
-				Content:   task.OriginalPrompt,
-			}
+	// Create the session in the database
+	if s.controller == nil || s.controller.Options.Store == nil {
+		log.Error().Str("task_id", task.ID).Msg("Controller or store not available for spec generation")
+		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
+		return
+	}
 
-			_, err = s.controller.CreateMessage(ctx, messageReq)
-	*/
-	err = fmt.Errorf("spec generation not implemented yet")
+	session, err = s.controller.Options.Store.CreateSession(ctx, *session)
 	if err != nil {
-		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to send prompt to spec generation agent")
-		// TODO: Implement markTaskFailed method
-		// s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create spec generation session")
+		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
+		return
+	}
+
+	// Update task with session ID
+	task.SpecSessionID = session.ID
+	err = s.store.UpdateSpecTask(ctx, task)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to update task with session ID")
+		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
+		return
+	}
+
+	// Create initial interaction with the original prompt
+	interaction := &types.Interaction{
+		ID:            system.GenerateInteractionID(),
+		Created:       time.Now(),
+		Updated:       time.Now(),
+		Scheduled:     time.Now(),
+		SessionID:     session.ID,
+		UserID:        task.CreatedBy,
+		Mode:          types.SessionModeInference,
+		SystemPrompt:  systemPrompt,
+		PromptMessage: task.OriginalPrompt,
+		State:         types.InteractionStateWaiting,
+	}
+
+	_, err = s.controller.Options.Store.CreateInteraction(ctx, interaction)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create initial interaction")
+		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
 		return
 	}
 
@@ -154,7 +193,25 @@ func (s *SpecDrivenTaskService) HandleSpecGenerationComplete(ctx context.Context
 		Str("task_id", taskID).
 		Msg("Spec generation completed, awaiting human review")
 
-	// TODO: Send notification to user for spec review
+	// Send notification to user for spec review
+	if s.controller != nil && s.controller.Options.Notifier != nil {
+		// Note: The notification system expects a session, but for task notifications we'll create a minimal one
+		session := &types.Session{
+			ID:    task.SpecSessionID,
+			Owner: task.CreatedBy,
+		}
+
+		notificationPayload := &notification.Notification{
+			Session: session,
+			Event:   notification.EventCronTriggerComplete,
+		}
+
+		if err := s.controller.Options.Notifier.Notify(ctx, notificationPayload); err != nil {
+			log.Error().Err(err).Str("task_id", taskID).Msg("Failed to send spec review notification")
+			// Don't fail the whole operation if notification fails
+		}
+	}
+
 	return nil
 }
 
@@ -176,8 +233,10 @@ func (s *SpecDrivenTaskService) ApproveSpecs(ctx context.Context, req *types.Spe
 			return fmt.Errorf("failed to update task approval: %w", err)
 		}
 
-		// Start implementation
-		go s.startImplementation(context.Background(), task)
+		// Start implementation (unless in test mode)
+		if !s.testMode {
+			go s.startImplementation(context.Background(), task)
+		}
 
 	} else {
 		// Specs need revision
@@ -227,25 +286,53 @@ func (s *SpecDrivenTaskService) startImplementation(ctx context.Context, task *t
 	// Create implementation prompt with approved specs
 	implementationPrompt := s.buildImplementationPrompt(task)
 
-	// TODO: Create Zed agent session/work item
-	// This will integrate with the Zed agent system
-	_ = &types.AgentWorkItem{
+	// Create Zed agent work item
+	workItem := &types.AgentWorkItem{
 		ID:          fmt.Sprintf("impl_%s", task.ID),
 		Name:        fmt.Sprintf("Implement: %s", task.Name),
 		Description: implementationPrompt,
-		Source:      "two_phase_task",
+		Source:      "spec_driven_task",
+		SourceID:    task.ID,
 		SourceURL:   fmt.Sprintf("/tasks/%s", task.ID),
 		Priority:    convertPriorityToInt(task.Priority),
+		Status:      "pending",
+		AgentType:   "zed",
 		UserID:      task.CreatedBy,
-		// TODO: Add project/repo context
+		WorkData: mustMarshalJSON(map[string]interface{}{
+			"task_id":             task.ID,
+			"requirements_spec":   task.RequirementsSpec,
+			"technical_design":    task.TechnicalDesign,
+			"implementation_plan": task.ImplementationPlan,
+			"original_prompt":     task.OriginalPrompt,
+		}),
+		Config: mustMarshalJSON(map[string]interface{}{
+			"workspace_dir": "/tmp/workspace",
+			"project_path":  task.ProjectID,
+		}),
+		Labels:    mustMarshalJSON([]string{"implementation", "spec-driven", task.Priority}),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	// Store the work item in the database
+	if s.controller == nil || s.controller.Options.Store == nil {
+		log.Error().Str("task_id", task.ID).Msg("Controller or store not available for work item creation")
+		s.markTaskFailed(ctx, task, types.TaskStatusImplementationFailed)
+		return
+	}
+
+	err = s.controller.Options.Store.CreateAgentWorkItem(ctx, workItem)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create work item")
+		s.markTaskFailed(ctx, task, types.TaskStatusImplementationFailed)
+		return
 	}
 
 	log.Info().
 		Str("task_id", task.ID).
+		Str("work_item_id", workItem.ID).
 		Str("zed_agent", zedAgent).
-		Msg("Implementation work item created for Zed agent")
-
-	// TODO: Submit work item to Zed agent queue
+		Msg("Implementation work item created and queued for Zed agent")
 }
 
 // buildSpecGenerationPrompt creates the system prompt for Helix spec generation
@@ -342,10 +429,22 @@ func (s *SpecDrivenTaskService) selectZedAgent() string {
 	return s.zedAgentPool[0]
 }
 
+// mustMarshalJSON marshals data to JSON, panicking on error (for static data)
+func mustMarshalJSON(data interface{}) datatypes.JSON {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		panic(fmt.Sprintf("failed to marshal JSON: %v", err))
+	}
+	return datatypes.JSON(jsonData)
+}
+
 func (s *SpecDrivenTaskService) markTaskFailed(ctx context.Context, task *types.SpecTask, status string) {
 	task.Status = status
 	task.UpdatedAt = time.Now()
-	s.store.UpdateSpecTask(ctx, task)
+	err := s.store.UpdateSpecTask(ctx, task)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", task.ID).Str("status", status).Msg("Failed to mark task as failed")
+	}
 }
 
 func generateTaskID() string {
