@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
-	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -18,14 +18,14 @@ import (
 func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
-		system.Error(res, http.StatusUnauthorized, "unauthorized")
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	var agent types.ZedAgent
 	err := json.NewDecoder(req.Body).Decode(&agent)
 	if err != nil {
-		system.Error(res, http.StatusBadRequest, fmt.Sprintf("invalid JSON: %s", err.Error()))
+		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
 		return
 	}
 
@@ -41,20 +41,21 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 
 	// Validate required fields
 	if agent.Input == "" {
-		system.Error(res, http.StatusBadRequest, "input is required")
+		http.Error(res, "input is required", http.StatusBadRequest)
 		return
 	}
 
-	// Create external agent executor if not already available
+	// External agent executor should be initialized in server constructor
 	if apiServer.externalAgentExecutor == nil {
-		apiServer.externalAgentExecutor = external_agent.NewExecutor(apiServer.Cfg, apiServer.pubsub)
+		http.Error(res, "external agent executor not available", http.StatusServiceUnavailable)
+		return
 	}
 
 	// Generate auth token for WebSocket connection
 	token, err := apiServer.generateExternalAgentToken(agent.SessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", agent.SessionID).Msg("failed to generate external agent token")
-		system.Error(res, http.StatusInternalServerError, fmt.Sprintf("failed to generate auth token: %s", err.Error()))
+		http.Error(res, fmt.Sprintf("failed to create external agent: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
@@ -62,7 +63,7 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 	response, err := apiServer.externalAgentExecutor.StartZedAgent(req.Context(), &agent)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", agent.SessionID).Msg("failed to start external agent")
-		system.Error(res, http.StatusInternalServerError, fmt.Sprintf("failed to start external agent: %s", err.Error()))
+		http.Error(res, fmt.Sprintf("failed to start external agent: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
@@ -70,14 +71,15 @@ func (apiServer *HelixAPIServer) createExternalAgent(res http.ResponseWriter, re
 	response.WebSocketURL = fmt.Sprintf("wss://%s/api/v1/external-agents/sync?session_id=%s", req.Host, agent.SessionID)
 	response.AuthToken = token
 
-	system.RespondJSON(res, response)
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(response)
 }
 
 // getExternalAgent handles GET /api/v1/external-agents/{sessionID}
 func (apiServer *HelixAPIServer) getExternalAgent(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
-		system.Error(res, http.StatusUnauthorized, "unauthorized")
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -85,18 +87,18 @@ func (apiServer *HelixAPIServer) getExternalAgent(res http.ResponseWriter, req *
 	sessionID := vars["sessionID"]
 
 	if sessionID == "" {
-		system.Error(res, http.StatusBadRequest, "session ID is required")
+		http.Error(res, "session ID is required", http.StatusBadRequest)
 		return
 	}
 
 	if apiServer.externalAgentExecutor == nil {
-		system.Error(res, http.StatusNotFound, "external agent executor not available")
+		http.Error(res, "external agent executor not available", http.StatusNotFound)
 		return
 	}
 
-	session, exists := apiServer.externalAgentExecutor.GetSession(sessionID)
-	if !exists {
-		system.Error(res, http.StatusNotFound, fmt.Sprintf("session %s not found", sessionID))
+	session, err := apiServer.externalAgentExecutor.GetSession(sessionID)
+	if err != nil {
+		http.Error(res, fmt.Sprintf("session %s not found", sessionID), http.StatusNotFound)
 		return
 	}
 
@@ -107,19 +109,21 @@ func (apiServer *HelixAPIServer) getExternalAgent(res http.ResponseWriter, req *
 		PID:       session.PID,
 	}
 
-	system.RespondJSON(res, response)
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(response)
 }
 
 // listExternalAgents handles GET /api/v1/external-agents
 func (apiServer *HelixAPIServer) listExternalAgents(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
-		system.Error(res, http.StatusUnauthorized, "unauthorized")
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	if apiServer.externalAgentExecutor == nil {
-		system.RespondJSON(res, []types.ZedAgentResponse{})
+		res.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(res).Encode([]types.ZedAgentResponse{})
 		return
 	}
 
@@ -135,14 +139,15 @@ func (apiServer *HelixAPIServer) listExternalAgents(res http.ResponseWriter, req
 		}
 	}
 
-	system.RespondJSON(res, responses)
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(responses)
 }
 
 // deleteExternalAgent handles DELETE /api/v1/external-agents/{sessionID}
 func (apiServer *HelixAPIServer) deleteExternalAgent(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
-		system.Error(res, http.StatusUnauthorized, "unauthorized")
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -150,19 +155,19 @@ func (apiServer *HelixAPIServer) deleteExternalAgent(res http.ResponseWriter, re
 	sessionID := vars["sessionID"]
 
 	if sessionID == "" {
-		system.Error(res, http.StatusBadRequest, "session ID is required")
+		http.Error(res, "session ID is required", http.StatusBadRequest)
 		return
 	}
 
 	if apiServer.externalAgentExecutor == nil {
-		system.Error(res, http.StatusNotFound, "external agent executor not available")
+		http.Error(res, "external agent executor not available", http.StatusNotFound)
 		return
 	}
 
 	err := apiServer.externalAgentExecutor.StopZedAgent(req.Context(), sessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("failed to stop external agent")
-		system.Error(res, http.StatusInternalServerError, fmt.Sprintf("failed to stop external agent: %s", err.Error()))
+		http.Error(res, fmt.Sprintf("failed to stop external agent: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
@@ -171,14 +176,15 @@ func (apiServer *HelixAPIServer) deleteExternalAgent(res http.ResponseWriter, re
 		"session_id": sessionID,
 	}
 
-	system.RespondJSON(res, response)
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(response)
 }
 
 // getExternalAgentRDP handles GET /api/v1/external-agents/{sessionID}/rdp
 func (apiServer *HelixAPIServer) getExternalAgentRDP(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
-		system.Error(res, http.StatusUnauthorized, "unauthorized")
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -186,18 +192,18 @@ func (apiServer *HelixAPIServer) getExternalAgentRDP(res http.ResponseWriter, re
 	sessionID := vars["sessionID"]
 
 	if sessionID == "" {
-		system.Error(res, http.StatusBadRequest, "session ID is required")
+		http.Error(res, "session ID is required", http.StatusBadRequest)
 		return
 	}
 
 	if apiServer.externalAgentExecutor == nil {
-		system.Error(res, http.StatusNotFound, "external agent executor not available")
+		http.Error(res, "external agent executor not available", http.StatusNotFound)
 		return
 	}
 
-	session, exists := apiServer.externalAgentExecutor.GetSession(sessionID)
-	if !exists {
-		system.Error(res, http.StatusNotFound, fmt.Sprintf("session %s not found", sessionID))
+	session, err := apiServer.externalAgentExecutor.GetSession(sessionID)
+	if err != nil {
+		http.Error(res, fmt.Sprintf("session %s not found", sessionID), http.StatusNotFound)
 		return
 	}
 
@@ -216,14 +222,15 @@ func (apiServer *HelixAPIServer) getExternalAgentRDP(res http.ResponseWriter, re
 		"websocket_connected": apiServer.isExternalAgentConnected(session.SessionID),
 	}
 
-	system.RespondJSON(res, rdpInfo)
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(rdpInfo)
 }
 
 // updateExternalAgent handles PUT /api/v1/external-agents/{sessionID}
 func (apiServer *HelixAPIServer) updateExternalAgent(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
-		system.Error(res, http.StatusUnauthorized, "unauthorized")
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -231,25 +238,25 @@ func (apiServer *HelixAPIServer) updateExternalAgent(res http.ResponseWriter, re
 	sessionID := vars["sessionID"]
 
 	if sessionID == "" {
-		system.Error(res, http.StatusBadRequest, "session ID is required")
+		http.Error(res, "session ID is required", http.StatusBadRequest)
 		return
 	}
 
 	var updateData map[string]interface{}
 	err := json.NewDecoder(req.Body).Decode(&updateData)
 	if err != nil {
-		system.Error(res, http.StatusBadRequest, fmt.Sprintf("invalid JSON: %s", err.Error()))
+		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
 		return
 	}
 
 	if apiServer.externalAgentExecutor == nil {
-		system.Error(res, http.StatusNotFound, "external agent executor not available")
+		http.Error(res, "external agent executor not available", http.StatusNotFound)
 		return
 	}
 
-	session, exists := apiServer.externalAgentExecutor.GetSession(sessionID)
-	if !exists {
-		system.Error(res, http.StatusNotFound, fmt.Sprintf("session %s not found", sessionID))
+	session, err := apiServer.externalAgentExecutor.GetSession(sessionID)
+	if err != nil {
+		http.Error(res, fmt.Sprintf("session %s not found", sessionID), http.StatusNotFound)
 		return
 	}
 
@@ -264,14 +271,15 @@ func (apiServer *HelixAPIServer) updateExternalAgent(res http.ResponseWriter, re
 		PID:       session.PID,
 	}
 
-	system.RespondJSON(res, response)
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(response)
 }
 
 // getExternalAgentStats handles GET /api/v1/external-agents/{sessionID}/stats
 func (apiServer *HelixAPIServer) getExternalAgentStats(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
-		system.Error(res, http.StatusUnauthorized, "unauthorized")
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -279,18 +287,18 @@ func (apiServer *HelixAPIServer) getExternalAgentStats(res http.ResponseWriter, 
 	sessionID := vars["sessionID"]
 
 	if sessionID == "" {
-		system.Error(res, http.StatusBadRequest, "session ID is required")
+		http.Error(res, "session ID is required", http.StatusBadRequest)
 		return
 	}
 
 	if apiServer.externalAgentExecutor == nil {
-		system.Error(res, http.StatusNotFound, "external agent executor not available")
+		http.Error(res, "external agent executor not available", http.StatusNotFound)
 		return
 	}
 
-	session, exists := apiServer.externalAgentExecutor.GetSession(sessionID)
-	if !exists {
-		system.Error(res, http.StatusNotFound, fmt.Sprintf("session %s not found", sessionID))
+	session, err := apiServer.externalAgentExecutor.GetSession(sessionID)
+	if err != nil {
+		http.Error(res, fmt.Sprintf("session %s not found", sessionID), http.StatusNotFound)
 		return
 	}
 
@@ -306,14 +314,15 @@ func (apiServer *HelixAPIServer) getExternalAgentStats(res http.ResponseWriter, 
 		"status":        "running",
 	}
 
-	system.RespondJSON(res, stats)
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(stats)
 }
 
 // getExternalAgentLogs handles GET /api/v1/external-agents/{sessionID}/logs
 func (apiServer *HelixAPIServer) getExternalAgentLogs(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
-		system.Error(res, http.StatusUnauthorized, "unauthorized")
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -321,7 +330,7 @@ func (apiServer *HelixAPIServer) getExternalAgentLogs(res http.ResponseWriter, r
 	sessionID := vars["sessionID"]
 
 	if sessionID == "" {
-		system.Error(res, http.StatusBadRequest, "session ID is required")
+		http.Error(res, "session ID is required", http.StatusBadRequest)
 		return
 	}
 
@@ -334,13 +343,13 @@ func (apiServer *HelixAPIServer) getExternalAgentLogs(res http.ResponseWriter, r
 	}
 
 	if apiServer.externalAgentExecutor == nil {
-		system.Error(res, http.StatusNotFound, "external agent executor not available")
+		http.Error(res, "external agent executor not available", http.StatusNotFound)
 		return
 	}
 
-	_, exists := apiServer.externalAgentExecutor.GetSession(sessionID)
-	if !exists {
-		system.Error(res, http.StatusNotFound, fmt.Sprintf("session %s not found", sessionID))
+	_, err := apiServer.externalAgentExecutor.GetSession(sessionID)
+	if err != nil {
+		http.Error(res, fmt.Sprintf("session %s not found", sessionID), http.StatusNotFound)
 		return
 	}
 
@@ -355,10 +364,11 @@ func (apiServer *HelixAPIServer) getExternalAgentLogs(res http.ResponseWriter, r
 			"[INFO] XRDP server listening on port 3389",
 			"[DEBUG] Session active and responding",
 		},
-		"timestamp": system.Now(),
+		"timestamp": time.Now(),
 	}
 
-	system.RespondJSON(res, logs)
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(logs)
 }
 
 // isExternalAgentConnected checks if external agent is connected via WebSocket
@@ -371,19 +381,20 @@ func (apiServer *HelixAPIServer) isExternalAgentConnected(sessionID string) bool
 func (apiServer *HelixAPIServer) getExternalAgentConnections(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
-		system.Error(res, http.StatusUnauthorized, "unauthorized")
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	connections := apiServer.externalAgentWSManager.listConnections()
-	system.RespondJSON(res, connections)
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(connections)
 }
 
 // sendCommandToExternalAgentHandler allows manual command sending for testing
 func (apiServer *HelixAPIServer) sendCommandToExternalAgentHandler(res http.ResponseWriter, req *http.Request) {
 	user := getRequestUser(req)
 	if user == nil {
-		system.Error(res, http.StatusUnauthorized, "unauthorized")
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -391,20 +402,20 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgentHandler(res http.Resp
 	sessionID := vars["sessionID"]
 
 	if sessionID == "" {
-		system.Error(res, http.StatusBadRequest, "session ID is required")
+		http.Error(res, "session ID is required", http.StatusBadRequest)
 		return
 	}
 
 	var command types.ExternalAgentCommand
 	err := json.NewDecoder(req.Body).Decode(&command)
 	if err != nil {
-		system.Error(res, http.StatusBadRequest, fmt.Sprintf("invalid JSON: %s", err.Error()))
+		http.Error(res, fmt.Sprintf("invalid JSON: %s", err.Error()), http.StatusBadRequest)
 		return
 	}
 
 	if err := apiServer.sendCommandToExternalAgent(sessionID, command); err != nil {
 		log.Error().Err(err).Str("session_id", sessionID).Msg("failed to send command to external agent")
-		system.Error(res, http.StatusInternalServerError, fmt.Sprintf("failed to send command: %s", err.Error()))
+		http.Error(res, fmt.Sprintf("failed to send command: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
 
@@ -413,5 +424,6 @@ func (apiServer *HelixAPIServer) sendCommandToExternalAgentHandler(res http.Resp
 		"session_id": sessionID,
 	}
 
-	system.RespondJSON(res, response)
+	res.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(res).Encode(response)
 }

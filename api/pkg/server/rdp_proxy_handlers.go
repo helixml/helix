@@ -10,7 +10,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -320,7 +319,8 @@ func (rpm *RDPProxyManager) cleanupInactiveConnections(timeout time.Duration) {
 // RDP proxy health check endpoint
 func (s *HelixAPIServer) getRDPProxyHealth(w http.ResponseWriter, r *http.Request) {
 	stats := rdpProxyManager.getConnectionStats()
-	system.RespondJSON(w, map[string]interface{}{
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":     "healthy",
 		"timestamp":  time.Now(),
 		"statistics": stats,

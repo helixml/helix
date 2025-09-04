@@ -50,7 +50,7 @@ func (s *HelixAPIServer) getAgentDashboard(_ http.ResponseWriter, r *http.Reques
 	sessionsNeedingHelp, err := s.Store.GetSessionsNeedingHelp(ctx)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to get sessions needing help")
-		sessionsNeedingHelp = []*types.AgentSessionStatus{}
+		sessionsNeedingHelp = []*types.AgentSession{}
 	}
 
 	// Get pending work
@@ -63,7 +63,7 @@ func (s *HelixAPIServer) getAgentDashboard(_ http.ResponseWriter, r *http.Reques
 	pendingWorkResponse, err := s.Store.ListAgentWorkItems(ctx, pendingWorkQuery)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to get pending work")
-		pendingWorkResponse = &types.AgentWorkItemsResponse{Items: []*types.AgentWorkItem{}}
+		pendingWorkResponse = &types.AgentWorkItemsListResponse{WorkItems: []*types.AgentWorkItem{}}
 	}
 
 	// Get running work
@@ -76,7 +76,7 @@ func (s *HelixAPIServer) getAgentDashboard(_ http.ResponseWriter, r *http.Reques
 	runningWorkResponse, err := s.Store.ListAgentWorkItems(ctx, runningWorkQuery)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to get running work")
-		runningWorkResponse = &types.AgentWorkItemsResponse{Items: []*types.AgentWorkItem{}}
+		runningWorkResponse = &types.AgentWorkItemsListResponse{WorkItems: []*types.AgentWorkItem{}}
 	}
 
 	// Get recent completions
@@ -111,17 +111,58 @@ func (s *HelixAPIServer) getAgentDashboard(_ http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	// Convert AgentSession to AgentSessionStatus for summary
+	activeSessions := make([]*types.AgentSessionStatus, len(sessionsResponse.Sessions))
+	for i, session := range sessionsResponse.Sessions {
+		activeSessions[i] = &types.AgentSessionStatus{
+			ID:           session.ID,
+			SessionID:    session.SessionID,
+			AgentType:    session.AgentType,
+			Status:       session.Status,
+			CurrentTask:  session.CurrentTask,
+			UserID:       session.UserID,
+			AppID:        session.AppID,
+			ProcessID:    session.ProcessID,
+			ContainerID:  session.ContainerID,
+			HealthStatus: session.HealthStatus,
+			CreatedAt:    session.CreatedAt,
+			UpdatedAt:    session.UpdatedAt,
+			LastActivity: session.LastActivity,
+			CompletedAt:  session.CompletedAt,
+		}
+	}
+
+	sessionsNeedingHelpStatus := make([]*types.AgentSessionStatus, len(sessionsNeedingHelp))
+	for i, session := range sessionsNeedingHelp {
+		sessionsNeedingHelpStatus[i] = &types.AgentSessionStatus{
+			ID:           session.ID,
+			SessionID:    session.SessionID,
+			AgentType:    session.AgentType,
+			Status:       session.Status,
+			CurrentTask:  session.CurrentTask,
+			UserID:       session.UserID,
+			AppID:        session.AppID,
+			ProcessID:    session.ProcessID,
+			ContainerID:  session.ContainerID,
+			HealthStatus: session.HealthStatus,
+			CreatedAt:    session.CreatedAt,
+			UpdatedAt:    session.UpdatedAt,
+			LastActivity: session.LastActivity,
+			CompletedAt:  session.CompletedAt,
+		}
+	}
+
 	return &types.AgentDashboardSummary{
 		DashboardData:       baseDashboard,
-		ActiveSessions:      sessionsResponse.Sessions,
-		SessionsNeedingHelp: sessionsNeedingHelp,
-		PendingWork:         pendingWorkResponse.Items,
-		RunningWork:         runningWorkResponse.Items,
+		ActiveSessions:      activeSessions,
+		SessionsNeedingHelp: sessionsNeedingHelpStatus,
+		PendingWork:         pendingWorkResponse.WorkItems,
+		RunningWork:         runningWorkResponse.WorkItems,
 		RecentCompletions:   recentCompletions,
 		PendingReviews:      pendingReviews,
 		ActiveHelpRequests:  activeHelpRequests,
 		WorkQueueStats:      workQueueStats,
-		LastUpdated:         baseDashboard.Timestamp,
+		LastUpdated:         time.Now(),
 	}, nil
 }
 
@@ -169,7 +210,12 @@ func (s *HelixAPIServer) listAgentSessions(_ http.ResponseWriter, r *http.Reques
 		return nil, system.NewHTTPError500("failed to list agent sessions")
 	}
 
-	return response, nil
+	return &types.AgentSessionsResponse{
+		Sessions: make([]*types.AgentSessionStatus, len(response.Sessions)),
+		Total:    response.Total,
+		Page:     response.Page,
+		PageSize: response.PageSize,
+	}, nil
 }
 
 // listAgentWorkItems godoc
@@ -217,7 +263,12 @@ func (s *HelixAPIServer) listAgentWorkItems(_ http.ResponseWriter, r *http.Reque
 		return nil, system.NewHTTPError500("failed to list agent work items")
 	}
 
-	return response, nil
+	return &types.AgentWorkItemsResponse{
+		Items:    response.WorkItems,
+		Total:    response.Total,
+		Page:     response.Page,
+		PageSize: response.PageSize,
+	}, nil
 }
 
 // createAgentWorkItem godoc

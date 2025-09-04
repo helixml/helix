@@ -100,7 +100,8 @@ func (apiServer *HelixAPIServer) startZedAgentRunnerWebSocketServer(r *mux.Route
 			if err := zedAgentSub.Unsubscribe(); err != nil {
 				log.Err(err).Msg("failed to unsubscribe from zed agent queue")
 			}
-			// No legacy GPTScript support - Zed agents only
+		}()
+		// No legacy GPTScript support - Zed agents only
 
 		// Block reads in order to detect disconnects and handle responses
 		for {
