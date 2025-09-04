@@ -9,6 +9,7 @@ type SkillSelectionPromptData struct {
 	MainAgentSystemPrompt string
 	SkillFunctions        []string
 	MemoryBlocks          string
+	KnowledgeBlocks       string
 	MaxIterations         int
 	CurrentIteration      int
 }
@@ -27,7 +28,7 @@ Skill functions handle multiple queries and receive context externally, requirin
 
 # Notes
 
-- Remember not to pass any arguments to skill functions, as the context is managed externally.
+- Remember not to pass any arguments to skill functions if the skill function does not have them, the context will be managed externally in those cases.
 - Focus on understanding the interdependencies between skills to optimize the response process effectively.
 - Remember to use the "stop" tool when you are done with the task.
 
@@ -58,7 +59,20 @@ All the memory learned from user's previous interactions are provided below. Use
 You have {{ .MaxIterations }} iterations to complete the task. You are on iteration {{ .CurrentIteration }}.
 If you are not able to complete the task in the given number of iterations, you should use the "stop" tool to stop the task.
 
-{{ .MemoryBlocks }}`
+{{ if .MemoryBlocks }}
+All the memory learned from user's previous interactions are provided below. Use it as the context to answer the user's question.
+Don't mention the memory in your response, just use it as the context to answer the user's question.
+
+{{ .MemoryBlocks }}
+{{ end }}
+
+{{ if .KnowledgeBlocks }}
+All the knowledge provided to you is below. Use it as the context to answer the user's question.
+Don't mention the knowledge in your response, just use it as the context to answer the user's question.
+
+{{ .KnowledgeBlocks }}
+{{ end }}
+`
 
 // SkillSelectionPrompt creates the skill selection prompt by applying the provided data.
 func SkillSelectionPrompt(data SkillSelectionPromptData) (string, error) {

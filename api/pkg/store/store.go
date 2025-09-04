@@ -19,13 +19,14 @@ type OwnerQuery struct {
 	OwnerType types.OwnerType `json:"owner_type"`
 }
 
-type GetSessionsQuery struct {
+type ListSessionsQuery struct {
 	Owner          string          `json:"owner"`
 	OwnerType      types.OwnerType `json:"owner_type"`
 	ParentSession  string          `json:"parent_session"`
 	OrganizationID string          `json:"organization_id"` // The organization this session belongs to, if any
-	Offset         int             `json:"offset"`
-	Limit          int             `json:"limit"`
+	Page           int             `json:"page"`
+	PerPage        int             `json:"per_page"`
+	Search         string          `json:"search"`
 }
 
 type ListAPIKeysQuery struct {
@@ -59,9 +60,9 @@ type ListDataEntitiesQuery struct {
 }
 
 type ListProviderEndpointsQuery struct {
-	Owner     string
-	OwnerType types.OwnerType
-
+	Owner      string
+	OwnerType  types.OwnerType
+	All        bool
 	WithGlobal bool
 }
 
@@ -108,6 +109,13 @@ type SearchUsersQuery struct {
 	OrganizationID string `json:"organization_id"` // Organization ID to filter users that are members of the org
 	Limit          int    `json:"limit"`           // Maximum number of results to return
 	Offset         int    `json:"offset"`          // Offset for pagination
+}
+
+type GetAggregatedUsageMetricsQuery struct {
+	UserID         string
+	OrganizationID string
+	From           time.Time
+	To             time.Time
 }
 
 var _ Store = &PostgresStore{}
@@ -160,8 +168,7 @@ type Store interface {
 
 	// sessions
 	GetSession(ctx context.Context, id string) (*types.Session, error)
-	GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error)
-	GetSessionsCounter(ctx context.Context, query GetSessionsQuery) (*types.Counter, error)
+	ListSessions(ctx context.Context, query ListSessionsQuery) ([]*types.Session, int64, error)
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionName(ctx context.Context, sessionID, name string) error
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
@@ -175,6 +182,14 @@ type Store interface {
 	GetInteraction(ctx context.Context, id string) (*types.Interaction, error)
 	UpdateInteraction(ctx context.Context, interaction *types.Interaction) (*types.Interaction, error)
 	DeleteInteraction(ctx context.Context, id string) error
+
+	// slots
+	CreateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error)
+	GetSlot(ctx context.Context, id string) (*types.RunnerSlot, error)
+	UpdateSlot(ctx context.Context, slot *types.RunnerSlot) (*types.RunnerSlot, error)
+	DeleteSlot(ctx context.Context, id string) error
+	ListSlots(ctx context.Context, runnerID string) ([]*types.RunnerSlot, error)
+	ListAllSlots(ctx context.Context) ([]*types.RunnerSlot, error)
 
 	// step infos
 	CreateStepInfo(ctx context.Context, stepInfo *types.StepInfo) (*types.StepInfo, error)
@@ -263,6 +278,13 @@ type Store interface {
 	ListModels(ctx context.Context, q *ListModelsQuery) ([]*types.Model, error)
 	DeleteModel(ctx context.Context, id string) error
 
+	// Model info for dynamic pricing
+	CreateDynamicModelInfo(ctx context.Context, modelInfo *types.DynamicModelInfo) (*types.DynamicModelInfo, error)
+	GetDynamicModelInfo(ctx context.Context, id string) (*types.DynamicModelInfo, error)
+	UpdateDynamicModelInfo(ctx context.Context, modelInfo *types.DynamicModelInfo) (*types.DynamicModelInfo, error)
+	DeleteDynamicModelInfo(ctx context.Context, id string) error
+	ListDynamicModelInfos(ctx context.Context, q *types.ListDynamicModelInfosQuery) ([]*types.DynamicModelInfo, error)
+
 	// OAuth Provider methods
 	// ListOAuthProvidersQuery contains filters for listing OAuth providers
 	// ListOAuthConnectionsQuery contains filters for listing OAuth connections
@@ -299,9 +321,27 @@ type Store interface {
 	GetUsersAggregatedUsageMetrics(ctx context.Context, provider string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error)
 	GetAppUsersAggregatedUsageMetrics(ctx context.Context, appID string, from time.Time, to time.Time) ([]*types.UsersAggregatedUsageMetric, error)
 
+	GetAggregatedUsageMetrics(ctx context.Context, q *GetAggregatedUsageMetricsQuery) ([]*types.AggregatedUsageMetric, error)
+
 	CreateSlackThread(ctx context.Context, thread *types.SlackThread) (*types.SlackThread, error)
 	GetSlackThread(ctx context.Context, appID, channel, threadKey string) (*types.SlackThread, error)
 	DeleteSlackThread(ctx context.Context, olderThan time.Time) error
+
+	// wallet methods
+	CreateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
+	GetWallet(ctx context.Context, id string) (*types.Wallet, error)
+	GetWalletByUser(ctx context.Context, userID string) (*types.Wallet, error)
+	GetWalletByOrg(ctx context.Context, orgID string) (*types.Wallet, error)
+	GetWalletByStripeCustomerID(ctx context.Context, stripeCustomerID string) (*types.Wallet, error)
+	UpdateWallet(ctx context.Context, wallet *types.Wallet) (*types.Wallet, error)
+	DeleteWallet(ctx context.Context, id string) error
+	UpdateWalletBalance(ctx context.Context, walletID string, amount float64, meta types.TransactionMetadata) (*types.Wallet, error)
+
+	// transaction methods
+	ListTransactions(ctx context.Context, q *ListTransactionsQuery) ([]*types.Transaction, error)
+
+	// topup methods
+	ListTopUps(ctx context.Context, q *ListTopUpsQuery) ([]*types.TopUp, error)
 
 	// trigger configurations
 	CreateTriggerConfiguration(ctx context.Context, triggerConfig *types.TriggerConfiguration) (*types.TriggerConfiguration, error)
@@ -314,6 +354,14 @@ type Store interface {
 	CreateTriggerExecution(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error)
 	UpdateTriggerExecution(ctx context.Context, execution *types.TriggerExecution) (*types.TriggerExecution, error)
 	ResetRunningExecutions(ctx context.Context) error
+
+	// system settings
+	GetSystemSettings(ctx context.Context) (*types.SystemSettings, error)
+	GetEffectiveSystemSettings(ctx context.Context) (*types.SystemSettings, error)
+	UpdateSystemSettings(ctx context.Context, req *types.SystemSettingsRequest) (*types.SystemSettings, error)
+
+	// model seeding
+	SeedModelsFromEnvironment(ctx context.Context) error
 }
 
 type EmbeddingsStore interface {

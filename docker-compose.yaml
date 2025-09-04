@@ -43,6 +43,11 @@ services:
       - RAG_HAYSTACK_URL=http://haystack:8000
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Dynamic providers: format is "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
+      # Only creates providers that don't already exist (won't overwrite existing ones)
+      # Example: DYNAMIC_PROVIDERS=groq:gsk_xxxx:https://api.groq.com/openai/v1,cerebras:csk_xxxx:https://api.cerebras.ai/v1
+      - DYNAMIC_PROVIDERS=${DYNAMIC_PROVIDERS:-}
     volumes:
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
       - helix-socket:/socket
@@ -54,8 +59,8 @@ services:
   postgres:
     image: postgres:12.13-alpine
     restart: always
-    ports:
-      - 5432:5432
+    # ports:
+    #   - 5432:5432
     volumes:
       - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
       - ./scripts/postgres:/docker-entrypoint-initdb.d
@@ -69,8 +74,8 @@ services:
     profiles: [haystack]
     image: ghcr.io/tensorchord/vchord_bm25-postgres:pg17-v0.1.1
     restart: always
-    ports:
-      - 5433:5432
+    # ports:
+    #   - 5433:5432
     volumes:
       - ${PGVECTOR_DATA:-helix-pgvector-db}:/var/lib/postgresql/data
     environment:
@@ -116,12 +121,12 @@ services:
   tika:
     image: apache/tika:2.9.2.1
     restart: always
-    ports:
-      - 9998:9998
+    # ports:
+    #   - 9998:9998
   searxng:
     image: searxng/searxng:2025.7.24-84c3a83
-    ports:
-      - 8112:8080
+    # ports:
+    #   - 8112:8080
     volumes:
       - ./searxng/settings.yml:/etc/searxng/settings.yml
       - ./searxng/limiter.toml:/etc/searxng/limiter.toml
@@ -134,8 +139,8 @@ services:
     image: registry.helixml.tech/helix/typesense:latest
     restart: always
     command: ["--data-dir", "/data", "--api-key", "typesense"]
-    ports:
-      - 8108:8108
+    # ports:
+    #   - 8108:8108
     volumes:
       - ${TYPESENSE_DATA:-helix-typesense-db}:/data
   chrome:
@@ -143,8 +148,8 @@ services:
     restart: always
     volumes:
       - ./integration-test/data/smoke:/integration-test/data/smoke
-    ports:
-      - 7317:7317
+    # ports:
+    #   - 7317:7317
   haystack:
     profiles: [haystack]
     image: registry.helixml.tech/helix/haystack:latest
@@ -178,8 +183,8 @@ services:
   kodit:
     profiles: [kodit]
     image: registry.helix.ml/helix/kodit:latest
-    ports:
-      - 8632:8632
+    # ports:
+    #   - 8632:8632
     command: ["serve", "--host", "0.0.0.0", "--port", "8632"]
     restart: always
     depends_on:

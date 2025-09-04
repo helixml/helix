@@ -22,9 +22,6 @@ import {
 
 // all of these contexts MUST be below the account context
 // because they rely on it
-import {
-  SessionsContextProvider,
-} from './sessions'
 
 // Import the new AppsContextProvider
 import {
@@ -41,6 +38,11 @@ import {
   FloatingRunnerStateProvider,
 } from './floatingRunnerState'
 
+// Import the FloatingModalProvider
+import {
+  FloatingModalProvider,
+} from './floatingModal'
+
 const AllContextProvider = ({ children }: { children: ReactNode }) => {
   return (
     <RouterContextProvider>
@@ -48,15 +50,15 @@ const AllContextProvider = ({ children }: { children: ReactNode }) => {
         <LoadingContextProvider>
           <ThemeProviderWrapper>
             <AccountContextProvider>
-              <SessionsContextProvider>
                 <AppsContextProvider>
                   <StreamingContextProvider>
                     <FloatingRunnerStateProvider>
-                      {children}
+                      <FloatingModalProvider>
+                        {children}
+                      </FloatingModalProvider>
                     </FloatingRunnerStateProvider>
                   </StreamingContextProvider>
                 </AppsContextProvider>
-              </SessionsContextProvider>
             </AccountContextProvider>
           </ThemeProviderWrapper>
         </LoadingContextProvider>

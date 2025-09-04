@@ -16,7 +16,7 @@ var prompt []string
 var theText []string
 var qaPairGenModel string // model to use
 
-func newQapairCommand() *cobra.Command {
+func NewQapairCommand() *cobra.Command {
 	var qapairCmd = &cobra.Command{
 		Use:   "qapairs",
 		Short: "A CLI tool for running QA pair commands",

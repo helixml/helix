@@ -9,6 +9,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/model"
+	openai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -231,4 +232,79 @@ func (suite *MultiClientManagerTestSuite) Test_WatchAndUpdateClient_MissingFile(
 	case <-time.After(5 * time.Second):
 		suite.T().Fatal("Timeout waiting for background goroutines to finish")
 	}
+}
+
+func (suite *MultiClientManagerTestSuite) Test_initializeClient_WithoutBilling() {
+	endpoint := &types.ProviderEndpoint{
+		ID:     "openai",
+		APIKey: "openai-api-key",
+	}
+
+	suite.cfg.Stripe.BillingEnabled = false
+
+	manager := NewProviderManager(suite.cfg, suite.store, nil, suite.modelInfoProvider)
+	client, err := manager.initializeClient(endpoint)
+	suite.NoError(err)
+	suite.NotNil(client)
+
+	wrappedClient, ok := client.(*logger.LoggingMiddleware)
+	suite.Require().True(ok)
+
+	// Check that the billing logger is a NoopBillingLogger
+	billingLogger := wrappedClient.BillingLogger()
+
+	// Should be no-op
+	res, err := billingLogger.CreateLLMCall(context.Background(), &types.LLMCall{
+		Model: "gpt-4o",
+	})
+	suite.NoError(err)
+	suite.NotNil(res)
+}
+
+func (suite *MultiClientManagerTestSuite) Test_initializeClient_WithBilling() {
+	endpoint := &types.ProviderEndpoint{
+		ID:     "openai",
+		APIKey: "openai-api-key",
+	}
+
+	suite.cfg.Stripe.BillingEnabled = true
+
+	manager := NewProviderManager(suite.cfg, suite.store, nil, suite.modelInfoProvider)
+	client, err := manager.initializeClient(endpoint)
+	suite.NoError(err)
+	suite.NotNil(client)
+
+	wrappedClient, ok := client.(*logger.LoggingMiddleware)
+	suite.Require().True(ok)
+
+	// Check that the billing logger is a NoopBillingLogger
+	billingLogger := wrappedClient.BillingLogger()
+
+	userID := "user_123"
+
+	ctx := openai.SetContextValues(context.Background(), &openai.ContextValues{
+		OwnerID: userID,
+	})
+
+	// Expect to get user wallet
+	suite.store.EXPECT().GetWalletByUser(gomock.Any(), "user_123").Return(&types.Wallet{
+		ID: "wallet_123",
+	}, nil)
+
+	suite.store.EXPECT().UpdateWalletBalance(gomock.Any(), "wallet_123", float64(-100), types.TransactionMetadata{
+		InteractionID:   "int_123",
+		LLMCallID:       "llm_1",
+		TransactionType: types.TransactionTypeUsage,
+	})
+
+	// Should be no-op
+	res, err := billingLogger.CreateLLMCall(ctx, &types.LLMCall{
+		Model:         "gpt-4o",
+		UserID:        userID,
+		InteractionID: "int_123",
+		ID:            "llm_1",
+		TotalCost:     100,
+	})
+	suite.NoError(err)
+	suite.NotNil(res)
 }

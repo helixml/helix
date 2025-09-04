@@ -51,7 +51,7 @@ const RECOMMENDED_MODELS = {
     'Qwen/Qwen2.5-7B-Instruct-Turbo',     
   ],
   // No tool use required, can be any text generation model
-  smallGeneration: ['gpt-4o', 'gpt-4o-mini', 'Qwen/Qwen2.5-7B-Instruct-Turbo', 'meta-llama/Llama-3-8b-chat-hf']
+  smallGeneration: ['gpt-4o', 'gpt-4o-mini', 'Qwen/Qwen2.5-7B-Instruct-Turbo', 'openai/gpt-oss-20b']
 };
 
 interface AppSettingsProps {
@@ -150,6 +150,7 @@ const ResizableTextarea = styled('textarea')(({ theme }) => ({
   border: `1px solid ${theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.23)' : 'rgba(255, 255, 255, 0.23)'}`,
   borderRadius: '4px',
   backgroundColor: 'transparent',
+  color: theme.palette.text.primary,
   resize: 'vertical',
   outline: 'none',
   transition: theme.transitions.create(['border-color', 'box-shadow']),

@@ -51,7 +51,7 @@ const Tasks: FC = () => {
   const { data: triggers, isLoading, refetch } = useListUserCronTriggers(
     account.organizationTools.organization?.id || '',
     {
-      enabled: listTriggersEnabled,
+      enabled: listTriggersEnabled && !!account.user,
     }
   )
 
@@ -59,9 +59,11 @@ const Tasks: FC = () => {
   const deleteTriggerMutation = useDeleteAppTrigger(deleteTriggerId, account.organizationTools.organization?.id || '')
 
   useEffect(() => {
-    apps.loadApps()
+    if(account.user) {
+      apps.loadApps()
+    }
   }, [
-    apps.loadApps,
+    account,apps.loadApps,
   ])
 
   // Check for ?task=new or ?task=<id> query parameter on component mount
@@ -92,7 +94,17 @@ const Tasks: FC = () => {
     }
   }, [triggers?.data])
 
+  const checkLoginStatus = (): boolean => {
+    if (!account.user) {
+      account.setShowLoginWindow(true)
+      return false
+    }
+    return true
+  }
+
   const handleCreateTask = (taskData?: TaskData) => {
+    if (!checkLoginStatus()) return
+    
     setSelectedTask(undefined)
     setPrepopulatedTaskData(taskData)
     setDialogOpen(true)
@@ -171,6 +183,7 @@ const Tasks: FC = () => {
 
     return (
       <TasksTable
+        authenticated={ !!account.user }
         data={triggers.data}
         apps={apps.apps}
         onEdit={handleEditTask}

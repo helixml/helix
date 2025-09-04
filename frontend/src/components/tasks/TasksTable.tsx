@@ -29,20 +29,20 @@ import {
   IApp,
 } from '../../types'
 
-interface TasksTableProps {
-  data: TypesTriggerConfiguration[]
-  apps: IApp[]
-  onEdit: (task: TypesTriggerConfiguration) => void
-  onDelete: (task: TypesTriggerConfiguration) => void
-  onToggleStatus: (task: TypesTriggerConfiguration) => void
-}
-
 // Helper function to format cron schedule for display
 const formatCronSchedule = (schedule: string): string => {
   return generateCronShortSummary(schedule)
 }
 
-const TasksTable: FC<TasksTableProps> = ({
+const TasksTable: FC<{
+  authenticated: boolean,
+  data: TypesTriggerConfiguration[],
+  apps: IApp[],
+  onEdit: (task: TypesTriggerConfiguration) => void,
+  onDelete: (task: TypesTriggerConfiguration) => void,
+  onToggleStatus: (task: TypesTriggerConfiguration) => void,
+}> = ({
+  authenticated,
   data,
   apps,
   onEdit,
@@ -207,6 +207,7 @@ const TasksTable: FC<TasksTableProps> = ({
   return (
     <>
       <SimpleTable
+        authenticated={ authenticated }
         fields={[
           {
             name: 'name',

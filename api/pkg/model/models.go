@@ -186,10 +186,31 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 	models := []*OllamaGenericText{
 		// Latest models, July 2025 updates
 		{
+			ID:            "gpt-oss:20b", // https://ollama.com/library/gpt-oss:20b
+			Name:          "GPT-OSS 20B",
+			Memory:        0,      // Ollama models use GGUF estimation, not database values
+			ContextLength: 131072, // Assuming 128K context window (standard for recent models)
+			Description:   "Open-weight reasoning model with agentic capabilities, from OpenAI - optimized for consumer hardware, ~20B parameters",
+			Hide:          false,
+			Prewarm:       true,
+			Concurrency:   1, // too big for concurrency 2
+		},
+		{
+			ID:            "gpt-oss:120b", // https://ollama.com/library/gpt-oss:120b
+			Name:          "GPT-OSS 120B",
+			Memory:        0,      // Ollama models use GGUF estimation, not database values
+			ContextLength: 131072, // Assuming 128K context window (standard for recent models)
+			Description:   "Large open-weight reasoning model with advanced capabilities, from OpenAI - production-grade, ~120B parameters",
+			Hide:          false,
+			Prewarm:       false, // Don't prewarm due to high memory requirements
+			Concurrency:   1,     // too big for concurrency 2
+		},
+		{
 			ID:            "qwen3:8b", // https://ollama.com/library/qwen3:8b
 			Name:          "Qwen3 8B",
-			Memory:        GB * 10, // Based on Q4_K_M quantization, ~10GB model size
-			ContextLength: 40960,   // 40K context window
+			Memory:        0,     // Ollama models use GGUF estimation, not database values
+			ContextLength: 40960, // 40K context window
+			Concurrency:   0,     // Use runtime default (DefaultOllamaParallelSequences)
 			Description:   "Latest generation Qwen model with enhanced reasoning, from Alibaba - 4bit quantized, 40K context",
 			Hide:          false,
 			Prewarm:       true,
@@ -197,24 +218,24 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "qwen2.5vl:32b", // https://ollama.com/library/qwen2.5vl:32b
 			Name:          "Qwen2.5-VL 32B",
-			Memory:        GB * 32, // Based on Q4_K_M quantization, ~32GB model size
-			ContextLength: 131072,  // 125K context window
+			Memory:        0,      // Ollama models use GGUF estimation, not database values
+			ContextLength: 131072, // 125K context window
 			Description:   "Flagship vision-language model with document parsing and visual agent capabilities, from Alibaba - 4bit quantized, 125K context",
 			Hide:          false,
 		},
 		{
 			ID:            "qwen3:32b", // https://ollama.com/library/qwen3:32b
 			Name:          "Qwen3 32B",
-			Memory:        GB * 31, // Based on Q4_K_M quantization, ~31GB model size
-			ContextLength: 40960,   // 40K context window
+			Memory:        0,     // Ollama models use GGUF estimation, not database values
+			ContextLength: 40960, // 40K context window
 			Description:   "Large Qwen3 model with superior reasoning and agent capabilities, from Alibaba - 4bit quantized, 40K context",
 			Hide:          false,
 		},
 		{
 			ID:            "qwen3:30b", // https://ollama.com/library/qwen3:30b
 			Name:          "Qwen3 30B MoE",
-			Memory:        GB * 39, // Based on Q4_K_M quantization, ~30GB model size
-			ContextLength: 262144,  // 256K context window
+			Memory:        0,      // Ollama models use GGUF estimation, not database values
+			ContextLength: 262144, // 256K context window
 			Description:   "Mixture-of-experts model with enhanced reasoning capabilities, from Alibaba - 4bit quantized, 256K context",
 			Hide:          false,
 		},
@@ -223,7 +244,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "llama3:instruct", // https://ollama.com/library/llama3:instruct
 			Name:          "Llama 3 8B",
-			Memory:        MB * 6390,
+			Memory:        0, // Ollama models use GGUF estimation, not database values
 			ContextLength: 8192,
 			Description:   "Older model, from Meta - 4bit quantized, 8K context",
 			Hide:          true,
@@ -231,7 +252,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "phi3:instruct", // https://ollama.com/library/phi3:instruct
 			Name:          "Phi-3",
-			Memory:        GB * 29,
+			Memory:        0, // Ollama models use GGUF estimation, not database values
 			ContextLength: 131072,
 			Description:   "Fast and good for everyday tasks",
 			Hide:          true,
@@ -239,7 +260,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "llama3:70b", // https://ollama.com/library/llama3:70b
 			Name:          "Llama 3 70B",
-			Memory:        GB * 40,
+			Memory:        0, // Ollama models use GGUF estimation, not database values
 			ContextLength: 8192,
 			Description:   "Large model with enhanced capabilities",
 			Hide:          true,
@@ -247,7 +268,7 @@ func GetDefaultOllamaModels() ([]*OllamaGenericText, error) {
 		{
 			ID:            "gemma2:2b-instruct-q8_0", // https://ollama.com/library/gemma2:2b-instruct-q8_0
 			Name:          "Gemma 2 2B",
-			Memory:        MB * 4916,
+			Memory:        0, // Ollama models use GGUF estimation, not database values
 			ContextLength: 8192,
 			Description:   "Fast and good for everyday tasks, from Google - 8bit quantized, 8K context",
 			Hide:          true,
@@ -296,6 +317,10 @@ func (o *VLLMGenericText) GetMemoryRequirements(_ types.SessionMode) uint64 {
 
 func (o *VLLMGenericText) GetContextLength() int64 {
 	return o.ContextLength
+}
+
+func (o *VLLMGenericText) GetConcurrency() int {
+	return 0 // Default to 0 (use runtime default)
 }
 
 func (o *VLLMGenericText) GetType() types.SessionType {
@@ -358,7 +383,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 			Args: []string{
 				"--trust-remote-code",
 				"--max-model-len", "32768",
-				"--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}",
+
 				"--limit-mm-per-prompt", "{\"image\":10}",
 			},
 			Hide:    false,
@@ -373,7 +398,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 			Args: []string{
 				"--trust-remote-code",
 				"--max-model-len", "32768",
-				"--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}",
+
 				"--limit-mm-per-prompt", "{\"image\":10}",
 			},
 			Hide:    false,
@@ -382,7 +407,7 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 		{
 			ID:            "MrLight/dse-qwen2-2b-mrl-v1",
 			Name:          "DSE Qwen2 2B",
-			Memory:        GB * 8,
+			Memory:        GB * 10,
 			ContextLength: 8192,
 			Description:   "Small embedding model for RAG, from MrLight",
 			Args: []string{
@@ -390,7 +415,6 @@ func GetDefaultVLLMModels() ([]*VLLMGenericText, error) {
 				"--max-model-len", "8192",
 				"--trust-remote-code",
 				"--chat-template", "examples/template_dse_qwen2_vl.jinja",
-				"--gpu-memory-utilization", "{{.DynamicMemoryUtilizationRatio}}",
 			},
 			Hide:    false,
 			Prewarm: true,

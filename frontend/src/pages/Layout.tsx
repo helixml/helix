@@ -15,11 +15,17 @@ import AppSidebar from '../components/app/AppSidebar'
 
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
-import Window from '../components/widgets/Window'
+import DarkDialog from '../components/dialog/DarkDialog'
+import DialogTitle from '@mui/material/DialogTitle'
+import DialogContent from '@mui/material/DialogContent'
+import DialogActions from '@mui/material/DialogActions'
+import Button from '@mui/material/Button'
 import { LicenseKeyPrompt } from '../components/LicenseKeyPrompt'
 
 import FloatingRunnerState from '../components/admin/FloatingRunnerState'
 import { useFloatingRunnerState } from '../contexts/floatingRunnerState'
+import FloatingModal from '../components/admin/FloatingModal'
+import { useFloatingModal } from '../contexts/floatingModal'
 import Tooltip from '@mui/material/Tooltip'
 import IconButton from '@mui/material/IconButton'
 import DnsIcon from '@mui/icons-material/Dns'
@@ -48,6 +54,7 @@ const Layout: FC<{
   const account = useAccount()
   const apps = useApps()
   const floatingRunnerState = useFloatingRunnerState()
+  const floatingModal = useFloatingModal()
   const [showVersionBanner, setShowVersionBanner] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const userMenuHeight = useUserMenuHeight()
@@ -106,6 +113,11 @@ const Layout: FC<{
     // If either version is invalid, fallback to simple comparison
     if (!currentVersion || !latestVersion) {
       return account.serverConfig.version !== account.serverConfig.latest_version;
+    }
+    
+    // Never show release candidates as updates (rc, alpha, beta, etc.)
+    if (latestVersion.isPreRelease) {
+      return false;
     }
     
     // Compare major, minor, patch
@@ -198,6 +210,7 @@ const Layout: FC<{
       case 'org_settings':
       case 'org_people':
       case 'org_teams':
+      case 'org_billing':
       case 'team_people':
         // Organization management pages use the org context sidebar
         return <OrgSidebar />
@@ -347,27 +360,46 @@ const Layout: FC<{
         <GlobalLoading />
         {
           account.showLoginWindow && (
-            <Window
+            <DarkDialog
               open
-              size="md"
-              title="Please login to continue"
-              onCancel={ () => {
+              maxWidth="md"
+              fullWidth
+              onClose={() => {
                 account.setShowLoginWindow(false)
               }}
-              onSubmit={ () => {
-                account.onLogin()
-              }}
-              withCancel
-              cancelTitle="Cancel"
-              submitTitle="Login / Register"
             >
-              <Typography gutterBottom>
-                You can login with your Google account or your organization's SSO provider.
-              </Typography>
-              <Typography>
-                We will keep what you've done here for you, so you may continue where you left off.
-              </Typography>
-            </Window>
+              <DialogTitle>
+                Please login to continue
+              </DialogTitle>
+              <DialogContent>
+                <Typography gutterBottom>
+                  You can login with your Google account or your organization's SSO provider.
+                </Typography>
+                <Typography>
+                  We will keep what you've done here for you, so you may continue where you left off.
+                </Typography>
+              </DialogContent>
+              <DialogActions>
+                <Button
+                  onClick={() => {
+                    account.setShowLoginWindow(false)
+                  }}
+                  color="primary"
+                  variant="outlined"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    account.onLogin()
+                  }}
+                  variant="contained"
+                  color="secondary"
+                >
+                  Login
+                </Button>
+              </DialogActions>
+            </DarkDialog>
           )
         }
         {
@@ -379,6 +411,11 @@ const Layout: FC<{
         {
           account.admin && floatingRunnerState.isVisible && (
             <FloatingRunnerState onClose={floatingRunnerState.hideFloatingRunnerState} />
+          )
+        }
+        {
+          account.admin && floatingModal.isVisible && (
+            <FloatingModal onClose={floatingModal.hideFloatingModal} />
           )
         }
         {

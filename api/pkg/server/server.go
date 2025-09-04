@@ -227,6 +227,12 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		return err
 	}
 
+	// Seed models from environment variables
+	if err := apiServer.Store.SeedModelsFromEnvironment(ctx); err != nil {
+		log.Error().Err(err).Msg("failed to seed models from environment - continuing startup")
+		// Don't fail startup if seeding fails, just log the error
+	}
+
 	apiServer.startUserWebSocketServer(
 		ctx,
 		apiRouter,
@@ -247,7 +253,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 	// Start UNIX socket server for embeddings if configured
 	if apiServer.Cfg.WebServer.EmbeddingsSocket != "" {
 		go func() {
-			if err := apiServer.startEmbeddingsSocketServer(ctx); err != nil {
+			if err := apiServer.startUnixSocketServer(ctx); err != nil {
 				log.Error().Err(err).Msg("failed to start embeddings socket server")
 			}
 		}()
@@ -333,9 +339,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// Authentication is done within the handler itself based on API path
 	subRouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix(APIPrefix+"/filestore/viewer/", http.HandlerFunc(apiServer.filestoreViewerHandler)))
 
-	authRouter.HandleFunc("/subscription/new", system.DefaultWrapper(apiServer.subscriptionCreate)).Methods(http.MethodPost)
-	authRouter.HandleFunc("/subscription/manage", system.DefaultWrapper(apiServer.subscriptionManage)).Methods(http.MethodPost)
-
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.createAPIKey)).Methods(http.MethodPost)
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.getAPIKeys)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.deleteAPIKey)).Methods(http.MethodDelete)
@@ -344,6 +347,18 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// User search endpoint
 	authRouter.HandleFunc("/users/search", apiServer.searchUsers).Methods(http.MethodGet)
 	authRouter.HandleFunc("/users/token-usage", apiServer.getUserTokenUsage).Methods(http.MethodGet)
+	authRouter.HandleFunc("/users/{id}", apiServer.getUserDetails).Methods(http.MethodGet)
+
+	// Billing
+	authRouter.HandleFunc("/wallet", system.Wrapper(apiServer.getWalletHandler)).Methods(http.MethodGet)
+
+	authRouter.HandleFunc("/subscription/new", system.DefaultWrapper(apiServer.subscriptionCreate)).Methods(http.MethodPost)
+	authRouter.HandleFunc("/subscription/manage", system.DefaultWrapper(apiServer.subscriptionManage)).Methods(http.MethodPost)
+
+	authRouter.HandleFunc("/top-ups/new", system.DefaultWrapper(apiServer.createTopUp)).Methods(http.MethodPost)
+
+	// Usage
+	authRouter.HandleFunc("/usage", system.Wrapper(apiServer.getDailyUsage)).Methods(http.MethodGet)
 
 	// OpenAI API compatible routes
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods(http.MethodPost, http.MethodOptions)
@@ -368,6 +383,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.listSessions)).Methods(http.MethodGet)
 	subRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.getSession)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.deleteSession)).Methods(http.MethodDelete)
+	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.updateSession)).Methods(http.MethodPut)
 	authRouter.HandleFunc("/sessions/{id}/interactions", system.Wrapper(apiServer.listInteractions)).Methods(http.MethodGet)
 	authRouter.HandleFunc("/sessions/{id}/interactions/{interaction_id}", system.Wrapper(apiServer.getInteraction)).Methods(http.MethodGet)
 
@@ -429,6 +445,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/skills", system.DefaultWrapper(apiServer.handleListSkills)).Methods("GET")
 	authRouter.HandleFunc("/skills/{id}", system.DefaultWrapper(apiServer.handleGetSkill)).Methods("GET")
 	authRouter.HandleFunc("/skills/reload", system.DefaultWrapper(apiServer.handleReloadSkills)).Methods("POST")
+	authRouter.HandleFunc("/skills/validate", system.DefaultWrapper(apiServer.handleValidateMcpSkill)).Methods("POST")
 
 	// UI @ functionality
 	authRouter.HandleFunc("/context-menu", system.Wrapper(apiServer.contextMenuHandler)).Methods(http.MethodGet)
@@ -464,14 +481,34 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/organizations/{id}/teams/{team_id}/members/{user_id}", apiServer.removeTeamMember).Methods(http.MethodDelete)
 
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/scheduler/heartbeats", system.DefaultWrapper(apiServer.getSchedulerHeartbeats)).Methods(http.MethodGet)
 	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods(http.MethodGet)
+	authRouter.HandleFunc("/slots/{slot_id}", system.DefaultWrapper(apiServer.deleteSlot)).Methods(http.MethodDelete)
+
+	// Logs endpoints - proxy to runner
+	adminRouter.HandleFunc("/logs", apiServer.getLogsSummary).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/logs/{slot_id}", apiServer.getSlotLogs).Methods(http.MethodGet)
 
 	// Helix models
 	authRouter.HandleFunc("/helix-models", apiServer.listHelixModels).Methods(http.MethodGet)
+	// Memory estimation endpoints
+	authRouter.HandleFunc("/helix-models/memory-estimate", apiServer.estimateModelMemory).Methods(http.MethodGet)
+	authRouter.HandleFunc("/helix-models/memory-estimates", apiServer.listModelMemoryEstimates).Methods(http.MethodGet)
 	// only admins can create, update, or delete helix models
 	adminRouter.HandleFunc("/helix-models", apiServer.createHelixModel).Methods(http.MethodPost)
 	adminRouter.HandleFunc("/helix-models/{id:.*}", apiServer.updateHelixModel).Methods(http.MethodPut)
 	adminRouter.HandleFunc("/helix-models/{id:.*}", apiServer.deleteHelixModel).Methods(http.MethodDelete)
+
+	// Dynamic model info - all operations require admin privileges
+	adminRouter.HandleFunc("/model-info", apiServer.listDynamicModelInfos).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/model-info", apiServer.createDynamicModelInfo).Methods(http.MethodPost)
+	adminRouter.HandleFunc("/model-info/{id:.*}", apiServer.getDynamicModelInfo).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/model-info/{id:.*}", apiServer.updateDynamicModelInfo).Methods(http.MethodPut)
+	adminRouter.HandleFunc("/model-info/{id:.*}", apiServer.deleteDynamicModelInfo).Methods(http.MethodDelete)
+
+	// System settings - only admins can access
+	adminRouter.HandleFunc("/system/settings", apiServer.getSystemSettings).Methods(http.MethodGet)
+	adminRouter.HandleFunc("/system/settings", apiServer.updateSystemSettings).Methods(http.MethodPut)
 
 	// all these routes are secured via runner tokens
 	insecureRouter.HandleFunc("/runner/{runner_id}/ws", func(w http.ResponseWriter, r *http.Request) {
@@ -714,8 +751,8 @@ func writeErrResponse(rw http.ResponseWriter, err error, statusCode int) {
 	})
 }
 
-// startEmbeddingsSocketServer starts a UNIX socket server that serves just the /v1/embeddings endpoint with no auth
-func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context) error {
+// startUnixSocketServer starts a UNIX socket server that serves just the /v1/embeddings endpoint with no auth
+func (apiServer *HelixAPIServer) startUnixSocketServer(ctx context.Context) error {
 	socketPath := apiServer.Cfg.WebServer.EmbeddingsSocket
 
 	// Remove socket file if it already exists
@@ -738,6 +775,30 @@ func (apiServer *HelixAPIServer) startEmbeddingsSocketServer(ctx context.Context
 
 	// Create a new router for the socket server
 	router := mux.NewRouter()
+
+	router.Use(ErrorLoggingMiddleware)
+
+	if apiServer.Cfg.WebServer.EmbeddingsSocketUserID != "" {
+		user, err := apiServer.Store.GetUser(ctx, &store.GetUserQuery{
+			ID: apiServer.Cfg.WebServer.EmbeddingsSocketUserID,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to get user '%s': %w (does it exist?)", apiServer.Cfg.WebServer.EmbeddingsSocketUserID, err)
+		}
+
+		log.Info().
+			Str("user_id", apiServer.Cfg.WebServer.EmbeddingsSocketUserID).
+			Str("user_email", user.Email).
+			Msg("setting user for embeddings socket")
+
+		router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Set user to the request context
+				r = r.WithContext(setRequestUser(r.Context(), *user))
+				next.ServeHTTP(w, r)
+			})
+		})
+	}
 
 	// Register only the necessary endpoints with no auth
 	router.HandleFunc("/v1/embeddings", apiServer.createEmbeddings).Methods(http.MethodPost, http.MethodOptions)

@@ -16,7 +16,7 @@ import {
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
 } from '../types'
 
-import { TypesSession } from '../api/api'
+import { TypesSession, TypesAssistantMCP } from '../api/api'
 
 import {
   removeEmptyValues,
@@ -54,7 +54,11 @@ export const useApp = (appId: string) => {
   // Get org if orgName is set  
   const { data: org, isLoading: isLoadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
   
-  const { data: providers, isLoading: isLoadingProviders } = useListProviders(true, org?.id, !isLoadingOrg);
+  const { data: providers, isLoading: isLoadingProviders } = useListProviders({
+    loadModels: true,
+    orgId: org?.id,
+    enabled: !isLoadingOrg,
+  });
   const { NewInference } = useStreaming()
   const userAccess = useUserAppAccess(appId)
   
@@ -152,6 +156,15 @@ export const useApp = (appId: string) => {
     return assistants.length > 0 
       ? [...(assistants[0].gptscripts || [])].sort((a, b) => 
           a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+        ) 
+      : []
+  }, [assistants])
+
+  const mcpTools = useMemo(() => {
+    // Get the tools array and sort by name alphabetically, ignoring case
+    return assistants.length > 0 
+      ? [...(assistants[0].mcps || [])].sort((a, b) => 
+          a.name?.toLowerCase().localeCompare(b.name?.toLowerCase() || '') || 0
         ) 
       : []
   }, [assistants])
@@ -411,6 +424,10 @@ export const useApp = (appId: string) => {
       assistants[0].gptscripts = updates.gptscriptTools
     }
 
+    if (updates.mcpTools !== undefined) {
+      assistants[0].mcps = updates.mcpTools
+    }
+
     if (updates.browserTool !== undefined) {
       assistants[0].browser = updates.browserTool
     }
@@ -575,6 +592,17 @@ export const useApp = (appId: string) => {
     saveFlatApp({gptscriptTools: newTools})
     setEditingGptScript(null)
   }, [saveFlatApp, flatApp])
+
+  const onSaveMcpTool = useCallback((tool: TypesAssistantMCP, index?: number) => {
+    if(!flatApp) return
+    let newTools = flatApp.mcpTools || []
+    if(typeof index !== 'number') {
+      newTools = [...newTools, tool]
+    } else {
+      newTools[index] = tool
+    }
+    saveFlatApp({mcpTools: newTools})
+  }, [saveFlatApp, flatApp])
     
   const onDeleteApiTool = useCallback((toolIndex: number) => {
     if(!flatApp) return
@@ -595,6 +623,13 @@ export const useApp = (appId: string) => {
     // Filter out the tool at the specified index
     const newTools = (flatApp.gptscriptTools || []).filter((_, index) => index !== toolIndex)
     saveFlatApp({gptscriptTools: newTools})
+  }, [saveFlatApp, flatApp])
+
+  const onDeleteMcpTool = useCallback((toolIndex: number) => {
+    if(!flatApp) return
+    // Filter out the tool at the specified index
+    const newTools = (flatApp.mcpTools || []).filter((_, index) => index !== toolIndex)
+    saveFlatApp({mcpTools: newTools})
   }, [saveFlatApp, flatApp])
   
   /**
@@ -705,23 +740,23 @@ export const useApp = (appId: string) => {
   
   // this hooks into any changes for the apps current preview session
   // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
-  useWebsocket(sessionID, (parsedData) => {
-    if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
-      const newSession: TypesSession = parsedData.session
-      console.debug(`[${new Date().toISOString()}] App.tsx: Received session update via WebSocket:`, {
-        sessionId: newSession.id,
-        documentIds: newSession.config?.document_ids,
-        documentGroupId: newSession.config?.document_group_id,
-        parentApp: newSession.parent_app,
-        hasDocumentIds: newSession.config?.document_ids !== null && 
-                      Object.keys(newSession.config?.document_ids || {}).length > 0,
-        documentIdKeys: Object.keys(newSession.config?.document_ids || {}),
-        documentIdValues: Object.values(newSession.config?.document_ids || {}),
-        sessionData: JSON.stringify(newSession)
-      })
-      session.setData(newSession)
-    }
-  })
+  // useWebsocket(sessionID, (parsedData) => {
+  //   if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
+  //     const newSession: TypesSession = parsedData.session
+  //     console.debug(`[${new Date().toISOString()}] App.tsx: Received session update via WebSocket:`, {
+  //       sessionId: newSession.id,
+  //       documentIds: newSession.config?.document_ids,
+  //       documentGroupId: newSession.config?.document_group_id,
+  //       parentApp: newSession.parent_app,
+  //       hasDocumentIds: newSession.config?.document_ids !== null && 
+  //                     Object.keys(newSession.config?.document_ids || {}).length > 0,
+  //       documentIdKeys: Object.keys(newSession.config?.document_ids || {}),
+  //       documentIdValues: Object.values(newSession.config?.document_ids || {}),
+  //       sessionData: JSON.stringify(newSession)
+  //     })
+  //     session.setData(newSession)
+  //   }
+  // })
 
   /**
    * 
@@ -929,6 +964,7 @@ export const useApp = (appId: string) => {
     apiTools,
     zapierTools,
     gptscriptsTools,
+    mcpTools,
     apiToolsFromTools,
     isInferenceLoading,
     isAppLoading,
@@ -959,6 +995,10 @@ export const useApp = (appId: string) => {
     onSaveZapierTool,
     onDeleteApiTool,
     onDeleteZapierTool,
+    
+    // MCP Tools methods
+    onSaveMcpTool,
+    onDeleteMcpTool,
     
     // GPT Script methods
     editingGptScript,

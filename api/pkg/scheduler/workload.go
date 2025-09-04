@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -23,6 +24,43 @@ type Workload struct {
 	session             *types.Session
 	model               *types.Model
 	preferredRunnerID   string // Optional runner preference for prewarming
+}
+
+// WorkloadJSON represents the JSON serializable form of a Workload
+type WorkloadJSON struct {
+	WorkloadType        WorkloadType                     `json:"workload_type"`
+	LLMInferenceRequest *types.RunnerLLMInferenceRequest `json:"llm_inference_request,omitempty"`
+	Session             *types.Session                   `json:"session,omitempty"`
+	Model               *types.Model                     `json:"model"`
+	PreferredRunnerID   string                           `json:"preferred_runner_id,omitempty"`
+}
+
+// MarshalJSON implements json.Marshaler for Workload
+func (w *Workload) MarshalJSON() ([]byte, error) {
+	wj := &WorkloadJSON{
+		WorkloadType:        w.WorkloadType,
+		LLMInferenceRequest: w.llmInferenceRequest,
+		Session:             w.session,
+		Model:               w.model,
+		PreferredRunnerID:   w.preferredRunnerID,
+	}
+	return json.Marshal(wj)
+}
+
+// UnmarshalJSON implements json.Unmarshaler for Workload
+func (w *Workload) UnmarshalJSON(data []byte) error {
+	var wj WorkloadJSON
+	if err := json.Unmarshal(data, &wj); err != nil {
+		return err
+	}
+
+	w.WorkloadType = wj.WorkloadType
+	w.llmInferenceRequest = wj.LLMInferenceRequest
+	w.session = wj.Session
+	w.model = wj.Model
+	w.preferredRunnerID = wj.PreferredRunnerID
+
+	return nil
 }
 
 func NewLLMWorkload(work *types.RunnerLLMInferenceRequest, model *types.Model) (*Workload, error) {
@@ -86,6 +124,11 @@ func (w *Workload) Mode() types.SessionMode {
 }
 
 func (w *Workload) Runtime() types.Runtime {
+	// First check if we have a model with explicit runtime
+	if w.model != nil && w.model.Runtime != "" {
+		return w.model.Runtime
+	}
+
 	switch w.WorkloadType {
 	case WorkloadTypeLLMInferenceRequest:
 		// Check if this is a VLLM model first before defaulting to Ollama
@@ -93,7 +136,7 @@ func (w *Workload) Runtime() types.Runtime {
 		if err == nil {
 			for _, vllmModel := range vllmModels {
 				if vllmModel.ID == w.llmInferenceRequest.Request.Model {
-					log.Info().
+					log.Trace().
 						Str("model", w.llmInferenceRequest.Request.Model).
 						Msg("using VLLM runtime for inference request")
 					return types.RuntimeVLLM

@@ -67,7 +67,7 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 	config, err := LoadConfig()
 	require.NoError(t, err)
 
-	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL)
+	client := helix_openai.New(config.OpenAIAPIKey, config.BaseURL, cfg.Stripe.BillingEnabled)
 
 	planner, err := tools.NewChainStrategy(&cfg, store, executor, client)
 	require.NoError(t, err)
@@ -190,7 +190,7 @@ func testPetStoreManagement(t *testing.T, prompt string) {
 	userID := GenerateNewTestID()
 
 	// Create session with restaurant agent
-	restaurantSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, restaurantAgent, messageHistory, agent.Meta{
+	restaurantSession := agent.NewSession(context.Background(), stepInfoEmitter, llm, mem, &agent.MemoryBlock{}, restaurantAgent, messageHistory, agent.Meta{
 		UserID:    orgID,
 		SessionID: sessionID,
 		Extra:     map[string]string{"user_id": userID, "domain": "test"},

@@ -23,7 +23,7 @@ What to do next:
 * see if we can get a chrome example going - or can we upgrade the ubuntu base image?
 */
 
-func newGptScriptCmd() *cobra.Command {
+func NewGptScriptCmd() *cobra.Command {
 	serveCmd := &cobra.Command{
 		Use:     "gptscript",
 		Short:   "Start the helix gptscript server.",

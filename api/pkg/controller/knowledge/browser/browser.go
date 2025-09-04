@@ -79,7 +79,14 @@ func New(cfg *config.ServerConfig) (*Browser, error) {
 
 // Close closes the browser and all associated pages
 func (b *Browser) Close() {
+	// Clean up page pool first
+	b.pagePool.Cleanup(func(page *rod.Page) { page.MustClose() })
+	// Then clean up browser pool
 	b.browserPool.Cleanup(func(browser *rod.Browser) { browser.MustClose() })
+	// If we have a standalone browser (not from pool), close it
+	if b.browser != nil {
+		b.browser.MustClose()
+	}
 }
 
 func (b *Browser) GetBrowser() (*rod.Browser, error) {

@@ -1,4 +1,15 @@
 definitions:
+  controller.MemoryEstimationResponse:
+    properties:
+      cached:
+        type: boolean
+      error:
+        type: string
+      estimate:
+        $ref: '#/definitions/memory.MemoryEstimate'
+      model_id:
+        type: string
+    type: object
   github_com_helixml_helix_api_pkg_types.Config:
     properties:
       rules:
@@ -35,6 +46,7 @@ definitions:
     - email
     - web_search
     - azure_devops
+    - mcp
     type: string
     x-enum-varnames:
     - ToolTypeAPI
@@ -45,6 +57,7 @@ definitions:
     - ToolTypeEmail
     - ToolTypeWebSearch
     - ToolTypeAzureDevOps
+    - ToolTypeMCP
   github_com_helixml_helix_api_pkg_types.Usage:
     properties:
       completion_tokens:
@@ -461,6 +474,209 @@ definitions:
         description: Valid is true if Time is not NULL
         type: boolean
     type: object
+  mcp.Meta:
+    properties:
+      additionalFields:
+        additionalProperties: {}
+        description: |-
+          AdditionalFields are any fields present in the Meta that are not
+          otherwise defined in the protocol.
+        type: object
+      progressToken:
+        description: |-
+          If specified, the caller is requesting out-of-band progress
+          notifications for this request (as represented by
+          notifications/progress). The value of this parameter is an
+          opaque token that will be attached to any subsequent
+          notifications. The receiver is not obligated to provide these
+          notifications.
+    type: object
+  mcp.Tool:
+    properties:
+      _meta:
+        allOf:
+        - $ref: '#/definitions/mcp.Meta'
+        description: Meta is a metadata object that is reserved by MCP for storing
+          additional information.
+      annotations:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolAnnotation'
+        description: Optional properties describing tool behavior
+      description:
+        description: A human-readable description of the tool.
+        type: string
+      inputSchema:
+        allOf:
+        - $ref: '#/definitions/mcp.ToolInputSchema'
+        description: A JSON Schema object defining the expected parameters for the
+          tool.
+      name:
+        description: The name of the tool.
+        type: string
+    type: object
+  mcp.ToolAnnotation:
+    properties:
+      destructiveHint:
+        description: If true, the tool may perform destructive updates
+        type: boolean
+      idempotentHint:
+        description: If true, repeated calls with same args have no additional effect
+        type: boolean
+      openWorldHint:
+        description: If true, tool interacts with external entities
+        type: boolean
+      readOnlyHint:
+        description: If true, the tool does not modify its environment
+        type: boolean
+      title:
+        description: Human-readable title for the tool
+        type: string
+    type: object
+  mcp.ToolInputSchema:
+    properties:
+      $defs:
+        additionalProperties: {}
+        type: object
+      properties:
+        additionalProperties: {}
+        type: object
+      required:
+        items:
+          type: string
+        type: array
+      type:
+        type: string
+    type: object
+  memory.EstimateOptions:
+    properties:
+      flash_attention:
+        description: Advanced options
+        type: boolean
+      kv_cache_type:
+        description: '"f16", "q8_0", "q4_0"'
+        type: string
+      num_batch:
+        description: Batch size
+        type: integer
+      num_ctx:
+        description: Context size
+        type: integer
+      num_gpu:
+        description: |-
+          ⚠️  CRITICAL CONFUSION WARNING ⚠️
+          NumGPU is NOT the number of GPUs in your hardware configuration!
+          NumGPU is the number of MODEL LAYERS to offload to GPU (-1 for auto-detect all that fit)
+
+          Examples:
+          - NumGPU = -1: Auto-detect max layers that fit (RECOMMENDED - gives full model memory)
+          - NumGPU = 1:  Only offload 1 layer to GPU (gives tiny memory estimate)
+          - NumGPU = 0:  CPU only (no GPU layers)
+
+          To estimate for different GPU hardware configs (1 GPU vs 4 GPUs),
+          you pass different GPU configuration arrays to the estimation function,
+          NOT different NumGPU values!
+        type: integer
+      num_parallel:
+        description: Number of parallel sequences
+        type: integer
+    type: object
+  memory.GPUInfo:
+    properties:
+      compute:
+        type: string
+      dependency_path:
+        items:
+          type: string
+        type: array
+      driver_major:
+        type: integer
+      driver_minor:
+        type: integer
+      env_workarounds:
+        items:
+          items:
+            type: string
+          type: array
+        type: array
+      free_memory:
+        type: integer
+      id:
+        type: string
+      index:
+        type: integer
+      library:
+        description: '"cuda", "rocm", "metal", "cpu"'
+        type: string
+      minimum_memory:
+        type: integer
+      name:
+        type: string
+      total_memory:
+        type: integer
+      unreliable_free_memory:
+        type: boolean
+      variant:
+        description: Additional fields for compatibility with Ollama's estimation
+        type: string
+    type: object
+  memory.MemoryEstimate:
+    properties:
+      architecture:
+        description: Metadata
+        type: string
+      estimated_at:
+        type: string
+      fully_loaded:
+        description: Whether all layers fit on GPU
+        type: boolean
+      gpu_sizes:
+        description: Memory allocation per GPU
+        items:
+          type: integer
+        type: array
+      gpus:
+        items:
+          $ref: '#/definitions/memory.GPUInfo'
+        type: array
+      graph:
+        description: Graph memory requirement
+        type: integer
+      graph_mem:
+        description: Graph computation memory
+        type: integer
+      kv_cache:
+        description: Breakdown for analysis
+        type: integer
+      layers:
+        description: Core results
+        type: integer
+      model_path:
+        type: string
+      options:
+        allOf:
+        - $ref: '#/definitions/memory.EstimateOptions'
+        description: Configuration used for estimation
+      projectors:
+        description: Projector weights (for multimodal)
+        type: integer
+      requires_fallback:
+        description: Whether CPU fallback is needed
+        type: boolean
+      tensor_split:
+        description: Layers per GPU for tensor parallel
+        items:
+          type: integer
+        type: array
+      total_size:
+        description: Total memory requirement
+        type: integer
+      vram_size:
+        description: Total VRAM usage
+        type: integer
+      weights:
+        description: Model weights memory
+        type: integer
+    type: object
   openai.ChatCompletionResponseFormatJSONSchema:
     properties:
       description:
@@ -536,10 +752,34 @@ definitions:
         - $ref: '#/definitions/types.User'
         description: Owner user struct, populated by the server for organization views
     type: object
+  server.CreateTopUpRequest:
+    properties:
+      amount:
+        type: number
+      org_id:
+        type: string
+    type: object
   server.LicenseKeyRequest:
     properties:
       license_key:
         type: string
+    type: object
+  server.LogsSummary:
+    properties:
+      active_instances:
+        type: integer
+      error_retention_hours:
+        type: integer
+      instances_with_errors:
+        type: integer
+      max_lines_per_buffer:
+        type: integer
+      recent_errors:
+        type: integer
+      slots:
+        items:
+          $ref: '#/definitions/server.SlotLogSummary'
+        type: array
     type: object
   server.ModelSubstitution:
     properties:
@@ -556,6 +796,45 @@ definitions:
       reason:
         type: string
     type: object
+  server.SlotLogSummary:
+    properties:
+      has_logs:
+        type: boolean
+      id:
+        type: string
+      model:
+        type: string
+      runner_id:
+        type: string
+    type: object
+  sql.NullString:
+    properties:
+      string:
+        type: string
+      valid:
+        description: Valid is true if String is not NULL
+        type: boolean
+    type: object
+  stripe.SubscriptionStatus:
+    enum:
+    - active
+    - canceled
+    - incomplete
+    - incomplete_expired
+    - past_due
+    - paused
+    - trialing
+    - unpaid
+    type: string
+    x-enum-varnames:
+    - SubscriptionStatusActive
+    - SubscriptionStatusCanceled
+    - SubscriptionStatusIncomplete
+    - SubscriptionStatusIncompleteExpired
+    - SubscriptionStatusPastDue
+    - SubscriptionStatusPaused
+    - SubscriptionStatusTrialing
+    - SubscriptionStatusUnpaid
   system.HTTPError:
     properties:
       message:
@@ -563,6 +842,16 @@ definitions:
       statusCode:
         type: integer
     type: object
+  types.APIKeyType:
+    enum:
+    - ""
+    - api
+    - app
+    type: string
+    x-enum-varnames:
+    - APIkeytypeNone
+    - APIkeytypeAPI
+    - APIkeytypeApp
   types.AccessGrant:
     properties:
       created_at:
@@ -650,6 +939,69 @@ definitions:
         type: integer
       total_tokens:
         type: integer
+    type: object
+  types.AllocationPlanView:
+    properties:
+      cost:
+        type: integer
+      evictions_needed:
+        description: Slot IDs
+        items:
+          type: string
+        type: array
+      gpu_count:
+        type: integer
+      gpus:
+        items:
+          type: integer
+        type: array
+      id:
+        type: string
+      is_multi_gpu:
+        type: boolean
+      is_valid:
+        type: boolean
+      memory_per_gpu:
+        type: integer
+      requires_eviction:
+        type: boolean
+      runner_capacity:
+        additionalProperties:
+          type: integer
+        description: GPU index -> total memory
+        type: object
+      runner_id:
+        type: string
+      runner_memory_state:
+        additionalProperties:
+          type: integer
+        description: GPU index -> allocated memory
+        type: object
+      runtime:
+        $ref: '#/definitions/types.Runtime'
+      tensor_parallel_size:
+        type: integer
+      total_memory_required:
+        type: integer
+      validation_error:
+        type: string
+    type: object
+  types.ApiKey:
+    properties:
+      app_id:
+        $ref: '#/definitions/sql.NullString'
+      created:
+        type: string
+      key:
+        type: string
+      name:
+        type: string
+      owner:
+        type: string
+      owner_type:
+        $ref: '#/definitions/types.OwnerType'
+      type:
+        $ref: '#/definitions/types.APIKeyType'
     type: object
   types.App:
     properties:
@@ -778,6 +1130,11 @@ definitions:
       markdown_post_processing:
         description: If true, the browser will return the HTML as markdown
         type: boolean
+      process_output:
+        description: If true, the browser will process the output of the tool call
+          before returning it to the top loop. Useful for skills that return structured
+          data such as Browser,
+        type: boolean
     type: object
   types.AssistantCalculator:
     properties:
@@ -852,6 +1209,10 @@ definitions:
       max_tokens:
         description: The maximum number of tokens to generate before stopping.
         type: integer
+      mcps:
+        items:
+          $ref: '#/definitions/types.AssistantMCP'
+        type: array
       model:
         type: string
       name:
@@ -981,6 +1342,19 @@ definitions:
           Source defines where the raw data is fetched from. It can be
           directly uploaded files, S3, GCS, Google Drive, Gmail, etc.
     type: object
+  types.AssistantMCP:
+    properties:
+      description:
+        type: string
+      headers:
+        additionalProperties:
+          type: string
+        type: object
+      name:
+        type: string
+      url:
+        type: string
+    type: object
   types.AssistantWebSearch:
     properties:
       enabled:
@@ -1090,11 +1464,6 @@ definitions:
           $ref: '#/definitions/types.ContextMenuAction'
         type: array
     type: object
-  types.Counter:
-    properties:
-      count:
-        type: integer
-    type: object
   types.CrawledSources:
     properties:
       urls:
@@ -1147,6 +1516,10 @@ definitions:
     type: object
   types.DashboardData:
     properties:
+      global_allocation_decisions:
+        items:
+          $ref: '#/definitions/types.GlobalAllocationDecision'
+        type: array
       queue:
         items:
           $ref: '#/definitions/types.WorkloadSummary'
@@ -1168,16 +1541,32 @@ definitions:
         type: string
       free_memory:
         type: integer
+      gpu_count:
+        description: Number of GPUs detected
+        type: integer
+      gpu_memory_stats:
+        allOf:
+        - $ref: '#/definitions/types.GPUMemoryStats'
+        description: GPU memory stabilization statistics
+      gpus:
+        description: Per-GPU memory status
+        items:
+          $ref: '#/definitions/types.GPUStatus'
+        type: array
       id:
         type: string
       labels:
         additionalProperties:
           type: string
         type: object
+      memory_string:
+        type: string
       models:
         items:
           $ref: '#/definitions/types.RunnerModelStatus'
         type: array
+      process_stats:
+        description: Process tracking and cleanup statistics
       slots:
         items:
           $ref: '#/definitions/types.RunnerSlot'
@@ -1194,6 +1583,23 @@ definitions:
   types.DiscordTrigger:
     properties:
       server_name:
+        type: string
+    type: object
+  types.DynamicModelInfo:
+    properties:
+      created:
+        type: string
+      id:
+        type: string
+      model_info:
+        $ref: '#/definitions/types.ModelInfo'
+      name:
+        description: Model name
+        type: string
+      provider:
+        description: helix, openai, etc. (Helix internal information)
+        type: string
+      updated:
         type: string
     type: object
   types.Effect:
@@ -1253,6 +1659,222 @@ definitions:
           total_tokens:
             type: integer
         type: object
+    type: object
+  types.FrontendLicenseInfo:
+    properties:
+      features:
+        properties:
+          users:
+            type: boolean
+        type: object
+      limits:
+        properties:
+          machines:
+            type: integer
+          users:
+            type: integer
+        type: object
+      organization:
+        type: string
+      valid:
+        type: boolean
+      valid_until:
+        type: string
+    type: object
+  types.GPUMemoryDataPoint:
+    properties:
+      actual_free_mb:
+        description: Actual free memory (from nvidia-smi)
+        type: integer
+      actual_total_mb:
+        description: Total GPU memory
+        type: integer
+      actual_used_mb:
+        description: Actual memory used (from nvidia-smi)
+        type: integer
+      allocated_mb:
+        description: Memory allocated by Helix scheduler
+        type: integer
+      gpu_index:
+        type: integer
+      timestamp:
+        type: string
+    type: object
+  types.GPUMemoryReading:
+    properties:
+      delta_mb:
+        type: integer
+      is_stable:
+        type: boolean
+      memory_mb:
+        type: integer
+      poll_number:
+        type: integer
+      stable_count:
+        type: integer
+    type: object
+  types.GPUMemoryStabilizationEvent:
+    properties:
+      context:
+        description: '"startup" or "deletion"'
+        type: string
+      error_message:
+        type: string
+      memory_delta_threshold_mb:
+        type: integer
+      memory_readings:
+        items:
+          $ref: '#/definitions/types.GPUMemoryReading'
+        type: array
+      poll_interval_ms:
+        type: integer
+      polls_taken:
+        type: integer
+      required_stable_polls:
+        type: integer
+      runtime:
+        type: string
+      slot_id:
+        type: string
+      stabilized_memory_mb:
+        type: integer
+      success:
+        type: boolean
+      timeout_seconds:
+        type: integer
+      timestamp:
+        type: string
+      total_wait_seconds:
+        type: integer
+    type: object
+  types.GPUMemoryStats:
+    properties:
+      average_wait_time_seconds:
+        type: number
+      failed_stabilizations:
+        type: integer
+      last_stabilization:
+        type: string
+      max_wait_time_seconds:
+        type: integer
+      memory_time_series:
+        description: Last 10 minutes of memory data
+        items:
+          $ref: '#/definitions/types.GPUMemoryDataPoint'
+        type: array
+      min_wait_time_seconds:
+        type: integer
+      recent_events:
+        description: Last 20 events
+        items:
+          $ref: '#/definitions/types.GPUMemoryStabilizationEvent'
+        type: array
+      scheduling_events:
+        description: Last 10 minutes of scheduling events
+        items:
+          $ref: '#/definitions/types.SchedulingEvent'
+        type: array
+      successful_stabilizations:
+        type: integer
+      total_stabilizations:
+        type: integer
+    type: object
+  types.GPUState:
+    properties:
+      active_slots:
+        description: Slot IDs using this GPU
+        items:
+          type: string
+        type: array
+      allocated_memory:
+        type: integer
+      free_memory:
+        type: integer
+      index:
+        type: integer
+      total_memory:
+        type: integer
+      utilization:
+        description: 0.0 - 1.0
+        type: number
+    type: object
+  types.GPUStatus:
+    properties:
+      cuda_version:
+        description: CUDA version
+        type: string
+      driver_version:
+        description: NVIDIA driver version
+        type: string
+      free_memory:
+        description: Free memory in bytes
+        type: integer
+      index:
+        description: GPU index (0, 1, 2, etc.)
+        type: integer
+      model_name:
+        description: GPU model name (e.g., "NVIDIA H100 PCIe", "NVIDIA GeForce RTX
+          4090")
+        type: string
+      total_memory:
+        description: Total memory in bytes
+        type: integer
+      used_memory:
+        description: Used memory in bytes
+        type: integer
+    type: object
+  types.GlobalAllocationDecision:
+    properties:
+      after_state:
+        additionalProperties:
+          $ref: '#/definitions/types.RunnerStateView'
+        type: object
+      before_state:
+        additionalProperties:
+          $ref: '#/definitions/types.RunnerStateView'
+        description: Global state snapshots
+        type: object
+      considered_plans:
+        description: All plans considered
+        items:
+          $ref: '#/definitions/types.AllocationPlanView'
+        type: array
+      created:
+        type: string
+      error_message:
+        type: string
+      execution_time_ms:
+        type: integer
+      id:
+        type: string
+      model_name:
+        type: string
+      optimization_score:
+        description: How optimal the final decision was
+        type: number
+      planning_time_ms:
+        description: Timing information
+        type: integer
+      reason:
+        type: string
+      runtime:
+        $ref: '#/definitions/types.Runtime'
+      selected_plan:
+        $ref: '#/definitions/types.AllocationPlanView'
+      session_id:
+        type: string
+      success:
+        description: Decision outcome
+        type: boolean
+      total_plans_generated:
+        type: integer
+      total_runners_evaluated:
+        description: Decision metadata
+        type: integer
+      total_time_ms:
+        type: integer
+      workload_id:
+        type: string
     type: object
   types.ImageURLDetail:
     enum:
@@ -1703,9 +2325,29 @@ definitions:
     - ModalityFile
   types.Model:
     properties:
+      allocated_gpu_count:
+        type: integer
+      allocated_memory:
+        description: 'EXPORTED ALLOCATION FIELDS: Set by NewModelForGPUAllocation
+          based on scheduler''s GPU allocation decision'
+        type: integer
+      allocated_per_gpu_memory:
+        items:
+          type: integer
+        type: array
+      allocated_specific_gpus:
+        items:
+          type: integer
+        type: array
+      allocation_configured:
+        description: Safety flag
+        type: boolean
       auto_pull:
         description: Whether to automatically pull the model if missing in the runner
         type: boolean
+      concurrency:
+        description: max concurrent requests per slot (0 = use global default)
+        type: integer
       context_length:
         type: integer
       created:
@@ -1720,7 +2362,8 @@ definitions:
         description: for example 'phi3.5:3.8b-mini-instruct-q8_0'
         type: string
       memory:
-        description: in bytes, required
+        description: 'DATABASE FIELD: Admin-configured memory for VLLM models, MUST
+          be 0 for Ollama models'
         type: integer
       name:
         type: string
@@ -1729,6 +2372,10 @@ definitions:
         type: boolean
       runtime:
         $ref: '#/definitions/types.Runtime'
+      runtime_args:
+        additionalProperties: true
+        description: Runtime-specific arguments (e.g., VLLM command line args)
+        type: object
       sort_order:
         description: Order for sorting models in UI (lower numbers appear first)
         type: integer
@@ -2141,6 +2788,21 @@ definitions:
       totalPages:
         type: integer
     type: object
+  types.PaginatedSessionsList:
+    properties:
+      page:
+        type: integer
+      pageSize:
+        type: integer
+      sessions:
+        items:
+          $ref: '#/definitions/types.SessionSummary'
+        type: array
+      totalCount:
+        type: integer
+      totalPages:
+        type: integer
+    type: object
   types.Pricing:
     properties:
       audio:
@@ -2185,6 +2847,8 @@ definitions:
         type: array
       base_url:
         type: string
+      billing_enabled:
+        type: boolean
       created:
         type: string
       default:
@@ -2410,25 +3074,72 @@ definitions:
     properties:
       active:
         type: boolean
-      context_length:
-        description: Context length used for the model, if specified
+      active_requests:
         type: integer
+      command_line:
+        type: string
+      context_length:
+        type: integer
+      created:
+        type: string
+      gpu_allocation_data:
+        additionalProperties: {}
+        type: object
+      gpu_index:
+        type: integer
+      gpu_indices:
+        items:
+          type: integer
+        type: array
       id:
         type: string
+      max_concurrency:
+        type: integer
+      memory_estimation_meta:
+        additionalProperties: {}
+        type: object
       model:
         type: string
+      model_memory_requirement:
+        type: integer
       ready:
         type: boolean
+      runner_id:
+        type: string
       runtime:
         $ref: '#/definitions/types.Runtime'
       runtime_args:
         additionalProperties: {}
-        description: Runtime-specific arguments
         type: object
       status:
         type: string
+      tensor_parallel_size:
+        type: integer
+      updated:
+        type: string
       version:
         type: string
+      workload_data:
+        additionalProperties: {}
+        type: object
+    type: object
+  types.RunnerStateView:
+    properties:
+      active_slots:
+        type: integer
+      gpu_states:
+        additionalProperties:
+          $ref: '#/definitions/types.GPUState'
+        description: GPU index -> state
+        type: object
+      is_connected:
+        type: boolean
+      runner_id:
+        type: string
+      total_slots:
+        type: integer
+      warm_slots:
+        type: integer
     type: object
   types.Runtime:
     enum:
@@ -2511,6 +3222,29 @@ definitions:
     - SchedulingDecisionTypeRejected
     - SchedulingDecisionTypeError
     - SchedulingDecisionTypeUnschedulable
+  types.SchedulingEvent:
+    properties:
+      description:
+        type: string
+      event_type:
+        description: '"slot_created", "slot_deleted", "eviction", "stabilization_start",
+          "stabilization_end"'
+        type: string
+      gpu_indices:
+        items:
+          type: integer
+        type: array
+      memory_mb:
+        type: integer
+      model_name:
+        type: string
+      runtime:
+        type: string
+      slot_id:
+        type: string
+      timestamp:
+        type: string
+    type: object
   types.Secret:
     properties:
       app_id:
@@ -2533,6 +3267,49 @@ definitions:
         items:
           type: integer
         type: array
+    type: object
+  types.ServerConfigForFrontend:
+    properties:
+      apps_enabled:
+        type: boolean
+      billing_enabled:
+        description: Charging for usage
+        type: boolean
+      deployment_id:
+        type: string
+      disable_llm_call_logging:
+        type: boolean
+      eval_user_id:
+        type: string
+      filestore_prefix:
+        description: |-
+          used to prepend onto raw filestore paths to download files
+          the filestore path will have the user info in it - i.e.
+          it's a low level filestore path
+          if we are using an object storage thing - then this URL
+          can be the prefix to the bucket
+        type: string
+      google_analytics_frontend:
+        type: string
+      latest_version:
+        type: string
+      license:
+        $ref: '#/definitions/types.FrontendLicenseInfo'
+      organizations_create_enabled_for_non_admins:
+        type: boolean
+      rudderstack_data_plane_url:
+        type: string
+      rudderstack_write_key:
+        type: string
+      sentry_dsn_frontend:
+        type: string
+      stripe_enabled:
+        description: Stripe top-ups enabled
+        type: boolean
+      tools_enabled:
+        type: boolean
+      version:
+        type: string
     type: object
   types.Session:
     properties:
@@ -2804,18 +3581,6 @@ definitions:
     - SessionTypeNone
     - SessionTypeText
     - SessionTypeImage
-  types.SessionsList:
-    properties:
-      counter:
-        allOf:
-        - $ref: '#/definitions/types.Counter'
-        description: the total number of sessions that match the query
-      sessions:
-        description: the list of sessions
-        items:
-          $ref: '#/definitions/types.SessionSummary'
-        type: array
-    type: object
   types.SkillDefinition:
     properties:
       baseUrl:
@@ -2954,6 +3719,26 @@ definitions:
       arguments:
         additionalProperties: true
         type: object
+    type: object
+  types.SystemSettingsRequest:
+    properties:
+      huggingface_token:
+        type: string
+    type: object
+  types.SystemSettingsResponse:
+    properties:
+      created:
+        type: string
+      huggingface_token_set:
+        description: Sensitive fields are masked
+        type: boolean
+      huggingface_token_source:
+        description: '"database", "environment", or "none"'
+        type: string
+      id:
+        type: string
+      updated:
+        type: string
     type: object
   types.Team:
     properties:
@@ -3113,6 +3898,11 @@ definitions:
       markdown_post_processing:
         description: If true, the browser will return the HTML as markdown
         type: boolean
+      process_output:
+        description: If true, the browser will process the output of the tool call
+          before returning it to the top loop. Useful for skills that return structured
+          data such as Browser,
+        type: boolean
     type: object
   types.ToolCalculatorConfig:
     properties:
@@ -3133,6 +3923,8 @@ definitions:
         $ref: '#/definitions/types.ToolEmailConfig'
       gptscript:
         $ref: '#/definitions/types.ToolGPTScriptConfig'
+      mcp:
+        $ref: '#/definitions/types.ToolMCPClientConfig'
       web_search:
         $ref: '#/definitions/types.ToolWebSearchConfig'
       zapier:
@@ -3152,6 +3944,25 @@ definitions:
         type: string
       script_url:
         description: URL to download the script
+        type: string
+    type: object
+  types.ToolMCPClientConfig:
+    properties:
+      description:
+        type: string
+      enabled:
+        type: boolean
+      headers:
+        additionalProperties:
+          type: string
+        type: object
+      name:
+        type: string
+      tools:
+        items:
+          $ref: '#/definitions/mcp.Tool'
+        type: array
+      url:
         type: string
     type: object
   types.ToolWebSearchConfig:
@@ -3407,6 +4218,34 @@ definitions:
       user:
         $ref: '#/definitions/types.User'
     type: object
+  types.Wallet:
+    properties:
+      balance:
+        type: number
+      created_at:
+        type: string
+      id:
+        type: string
+      org_id:
+        description: If belongs to an organization
+        type: string
+      stripe_customer_id:
+        type: string
+      stripe_subscription_id:
+        type: string
+      subscription_created:
+        type: integer
+      subscription_current_period_end:
+        type: integer
+      subscription_current_period_start:
+        type: integer
+      subscription_status:
+        $ref: '#/definitions/stripe.SubscriptionStatus'
+      updated_at:
+        type: string
+      user_id:
+        type: string
+    type: object
   types.WebsiteCrawler:
     properties:
       enabled:
@@ -3456,6 +4295,64 @@ info:
     altText: Helix logo
     url: https://avatars.githubusercontent.com/u/149581110?s=200&v=4
 paths:
+  /api/v1/api_keys:
+    delete:
+      description: Delete an API key
+      parameters:
+      - description: API key to delete
+        in: query
+        name: key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: API key
+          schema:
+            type: string
+      summary: Delete an API key
+      tags:
+      - api-keys
+    get:
+      description: Get API keys
+      parameters:
+      - description: Filter by types (comma-separated list)
+        in: query
+        name: types
+        type: string
+      - description: Filter by app ID
+        in: query
+        name: app_id
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.ApiKey'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Get API keys
+      tags:
+      - api-keys
+    post:
+      description: Create a new API key
+      parameters:
+      - description: Request body with name and type
+        in: body
+        name: request
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      responses:
+        "200":
+          description: API key
+          schema:
+            type: string
+      summary: Create a new API key
+      tags:
+      - api-keys
   /api/v1/apps:
     get:
       description: List apps for the user. Apps are pre-configured to spawn sessions
@@ -4026,6 +4923,19 @@ paths:
       summary: User information
       tags:
       - auth
+  /api/v1/config:
+    get:
+      description: Get config
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ServerConfigForFrontend'
+      security:
+      - BearerAuth: []
+      summary: Get config
+      tags:
+      - config
   /api/v1/context-menu:
     get:
       description: contextMenuHandler
@@ -4187,6 +5097,85 @@ paths:
       summary: Update an existing Helix model
       tags:
       - models
+  /api/v1/helix-models/memory-estimate:
+    get:
+      description: Estimate memory requirements for a model on different GPU configurations
+      parameters:
+      - description: Model ID
+        in: query
+        name: model_id
+        required: true
+        type: string
+      - description: 'Number of GPUs (default: auto-detect)'
+        in: query
+        name: gpu_count
+        type: integer
+      - description: 'Context length (default: model default)'
+        in: query
+        name: context_length
+        type: integer
+      - description: 'Batch size (default: 512)'
+        in: query
+        name: batch_size
+        type: integer
+      - description: 'Number of parallel sequences/concurrent requests (default: 2)'
+        in: query
+        name: num_parallel
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/controller.MemoryEstimationResponse'
+        "400":
+          description: Invalid request parameters
+          schema:
+            type: string
+        "404":
+          description: Model not found
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Estimate model memory requirements
+      tags:
+      - models
+  /api/v1/helix-models/memory-estimates:
+    get:
+      description: Get memory estimates for multiple models with different GPU configurations
+      parameters:
+      - description: Comma-separated list of model IDs
+        in: query
+        name: model_ids
+        type: string
+      - description: 'Number of GPUs (default: auto-detect)'
+        in: query
+        name: gpu_count
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/controller.MemoryEstimationResponse'
+            type: array
+        "400":
+          description: Invalid request parameters
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: List memory estimates for multiple models
+      tags:
+      - models
   /api/v1/knowledge:
     get:
       responses:
@@ -4334,6 +5323,222 @@ paths:
       summary: List LLM calls
       tags:
       - llm_calls
+  /api/v1/logs/{slot_id}:
+    get:
+      description: Retrieve logs for a specific slot by proxying the request to the
+        runner
+      parameters:
+      - description: Slot ID
+        in: path
+        name: slot_id
+        required: true
+        type: string
+      - description: 'Maximum number of lines to return (default: 500)'
+        in: query
+        name: lines
+        type: integer
+      - description: Return logs since this timestamp (RFC3339 format)
+        in: query
+        name: since
+        type: string
+      - description: Filter by log level (ERROR, WARN, INFO, DEBUG)
+        in: query
+        name: level
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get logs for a specific slot
+      tags:
+      - logs
+  /api/v1/model-info:
+    get:
+      description: List all dynamic model infos. Requires admin privileges.
+      parameters:
+      - description: Filter by provider (e.g., helix, openai)
+        in: query
+        name: provider
+        type: string
+      - description: Filter by model name
+        in: query
+        name: name
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.DynamicModelInfo'
+            type: array
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: List dynamic model infos
+      tags:
+      - model-info
+    post:
+      description: Create a new dynamic model info configuration. Requires admin privileges.
+      parameters:
+      - description: Dynamic model info configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.DynamicModelInfo'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/types.DynamicModelInfo'
+        "400":
+          description: Invalid request body
+          schema:
+            type: string
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Create a new dynamic model info
+      tags:
+      - model-info
+  /api/v1/model-info/{id}:
+    delete:
+      description: Delete a dynamic model info configuration. Requires admin privileges.
+      parameters:
+      - description: Dynamic model info ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "400":
+          description: Missing ID
+          schema:
+            type: string
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Delete a dynamic model info
+      tags:
+      - model-info
+    get:
+      description: Get a specific dynamic model info by ID. Requires admin privileges.
+      parameters:
+      - description: Dynamic model info ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.DynamicModelInfo'
+        "400":
+          description: Missing ID
+          schema:
+            type: string
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "404":
+          description: Dynamic model info not found
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get a dynamic model info by ID
+      tags:
+      - model-info
+    put:
+      description: Update an existing dynamic model info configuration. Requires admin
+        privileges.
+      parameters:
+      - description: Dynamic model info ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated dynamic model info configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.DynamicModelInfo'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.DynamicModelInfo'
+        "400":
+          description: Invalid request body or missing ID
+          schema:
+            type: string
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "404":
+          description: Dynamic model info not found
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Update an existing dynamic model info
+      tags:
+      - model-info
   /api/v1/oauth/connections:
     get:
       description: List OAuth connections for the user.
@@ -4725,6 +5930,10 @@ paths:
         in: query
         name: org_id
         type: string
+      - description: Include all endpoints (system admin only)
+        in: query
+        name: all
+        type: boolean
       responses:
         "200":
           description: OK
@@ -4858,6 +6067,20 @@ paths:
             type: array
       security:
       - BearerAuth: []
+  /api/v1/scheduler/heartbeats:
+    get:
+      description: Get the health status of all scheduler goroutines
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get scheduler goroutine heartbeat status
+      tags:
+      - dashboard
   /api/v1/search:
     get:
       description: Search knowledges for a given app and prompt
@@ -4968,11 +6191,28 @@ paths:
   /api/v1/sessions:
     get:
       description: List sessions
+      parameters:
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
+      - description: Organization slug or ID
+        in: query
+        name: org_id
+        type: string
+      - description: Search sessions by name
+        in: query
+        name: search
+        type: string
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/types.SessionsList'
+            $ref: '#/definitions/types.PaginatedSessionsList'
       security:
       - BearerAuth: []
       summary: List sessions
@@ -5009,12 +6249,34 @@ paths:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/types.Session'
-            type: array
+            $ref: '#/definitions/types.Session'
       security:
       - BearerAuth: []
       summary: Get a session by ID
+      tags:
+      - sessions
+    put:
+      description: Update a session by ID
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session to update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.Session'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Session'
+      security:
+      - BearerAuth: []
+      summary: Update a session by ID
       tags:
       - sessions
   /api/v1/sessions/{id}/interactions:
@@ -5026,6 +6288,14 @@ paths:
         name: id
         required: true
         type: string
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Page size
+        in: query
+        name: page_size
+        type: integer
       produces:
       - application/json
       responses:
@@ -5149,6 +6419,155 @@ paths:
       summary: Reload skills
       tags:
       - skills
+  /api/v1/skills/validate:
+    post:
+      description: Validate MCP skill configuration
+      parameters:
+      - description: MCP skill configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.AssistantMCP'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ToolMCPClientConfig'
+      security:
+      - BearerAuth: []
+      summary: Validate MCP skill configuration
+      tags:
+      - skills
+  /api/v1/slots/{slot_id}:
+    delete:
+      description: Delete a slot from the scheduler's desired state, allowing reconciliation
+        to clean it up from the runner
+      parameters:
+      - description: Slot ID
+        in: path
+        name: slot_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete a slot from scheduler state
+      tags:
+      - dashboard
+  /api/v1/subscription/manage:
+    post:
+      description: Manage a subscription
+      parameters:
+      - description: Organization ID
+        in: query
+        name: org_id
+        type: string
+      responses:
+        "200":
+          description: Subscription session URL
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Manage a subscription
+      tags:
+      - wallets
+  /api/v1/subscription/new:
+    post:
+      description: Create a subscription
+      parameters:
+      - description: Organization ID
+        in: query
+        name: org_id
+        type: string
+      responses:
+        "200":
+          description: Subscription session URL
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Create a subscription
+      tags:
+      - wallets
+  /api/v1/system/settings:
+    get:
+      description: Get global system settings. Requires admin privileges.
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SystemSettingsResponse'
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get system settings
+      tags:
+      - system
+    put:
+      description: Update global system settings. Requires admin privileges.
+      parameters:
+      - description: System settings update
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SystemSettingsRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SystemSettingsResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            type: string
+        "403":
+          description: Forbidden - Admin required
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Update system settings
+      tags:
+      - system
+  /api/v1/top-ups/new:
+    post:
+      description: Create a top up with specified amount
+      parameters:
+      - description: Request body with amount
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.CreateTopUpRequest'
+      responses:
+        "200":
+          description: Top up session URL
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Create a top up
+      tags:
+      - wallets
   /api/v1/triggers:
     get:
       description: List all triggers configurations for either user or the org or
@@ -5289,6 +6708,69 @@ paths:
       summary: List trigger executions
       tags:
       - apps
+  /api/v1/usage:
+    get:
+      consumes:
+      - application/json
+      description: Get daily usage
+      parameters:
+      - description: Start date
+        in: query
+        name: from
+        type: string
+      - description: End date
+        in: query
+        name: to
+        type: string
+      - description: Organization ID
+        in: query
+        name: org_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/types.AggregatedUsageMetric'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/system.HTTPError'
+      security:
+      - BearerAuth: []
+      summary: Get daily usage
+      tags:
+      - usage
+  /api/v1/users/{id}:
+    get:
+      description: Get user by ID
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.User'
+      security:
+      - BearerAuth: []
+      summary: Get user details
+      tags:
+      - users
   /api/v1/users/search:
     get:
       description: Search users by email, name, or username
@@ -5333,6 +6815,24 @@ paths:
       summary: Get user token usage
       tags:
       - users
+  /api/v1/wallet:
+    get:
+      description: Get a wallet
+      parameters:
+      - description: Organization ID
+        in: query
+        name: org_id
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Wallet'
+      security:
+      - BearerAuth: []
+      summary: Get a wallet
+      tags:
+      - wallets
   /v1/chat/completions:
     post:
       description: Creates a model response for the given chat conversation.

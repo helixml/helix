@@ -8,13 +8,13 @@ import FolderOpenIcon from '@mui/icons-material/Folder'
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
 import InfoIcon from '@mui/icons-material/Info'
 import DeleteIcon from '@mui/icons-material/Delete'
+import { useDeleteSession, useUpdateSession } from '../../services/sessionService'
 
 import {
   TypesSession,
 } from '../../api/api'
 
 import useRouter from '../../hooks/useRouter'
-import useSessions from '../../hooks/useSessions'
 import useSnackbar from '../../hooks/useSnackbar'
 import useLoading from '../../hooks/useLoading'
 
@@ -26,19 +26,16 @@ export const SessionButtons: FC<{
   const {
     navigate,
     setParams,
-  } = useRouter()
-  const sessions = useSessions()
+  } = useRouter()  
   const snackbar = useSnackbar()
   const loading = useLoading()
-
-  const [deletingSession, setDeletingSession] = useState<TypesSession>()
+  const { mutate: deleteSession } = useDeleteSession(session.id || '')
+  const { mutate: updateSession } = useUpdateSession(session.id || '')
 
   const onDeleteSessionConfirm = useCallback(async (session_id: string) => {
     loading.setLoading(true)
     try {
-      const result = await sessions.deleteSession(session_id)
-      if(!result) return
-      setDeletingSession(undefined)
+      await deleteSession()
       snackbar.success(`Session deleted`)
       navigate('home')
     } catch(e) {}
@@ -79,7 +76,7 @@ export const SessionButtons: FC<{
           }}
         >
           <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-            <InfoIcon sx={{ mr: 2 }} />
+            <InfoIcon sx={{ mr: 2 }} />            
           </Box>
         </Typography>
       </JsonWindowLink>
@@ -87,7 +84,7 @@ export const SessionButtons: FC<{
         href="/files?path=%2Fsessions"
         onClick={(e) => {
           e.preventDefault()
-          setDeletingSession(session)
+          deleteSession()
         }}
       >
         <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
@@ -111,14 +108,13 @@ export const SessionButtons: FC<{
         )
       } */}
       {
-        deletingSession && (
+        session && (
           <DeleteConfirmWindow
-            title={`session ${deletingSession.name}?`}
-            onCancel={ () => {
-              setDeletingSession(undefined) 
+            title={`session ${session.name}?`}
+            onCancel={ () => {              
             }}
             onSubmit={ () => {
-              onDeleteSessionConfirm(deletingSession.id || '')
+              onDeleteSessionConfirm(session.id || '')
             }}
           />
         )

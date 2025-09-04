@@ -36,6 +36,11 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 	ollamaModels, _ := model.GetDefaultOllamaModels()
 
 	for i, model := range ollamaModels {
+		// Skip hidden models - don't seed them at all
+		if model.Hide {
+			continue
+		}
+
 		// Check if model already exists
 		existingModel, err := s.GetModel(ctx, model.ID)
 		if err != nil && err != ErrNotFound {
@@ -60,6 +65,12 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 			}
 
 			// If user hasn't modified the model, keep it in sync with code definitions
+			log.Debug().
+				Str("model_id", model.ID).
+				Bool("user_modified", existingModel.UserModified).
+				Bool("existing_prewarm", existingModel.Prewarm).
+				Bool("code_prewarm", model.Prewarm).
+				Msg("checking if model needs seeding updates")
 			if !existingModel.UserModified {
 				// Update all system-managed fields from code definitions
 				if existingModel.Memory != model.Memory {
@@ -79,11 +90,21 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 					shouldUpdate = true
 				}
 				if existingModel.Prewarm != model.Prewarm {
+					log.Warn().
+						Str("model_id", model.ID).
+						Bool("existing_prewarm", existingModel.Prewarm).
+						Bool("new_prewarm", model.Prewarm).
+						Bool("user_modified", existingModel.UserModified).
+						Msg("OVERRIDING prewarm setting during model seeding - this may override user dashboard changes!")
 					updateData.Prewarm = model.Prewarm
 					shouldUpdate = true
 				}
 				if existingModel.ContextLength != model.ContextLength {
 					updateData.ContextLength = model.ContextLength
+					shouldUpdate = true
+				}
+				if existingModel.Concurrency != model.Concurrency {
+					updateData.Concurrency = model.Concurrency
 					shouldUpdate = true
 				}
 			}
@@ -93,10 +114,12 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 				if err != nil {
 					log.Err(err).Str("model_id", model.ID).Msg("failed to update existing ollama model")
 				} else {
-					log.Info().
+					log.Warn().
 						Str("model_id", model.ID).
 						Bool("user_modified", existingModel.UserModified).
-						Msg("updated existing ollama model with latest system defaults")
+						Bool("prewarm_updated", updateData.Prewarm != existingModel.Prewarm).
+						Bool("final_prewarm", updateData.Prewarm).
+						Msg("SEEDING OVERRODE model settings - check if this conflicts with user dashboard changes")
 				}
 			}
 			continue
@@ -110,6 +133,7 @@ func (s *PostgresStore) seedOllamaModels(ctx context.Context) error {
 			Runtime:       types.RuntimeOllama,
 			ContextLength: model.ContextLength,
 			Memory:        model.Memory,
+			Concurrency:   model.Concurrency,
 			Description:   model.Description,
 			Hide:          model.Hide,
 			Enabled:       true,
@@ -131,6 +155,11 @@ func (s *PostgresStore) seedDiffusersModels(ctx context.Context) error {
 	diffusersModels, _ := model.GetDefaultDiffusersModels()
 
 	for i, model := range diffusersModels {
+		// Skip hidden models - don't seed them at all
+		if model.Hide {
+			continue
+		}
+
 		// Check if model already exists
 		existingModel, err := s.GetModel(ctx, model.ID)
 		if err != nil && err != ErrNotFound {
@@ -216,6 +245,11 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 	vllmModels, _ := model.GetDefaultVLLMModels()
 
 	for i, model := range vllmModels {
+		// Skip hidden models - don't seed them at all
+		if model.Hide {
+			continue
+		}
+
 		// Check if model already exists
 		existingModel, err := s.GetModel(ctx, model.ID)
 		if err != nil && err != ErrNotFound {
@@ -230,12 +264,6 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 				break
 			}
 		}
-
-		log.Debug().
-			Str("model_id", model.ID).
-			Str("determined_type", string(modelType)).
-			Strs("model_args", model.Args).
-			Msg("Determined VLLM model type from args")
 
 		// Determine sort order - embedding models get higher numbers (lower priority)
 		sortOrder := i + 100 // Start VLLM models at 100+ to come after Ollama models
@@ -265,6 +293,12 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 			}
 
 			// If user hasn't modified the model, keep it in sync with code definitions
+			log.Debug().
+				Str("model_id", model.ID).
+				Bool("user_modified", existingModel.UserModified).
+				Bool("existing_prewarm", existingModel.Prewarm).
+				Bool("code_prewarm", model.Prewarm).
+				Msg("checking if VLLM model needs seeding updates")
 			if !existingModel.UserModified {
 				// Update all system-managed fields from code definitions
 				if existingModel.Memory != model.Memory {
@@ -284,6 +318,12 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 					shouldUpdate = true
 				}
 				if existingModel.Prewarm != model.Prewarm {
+					log.Warn().
+						Str("model_id", model.ID).
+						Bool("existing_prewarm", existingModel.Prewarm).
+						Bool("new_prewarm", model.Prewarm).
+						Bool("user_modified", existingModel.UserModified).
+						Msg("OVERRIDING VLLM prewarm setting during model seeding - this may override user dashboard changes!")
 					updateData.Prewarm = model.Prewarm
 					shouldUpdate = true
 				}
@@ -298,13 +338,21 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 				if err != nil {
 					log.Err(err).Str("model_id", model.ID).Msg("failed to update existing vllm model")
 				} else {
-					log.Info().
+					log.Warn().
 						Str("model_id", model.ID).
 						Bool("user_modified", existingModel.UserModified).
-						Msg("updated existing vllm model with latest system defaults")
+						Bool("prewarm_updated", updateData.Prewarm != existingModel.Prewarm).
+						Bool("final_prewarm", updateData.Prewarm).
+						Msg("SEEDING OVERRODE VLLM model settings - check if this conflicts with user dashboard changes")
 				}
 			}
 			continue
+		}
+
+		// Create RuntimeArgs from model.Args
+		runtimeArgs := map[string]interface{}{}
+		if len(model.Args) > 0 {
+			runtimeArgs["args"] = model.Args
 		}
 
 		// Create new model
@@ -320,6 +368,7 @@ func (s *PostgresStore) seedVLLMModels(ctx context.Context) error {
 			Enabled:       true,
 			SortOrder:     sortOrder,
 			Prewarm:       model.Prewarm,
+			RuntimeArgs:   runtimeArgs,
 			UserModified:  false, // New models are system-managed
 		}
 
@@ -365,7 +414,8 @@ func validateModel(model *types.Model) error {
 		return fmt.Errorf("id not specified")
 	}
 
-	if model.Memory == 0 {
+	// Allow 0 memory for Ollama models since they auto-detect memory requirements
+	if model.Memory == 0 && model.Runtime != types.RuntimeOllama {
 		return fmt.Errorf("memory not specified")
 	}
 
@@ -429,20 +479,23 @@ func (s *PostgresStore) ListModels(ctx context.Context, q *ListModelsQuery) ([]*
 
 	query := s.gdb.WithContext(ctx)
 
-	if q.Type != "" {
-		query = query.Where("type = ?", q.Type)
-	}
+	// Handle nil query gracefully
+	if q != nil {
+		if q.Type != "" {
+			query = query.Where("type = ?", q.Type)
+		}
 
-	if q.Name != "" {
-		query = query.Where("name = ?", q.Name)
-	}
+		if q.Name != "" {
+			query = query.Where("name = ?", q.Name)
+		}
 
-	if q.Runtime != "" {
-		query = query.Where("runtime = ?", q.Runtime)
-	}
+		if q.Runtime != "" {
+			query = query.Where("runtime = ?", q.Runtime)
+		}
 
-	if q.Enabled != nil {
-		query = query.Where("enabled = ?", *q.Enabled)
+		if q.Enabled != nil {
+			query = query.Where("enabled = ?", *q.Enabled)
+		}
 	}
 
 	err := query.Order("sort_order ASC, created DESC").Find(&models).Error

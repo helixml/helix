@@ -34,6 +34,7 @@ import useLightTheme from '../../hooks/useLightTheme'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 import TokenUsageDisplay from '../system/TokenUsageDisplay'
+import LowCreditsDisplay from '../system/LowCreditsDisplay'
 import { styled, keyframes } from '@mui/material/styles'
 
 // Shimmer animation for login button
@@ -704,6 +705,8 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
       >
         {/* Token Usage Display */}
         {account.user && <TokenUsageDisplay />}
+        {/* Low balance display */}
+        {account.user && <LowCreditsDisplay />}
 
         {/* Always visible menu items - only show if there are items to display */}
         {(account.admin || account.user) && (

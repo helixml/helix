@@ -2,10 +2,12 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/memory"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -13,34 +15,120 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+// PrewarmingTestMemoryService provides memory estimates for prewarming testing
+type PrewarmingTestMemoryService struct {
+	modelMemory map[string]uint64
+}
+
+func NewPrewarmingTestMemoryService() *PrewarmingTestMemoryService {
+	return &PrewarmingTestMemoryService{
+		modelMemory: map[string]uint64{
+			"gpt-oss:20b":                 48 * 1024 * 1024 * 1024, // 48GB
+			"qwen3:8b":                    10 * 1024 * 1024 * 1024, // 10GB
+			"Qwen/Qwen2.5-VL-7B-Instruct": 39 * 1024 * 1024 * 1024, // 39GB
+			"MrLight/dse-qwen2-2b-mrl-v1": 8 * 1024 * 1024 * 1024,  // 8GB
+		},
+	}
+}
+
+func (m *PrewarmingTestMemoryService) EstimateModelMemory(ctx context.Context, modelName string, opts memory.EstimateOptions) (*memory.EstimationResult, error) {
+	memSize, ok := m.modelMemory[modelName]
+	if !ok {
+		return nil, fmt.Errorf("model %s not found in prewarming test mock", modelName)
+	}
+
+	estimate := &memory.MemoryEstimate{
+		Layers:    36, // Mock value
+		VRAMSize:  memSize,
+		TotalSize: memSize,
+	}
+
+	return &memory.EstimationResult{
+		Recommendation: "single_gpu",
+		SingleGPU:      estimate,
+	}, nil
+}
+
 func TestPrewarmNewRunner_Success(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
+	// Use default hardcoded models to match production behavior
+	testModels := GetDefaultTestModels()
+
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	// Mock GetModel calls for each model
+	for _, model := range testModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		QueueSize:        10,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewPrewarmingTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
+
+	// Set up the test runner with proper status so memory calculation works
+	runnerID := "test-runner-1"
+	totalMemory := uint64(80 * 1024 * 1024 * 1024) // 80GB
+
+	// Set up the cache BEFORE connecting the runner (important for tests)
+	runnerCtrl.statusCache.Set(runnerID, NewCache(ctx, func() (types.RunnerStatus, error) {
+		return types.RunnerStatus{
+			ID:          runnerID,
+			TotalMemory: totalMemory,
+			GPUCount:    1,
+			GPUs: []*types.GPUStatus{
+				{
+					Index:       0,
+					TotalMemory: totalMemory,
+					FreeMemory:  totalMemory, // Initially all free
+					UsedMemory:  0,
+					ModelName:   "Test GPU",
+				},
+			},
+			Models: []*types.RunnerModelStatus{
+				// Mock that the runner has the models we want to test
+				{ModelID: "gpt-oss:20b", Runtime: types.RuntimeOllama, DownloadInProgress: false},
+				{ModelID: "qwen3:8b", Runtime: types.RuntimeOllama, DownloadInProgress: false},
+				{ModelID: "Qwen/Qwen2.5-VL-7B-Instruct", Runtime: types.RuntimeVLLM, DownloadInProgress: false},
+				{ModelID: "MrLight/dse-qwen2-2b-mrl-v1", Runtime: types.RuntimeVLLM, DownloadInProgress: false},
+			},
+		}, nil
+	}, CacheConfig{updateInterval: time.Second}))
+
+	// Also set up slots cache to return empty slots initially
+	runnerCtrl.slotsCache.Set(runnerID, NewCache(ctx, func() (types.ListRunnerSlotsResponse, error) {
+		return types.ListRunnerSlotsResponse{Slots: []*types.RunnerSlot{}}, nil
+	}, CacheConfig{updateInterval: time.Second}))
 
 	// Track the initial queue size
 	initialQueueSize := len(scheduler.queue.Queue())
 
-	// Call PrewarmNewRunner directly
-	runnerID := "test-runner-1"
+	// Call PrewarmNewRunner directly (don't use OnConnectedHandler as it clears caches)
 	scheduler.PrewarmNewRunner(runnerID)
 
 	// Give some time for async processing
@@ -75,7 +163,8 @@ func TestPrewarmNewRunner_Success(t *testing.T) {
 }
 
 func TestPrewarmNewRunner_VerifyWorkloadCreation(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -83,17 +172,40 @@ func TestPrewarmNewRunner_VerifyWorkloadCreation(t *testing.T) {
 	require.NoError(t, err)
 
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	// Use controlled test models that match the memory service
+	testModels := []*types.Model{
+		{ID: "qwen3:8b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: true, ContextLength: 8192},                   // 10GB (GGUF estimated)
+		{ID: "gpt-oss:20b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: true, ContextLength: 131072},              // 48GB (GGUF estimated)
+		{ID: "MrLight/dse-qwen2-2b-mrl-v1", Memory: 8 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: true},  // 8GB
+		{ID: "Qwen/Qwen2.5-VL-7B-Instruct", Memory: 39 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: true}, // 39GB
+	}
+
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testModels, nil).AnyTimes()
+
+	// Mock GetModel calls for each test model
+	for _, model := range testModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		QueueSize:        10,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewPrewarmingTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -118,25 +230,48 @@ func TestPrewarmNewRunner_VerifyWorkloadCreation(t *testing.T) {
 }
 
 func TestOnRunnerConnectedCallback(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
+	// Add prewarm models for testing
+	prewarmModels := []*types.Model{
+		{ID: "gpt-oss:20b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: true, ContextLength: 131072},
+		{ID: "qwen3:8b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: true, ContextLength: 40960},
+		{ID: "Qwen/Qwen2.5-VL-7B-Instruct", Memory: 39 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: true, ContextLength: 32768},
+	}
+
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(prewarmModels, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+
+	// Add GetModel expectations for each prewarm model
+	for _, model := range prewarmModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		QueueSize:        10,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewPrewarmingTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -162,8 +297,9 @@ func TestOnRunnerConnectedCallback(t *testing.T) {
 	t.Logf("Runner connection successfully triggered prewarming: %d workloads enqueued", finalQueueSize-initialQueueSize)
 }
 
-func TestPrewarmWorkloadProperties(t *testing.T) {
-	ctx := context.Background()
+func TestOnRunnerReconnectedCallback(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -171,17 +307,91 @@ func TestPrewarmWorkloadProperties(t *testing.T) {
 	require.NoError(t, err)
 
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(GetDefaultTestModels(), nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		QueueSize:        10,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewPrewarmingTestMemoryService(),
+		QueueSize:               50,
+	})
+	require.NoError(t, err)
+
+	// Set up the prewarming callback (as done in serve.go)
+	runnerCtrl.SetOnRunnerConnectedCallback(scheduler.PrewarmNewRunner)
+
+	runnerID := "test-runner-reconnect"
+
+	// First connection (should trigger prewarming for new runner)
+	initialQueueSize := len(scheduler.queue.Queue())
+	runnerCtrl.OnConnectedHandler(runnerID)
+	time.Sleep(100 * time.Millisecond)
+	afterFirstConnection := len(scheduler.queue.Queue())
+
+	// Verify the runner was added and prewarming happened
+	runners := runnerCtrl.RunnerIDs()
+	require.Contains(t, runners, runnerID, "Runner should be added to controller")
+	require.Greater(t, afterFirstConnection, initialQueueSize, "First connection should trigger prewarming")
+
+	// Second connection (should trigger prewarming attempt for reconnected runner)
+	// Note: The actual workloads may not be added if they're already in the queue (deduplication)
+	runnerCtrl.OnConnectedHandler(runnerID)
+	time.Sleep(100 * time.Millisecond)
+	afterSecondConnection := len(scheduler.queue.Queue())
+
+	// Verify prewarming was attempted (even if workloads were deduplicated)
+	// The queue size may not increase due to deduplication, but we should see the attempt in logs
+	require.GreaterOrEqual(t, afterSecondConnection, afterFirstConnection, "Queue should not shrink after reconnection")
+
+	t.Logf("First connection triggered prewarming: %d workloads", afterFirstConnection-initialQueueSize)
+	t.Logf("Reconnection queue size: %d (may be same due to deduplication)", afterSecondConnection)
+}
+
+func TestPrewarmWorkloadProperties(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ps, err := pubsub.NewInMemoryNats()
+	require.NoError(t, err)
+
+	mockStore := store.NewMockStore(ctrl)
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(GetDefaultTestModels(), nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
+	})
+	require.NoError(t, err)
+
+	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewPrewarmingTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -230,25 +440,48 @@ func TestPrewarmWorkloadProperties(t *testing.T) {
 }
 
 func TestMultipleRunnerConnections(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
+	// Add prewarm models for testing
+	prewarmModels := []*types.Model{
+		{ID: "gpt-oss:20b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: true, ContextLength: 131072},
+		{ID: "qwen3:8b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: true, ContextLength: 40960},
+		{ID: "Qwen/Qwen2.5-VL-7B-Instruct", Memory: 39 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: true, ContextLength: 32768},
+	}
+
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(prewarmModels, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+
+	// Add GetModel expectations for each prewarm model
+	for _, model := range prewarmModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		QueueSize:        50, // Increase queue size for multiple runners
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewPrewarmingTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -284,7 +517,8 @@ func TestMultipleRunnerConnections(t *testing.T) {
 // TestPrewarmingMemoryAwareSelection tests the memory-first prewarming algorithm
 // which prioritizes filling GPU memory while improving model distribution
 func TestPrewarmingMemoryAwareSelection(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -292,17 +526,27 @@ func TestPrewarmingMemoryAwareSelection(t *testing.T) {
 	require.NoError(t, err)
 
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(GetDefaultTestModels(), nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		QueueSize:        50,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewPrewarmingTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -359,7 +603,8 @@ func TestPrewarmingMemoryAwareSelection(t *testing.T) {
 // TestPrewarmingMemoryConstrainedSelection tests memory-constrained scenarios
 // where the algorithm must choose a subset of models based on available GPU memory
 func TestPrewarmingMemoryConstrainedSelection(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -367,17 +612,27 @@ func TestPrewarmingMemoryConstrainedSelection(t *testing.T) {
 	require.NoError(t, err)
 
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(GetDefaultTestModels(), nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  DefaultMockRunnerClient(),
 	})
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		QueueSize:        50,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewPrewarmingTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
@@ -435,45 +690,54 @@ func TestPrewarmingMemoryConstrainedSelection(t *testing.T) {
 
 // TestMemoryAwarePrewarming tests that prewarming prioritizes filling available GPU memory
 func TestMemoryAwarePrewarming(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	ps, err := pubsub.NewInMemoryNats()
 	require.NoError(t, err)
 
+	// Add prewarm models for testing
+	testPrewarmModels := []*types.Model{
+		{ID: "gpt-oss:20b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: true, ContextLength: 131072},
+		{ID: "qwen3:8b", Memory: 0, Runtime: types.RuntimeOllama, Prewarm: true, ContextLength: 40960},
+		{ID: "Qwen/Qwen2.5-VL-7B-Instruct", Memory: 39 * 1024 * 1024 * 1024, Runtime: types.RuntimeVLLM, Prewarm: true, ContextLength: 32768},
+	}
+
 	mockStore := store.NewMockStore(ctrl)
-	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	mockStore.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return(testPrewarmModels, nil).AnyTimes()
+	mockStore.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+
+	// Add GetModel expectations for each prewarm model
+	for _, model := range testPrewarmModels {
+		mockStore.EXPECT().GetModel(gomock.Any(), model.ID).Return(model, nil).AnyTimes()
+	}
+	// Mock slot operations
+	mockStore.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	mockStore.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	mockStore.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	runnerCtrl, err := NewRunnerController(ctx, &RunnerControllerConfig{
-		PubSub: ps,
-		Store:  mockStore,
+		PubSub:        ps,
+		Store:         mockStore,
+		HealthChecker: &MockHealthChecker{},
+		RunnerClient:  NewMockRunnerClient(80, 1), // 80GB total memory, 1 GPU as test expects
 	})
 	require.NoError(t, err)
 
 	scheduler, err := NewScheduler(ctx, &config.ServerConfig{}, &Params{
-		RunnerController: runnerCtrl,
-		QueueSize:        50,
+		RunnerController:        runnerCtrl,
+		Store:                   mockStore,
+		MemoryEstimationService: NewPrewarmingTestMemoryService(),
+		QueueSize:               50,
 	})
 	require.NoError(t, err)
 
 	// Test runner with specific memory constraints
 	testRunnerID := "memory-test-runner"
-
-	// Mock the runner to have specific total memory - let's say 50GB total
-	totalMemory := uint64(50 * 1024 * 1024 * 1024) // 50GB
-	runnerCtrl.statusCache.Set(testRunnerID, NewCache(ctx, func() (types.RunnerStatus, error) {
-		return types.RunnerStatus{
-			TotalMemory: totalMemory,
-			Models: []*types.RunnerModelStatus{
-				{
-					ModelID:            "test-model",
-					DownloadInProgress: false,
-					Runtime:            types.RuntimeOllama,
-				},
-			},
-		}, nil
-	}, CacheConfig{updateInterval: time.Second}))
+	totalMemory := uint64(80 * 1024 * 1024 * 1024) // 80GB - matches our MockRunnerClient configuration
 
 	// Connect the test runner
 	runnerCtrl.OnConnectedHandler(testRunnerID)
@@ -481,7 +745,7 @@ func TestMemoryAwarePrewarming(t *testing.T) {
 	// Get prewarm models for this specific runner
 	prewarmModels := scheduler.getPrewarmModels(testRunnerID)
 
-	// The memory-aware selection should have chosen models that fit within the 50GB limit
+	// The memory-aware selection should have chosen models that fit within the 80GB limit
 	require.Greater(t, len(prewarmModels), 0, "Should select at least some models for prewarming")
 
 	// Verify that selected models don't exceed available memory

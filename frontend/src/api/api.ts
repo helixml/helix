@@ -9,6 +9,13 @@
  * ---------------------------------------------------------------
  */
 
+export interface ControllerMemoryEstimationResponse {
+  cached?: boolean;
+  error?: string;
+  estimate?: MemoryMemoryEstimate;
+  model_id?: string;
+}
+
 export interface GithubComHelixmlHelixApiPkgTypesConfig {
   rules?: TypesRule[];
 }
@@ -33,6 +40,7 @@ export enum GithubComHelixmlHelixApiPkgTypesToolType {
   ToolTypeEmail = "email",
   ToolTypeWebSearch = "web_search",
   ToolTypeAzureDevOps = "azure_devops",
+  ToolTypeMCP = "mcp",
 }
 
 export interface GithubComHelixmlHelixApiPkgTypesUsage {
@@ -310,6 +318,137 @@ export interface GormDeletedAt {
   valid?: boolean;
 }
 
+export interface McpMeta {
+  /**
+   * AdditionalFields are any fields present in the Meta that are not
+   * otherwise defined in the protocol.
+   */
+  additionalFields?: Record<string, any>;
+  /**
+   * If specified, the caller is requesting out-of-band progress
+   * notifications for this request (as represented by
+   * notifications/progress). The value of this parameter is an
+   * opaque token that will be attached to any subsequent
+   * notifications. The receiver is not obligated to provide these
+   * notifications.
+   */
+  progressToken?: any;
+}
+
+export interface McpTool {
+  /** Meta is a metadata object that is reserved by MCP for storing additional information. */
+  _meta?: McpMeta;
+  /** Optional properties describing tool behavior */
+  annotations?: McpToolAnnotation;
+  /** A human-readable description of the tool. */
+  description?: string;
+  /** A JSON Schema object defining the expected parameters for the tool. */
+  inputSchema?: McpToolInputSchema;
+  /** The name of the tool. */
+  name?: string;
+}
+
+export interface McpToolAnnotation {
+  /** If true, the tool may perform destructive updates */
+  destructiveHint?: boolean;
+  /** If true, repeated calls with same args have no additional effect */
+  idempotentHint?: boolean;
+  /** If true, tool interacts with external entities */
+  openWorldHint?: boolean;
+  /** If true, the tool does not modify its environment */
+  readOnlyHint?: boolean;
+  /** Human-readable title for the tool */
+  title?: string;
+}
+
+export interface McpToolInputSchema {
+  $defs?: Record<string, any>;
+  properties?: Record<string, any>;
+  required?: string[];
+  type?: string;
+}
+
+export interface MemoryEstimateOptions {
+  /** Advanced options */
+  flash_attention?: boolean;
+  /** "f16", "q8_0", "q4_0" */
+  kv_cache_type?: string;
+  /** Batch size */
+  num_batch?: number;
+  /** Context size */
+  num_ctx?: number;
+  /**
+   * ⚠️  CRITICAL CONFUSION WARNING ⚠️
+   * NumGPU is NOT the number of GPUs in your hardware configuration!
+   * NumGPU is the number of MODEL LAYERS to offload to GPU (-1 for auto-detect all that fit)
+   *
+   * Examples:
+   * - NumGPU = -1: Auto-detect max layers that fit (RECOMMENDED - gives full model memory)
+   * - NumGPU = 1:  Only offload 1 layer to GPU (gives tiny memory estimate)
+   * - NumGPU = 0:  CPU only (no GPU layers)
+   *
+   * To estimate for different GPU hardware configs (1 GPU vs 4 GPUs),
+   * you pass different GPU configuration arrays to the estimation function,
+   * NOT different NumGPU values!
+   */
+  num_gpu?: number;
+  /** Number of parallel sequences */
+  num_parallel?: number;
+}
+
+export interface MemoryGPUInfo {
+  compute?: string;
+  dependency_path?: string[];
+  driver_major?: number;
+  driver_minor?: number;
+  env_workarounds?: string[][];
+  free_memory?: number;
+  id?: string;
+  index?: number;
+  /** "cuda", "rocm", "metal", "cpu" */
+  library?: string;
+  minimum_memory?: number;
+  name?: string;
+  total_memory?: number;
+  unreliable_free_memory?: boolean;
+  /** Additional fields for compatibility with Ollama's estimation */
+  variant?: string;
+}
+
+export interface MemoryMemoryEstimate {
+  /** Metadata */
+  architecture?: string;
+  estimated_at?: string;
+  /** Whether all layers fit on GPU */
+  fully_loaded?: boolean;
+  /** Memory allocation per GPU */
+  gpu_sizes?: number[];
+  gpus?: MemoryGPUInfo[];
+  /** Graph memory requirement */
+  graph?: number;
+  /** Graph computation memory */
+  graph_mem?: number;
+  /** Breakdown for analysis */
+  kv_cache?: number;
+  /** Core results */
+  layers?: number;
+  model_path?: string;
+  /** Configuration used for estimation */
+  options?: MemoryEstimateOptions;
+  /** Projector weights (for multimodal) */
+  projectors?: number;
+  /** Whether CPU fallback is needed */
+  requires_fallback?: boolean;
+  /** Layers per GPU for tensor parallel */
+  tensor_split?: number[];
+  /** Total memory requirement */
+  total_size?: number;
+  /** Total VRAM usage */
+  vram_size?: number;
+  /** Model weights memory */
+  weights?: number;
+}
+
 export interface OpenaiChatCompletionResponseFormatJSONSchema {
   description?: string;
   name?: string;
@@ -358,8 +497,22 @@ export interface ServerAppCreateResponse {
   user?: TypesUser;
 }
 
+export interface ServerCreateTopUpRequest {
+  amount?: number;
+  org_id?: string;
+}
+
 export interface ServerLicenseKeyRequest {
   license_key?: string;
+}
+
+export interface ServerLogsSummary {
+  active_instances?: number;
+  error_retention_hours?: number;
+  instances_with_errors?: number;
+  max_lines_per_buffer?: number;
+  recent_errors?: number;
+  slots?: ServerSlotLogSummary[];
 }
 
 export interface ServerModelSubstitution {
@@ -371,9 +524,39 @@ export interface ServerModelSubstitution {
   reason?: string;
 }
 
+export interface ServerSlotLogSummary {
+  has_logs?: boolean;
+  id?: string;
+  model?: string;
+  runner_id?: string;
+}
+
+export interface SqlNullString {
+  string?: string;
+  /** Valid is true if String is not NULL */
+  valid?: boolean;
+}
+
+export enum StripeSubscriptionStatus {
+  SubscriptionStatusActive = "active",
+  SubscriptionStatusCanceled = "canceled",
+  SubscriptionStatusIncomplete = "incomplete",
+  SubscriptionStatusIncompleteExpired = "incomplete_expired",
+  SubscriptionStatusPastDue = "past_due",
+  SubscriptionStatusPaused = "paused",
+  SubscriptionStatusTrialing = "trialing",
+  SubscriptionStatusUnpaid = "unpaid",
+}
+
 export interface SystemHTTPError {
   message?: string;
   statusCode?: number;
+}
+
+export enum TypesAPIKeyType {
+  APIkeytypeNone = "",
+  APIkeytypeAPI = "api",
+  APIkeytypeApp = "app",
 }
 
 export interface TypesAccessGrant {
@@ -427,6 +610,38 @@ export interface TypesAggregatedUsageMetric {
   total_cost?: number;
   total_requests?: number;
   total_tokens?: number;
+}
+
+export interface TypesAllocationPlanView {
+  cost?: number;
+  /** Slot IDs */
+  evictions_needed?: string[];
+  gpu_count?: number;
+  gpus?: number[];
+  id?: string;
+  is_multi_gpu?: boolean;
+  is_valid?: boolean;
+  memory_per_gpu?: number;
+  requires_eviction?: boolean;
+  /** GPU index -> total memory */
+  runner_capacity?: Record<string, number>;
+  runner_id?: string;
+  /** GPU index -> allocated memory */
+  runner_memory_state?: Record<string, number>;
+  runtime?: TypesRuntime;
+  tensor_parallel_size?: number;
+  total_memory_required?: number;
+  validation_error?: string;
+}
+
+export interface TypesApiKey {
+  app_id?: SqlNullString;
+  created?: string;
+  key?: string;
+  name?: string;
+  owner?: string;
+  owner_type?: TypesOwnerType;
+  type?: TypesAPIKeyType;
 }
 
 export interface TypesApp {
@@ -499,6 +714,8 @@ export interface TypesAssistantBrowser {
   enabled?: boolean;
   /** If true, the browser will return the HTML as markdown */
   markdown_post_processing?: boolean;
+  /** If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser, */
+  process_output?: boolean;
 }
 
 export interface TypesAssistantCalculator {
@@ -545,6 +762,7 @@ export interface TypesAssistantConfig {
   max_iterations?: number;
   /** The maximum number of tokens to generate before stopping. */
   max_tokens?: number;
+  mcps?: TypesAssistantMCP[];
   model?: string;
   name?: string;
   /**
@@ -637,6 +855,13 @@ export interface TypesAssistantKnowledge {
   source?: TypesKnowledgeSource;
 }
 
+export interface TypesAssistantMCP {
+  description?: string;
+  headers?: Record<string, string>;
+  name?: string;
+  url?: string;
+}
+
 export interface TypesAssistantWebSearch {
   enabled?: boolean;
   max_results?: number;
@@ -706,10 +931,6 @@ export interface TypesContextMenuResponse {
   data?: TypesContextMenuAction[];
 }
 
-export interface TypesCounter {
-  count?: number;
-}
-
 export interface TypesCrawledSources {
   urls?: TypesCrawledURL[];
 }
@@ -743,6 +964,7 @@ export interface TypesCronTrigger {
 }
 
 export interface TypesDashboardData {
+  global_allocation_decisions?: TypesGlobalAllocationDecision[];
   queue?: TypesWorkloadSummary[];
   runners?: TypesDashboardRunner[];
   scheduling_decisions?: TypesSchedulingDecision[];
@@ -752,9 +974,18 @@ export interface TypesDashboardRunner {
   allocated_memory?: number;
   created?: string;
   free_memory?: number;
+  /** Number of GPUs detected */
+  gpu_count?: number;
+  /** GPU memory stabilization statistics */
+  gpu_memory_stats?: TypesGPUMemoryStats;
+  /** Per-GPU memory status */
+  gpus?: TypesGPUStatus[];
   id?: string;
   labels?: Record<string, string>;
+  memory_string?: string;
   models?: TypesRunnerModelStatus[];
+  /** Process tracking and cleanup statistics */
+  process_stats?: any;
   slots?: TypesRunnerSlot[];
   total_memory?: number;
   updated?: string;
@@ -764,6 +995,17 @@ export interface TypesDashboardRunner {
 
 export interface TypesDiscordTrigger {
   server_name?: string;
+}
+
+export interface TypesDynamicModelInfo {
+  created?: string;
+  id?: string;
+  model_info?: TypesModelInfo;
+  /** Model name */
+  name?: string;
+  /** helix, openai, etc. (Helix internal information) */
+  provider?: string;
+  updated?: string;
 }
 
 export enum TypesEffect {
@@ -798,6 +1040,130 @@ export interface TypesFlexibleEmbeddingResponse {
     prompt_tokens?: number;
     total_tokens?: number;
   };
+}
+
+export interface TypesFrontendLicenseInfo {
+  features?: {
+    users?: boolean;
+  };
+  limits?: {
+    machines?: number;
+    users?: number;
+  };
+  organization?: string;
+  valid?: boolean;
+  valid_until?: string;
+}
+
+export interface TypesGPUMemoryDataPoint {
+  /** Actual free memory (from nvidia-smi) */
+  actual_free_mb?: number;
+  /** Total GPU memory */
+  actual_total_mb?: number;
+  /** Actual memory used (from nvidia-smi) */
+  actual_used_mb?: number;
+  /** Memory allocated by Helix scheduler */
+  allocated_mb?: number;
+  gpu_index?: number;
+  timestamp?: string;
+}
+
+export interface TypesGPUMemoryReading {
+  delta_mb?: number;
+  is_stable?: boolean;
+  memory_mb?: number;
+  poll_number?: number;
+  stable_count?: number;
+}
+
+export interface TypesGPUMemoryStabilizationEvent {
+  /** "startup" or "deletion" */
+  context?: string;
+  error_message?: string;
+  memory_delta_threshold_mb?: number;
+  memory_readings?: TypesGPUMemoryReading[];
+  poll_interval_ms?: number;
+  polls_taken?: number;
+  required_stable_polls?: number;
+  runtime?: string;
+  slot_id?: string;
+  stabilized_memory_mb?: number;
+  success?: boolean;
+  timeout_seconds?: number;
+  timestamp?: string;
+  total_wait_seconds?: number;
+}
+
+export interface TypesGPUMemoryStats {
+  average_wait_time_seconds?: number;
+  failed_stabilizations?: number;
+  last_stabilization?: string;
+  max_wait_time_seconds?: number;
+  /** Last 10 minutes of memory data */
+  memory_time_series?: TypesGPUMemoryDataPoint[];
+  min_wait_time_seconds?: number;
+  /** Last 20 events */
+  recent_events?: TypesGPUMemoryStabilizationEvent[];
+  /** Last 10 minutes of scheduling events */
+  scheduling_events?: TypesSchedulingEvent[];
+  successful_stabilizations?: number;
+  total_stabilizations?: number;
+}
+
+export interface TypesGPUState {
+  /** Slot IDs using this GPU */
+  active_slots?: string[];
+  allocated_memory?: number;
+  free_memory?: number;
+  index?: number;
+  total_memory?: number;
+  /** 0.0 - 1.0 */
+  utilization?: number;
+}
+
+export interface TypesGPUStatus {
+  /** CUDA version */
+  cuda_version?: string;
+  /** NVIDIA driver version */
+  driver_version?: string;
+  /** Free memory in bytes */
+  free_memory?: number;
+  /** GPU index (0, 1, 2, etc.) */
+  index?: number;
+  /** GPU model name (e.g., "NVIDIA H100 PCIe", "NVIDIA GeForce RTX 4090") */
+  model_name?: string;
+  /** Total memory in bytes */
+  total_memory?: number;
+  /** Used memory in bytes */
+  used_memory?: number;
+}
+
+export interface TypesGlobalAllocationDecision {
+  after_state?: Record<string, TypesRunnerStateView>;
+  /** Global state snapshots */
+  before_state?: Record<string, TypesRunnerStateView>;
+  /** All plans considered */
+  considered_plans?: TypesAllocationPlanView[];
+  created?: string;
+  error_message?: string;
+  execution_time_ms?: number;
+  id?: string;
+  model_name?: string;
+  /** How optimal the final decision was */
+  optimization_score?: number;
+  /** Timing information */
+  planning_time_ms?: number;
+  reason?: string;
+  runtime?: TypesRuntime;
+  selected_plan?: TypesAllocationPlanView;
+  session_id?: string;
+  /** Decision outcome */
+  success?: boolean;
+  total_plans_generated?: number;
+  /** Decision metadata */
+  total_runners_evaluated?: number;
+  total_time_ms?: number;
+  workload_id?: string;
 }
 
 export enum TypesImageURLDetail {
@@ -1082,8 +1448,17 @@ export enum TypesModality {
 }
 
 export interface TypesModel {
+  allocated_gpu_count?: number;
+  /** EXPORTED ALLOCATION FIELDS: Set by NewModelForGPUAllocation based on scheduler's GPU allocation decision */
+  allocated_memory?: number;
+  allocated_per_gpu_memory?: number[];
+  allocated_specific_gpus?: number[];
+  /** Safety flag */
+  allocation_configured?: boolean;
   /** Whether to automatically pull the model if missing in the runner */
   auto_pull?: boolean;
+  /** max concurrent requests per slot (0 = use global default) */
+  concurrency?: number;
   context_length?: number;
   created?: string;
   description?: string;
@@ -1091,12 +1466,14 @@ export interface TypesModel {
   hide?: boolean;
   /** for example 'phi3.5:3.8b-mini-instruct-q8_0' */
   id?: string;
-  /** in bytes, required */
+  /** DATABASE FIELD: Admin-configured memory for VLLM models, MUST be 0 for Ollama models */
   memory?: number;
   name?: string;
   /** Whether to prewarm this model to fill free GPU memory on runners */
   prewarm?: boolean;
   runtime?: TypesRuntime;
+  /** Runtime-specific arguments (e.g., VLLM command line args) */
+  runtime_args?: Record<string, any>;
   /** Order for sorting models in UI (lower numbers appear first) */
   sort_order?: number;
   type?: TypesModelType;
@@ -1322,6 +1699,14 @@ export interface TypesPaginatedLLMCalls {
   totalPages?: number;
 }
 
+export interface TypesPaginatedSessionsList {
+  page?: number;
+  pageSize?: number;
+  sessions?: TypesSessionSummary[];
+  totalCount?: number;
+  totalPages?: number;
+}
+
 export interface TypesPricing {
   audio?: string;
   completion?: string;
@@ -1346,6 +1731,7 @@ export interface TypesProviderEndpoint {
   api_key_file?: string;
   available_models?: TypesOpenAIModel[];
   base_url?: string;
+  billing_enabled?: boolean;
   created?: string;
   /** Set from environment variable */
   default?: boolean;
@@ -1476,16 +1862,37 @@ export interface TypesRunnerModelStatus {
 
 export interface TypesRunnerSlot {
   active?: boolean;
-  /** Context length used for the model, if specified */
+  active_requests?: number;
+  command_line?: string;
   context_length?: number;
+  created?: string;
+  gpu_allocation_data?: Record<string, any>;
+  gpu_index?: number;
+  gpu_indices?: number[];
   id?: string;
+  max_concurrency?: number;
+  memory_estimation_meta?: Record<string, any>;
   model?: string;
+  model_memory_requirement?: number;
   ready?: boolean;
+  runner_id?: string;
   runtime?: TypesRuntime;
-  /** Runtime-specific arguments */
   runtime_args?: Record<string, any>;
   status?: string;
+  tensor_parallel_size?: number;
+  updated?: string;
   version?: string;
+  workload_data?: Record<string, any>;
+}
+
+export interface TypesRunnerStateView {
+  active_slots?: number;
+  /** GPU index -> state */
+  gpu_states?: Record<string, TypesGPUState>;
+  is_connected?: boolean;
+  runner_id?: string;
+  total_slots?: number;
+  warm_slots?: number;
 }
 
 export enum TypesRuntime {
@@ -1527,6 +1934,18 @@ export enum TypesSchedulingDecisionType {
   SchedulingDecisionTypeUnschedulable = "unschedulable",
 }
 
+export interface TypesSchedulingEvent {
+  description?: string;
+  /** "slot_created", "slot_deleted", "eviction", "stabilization_start", "stabilization_end" */
+  event_type?: string;
+  gpu_indices?: number[];
+  memory_mb?: number;
+  model_name?: string;
+  runtime?: string;
+  slot_id?: string;
+  timestamp?: string;
+}
+
 export interface TypesSecret {
   /** optional, if set, the secret will be available to the specified app */
   app_id?: string;
@@ -1537,6 +1956,34 @@ export interface TypesSecret {
   ownerType?: TypesOwnerType;
   updated?: string;
   value?: number[];
+}
+
+export interface TypesServerConfigForFrontend {
+  apps_enabled?: boolean;
+  /** Charging for usage */
+  billing_enabled?: boolean;
+  deployment_id?: string;
+  disable_llm_call_logging?: boolean;
+  eval_user_id?: string;
+  /**
+   * used to prepend onto raw filestore paths to download files
+   * the filestore path will have the user info in it - i.e.
+   * it's a low level filestore path
+   * if we are using an object storage thing - then this URL
+   * can be the prefix to the bucket
+   */
+  filestore_prefix?: string;
+  google_analytics_frontend?: string;
+  latest_version?: string;
+  license?: TypesFrontendLicenseInfo;
+  organizations_create_enabled_for_non_admins?: boolean;
+  rudderstack_data_plane_url?: string;
+  rudderstack_write_key?: string;
+  sentry_dsn_frontend?: string;
+  /** Stripe top-ups enabled */
+  stripe_enabled?: boolean;
+  tools_enabled?: boolean;
+  version?: string;
 }
 
 export interface TypesSession {
@@ -1703,13 +2150,6 @@ export enum TypesSessionType {
   SessionTypeImage = "image",
 }
 
-export interface TypesSessionsList {
-  /** the total number of sessions that match the query */
-  counter?: TypesCounter;
-  /** the list of sessions */
-  sessions?: TypesSessionSummary[];
-}
-
 export interface TypesSkillDefinition {
   /** API configuration */
   baseUrl?: string;
@@ -1791,6 +2231,20 @@ export interface TypesStepInfo {
 
 export interface TypesStepInfoDetails {
   arguments?: Record<string, any>;
+}
+
+export interface TypesSystemSettingsRequest {
+  huggingface_token?: string;
+}
+
+export interface TypesSystemSettingsResponse {
+  created?: string;
+  /** Sensitive fields are masked */
+  huggingface_token_set?: boolean;
+  /** "database", "environment", or "none" */
+  huggingface_token_source?: string;
+  id?: string;
+  updated?: string;
 }
 
 export interface TypesTeam {
@@ -1889,6 +2343,8 @@ export interface TypesToolBrowserConfig {
   enabled?: boolean;
   /** If true, the browser will return the HTML as markdown */
   markdown_post_processing?: boolean;
+  /** If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser, */
+  process_output?: boolean;
 }
 
 export interface TypesToolCalculatorConfig {
@@ -1902,6 +2358,7 @@ export interface TypesToolConfig {
   calculator?: TypesToolCalculatorConfig;
   email?: TypesToolEmailConfig;
   gptscript?: TypesToolGPTScriptConfig;
+  mcp?: TypesToolMCPClientConfig;
   web_search?: TypesToolWebSearchConfig;
   zapier?: TypesToolZapierConfig;
 }
@@ -1916,6 +2373,15 @@ export interface TypesToolGPTScriptConfig {
   script?: string;
   /** URL to download the script */
   script_url?: string;
+}
+
+export interface TypesToolMCPClientConfig {
+  description?: string;
+  enabled?: boolean;
+  headers?: Record<string, string>;
+  name?: string;
+  tools?: McpTool[];
+  url?: string;
 }
 
 export interface TypesToolWebSearchConfig {
@@ -2072,6 +2538,22 @@ export interface TypesUserTokenUsageResponse {
 export interface TypesUsersAggregatedUsageMetric {
   metrics?: TypesAggregatedUsageMetric[];
   user?: TypesUser;
+}
+
+export interface TypesWallet {
+  balance?: number;
+  created_at?: string;
+  id?: string;
+  /** If belongs to an organization */
+  org_id?: string;
+  stripe_customer_id?: string;
+  stripe_subscription_id?: string;
+  subscription_created?: number;
+  subscription_current_period_end?: number;
+  subscription_current_period_start?: number;
+  subscription_status?: StripeSubscriptionStatus;
+  updated_at?: string;
+  user_id?: string;
 }
 
 export interface TypesWebsiteCrawler {
@@ -2240,6 +2722,71 @@ export class HttpClient<SecurityDataType = unknown> {
  */
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
+    /**
+     * @description Delete an API key
+     *
+     * @tags api-keys
+     * @name V1ApiKeysDelete
+     * @summary Delete an API key
+     * @request DELETE:/api/v1/api_keys
+     */
+    v1ApiKeysDelete: (
+      query: {
+        /** API key to delete */
+        key: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, any>({
+        path: `/api/v1/api_keys`,
+        method: "DELETE",
+        query: query,
+        ...params,
+      }),
+
+    /**
+     * @description Get API keys
+     *
+     * @tags api-keys
+     * @name V1ApiKeysList
+     * @summary Get API keys
+     * @request GET:/api/v1/api_keys
+     * @secure
+     */
+    v1ApiKeysList: (
+      query?: {
+        /** Filter by types (comma-separated list) */
+        types?: string;
+        /** Filter by app ID */
+        app_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesApiKey[], any>({
+        path: `/api/v1/api_keys`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a new API key
+     *
+     * @tags api-keys
+     * @name V1ApiKeysCreate
+     * @summary Create a new API key
+     * @request POST:/api/v1/api_keys
+     */
+    v1ApiKeysCreate: (request: Record<string, any>, params: RequestParams = {}) =>
+      this.request<string, any>({
+        path: `/api/v1/api_keys`,
+        method: "POST",
+        body: request,
+        type: ContentType.Json,
+        ...params,
+      }),
+
     /**
      * @description List apps for the user. Apps are pre-configured to spawn sessions with specific tools and config.
      *
@@ -2746,6 +3293,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get config
+     *
+     * @tags config
+     * @name V1ConfigList
+     * @summary Get config
+     * @request GET:/api/v1/config
+     * @secure
+     */
+    v1ConfigList: (params: RequestParams = {}) =>
+      this.request<TypesServerConfigForFrontend, any>({
+        path: `/api/v1/config`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description contextMenuHandler
      *
      * @tags ui
@@ -2864,6 +3428,64 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         body: request,
         secure: true,
         type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Estimate memory requirements for a model on different GPU configurations
+     *
+     * @tags models
+     * @name V1HelixModelsMemoryEstimateList
+     * @summary Estimate model memory requirements
+     * @request GET:/api/v1/helix-models/memory-estimate
+     * @secure
+     */
+    v1HelixModelsMemoryEstimateList: (
+      query: {
+        /** Model ID */
+        model_id: string;
+        /** Number of GPUs (default: auto-detect) */
+        gpu_count?: number;
+        /** Context length (default: model default) */
+        context_length?: number;
+        /** Batch size (default: 512) */
+        batch_size?: number;
+        /** Number of parallel sequences/concurrent requests (default: 2) */
+        num_parallel?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ControllerMemoryEstimationResponse, string>({
+        path: `/api/v1/helix-models/memory-estimate`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get memory estimates for multiple models with different GPU configurations
+     *
+     * @tags models
+     * @name V1HelixModelsMemoryEstimatesList
+     * @summary List memory estimates for multiple models
+     * @request GET:/api/v1/helix-models/memory-estimates
+     * @secure
+     */
+    v1HelixModelsMemoryEstimatesList: (
+      query?: {
+        /** Comma-separated list of model IDs */
+        model_ids?: string;
+        /** Number of GPUs (default: auto-detect) */
+        gpu_count?: number;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ControllerMemoryEstimationResponse[], string>({
+        path: `/api/v1/helix-models/memory-estimates`,
+        method: "GET",
+        query: query,
+        secure: true,
         ...params,
       }),
 
@@ -3044,6 +3666,134 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         query: query,
         secure: true,
         format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Retrieve logs for a specific slot by proxying the request to the runner
+     *
+     * @tags logs
+     * @name V1LogsDetail
+     * @summary Get logs for a specific slot
+     * @request GET:/api/v1/logs/{slot_id}
+     * @secure
+     */
+    v1LogsDetail: (
+      slotId: string,
+      query?: {
+        /** Maximum number of lines to return (default: 500) */
+        lines?: number;
+        /** Return logs since this timestamp (RFC3339 format) */
+        since?: string;
+        /** Filter by log level (ERROR, WARN, INFO, DEBUG) */
+        level?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<Record<string, any>, string>({
+        path: `/api/v1/logs/${slotId}`,
+        method: "GET",
+        query: query,
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description List all dynamic model infos. Requires admin privileges.
+     *
+     * @tags model-info
+     * @name V1ModelInfoList
+     * @summary List dynamic model infos
+     * @request GET:/api/v1/model-info
+     * @secure
+     */
+    v1ModelInfoList: (
+      query?: {
+        /** Filter by provider (e.g., helix, openai) */
+        provider?: string;
+        /** Filter by model name */
+        name?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesDynamicModelInfo[], string>({
+        path: `/api/v1/model-info`,
+        method: "GET",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a new dynamic model info configuration. Requires admin privileges.
+     *
+     * @tags model-info
+     * @name V1ModelInfoCreate
+     * @summary Create a new dynamic model info
+     * @request POST:/api/v1/model-info
+     * @secure
+     */
+    v1ModelInfoCreate: (request: TypesDynamicModelInfo, params: RequestParams = {}) =>
+      this.request<TypesDynamicModelInfo, string>({
+        path: `/api/v1/model-info`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Delete a dynamic model info configuration. Requires admin privileges.
+     *
+     * @tags model-info
+     * @name V1ModelInfoDelete
+     * @summary Delete a dynamic model info
+     * @request DELETE:/api/v1/model-info/{id}
+     * @secure
+     */
+    v1ModelInfoDelete: (id: string, params: RequestParams = {}) =>
+      this.request<string, string>({
+        path: `/api/v1/model-info/${id}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get a specific dynamic model info by ID. Requires admin privileges.
+     *
+     * @tags model-info
+     * @name V1ModelInfoDetail
+     * @summary Get a dynamic model info by ID
+     * @request GET:/api/v1/model-info/{id}
+     * @secure
+     */
+    v1ModelInfoDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesDynamicModelInfo, string>({
+        path: `/api/v1/model-info/${id}`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Update an existing dynamic model info configuration. Requires admin privileges.
+     *
+     * @tags model-info
+     * @name V1ModelInfoUpdate
+     * @summary Update an existing dynamic model info
+     * @request PUT:/api/v1/model-info/{id}
+     * @secure
+     */
+    v1ModelInfoUpdate: (id: string, request: TypesDynamicModelInfo, params: RequestParams = {}) =>
+      this.request<TypesDynamicModelInfo, string>({
+        path: `/api/v1/model-info/${id}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -3480,6 +4230,8 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         with_models?: boolean;
         /** Organization ID */
         org_id?: string;
+        /** Include all endpoints (system admin only) */
+        all?: boolean;
       },
       params: RequestParams = {},
     ) =>
@@ -3610,6 +4362,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get the health status of all scheduler goroutines
+     *
+     * @tags dashboard
+     * @name V1SchedulerHeartbeatsList
+     * @summary Get scheduler goroutine heartbeat status
+     * @request GET:/api/v1/scheduler/heartbeats
+     * @secure
+     */
+    v1SchedulerHeartbeatsList: (params: RequestParams = {}) =>
+      this.request<Record<string, any>, any>({
+        path: `/api/v1/scheduler/heartbeats`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Search knowledges for a given app and prompt
      *
      * @tags knowledge
@@ -3718,10 +4487,23 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/sessions
      * @secure
      */
-    v1SessionsList: (params: RequestParams = {}) =>
-      this.request<TypesSessionsList, any>({
+    v1SessionsList: (
+      query?: {
+        /** Page number */
+        page?: number;
+        /** Page size */
+        page_size?: number;
+        /** Organization slug or ID */
+        org_id?: string;
+        /** Search sessions by name */
+        search?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesPaginatedSessionsList, any>({
         path: `/api/v1/sessions`,
         method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),
@@ -3753,10 +4535,29 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     v1SessionsDetail: (id: string, params: RequestParams = {}) =>
-      this.request<TypesSession[], any>({
+      this.request<TypesSession, any>({
         path: `/api/v1/sessions/${id}`,
         method: "GET",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Update a session by ID
+     *
+     * @tags sessions
+     * @name V1SessionsUpdate
+     * @summary Update a session by ID
+     * @request PUT:/api/v1/sessions/{id}
+     * @secure
+     */
+    v1SessionsUpdate: (id: string, request: TypesSession, params: RequestParams = {}) =>
+      this.request<TypesSession, any>({
+        path: `/api/v1/sessions/${id}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -3769,10 +4570,20 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/sessions/{id}/interactions
      * @secure
      */
-    v1SessionsInteractionsDetail: (id: string, params: RequestParams = {}) =>
+    v1SessionsInteractionsDetail: (
+      id: string,
+      query?: {
+        /** Page number */
+        page?: number;
+        /** Page size */
+        page_size?: number;
+      },
+      params: RequestParams = {},
+    ) =>
       this.request<TypesInteraction[], any>({
         path: `/api/v1/sessions/${id}/interactions`,
         method: "GET",
+        query: query,
         secure: true,
         format: "json",
         ...params,
@@ -3887,6 +4698,145 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         path: `/api/v1/skills/reload`,
         method: "POST",
         secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Validate MCP skill configuration
+     *
+     * @tags skills
+     * @name V1SkillsValidateCreate
+     * @summary Validate MCP skill configuration
+     * @request POST:/api/v1/skills/validate
+     * @secure
+     */
+    v1SkillsValidateCreate: (request: TypesAssistantMCP, params: RequestParams = {}) =>
+      this.request<TypesToolMCPClientConfig, any>({
+        path: `/api/v1/skills/validate`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Delete a slot from the scheduler's desired state, allowing reconciliation to clean it up from the runner
+     *
+     * @tags dashboard
+     * @name V1SlotsDelete
+     * @summary Delete a slot from scheduler state
+     * @request DELETE:/api/v1/slots/{slot_id}
+     * @secure
+     */
+    v1SlotsDelete: (slotId: string, params: RequestParams = {}) =>
+      this.request<Record<string, any>, any>({
+        path: `/api/v1/slots/${slotId}`,
+        method: "DELETE",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Manage a subscription
+     *
+     * @tags wallets
+     * @name V1SubscriptionManageCreate
+     * @summary Manage a subscription
+     * @request POST:/api/v1/subscription/manage
+     * @secure
+     */
+    v1SubscriptionManageCreate: (
+      query?: {
+        /** Organization ID */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, any>({
+        path: `/api/v1/subscription/manage`,
+        method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Create a subscription
+     *
+     * @tags wallets
+     * @name V1SubscriptionNewCreate
+     * @summary Create a subscription
+     * @request POST:/api/v1/subscription/new
+     * @secure
+     */
+    v1SubscriptionNewCreate: (
+      query?: {
+        /** Organization ID */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<string, any>({
+        path: `/api/v1/subscription/new`,
+        method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get global system settings. Requires admin privileges.
+     *
+     * @tags system
+     * @name V1SystemSettingsList
+     * @summary Get system settings
+     * @request GET:/api/v1/system/settings
+     * @secure
+     */
+    v1SystemSettingsList: (params: RequestParams = {}) =>
+      this.request<TypesSystemSettingsResponse, string>({
+        path: `/api/v1/system/settings`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Update global system settings. Requires admin privileges.
+     *
+     * @tags system
+     * @name V1SystemSettingsUpdate
+     * @summary Update system settings
+     * @request PUT:/api/v1/system/settings
+     * @secure
+     */
+    v1SystemSettingsUpdate: (request: TypesSystemSettingsRequest, params: RequestParams = {}) =>
+      this.request<TypesSystemSettingsResponse, string>({
+        path: `/api/v1/system/settings`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        ...params,
+      }),
+
+    /**
+     * @description Create a top up with specified amount
+     *
+     * @tags wallets
+     * @name V1TopUpsNewCreate
+     * @summary Create a top up
+     * @request POST:/api/v1/top-ups/new
+     * @secure
+     */
+    v1TopUpsNewCreate: (request: ServerCreateTopUpRequest, params: RequestParams = {}) =>
+      this.request<string, any>({
+        path: `/api/v1/top-ups/new`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
         ...params,
       }),
 
@@ -4014,6 +4964,53 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Get daily usage
+     *
+     * @tags usage
+     * @name V1UsageList
+     * @summary Get daily usage
+     * @request GET:/api/v1/usage
+     * @secure
+     */
+    v1UsageList: (
+      query?: {
+        /** Start date */
+        from?: string;
+        /** End date */
+        to?: string;
+        /** Organization ID */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesAggregatedUsageMetric[], SystemHTTPError>({
+        path: `/api/v1/usage`,
+        method: "GET",
+        query: query,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get user by ID
+     *
+     * @tags users
+     * @name V1UsersDetail
+     * @summary Get user details
+     * @request GET:/api/v1/users/{id}
+     * @secure
+     */
+    v1UsersDetail: (id: string, params: RequestParams = {}) =>
+      this.request<TypesUser, any>({
+        path: `/api/v1/users/${id}`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description Search users by email, name, or username
      *
      * @tags users
@@ -4056,6 +5053,30 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<TypesUserTokenUsageResponse, any>({
         path: `/api/v1/users/token-usage`,
         method: "GET",
+        secure: true,
+        ...params,
+      }),
+
+    /**
+     * @description Get a wallet
+     *
+     * @tags wallets
+     * @name V1WalletList
+     * @summary Get a wallet
+     * @request GET:/api/v1/wallet
+     * @secure
+     */
+    v1WalletList: (
+      query?: {
+        /** Organization ID */
+        org_id?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<TypesWallet, any>({
+        path: `/api/v1/wallet`,
+        method: "GET",
+        query: query,
         secure: true,
         ...params,
       }),

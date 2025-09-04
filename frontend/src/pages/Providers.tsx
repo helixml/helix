@@ -30,7 +30,11 @@ const Providers: React.FC = () => {
   const { data: org, isLoading: isLoadingOrg } = useGetOrgByName(orgName, orgName !== undefined)
 
   // Get provider endpoints
-  const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders(false, org?.id, !isLoadingOrg);
+  const { data: providerEndpoints = [], isLoading: isLoadingProviders, refetch: loadData } = useListProviders({
+    loadModels: false,
+    orgId: org?.id,
+    enabled: !isLoadingOrg,
+  });
 
 
   let editAllowed = false
@@ -43,9 +47,18 @@ const Providers: React.FC = () => {
     editAllowed = account.isOrgAdmin
   }
 
+  const checkLoginStatus = (): boolean => {
+    if (!account.user) {
+      account.setShowLoginWindow(true)
+      return false
+    }
+    return true
+  }
 
   const handleOpenDialog = (provider: Provider) => {
-    if (!editAllowed) return;
+    if(!checkLoginStatus()) return
+    
+    if (!editAllowed) return;    
     setSelectedProvider(provider);
     setDialogOpen(true);
   };

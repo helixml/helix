@@ -2,7 +2,6 @@ import {
   TypesUserAppAccessResponse,
   TypesStepInfo,
   TypesMessage,
-  TypesMessageContent,
   TypesAssistantCalculator,
   TypesToolCalculatorConfig,
   TypesAssistantBrowser,
@@ -13,7 +12,9 @@ import {
   TypesToolWebSearchConfig,
   TypesAssistantAzureDevOps,
   TypesTrigger,
-  TypesSession,  
+  TypesSession,
+  TypesAssistantMCP,
+  TypesToolMCPClientConfig,
 } from './api/api'
 
 export type ISessionCreator = 'system' | 'user' | 'assistant'
@@ -94,9 +95,7 @@ export interface IKeycloakUser {
 }
 
 export interface IUserConfig {
-  stripe_subscription_active?: boolean,
-  stripe_customer_id?: string,
-  stripe_subscription_id?: string,
+  // Removed stripe subscription fields - now come from wallet
 }
 
 export interface IHelixModel {
@@ -473,7 +472,7 @@ export interface IShareSessionInstructions {
   addDocumentsMode?: boolean,
 }
 
-export type IToolType = 'api' | 'gptscript' | 'zapier' | 'web_search' | 'calculator' | 'email' | 'browser'
+export type IToolType = 'api' | 'gptscript' | 'zapier' | 'web_search' | 'calculator' | 'email' | 'browser' | 'mcp'
 
 export interface IToolApiAction {
   name: string,
@@ -516,6 +515,7 @@ export interface IToolConfig {
   calculator?: TypesToolCalculatorConfig,
   email?: TypesToolEmailConfig,
   web_search?: TypesToolWebSearchConfig,
+  mcp?: TypesToolMCPClientConfig,
 }
 
 export interface ITool {
@@ -650,6 +650,7 @@ export interface IAssistantConfig {
   is_actionable_template?: string;
   is_actionable_history_length?: number;
   apis?: IAssistantApi[];
+  mcps?: TypesAssistantMCP[];
   gptscripts?: IAssistantGPTScript[];
   zapier?: IAssistantZapier[];
   browser?: TypesAssistantBrowser;
@@ -829,6 +830,7 @@ export interface IAppFlatState {
   apiTools?: IAssistantApi[]
   zapierTools?: IAssistantZapier[]
   gptscriptTools?: IAssistantGPTScript[]
+  mcpTools?: TypesAssistantMCP[]
   browserTool?: TypesAssistantBrowser
   webSearchTool?: TypesAssistantWebSearch
   calculatorTool?: TypesAssistantCalculator
@@ -1018,6 +1020,7 @@ export interface IProviderEndpoint {
   api_key: string
   api_key_file?: string
   default: boolean
+  billing_enabled?: boolean
 }
 
 // Resource type for access grants
@@ -1113,4 +1116,19 @@ export interface IAppCreateResponse {
   owner: string;
   owner_type: IOwnerType;
   model_substitutions?: IModelSubstitution[]
+}
+
+export interface IWallet {
+  id?: string;
+  balance?: number;
+  created_at?: string;
+  updated_at?: string;
+  stripe_customer_id?: string;
+  stripe_subscription_id?: string;
+  subscription_status?: string;
+  subscription_current_period_start?: number;
+  subscription_current_period_end?: number;
+  subscription_created?: number;
+  user_id?: string;
+  org_id?: string;
 }

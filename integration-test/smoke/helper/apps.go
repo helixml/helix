@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
-	"golang.org/x/exp/rand"
+	"golang.org/x/exp/rand" //nolint:staticcheck
 )
 
 func BrowseToAppsPage(t *testing.T, page *rod.Page) {

@@ -22,21 +22,16 @@ import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
-import useSession from '../hooks/useSession'
-import useSessions from '../hooks/useSessions'
-import useWebsocket from '../hooks/useWebsocket'
-import useLoading from '../hooks/useLoading'
 import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
 import Tooltip from '@mui/material/Tooltip'
 import LoadingSpinner from '../components/widgets/LoadingSpinner'
+import { useGetSession, useUpdateSession } from '../services/sessionService'
 
 import {
-  ICloneInteractionMode,
   INTERACTION_STATE_EDITING,
   SESSION_TYPE_TEXT,
-  SESSION_MODE_FINETUNE,
-  WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
+  SESSION_MODE_FINETUNE, 
   INTERACTION_STATE_COMPLETE,
   INTERACTION_STATE_ERROR,
   IShareSessionInstructions,
@@ -85,7 +80,6 @@ interface MemoizedInteractionProps {
   appID?: string | null;
   onHandleFilterDocument?: (docId: string) => void;
   session_id: string;
-  hasSubscription: boolean;
   onRegenerate?: (interactionID: string, message: string) => void;
   sessionSteps: TypesStepInfo[];
 }
@@ -111,7 +105,6 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
       isOwner={props.isOwner}
       isAdmin={props.isAdmin}
       session_id={props.session_id}
-      hasSubscription={props.hasSubscription}
     >
       {isLive && (props.isOwner || props.isAdmin) && (
         <InteractionLiveStream
@@ -119,7 +112,6 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
           interaction={props.interaction}
           session={props.session}
           serverConfig={props.serverConfig}
-          hasSubscription={props.hasSubscription}
           onMessageUpdate={props.isLastInteraction ? props.scrollToBottom : undefined}
           onFilterDocument={props.appID ? props.onHandleFilterDocument : undefined}
         />
@@ -173,18 +165,7 @@ const MemoizedInteraction = React.memo((props: MemoizedInteractionProps) => {
   const lastInteractionNotComplete = 
     isLastInteraction && nextProps.interaction.state !== 'complete' && nextProps.interaction.state !== 'error';
   
-  // Log when state changes to help debug re-render issues
-  if (prevProps.interaction.state !== nextProps.interaction.state) {
-    console.log(
-      `Interaction state changed from ${prevProps.interaction.state} to ${nextProps.interaction.state}`,
-      `interactionChanged=${interactionChanged}`,
-      `shouldSkipRender=${!interactionChanged && 
-        !documentIdsChanged && 
-        !ragResultsChanged && 
-        !lastInteractionNotComplete &&
-        prevProps.highlightAllFiles === nextProps.highlightAllFiles}`
-    );
-  }
+
   
   // Return true if nothing changed (skip re-render), false if something changed (trigger re-render)
   return !interactionChanged && 
@@ -205,19 +186,29 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const api = useApi()
   const router = useRouter()
   const account = useAccount()
-  const session = useSession()
+
+  let sessionID = router.params.session_id
+
+  const { mutate: updateSession } = useUpdateSession(sessionID)
+
+  const { data: session, refetch: refetchSession } = useGetSession(sessionID, {
+    enabled: !!sessionID
+  })
+
   const theme = useTheme()
   const themeConfig = useThemeConfig()
   const { NewInference, setCurrentSessionId } = useStreaming()
   const apps = useApps()
   const isBigScreen = useMediaQuery(theme.breakpoints.up('md'))
   const lightTheme = useLightTheme()
-  const { data: sessionSteps } = useListSessionSteps(session.data?.id || '', {
-    enabled: !!session.data?.id
+
+  
+  const { data: sessionSteps } = useListSessionSteps(session?.data?.id || '', {
+    enabled: !!session?.data?.id
   })
 
-  const isOwner = account.user?.id == session.data?.owner
-  let sessionID = router.params.session_id
+  const isOwner = account.user?.id == session?.data?.owner
+  
 
   // If params sessionID is not set, try to get it from URL query param sessionId=
   if (!sessionID) {
@@ -277,10 +268,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
   // Callback to handle model changes from AdvancedModelPicker
   const handleModelChange = useCallback((provider: string, modelName: string) => {
-    if (session.data) {
-      // It's important to create a new session object to trigger re-renders
-      // if other components depend on the session.data object reference.
-      session.setData({
+    if (session?.data) {
+      // Call the updateSession mutation
+      updateSession({
         ...session.data,
         provider: provider,
         model_name: modelName,
@@ -331,7 +321,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     if (!sessionID) return
 
     // Return early if session data hasn't loaded yet
-    if (!session.data?.interactions) return
+    if (!session?.data?.interactions) return
 
     // Return early if we've already auto-scrolled this session
     if (sessionID === autoScrolledSessionId) return
@@ -347,7 +337,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     }, 200) // Small timeout to ensure content is rendered
 
     setAutoScrolledSessionId(sessionID)
-  }, [sessionID, session.data, autoScrolledSessionId])
+  }, [sessionID, session?.data, autoScrolledSessionId])
 
   // Function to get block key
   const getBlockKey = useCallback((startIndex: number, endIndex: number) => {
@@ -356,9 +346,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
   // Function to initialize visible blocks
   const initializeVisibleBlocks = useCallback(() => {
-    if (!session.data?.interactions || session.data.interactions.length === 0) return
+    if (!session?.data?.interactions || session?.data?.interactions.length === 0) return
 
-    const totalInteractions = session.data.interactions.length
+    const totalInteractions = session?.data?.interactions.length
 
     // Create a consistent block structure regardless of streaming state
     const startIndex = Math.max(0, totalInteractions - INTERACTIONS_PER_BLOCK)
@@ -368,13 +358,13 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       endIndex: totalInteractions,
       isGhost: false
     }])
-  }, [session.data?.interactions])
+  }, [session?.data?.interactions])
 
   // Handle streaming state
   useEffect(() => {
-    if (!session.data?.interactions || session.data.interactions.length === 0) return
+    if (!session?.data?.interactions || session?.data?.interactions.length === 0) return
 
-    const lastInteraction = session.data.interactions[session.data.interactions.length - 1]
+    const lastInteraction = session?.data?.interactions[session?.data?.interactions.length - 1]
     const shouldBeStreaming = lastInteraction.state !== INTERACTION_STATE_EDITING &&
                              lastInteraction.state !== INTERACTION_STATE_COMPLETE &&
                              lastInteraction.state !== INTERACTION_STATE_ERROR
@@ -383,7 +373,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     setIsStreaming(shouldBeStreaming)
     
     // Don't change block structure here - maintain consistency
-  }, [session.data?.interactions])
+  }, [session?.data?.interactions])
 
   // Track which blocks are in viewport - simplify to just track visibility
   const updateVisibleBlocksInViewport = useCallback(() => {
@@ -492,9 +482,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
   // Initialize blocks only once when session data first loads
   useEffect(() => {
-    if (!session.data?.interactions) return
+    if (!session?.data?.interactions) return
     initializeVisibleBlocks()
-  }, [session.data?.id]) // Only run when session ID changes
+  }, [session?.data?.id]) // Only run when session ID changes
 
   // Debounce the input change handler to prevent re-renders on every keystroke
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -505,19 +495,19 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       performance.mark('input-end');
       performance.measure('input-latency', 'input-start', 'input-end');
       const latency = performance.getEntriesByName('input-latency').pop()?.duration;
-      console.log(`Input latency: ${latency?.toFixed(2) || 'N/A'}ms, Interactions: ${session.data?.interactions?.length || 0}`);
+      console.log(`Input latency: ${latency?.toFixed(2) || 'N/A'}ms, Interactions: ${session?.data?.interactions?.length || 0}`);
       performance.clearMarks();
       performance.clearMeasures();
     });
   }
 
   const loading = useMemo(() => {
-    if (!session.data || !session.data?.interactions || session.data?.interactions.length === 0) return false
-    const interaction = session.data?.interactions[session.data?.interactions.length - 1]
+    if (!session?.data || !session?.data?.interactions || session?.data?.interactions.length === 0) return false
+    const interaction = session?.data?.interactions[session?.data?.interactions.length - 1]
     if (interaction.state === 'waiting') return true
     return interaction.state == INTERACTION_STATE_EDITING
   }, [
-    session.data,
+    session?.data,
   ])
 
   useEffect(() => {
@@ -529,13 +519,11 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     // Save current scroll position, with flag for preserving bottom if requested
     saveScrollPosition(shouldScrollToBottom);
     
-    // Call the actual reload
-    const result = await session.reload();
+    // Refresh the session object
+    refetchSession()
     
     // Restore scroll position
-    setTimeout(restoreScrollPosition, 0);
-    
-    return result;
+    setTimeout(restoreScrollPosition, 0);      
   }, [session, saveScrollPosition, restoreScrollPosition]);
 
   // Function to scroll to bottom immediately without animation to prevent jumpiness
@@ -589,10 +577,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
   // Add new effect for handling streaming state transitions
   useEffect(() => {
-    if (!isStreaming && session.data?.interactions) {
+    if (!isStreaming && session?.data?.interactions) {
       // When streaming ends, ensure we have continuous blocks
       setVisibleBlocks(prev => {
-        const totalInteractions = session.data?.interactions?.length || 0
+        const totalInteractions = session?.data?.interactions?.length || 0
         const lastBlock = prev[prev.length - 1]
 
         if (!lastBlock) {
@@ -615,10 +603,10 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         })
       })
     }
-  }, [isStreaming, session.data?.interactions])
+  }, [isStreaming, session?.data?.interactions])
 
   const onSend = useCallback(async (prompt: string) => {
-    if (!session.data) return
+    if (!session?.data) return
     if (!checkOwnership({
       inferencePrompt: prompt,
     })) return
@@ -640,21 +628,22 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         image_filename: selectedImageName || undefined, // Optional field
         appId: appID,
         assistantId: assistantID || undefined,
-        provider: session.data.provider,
-        modelName: session.data.model_name,
-        sessionId: session.data.id,
-        type: session.data.type,
+        provider: session?.data?.provider,
+        modelName: session?.data?.model_name,
+        sessionId: session?.data?.id,
+        type: session?.data?.type || 'text',
       })
+      console.log("XXX new session done!!")
     } else {
       const formData = new FormData()
       formData.set('input', prompt)
-      formData.set('model_name', session.data?.model_name || '')
+      formData.set('model_name', session?.data?.model_name || '')
 
       setInputValue("")
       // Scroll to bottom immediately after submitting to show progress
       scrollToBottom()
       
-      newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
+      newSession = await api.put(`/api/v1/sessions/${session?.data?.id}`, formData)
     }
 
     if (!newSession) return
@@ -668,15 +657,14 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     }, 100)
 
   }, [
-    session.data,
-    session.reload,
+    session?.data,
     NewInference,
     scrollToBottom,
     safeReloadSession,
   ])
 
   const onRegenerate = useCallback(async (interactionID: string, message: string) => {
-    if (!session.data) return
+    if (!session?.data) return
     if (!checkOwnership({
       inferencePrompt: '',
     })) return
@@ -757,16 +745,16 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         messages: messages,
         appId: appID,
         assistantId: assistantID || undefined,
-        provider: session.data?.provider || '',
-        modelName: session.data?.model_name || '',
+        provider: session?.data?.provider || '',
+        modelName: session?.data?.model_name || '',
         interactionId: interactionID,
-        sessionId: session.data.id,
-        type: session.data.type,
+        sessionId: session?.data?.id,
+        type: session?.data?.type || 'text',
       })
     } else {
       const formData = new FormData()
       formData.set('input', '') // Empty input since we're using history
-      formData.set('model_name', session.data?.model_name || '')
+      formData.set('model_name', session?.data?.model_name || '')
 
       // Scroll to bottom immediately after submitting to show progress
       scrollToBottom()
@@ -785,8 +773,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     }, 100)
 
   }, [
-    session.data,
-    session.reload,
+    session?.data,
     NewInference,
     scrollToBottom,
     safeReloadSession,
@@ -794,19 +781,19 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   ])
 
   const checkOwnership = useCallback((instructions: IShareSessionInstructions): boolean => {
-    if (!session.data) return false
+    if (!session?.data) return false
     setShareInstructions(instructions)
     if (!account.user) {
       setShowLoginWindow(true)
       return false
     }
-    if (session.data.owner != account.user.id) {
+    if (session?.data?.owner != account.user.id) {
       setShowCloneWindow(true)
       return false
     }
     return true
   }, [
-    session.data,
+    session?.data,
     account.user,
     isOwner,
   ])
@@ -819,7 +806,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   ])    
 
   const onAddDocuments = useCallback(() => {
-    if (!session.data) return
+    if (!session?.data) return
     if (!checkOwnership({
       addDocumentsMode: true,
     })) return false
@@ -829,7 +816,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   }, [
     isOwner,
     account.user,
-    session.data,
+    session?.data,
   ])
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -879,29 +866,29 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
   // Memoize the session data comparison
   const sessionData = useMemo(() => {
-    if (!session.data) return null;
+    if (!session?.data) return null;
     
     // Create a stable reference for interactions
-    const interactionStateIds = session.data?.interactions?.map(i => `${i.id}:${i.state}`).join(',') || '';
+    const interactionStateIds = session?.data?.interactions?.map(i => `${i.id}:${i.state}`).join(',') || '';
     return {
-      ...session.data,
+      ...session?.data,
       interactionIds: interactionStateIds, // add this to use for memoization
     }
-  }, [session.data]);
+  }, [session?.data]);
 
   // Memoize the interactions list to prevent unnecessary re-renders when typing
   const memoizedInteractions = useMemo(() => {
-    return session.data?.interactions || [];
+    return session?.data?.interactions || [];
   }, [
-    session.data?.id, 
-    session.data?.interactions?.length, 
+    session?.data?.id, 
+    session?.data?.interactions?.length, 
     // Add additional dependency to force update when any interaction state changes
-    session.data?.interactions?.map(i => `${i.id}:${i.state}`).join(',')
+    session?.data?.interactions?.map(i => `${i.id}:${i.state}`).join(',')
   ]);
 
   // Function to add blocks above when scrolling up
   const addBlocksAbove = useCallback(() => {
-    if (!session.data?.interactions) return
+    if (!session?.data?.interactions) return
     if (visibleBlocks.length === 0) return
     if (isLoadingBlock) return
     if (!containerRef.current) return
@@ -948,7 +935,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
       }, SCROLL_LOCK_DELAY)
     })
   }, [
-    session.data?.interactions,
+    session?.data?.interactions,
     visibleBlocks,
     isLoadingBlock
   ])
@@ -1078,7 +1065,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                       appID={appID}
                       onHandleFilterDocument={onHandleFilterDocument}
                       session_id={sessionData.id || ''}
-                      hasSubscription={account.userConfig.stripe_subscription_active || false}
                       onRegenerate={onRegenerate}
                       sessionSteps={sessionSteps?.data || []}
                     />
@@ -1097,7 +1083,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     account.serverConfig,
     account.user?.id,
     account.admin,
-    account.userConfig.stripe_subscription_active,
     highlightAllFiles,    
     safeReloadSession,
     onAddDocuments,
@@ -1153,33 +1138,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     return () => focusTimers.forEach(timer => clearTimeout(timer))
   }, [])
 
-  useEffect(() => {
-    if (!account.initialized) return
-    if (sessionID) {
-      // Save the current scroll position before loading
-      saveScrollPosition()
-      
-      if (router.params.fixturemode === 'true') {
-        // Use fixture data instead of loading from API
-        const fixtureSession = generateFixtureSession(1000) // Generate 1000 interactions
-        session.setData(fixtureSession)
-        // Restore scroll position
-        setTimeout(restoreScrollPosition, 0)
-      } else {
-        session.loadSession(sessionID).then(() => {
-          // Restore scroll position after loading
-          setTimeout(restoreScrollPosition, 0)
-        })
-      }
-    }
-  }, [
-    account.initialized,
-    sessionID,
-    router.params.fixturemode,
-    saveScrollPosition,
-    restoreScrollPosition,
-  ])
-
   // this is for where we tried to do something to a shared session
   // but we were not logged in - so now we've gone off and logged in
   // and we end up back here - this will trigger the attempt to do it again
@@ -1198,8 +1156,8 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   }, [])
 
   useEffect(() => {
-    if (!session.data) return
-    const newAppID = session.data.parent_app || null
+    if (!session?.data) return
+    const newAppID = session?.data?.parent_app || null
     if (newAppID !== appID) {
       setAppID(newAppID)
       if (newAppID) {
@@ -1215,7 +1173,7 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
         setAssistantID(null)
       }
     }
-  }, [session.data, appID, apps])
+  }, [session?.data, appID, apps])
 
   const activeAssistant = appID && apps.app && assistantID ? getAssistant(apps.app, assistantID) : null
  
@@ -1225,19 +1183,6 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
     lastScrollHeightRef.current = 0
     setIsLoadingBlock(false)
   }, [sessionID])
-
-  // TODO: remove the need for duplicate websocket connections, currently this is used for knowing when the interaction has finished
-  useWebsocket(sessionID, (parsedData) => {
-    if (parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
-      const newSession: TypesSession = parsedData.session
-      // Save scroll position before updating session data
-      saveScrollPosition()
-      
-      session.setData(newSession)
-      // Restore scroll position after updating session data
-      setTimeout(restoreScrollPosition, 0)
-    }
-  })
 
   // this is a horrible hack so we can have a global JS function
   // that will set the state on this page - this is because we are
@@ -1261,9 +1206,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   // In case the web socket updates do not arrive, if the session is not finished
   // then keep reloading it until it has finished
   useEffect(() => {
-    if (!session.data) return
+    if (!session?.data) return
     // Take the last interaction
-    const lastInteraction = session.data.interactions?.[session.data.interactions.length - 1]
+    const lastInteraction = session?.data?.interactions?.[session?.data?.interactions.length - 1]
     if (!lastInteraction) return
     if (lastInteraction.state == TypesInteractionState.InteractionStateComplete || lastInteraction.state == TypesInteractionState.InteractionStateError) return
     
@@ -1274,11 +1219,11 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
 
     return () => clearTimeout(timer)
   }, [
-    session.data,
+    session?.data,
     safeReloadSession,
   ])
 
-  if (!session.data) return null
+  if (!session?.data) return null
 
   return (
     <Box

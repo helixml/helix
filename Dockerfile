@@ -2,6 +2,8 @@
 #---------------
 FROM golang:1.24-alpine AS api-base
 WORKDIR /app
+# Install git for development and build environments
+RUN apk add --no-cache git
 COPY go.mod go.sum ./
 RUN go mod download
 
@@ -16,7 +18,7 @@ WORKDIR /app/api
 # - Run a build to make the intial air build faster
 RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
 # - Entrypoint is the air command
-ENTRYPOINT ["air", "--build.bin", "/helix", "--build.cmd", "CGO_ENABLED=0 go build -ldflags \"-s -w\" -o /helix", "--"]
+ENTRYPOINT ["air", "--build.bin", "/helix", "--build.cmd", "CGO_ENABLED=0 go build -ldflags \"-s -w\" -o /helix", "--build.stop_on_error", "true", "--"]
 CMD ["serve"]
 
 
@@ -30,7 +32,7 @@ COPY api /app/api
 WORKDIR /app/api
 # - main.version is a variable required by Sentry and is set in .drone.yaml
 ARG APP_VERSION="v0.0.0+unknown"
-RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -buildvcs=true -ldflags "-s -w -X main.version=$APP_VERSION -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix
+RUN CGO_ENABLED=0 go build -buildvcs=true -ldflags "-s -w -X main.version=$APP_VERSION -X github.com/helixml/helix/api/pkg/data.Version=$APP_VERSION" -o /helix
 
 ### Frontend Base ###
 #--------------------
@@ -61,7 +63,7 @@ RUN yarn build
 ### Production Image ###
 #-----------------------
 FROM alpine:3.21
-RUN apk --update add --no-cache ca-certificates
+RUN apk --update add --no-cache ca-certificates git
 
 COPY --from=api-build-env /helix /helix
 COPY --from=ui-build-env /app/dist /www

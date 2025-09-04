@@ -19,6 +19,96 @@
     },
     "host": "app.helix.ml",
     "paths": {
+        "/api/v1/api_keys": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get API keys",
+                "tags": [
+                    "api-keys"
+                ],
+                "summary": "Get API keys",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by types (comma-separated list)",
+                        "name": "types",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by app ID",
+                        "name": "app_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.ApiKey"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Create a new API key",
+                "tags": [
+                    "api-keys"
+                ],
+                "summary": "Create a new API key",
+                "parameters": [
+                    {
+                        "description": "Request body with name and type",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "API key",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Delete an API key",
+                "tags": [
+                    "api-keys"
+                ],
+                "summary": "Delete an API key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "API key to delete",
+                        "name": "key",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "API key",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/apps": {
             "get": {
                 "security": [
@@ -918,6 +1008,28 @@
                 }
             }
         },
+        "/api/v1/config": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get config",
+                "tags": [
+                    "config"
+                ],
+                "summary": "Get config",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ServerConfigForFrontend"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/context-menu": {
             "get": {
                 "description": "contextMenuHandler",
@@ -1048,6 +1160,130 @@
                     },
                     "403": {
                         "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/helix-models/memory-estimate": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Estimate memory requirements for a model on different GPU configurations",
+                "tags": [
+                    "models"
+                ],
+                "summary": "Estimate model memory requirements",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Model ID",
+                        "name": "model_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of GPUs (default: auto-detect)",
+                        "name": "gpu_count",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Context length (default: model default)",
+                        "name": "context_length",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Batch size (default: 512)",
+                        "name": "batch_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of parallel sequences/concurrent requests (default: 2)",
+                        "name": "num_parallel",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/controller.MemoryEstimationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request parameters",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Model not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/helix-models/memory-estimates": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get memory estimates for multiple models with different GPU configurations",
+                "tags": [
+                    "models"
+                ],
+                "summary": "List memory estimates for multiple models",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Comma-separated list of model IDs",
+                        "name": "model_ids",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of GPUs (default: auto-detect)",
+                        "name": "gpu_count",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/controller.MemoryEstimationResponse"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request parameters",
                         "schema": {
                             "type": "string"
                         }
@@ -1412,6 +1648,341 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.PaginatedLLMCalls"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/logs/{slot_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieve logs for a specific slot by proxying the request to the runner",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "logs"
+                ],
+                "summary": "Get logs for a specific slot",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Slot ID",
+                        "name": "slot_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum number of lines to return (default: 500)",
+                        "name": "lines",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Return logs since this timestamp (RFC3339 format)",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by log level (ERROR, WARN, INFO, DEBUG)",
+                        "name": "level",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/model-info": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all dynamic model infos. Requires admin privileges.",
+                "tags": [
+                    "model-info"
+                ],
+                "summary": "List dynamic model infos",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by provider (e.g., helix, openai)",
+                        "name": "provider",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by model name",
+                        "name": "name",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.DynamicModelInfo"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new dynamic model info configuration. Requires admin privileges.",
+                "tags": [
+                    "model-info"
+                ],
+                "summary": "Create a new dynamic model info",
+                "parameters": [
+                    {
+                        "description": "Dynamic model info configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.DynamicModelInfo"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/types.DynamicModelInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/model-info/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a specific dynamic model info by ID. Requires admin privileges.",
+                "tags": [
+                    "model-info"
+                ],
+                "summary": "Get a dynamic model info by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Dynamic model info ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.DynamicModelInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Missing ID",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Dynamic model info not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update an existing dynamic model info configuration. Requires admin privileges.",
+                "tags": [
+                    "model-info"
+                ],
+                "summary": "Update an existing dynamic model info",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Dynamic model info ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Updated dynamic model info configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.DynamicModelInfo"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.DynamicModelInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body or missing ID",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Dynamic model info not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a dynamic model info configuration. Requires admin privileges.",
+                "tags": [
+                    "model-info"
+                ],
+                "summary": "Delete a dynamic model info",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Dynamic model info ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Missing ID",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
@@ -2053,6 +2624,12 @@
                         "description": "Organization ID",
                         "name": "org_id",
                         "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include all endpoints (system admin only)",
+                        "name": "all",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -2272,6 +2849,29 @@
                 }
             }
         },
+        "/api/v1/scheduler/heartbeats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the health status of all scheduler goroutines",
+                "tags": [
+                    "dashboard"
+                ],
+                "summary": "Get scheduler goroutine heartbeat status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/search": {
             "get": {
                 "security": [
@@ -2456,11 +3056,37 @@
                     "sessions"
                 ],
                 "summary": "List sessions",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Organization slug or ID",
+                        "name": "org_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search sessions by name",
+                        "name": "search",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/types.SessionsList"
+                            "$ref": "#/definitions/types.PaginatedSessionsList"
                         }
                     }
                 }
@@ -2519,10 +3145,45 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/types.Session"
-                            }
+                            "$ref": "#/definitions/types.Session"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update a session by ID",
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Update a session by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Session to update",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.Session"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Session"
                         }
                     }
                 }
@@ -2579,6 +3240,18 @@
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "page_size",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -2716,6 +3389,39 @@
                 }
             }
         },
+        "/api/v1/skills/validate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Validate MCP skill configuration",
+                "tags": [
+                    "skills"
+                ],
+                "summary": "Validate MCP skill configuration",
+                "parameters": [
+                    {
+                        "description": "MCP skill configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.AssistantMCP"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.ToolMCPClientConfig"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/skills/{id}": {
             "get": {
                 "security": [
@@ -2742,6 +3448,214 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.SkillDefinition"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/slots/{slot_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a slot from the scheduler's desired state, allowing reconciliation to clean it up from the runner",
+                "tags": [
+                    "dashboard"
+                ],
+                "summary": "Delete a slot from scheduler state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Slot ID",
+                        "name": "slot_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/subscription/manage": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Manage a subscription",
+                "tags": [
+                    "wallets"
+                ],
+                "summary": "Manage a subscription",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Subscription session URL",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/subscription/new": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a subscription",
+                "tags": [
+                    "wallets"
+                ],
+                "summary": "Create a subscription",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Subscription session URL",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/system/settings": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get global system settings. Requires admin privileges.",
+                "tags": [
+                    "system"
+                ],
+                "summary": "Get system settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SystemSettingsResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update global system settings. Requires admin privileges.",
+                "tags": [
+                    "system"
+                ],
+                "summary": "Update system settings",
+                "parameters": [
+                    {
+                        "description": "System settings update",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SystemSettingsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SystemSettingsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - Admin required",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/top-ups/new": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a top up with specified amount",
+                "tags": [
+                    "wallets"
+                ],
+                "summary": "Create a top up",
+                "parameters": [
+                    {
+                        "description": "Request body with amount",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.CreateTopUpRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Top up session URL",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
@@ -2963,6 +3877,75 @@
                 }
             }
         },
+        "/api/v1/usage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get daily usage",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "usage"
+                ],
+                "summary": "Get daily usage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Start date",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.AggregatedUsageMetric"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/system.HTTPError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users/search": {
             "get": {
                 "security": [
@@ -3029,6 +4012,67 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.UserTokenUsageResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/users/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get user by ID",
+                "tags": [
+                    "users"
+                ],
+                "summary": "Get user details",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.User"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/wallet": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a wallet",
+                "tags": [
+                    "wallets"
+                ],
+                "summary": "Get a wallet",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Organization ID",
+                        "name": "org_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Wallet"
                         }
                     }
                 }
@@ -3130,6 +4174,23 @@
         }
     },
     "definitions": {
+        "controller.MemoryEstimationResponse": {
+            "type": "object",
+            "properties": {
+                "cached": {
+                    "type": "boolean"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "estimate": {
+                    "$ref": "#/definitions/memory.MemoryEstimate"
+                },
+                "model_id": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_helixml_helix_api_pkg_types.Config": {
             "type": "object",
             "properties": {
@@ -3178,7 +4239,8 @@
                 "calculator",
                 "email",
                 "web_search",
-                "azure_devops"
+                "azure_devops",
+                "mcp"
             ],
             "x-enum-varnames": [
                 "ToolTypeAPI",
@@ -3188,7 +4250,8 @@
                 "ToolTypeCalculator",
                 "ToolTypeEmail",
                 "ToolTypeWebSearch",
-                "ToolTypeAzureDevOps"
+                "ToolTypeAzureDevOps",
+                "ToolTypeMCP"
             ]
         },
         "github_com_helixml_helix_api_pkg_types.Usage": {
@@ -3743,6 +4806,273 @@
                 }
             }
         },
+        "mcp.Meta": {
+            "type": "object",
+            "properties": {
+                "additionalFields": {
+                    "description": "AdditionalFields are any fields present in the Meta that are not\notherwise defined in the protocol.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "progressToken": {
+                    "description": "If specified, the caller is requesting out-of-band progress\nnotifications for this request (as represented by\nnotifications/progress). The value of this parameter is an\nopaque token that will be attached to any subsequent\nnotifications. The receiver is not obligated to provide these\nnotifications."
+                }
+            }
+        },
+        "mcp.Tool": {
+            "type": "object",
+            "properties": {
+                "_meta": {
+                    "description": "Meta is a metadata object that is reserved by MCP for storing additional information.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.Meta"
+                        }
+                    ]
+                },
+                "annotations": {
+                    "description": "Optional properties describing tool behavior",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolAnnotation"
+                        }
+                    ]
+                },
+                "description": {
+                    "description": "A human-readable description of the tool.",
+                    "type": "string"
+                },
+                "inputSchema": {
+                    "description": "A JSON Schema object defining the expected parameters for the tool.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mcp.ToolInputSchema"
+                        }
+                    ]
+                },
+                "name": {
+                    "description": "The name of the tool.",
+                    "type": "string"
+                }
+            }
+        },
+        "mcp.ToolAnnotation": {
+            "type": "object",
+            "properties": {
+                "destructiveHint": {
+                    "description": "If true, the tool may perform destructive updates",
+                    "type": "boolean"
+                },
+                "idempotentHint": {
+                    "description": "If true, repeated calls with same args have no additional effect",
+                    "type": "boolean"
+                },
+                "openWorldHint": {
+                    "description": "If true, tool interacts with external entities",
+                    "type": "boolean"
+                },
+                "readOnlyHint": {
+                    "description": "If true, the tool does not modify its environment",
+                    "type": "boolean"
+                },
+                "title": {
+                    "description": "Human-readable title for the tool",
+                    "type": "string"
+                }
+            }
+        },
+        "mcp.ToolInputSchema": {
+            "type": "object",
+            "properties": {
+                "$defs": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "properties": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "required": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "memory.EstimateOptions": {
+            "type": "object",
+            "properties": {
+                "flash_attention": {
+                    "description": "Advanced options",
+                    "type": "boolean"
+                },
+                "kv_cache_type": {
+                    "description": "\"f16\", \"q8_0\", \"q4_0\"",
+                    "type": "string"
+                },
+                "num_batch": {
+                    "description": "Batch size",
+                    "type": "integer"
+                },
+                "num_ctx": {
+                    "description": "Context size",
+                    "type": "integer"
+                },
+                "num_gpu": {
+                    "description": "⚠️  CRITICAL CONFUSION WARNING ⚠️\nNumGPU is NOT the number of GPUs in your hardware configuration!\nNumGPU is the number of MODEL LAYERS to offload to GPU (-1 for auto-detect all that fit)\n\nExamples:\n- NumGPU = -1: Auto-detect max layers that fit (RECOMMENDED - gives full model memory)\n- NumGPU = 1:  Only offload 1 layer to GPU (gives tiny memory estimate)\n- NumGPU = 0:  CPU only (no GPU layers)\n\nTo estimate for different GPU hardware configs (1 GPU vs 4 GPUs),\nyou pass different GPU configuration arrays to the estimation function,\nNOT different NumGPU values!",
+                    "type": "integer"
+                },
+                "num_parallel": {
+                    "description": "Number of parallel sequences",
+                    "type": "integer"
+                }
+            }
+        },
+        "memory.GPUInfo": {
+            "type": "object",
+            "properties": {
+                "compute": {
+                    "type": "string"
+                },
+                "dependency_path": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "driver_major": {
+                    "type": "integer"
+                },
+                "driver_minor": {
+                    "type": "integer"
+                },
+                "env_workarounds": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "free_memory": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "library": {
+                    "description": "\"cuda\", \"rocm\", \"metal\", \"cpu\"",
+                    "type": "string"
+                },
+                "minimum_memory": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "total_memory": {
+                    "type": "integer"
+                },
+                "unreliable_free_memory": {
+                    "type": "boolean"
+                },
+                "variant": {
+                    "description": "Additional fields for compatibility with Ollama's estimation",
+                    "type": "string"
+                }
+            }
+        },
+        "memory.MemoryEstimate": {
+            "type": "object",
+            "properties": {
+                "architecture": {
+                    "description": "Metadata",
+                    "type": "string"
+                },
+                "estimated_at": {
+                    "type": "string"
+                },
+                "fully_loaded": {
+                    "description": "Whether all layers fit on GPU",
+                    "type": "boolean"
+                },
+                "gpu_sizes": {
+                    "description": "Memory allocation per GPU",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "gpus": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/memory.GPUInfo"
+                    }
+                },
+                "graph": {
+                    "description": "Graph memory requirement",
+                    "type": "integer"
+                },
+                "graph_mem": {
+                    "description": "Graph computation memory",
+                    "type": "integer"
+                },
+                "kv_cache": {
+                    "description": "Breakdown for analysis",
+                    "type": "integer"
+                },
+                "layers": {
+                    "description": "Core results",
+                    "type": "integer"
+                },
+                "model_path": {
+                    "type": "string"
+                },
+                "options": {
+                    "description": "Configuration used for estimation",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/memory.EstimateOptions"
+                        }
+                    ]
+                },
+                "projectors": {
+                    "description": "Projector weights (for multimodal)",
+                    "type": "integer"
+                },
+                "requires_fallback": {
+                    "description": "Whether CPU fallback is needed",
+                    "type": "boolean"
+                },
+                "tensor_split": {
+                    "description": "Layers per GPU for tensor parallel",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "total_size": {
+                    "description": "Total memory requirement",
+                    "type": "integer"
+                },
+                "vram_size": {
+                    "description": "Total VRAM usage",
+                    "type": "integer"
+                },
+                "weights": {
+                    "description": "Model weights memory",
+                    "type": "integer"
+                }
+            }
+        },
         "openai.ChatCompletionResponseFormatJSONSchema": {
             "type": "object",
             "properties": {
@@ -3862,11 +5192,48 @@
                 }
             }
         },
+        "server.CreateTopUpRequest": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "number"
+                },
+                "org_id": {
+                    "type": "string"
+                }
+            }
+        },
         "server.LicenseKeyRequest": {
             "type": "object",
             "properties": {
                 "license_key": {
                     "type": "string"
+                }
+            }
+        },
+        "server.LogsSummary": {
+            "type": "object",
+            "properties": {
+                "active_instances": {
+                    "type": "integer"
+                },
+                "error_retention_hours": {
+                    "type": "integer"
+                },
+                "instances_with_errors": {
+                    "type": "integer"
+                },
+                "max_lines_per_buffer": {
+                    "type": "integer"
+                },
+                "recent_errors": {
+                    "type": "integer"
+                },
+                "slots": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.SlotLogSummary"
+                    }
                 }
             }
         },
@@ -3893,6 +5260,58 @@
                 }
             }
         },
+        "server.SlotLogSummary": {
+            "type": "object",
+            "properties": {
+                "has_logs": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "runner_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "sql.NullString": {
+            "type": "object",
+            "properties": {
+                "string": {
+                    "type": "string"
+                },
+                "valid": {
+                    "description": "Valid is true if String is not NULL",
+                    "type": "boolean"
+                }
+            }
+        },
+        "stripe.SubscriptionStatus": {
+            "type": "string",
+            "enum": [
+                "active",
+                "canceled",
+                "incomplete",
+                "incomplete_expired",
+                "past_due",
+                "paused",
+                "trialing",
+                "unpaid"
+            ],
+            "x-enum-varnames": [
+                "SubscriptionStatusActive",
+                "SubscriptionStatusCanceled",
+                "SubscriptionStatusIncomplete",
+                "SubscriptionStatusIncompleteExpired",
+                "SubscriptionStatusPastDue",
+                "SubscriptionStatusPaused",
+                "SubscriptionStatusTrialing",
+                "SubscriptionStatusUnpaid"
+            ]
+        },
         "system.HTTPError": {
             "type": "object",
             "properties": {
@@ -3903,6 +5322,19 @@
                     "type": "integer"
                 }
             }
+        },
+        "types.APIKeyType": {
+            "type": "string",
+            "enum": [
+                "",
+                "api",
+                "app"
+            ],
+            "x-enum-varnames": [
+                "APIkeytypeNone",
+                "APIkeytypeAPI",
+                "APIkeytypeApp"
+            ]
         },
         "types.AccessGrant": {
             "type": "object",
@@ -4028,6 +5460,100 @@
                 },
                 "total_tokens": {
                     "type": "integer"
+                }
+            }
+        },
+        "types.AllocationPlanView": {
+            "type": "object",
+            "properties": {
+                "cost": {
+                    "type": "integer"
+                },
+                "evictions_needed": {
+                    "description": "Slot IDs",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "gpu_count": {
+                    "type": "integer"
+                },
+                "gpus": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_multi_gpu": {
+                    "type": "boolean"
+                },
+                "is_valid": {
+                    "type": "boolean"
+                },
+                "memory_per_gpu": {
+                    "type": "integer"
+                },
+                "requires_eviction": {
+                    "type": "boolean"
+                },
+                "runner_capacity": {
+                    "description": "GPU index -\u003e total memory",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "runner_id": {
+                    "type": "string"
+                },
+                "runner_memory_state": {
+                    "description": "GPU index -\u003e allocated memory",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.Runtime"
+                },
+                "tensor_parallel_size": {
+                    "type": "integer"
+                },
+                "total_memory_required": {
+                    "type": "integer"
+                },
+                "validation_error": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.ApiKey": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "$ref": "#/definitions/sql.NullString"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "owner_type": {
+                    "$ref": "#/definitions/types.OwnerType"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.APIKeyType"
                 }
             }
         },
@@ -4218,6 +5744,10 @@
                 "markdown_post_processing": {
                     "description": "If true, the browser will return the HTML as markdown",
                     "type": "boolean"
+                },
+                "process_output": {
+                    "description": "If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser,",
+                    "type": "boolean"
                 }
             }
         },
@@ -4315,6 +5845,12 @@
                 "max_tokens": {
                     "description": "The maximum number of tokens to generate before stopping.",
                     "type": "integer"
+                },
+                "mcps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantMCP"
+                    }
                 },
                 "model": {
                     "type": "string"
@@ -4468,6 +6004,26 @@
                             "$ref": "#/definitions/types.KnowledgeSource"
                         }
                     ]
+                }
+            }
+        },
+        "types.AssistantMCP": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
                 }
             }
         },
@@ -4633,14 +6189,6 @@
                 }
             }
         },
-        "types.Counter": {
-            "type": "object",
-            "properties": {
-                "count": {
-                    "type": "integer"
-                }
-            }
-        },
         "types.CrawledSources": {
             "type": "object",
             "properties": {
@@ -4720,6 +6268,12 @@
         "types.DashboardData": {
             "type": "object",
             "properties": {
+                "global_allocation_decisions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.GlobalAllocationDecision"
+                    }
+                },
                 "queue": {
                     "type": "array",
                     "items": {
@@ -4752,6 +6306,25 @@
                 "free_memory": {
                     "type": "integer"
                 },
+                "gpu_count": {
+                    "description": "Number of GPUs detected",
+                    "type": "integer"
+                },
+                "gpu_memory_stats": {
+                    "description": "GPU memory stabilization statistics",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.GPUMemoryStats"
+                        }
+                    ]
+                },
+                "gpus": {
+                    "description": "Per-GPU memory status",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.GPUStatus"
+                    }
+                },
                 "id": {
                     "type": "string"
                 },
@@ -4761,11 +6334,17 @@
                         "type": "string"
                     }
                 },
+                "memory_string": {
+                    "type": "string"
+                },
                 "models": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/types.RunnerModelStatus"
                     }
+                },
+                "process_stats": {
+                    "description": "Process tracking and cleanup statistics"
                 },
                 "slots": {
                     "type": "array",
@@ -4791,6 +6370,31 @@
             "type": "object",
             "properties": {
                 "server_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.DynamicModelInfo": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "model_info": {
+                    "$ref": "#/definitions/types.ModelInfo"
+                },
+                "name": {
+                    "description": "Model name",
+                    "type": "string"
+                },
+                "provider": {
+                    "description": "helix, openai, etc. (Helix internal information)",
+                    "type": "string"
+                },
+                "updated": {
                     "type": "string"
                 }
             }
@@ -4880,6 +6484,322 @@
                             "type": "integer"
                         }
                     }
+                }
+            }
+        },
+        "types.FrontendLicenseInfo": {
+            "type": "object",
+            "properties": {
+                "features": {
+                    "type": "object",
+                    "properties": {
+                        "users": {
+                            "type": "boolean"
+                        }
+                    }
+                },
+                "limits": {
+                    "type": "object",
+                    "properties": {
+                        "machines": {
+                            "type": "integer"
+                        },
+                        "users": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "organization": {
+                    "type": "string"
+                },
+                "valid": {
+                    "type": "boolean"
+                },
+                "valid_until": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.GPUMemoryDataPoint": {
+            "type": "object",
+            "properties": {
+                "actual_free_mb": {
+                    "description": "Actual free memory (from nvidia-smi)",
+                    "type": "integer"
+                },
+                "actual_total_mb": {
+                    "description": "Total GPU memory",
+                    "type": "integer"
+                },
+                "actual_used_mb": {
+                    "description": "Actual memory used (from nvidia-smi)",
+                    "type": "integer"
+                },
+                "allocated_mb": {
+                    "description": "Memory allocated by Helix scheduler",
+                    "type": "integer"
+                },
+                "gpu_index": {
+                    "type": "integer"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.GPUMemoryReading": {
+            "type": "object",
+            "properties": {
+                "delta_mb": {
+                    "type": "integer"
+                },
+                "is_stable": {
+                    "type": "boolean"
+                },
+                "memory_mb": {
+                    "type": "integer"
+                },
+                "poll_number": {
+                    "type": "integer"
+                },
+                "stable_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.GPUMemoryStabilizationEvent": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "description": "\"startup\" or \"deletion\"",
+                    "type": "string"
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "memory_delta_threshold_mb": {
+                    "type": "integer"
+                },
+                "memory_readings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.GPUMemoryReading"
+                    }
+                },
+                "poll_interval_ms": {
+                    "type": "integer"
+                },
+                "polls_taken": {
+                    "type": "integer"
+                },
+                "required_stable_polls": {
+                    "type": "integer"
+                },
+                "runtime": {
+                    "type": "string"
+                },
+                "slot_id": {
+                    "type": "string"
+                },
+                "stabilized_memory_mb": {
+                    "type": "integer"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "timeout_seconds": {
+                    "type": "integer"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "total_wait_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.GPUMemoryStats": {
+            "type": "object",
+            "properties": {
+                "average_wait_time_seconds": {
+                    "type": "number"
+                },
+                "failed_stabilizations": {
+                    "type": "integer"
+                },
+                "last_stabilization": {
+                    "type": "string"
+                },
+                "max_wait_time_seconds": {
+                    "type": "integer"
+                },
+                "memory_time_series": {
+                    "description": "Last 10 minutes of memory data",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.GPUMemoryDataPoint"
+                    }
+                },
+                "min_wait_time_seconds": {
+                    "type": "integer"
+                },
+                "recent_events": {
+                    "description": "Last 20 events",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.GPUMemoryStabilizationEvent"
+                    }
+                },
+                "scheduling_events": {
+                    "description": "Last 10 minutes of scheduling events",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SchedulingEvent"
+                    }
+                },
+                "successful_stabilizations": {
+                    "type": "integer"
+                },
+                "total_stabilizations": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.GPUState": {
+            "type": "object",
+            "properties": {
+                "active_slots": {
+                    "description": "Slot IDs using this GPU",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "allocated_memory": {
+                    "type": "integer"
+                },
+                "free_memory": {
+                    "type": "integer"
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "total_memory": {
+                    "type": "integer"
+                },
+                "utilization": {
+                    "description": "0.0 - 1.0",
+                    "type": "number"
+                }
+            }
+        },
+        "types.GPUStatus": {
+            "type": "object",
+            "properties": {
+                "cuda_version": {
+                    "description": "CUDA version",
+                    "type": "string"
+                },
+                "driver_version": {
+                    "description": "NVIDIA driver version",
+                    "type": "string"
+                },
+                "free_memory": {
+                    "description": "Free memory in bytes",
+                    "type": "integer"
+                },
+                "index": {
+                    "description": "GPU index (0, 1, 2, etc.)",
+                    "type": "integer"
+                },
+                "model_name": {
+                    "description": "GPU model name (e.g., \"NVIDIA H100 PCIe\", \"NVIDIA GeForce RTX 4090\")",
+                    "type": "string"
+                },
+                "total_memory": {
+                    "description": "Total memory in bytes",
+                    "type": "integer"
+                },
+                "used_memory": {
+                    "description": "Used memory in bytes",
+                    "type": "integer"
+                }
+            }
+        },
+        "types.GlobalAllocationDecision": {
+            "type": "object",
+            "properties": {
+                "after_state": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/types.RunnerStateView"
+                    }
+                },
+                "before_state": {
+                    "description": "Global state snapshots",
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/types.RunnerStateView"
+                    }
+                },
+                "considered_plans": {
+                    "description": "All plans considered",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AllocationPlanView"
+                    }
+                },
+                "created": {
+                    "type": "string"
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "execution_time_ms": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "model_name": {
+                    "type": "string"
+                },
+                "optimization_score": {
+                    "description": "How optimal the final decision was",
+                    "type": "number"
+                },
+                "planning_time_ms": {
+                    "description": "Timing information",
+                    "type": "integer"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "$ref": "#/definitions/types.Runtime"
+                },
+                "selected_plan": {
+                    "$ref": "#/definitions/types.AllocationPlanView"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "success": {
+                    "description": "Decision outcome",
+                    "type": "boolean"
+                },
+                "total_plans_generated": {
+                    "type": "integer"
+                },
+                "total_runners_evaluated": {
+                    "description": "Decision metadata",
+                    "type": "integer"
+                },
+                "total_time_ms": {
+                    "type": "integer"
+                },
+                "workload_id": {
+                    "type": "string"
                 }
             }
         },
@@ -5512,9 +7432,36 @@
         "types.Model": {
             "type": "object",
             "properties": {
+                "allocated_gpu_count": {
+                    "type": "integer"
+                },
+                "allocated_memory": {
+                    "description": "EXPORTED ALLOCATION FIELDS: Set by NewModelForGPUAllocation based on scheduler's GPU allocation decision",
+                    "type": "integer"
+                },
+                "allocated_per_gpu_memory": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "allocated_specific_gpus": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "allocation_configured": {
+                    "description": "Safety flag",
+                    "type": "boolean"
+                },
                 "auto_pull": {
                     "description": "Whether to automatically pull the model if missing in the runner",
                     "type": "boolean"
+                },
+                "concurrency": {
+                    "description": "max concurrent requests per slot (0 = use global default)",
+                    "type": "integer"
                 },
                 "context_length": {
                     "type": "integer"
@@ -5536,7 +7483,7 @@
                     "type": "string"
                 },
                 "memory": {
-                    "description": "in bytes, required",
+                    "description": "DATABASE FIELD: Admin-configured memory for VLLM models, MUST be 0 for Ollama models",
                     "type": "integer"
                 },
                 "name": {
@@ -5548,6 +7495,11 @@
                 },
                 "runtime": {
                     "$ref": "#/definitions/types.Runtime"
+                },
+                "runtime_args": {
+                    "description": "Runtime-specific arguments (e.g., VLLM command line args)",
+                    "type": "object",
+                    "additionalProperties": true
                 },
                 "sort_order": {
                     "description": "Order for sorting models in UI (lower numbers appear first)",
@@ -6148,6 +8100,29 @@
                 }
             }
         },
+        "types.PaginatedSessionsList": {
+            "type": "object",
+            "properties": {
+                "page": {
+                    "type": "integer"
+                },
+                "pageSize": {
+                    "type": "integer"
+                },
+                "sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionSummary"
+                    }
+                },
+                "totalCount": {
+                    "type": "integer"
+                },
+                "totalPages": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.Pricing": {
             "type": "object",
             "properties": {
@@ -6209,6 +8184,9 @@
                 },
                 "base_url": {
                     "type": "string"
+                },
+                "billing_enabled": {
+                    "type": "boolean"
                 },
                 "created": {
                     "type": "string"
@@ -6524,32 +8502,102 @@
                 "active": {
                     "type": "boolean"
                 },
-                "context_length": {
-                    "description": "Context length used for the model, if specified",
+                "active_requests": {
                     "type": "integer"
+                },
+                "command_line": {
+                    "type": "string"
+                },
+                "context_length": {
+                    "type": "integer"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "gpu_allocation_data": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "gpu_index": {
+                    "type": "integer"
+                },
+                "gpu_indices": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 },
                 "id": {
                     "type": "string"
                 },
+                "max_concurrency": {
+                    "type": "integer"
+                },
+                "memory_estimation_meta": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
                 "model": {
                     "type": "string"
                 },
+                "model_memory_requirement": {
+                    "type": "integer"
+                },
                 "ready": {
                     "type": "boolean"
+                },
+                "runner_id": {
+                    "type": "string"
                 },
                 "runtime": {
                     "$ref": "#/definitions/types.Runtime"
                 },
                 "runtime_args": {
-                    "description": "Runtime-specific arguments",
                     "type": "object",
                     "additionalProperties": {}
                 },
                 "status": {
                     "type": "string"
                 },
+                "tensor_parallel_size": {
+                    "type": "integer"
+                },
+                "updated": {
+                    "type": "string"
+                },
                 "version": {
                     "type": "string"
+                },
+                "workload_data": {
+                    "type": "object",
+                    "additionalProperties": {}
+                }
+            }
+        },
+        "types.RunnerStateView": {
+            "type": "object",
+            "properties": {
+                "active_slots": {
+                    "type": "integer"
+                },
+                "gpu_states": {
+                    "description": "GPU index -\u003e state",
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/types.GPUState"
+                    }
+                },
+                "is_connected": {
+                    "type": "boolean"
+                },
+                "runner_id": {
+                    "type": "string"
+                },
+                "total_slots": {
+                    "type": "integer"
+                },
+                "warm_slots": {
+                    "type": "integer"
                 }
             }
         },
@@ -6663,6 +8711,39 @@
                 "SchedulingDecisionTypeUnschedulable"
             ]
         },
+        "types.SchedulingEvent": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "description": "\"slot_created\", \"slot_deleted\", \"eviction\", \"stabilization_start\", \"stabilization_end\"",
+                    "type": "string"
+                },
+                "gpu_indices": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "memory_mb": {
+                    "type": "integer"
+                },
+                "model_name": {
+                    "type": "string"
+                },
+                "runtime": {
+                    "type": "string"
+                },
+                "slot_id": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            }
+        },
         "types.Secret": {
             "type": "object",
             "properties": {
@@ -6693,6 +8774,62 @@
                     "items": {
                         "type": "integer"
                     }
+                }
+            }
+        },
+        "types.ServerConfigForFrontend": {
+            "type": "object",
+            "properties": {
+                "apps_enabled": {
+                    "type": "boolean"
+                },
+                "billing_enabled": {
+                    "description": "Charging for usage",
+                    "type": "boolean"
+                },
+                "deployment_id": {
+                    "type": "string"
+                },
+                "disable_llm_call_logging": {
+                    "type": "boolean"
+                },
+                "eval_user_id": {
+                    "type": "string"
+                },
+                "filestore_prefix": {
+                    "description": "used to prepend onto raw filestore paths to download files\nthe filestore path will have the user info in it - i.e.\nit's a low level filestore path\nif we are using an object storage thing - then this URL\ncan be the prefix to the bucket",
+                    "type": "string"
+                },
+                "google_analytics_frontend": {
+                    "type": "string"
+                },
+                "latest_version": {
+                    "type": "string"
+                },
+                "license": {
+                    "$ref": "#/definitions/types.FrontendLicenseInfo"
+                },
+                "organizations_create_enabled_for_non_admins": {
+                    "type": "boolean"
+                },
+                "rudderstack_data_plane_url": {
+                    "type": "string"
+                },
+                "rudderstack_write_key": {
+                    "type": "string"
+                },
+                "sentry_dsn_frontend": {
+                    "type": "string"
+                },
+                "stripe_enabled": {
+                    "description": "Stripe top-ups enabled",
+                    "type": "boolean"
+                },
+                "tools_enabled": {
+                    "type": "boolean"
+                },
+                "version": {
+                    "type": "string"
                 }
             }
         },
@@ -7068,26 +9205,6 @@
                 "SessionTypeImage"
             ]
         },
-        "types.SessionsList": {
-            "type": "object",
-            "properties": {
-                "counter": {
-                    "description": "the total number of sessions that match the query",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.Counter"
-                        }
-                    ]
-                },
-                "sessions": {
-                    "description": "the list of sessions",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.SessionSummary"
-                    }
-                }
-            }
-        },
         "types.SkillDefinition": {
             "type": "object",
             "properties": {
@@ -7286,6 +9403,36 @@
                 "arguments": {
                     "type": "object",
                     "additionalProperties": true
+                }
+            }
+        },
+        "types.SystemSettingsRequest": {
+            "type": "object",
+            "properties": {
+                "huggingface_token": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SystemSettingsResponse": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "string"
+                },
+                "huggingface_token_set": {
+                    "description": "Sensitive fields are masked",
+                    "type": "boolean"
+                },
+                "huggingface_token_source": {
+                    "description": "\"database\", \"environment\", or \"none\"",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "updated": {
+                    "type": "string"
                 }
             }
         },
@@ -7510,6 +9657,10 @@
                 "markdown_post_processing": {
                     "description": "If true, the browser will return the HTML as markdown",
                     "type": "boolean"
+                },
+                "process_output": {
+                    "description": "If true, the browser will process the output of the tool call before returning it to the top loop. Useful for skills that return structured data such as Browser,",
+                    "type": "boolean"
                 }
             }
         },
@@ -7542,6 +9693,9 @@
                 "gptscript": {
                     "$ref": "#/definitions/types.ToolGPTScriptConfig"
                 },
+                "mcp": {
+                    "$ref": "#/definitions/types.ToolMCPClientConfig"
+                },
                 "web_search": {
                     "$ref": "#/definitions/types.ToolWebSearchConfig"
                 },
@@ -7570,6 +9724,35 @@
                 },
                 "script_url": {
                     "description": "URL to download the script",
+                    "type": "string"
+                }
+            }
+        },
+        "types.ToolMCPClientConfig": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mcp.Tool"
+                    }
+                },
+                "url": {
                     "type": "string"
                 }
             }
@@ -7949,6 +10132,48 @@
                 },
                 "user": {
                     "$ref": "#/definitions/types.User"
+                }
+            }
+        },
+        "types.Wallet": {
+            "type": "object",
+            "properties": {
+                "balance": {
+                    "type": "number"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "org_id": {
+                    "description": "If belongs to an organization",
+                    "type": "string"
+                },
+                "stripe_customer_id": {
+                    "type": "string"
+                },
+                "stripe_subscription_id": {
+                    "type": "string"
+                },
+                "subscription_created": {
+                    "type": "integer"
+                },
+                "subscription_current_period_end": {
+                    "type": "integer"
+                },
+                "subscription_current_period_start": {
+                    "type": "integer"
+                },
+                "subscription_status": {
+                    "$ref": "#/definitions/stripe.SubscriptionStatus"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
                 }
             }
         },

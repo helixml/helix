@@ -8,11 +8,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -63,7 +66,7 @@ func (apiServer *HelixAPIServer) sessionLoader(req *http.Request, writeMode bool
 // @Summary Get a session by ID
 // @Description Get a session by ID
 // @Tags    sessions
-// @Success 200 {array} types.Session
+// @Success 200 {object} types.Session
 // @Param id path string true "Session ID"
 // @Router /api/v1/sessions/{id} [get]
 // @Security BearerAuth
@@ -103,57 +106,61 @@ func (apiServer *HelixAPIServer) getSession(_ http.ResponseWriter, req *http.Req
 // @Summary List sessions
 // @Description List sessions
 // @Tags    sessions
-// @Success 200 {object} types.SessionsList
+// @Param   page            query    int     false  "Page number"
+// @Param   page_size       query    int     false  "Page size"
+// @Param   org_id				  query    string  false  "Organization slug or ID"
+// @Param   search          query    string  false  "Search sessions by name"
+// @Success 200 {object} types.PaginatedSessionsList
 // @Router /api/v1/sessions [get]
 // @Security BearerAuth
-func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.Request) (*types.SessionsList, error) {
+func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.Request) (*types.PaginatedSessionsList, error) {
 	ctx := req.Context()
 	user := getRequestUser(req)
 
-	query := store.GetSessionsQuery{}
+	query := store.ListSessionsQuery{
+		Search: req.URL.Query().Get("search"),
+	}
 	query.Owner = user.ID
 	query.OwnerType = user.Type
 
 	// Extract organization_id query parameter if present
-	organizationID := req.URL.Query().Get("organization_id")
-	if organizationID != "" {
-		// Verify the user has access to the organization
-		_, err := apiServer.authorizeOrgMember(ctx, user, organizationID)
+	orgID := req.URL.Query().Get("org_id")
+	if orgID != "" {
+		// Lookup org
+		org, err := apiServer.lookupOrg(ctx, orgID)
 		if err != nil {
-			return nil, fmt.Errorf("unauthorized: %w", err)
+			return nil, system.NewHTTPError404(err.Error())
 		}
 
-		query.OrganizationID = organizationID
+		orgID = org.ID
+
+		_, err = apiServer.authorizeOrgMember(ctx, user, orgID)
+		if err != nil {
+			return nil, system.NewHTTPError403(err.Error())
+		}
+
+		query.OrganizationID = orgID
 	} else {
 		// When no organization is specified, we only want personal sessions
 		// Setting empty string explicitly ensures we only get sessions with no organization
 		query.OrganizationID = ""
 	}
 
-	// Extract offset and limit values from query parameters
-	offsetStr := req.URL.Query().Get("offset")
-	limitStr := req.URL.Query().Get("limit")
-
-	// Convert offset and limit values to integers
-	offset, err := strconv.Atoi(offsetStr)
-	if err != nil {
-		offset = 0 // Default value if offset is not provided or conversion fails
+	// Parse query parameters
+	page, err := strconv.Atoi(req.URL.Query().Get("page"))
+	if err != nil || page < 1 {
+		page = 0
 	}
 
-	limit, err := strconv.Atoi(limitStr)
-	if err != nil {
-		limit = 0 // Default value if limit is not provided or conversion fails
+	pageSize, err := strconv.Atoi(req.URL.Query().Get("page_size"))
+	if err != nil || pageSize < 1 {
+		pageSize = 50 // Default page size
 	}
 
-	query.Offset = offset
-	query.Limit = limit
+	query.Page = page
+	query.PerPage = pageSize
 
-	sessions, err := apiServer.Store.GetSessions(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	counter, err := apiServer.Store.GetSessionsCounter(ctx, query)
+	sessions, totalCount, err := apiServer.Store.ListSessions(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -168,12 +175,22 @@ func (apiServer *HelixAPIServer) listSessions(_ http.ResponseWriter, req *http.R
 		sessionSummaries = append(sessionSummaries, summary)
 	}
 
-	return &types.SessionsList{
-		Sessions: sessionSummaries,
-		Counter:  counter,
+	return &types.PaginatedSessionsList{
+		Sessions:   sessionSummaries,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalCount: totalCount,
+		TotalPages: int(math.Ceil(float64(totalCount) / float64(pageSize))),
 	}, nil
 }
 
+// getConfig godoc
+// @Summary Get config
+// @Description Get config
+// @Tags    config
+// @Success 200 {object} types.ServerConfigForFrontend
+// @Router /api/v1/config [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerConfigForFrontend, error) {
 	filestorePrefix := ""
 
@@ -222,6 +239,7 @@ func (apiServer *HelixAPIServer) getConfig(ctx context.Context) (types.ServerCon
 	config := types.ServerConfigForFrontend{
 		FilestorePrefix:                        filestorePrefix,
 		StripeEnabled:                          apiServer.Stripe.Enabled(),
+		BillingEnabled:                         apiServer.Cfg.Stripe.BillingEnabled,
 		SentryDSNFrontend:                      apiServer.Cfg.Janitor.SentryDsnFrontend,
 		GoogleAnalyticsFrontend:                apiServer.Cfg.Janitor.GoogleAnalyticsFrontend,
 		EvalUserID:                             apiServer.Cfg.WebServer.EvalUserID,
@@ -750,7 +768,56 @@ func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
 // @Router /api/v1/dashboard [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) dashboard(_ http.ResponseWriter, req *http.Request) (*types.DashboardData, error) {
-	return apiServer.Controller.GetDashboardData(req.Context())
+	data, err := apiServer.Controller.GetDashboardData(req.Context())
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
+}
+
+// getSchedulerHeartbeats godoc
+// @Summary Get scheduler goroutine heartbeat status
+// @Description Get the health status of all scheduler goroutines
+// @Tags    dashboard
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/scheduler/heartbeats [get]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) getSchedulerHeartbeats(_ http.ResponseWriter, req *http.Request) (interface{}, error) {
+	return apiServer.Controller.GetSchedulerHeartbeats(req.Context())
+}
+
+// deleteSlot godoc
+// @Summary Delete a slot from scheduler state
+// @Description Delete a slot from the scheduler's desired state, allowing reconciliation to clean it up from the runner
+// @Tags    dashboard
+// @Param   slot_id path string true "Slot ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/slots/{slot_id} [delete]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) deleteSlot(_ http.ResponseWriter, req *http.Request) (interface{}, error) {
+	vars := mux.Vars(req)
+	slotID := vars["slot_id"]
+
+	if slotID == "" {
+		return nil, fmt.Errorf("slot_id is required")
+	}
+
+	// Parse slot ID as UUID
+	slotUUID, err := uuid.Parse(slotID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid slot_id format: %w", err)
+	}
+	// Delete the slot from scheduler's desired state
+	err = apiServer.Controller.DeleteSlotFromScheduler(req.Context(), slotUUID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete slot: %w", err)
+	}
+
+	return map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Slot %s deleted from scheduler state", slotID),
+	}, nil
 }
 
 // deleteSession godoc
@@ -770,6 +837,47 @@ func (apiServer *HelixAPIServer) deleteSession(_ http.ResponseWriter, req *http.
 	return system.DefaultController(apiServer.Store.DeleteSession(req.Context(), session.ID))
 }
 
+// updateSession godoc
+// @Summary Update a session by ID
+// @Description Update a session by ID
+// @Tags    sessions
+// @Param id path string true "Session ID"
+// @Param request body types.Session true "Session to update"
+// @Success 200 {object} types.Session
+// @Router /api/v1/sessions/{id} [put]
+// @Security BearerAuth
+func (apiServer *HelixAPIServer) updateSession(_ http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
+	session, httpError := apiServer.sessionLoader(req, true)
+	if httpError != nil {
+		return nil, httpError
+	}
+
+	var update *types.Session
+
+	err := json.NewDecoder(req.Body).Decode(&update)
+	if err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
+
+	session.Name = update.Name
+	session.Provider = update.Provider
+	session.ModelName = update.ModelName
+
+	updated, err := apiServer.Store.UpdateSession(req.Context(), *session)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return updated, nil
+}
+
+// createAPIKey godoc
+// @Summary Create a new API key
+// @Description Create a new API key
+// @Tags    api-keys
+// @Param request body map[string]interface{} true "Request body with name and type"
+// @Success 200 {string} string "API key"
+// @Router /api/v1/api_keys [post]
 func (apiServer *HelixAPIServer) createAPIKey(_ http.ResponseWriter, req *http.Request) (string, error) {
 	newAPIKey := &types.ApiKey{}
 	name := req.URL.Query().Get("name")
@@ -833,6 +941,15 @@ func containsType(keyType string, typesParam string) bool {
 	return false
 }
 
+// getAPIKeys godoc
+// @Summary Get API keys
+// @Description Get API keys
+// @Tags    api-keys
+// @Param types query string false "Filter by types (comma-separated list)"
+// @Param app_id query string false "Filter by app ID"
+// @Success 200 {array} types.ApiKey
+// @Router /api/v1/api_keys [get]
+// @Security BearerAuth
 func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Request) ([]*types.ApiKey, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()
@@ -861,9 +978,33 @@ func (apiServer *HelixAPIServer) getAPIKeys(_ http.ResponseWriter, req *http.Req
 		filteredAPIKeys = append(filteredAPIKeys, key)
 	}
 	apiKeys = filteredAPIKeys
+
+	// If filter is missing, we are getting user keys. If we haven't got any. create a new one.
+	if typesParam == "" && appIDParam == "" && len(apiKeys) == 0 {
+		createdKey, err := apiServer.Controller.CreateAPIKey(ctx, user, &types.ApiKey{
+			Created: time.Now(),
+			Key:     uuid.New().String(),
+			Name:    "API Key",
+			Type:    types.APIkeytypeAPI,
+			Owner:   user.ID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		apiKeys = append(apiKeys, createdKey)
+		return apiKeys, nil
+	}
+
 	return apiKeys, nil
 }
 
+// deleteAPIKey godoc
+// @Summary Delete an API key
+// @Description Delete an API key
+// @Tags    api-keys
+// @Param key query string true "API key to delete"
+// @Success 200 {string} string "API key"
+// @Router /api/v1/api_keys [delete]
 func (apiServer *HelixAPIServer) deleteAPIKey(_ http.ResponseWriter, req *http.Request) (string, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()
@@ -886,31 +1027,4 @@ func (apiServer *HelixAPIServer) checkAPIKey(_ http.ResponseWriter, req *http.Re
 		return nil, err
 	}
 	return key, nil
-}
-
-func (apiServer *HelixAPIServer) subscriptionCreate(_ http.ResponseWriter, req *http.Request) (string, error) {
-	user := getRequestUser(req)
-
-	return apiServer.Stripe.GetCheckoutSessionURL(user.ID, user.Email)
-}
-
-func (apiServer *HelixAPIServer) subscriptionManage(_ http.ResponseWriter, req *http.Request) (string, error) {
-	user := getRequestUser(req)
-	ctx := req.Context()
-
-	userMeta, err := apiServer.Store.GetUserMeta(ctx, user.ID)
-	if err != nil {
-		return "", err
-	}
-	if userMeta == nil {
-		return "", fmt.Errorf("no such user")
-	}
-	if userMeta.Config.StripeCustomerID == "" {
-		return "", fmt.Errorf("no stripe customer id found")
-	}
-	return apiServer.Stripe.GetPortalSessionURL(userMeta.Config.StripeCustomerID)
-}
-
-func (apiServer *HelixAPIServer) subscriptionWebhook(res http.ResponseWriter, req *http.Request) {
-	apiServer.Stripe.ProcessWebhook(res, req)
 }

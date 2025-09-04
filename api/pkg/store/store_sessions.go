@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-func (s *PostgresStore) GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error) {
+func (s *PostgresStore) ListSessions(ctx context.Context, query ListSessionsQuery) ([]*types.Session, int64, error) {
 	// Start with the basic query builder
 	q := s.gdb.WithContext(ctx).Model(&types.Session{})
 
@@ -34,52 +34,35 @@ func (s *PostgresStore) GetSessions(ctx context.Context, query GetSessionsQuery)
 	// Add ordering
 	q = q.Order("created DESC")
 
-	// Add pagination
-	if query.Limit > 0 {
-		q = q.Limit(query.Limit)
+	if query.PerPage == 0 {
+		query.PerPage = -1
 	}
 
-	if query.Offset > 0 {
-		q = q.Offset(query.Offset)
+	var offset int
+
+	if query.Page > 0 {
+		offset = (query.Page - 1) * query.PerPage
+	}
+
+	if query.Search != "" {
+		q = q.Where("name LIKE ?", "%"+query.Search+"%")
+	}
+
+	totalCount := int64(0)
+
+	err := q.Count(&totalCount).Error
+	if err != nil {
+		return nil, 0, err
 	}
 
 	// Execute query and return results
 	var sessions []*types.Session
-	err := q.Find(&sessions).Error
+	err = q.Offset(offset).Limit(query.PerPage).Find(&sessions).Error
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return sessions, nil
-}
-
-func (s *PostgresStore) GetSessionsCounter(ctx context.Context, query GetSessionsQuery) (*types.Counter, error) {
-	// Start with the basic query builder
-	q := s.gdb.WithContext(ctx).Model(&types.Session{})
-
-	// Add owner and owner type conditions
-	q = q.Where("owner = ? AND owner_type = ?", query.Owner, query.OwnerType)
-
-	// Add parent session condition if specified
-	if query.ParentSession != "" {
-		q = q.Where("parent_session = ?", query.ParentSession)
-	}
-
-	if query.OrganizationID != "" {
-		q = q.Where("organization_id = ?", query.OrganizationID)
-	} else {
-		q = q.Where("organization_id IS NULL OR organization_id = ''")
-	}
-
-	var counter int64
-	err := q.Count(&counter).Error
-	if err != nil {
-		return nil, err
-	}
-
-	return &types.Counter{
-		Count: counter,
-	}, nil
+	return sessions, totalCount, nil
 }
 
 func (s *PostgresStore) CreateSession(ctx context.Context, session types.Session) (*types.Session, error) {

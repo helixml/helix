@@ -47,6 +47,14 @@ func (suite *ControllerSuite) SetupSuite() {
 
 	suite.ctx = context.Background()
 	suite.store = store.NewMockStore(ctrl)
+	// Add slot operation expectations for scheduler
+	suite.store.EXPECT().ListAllSlots(gomock.Any()).Return([]*types.RunnerSlot{}, nil).AnyTimes()
+	suite.store.EXPECT().CreateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	suite.store.EXPECT().UpdateSlot(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	suite.store.EXPECT().DeleteSlot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	suite.store.EXPECT().ListModels(gomock.Any(), gomock.Any()).Return([]*types.Model{}, nil).AnyTimes()
+	suite.store.EXPECT().GetEffectiveSystemSettings(gomock.Any()).Return(&types.SystemSettings{}, nil).AnyTimes()
+
 	ps, err := pubsub.New(&config.ServerConfig{
 		PubSub: config.PubSub{
 			Provider: string(pubsub.ProviderMemory),
@@ -76,12 +84,14 @@ func (suite *ControllerSuite) SetupSuite() {
 	cfg.Inference.Provider = string(types.ProviderTogetherAI)
 
 	runnerController, err := scheduler.NewRunnerController(suite.ctx, &scheduler.RunnerControllerConfig{
-		PubSub: suite.pubsub,
-		FS:     filestoreMock,
+		PubSub:        suite.pubsub,
+		FS:            filestoreMock,
+		HealthChecker: &scheduler.MockHealthChecker{},
 	})
 	suite.NoError(err)
 	schedulerParams := &scheduler.Params{
 		RunnerController: runnerController,
+		Store:            suite.store,
 	}
 	scheduler, err := scheduler.NewScheduler(suite.ctx, cfg, schedulerParams)
 	suite.NoError(err)
@@ -133,6 +143,101 @@ func (suite *ControllerSuite) Test_BasicInference() {
 			},
 		},
 	}, resp)
+}
+
+func (suite *ControllerSuite) Test_BasicInference_WithBalanceCheck_Success() {
+	req := openai.ChatCompletionRequest{
+		Model: openai.GPT4TurboPreview,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: "Hello",
+			},
+		},
+	}
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
+
+	suite.openAiClient.EXPECT().CreateChatCompletion(suite.ctx, gomock.Any()).Return(openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{
+					Content: "Hello",
+				},
+			},
+		},
+	}, nil)
+
+	suite.controller.Options.Config.Stripe.BillingEnabled = true
+	suite.controller.Options.Config.Stripe.MinimumInferenceBalance = 0.01
+
+	suite.store.EXPECT().GetWalletByUser(suite.ctx, suite.user.ID).Return(&types.Wallet{
+		Balance: 0.02,
+	}, nil)
+
+	resp, _, err := suite.controller.ChatCompletion(suite.ctx, suite.user, req, &ChatCompletionOptions{})
+	suite.NoError(err)
+	suite.Equal(&openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{
+					Content: "Hello",
+				},
+			},
+		},
+	}, resp)
+}
+
+func (suite *ControllerSuite) Test_BasicInference_WithBalanceCheck_InsufficientBalance() {
+	req := openai.ChatCompletionRequest{
+		Model: openai.GPT4TurboPreview,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: "Hello",
+			},
+		},
+	}
+
+	suite.controller.Options.Config.Stripe.BillingEnabled = true
+	suite.controller.Options.Config.Stripe.MinimumInferenceBalance = 0.01
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
+
+	suite.store.EXPECT().GetWalletByUser(suite.ctx, suite.user.ID).Return(&types.Wallet{
+		Balance: 0.009,
+	}, nil)
+
+	resp, _, err := suite.controller.ChatCompletion(suite.ctx, suite.user, req, &ChatCompletionOptions{})
+	suite.Error(err)
+	suite.Nil(resp)
+}
+
+func (suite *ControllerSuite) Test_BasicInference_WithBalanceCheck_Org_InsufficientBalance() {
+	req := openai.ChatCompletionRequest{
+		Model: openai.GPT4TurboPreview,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: "Hello",
+			},
+		},
+	}
+
+	suite.controller.Options.Config.Stripe.BillingEnabled = true
+	suite.controller.Options.Config.Stripe.MinimumInferenceBalance = 0.01
+
+	suite.openAiClient.EXPECT().BillingEnabled().Return(true)
+
+	suite.store.EXPECT().GetWalletByOrg(suite.ctx, "org_123").Return(&types.Wallet{
+		Balance: 0.009,
+	}, nil)
+
+	resp, _, err := suite.controller.ChatCompletion(suite.ctx, suite.user, req, &ChatCompletionOptions{
+		OrganizationID: "org_123",
+	})
+	suite.Error(err)
+	suite.Nil(resp)
 }
 
 func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge() {

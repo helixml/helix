@@ -72,7 +72,8 @@ type Providers struct {
 	Anthropic                 Anthropic
 	Helix                     Helix
 	VLLM                      VLLM
-	EnableCustomUserProviders bool `envconfig:"ENABLE_CUSTOM_USER_PROVIDERS" default:"false"` // Allow users to configure their own providers, if "false" then only admins can add them
+	EnableCustomUserProviders bool   `envconfig:"ENABLE_CUSTOM_USER_PROVIDERS" default:"false"` // Allow users to configure their own providers, if "false" then only admins can add them
+	DynamicProviders          string `envconfig:"DYNAMIC_PROVIDERS"`                            // Format: "provider1:api_key1:base_url1,provider2:api_key2:base_url2"
 }
 
 type OpenAI struct {
@@ -122,7 +123,7 @@ type Tools struct {
 
 	// Suggestions based on provider (now set by INFERENCE_PROVIDER):
 	// - OpenAI: gpt-4-1106-preview
-	// - Together AI: meta-llama/Llama-3-8b-chat-hf
+	// - Together AI: openai/gpt-oss-20b
 	// - Helix: llama3:instruct
 	Model string `envconfig:"TOOLS_MODEL" default:"llama3:instruct"`
 
@@ -197,10 +198,15 @@ type Janitor struct {
 }
 
 type Stripe struct {
+	BillingEnabled          bool    `envconfig:"STRIPE_BILLING_ENABLED" default:"false" description:"Whether to enable billing."`
+	MinimumInferenceBalance float64 `envconfig:"STRIPE_MINIMUM_INFERENCE_BALANCE" default:"0.01" description:"Minimum balance required for an inference call."`
+	InitialBalance          float64 `envconfig:"STRIPE_INITIAL_BALANCE" default:"10" description:"The initial balance for the wallet"`
+
 	AppURL               string
 	SecretKey            string `envconfig:"STRIPE_SECRET_KEY" description:"The secret key for stripe."`
 	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET" description:"The webhook signing secret for stripe."`
-	PriceLookupKey       string `envconfig:"STRIPE_PRICE_LOOKUP_KEY" description:"The lookup key for the stripe price."`
+	PriceLookupKey       string `envconfig:"STRIPE_PRICE_LOOKUP_KEY" default:"helix-subscription" description:"The lookup key for the stripe price."`
+	OrgPriceLookupKey    string `envconfig:"STRIPE_ORG_PRICE_LOOKUP_KEY" default:"helix-org-subscription" description:"The lookup key for the stripe price."`
 }
 
 type DataPrepText struct {
@@ -381,7 +387,9 @@ type WebServer struct {
 	// LocalFilestorePath string `envconfig:"LOCAL_FILESTORE_PATH"`
 
 	// Path to UNIX socket for serving embeddings without auth
-	EmbeddingsSocket string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`
+	// TODO: naming
+	EmbeddingsSocket       string `envconfig:"HELIX_EMBEDDINGS_SOCKET" description:"Path to UNIX socket for serving embeddings without auth. If set, a UNIX socket server will be started."`
+	EmbeddingsSocketUserID string `envconfig:"HELIX_EMBEDDINGS_SOCKET_USER_ID" description:"The user ID to use for the UNIX socket server."`
 
 	ModelsCacheTTL time.Duration `envconfig:"MODELS_CACHE_TTL" default:"1m" description:"The TTL for the models cache."`
 }
@@ -460,7 +468,7 @@ type FineTuning struct {
 	Enabled  bool           `envconfig:"FINETUNING_ENABLED" default:"true" description:"Enable QA pairs."` // Enable/disable QA pairs for the server
 	Provider types.Provider `envconfig:"FINETUNING_PROVIDER" default:"togetherai" description:"Which LLM provider to use for QA pairs."`
 	// Suggestions based on provider:
-	// - Together AI: meta-llama/Llama-3-8b-chat-hf
+	// - Together AI: openai/gpt-oss-20b
 	// - Helix: llama3:instruct
 	QAPairGenModel string `envconfig:"FINETUNING_QA_PAIR_GEN_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1" description:"Which LLM model to use for QA pairs."`
 }
@@ -517,5 +525,5 @@ type SSL struct {
 }
 
 type Organizations struct {
-	CreateEnabledForNonAdmins bool `envconfig:"ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS" default:"false"`
+	CreateEnabledForNonAdmins bool `envconfig:"ORGANIZATIONS_CREATE_ENABLED_FOR_NON_ADMINS" default:"true"`
 }

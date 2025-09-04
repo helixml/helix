@@ -15,7 +15,6 @@ import (
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/oauth"
-	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
@@ -27,22 +26,22 @@ import (
 )
 
 type Options struct {
-	Config               *config.ServerConfig
-	Store                store.Store
-	PubSub               pubsub.PubSub
-	Extractor            extract.Extractor
-	RAG                  rag.RAG
-	GPTScriptExecutor    gptscript.Executor
-	Filestore            filestore.FileStore
-	Janitor              *janitor.Janitor
-	Notifier             notification.Notifier
-	ProviderManager      manager.ProviderManager // OpenAI client provider
-	DataprepOpenAIClient openai.Client
-	Scheduler            *scheduler.Scheduler
-	RunnerController     *scheduler.RunnerController
-	OAuthManager         *oauth.Manager
-	Browser              *browser.Browser
-	SearchProvider       searxng.SearchProvider
+	Config            *config.ServerConfig
+	Store             store.Store
+	PubSub            pubsub.PubSub
+	Extractor         extract.Extractor
+	RAG               rag.RAG
+	GPTScriptExecutor gptscript.Executor
+	Filestore         filestore.FileStore
+	Janitor           *janitor.Janitor
+	Notifier          notification.Notifier
+	ProviderManager   manager.ProviderManager // OpenAI client provider
+	// DataprepOpenAIClient openai.Client
+	Scheduler        *scheduler.Scheduler
+	RunnerController *scheduler.RunnerController
+	OAuthManager     *oauth.Manager
+	Browser          *browser.Browser
+	SearchProvider   searxng.SearchProvider
 }
 
 type Controller struct {
@@ -52,7 +51,7 @@ type Controller struct {
 
 	providerManager manager.ProviderManager
 
-	dataprepOpenAIClient openai.Client
+	// dataprepOpenAIClient openai.Client
 
 	newRagClient func(settings *types.RAGSettings) rag.RAG
 
@@ -71,6 +70,9 @@ type Controller struct {
 	// this is done in-memory to ensure the status is always live
 	triggerStatuses   map[TriggerStatusKey]types.TriggerStatus
 	triggerStatusesMu *sync.RWMutex
+
+	// Memory estimation service for calculating model memory requirements
+	memoryEstimationService *MemoryEstimationService
 }
 
 type TriggerStatusKey struct {
@@ -104,11 +106,10 @@ func NewController(
 	}
 
 	controller := &Controller{
-		Ctx:                  ctx,
-		Options:              options,
-		providerManager:      options.ProviderManager,
-		dataprepOpenAIClient: options.DataprepOpenAIClient,
-		models:               models,
+		Ctx:             ctx,
+		Options:         options,
+		providerManager: options.ProviderManager,
+		models:          models,
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
 			return rag.NewLlamaindex(settings)
 		},
@@ -135,11 +136,60 @@ func NewController(
 	// Initialize OAuth manager and stores for the ChainStrategy planner
 	tools.InitChainStrategyOAuth(planner, options.OAuthManager, options.Store, options.Store)
 
+	// Initialize memory estimation service
+	if options.RunnerController != nil {
+		modelProvider := NewStoreModelProvider(options.Store)
+		controller.memoryEstimationService = NewMemoryEstimationService(
+			options.RunnerController, // Implements RunnerSender interface
+			modelProvider,            // Wrapped store implementing ModelProvider interface
+		)
+
+		// Start background cache refresh
+		// controller.memoryEstimationService.StartBackgroundCacheRefresh(ctx) // DISABLED FOR DEBUGGING
+		// controller.memoryEstimationService.StartCacheCleanup(ctx) // DISABLED FOR DEBUGGING
+	}
+
 	return controller, nil
 }
 
 func (c *Controller) Initialize() error {
 	return nil
+}
+
+// Close cleans up all resources used by the controller
+func (c *Controller) Close() error {
+	// Stop memory estimation service
+	if c.memoryEstimationService != nil {
+		c.memoryEstimationService.StopBackgroundCacheRefresh()
+	}
+
+	// Close browser if present
+	if c.Options.Browser != nil {
+		c.Options.Browser.Close()
+	}
+
+	// Close PubSub connections if present
+	if c.Options.PubSub != nil {
+		if natsClient, ok := c.Options.PubSub.(*pubsub.Nats); ok {
+			natsClient.Close()
+		}
+	}
+
+	// Close store connections if present
+	if c.Options.Store != nil {
+		if closer, ok := c.Options.Store.(interface{ Close() error }); ok {
+			if err := closer.Close(); err != nil {
+				return fmt.Errorf("failed to close store: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// GetMemoryEstimationService returns the memory estimation service
+func (c *Controller) GetMemoryEstimationService() *MemoryEstimationService {
+	return c.memoryEstimationService
 }
 
 func (c *Controller) SetTriggerStatus(appID string, triggerType types.TriggerType, status types.TriggerStatus) {

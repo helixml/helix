@@ -49,6 +49,8 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
     // Extract assistant properties if available
     const assistant = app.config.helix.assistants?.[0]
     if (assistant) {
+      console.log('assistant', assistant.mcps);
+
       flatState.system_prompt = assistant.system_prompt
       flatState.provider = assistant.provider
       flatState.model = assistant.model
@@ -78,6 +80,7 @@ export const getAppFlatState = (app: IApp): IAppFlatState => {
       flatState.apiTools = assistant.apis || []
       flatState.zapierTools = assistant.zapier || []
       flatState.gptscriptTools = assistant.gptscripts || []
+      flatState.mcpTools = assistant.mcps || []
       flatState.is_actionable_template = assistant.is_actionable_template
       flatState.is_actionable_history_length = assistant.is_actionable_history_length
       flatState.browserTool = assistant.browser || undefined

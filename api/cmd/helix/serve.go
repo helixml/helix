@@ -69,7 +69,7 @@ func NewServeConfig() (*config.ServerConfig, error) {
 	return &serverConfig, nil
 }
 
-func newServeCmd() *cobra.Command {
+func NewServeCmd() *cobra.Command {
 	serveConfig, err := NewServeConfig()
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create serve options")
@@ -219,6 +219,13 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
+	// Initialize dynamic providers from environment variable
+	err = postgresStore.InitializeDynamicProviders(ctx, cfg.Providers.DynamicProviders)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to initialize dynamic providers, continuing with startup")
+		// Don't fail the entire startup if dynamic providers fail to initialize
+	}
+
 	// Reset any running executions
 	err = postgresStore.ResetRunningExecutions(ctx)
 	if err != nil {
@@ -291,9 +298,19 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	var appController *controller.Controller
 
+	// Create memory estimation service for scheduler
+	memoryEstimationService := controller.NewMemoryEstimationService(
+		runnerController, // Implements RunnerSender interface
+		controller.NewStoreModelProvider(postgresStore), // Wrapped store implementing ModelProvider interface
+	)
+	// memoryEstimationService.StartBackgroundCacheRefresh(ctx) // DISABLED FOR DEBUGGING
+	// memoryEstimationService.StartCacheCleanup(ctx) // DISABLED FOR DEBUGGING
+
 	scheduler, err := scheduler.NewScheduler(ctx, cfg, &scheduler.Params{
-		RunnerController: runnerController,
-		QueueSize:        100,
+		RunnerController:        runnerController,
+		Store:                   postgresStore,
+		MemoryEstimationService: memoryEstimationService,
+		QueueSize:               100,
 		OnSchedulingErr: func(work *scheduler.Workload, err error) {
 			if appController != nil {
 				switch work.WorkloadType {
@@ -350,12 +367,15 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		logStores = append(logStores, logger.NewUsageLogger(postgresStore))
 	}
 
-	modelInfoProvider, err := model.NewBaseModelInfoProvider()
+	baseInfoProvider, err := model.NewBaseModelInfoProvider()
 	if err != nil {
 		return fmt.Errorf("failed to create model info provider: %w", err)
 	}
 
-	providerManager := manager.NewProviderManager(cfg, postgresStore, helixInference, modelInfoProvider, logStores...)
+	// Dynamic info providers allows overriding the base model prices and model information (defining Helix LLM prices)
+	dynamicInfoProvider := model.NewDynamicModelInfoProvider(postgresStore, baseInfoProvider)
+
+	providerManager := manager.NewProviderManager(cfg, postgresStore, helixInference, dynamicInfoProvider, logStores...)
 
 	// Connect the runner controller to the provider manager
 	providerManager.SetRunnerController(runnerController)
@@ -363,12 +383,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	// Will run async and watch for changes in the API keys, non-blocking
 	providerManager.StartRefresh(ctx)
-
-	dataprepOpenAIClient, err := createDataPrepOpenAIClient(cfg, helixInference)
-	if err != nil {
-		return err
-	}
-	dataprepOpenAIClient = logger.Wrap(cfg, cfg.FineTuning.Provider, dataprepOpenAIClient, modelInfoProvider, logStores...)
 
 	var ragClient rag.RAG
 
@@ -407,21 +421,20 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	})
 
 	controllerOptions := controller.Options{
-		Config:               cfg,
-		Store:                postgresStore,
-		PubSub:               ps,
-		RAG:                  ragClient,
-		Extractor:            extractor,
-		GPTScriptExecutor:    gse,
-		Filestore:            fs,
-		Janitor:              janitor,
-		Notifier:             notifier,
-		ProviderManager:      providerManager,
-		DataprepOpenAIClient: dataprepOpenAIClient,
-		Scheduler:            scheduler,
-		RunnerController:     runnerController,
-		Browser:              browserPool,
-		SearchProvider:       searchProvider,
+		Config:            cfg,
+		Store:             postgresStore,
+		PubSub:            ps,
+		RAG:               ragClient,
+		Extractor:         extractor,
+		GPTScriptExecutor: gse,
+		Filestore:         fs,
+		Janitor:           janitor,
+		Notifier:          notifier,
+		ProviderManager:   providerManager,
+		Scheduler:         scheduler,
+		RunnerController:  runnerController,
+		Browser:           browserPool,
+		SearchProvider:    searchProvider,
 	}
 
 	// Create the OAuth manager
@@ -460,9 +473,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	stripe := stripe.NewStripe(
 		cfg.Stripe,
-		func(eventType types.SubscriptionEventType, user types.StripeUser) error {
-			return appController.HandleSubscriptionEvent(eventType, user)
-		},
+		postgresStore,
 	)
 
 	// Initialize ping service if not disabled
@@ -493,7 +504,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		ps,
 		gse,
 		providerManager,
-		modelInfoProvider,
+		dynamicInfoProvider,
 		helixInference,
 		keycloakAuthenticator,
 		stripe,

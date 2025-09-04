@@ -2,10 +2,10 @@ import React, { createContext, useContext, ReactNode, useState, useCallback, use
 import ReconnectingWebSocket from 'reconnecting-websocket';
 import { IWebsocketEvent, WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE, WORKER_TASK_RESPONSE_TYPE_PROGRESS, ISessionChatRequest, ISessionType } from '../types';
 import useAccount from '../hooks/useAccount';
-import useSessions from '../hooks/useSessions';
 import { TypesInteraction, TypesMessage, TypesSession } from '../api/api';
-import { sessionStepsQueryKey } from '../services/sessionService';
+import { GET_SESSION_QUERY_KEY, SESSION_STEPS_QUERY_KEY } from '../services/sessionService';
 import { useQueryClient } from '@tanstack/react-query';
+import { invalidateSessionsQuery } from '../services/sessionService';
 
 interface NewInferenceParams {
   regenerate?: boolean;
@@ -44,7 +44,6 @@ export const useStreaming = (): StreamingContextType => {
 
 export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const account = useAccount();
-  const sessions = useSessions()
   const queryClient = useQueryClient();
   const [currentResponses, setCurrentResponses] = useState<Map<string, Partial<TypesInteraction>>>(new Map());
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -152,6 +151,23 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
     
     // If there's a session update with state changes
     if (parsedData.type === "session_update" && parsedData.session) {
+      const newInteractionCount = parsedData.session.interactions?.length || 0;
+
+      // Always reject session updates with 0 interactions - these are invalid
+      if (newInteractionCount === 0) {
+        return;
+      }
+
+      // Get current session data to compare interaction counts
+      const currentSessionData = queryClient.getQueryData(GET_SESSION_QUERY_KEY(currentSessionId)) as TypesSession | undefined;
+      if (currentSessionData && currentSessionData.interactions) {
+        const currentInteractionCount = currentSessionData.interactions.length;
+        // Reject updates with fewer interactions than current (stale updates)
+        if (newInteractionCount < currentInteractionCount) {
+          return;
+        }
+      }
+
       const lastInteraction = parsedData.session.interactions?.[parsedData.session.interactions.length - 1];
 
       if (!lastInteraction) return;
@@ -197,11 +213,12 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
         return
       }      
 
-      // Invalidate the stepInfos query
-      queryClient.invalidateQueries({ queryKey: sessionStepsQueryKey(currentSessionId) });
+      // Invalidate the session query
+      queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(currentSessionId) });
+      queryClient.invalidateQueries({ queryKey: SESSION_STEPS_QUERY_KEY(currentSessionId) });
       
       // Reload all sessions to refresh the name in the sidebar
-      sessions.loadSessions()
+      invalidateSessionsQuery(queryClient)
     };
 
     rws.addEventListener('message', messageHandler);
@@ -354,9 +371,13 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
             if (!line.trim()) continue;
             
             if (line.startsWith('data: ')) {
-              const data = line.slice(5);
+              const data = line.slice(5);              
               
-              if (data === '[DONE]') {
+              if (data.trim() === '[DONE]') {
+
+                // Invalidate the session query
+                queryClient.invalidateQueries({ queryKey: GET_SESSION_QUERY_KEY(sessionId) });
+                
                 if (sessionData?.id) {
                   // Final flush of any remaining content
                   flushMessageBuffer(sessionData.id);
@@ -462,6 +483,8 @@ export const StreamingContextProvider: React.FC<{ children: ReactNode }> = ({ ch
       if (!sessionData) {
         throw new Error('Failed to receive session data');
       }
+
+      console.log("streaming done")
 
       return sessionData;
 

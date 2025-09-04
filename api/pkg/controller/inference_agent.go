@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	agent "github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/agent/skill"
 	azuredevops "github.com/helixml/helix/api/pkg/agent/skill/azure_devops"
+	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/openai/transport"
@@ -118,6 +120,9 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 
 	// Get API skills
 	for _, assistantTool := range req.Assistant.Tools {
+
+		spew.Dump(assistantTool)
+
 		if assistantTool.ToolType == types.ToolTypeAPI {
 			// Use direct API skills instead of the skill context runner approach
 			// This allows the main agent to orchestrate API calls with other tools (Calculator, Currency_Exchange_Rates)
@@ -125,8 +130,13 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 			skills = append(skills, apiSkills...)
 		}
 
+		if assistantTool.ToolType == types.ToolTypeMCP {
+			fmt.Println("Adding MCP skills")
+			skills = append(skills, mcp.NewDirectMCPClientSkills(assistantTool)...)
+		}
+
 		if assistantTool.ToolType == types.ToolTypeBrowser {
-			skills = append(skills, skill.NewBrowserSkill(assistantTool.Config.Browser, c.Options.Browser))
+			skills = append(skills, skill.NewBrowserSkill(assistantTool.Config.Browser, c.Options.Browser, llm))
 		}
 
 		if assistantTool.ToolType == types.ToolTypeCalculator {
@@ -145,8 +155,11 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 			// TODO: add support for granular skill selection
 			skills = append(skills, azuredevops.NewCreateThreadSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
 			skills = append(skills, azuredevops.NewReplyToCommentSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
+			skills = append(skills, azuredevops.NewPullRequestDiffSkill(assistantTool.Config.AzureDevOps.OrganizationURL, assistantTool.Config.AzureDevOps.PersonalAccessToken))
 		}
 	}
+
+	spew.Dump(skills)
 
 	// Get assistant knowledge
 	knowledges, err := c.Options.Store.ListKnowledge(ctx, &store.ListKnowledgeQuery{
@@ -157,13 +170,29 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		return nil, fmt.Errorf("failed to list knowledges for app %s: %w", appID, err)
 	}
 
+	knowledgeMemory := agent.NewMemoryBlock()
+
 	for _, knowledge := range knowledges {
-		ragClient, err := c.GetRagClient(ctx, knowledge)
-		if err != nil {
-			log.Error().Err(err).Msgf("error getting RAG client for knowledge %s", knowledge.ID)
-			return nil, fmt.Errorf("failed to get RAG client for knowledge %s: %w", knowledge.ID, err)
+		switch {
+		// Filestore and Web are presented to the agents as a tool that
+		// can be used to search for knowledge
+		case knowledge.Source.Filestore != nil, knowledge.Source.Web != nil:
+			ragClient, err := c.GetRagClient(ctx, knowledge)
+			if err != nil {
+				log.Error().Err(err).Msgf("error getting RAG client for knowledge %s", knowledge.ID)
+				return nil, fmt.Errorf("failed to get RAG client for knowledge %s: %w", knowledge.ID, err)
+			}
+			skills = append(skills, skill.NewKnowledgeSkill(ragClient, knowledge))
+		case knowledge.Source.Text != nil:
+			// knowledgeBlocks = append(knowledgeBlocks, *knowledge.Source.Text)
+
+			knowledgeBlock := agent.NewMemoryBlock()
+			knowledgeBlock.AddString("name", knowledge.Name)
+			knowledgeBlock.AddString("description", knowledge.Description)
+			knowledgeBlock.AddString("contents", *knowledge.Source.Text)
+
+			knowledgeMemory.AddBlock("knowledge", knowledgeBlock)
 		}
-		skills = append(skills, skill.NewKnowledgeSkill(ragClient, knowledge))
 	}
 
 	helixAgent := agent.NewAgent(
@@ -191,7 +220,7 @@ func (c *Controller) runAgent(ctx context.Context, req *runAgentRequest) (*agent
 		}
 	}
 
-	session := agent.NewSession(ctx, c.stepInfoEmitter, llm, mem, helixAgent, messageHistory, agent.Meta{
+	session := agent.NewSession(ctx, c.stepInfoEmitter, llm, mem, knowledgeMemory, helixAgent, messageHistory, agent.Meta{
 		AppID:         appID,
 		UserID:        req.User.ID,
 		UserEmail:     req.User.Email,
