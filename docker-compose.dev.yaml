@@ -366,10 +366,47 @@ services:
         extra_hosts:
             - "host.docker.internal:host-gateway"
 
+    # Apache Guacamole for web-based RDP access
+    guacamole-db:
+        image: postgres:15
+        restart: always
+        environment:
+            - POSTGRES_DB=guacamole_db
+            - POSTGRES_USER=guacamole_user
+            - POSTGRES_PASSWORD=guacamole_pass
+        volumes:
+            - helix-guacamole-db:/var/lib/postgresql/data
+            # Initialize Guacamole database schema
+            - ./scripts/guacamole-initdb.sql:/docker-entrypoint-initdb.d/initdb.sql
+
+    guacamole:
+        image: guacamole/guacd:1.5.4
+        restart: always
+        # ports:
+        #   - 4822:4822
+
+    guacamole-client:
+        image: guacamole/guacamole:1.5.4
+        restart: always
+        ports:
+            - ${GUACAMOLE_PORT:-8090}:8080
+        environment:
+            - GUACD_HOSTNAME=guacamole
+            - GUACD_PORT=4822
+            - POSTGRES_HOSTNAME=guacamole-db
+            - POSTGRES_PORT=5432
+            - POSTGRES_DATABASE=guacamole_db
+            - POSTGRES_USER=guacamole_user
+            - POSTGRES_PASSWORD=guacamole_pass
+        depends_on:
+            - guacamole-db
+            - guacamole
+
 
 
 
 volumes:
+    helix-guacamole-db:
     helix-keycloak-db:
     helix-postgres-db:
     helix-pgvector-db:

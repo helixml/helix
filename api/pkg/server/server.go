@@ -96,6 +96,7 @@ type HelixAPIServer struct {
 	trigger                  *trigger.Manager
 	specDrivenTaskService    *services.SpecDrivenTaskService
 	sampleProjectCodeService *services.SampleProjectCodeService
+	rdpProxyManager          *RDPProxyManager
 }
 
 func NewServer(
@@ -240,6 +241,11 @@ func NewServer(
 			[]string{"zed-1", "zed-2"}, // Pool of Zed agents for implementation
 		),
 		sampleProjectCodeService: services.NewSampleProjectCodeService(),
+		rdpProxyManager: NewRDPProxyManager(
+			"http://guacamole-client:8080/guacamole",
+			"guacadmin",
+			"guacadmin",
+		),
 	}, nil
 }
 
@@ -267,7 +273,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, _ *system.C
 		"/ws/runner",
 	)
 
-	// Zed Agent Runner WebSocket Server (replaces gptscript runner entirely)
+	// Zed Agent Runner WebSocket Server
 	apiServer.startZedAgentRunnerWebSocketServer(
 		apiRouter,
 		"/ws/zed-runner",
@@ -477,7 +483,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.updateExternalAgent).Methods("PUT")
 	authRouter.HandleFunc("/external-agents/{sessionID}", apiServer.deleteExternalAgent).Methods("DELETE")
 	authRouter.HandleFunc("/external-agents/{sessionID}/rdp", apiServer.getExternalAgentRDP).Methods("GET")
-	authRouter.HandleFunc("/external-agents/{sessionID}/rdp/proxy", apiServer.proxyExternalAgentRDP).Methods("GET")
+	authRouter.HandleFunc("/external-agents/{session_id}/rdp/proxy", apiServer.startRDPProxy).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/stats", apiServer.getExternalAgentStats).Methods("GET")
 	authRouter.HandleFunc("/external-agents/{sessionID}/logs", apiServer.getExternalAgentLogs).Methods("GET")
 
@@ -493,7 +499,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/zed-agents/{sessionID}/logs", apiServer.getZedAgentLogs).Methods("GET")
 
 	// RDP proxy management endpoints
-	authRouter.HandleFunc("/rdp-proxy/health", apiServer.getRDPProxyHealth).Methods("GET")
+	// Note: RDP proxy health endpoint removed - not implemented
 
 	// External agent WebSocket sync endpoint
 	subRouter.HandleFunc("/external-agents/sync", apiServer.handleExternalAgentSync).Methods("GET")
