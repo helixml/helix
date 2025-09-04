@@ -5,72 +5,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
-// MockStore implements the Store interface for testing
-type MockStore struct {
-	mock.Mock
-}
-
-func (m *MockStore) CreateSpecTask(ctx context.Context, task *types.SpecTask) error {
-	args := m.Called(ctx, task)
-	return args.Error(0)
-}
-
-func (m *MockStore) GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error) {
-	args := m.Called(ctx, id)
-	return args.Get(0).(*types.SpecTask), args.Error(1)
-}
-
-func (m *MockStore) UpdateSpecTask(ctx context.Context, task *types.SpecTask) error {
-	args := m.Called(ctx, task)
-	return args.Error(0)
-}
-
-func (m *MockStore) ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error) {
-	args := m.Called(ctx, filters)
-	return args.Get(0).([]*types.SpecTask), args.Error(1)
-}
-
-// Add other Store interface methods as no-ops
-func (m *MockStore) CreateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error) {
-	return nil, nil
-}
-func (m *MockStore) GetOrganization(ctx context.Context, q *types.GetOrganizationQuery) (*types.Organization, error) {
-	return nil, nil
-}
-func (m *MockStore) UpdateOrganization(ctx context.Context, org *types.Organization) (*types.Organization, error) {
-	return nil, nil
-}
-func (m *MockStore) DeleteOrganization(ctx context.Context, id string) error { return nil }
-func (m *MockStore) ListOrganizations(ctx context.Context, query *types.ListOrganizationsQuery) ([]*types.Organization, error) {
-	return nil, nil
-}
-
-// ... (truncated for brevity - in real implementation, add all Store interface methods)
-
-// MockController implements the Controller interface for testing
-type MockController struct {
-	mock.Mock
-}
-
-func (m *MockController) CreateSession(ctx context.Context, req *types.CreateSessionRequest) (*types.Session, error) {
-	args := m.Called(ctx, req)
-	return args.Get(0).(*types.Session), args.Error(1)
-}
-
-func (m *MockController) CreateMessage(ctx context.Context, req *types.CreateMessageRequest) (*types.Message, error) {
-	args := m.Called(ctx, req)
-	return args.Get(0).(*types.Message), args.Error(1)
-}
-
 func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
-	// Setup
-	mockStore := &MockStore{}
-	mockController := &MockController{}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	mockController := &controller.Controller{} // Real controller, but won't be used for this test
 
 	service := NewSpecDrivenTaskService(
 		mockStore,
@@ -89,36 +37,32 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 	}
 
 	// Mock expectations
-	mockStore.On("CreateSpecTask", ctx, mock.MatchedBy(func(task *types.SpecTask) bool {
-		return task.ProjectID == "test-project" &&
-			task.OriginalPrompt == "Create a user authentication system" &&
-			task.Status == types.TaskStatusBacklog &&
-			task.CreatedBy == "test-user"
-	})).Return(nil)
+	mockStore.EXPECT().CreateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(ctx context.Context, task *types.SpecTask) error {
+			assert.Equal(t, "test-project", task.ProjectID)
+			assert.Equal(t, "Create a user authentication system", task.OriginalPrompt)
+			assert.Equal(t, types.TaskStatusBacklog, task.Status)
+			assert.Equal(t, "test-user", task.CreatedBy)
+			assert.Equal(t, "feature", task.Type)
+			assert.Equal(t, "high", task.Priority)
+			return nil
+		},
+	)
 
-	mockStore.On("UpdateSpecTask", ctx, mock.MatchedBy(func(task *types.SpecTask) bool {
-		return task.Status == types.TaskStatusSpecGeneration
-	})).Return(nil)
-
-	mockController.On("CreateSession", ctx, mock.MatchedBy(func(req *types.CreateSessionRequest) bool {
-		return req.UserID == "test-user" &&
-			req.ProjectID == "test-project" &&
-			req.SessionMode == types.SessionModeInference
-	})).Return(&types.Session{
-		ID: "test-session-id",
-	}, nil)
-
-	mockController.On("CreateMessage", ctx, mock.MatchedBy(func(req *types.CreateMessageRequest) bool {
-		return req.Content == "Create a user authentication system"
-	})).Return(&types.Message{
-		ID: "test-message-id",
-	}, nil)
+	// Expect the goroutine to update the task status
+	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, task *types.SpecTask) error {
+			assert.Equal(t, types.TaskStatusSpecGeneration, task.Status)
+			assert.Equal(t, "test-helix-agent", task.SpecAgent)
+			return nil
+		},
+	)
 
 	// Execute
 	task, err := service.CreateTaskFromPrompt(ctx, req)
 
 	// Assert
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, task)
 	assert.Equal(t, "test-project", task.ProjectID)
 	assert.Equal(t, "Create a user authentication system", task.OriginalPrompt)
@@ -127,15 +71,65 @@ func TestSpecDrivenTaskService_CreateTaskFromPrompt(t *testing.T) {
 
 	// Give the goroutine a moment to execute
 	time.Sleep(100 * time.Millisecond)
-
-	mockStore.AssertExpectations(t)
-	mockController.AssertExpectations(t)
 }
 
-func TestSpecDrivenTaskService_ApproveSpecs(t *testing.T) {
-	// Setup
-	mockStore := &MockStore{}
-	mockController := &MockController{}
+func TestSpecDrivenTaskService_HandleSpecGenerationComplete(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	mockController := &controller.Controller{}
+
+	service := NewSpecDrivenTaskService(
+		mockStore,
+		mockController,
+		"test-helix-agent",
+		[]string{"test-zed-agent"},
+	)
+
+	ctx := context.Background()
+	taskID := "test-task-id"
+
+	existingTask := &types.SpecTask{
+		ID:     taskID,
+		Status: types.TaskStatusSpecGeneration,
+	}
+
+	specs := &types.SpecGeneration{
+		TaskID:             taskID,
+		RequirementsSpec:   "Generated requirements specification",
+		TechnicalDesign:    "Generated technical design",
+		ImplementationPlan: "Generated implementation plan",
+		GeneratedAt:        time.Now(),
+		ModelUsed:          "test-model",
+		TokensUsed:         1500,
+	}
+
+	// Mock expectations
+	mockStore.EXPECT().GetSpecTask(ctx, taskID).Return(existingTask, nil)
+	mockStore.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(ctx context.Context, task *types.SpecTask) error {
+			assert.Equal(t, types.TaskStatusSpecReview, task.Status)
+			assert.Equal(t, "Generated requirements specification", task.RequirementsSpec)
+			assert.Equal(t, "Generated technical design", task.TechnicalDesign)
+			assert.Equal(t, "Generated implementation plan", task.ImplementationPlan)
+			return nil
+		},
+	)
+
+	// Execute
+	err := service.HandleSpecGenerationComplete(ctx, taskID, specs)
+
+	// Assert
+	require.NoError(t, err)
+}
+
+func TestSpecDrivenTaskService_ApproveSpecs_Approved(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	mockController := &controller.Controller{}
 
 	service := NewSpecDrivenTaskService(
 		mockStore,
@@ -163,28 +157,40 @@ func TestSpecDrivenTaskService_ApproveSpecs(t *testing.T) {
 	}
 
 	// Mock expectations
-	mockStore.On("GetSpecTask", ctx, taskID).Return(existingTask, nil)
-	mockStore.On("UpdateSpecTask", ctx, mock.MatchedBy(func(task *types.SpecTask) bool {
-		return task.Status == types.TaskStatusSpecApproved &&
-			task.SpecApprovedBy == "test-user"
-	})).Return(nil).Twice() // Called twice: once for approval, once for implementation start
+	mockStore.EXPECT().GetSpecTask(ctx, taskID).Return(existingTask, nil)
+	mockStore.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(ctx context.Context, task *types.SpecTask) error {
+			assert.Equal(t, types.TaskStatusSpecApproved, task.Status)
+			assert.Equal(t, "test-user", task.SpecApprovedBy)
+			return nil
+		},
+	)
+
+	// Expect second update for implementation start
+	mockStore.EXPECT().UpdateSpecTask(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, task *types.SpecTask) error {
+			assert.Equal(t, types.TaskStatusImplementationQueued, task.Status)
+			assert.Equal(t, "test-zed-agent", task.ImplementationAgent)
+			return nil
+		},
+	)
 
 	// Execute
 	err := service.ApproveSpecs(ctx, approvalResponse)
 
 	// Assert
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Give the goroutine a moment to execute
 	time.Sleep(100 * time.Millisecond)
-
-	mockStore.AssertExpectations(t)
 }
 
-func TestSpecDrivenTaskService_ApproveSpecs_Rejection(t *testing.T) {
-	// Setup
-	mockStore := &MockStore{}
-	mockController := &MockController{}
+func TestSpecDrivenTaskService_ApproveSpecs_Rejected(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockStore := store.NewMockStore(ctrl)
+	mockController := &controller.Controller{}
 
 	service := NewSpecDrivenTaskService(
 		mockStore,
@@ -214,69 +220,23 @@ func TestSpecDrivenTaskService_ApproveSpecs_Rejection(t *testing.T) {
 	}
 
 	// Mock expectations
-	mockStore.On("GetSpecTask", ctx, taskID).Return(existingTask, nil)
-	mockStore.On("UpdateSpecTask", ctx, mock.MatchedBy(func(task *types.SpecTask) bool {
-		return task.Status == types.TaskStatusSpecRevision &&
-			task.SpecRevisionCount == 1
-	})).Return(nil)
+	mockStore.EXPECT().GetSpecTask(ctx, taskID).Return(existingTask, nil)
+	mockStore.EXPECT().UpdateSpecTask(ctx, gomock.Any()).DoAndReturn(
+		func(ctx context.Context, task *types.SpecTask) error {
+			assert.Equal(t, types.TaskStatusSpecRevision, task.Status)
+			assert.Equal(t, 1, task.SpecRevisionCount)
+			return nil
+		},
+	)
 
 	// Execute
 	err := service.ApproveSpecs(ctx, rejectionResponse)
 
 	// Assert
-	assert.NoError(t, err)
-	mockStore.AssertExpectations(t)
-}
-
-func TestSpecDrivenTaskService_HandleSpecGenerationComplete(t *testing.T) {
-	// Setup
-	mockStore := &MockStore{}
-	mockController := &MockController{}
-
-	service := NewSpecDrivenTaskService(
-		mockStore,
-		mockController,
-		"test-helix-agent",
-		[]string{"test-zed-agent"},
-	)
-
-	ctx := context.Background()
-	taskID := "test-task-id"
-
-	existingTask := &types.SpecTask{
-		ID:     taskID,
-		Status: types.TaskStatusSpecGeneration,
-	}
-
-	specs := &types.SpecGeneration{
-		TaskID:             taskID,
-		RequirementsSpec:   "Generated requirements specification",
-		TechnicalDesign:    "Generated technical design",
-		ImplementationPlan: "Generated implementation plan",
-		GeneratedAt:        time.Now(),
-		ModelUsed:          "test-model",
-		TokensUsed:         1500,
-	}
-
-	// Mock expectations
-	mockStore.On("GetSpecTask", ctx, taskID).Return(existingTask, nil)
-	mockStore.On("UpdateSpecTask", ctx, mock.MatchedBy(func(task *types.SpecTask) bool {
-		return task.Status == types.TaskStatusSpecReview &&
-			task.RequirementsSpec == "Generated requirements specification" &&
-			task.TechnicalDesign == "Generated technical design" &&
-			task.ImplementationPlan == "Generated implementation plan"
-	})).Return(nil)
-
-	// Execute
-	err := service.HandleSpecGenerationComplete(ctx, taskID, specs)
-
-	// Assert
-	assert.NoError(t, err)
-	mockStore.AssertExpectations(t)
+	require.NoError(t, err)
 }
 
 func TestSpecDrivenTaskService_BuildSpecGenerationPrompt(t *testing.T) {
-	// Setup
 	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"test-zed-agent"})
 
 	task := &types.SpecTask{
@@ -299,7 +259,6 @@ func TestSpecDrivenTaskService_BuildSpecGenerationPrompt(t *testing.T) {
 }
 
 func TestSpecDrivenTaskService_BuildImplementationPrompt(t *testing.T) {
-	// Setup
 	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"test-zed-agent"})
 
 	task := &types.SpecTask{
@@ -321,4 +280,16 @@ func TestSpecDrivenTaskService_BuildImplementationPrompt(t *testing.T) {
 	assert.Contains(t, prompt, "Generated design")
 	assert.Contains(t, prompt, "Generated plan")
 	assert.Contains(t, prompt, "APPROVED SPECIFICATIONS")
+}
+
+func TestSpecDrivenTaskService_SelectZedAgent(t *testing.T) {
+	// Test with agents available
+	service := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{"agent1", "agent2"})
+	agent := service.selectZedAgent()
+	assert.Equal(t, "agent1", agent)
+
+	// Test with no agents
+	serviceNoAgents := NewSpecDrivenTaskService(nil, nil, "test-helix-agent", []string{})
+	agent = serviceNoAgents.selectZedAgent()
+	assert.Equal(t, "", agent)
 }
