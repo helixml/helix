@@ -446,21 +446,6 @@ func (mr *MockStoreMockRecorder) CreateRole(ctx, role any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateRole", reflect.TypeOf((*MockStore)(nil).CreateRole), ctx, role)
 }
 
-// CreateScriptRun mocks base method.
-func (m *MockStore) CreateScriptRun(ctx context.Context, task *types.ScriptRun) (*types.ScriptRun, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateScriptRun", ctx, task)
-	ret0, _ := ret[0].(*types.ScriptRun)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CreateScriptRun indicates an expected call of CreateScriptRun.
-func (mr *MockStoreMockRecorder) CreateScriptRun(ctx, task any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateScriptRun", reflect.TypeOf((*MockStore)(nil).CreateScriptRun), ctx, task)
-}
-
 // CreateSecret mocks base method.
 func (m *MockStore) CreateSecret(ctx context.Context, secret *types.Secret) (*types.Secret, error) {
 	m.ctrl.T.Helper()
@@ -906,20 +891,6 @@ func (m *MockStore) DeleteRole(ctx context.Context, id string) error {
 func (mr *MockStoreMockRecorder) DeleteRole(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRole", reflect.TypeOf((*MockStore)(nil).DeleteRole), ctx, id)
-}
-
-// DeleteScriptRun mocks base method.
-func (m *MockStore) DeleteScriptRun(ctx context.Context, id string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteScriptRun", ctx, id)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DeleteScriptRun indicates an expected call of DeleteScriptRun.
-func (mr *MockStoreMockRecorder) DeleteScriptRun(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteScriptRun", reflect.TypeOf((*MockStore)(nil).DeleteScriptRun), ctx, id)
 }
 
 // DeleteSecret mocks base method.
@@ -2232,21 +2203,6 @@ func (m *MockStore) ListRoles(ctx context.Context, organizationID string) ([]*ty
 func (mr *MockStoreMockRecorder) ListRoles(ctx, organizationID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRoles", reflect.TypeOf((*MockStore)(nil).ListRoles), ctx, organizationID)
-}
-
-// ListScriptRuns mocks base method.
-func (m *MockStore) ListScriptRuns(ctx context.Context, q *types.GptScriptRunsQuery) ([]*types.ScriptRun, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListScriptRuns", ctx, q)
-	ret0, _ := ret[0].([]*types.ScriptRun)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListScriptRuns indicates an expected call of ListScriptRuns.
-func (mr *MockStoreMockRecorder) ListScriptRuns(ctx, q any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListScriptRuns", reflect.TypeOf((*MockStore)(nil).ListScriptRuns), ctx, q)
 }
 
 // ListSecrets mocks base method.

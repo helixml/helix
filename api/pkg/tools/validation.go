@@ -69,21 +69,6 @@ func (c *ChainStrategy) validateOperationIDs(_ context.Context, _ *types.Tool, s
 
 func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Planner, strict bool) error {
 	switch tool.ToolType {
-	case types.ToolTypeGPTScript:
-
-		if tool.Config.GPTScript.Script == "" && tool.Config.GPTScript.ScriptURL == "" {
-			return system.NewHTTPError400("script or script URL is required for GPTScript tools")
-		}
-
-		if tool.Config.GPTScript.Script != "" && tool.Config.GPTScript.ScriptURL != "" {
-			return system.NewHTTPError400("only one of script or script URL is allowed for GPTScript tools")
-		}
-
-		// OK
-		if tool.Description == "" && strict {
-			return system.NewHTTPError400("description is required for GPTScript tools, make as descriptive as possible")
-		}
-
 	case types.ToolTypeAPI:
 		// Validate the API
 		if tool.Config.API == nil {

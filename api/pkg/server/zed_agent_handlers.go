@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
-	"github.com/helixml/helix/api/pkg/external_agent"
+	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -199,9 +200,7 @@ func (apiServer *HelixAPIServer) getZedAgentRDP(res http.ResponseWriter, req *ht
 	rdpInfo := map[string]interface{}{
 		"session_id": session.SessionID,
 		"rdp_url":    fmt.Sprintf("rdp://localhost:%d", session.RDPPort),
-		"vnc_url":    fmt.Sprintf("vnc://localhost:%d", session.VNCPort),
 		"rdp_port":   session.RDPPort,
-		"vnc_port":   session.VNCPort,
 		"display":    fmt.Sprintf(":%d", session.DisplayNum),
 		"status":     "running",
 	}
@@ -288,7 +287,7 @@ func (apiServer *HelixAPIServer) proxyZedAgentRDP(res http.ResponseWriter, req *
 
 	// For now, just redirect to the VNC/RDP port
 	// In a full implementation, you would set up WebSocket proxying to the RDP/VNC server
-	redirectURL := fmt.Sprintf("http://localhost:%d", session.VNCPort)
+	redirectURL := fmt.Sprintf("http://localhost:%d", session.RDPPort)
 	http.Redirect(res, req, redirectURL, http.StatusTemporaryRedirect)
 }
 
@@ -328,8 +327,8 @@ func (apiServer *HelixAPIServer) getZedAgentStats(res http.ResponseWriter, req *
 		"workspace_dir": session.WorkspaceDir,
 		"display_num":   session.DisplayNum,
 		"rdp_port":      session.RDPPort,
-		"vnc_port":      session.VNCPort,
-		"status":        "running",
+
+		"status": "running",
 	}
 
 	res.Header().Set("Content-Type", "application/json")
@@ -383,7 +382,7 @@ func (apiServer *HelixAPIServer) getZedAgentLogs(res http.ResponseWriter, req *h
 			"[INFO] RDP bridge active",
 			"[DEBUG] Session active and responding",
 		},
-		"timestamp": system.Now(),
+		"timestamp": time.Now(),
 	}
 
 	res.Header().Set("Content-Type", "application/json")
