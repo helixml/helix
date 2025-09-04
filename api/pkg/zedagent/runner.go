@@ -182,14 +182,10 @@ func (r *Runner) processMessage(ctx context.Context, conn *websocket.Conn, messa
 	}
 
 	switch envelope.Type {
-	case types.RunnerEventRequestApp:
-		return r.processAppRequest(ctx, conn, &envelope)
-	case types.RunnerEventRequestTool:
-		return r.processToolRequest(ctx, conn, &envelope)
 	case types.RunnerEventRequestZedAgent:
 		return r.processZedAgentRequest(ctx, conn, &envelope)
 	default:
-		return fmt.Errorf("unknown message type: %s", envelope.Type)
+		return fmt.Errorf("unknown message type: %v", envelope.Type)
 	}
 }
 

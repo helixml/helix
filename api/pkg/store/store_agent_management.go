@@ -134,8 +134,20 @@ func (s *PostgresStore) ListAgentWorkItems(ctx context.Context, query *ListAgent
 	if query.UserID != "" {
 		db = db.Where("user_id = ?", query.UserID)
 	}
+	if query.AppID != "" {
+		db = db.Where("app_id = ?", query.AppID)
+	}
+	if query.OrganizationID != "" {
+		db = db.Where("organization_id = ?", query.OrganizationID)
+	}
+	if query.TriggerConfigID != "" {
+		db = db.Where("trigger_config_id = ?", query.TriggerConfigID)
+	}
 	if query.AssignedOnly {
 		db = db.Where("session_id IS NOT NULL AND session_id != ''")
+	}
+	if query.UnassignedOnly {
+		db = db.Where("session_id IS NULL OR session_id = ''")
 	}
 
 	// Count total
@@ -223,6 +235,15 @@ func (s *PostgresStore) ListAgentSessions(ctx context.Context, query *ListAgentS
 	if query.UserID != "" {
 		db = db.Where("user_id = ?", query.UserID)
 	}
+	if query.AppID != "" {
+		db = db.Where("app_id = ?", query.AppID)
+	}
+	if query.OrganizationID != "" {
+		db = db.Where("organization_id = ?", query.OrganizationID)
+	}
+	if query.HealthStatus != "" {
+		db = db.Where("health_status = ?", query.HealthStatus)
+	}
 	if query.ActiveOnly {
 		db = db.Where("status IN (?)", []string{"starting", "active", "waiting_for_help", "paused"})
 	}
@@ -234,7 +255,11 @@ func (s *PostgresStore) ListAgentSessions(ctx context.Context, query *ListAgentS
 
 	// Apply pagination
 	offset := query.Page * query.PageSize
-	if err := db.Offset(offset).Limit(query.PageSize).Order("last_activity DESC").Find(&sessions).Error; err != nil {
+	orderBy := "last_activity DESC"
+	if query.OrderBy != "" {
+		orderBy = query.OrderBy
+	}
+	if err := db.Offset(offset).Limit(query.PageSize).Order(orderBy).Find(&sessions).Error; err != nil {
 		return nil, err
 	}
 
@@ -300,23 +325,31 @@ type ListHelpRequestsQuery struct {
 }
 
 type ListAgentWorkItemsQuery struct {
-	Page         int
-	PageSize     int
-	Status       string
-	Source       string
-	AgentType    string
-	UserID       string
-	AssignedOnly bool
-	OrderBy      string
+	Page            int
+	PageSize        int
+	Status          string
+	Source          string
+	AgentType       string
+	UserID          string
+	AppID           string
+	OrganizationID  string
+	TriggerConfigID string
+	AssignedOnly    bool
+	UnassignedOnly  bool
+	OrderBy         string
 }
 
 type ListAgentSessionsQuery struct {
-	Page       int
-	PageSize   int
-	Status     string
-	AgentType  string
-	UserID     string
-	ActiveOnly bool
+	Page           int
+	PageSize       int
+	Status         string
+	AgentType      string
+	UserID         string
+	AppID          string
+	OrganizationID string
+	ActiveOnly     bool
+	HealthStatus   string
+	OrderBy        string
 }
 
 // CreateJobCompletion creates a new job completion record
