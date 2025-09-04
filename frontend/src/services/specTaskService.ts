@@ -149,8 +149,11 @@ export function useUpdateSpecTaskStatus() {
   
   return useMutation({
     mutationFn: async ({ taskId, status }: { taskId: string; status: string }) => {
-      // Note: Update endpoint may not exist in generated client - using POST for now
-      const response = await api.post(`/api/v1/spec-tasks/${taskId}`, { status });
+      // Use approval endpoint for status updates since no general update endpoint exists
+      const response = await api.getApiClient().v1SpecTasksApproveSpecsCreate(taskId, { 
+        approved: status === 'spec_approved',
+        feedback: `Status updated to: ${status}` 
+      });
       return response.data;
     },
     onSuccess: (_, { taskId }) => {
@@ -166,7 +169,10 @@ export function useApproveSpecTask() {
   
   return useMutation({
     mutationFn: async (taskId: string) => {
-      const response = await api.getApiClient().v1SpecTasksApproveSpecsCreate(taskId, { approved: true });
+      const response = await api.getApiClient().v1SpecTasksApproveSpecsCreate(taskId, { 
+        approved: true,
+        feedback: 'Approved via UI'
+      });
       return response.data;
     },
     onSuccess: (_, taskId) => {
@@ -184,8 +190,7 @@ export function useRecordSessionHistory() {
       sessionId: string; 
       entry: { content: string; timestamp: string; type: string; }
     }) => {
-      // Note: Work sessions history endpoint may not exist - using POST for now
-      const response = await api.post(`/api/v1/work-sessions/${sessionId}/record-history`, entry);
+      const response = await api.getApiClient().v1WorkSessionsRecordHistoryCreate(sessionId, entry);
       return response.data;
     },
     onSuccess: (_, { sessionId }) => {
@@ -200,8 +205,7 @@ export function useSendZedEvent() {
   
   return useMutation({
     mutationFn: async (event: any) => { // TypesZedInstanceEvent
-      // Note: Zed events endpoint may not exist - using POST for now
-      const response = await api.post('/api/v1/zed/events', event);
+      const response = await api.getApiClient().v1ZedEventsCreate(event);
       return response.data;
     },
     onSuccess: (_, event) => {

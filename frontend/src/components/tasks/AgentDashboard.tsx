@@ -56,7 +56,7 @@ import {
   Visibility as VisibilityIcon
 } from '@mui/icons-material'
 import { useTheme } from '@mui/material/styles'
-import { format, formatDistanceToNow } from 'date-fns'
+// Removed date-fns dependency - using native JavaScript instead
 
 import useApi from '../../hooks/useApi'
 import useAccount from '../../hooks/useAccount'
@@ -199,7 +199,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
     switch (status) {
       // Spec-driven workflow statuses
       case 'backlog':
-        return theme.palette.grey[400] // Gray - waiting
+        return theme.palette.text.disabled // Gray - waiting
       case 'spec_generation':
         return theme.palette.warning.light // Light amber - spec being generated
       case 'spec_review':
@@ -209,7 +209,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
       case 'spec_approved':
         return theme.palette.success.light // Light green - specs approved
       case 'implementation_queued':
-        return theme.palette.purple[400] // Purple - ready for coding
+        return theme.palette.secondary.main // Purple - ready for coding
       case 'implementation':
         return theme.palette.warning.main // Amber - coding in progress
       case 'implementation_review':
@@ -233,7 +233,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
       case 'paused':
         return theme.palette.info.main
       default:
-        return theme.palette.grey[500]
+        return theme.palette.text.secondary
     }
   }
 
@@ -537,7 +537,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                                 {session.session_id.slice(0, 8)}...
                               </Typography>
                               <Typography variant="caption" color="textSecondary">
-                                {formatDistanceToNow(new Date(session.last_activity))} ago
+                                {formatTimeAgo(new Date(session.last_activity))}
                               </Typography>
                             </Box>
                           </Box>
@@ -686,7 +686,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                           secondary={
                             <Box>
                               <Typography variant="caption" display="block">
-                                {formatDistanceToNow(new Date(completion.created_at))} ago
+                                {formatTimeAgo(new Date(completion.created_at))}
                               </Typography>
                               <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }}>
                                 <Chip 
@@ -783,7 +783,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                             item.status === 'spec_approved' || item.status === 'implementation_queued' ||
                             item.status === 'implementation' || item.status === 'implementation_review' ||
                             item.status === 'done') && item.requirements_spec && (
-                            <Box sx={{ mt: 1, p: 1, backgroundColor: theme.palette.grey[50], borderRadius: 1 }}>
+                            <Box sx={{ mt: 1, p: 1, backgroundColor: theme.palette.grey.A100, borderRadius: 1 }}>
                               <Typography variant="caption" fontWeight="bold" color="textSecondary">
                                 Generated Specs Available
                               </Typography>
@@ -796,7 +796,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                           {/* Show implementation info when in coding phase */}
                           {(item.status === 'implementation' || item.status === 'implementation_review' || 
                             item.status === 'done') && item.implementation_agent && (
-                            <Box sx={{ mt: 1, p: 1, backgroundColor: theme.palette.success[50], borderRadius: 1 }}>
+                            <Box sx={{ mt: 1, p: 1, backgroundColor: theme.palette.success.light, borderRadius: 1 }}>
                               <Typography variant="caption" fontWeight="bold" color="success.dark">
                                 Implementation in Progress
                               </Typography>
@@ -811,7 +811,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                           {item.spec_approved_by && (
                             <Typography variant="caption" color="success.main" sx={{ display: 'block', mt: 1 }}>
                               ✓ Specs approved by {item.spec_approved_by}
-                              {item.spec_approved_at && ` ${formatDistanceToNow(new Date(item.spec_approved_at))} ago`}
+                              {item.spec_approved_at && ` ${formatTimeAgo(new Date(item.spec_approved_at))}`}
                             </Typography>
                           )}
                         </TableCell>
@@ -835,7 +835,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                         </TableCell>
                         <TableCell>
                           <Typography variant="caption">
-                            {formatDistanceToNow(new Date(item.created_at))} ago
+                            {formatTimeAgo(new Date(item.created_at))}
                           </Typography>
                           {item.spec_revision_count && item.spec_revision_count > 0 && (
                             <Typography variant="caption" color="warning.main" sx={{ display: 'block' }}>
@@ -874,7 +874,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                   <TableBody>
                     {dashboardData.running_work.map((item) => {
                       const startTime = item.started_at ? new Date(item.started_at) : null
-                      const duration = startTime ? formatDistanceToNow(startTime) : 'Unknown'
+                      const duration = startTime ? formatTimeAgo(startTime) : 'Unknown'
                       
                       return (
                         <TableRow 
@@ -911,7 +911,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
 
                             {/* Show current agent working */}
                             {item.status === 'spec_generation' && item.spec_agent && (
-                              <Box sx={{ mt: 1, p: 1, backgroundColor: theme.palette.warning[50], borderRadius: 1 }}>
+                              <Box sx={{ mt: 1, p: 1, backgroundColor: theme.palette.warning.light, borderRadius: 1 }}>
                                 <Typography variant="caption" fontWeight="bold" color="warning.dark">
                                   🤖 {item.spec_agent} generating specifications
                                 </Typography>
@@ -919,7 +919,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                             )}
 
                             {item.status === 'implementation' && item.implementation_agent && (
-                              <Box sx={{ mt: 1, p: 1, backgroundColor: theme.palette.success[50], borderRadius: 1 }}>
+                              <Box sx={{ mt: 1, p: 1, backgroundColor: theme.palette.success.light, borderRadius: 1 }}>
                                 <Typography variant="caption" fontWeight="bold" color="success.dark">
                                   💻 {item.implementation_agent} coding
                                 </Typography>
@@ -963,12 +963,12 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                           </TableCell>
                           <TableCell>
                             <Typography variant="caption">
-                              {startTime ? format(startTime, 'HH:mm') : 'Unknown'}
+                              {startTime ? formatDateTime(startTime) : 'Unknown'}
                             </Typography>
                             {/* Show spec approval time if relevant */}
                             {item.spec_approved_at && item.status !== 'spec_generation' && (
                               <Typography variant="caption" color="success.main" sx={{ display: 'block' }}>
-                                ✓ {formatDistanceToNow(new Date(item.spec_approved_at))} ago
+                                ✓ {formatTimeAgo(new Date(item.spec_approved_at))}
                               </Typography>
                             )}
                           </TableCell>
@@ -1084,7 +1084,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
               >
                 {apps.map((app) => (
                   <MenuItem key={app.id} value={app.id}>
-                    {app.config.name}
+                    {app.config.helix.name}
                   </MenuItem>
                 ))}
               </Select>
@@ -1157,11 +1157,31 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
       {/* Last updated indicator */}
       <Box sx={{ mt: 3, textAlign: 'center' }}>
         <Typography variant="caption" color="textSecondary">
-          Last updated: {formatDistanceToNow(new Date(dashboardData.last_updated))} ago
+          Last updated: {formatTimeAgo(new Date(dashboardData.last_updated))}
         </Typography>
       </Box>
     </Box>
   )
+}
+
+// Helper functions to replace date-fns
+function formatTimeAgo(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+  if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+  
+  return date.toLocaleDateString();
+}
+
+function formatDateTime(date: Date): string {
+  return date.toLocaleString();
 }
 
 export default AgentDashboard
