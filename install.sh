@@ -61,7 +61,7 @@ elif [ "$OS" = "darwin" ]; then
 fi
 
   # Compose command (sudo-aware) + fallback to legacy docker-compose
-  COMPOSE_CMD="fi compose"
+  COMPOSE_CMD="docker compose"
   if ! $COMPOSE_CMD version >/dev/null 2>&1; then
     if command -v docker-compose >/dev/null 2>&1; then
       COMPOSE_CMD="docker-compose"
