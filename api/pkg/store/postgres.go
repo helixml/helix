@@ -476,3 +476,12 @@ func (s *PostgresStore) GetAppCount() (int, error) {
 	}
 	return count, nil
 }
+
+// CreateProject creates a new project
+func (s *PostgresStore) CreateProject(ctx context.Context, project *types.Project) (*types.Project, error) {
+	err := s.gdb.WithContext(ctx).Create(project).Error
+	if err != nil {
+		return nil, fmt.Errorf("error creating project: %w", err)
+	}
+	return project, nil
+}

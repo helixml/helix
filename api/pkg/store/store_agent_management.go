@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -472,4 +473,201 @@ type ListJobCompletionsQuery struct {
 	CompletionStatus string
 	ReviewNeeded     *bool
 	Status           string
+}
+
+// GetAgentSessionStatus retrieves an agent session status by session ID
+func (s *PostgresStore) GetAgentSessionStatus(ctx context.Context, sessionID string) (*types.AgentSessionStatus, error) {
+	var status types.AgentSessionStatus
+	err := s.gdb.WithContext(ctx).Where("session_id = ?", sessionID).First(&status).Error
+	if err != nil {
+		return nil, err
+	}
+	return &status, nil
+}
+
+// CreateAgentSessionStatus creates a new agent session status record
+func (s *PostgresStore) CreateAgentSessionStatus(ctx context.Context, status *types.AgentSessionStatus) error {
+	return s.gdb.WithContext(ctx).Create(status).Error
+}
+
+// UpdateAgentSessionStatus updates an existing agent session status
+func (s *PostgresStore) UpdateAgentSessionStatus(ctx context.Context, status *types.AgentSessionStatus) error {
+	status.UpdatedAt = time.Now()
+	return s.gdb.WithContext(ctx).Save(status).Error
+}
+
+// ListAgentSessionStatus returns agent session statuses with pagination and filtering
+func (s *PostgresStore) ListAgentSessionStatus(ctx context.Context, query *ListAgentSessionsQuery) (*types.AgentSessionsResponse, error) {
+	var sessions []*types.AgentSessionStatus
+	var total int64
+
+	db := s.gdb.WithContext(ctx).Model(&types.AgentSessionStatus{})
+
+	// Apply filters
+	if query.Status != "" {
+		db = db.Where("status = ?", query.Status)
+	}
+	if query.AgentType != "" {
+		db = db.Where("agent_type = ?", query.AgentType)
+	}
+	if query.UserID != "" {
+		db = db.Where("user_id = ?", query.UserID)
+	}
+	if query.AppID != "" {
+		db = db.Where("app_id = ?", query.AppID)
+	}
+	if query.OrganizationID != "" {
+		db = db.Where("organization_id = ?", query.OrganizationID)
+	}
+	if query.HealthStatus != "" {
+		db = db.Where("health_status = ?", query.HealthStatus)
+	}
+	if query.ActiveOnly {
+		db = db.Where("status IN (?)", []string{"starting", "active", "waiting_for_help", "paused"})
+	}
+
+	// Count total
+	if err := db.Count(&total).Error; err != nil {
+		return nil, err
+	}
+
+	// Apply pagination
+	offset := query.Page * query.PageSize
+	orderBy := "last_activity DESC"
+	if query.OrderBy != "" {
+		orderBy = query.OrderBy
+	}
+	if err := db.Offset(offset).Limit(query.PageSize).Order(orderBy).Find(&sessions).Error; err != nil {
+		return nil, err
+	}
+
+	return &types.AgentSessionsResponse{
+		Sessions: sessions,
+		Total:    int(total),
+		Page:     query.Page,
+		PageSize: query.PageSize,
+	}, nil
+}
+
+// GetAgentWorkQueueStats returns statistics about the agent work queue
+func (s *PostgresStore) GetAgentWorkQueueStats(ctx context.Context) (*types.AgentWorkQueueStats, error) {
+	stats := &types.AgentWorkQueueStats{
+		ByAgentType: make(map[string]int),
+		BySource:    make(map[string]int),
+		ByPriority:  make(map[string]int),
+	}
+
+	// Count by status
+	var statusCounts []struct {
+		Status string
+		Count  int
+	}
+	if err := s.gdb.WithContext(ctx).Model(&types.AgentWorkItem{}).
+		Select("status, COUNT(*) as count").
+		Group("status").
+		Find(&statusCounts).Error; err != nil {
+		return nil, err
+	}
+
+	for _, sc := range statusCounts {
+		switch sc.Status {
+		case "pending":
+			stats.TotalPending = sc.Count
+		case "in_progress":
+			stats.TotalRunning = sc.Count
+		case "completed":
+			stats.TotalCompleted = sc.Count
+		case "failed":
+			stats.TotalFailed = sc.Count
+		}
+	}
+
+	// Count by agent type
+	var agentTypeCounts []struct {
+		AgentType string
+		Count     int
+	}
+	if err := s.gdb.WithContext(ctx).Model(&types.AgentWorkItem{}).
+		Select("agent_type, COUNT(*) as count").
+		Where("status = ?", "pending").
+		Group("agent_type").
+		Find(&agentTypeCounts).Error; err != nil {
+		return nil, err
+	}
+
+	for _, atc := range agentTypeCounts {
+		stats.ByAgentType[atc.AgentType] = atc.Count
+	}
+
+	// Count by source
+	var sourceCounts []struct {
+		Source string
+		Count  int
+	}
+	if err := s.gdb.WithContext(ctx).Model(&types.AgentWorkItem{}).
+		Select("source, COUNT(*) as count").
+		Where("status = ?", "pending").
+		Group("source").
+		Find(&sourceCounts).Error; err != nil {
+		return nil, err
+	}
+
+	for _, sc := range sourceCounts {
+		stats.BySource[sc.Source] = sc.Count
+	}
+
+	// Count by priority
+	var priorityCounts []struct {
+		Priority int
+		Count    int
+	}
+	if err := s.gdb.WithContext(ctx).Model(&types.AgentWorkItem{}).
+		Select("priority, COUNT(*) as count").
+		Where("status = ?", "pending").
+		Group("priority").
+		Find(&priorityCounts).Error; err != nil {
+		return nil, err
+	}
+
+	for _, pc := range priorityCounts {
+		priorityStr := fmt.Sprintf("priority_%d", pc.Priority)
+		stats.ByPriority[priorityStr] = pc.Count
+	}
+
+	// Count active sessions
+	var activeSessionCount int64
+	if err := s.gdb.WithContext(ctx).Model(&types.AgentSessionStatus{}).
+		Where("status IN (?)", []string{"starting", "active", "waiting_for_help", "paused"}).
+		Count(&activeSessionCount).Error; err != nil {
+		return nil, err
+	}
+	stats.ActiveSessions = int(activeSessionCount)
+
+	// Calculate average wait time for pending items
+	var avgWaitMinutes *float64
+	if err := s.gdb.WithContext(ctx).Model(&types.AgentWorkItem{}).
+		Select("AVG(EXTRACT(EPOCH FROM (NOW() - created_at))/60) as avg_wait").
+		Where("status = ?", "pending").
+		Scan(&avgWaitMinutes).Error; err != nil {
+		return nil, err
+	}
+
+	if avgWaitMinutes != nil {
+		stats.AverageWaitTime = *avgWaitMinutes
+	}
+
+	// Get oldest pending item
+	var oldestPending *time.Time
+	if err := s.gdb.WithContext(ctx).Model(&types.AgentWorkItem{}).
+		Select("MIN(created_at) as oldest").
+		Where("status = ?", "pending").
+		Scan(&oldestPending).Error; err != nil {
+		return nil, err
+	}
+
+	if oldestPending != nil {
+		stats.OldestPending = oldestPending
+	}
+
+	return stats, nil
 }

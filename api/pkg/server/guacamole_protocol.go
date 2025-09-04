@@ -157,7 +157,7 @@ func (gp *GuacamoleProtocol) handleGuacamoleInstruction(instruction string) {
 			host := args[0]
 			port, _ := strconv.Atoi(args[1])
 			username := args[2]
-			password := args[3]
+			_ = args[3] // password - unused for now
 			width, _ := strconv.Atoi(args[4])
 			height, _ := strconv.Atoi(args[5])
 

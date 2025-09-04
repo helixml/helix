@@ -23,7 +23,6 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/helixml/helix/api/pkg/zedagent"
 )
 
 type Options struct {
@@ -32,8 +31,7 @@ type Options struct {
 	PubSub                pubsub.PubSub
 	Extractor             extract.Extractor
 	RAG                   rag.RAG
-	GPTScriptExecutor     zedagent.Executor
-	ZedExecutor           *external_agent.ZedExecutor // Replaces GPTScript for Zed agents
+	ZedExecutor           *external_agent.ZedExecutor // Zed agents
 	ExternalAgentExecutor external_agent.Executor     // Interface for external agents
 	Filestore             filestore.FileStore
 	Janitor               *janitor.Janitor
@@ -129,7 +127,7 @@ func NewController(
 		return nil, fmt.Errorf("failed to get tools client: %v", err)
 	}
 
-	planner, err := tools.NewChainStrategy(options.Config, options.Store, options.GPTScriptExecutor, toolsOpenAIClient)
+	planner, err := tools.NewChainStrategy(options.Config, options.Store, toolsOpenAIClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tools planner: %v", err)
 	}

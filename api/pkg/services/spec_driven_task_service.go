@@ -82,43 +82,42 @@ func (s *SpecDrivenTaskService) startSpecGeneration(ctx context.Context, task *t
 		return
 	}
 
-	// Create system prompt for spec generation
-	systemPrompt := s.buildSpecGenerationPrompt(task)
-
 	// Create Helix session for spec generation
 	// TODO: Fix undefined types and methods
 	/*
-		sessionReq := &types.CreateSessionRequest{
-			UserID:       task.CreatedBy,
-			ProjectID:    task.ProjectID,
-			SessionMode:  types.SessionModeInference,
-			SystemPrompt: systemPrompt,
-			Metadata: map[string]interface{}{
-				"task_id":    task.ID,
-				"task_type":  "spec_generation",
-				"project_id": task.ProjectID,
-			},
-		}
+		// Create system prompt for spec generation
+		systemPrompt := s.buildSpecGenerationPrompt(task)
+			sessionReq := &types.CreateSessionRequest{
+				UserID:       task.CreatedBy,
+				ProjectID:    task.ProjectID,
+				SessionMode:  types.SessionModeInference,
+				SystemPrompt: systemPrompt,
+				Metadata: map[string]interface{}{
+					"task_id":    task.ID,
+					"task_type":  "spec_generation",
+					"project_id": task.ProjectID,
+				},
+			}
 
-		session, err := s.controller.CreateSession(ctx, sessionReq)
-		if err != nil {
-			return fmt.Errorf("failed to create spec generation session: %w", err)
-		}
+			session, err := s.controller.CreateSession(ctx, sessionReq)
+			if err != nil {
+				return fmt.Errorf("failed to create spec generation session: %w", err)
+			}
 
-		// Update task with session ID
-		task.SpecSessionID = session.ID
-		s.store.UpdateSpecTask(ctx, task)
+			// Update task with session ID
+			task.SpecSessionID = session.ID
+			s.store.UpdateSpecTask(ctx, task)
 
-		// Send the original prompt to start spec generation
-		messageReq := &types.CreateMessageRequest{
-			SessionID: session.ID,
-			UserID:    task.CreatedBy,
-			Content:   task.OriginalPrompt,
-		}
+			// Send the original prompt to start spec generation
+			messageReq := &types.CreateMessageRequest{
+				SessionID: session.ID,
+				UserID:    task.CreatedBy,
+				Content:   task.OriginalPrompt,
+			}
 
-		_, err = s.controller.CreateMessage(ctx, messageReq)
+			_, err = s.controller.CreateMessage(ctx, messageReq)
 	*/
-	err := fmt.Errorf("spec generation not implemented yet")
+	err = fmt.Errorf("spec generation not implemented yet")
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to send prompt to spec generation agent")
 		// TODO: Implement markTaskFailed method
@@ -128,7 +127,7 @@ func (s *SpecDrivenTaskService) startSpecGeneration(ctx context.Context, task *t
 
 	log.Info().
 		Str("task_id", task.ID).
-		Str("session_id", session.ID).
+		// Str("session_id", session.ID).
 		Msg("Spec generation agent started")
 }
 
@@ -230,7 +229,7 @@ func (s *SpecDrivenTaskService) startImplementation(ctx context.Context, task *t
 
 	// TODO: Create Zed agent session/work item
 	// This will integrate with the Zed agent system
-	workItem := &types.AgentWorkItem{
+	_ = &types.AgentWorkItem{
 		ID:          fmt.Sprintf("impl_%s", task.ID),
 		Name:        fmt.Sprintf("Implement: %s", task.Name),
 		Description: implementationPrompt,

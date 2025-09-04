@@ -15,13 +15,7 @@ import (
 )
 
 // CreateSessionForWorkItem creates a new Helix session for a work item
-func (c *Controller) CreateSessionForWorkItem(ctx context.Context, workItem *types.AgentWorkItem) (*types.Session, error) {
-	// Get the app to determine configuration
-	app, err := c.Options.Store.GetApp(ctx, workItem.AppID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get app: %w", err)
-	}
-
+func (c *Controller) CreateAgentSession(ctx context.Context, workItem *types.AgentWorkItem) (*types.Session, error) {
 	// Create system prompt that includes the work item context
 	systemPrompt := fmt.Sprintf(`You are an AI agent working on a specific task. Your task details:
 
@@ -29,8 +23,6 @@ func (c *Controller) CreateSessionForWorkItem(ctx context.Context, workItem *typ
 **Description**: %s
 **Source**: %s (%s)
 **Priority**: %d
-
-%s
 
 You have access to the "LoopInHuman" skill to request human assistance when needed, and the "JobCompleted" skill to signal when your work is done.
 
@@ -41,34 +33,29 @@ Work methodically and document your progress. When you're done, use the JobCompl
 		workItem.Description,
 		workItem.Source,
 		workItem.SourceURL,
-		workItem.Priority,
-		app.Config.Helix.SystemPrompt)
+		workItem.Priority)
 
 	// Create a new session
 	session := &types.Session{
-		ID:               system.GenerateSessionID(),
-		Owner:            workItem.UserID,
-		OwnerType:        types.OwnerTypeUser,
-		OrganizationID:   workItem.OrganizationID,
-		SessionType:      types.SessionTypeText,
-		Mode:             types.SessionModeInference,
-		ModelName:        app.Config.Helix.Model,
-		ParentApp:        workItem.AppID,
-		SystemPrompt:     systemPrompt,
-		Created:          time.Now(),
-		Updated:          time.Now(),
-		InteractionCount: 0,
+		ID:             system.GenerateSessionID(),
+		Owner:          workItem.UserID,
+		OwnerType:      types.OwnerTypeUser,
+		OrganizationID: workItem.OrganizationID,
+		Type:           types.SessionTypeText,
+		Mode:           types.SessionModeInference,
+		ModelName:      "claude-3-5-sonnet-20241022",
+		ParentApp:      workItem.AppID,
+		Created:        time.Now(),
+		Updated:        time.Now(),
 		Metadata: types.SessionMetadata{
-			WorkItemID:  workItem.ID,
-			AgentType:   workItem.AgentType,
-			Source:      "agent_work_queue",
-			Priority:    workItem.Priority,
-			AutoManaged: true,
+			AgentType:    workItem.AgentType,
+			SystemPrompt: systemPrompt,
+			Priority:     workItem.Priority > 0,
 		},
 	}
 
 	// Store the session
-	createdSession, err := c.Options.Store.CreateSession(ctx, session)
+	createdSession, err := c.Options.Store.CreateSession(ctx, *session)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
@@ -308,10 +295,25 @@ func (c *Controller) HandleAgentCompletion(ctx context.Context, sessionID string
 
 	// Update work item status if applicable
 	if completion.WorkItemID != "" {
-		success := completion.CompletionStatus == "fully_completed"
-		err = c.Options.Store.CompleteWorkItem(ctx, completion.WorkItemID, success, completion.Summary)
+		workItem, err := c.Options.Store.GetAgentWorkItem(ctx, completion.WorkItemID)
 		if err != nil {
-			log.Warn().Err(err).Str("work_item_id", completion.WorkItemID).Msg("Failed to update work item status")
+			log.Warn().Err(err).Str("work_item_id", completion.WorkItemID).Msg("Failed to get work item")
+		} else {
+			success := completion.CompletionStatus == "fully_completed"
+			if success {
+				workItem.Status = "completed"
+			} else {
+				workItem.Status = "failed"
+				workItem.LastError = completion.Summary
+			}
+
+			workItem.UpdatedAt = time.Now()
+			workItem.CompletedAt = &time.Time{}
+			*workItem.CompletedAt = time.Now()
+
+			if err := c.Options.Store.UpdateAgentWorkItem(ctx, workItem); err != nil {
+				log.Warn().Err(err).Str("work_item_id", completion.WorkItemID).Msg("Failed to update work item status")
+			}
 		}
 	}
 
@@ -355,18 +357,25 @@ func (c *Controller) GetAgentDashboardSummary(ctx context.Context) (*types.Agent
 		PageSize:   100,
 		ActiveOnly: true,
 	}
-	sessionsResponse, err := c.Options.Store.ListAgentSessions(ctx, sessionsQuery)
+	sessionsResponse, err := c.Options.Store.ListAgentSessionStatus(ctx, sessionsQuery)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to get active sessions")
 		sessionsResponse = &types.AgentSessionsResponse{Sessions: []*types.AgentSessionStatus{}}
 	}
 
 	// Get sessions needing help
-	sessionsNeedingHelp, err := c.Options.Store.GetSessionsNeedingHelp(ctx)
+	sessionsNeedingHelpQuery := &store.ListAgentSessionsQuery{
+		Page:       0,
+		PageSize:   50,
+		Status:     "waiting_for_help",
+		ActiveOnly: false,
+	}
+	sessionsNeedingHelpResponse, err := c.Options.Store.ListAgentSessionStatus(ctx, sessionsNeedingHelpQuery)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to get sessions needing help")
-		sessionsNeedingHelp = []*types.AgentSessionStatus{}
+		sessionsNeedingHelpResponse = &types.AgentSessionsResponse{Sessions: []*types.AgentSessionStatus{}}
 	}
+	sessionsNeedingHelp := sessionsNeedingHelpResponse.Sessions
 
 	// Get pending work
 	pendingWorkQuery := &store.ListAgentWorkItemsQuery{
@@ -378,7 +387,7 @@ func (c *Controller) GetAgentDashboardSummary(ctx context.Context) (*types.Agent
 	pendingWorkResponse, err := c.Options.Store.ListAgentWorkItems(ctx, pendingWorkQuery)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to get pending work")
-		pendingWorkResponse = &types.AgentWorkItemsResponse{Items: []*types.AgentWorkItem{}}
+		pendingWorkResponse = &types.AgentWorkItemsListResponse{WorkItems: []*types.AgentWorkItem{}}
 	}
 
 	// Get running work
@@ -391,7 +400,7 @@ func (c *Controller) GetAgentDashboardSummary(ctx context.Context) (*types.Agent
 	runningWorkResponse, err := c.Options.Store.ListAgentWorkItems(ctx, runningWorkQuery)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to get running work")
-		runningWorkResponse = &types.AgentWorkItemsResponse{Items: []*types.AgentWorkItem{}}
+		runningWorkResponse = &types.AgentWorkItemsListResponse{WorkItems: []*types.AgentWorkItem{}}
 	}
 
 	// Get recent completions
@@ -430,13 +439,13 @@ func (c *Controller) GetAgentDashboardSummary(ctx context.Context) (*types.Agent
 		DashboardData:       baseDashboard,
 		ActiveSessions:      sessionsResponse.Sessions,
 		SessionsNeedingHelp: sessionsNeedingHelp,
-		PendingWork:         pendingWorkResponse.Items,
-		RunningWork:         runningWorkResponse.Items,
+		PendingWork:         pendingWorkResponse.WorkItems,
+		RunningWork:         runningWorkResponse.WorkItems,
 		RecentCompletions:   recentCompletions,
 		PendingReviews:      pendingReviews,
 		ActiveHelpRequests:  activeHelpRequests,
 		WorkQueueStats:      workQueueStats,
-		LastUpdated:         baseDashboard.Timestamp,
+		LastUpdated:         time.Now(),
 	}, nil
 }
 
