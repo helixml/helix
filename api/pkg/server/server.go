@@ -245,6 +245,7 @@ func NewServer(
 			"http://guacamole-client:8080/guacamole",
 			"guacadmin",
 			"guacadmin",
+			ps,
 		),
 	}, nil
 }
