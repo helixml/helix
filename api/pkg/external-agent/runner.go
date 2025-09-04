@@ -28,14 +28,12 @@ const (
 // ExternalAgentRunner connects using a WebSocket to the Control Plane
 // and listens for external agent tasks to run
 type ExternalAgentRunner struct {
-	cfg         *config.ExternalAgentRunnerConfig
-	zedExecutor *ZedExecutor
+	cfg *config.ExternalAgentRunnerConfig
 }
 
-func NewExternalAgentRunner(cfg *config.ExternalAgentRunnerConfig, zedExecutor *ZedExecutor) *ExternalAgentRunner {
+func NewExternalAgentRunner(cfg *config.ExternalAgentRunnerConfig) *ExternalAgentRunner {
 	return &ExternalAgentRunner{
-		cfg:         cfg,
-		zedExecutor: zedExecutor,
+		cfg: cfg,
 	}
 }
 
@@ -204,14 +202,13 @@ func (r *ExternalAgentRunner) processZedAgentRequest(ctx context.Context, conn *
 
 	start := time.Now()
 
-	resp, err := r.zedExecutor.StartZedAgent(ctx, &agent)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to start Zed agent")
-		resp = &types.ZedAgentResponse{
-			SessionID: agent.SessionID,
-			Error:     err.Error(),
-			Status:    "error",
-		}
+	// ZedExecutor not available in this configuration
+	err := fmt.Errorf("Zed execution not supported")
+	logger.Error().Err(err).Msg("failed to start Zed agent")
+	resp := &types.ZedAgentResponse{
+		SessionID: agent.SessionID,
+		Error:     err.Error(),
+		Status:    "error",
 	}
 
 	logger.Info().TimeDiff("duration", time.Now(), start).Msg("Zed agent request processed")

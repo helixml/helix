@@ -321,17 +321,25 @@ type SessionRAGResult struct {
 
 // gives us a quick way to add settings
 type SessionMetadata struct {
-	Avatar                  string               `json:"avatar"`
-	Priority                bool                 `json:"priority"`
-	DocumentIDs             map[string]string    `json:"document_ids"`
-	SessionRAGResults       []*SessionRAGResult  `json:"session_rag_results"`
-	DocumentGroupID         string               `json:"document_group_id"`
-	ManuallyReviewQuestions bool                 `json:"manually_review_questions"`
-	SystemPrompt            string               `json:"system_prompt"`
-	HelixVersion            string               `json:"helix_version"`
-	Stream                  bool                 `json:"stream"`
-	AgentType               string               `json:"agent_type,omitempty"`            // Agent type: "helix" or "zed_external"
-	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"` // Configuration for external agents
+	Avatar                  string              `json:"avatar"`
+	Priority                bool                `json:"priority"`
+	DocumentIDs             map[string]string   `json:"document_ids"`
+	SessionRAGResults       []*SessionRAGResult `json:"session_rag_results"`
+	DocumentGroupID         string              `json:"document_group_id"`
+	ManuallyReviewQuestions bool                `json:"manually_review_questions"`
+	SystemPrompt            string              `json:"system_prompt"`
+	HelixVersion            string              `json:"helix_version"`
+	Stream                  bool                `json:"stream"`
+	AgentType               string              `json:"agent_type,omitempty"` // Agent type: "helix" or "zed_external"
+
+	// Multi-session SpecTask context
+	SpecTaskID              string               `json:"spec_task_id,omitempty"`              // ID of associated SpecTask
+	WorkSessionID           string               `json:"work_session_id,omitempty"`           // ID of associated WorkSession
+	SessionRole             string               `json:"session_role,omitempty"`              // "planning", "implementation", "coordination"
+	ImplementationTaskIndex int                  `json:"implementation_task_index,omitempty"` // Index of implementation task this session handles
+	ZedThreadID             string               `json:"zed_thread_id,omitempty"`             // Associated Zed thread ID
+	ZedInstanceID           string               `json:"zed_instance_id,omitempty"`           // Associated Zed instance ID
+	ExternalAgentConfig     *ExternalAgentConfig `json:"external_agent_config,omitempty"`     // Configuration for external agents
 	// Evals are cool. Scores are strings of floats so we can distinguish ""
 	// (not rated) from "0.0"
 	EvalRunID               string   `json:"eval_run_id"`
@@ -1745,6 +1753,9 @@ type ZedAgent struct {
 	WorkDir string `json:"work_dir"`
 	// Project path to open in Zed (optional)
 	ProjectPath string `json:"project_path"`
+	// Multi-session support
+	InstanceID string `json:"instance_id,omitempty"` // SpecTask-level Zed instance identifier
+	ThreadID   string `json:"thread_id,omitempty"`   // Work session specific thread within instance
 	// RDP connection settings
 	RDPPort int    `json:"rdp_port"`
 	RDPUser string `json:"rdp_user"`
