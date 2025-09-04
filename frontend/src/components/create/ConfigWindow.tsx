@@ -22,7 +22,7 @@ import {
   ICreateSessionConfig,
   IAgentType,
   IExternalAgentConfig,
-  AGENT_TYPE_HELIX,
+  AGENT_TYPE_HELIX_BASIC,
 } from '../../types'
 
 import {

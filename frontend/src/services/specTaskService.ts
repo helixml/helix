@@ -7,13 +7,11 @@ export type {
   TypesSpecTask as SpecTask,
   TypesSpecTaskWorkSession as WorkSession,
   TypesSpecTaskZedThread as ZedThread,
-  TypesSpecTaskMultiSessionOverview as MultiSessionOverview,
-  TypesSpecTaskCoordinationEvent as CoordinationEvent,
-  TypesZedInstanceStatus as ZedInstanceStatus,
+  TypesSpecTaskMultiSessionOverviewResponse as MultiSessionOverview,
+  GithubComHelixmlHelixApiPkgTypesZedInstanceStatus as ZedInstanceStatus,
   TypesSpecTaskImplementationSessionsCreateRequest as ImplementationSessionsCreateRequest,
   TypesSpecTaskImplementationTaskListResponse as ImplementationTaskListResponse,
   TypesSpecTaskMultiSessionOverviewResponse as MultiSessionOverviewResponse,
-  TypesSpecTaskCoordinationLogResponse as CoordinationLogResponse,
   TypesZedInstanceEvent as ZedInstanceEvent
 } from '../api/api';
 
@@ -36,7 +34,7 @@ export function useSpecTask(taskId: string) {
   return useQuery({
     queryKey: QUERY_KEYS.specTask(taskId),
     queryFn: async () => {
-      const response = await api.api.v1SpecTasksDetail(taskId);
+      const response = await api.getApiClient().v1SpecTasksDetail(taskId);
       return response.data;
     },
     enabled: !!taskId,
@@ -49,7 +47,7 @@ export function useMultiSessionOverview(taskId: string) {
   return useQuery({
     queryKey: QUERY_KEYS.multiSessionOverview(taskId),
     queryFn: async () => {
-      const response = await api.api.v1SpecTasksMultiSessionOverviewDetail(taskId);
+      const response = await api.getApiClient().v1SpecTasksMultiSessionOverviewDetail(taskId);
       return response.data;
     },
     enabled: !!taskId,
@@ -62,7 +60,7 @@ export function useSpecTaskWorkSessions(taskId: string) {
   return useQuery({
     queryKey: QUERY_KEYS.workSessions(taskId),
     queryFn: async () => {
-      const response = await api.api.v1SpecTasksWorkSessionsList(taskId);
+      const response = await api.getApiClient().v1SpecTasksWorkSessionsDetail(taskId);
       return response.data;
     },
     enabled: !!taskId,
@@ -75,7 +73,7 @@ export function useImplementationTasks(taskId: string) {
   return useQuery({
     queryKey: QUERY_KEYS.implementationTasks(taskId),
     queryFn: async () => {
-      const response = await api.api.v1SpecTasksImplementationTasksList(taskId);
+      const response = await api.getApiClient().v1SpecTasksImplementationTasksDetail(taskId);
       return response.data;
     },
     enabled: !!taskId,
@@ -88,7 +86,7 @@ export function useCoordinationEvents(taskId: string) {
   return useQuery({
     queryKey: QUERY_KEYS.coordinationLog(taskId),
     queryFn: async () => {
-      const response = await api.api.v1SpecTasksCoordinationLogDetail(taskId);
+      const response = await api.getApiClient().v1SpecTasksCoordinationLogDetail(taskId);
       return response.data;
     },
     enabled: !!taskId,
@@ -102,7 +100,7 @@ export function useZedInstanceStatus(taskId: string) {
   return useQuery({
     queryKey: QUERY_KEYS.zedInstanceStatus(taskId),
     queryFn: async () => {
-      const response = await api.api.v1SpecTasksZedInstanceDetail(taskId);
+      const response = await api.getApiClient().v1SpecTasksZedInstanceDetail(taskId);
       return response.data;
     },
     enabled: !!taskId,
@@ -116,7 +114,7 @@ export function useSessionHistory(sessionId: string) {
   return useQuery({
     queryKey: QUERY_KEYS.sessionHistory(sessionId),
     queryFn: async () => {
-      const response = await api.api.v1WorkSessionsHistoryDetail(sessionId);
+      const response = await api.getApiClient().v1WorkSessionsHistoryDetail(sessionId);
       return response.data;
     },
     enabled: !!sessionId,
@@ -133,7 +131,7 @@ export function useCreateImplementationSessions() {
       taskId: string; 
       request: any; // TypesSpecTaskImplementationSessionsCreateRequest
     }) => {
-      const response = await api.api.v1SpecTasksImplementationSessionsCreate(taskId, request);
+      const response = await api.getApiClient().v1SpecTasksImplementationSessionsCreate(taskId, request);
       return response.data;
     },
     onSuccess: (_, { taskId }) => {
@@ -151,7 +149,8 @@ export function useUpdateSpecTaskStatus() {
   
   return useMutation({
     mutationFn: async ({ taskId, status }: { taskId: string; status: string }) => {
-      const response = await api.api.v1SpecTasksUpdate(taskId, { status });
+      // Note: Update endpoint may not exist in generated client - using POST for now
+      const response = await api.post(`/api/v1/spec-tasks/${taskId}`, { status });
       return response.data;
     },
     onSuccess: (_, { taskId }) => {
@@ -167,7 +166,7 @@ export function useApproveSpecTask() {
   
   return useMutation({
     mutationFn: async (taskId: string) => {
-      const response = await api.api.v1SpecTasksApprovalCreate(taskId);
+      const response = await api.getApiClient().v1SpecTasksApproveSpecsCreate(taskId, { approved: true });
       return response.data;
     },
     onSuccess: (_, taskId) => {
@@ -185,7 +184,8 @@ export function useRecordSessionHistory() {
       sessionId: string; 
       entry: { content: string; timestamp: string; type: string; }
     }) => {
-      const response = await api.api.v1WorkSessionsRecordHistoryCreate(sessionId, entry);
+      // Note: Work sessions history endpoint may not exist - using POST for now
+      const response = await api.post(`/api/v1/work-sessions/${sessionId}/record-history`, entry);
       return response.data;
     },
     onSuccess: (_, { sessionId }) => {
@@ -200,7 +200,8 @@ export function useSendZedEvent() {
   
   return useMutation({
     mutationFn: async (event: any) => { // TypesZedInstanceEvent
-      const response = await api.api.v1ZedEventsCreate(event);
+      // Note: Zed events endpoint may not exist - using POST for now
+      const response = await api.post('/api/v1/zed/events', event);
       return response.data;
     },
     onSuccess: (_, event) => {

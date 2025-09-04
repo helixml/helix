@@ -10,6 +10,7 @@ import {
 import {
   Chat as ChatIcon,
   Code as CodeIcon,
+  AutoAwesome as AutoAwesomeIcon,
   Visibility as VisibilityIcon,
   Circle as CircleIcon,
   Warning as WarningIcon,
@@ -17,7 +18,8 @@ import {
 } from '@mui/icons-material';
 import { 
   IAgentType, 
-  AGENT_TYPE_HELIX,
+  AGENT_TYPE_HELIX_BASIC,
+  AGENT_TYPE_HELIX_AGENT,
   AGENT_TYPE_ZED_EXTERNAL 
 } from '../../types';
 
@@ -44,8 +46,10 @@ const AgentStatusIndicator: React.FC<AgentStatusIndicatorProps> = ({
 }) => {
   const getAgentIcon = () => {
     switch (agentType) {
-      case AGENT_TYPE_HELIX:
+      case AGENT_TYPE_HELIX_BASIC:
         return <ChatIcon fontSize={size} />;
+      case AGENT_TYPE_HELIX_AGENT:
+        return <AutoAwesomeIcon fontSize={size} />;
       case AGENT_TYPE_ZED_EXTERNAL:
         return <CodeIcon fontSize={size} />;
       default:
@@ -55,8 +59,10 @@ const AgentStatusIndicator: React.FC<AgentStatusIndicatorProps> = ({
 
   const getAgentLabel = () => {
     switch (agentType) {
-      case AGENT_TYPE_HELIX:
-        return 'Helix Agent';
+      case AGENT_TYPE_HELIX_BASIC:
+        return 'Basic Helix Agent';
+      case AGENT_TYPE_HELIX_AGENT:
+        return 'Multi-Turn Helix Agent';
       case AGENT_TYPE_ZED_EXTERNAL:
         return 'Zed External Agent';
       default:
@@ -130,9 +136,9 @@ const AgentStatusIndicator: React.FC<AgentStatusIndicatorProps> = ({
       <Chip
         icon={getAgentIcon()}
         label={showLabel ? getAgentLabel() : undefined}
-        color={agentType === AGENT_TYPE_HELIX ? 'primary' : 'secondary'}
+        color={agentType === AGENT_TYPE_HELIX_BASIC || agentType === AGENT_TYPE_HELIX_AGENT ? 'primary' : 'secondary'}
         size={size === 'large' ? 'medium' : 'small'}
-        variant={agentType === AGENT_TYPE_HELIX ? 'filled' : 'outlined'}
+        variant={agentType === AGENT_TYPE_HELIX_BASIC || agentType === AGENT_TYPE_HELIX_AGENT ? 'filled' : 'outlined'}
       />
 
       {/* Status Indicator for External Agents */}

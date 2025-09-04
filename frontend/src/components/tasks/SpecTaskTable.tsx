@@ -63,8 +63,8 @@ interface ExpandedRowProps {
 }
 
 const ExpandedRow: React.FC<ExpandedRowProps> = ({ task, onClose }) => {
-  const { data: overview, isLoading: overviewLoading } = useMultiSessionOverview(task.id);
-  const { data: zedStatus, isLoading: zedLoading } = useZedInstanceStatus(task.id);
+  const { data: overview, isLoading: overviewLoading } = useMultiSessionOverview(task.id || '');
+  const { data: zedStatus, isLoading: zedLoading } = useZedInstanceStatus(task.id || '');
 
   const isLoading = overviewLoading || zedLoading;
 
@@ -114,14 +114,14 @@ const ExpandedRow: React.FC<ExpandedRowProps> = ({ task, onClose }) => {
                             {overview.completed_sessions || 0}
                           </Typography>
                         </Box>
-                        {overview.work_session_count > 0 && (
+                        {(overview?.work_session_count || 0) > 0 && (
                           <Box>
                             <Typography variant="body2" sx={{ mb: 0.5 }}>
-                              Progress: {Math.round(((overview.completed_sessions || 0) / overview.work_session_count) * 100)}%
+                              Progress: {Math.round(((overview?.completed_sessions || 0) / (overview?.work_session_count || 1)) * 100)}%
                             </Typography>
                             <LinearProgress
                               variant="determinate"
-                              value={((overview.completed_sessions || 0) / overview.work_session_count) * 100}
+                              value={((overview?.completed_sessions || 0) / (overview?.work_session_count || 1)) * 100}
                               sx={{ height: 6, borderRadius: 3 }}
                             />
                           </Box>
@@ -245,7 +245,7 @@ const SpecTaskRow: React.FC<{
 
   const handleStatusUpdate = async (newStatus: string) => {
     try {
-      await updateStatus.mutateAsync({ taskId: task.id, status: newStatus });
+      await updateStatus.mutateAsync({ taskId: task.id || '', status: newStatus });
       handleMenuClose();
     } catch (error) {
       console.error('Failed to update status:', error);
@@ -254,7 +254,7 @@ const SpecTaskRow: React.FC<{
 
   const handleApprove = async () => {
     try {
-      await approveTask.mutateAsync(task.id);
+      await approveTask.mutateAsync(task.id || '');
       handleMenuClose();
     } catch (error) {
       console.error('Failed to approve task:', error);
@@ -325,18 +325,18 @@ const SpecTaskRow: React.FC<{
             <Chip
               label={task.priority}
               size="small"
-              color={getPriorityColor(task.priority) as any}
+              color={getPriorityColor(task.priority || 'medium') as any}
             />
           </Stack>
         </TableCell>
 
         <TableCell>
           <Box display="flex" alignItems="center" gap={1}>
-            {getStatusIcon(task.status)}
+            {getStatusIcon(task.status || 'draft')}
             <Chip
-              label={task.status.replace('_', ' ')}
+              label={(task.status || 'draft').replace('_', ' ')}
               size="small"
-              color={getSpecTaskStatusColor(task.status) as any}
+              color={getSpecTaskStatusColor(task.status || 'draft') as any}
             />
           </Box>
         </TableCell>
@@ -399,7 +399,7 @@ const SpecTaskRow: React.FC<{
             Start Task
           </MenuItem>
         )}
-        {['active', 'implementing'].includes(task.status) && (
+        {['active', 'implementing'].includes(task.status || '') && (
           <MenuItem onClick={() => handleStatusUpdate('completed')}>
             <CheckIcon sx={{ mr: 1 }} fontSize="small" />
             Mark Complete
@@ -437,7 +437,7 @@ const SpecTaskTable: React.FC<SpecTaskTableProps> = ({
 
   const getSummaryStats = () => {
     const total = tasks.length;
-    const active = tasks.filter(t => ['active', 'implementing'].includes(t.status)).length;
+    const active = tasks.filter(t => ['active', 'implementing'].includes(t.status || '')).length;
     const completed = tasks.filter(t => t.status === 'completed').length;
     const pendingApproval = tasks.filter(t => t.status === 'pending_approval').length;
 
@@ -538,8 +538,8 @@ const SpecTaskTable: React.FC<SpecTaskTableProps> = ({
               <SpecTaskRow
                 key={task.id}
                 task={task}
-                expanded={expandedRows.has(task.id)}
-                onToggleExpand={() => handleToggleExpand(task.id)}
+                expanded={expandedRows.has(task.id || '')}
+                onToggleExpand={() => handleToggleExpand(task.id || '')}
                 onTaskSelect={onTaskSelect}
               />
             ))}
