@@ -8,6 +8,7 @@ import (
 
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -340,8 +341,8 @@ func (c *Controller) CleanupExpiredAgentSessions(ctx context.Context, timeout ti
 	return nil
 }
 
-// GetAgentDashboardData returns comprehensive dashboard data for agent management
-func (c *Controller) GetAgentDashboardData(ctx context.Context) (*types.AgentDashboardSummary, error) {
+// GetAgentDashboardSummary returns comprehensive dashboard data for agent management
+func (c *Controller) GetAgentDashboardSummary(ctx context.Context) (*types.AgentDashboardSummary, error) {
 	// Get base dashboard data
 	baseDashboard, err := c.GetDashboardData(ctx)
 	if err != nil {
@@ -349,7 +350,7 @@ func (c *Controller) GetAgentDashboardData(ctx context.Context) (*types.AgentDas
 	}
 
 	// Get active sessions
-	sessionsQuery := &ListAgentSessionsQuery{
+	sessionsQuery := &store.ListAgentSessionsQuery{
 		Page:       0,
 		PageSize:   100,
 		ActiveOnly: true,
@@ -368,7 +369,7 @@ func (c *Controller) GetAgentDashboardData(ctx context.Context) (*types.AgentDas
 	}
 
 	// Get pending work
-	pendingWorkQuery := &ListAgentWorkItemsQuery{
+	pendingWorkQuery := &store.ListAgentWorkItemsQuery{
 		Page:     0,
 		PageSize: 50,
 		Status:   "pending",
@@ -381,7 +382,7 @@ func (c *Controller) GetAgentDashboardData(ctx context.Context) (*types.AgentDas
 	}
 
 	// Get running work
-	runningWorkQuery := &ListAgentWorkItemsQuery{
+	runningWorkQuery := &store.ListAgentWorkItemsQuery{
 		Page:     0,
 		PageSize: 50,
 		Status:   "in_progress",
@@ -440,30 +441,3 @@ func (c *Controller) GetAgentDashboardData(ctx context.Context) (*types.AgentDas
 }
 
 // Query types for store operations
-type ListAgentSessionsQuery struct {
-	Page           int
-	PageSize       int
-	Status         string
-	AgentType      string
-	UserID         string
-	AppID          string
-	OrganizationID string
-	ActiveOnly     bool
-	HealthStatus   string
-	OrderBy        string
-}
-
-type ListAgentWorkItemsQuery struct {
-	Page            int
-	PageSize        int
-	Status          string
-	Source          string
-	AgentType       string
-	UserID          string
-	AppID           string
-	OrganizationID  string
-	TriggerConfigID string
-	AssignedOnly    bool
-	UnassignedOnly  bool
-	OrderBy         string
-}

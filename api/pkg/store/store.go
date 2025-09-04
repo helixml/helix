@@ -368,6 +368,28 @@ type Store interface {
 	GetSpecTask(ctx context.Context, id string) (*types.SpecTask, error)
 	UpdateSpecTask(ctx context.Context, task *types.SpecTask) error
 	ListSpecTasks(ctx context.Context, filters *types.SpecTaskFilters) ([]*types.SpecTask, error)
+
+	// Agent session methods
+	CreateAgentSession(ctx context.Context, session *types.AgentSession) error
+	GetAgentSession(ctx context.Context, sessionID string) (*types.AgentSession, error)
+	UpdateAgentSession(ctx context.Context, session *types.AgentSession) error
+	ListAgentSessions(ctx context.Context, query *ListAgentSessionsQuery) (*types.AgentSessionsListResponse, error)
+
+	// Agent work item methods
+	CreateAgentWorkItem(ctx context.Context, workItem *types.AgentWorkItem) error
+	GetAgentWorkItem(ctx context.Context, workItemID string) (*types.AgentWorkItem, error)
+	UpdateAgentWorkItem(ctx context.Context, workItem *types.AgentWorkItem) error
+	ListAgentWorkItems(ctx context.Context, query *ListAgentWorkItemsQuery) (*types.AgentWorkItemsListResponse, error)
+
+	// Help request methods
+	GetHelpRequestByID(ctx context.Context, requestID string) (*types.HelpRequest, error)
+	UpdateHelpRequest(ctx context.Context, request *types.HelpRequest) error
+	ListActiveHelpRequests(ctx context.Context) ([]*types.HelpRequest, error)
+
+	// Agent dashboard helper methods
+	GetSessionsNeedingHelp(ctx context.Context) ([]*types.AgentSession, error)
+	GetRecentCompletions(ctx context.Context, limit int) ([]*types.JobCompletion, error)
+	GetPendingReviews(ctx context.Context) ([]*types.JobCompletion, error)
 }
 
 type EmbeddingsStore interface {

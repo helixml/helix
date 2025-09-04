@@ -6,7 +6,7 @@
 //	mockgen -source gptscript.go -destination gptscript_mocks.go -package zedagent
 //
 
-// Package gptscript is a generated GoMock package.
+// Package zedagent is a generated GoMock package.
 package zedagent
 
 import (
@@ -69,4 +69,86 @@ func (m *MockExecutor) ExecuteScript(ctx context.Context, script *types.GptScrip
 func (mr *MockExecutorMockRecorder) ExecuteScript(ctx, script any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteScript", reflect.TypeOf((*MockExecutor)(nil).ExecuteScript), ctx, script)
+}
+
+// MockZedAgentExecutor is a mock of ZedAgentExecutor interface.
+type MockZedAgentExecutor struct {
+	ctrl     *gomock.Controller
+	recorder *MockZedAgentExecutorMockRecorder
+	isgomock struct{}
+}
+
+// MockZedAgentExecutorMockRecorder is the mock recorder for MockZedAgentExecutor.
+type MockZedAgentExecutorMockRecorder struct {
+	mock *MockZedAgentExecutor
+}
+
+// NewMockZedAgentExecutor creates a new mock instance.
+func NewMockZedAgentExecutor(ctrl *gomock.Controller) *MockZedAgentExecutor {
+	mock := &MockZedAgentExecutor{ctrl: ctrl}
+	mock.recorder = &MockZedAgentExecutorMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockZedAgentExecutor) EXPECT() *MockZedAgentExecutorMockRecorder {
+	return m.recorder
+}
+
+// GetSession mocks base method.
+func (m *MockZedAgentExecutor) GetSession(sessionID string) (*ZedSession, bool) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSession", sessionID)
+	ret0, _ := ret[0].(*ZedSession)
+	ret1, _ := ret[1].(bool)
+	return ret0, ret1
+}
+
+// GetSession indicates an expected call of GetSession.
+func (mr *MockZedAgentExecutorMockRecorder) GetSession(sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSession", reflect.TypeOf((*MockZedAgentExecutor)(nil).GetSession), sessionID)
+}
+
+// ListSessions mocks base method.
+func (m *MockZedAgentExecutor) ListSessions() []*ZedSession {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSessions")
+	ret0, _ := ret[0].([]*ZedSession)
+	return ret0
+}
+
+// ListSessions indicates an expected call of ListSessions.
+func (mr *MockZedAgentExecutorMockRecorder) ListSessions() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessions", reflect.TypeOf((*MockZedAgentExecutor)(nil).ListSessions))
+}
+
+// StartZedAgent mocks base method.
+func (m *MockZedAgentExecutor) StartZedAgent(ctx context.Context, agent *types.ZedAgent) (*types.ZedAgentResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StartZedAgent", ctx, agent)
+	ret0, _ := ret[0].(*types.ZedAgentResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// StartZedAgent indicates an expected call of StartZedAgent.
+func (mr *MockZedAgentExecutorMockRecorder) StartZedAgent(ctx, agent any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartZedAgent", reflect.TypeOf((*MockZedAgentExecutor)(nil).StartZedAgent), ctx, agent)
+}
+
+// StopZedAgent mocks base method.
+func (m *MockZedAgentExecutor) StopZedAgent(ctx context.Context, sessionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StopZedAgent", ctx, sessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StopZedAgent indicates an expected call of StopZedAgent.
+func (mr *MockZedAgentExecutorMockRecorder) StopZedAgent(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopZedAgent", reflect.TypeOf((*MockZedAgentExecutor)(nil).StopZedAgent), ctx, sessionID)
 }

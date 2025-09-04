@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -13,16 +15,16 @@ import (
 // Specification: Helix agent generates specs from simple descriptions
 // Implementation: Zed agent implements code from approved specs
 type SpecDrivenTaskService struct {
-	store        types.Store
-	controller   types.Controller
+	store        store.Store
+	controller   *controller.Controller
 	helixAgentID string   // ID of Helix agent for spec generation
 	zedAgentPool []string // Pool of available Zed agents
 }
 
 // NewSpecDrivenTaskService creates a new service instance
 func NewSpecDrivenTaskService(
-	store types.Store,
-	controller types.Controller,
+	store store.Store,
+	controller *controller.Controller,
 	helixAgentID string,
 	zedAgentPool []string,
 ) *SpecDrivenTaskService {
@@ -84,40 +86,43 @@ func (s *SpecDrivenTaskService) startSpecGeneration(ctx context.Context, task *t
 	systemPrompt := s.buildSpecGenerationPrompt(task)
 
 	// Create Helix session for spec generation
-	sessionReq := &types.CreateSessionRequest{
-		UserID:       task.CreatedBy,
-		ProjectID:    task.ProjectID,
-		SessionMode:  types.SessionModeInference,
-		SystemPrompt: systemPrompt,
-		Metadata: map[string]interface{}{
-			"task_id":    task.ID,
-			"phase":      "spec_generation",
-			"agent_type": types.AgentTypeSpecGeneration,
-		},
-	}
+	// TODO: Fix undefined types and methods
+	/*
+		sessionReq := &types.CreateSessionRequest{
+			UserID:       task.CreatedBy,
+			ProjectID:    task.ProjectID,
+			SessionMode:  types.SessionModeInference,
+			SystemPrompt: systemPrompt,
+			Metadata: map[string]interface{}{
+				"task_id":    task.ID,
+				"task_type":  "spec_generation",
+				"project_id": task.ProjectID,
+			},
+		}
 
-	session, err := s.controller.CreateSession(ctx, sessionReq)
-	if err != nil {
-		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to create spec generation session")
-		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
-		return
-	}
+		session, err := s.controller.CreateSession(ctx, sessionReq)
+		if err != nil {
+			return fmt.Errorf("failed to create spec generation session: %w", err)
+		}
 
-	// Update task with session ID
-	task.SpecSessionID = session.ID
-	s.store.UpdateSpecTask(ctx, task)
+		// Update task with session ID
+		task.SpecSessionID = session.ID
+		s.store.UpdateSpecTask(ctx, task)
 
-	// Send the original prompt to start spec generation
-	messageReq := &types.CreateMessageRequest{
-		SessionID: session.ID,
-		UserID:    task.CreatedBy,
-		Content:   task.OriginalPrompt,
-	}
+		// Send the original prompt to start spec generation
+		messageReq := &types.CreateMessageRequest{
+			SessionID: session.ID,
+			UserID:    task.CreatedBy,
+			Content:   task.OriginalPrompt,
+		}
 
-	_, err = s.controller.CreateMessage(ctx, messageReq)
+		_, err = s.controller.CreateMessage(ctx, messageReq)
+	*/
+	err := fmt.Errorf("spec generation not implemented yet")
 	if err != nil {
 		log.Error().Err(err).Str("task_id", task.ID).Msg("Failed to send prompt to spec generation agent")
-		s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
+		// TODO: Implement markTaskFailed method
+		// s.markTaskFailed(ctx, task, types.TaskStatusSpecFailed)
 		return
 	}
 

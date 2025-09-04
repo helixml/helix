@@ -3,9 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"strings"
-
-	"github.com/helixml/helix/api/pkg/types"
 )
 
 // SampleProjectCodeService manages hardcoded starter code for sample projects
@@ -472,7 +469,7 @@ app.use('/api/posts', postRoutes);
 app.use(errorHandler);
 
 app.listen(PORT, () => {
-  console.log(\`Server running on port \${PORT}\`);
+  console.log(` + "`" + `Server running on port ${PORT}` + "`" + `);
 });`,
 			"src/routes/users.ts": `import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
@@ -1005,24 +1002,25 @@ def create_post():
     db.session.commit()
 
     return post_schema.dump(post_data), 201`,
-+		},
-+	}
-+
-+	// Add more sample projects as needed
-+}
-+
-+// GetProjectCodeArchive returns a compressed archive of all project files
-+func (s *SampleProjectCodeService) GetProjectCodeArchive(ctx context.Context, projectID string) (map[string]string, error) {
-+	project, err := s.GetProjectCode(ctx, projectID)
-+	if err != nil {
-+		return nil, err
-+	}
-+
-+	// Add .gitignore to files
-+	allFiles := make(map[string]string)
-+	for path, content := range project.Files {
-+		allFiles[path] = content
-+	}
-+	allFiles[".gitignore"] = project.GitIgnore
-+
-+	return allFiles, nil
+		},
+	}
+
+	// Add more sample projects as needed
+}
+
+// GetProjectCodeArchive returns a compressed archive of all project files
+func (s *SampleProjectCodeService) GetProjectCodeArchive(ctx context.Context, projectID string) (map[string]string, error) {
+	project, err := s.GetProjectCode(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add .gitignore to files
+	allFiles := make(map[string]string)
+	for path, content := range project.Files {
+		allFiles[path] = content
+	}
+	allFiles[".gitignore"] = project.GitIgnore
+
+	return allFiles, nil
+}
