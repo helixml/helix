@@ -733,6 +733,17 @@ definitions:
       project_path:
         type: string
     type: object
+  server.CloneCommandResponse:
+    properties:
+      clone_command:
+        type: string
+      clone_url:
+        type: string
+      repository_id:
+        type: string
+      target_dir:
+        type: string
+    type: object
   server.CombinedApprovalHandoffResult:
     properties:
       approval:
@@ -772,6 +783,34 @@ definitions:
         type: string
       total_events:
         type: integer
+    type: object
+  server.CreateSampleRepositoryRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      owner_id:
+        type: string
+      sample_type:
+        type: string
+    type: object
+  server.CreateSpecTaskRepositoryRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      owner_id:
+        type: string
+      project_id:
+        type: string
+      spec_task_id:
+        type: string
+      template_files:
+        additionalProperties:
+          type: string
+        type: object
     type: object
   server.CreateTopUpRequest:
     properties:
@@ -819,6 +858,31 @@ definitions:
         type: string
       tasks_created:
         type: integer
+    type: object
+  server.InitializeSampleRepositoriesRequest:
+    properties:
+      owner_id:
+        type: string
+      sample_types:
+        description: If empty, creates all samples
+        items:
+          type: string
+        type: array
+    type: object
+  server.InitializeSampleRepositoriesResponse:
+    properties:
+      created_count:
+        type: integer
+      created_repositories:
+        items:
+          $ref: '#/definitions/services.GitRepository'
+        type: array
+      errors:
+        items:
+          type: string
+        type: array
+      success:
+        type: boolean
     type: object
   server.LicenseKeyRequest:
     properties:
@@ -954,6 +1018,28 @@ definitions:
       prompt:
         description: Natural language request
         type: string
+    type: object
+  server.SampleType:
+    properties:
+      description:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      tech_stack:
+        items:
+          type: string
+        type: array
+    type: object
+  server.SampleTypesResponse:
+    properties:
+      count:
+        type: integer
+      sample_types:
+        items:
+          $ref: '#/definitions/server.SampleType'
+        type: array
     type: object
   server.SessionHistoryEntry:
     properties:
@@ -1184,6 +1270,95 @@ definitions:
       spec_task_id:
         type: string
     type: object
+  services.GitRepository:
+    properties:
+      branches:
+        items:
+          type: string
+        type: array
+      clone_url:
+        type: string
+      created_at:
+        type: string
+      default_branch:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      last_activity:
+        type: string
+      local_path:
+        type: string
+      metadata:
+        additionalProperties: true
+        type: object
+      name:
+        type: string
+      owner_id:
+        type: string
+      project_id:
+        type: string
+      repo_type:
+        $ref: '#/definitions/services.GitRepositoryType'
+      spec_task_id:
+        type: string
+      status:
+        $ref: '#/definitions/services.GitRepositoryStatus'
+      updated_at:
+        type: string
+    type: object
+  services.GitRepositoryCreateRequest:
+    properties:
+      default_branch:
+        type: string
+      description:
+        type: string
+      initial_files:
+        additionalProperties:
+          type: string
+        type: object
+      metadata:
+        additionalProperties: true
+        type: object
+      name:
+        type: string
+      owner_id:
+        type: string
+      project_id:
+        type: string
+      repo_type:
+        $ref: '#/definitions/services.GitRepositoryType'
+      spec_task_id:
+        type: string
+    type: object
+  services.GitRepositoryStatus:
+    enum:
+    - active
+    - archived
+    - deleted
+    type: string
+    x-enum-varnames:
+    - GitRepositoryStatusActive
+    - GitRepositoryStatusArchived
+    - GitRepositoryStatusDeleted
+  services.GitRepositoryType:
+    enum:
+    - project
+    - spec_task
+    - sample
+    - template
+    type: string
+    x-enum-comments:
+      GitRepositoryTypeProject: User project repository
+      GitRepositoryTypeSample: Sample/demo repository
+      GitRepositoryTypeSpecTask: SpecTask-specific repository
+      GitRepositoryTypeTemplate: Template repository
+    x-enum-varnames:
+    - GitRepositoryTypeProject
+    - GitRepositoryTypeSpecTask
+    - GitRepositoryTypeSample
+    - GitRepositoryTypeTemplate
   services.HandoffResult:
     properties:
       branch_name:
@@ -5774,16 +5949,16 @@ definitions:
     type: object
   types.TriggerType:
     enum:
+    - agent_work_queue
     - slack
     - azure_devops
     - cron
-    - agent_work_queue
     type: string
     x-enum-varnames:
+    - TriggerTypeAgentWorkQueue
     - TriggerTypeSlack
     - TriggerTypeAzureDevOps
     - TriggerTypeCron
-    - TriggerTypeAgentWorkQueue
   types.UpdateOrganizationMemberRequest:
     properties:
       role:
@@ -6917,6 +7092,244 @@ paths:
       summary: Get enhanced dashboard data with agent management
       tags:
       - dashboard
+  /api/v1/git/repositories:
+    get:
+      description: List all git repositories, optionally filtered by owner and type
+      parameters:
+      - description: Filter by owner ID
+        in: query
+        name: owner_id
+        type: string
+      - description: Filter by repository type
+        in: query
+        name: repo_type
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/services.GitRepository'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: List git repositories
+      tags:
+      - git-repositories
+    post:
+      consumes:
+      - application/json
+      description: Create a new git repository on the server
+      parameters:
+      - description: Repository creation request
+        in: body
+        name: repository
+        required: true
+        schema:
+          $ref: '#/definitions/services.GitRepositoryCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/services.GitRepository'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create git repository
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}:
+    get:
+      description: Get information about a specific git repository
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/services.GitRepository'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get git repository
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/{id}/clone-command:
+    get:
+      description: Get the git clone command for a repository with authentication
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Target directory for clone
+        in: query
+        name: target_dir
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.CloneCommandResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Get clone command
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/initialize-samples:
+    post:
+      consumes:
+      - application/json
+      description: Create default sample repositories for demos and testing
+      parameters:
+      - description: Initialize request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.InitializeSampleRepositoriesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.InitializeSampleRepositoriesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Initialize sample repositories
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/sample:
+    post:
+      consumes:
+      - application/json
+      description: Create a sample/demo git repository from available templates
+      parameters:
+      - description: Sample repository creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.CreateSampleRepositoryRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/services.GitRepository'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create sample repository
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/sample-types:
+    get:
+      description: Get list of available sample repository types and templates
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SampleTypesResponse'
+      security:
+      - BearerAuth: []
+      summary: Get sample repository types
+      tags:
+      - git-repositories
+  /api/v1/git/repositories/spec-task:
+    post:
+      consumes:
+      - application/json
+      description: Create a git repository specifically for a SpecTask
+      parameters:
+      - description: SpecTask repository creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.CreateSpecTaskRepositoryRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/services.GitRepository'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create SpecTask repository
+      tags:
+      - git-repositories
   /api/v1/helix-models:
     get:
       description: List all available Helix models, optionally filtering by type,

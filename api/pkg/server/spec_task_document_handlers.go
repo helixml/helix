@@ -573,7 +573,7 @@ func (s *HelixAPIServer) getSessionHistoryLog(w http.ResponseWriter, r *http.Req
 	limitStr := r.URL.Query().Get("limit")
 	limit := 50
 	if limitStr != "" {
-		if parsed := parseIntQuery(limitStr, 50); parsed > 0 {
+		if parsed := parseIntQueryDocument(limitStr, 50); parsed > 0 {
 			limit = parsed
 		}
 	}
@@ -691,7 +691,7 @@ func (s *HelixAPIServer) getSpecDocumentContent(w http.ResponseWriter, r *http.R
 		config := &services.SpecDocumentConfig{
 			SpecTaskID: taskID,
 		}
-		content = s.specDrivenTaskService.SpecDocumentService.generateSpecMetadata(specTask, config)
+		content = s.specDrivenTaskService.SpecDocumentService.GenerateSpecMetadata(specTask, config)
 		lastModified = time.Now()
 	}
 
@@ -831,7 +831,7 @@ func (s *HelixAPIServer) getCoordinationLog(w http.ResponseWriter, r *http.Reque
 	limitStr := r.URL.Query().Get("limit")
 	limit := 100
 	if limitStr != "" {
-		limit = parseIntQuery(limitStr, 100)
+		limit = parseIntQueryDocument(limitStr, 100)
 	}
 
 	// Get coordination summary
@@ -971,7 +971,7 @@ func getContentType(filename string) string {
 	}
 }
 
-func parseIntQuery(value string, defaultValue int) int {
+func parseIntQueryDocument(value string, defaultValue int) int {
 	if value == "" {
 		return defaultValue
 	}

@@ -118,7 +118,7 @@ func (s *SpecDocumentService) GenerateSpecDocuments(
 	generatedFiles["tasks.md"] = tasksContent
 
 	// 4. Optional: spec-metadata.json for tooling integration
-	metadataContent := s.generateSpecMetadata(specTask, config)
+	metadataContent := s.GenerateSpecMetadata(specTask, config)
 	generatedFiles["spec-metadata.json"] = metadataContent
 
 	result := &SpecDocumentResult{
@@ -449,8 +449,8 @@ This implementation plan breaks down the work into discrete, trackable tasks tha
 	return content.String()
 }
 
-// generateSpecMetadata creates spec-metadata.json for tooling integration
-func (s *SpecDocumentService) generateSpecMetadata(
+// GenerateSpecMetadata creates spec-metadata.json for tooling integration
+func (s *SpecDocumentService) GenerateSpecMetadata(
 	specTask *types.SpecTask,
 	config *SpecDocumentConfig,
 ) string {
