@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -179,5 +180,7 @@ func (s *HelixAPIServer) handleValidateMcpSkill(_ http.ResponseWriter, r *http.R
 		return nil, fmt.Errorf("failed to decode request body: %w", err)
 	}
 
-	return mcp.InitializeMCPClientSkill(r.Context(), &config)
+	return mcp.InitializeMCPClientSkill(r.Context(), agent.Meta{
+		UserID: user.ID,
+	}, s.oauthManager, &config)
 }
