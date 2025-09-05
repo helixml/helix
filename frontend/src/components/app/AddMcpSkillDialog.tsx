@@ -20,6 +20,11 @@ import {
   Chip,
   Tabs,
   Tab,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Avatar,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -32,6 +37,15 @@ import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
 import useApi from '../../hooks/useApi';
 import { TypesToolMCPClientConfig, McpTool } from '../../api/api';
+import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
+
+// Interface for OAuth provider objects from the API
+interface OAuthProvider {
+  id: string;
+  type: string;
+  name: string;
+  enabled: boolean;
+}
 
 interface AddMcpSkillDialogProps {
   open: boolean;
@@ -41,6 +55,8 @@ interface AddMcpSkillDialogProps {
     name: string;
     url: string;
     headers?: Record<string, string>;
+    oauth_provider?: string;
+    oauth_scopes?: string[];
   };
   app: IAppFlatState;
   onUpdate: (updates: IAppFlatState) => Promise<void>;
@@ -107,6 +123,8 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
     name: '',
     url: '',
     headers: {} as Record<string, string>,
+    oauth_provider: '',
+    oauth_scopes: [] as string[],
   });
   
   const [existingSkill, setExistingSkill] = useState<typeof skill | null>(null);
@@ -119,6 +137,27 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
   const [activeTab, setActiveTab] = useState(0);
   const [parsedMcpTools, setParsedMcpTools] = useState<McpTool[]>([]);
   const [existingTool, setExistingTool] = useState<ITool | null>(null);
+  
+  // OAuth state
+  const [allOAuthProviders, setAllOAuthProviders] = useState<OAuthProvider[]>([]);
+  const [oauthProvider, setOAuthProvider] = useState<string>('');
+  const [oauthScopes, setOAuthScopes] = useState<string[]>([]);
+
+  // Fetch ALL OAuth providers from the API
+  useEffect(() => {
+    const fetchOAuthProviders = async () => {
+      try {
+        const providers = await api.get('/api/v1/oauth/providers');
+        const allProviders = Array.isArray(providers) ? providers : [];
+        setAllOAuthProviders(allProviders);
+      } catch (error) {
+        console.error('Error fetching OAuth providers:', error);
+        setAllOAuthProviders([]);
+      }
+    };
+
+    fetchOAuthProviders();
+  }, []);
 
   useEffect(() => {
     if (initialSkill) {
@@ -126,7 +165,13 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
         name: initialSkill.name,
         url: initialSkill.url,
         headers: initialSkill.headers ?? {},
+        oauth_provider: initialSkill.oauth_provider ?? '',
+        oauth_scopes: initialSkill.oauth_scopes ?? [],
       });
+      
+      // Set OAuth state
+      setOAuthProvider(initialSkill.oauth_provider ?? '');
+      setOAuthScopes(initialSkill.oauth_scopes ?? []);
       
       // Find existing skill in app.mcpTools
       const existingIndex = app.mcpTools?.findIndex(mcp => mcp.name === initialSkill.name) ?? -1;
@@ -135,6 +180,8 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
         name: initialSkill.name,
         url: initialSkill.url,
         headers: initialSkill.headers ?? {},
+        oauth_provider: initialSkill.oauth_provider ?? '',
+        oauth_scopes: initialSkill.oauth_scopes ?? [],
       });
         setExistingSkillIndex(existingIndex);
       }
@@ -149,10 +196,14 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
         name: '',
         url: '',
         headers: {},
+        oauth_provider: '',
+        oauth_scopes: [],
       });
       setExistingSkill(null);
       setExistingSkillIndex(null);
       setExistingTool(null);
+      setOAuthProvider('');
+      setOAuthScopes([]);
     }
     // Reset validation state when dialog opens
     setValidationResult(null);
@@ -217,6 +268,43 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
     }));
   };
 
+  const handleOAuthProviderChange = (provider: string) => {
+    setOAuthProvider(provider);
+    setSkill((prev) => ({
+      ...prev,
+      oauth_provider: provider,
+    }));
+  };
+
+  const addScope = () => {
+    const newScopes = [...oauthScopes, ''];
+    setOAuthScopes(newScopes);
+    setSkill((prev) => ({
+      ...prev,
+      oauth_scopes: newScopes,
+    }));
+  };
+
+  const removeScope = (index: number) => {
+    const newScopes = [...oauthScopes];
+    newScopes.splice(index, 1);
+    setOAuthScopes(newScopes);
+    setSkill((prev) => ({
+      ...prev,
+      oauth_scopes: newScopes,
+    }));
+  };
+
+  const handleScopeChange = (index: number, value: string) => {
+    const newScopes = [...oauthScopes];
+    newScopes[index] = value;
+    setOAuthScopes(newScopes);
+    setSkill((prev) => ({
+      ...prev,
+      oauth_scopes: newScopes,
+    }));
+  };
+
   const handleValidate = async () => {
     try {
       setValidating(true);
@@ -235,6 +323,7 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
         name: skill.name,
         url: skill.url,
         headers: skill.headers,
+        oauth_provider: skill.oauth_provider,
       });
       
       setValidationResult(result.data);
@@ -270,6 +359,8 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
         name: skill.name,
         url: skill.url,
         headers: skill.headers,
+        oauth_provider: skill.oauth_provider || undefined,
+        oauth_scopes: skill.oauth_scopes.filter(s => s.trim() !== ''),
       };
 
       // Copy app object, has to be deep copy as we have arrays inside
@@ -418,12 +509,16 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
           name: '',
           url: '',
           headers: {},
+          oauth_provider: '',
+          oauth_scopes: [],
         });
           setExistingSkill(null);
           setExistingSkillIndex(null);
           setUrlError(null);
           setValidationResult(null);
           setValidationError(null);
+          setOAuthProvider('');
+          setOAuthScopes([]);
           onClosed?.();
         }
       }}
@@ -581,6 +676,106 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
 
                   {validationResult && validationResult.tools && validationResult.tools.length > 0 && (
                     renderMcpTools(validationResult.tools)
+                  )}
+                </SectionCard>
+
+                {/* OAuth Configuration Section */}
+                <SectionCard>
+                  <Typography variant="h6" sx={{ mb: 2, color: '#F8FAFC' }}>
+                    OAuth Configuration
+                  </Typography>
+                  <FormControl fullWidth sx={{ mb: 2 }}>
+                    <InputLabel id="oauth-provider-label" sx={{ color: '#A0AEC0' }}>OAuth Provider</InputLabel>
+                    <Select
+                      labelId="oauth-provider-label"
+                      id="oauth-provider"
+                      value={oauthProvider}
+                      label="OAuth Provider"
+                      onChange={(e) => handleOAuthProviderChange(e.target.value)}
+                      sx={{
+                        '& .MuiInputBase-root': {
+                          color: '#F1F1F1',
+                        },
+                        '& .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#353945',
+                        },
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#6366F1',
+                        },
+                        '& .MuiSvgIcon-root': {
+                          color: '#A0AEC0',
+                        },
+                      }}
+                    >
+                      <MenuItem value="">None</MenuItem>
+                      {allOAuthProviders.map((provider) => (
+                        <MenuItem key={provider.id} value={provider.name}>
+                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                            <Avatar 
+                              sx={{ 
+                                bgcolor: PROVIDER_COLORS[provider.type] || PROVIDER_COLORS.custom,
+                                color: 'white',
+                                mr: 1,
+                                width: 24,
+                                height: 24
+                              }}
+                            >
+                              {PROVIDER_ICONS[provider.type] || PROVIDER_ICONS.custom}
+                            </Avatar>
+                            <span>{provider.name}</span>
+                          </Box>
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  {oauthProvider && (
+                    <Box sx={{ mb: 2 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Typography variant="subtitle1" sx={{ color: '#F8FAFC' }}>Required Scopes</Typography>
+                        <Button 
+                          startIcon={<AddIcon />} 
+                          onClick={addScope}
+                          variant="outlined"
+                          size="small"
+                          sx={{
+                            borderColor: '#6366F1',
+                            color: '#6366F1',
+                            '&:hover': {
+                              borderColor: '#818CF8',
+                              background: 'rgba(99, 102, 241, 0.1)',
+                            },
+                          }}
+                        >
+                          Add Scope
+                        </Button>
+                      </Box>
+                      
+                      {oauthScopes.length === 0 ? (
+                        <Typography variant="body2" sx={{ color: '#A0AEC0' }}>
+                          No scopes defined. Add scopes to request specific permissions.
+                        </Typography>
+                      ) : (
+                        oauthScopes.map((scope, index) => (
+                          <Box key={index} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                            <DarkTextField
+                              value={scope}
+                              onChange={(e) => handleScopeChange(index, e.target.value)}
+                              fullWidth
+                              placeholder="Enter scope"
+                              size="small"
+                            />
+                            <IconButton 
+                              onClick={() => removeScope(index)}
+                              color="error"
+                              sx={{ ml: 1 }}
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </Box>
+                        ))
+                      )}
+                    </Box>
                   )}
                 </SectionCard>
               </Box>
