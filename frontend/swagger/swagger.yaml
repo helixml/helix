@@ -1352,6 +1352,14 @@ definitions:
         type: object
       name:
         type: string
+      oauth_provider:
+        description: The name of the OAuth provider to use for authentication
+        type: string
+      oauth_scopes:
+        description: Required OAuth scopes for this API
+        items:
+          type: string
+        type: array
       url:
         type: string
     type: object
@@ -2539,6 +2547,7 @@ definitions:
     - github
     - slack
     - linkedin
+    - hubspot
     - custom
     type: string
     x-enum-varnames:
@@ -2549,6 +2558,7 @@ definitions:
     - OAuthProviderTypeGitHub
     - OAuthProviderTypeSlack
     - OAuthProviderTypeLinkedIn
+    - OAuthProviderTypeHubSpot
     - OAuthProviderTypeCustom
   types.OAuthUserInfo:
     properties:
@@ -3958,6 +3968,13 @@ definitions:
         type: object
       name:
         type: string
+      oauth_provider:
+        type: string
+      oauth_scopes:
+        description: Required OAuth scopes for this API
+        items:
+          type: string
+        type: array
       tools:
         items:
           $ref: '#/definitions/mcp.Tool'
