@@ -539,8 +539,8 @@ const Skills: React.FC<SkillsProps> = ({
           url: mcp.url || '',
           requiredParameters: [],
           headers: mcp.headers || {},
-          oauth_provider: '',
-          oauth_scopes: [],
+          oauth_provider: mcp.oauth_provider || '',
+          oauth_scopes: mcp.oauth_scopes || [],
           skip_unknown_keys: false,
           transform_output: false,
         },
@@ -915,6 +915,8 @@ const Skills: React.FC<SkillsProps> = ({
             name: selectedSkill.name,
             url: selectedSkill.apiSkill?.url || '',
             headers: selectedSkill.apiSkill?.headers || {},
+            oauth_provider: selectedSkill.apiSkill?.oauth_provider || '',
+            oauth_scopes: selectedSkill.apiSkill?.oauth_scopes || [],
           }}
           app={app}
           onUpdate={onUpdate}

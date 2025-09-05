@@ -36,16 +36,9 @@ import { styled } from '@mui/material/styles';
 import DarkDialog from '../dialog/DarkDialog';
 import useLightTheme from '../../hooks/useLightTheme';
 import useApi from '../../hooks/useApi';
-import { TypesToolMCPClientConfig, McpTool } from '../../api/api';
+import { TypesToolMCPClientConfig, McpTool, TypesOAuthProvider } from '../../api/api';
 import { PROVIDER_ICONS, PROVIDER_COLORS } from '../icons/ProviderIcons';
-
-// Interface for OAuth provider objects from the API
-interface OAuthProvider {
-  id: string;
-  type: string;
-  name: string;
-  enabled: boolean;
-}
+import { useListOAuthProviders } from '../../services/oauthProvidersService';
 
 interface AddMcpSkillDialogProps {
   open: boolean;
@@ -139,25 +132,20 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
   const [existingTool, setExistingTool] = useState<ITool | null>(null);
   
   // OAuth state
-  const [allOAuthProviders, setAllOAuthProviders] = useState<OAuthProvider[]>([]);
   const [oauthProvider, setOAuthProvider] = useState<string>('');
   const [oauthScopes, setOAuthScopes] = useState<string[]>([]);
 
-  // Fetch ALL OAuth providers from the API
-  useEffect(() => {
-    const fetchOAuthProviders = async () => {
-      try {
-        const providers = await api.get('/api/v1/oauth/providers');
-        const allProviders = Array.isArray(providers) ? providers : [];
-        setAllOAuthProviders(allProviders);
-      } catch (error) {
-        console.error('Error fetching OAuth providers:', error);
-        setAllOAuthProviders([]);
-      }
-    };
+  // Fetch oauth providers
+  const { data: allOAuthProviders = [], isLoading: isLoadingOAuthProviders, error: oauthProvidersError } = useListOAuthProviders();
 
-    fetchOAuthProviders();
-  }, []);
+  // Set OAuth provider when providers finish loading and skill has an oauth_provider
+  useEffect(() => {
+    console.log('xx oauth provider', skill.oauth_provider)
+    if (!isLoadingOAuthProviders && skill.oauth_provider && skill.oauth_provider !== oauthProvider) {
+      setOAuthProvider(skill.oauth_provider);
+      console.log('setting existing oauth provider to', skill.oauth_provider)
+    }
+  }, [isLoadingOAuthProviders, skill.oauth_provider, oauthProvider]);
 
   useEffect(() => {
     if (initialSkill) {
@@ -713,14 +701,14 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
                           <Box sx={{ display: 'flex', alignItems: 'center' }}>
                             <Avatar 
                               sx={{ 
-                                bgcolor: PROVIDER_COLORS[provider.type] || PROVIDER_COLORS.custom,
+                                bgcolor: PROVIDER_COLORS[provider.type || 'custom'] || PROVIDER_COLORS.custom,
                                 color: 'white',
                                 mr: 1,
                                 width: 24,
                                 height: 24
                               }}
                             >
-                              {PROVIDER_ICONS[provider.type] || PROVIDER_ICONS.custom}
+                              {PROVIDER_ICONS[provider.type || 'custom'] || PROVIDER_ICONS.custom}
                             </Avatar>
                             <span>{provider.name}</span>
                           </Box>
@@ -728,6 +716,16 @@ const AddMcpSkillDialog: React.FC<AddMcpSkillDialogProps> = ({
                       ))}
                     </Select>
                   </FormControl>
+                  
+                  {oauthProvidersError && (
+                    <Alert 
+                      variant="outlined" 
+                      severity="error" 
+                      sx={{ mt: 1 }}
+                    >
+                      Failed to load OAuth providers: {oauthProvidersError.message}
+                    </Alert>
+                  )}
 
                   {oauthProvider && (
                     <Box sx={{ mb: 2 }}>
