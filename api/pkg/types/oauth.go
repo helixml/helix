@@ -17,6 +17,7 @@ const (
 	OAuthProviderTypeGitHub    OAuthProviderType = "github"
 	OAuthProviderTypeSlack     OAuthProviderType = "slack"
 	OAuthProviderTypeLinkedIn  OAuthProviderType = "linkedin"
+	OAuthProviderTypeHubSpot   OAuthProviderType = "hubspot"
 	OAuthProviderTypeCustom    OAuthProviderType = "custom"
 )
 
