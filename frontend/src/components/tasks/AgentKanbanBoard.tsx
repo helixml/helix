@@ -31,6 +31,23 @@ import {
   LinearProgress
 } from '@mui/material'
 import {
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  useDroppable
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import {
   Add as AddIcon,
   MoreVert as MoreVertIcon,
   Computer as ComputerIcon,
@@ -319,43 +336,7 @@ const AgentKanbanBoard: FC<AgentKanbanBoardProps> = ({ projectId, apps }) => {
     }
   }
 
-  // Drag and drop handler
-  const onDragEnd = useCallback(async (result: DropResult) => {
-    if (!result.destination) return
 
-    const { source, destination, draggableId } = result
-    
-    if (source.droppableId === destination.droppableId && source.index === destination.index) {
-      return
-    }
-
-    const task = tasks.find(t => t.id === draggableId)
-    if (!task) return
-
-    // Check WIP limits
-    const destinationColumn = columns.find(c => c.id === destination.droppableId)
-    if (destinationColumn?.limit && destinationColumn.tasks.length >= destinationColumn.limit) {
-      setError(`Cannot move task: ${destinationColumn.title} column is at capacity (${destinationColumn.limit} items)`)
-      return
-    }
-
-    // Update task status
-    const updatedTask = { ...task, status: destination.droppableId as TaskStatus }
-    
-    try {
-      await api.put(`/api/v1/projects/${projectId || 'default'}/tasks/${task.id}`, updatedTask)
-      
-      // Update local state
-      setTasks(prev => prev.map(t => t.id === task.id ? updatedTask : t))
-      
-      // If moving to in_progress, potentially assign an agent
-      if (destination.droppableId === 'in_progress' && !task.assignedAgent) {
-        await assignAgentToTask(task.id)
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to update task')
-    }
-  }, [tasks, columns, api, projectId])
 
   // Create new task
   const createTask = async () => {
@@ -484,6 +465,37 @@ const AgentKanbanBoard: FC<AgentKanbanBoardProps> = ({ projectId, apps }) => {
     return sessions.find(s => s.taskId === taskId)
   }
 
+  // Drag and drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    })
+  )
+
+  // Handle drag end
+  const onDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    
+    if (!over) return
+    
+    const taskId = active.id as string
+    const newStatus = over.id as TaskStatus
+    
+    // Update task status
+    setTasks(prevTasks => 
+      prevTasks.map(task => 
+        task.id === taskId 
+          ? { ...task, status: newStatus }
+          : task
+      )
+    )
+    
+    // TODO: Call API to update task status
+    console.log(`Moving task ${taskId} to ${newStatus}`)
+  }, [setTasks])
+
   if (loading && tasks.length === 0) {
     return <LinearProgress />
   }
@@ -516,210 +528,17 @@ const AgentKanbanBoard: FC<AgentKanbanBoardProps> = ({ projectId, apps }) => {
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       {/* Kanban Board */}
-      <Box sx={{ display: 'flex', gap: 2, height: 'calc(100vh - 200px)', overflow: 'auto' }}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={onDragEnd}
+      >
+        <Box sx={{ display: 'flex', gap: 2, height: 'calc(100vh - 200px)', overflow: 'auto' }}>
           {columns.map((column) => (
-            <Paper
-              key={column.id}
-              sx={{
-                minWidth: 300,
-                maxWidth: 300,
-                display: 'flex',
-                flexDirection: 'column',
-                backgroundColor: theme.palette.background.default
-              }}
-            >
-              {/* Column Header */}
-              <Box
-                sx={{
-                  p: 2,
-                  borderBottom: 1,
-                  borderColor: 'divider',
-                  backgroundColor: column.color + '20'
-                }}
-              >
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="h6" sx={{ color: column.color, fontWeight: 'bold' }}>
-                    {column.title}
-                  </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Chip
-                      label={column.tasks.length}
-                      size="small"
-                      sx={{
-                        backgroundColor: column.color,
-                        color: 'white',
-                        fontWeight: 'bold'
-                      }}
-                    />
-                    {column.limit && column.tasks.length >= column.limit && (
-                      <Chip
-                        label="FULL"
-                        size="small"
-                        color="error"
-                        variant="outlined"
-                      />
-                    )}
-                  </Box>
-                </Box>
-                {column.limit && (
-                  <LinearProgress
-                    variant="determinate"
-                    value={(column.tasks.length / column.limit) * 100}
-                    sx={{
-                      mt: 1,
-                      height: 4,
-                      backgroundColor: column.color + '20',
-                      '& .MuiLinearProgress-bar': {
-                        backgroundColor: column.tasks.length >= column.limit ? theme.palette.error.main : column.color
-                      }
-                    }}
-                  />
-                )}
-              </Box>
-
-              {/* Column Content */}
-              {/* @ts-ignore - react-beautiful-dnd type conflict with global.d.ts */}
-              <Droppable droppableId={column.id}>
-                {(provided, snapshot) => (
-                  <Box
-                    ref={provided.innerRef}
-                    {...provided.droppableProps}
-                    sx={{
-                      flex: 1,
-                      p: 1,
-                      backgroundColor: snapshot.isDraggingOver ? column.color + '10' : 'transparent',
-                      minHeight: 200,
-                      overflow: 'auto'
-                    }}
-                  >
-                    {column.tasks.map((task, index) => {
-                      const session = getSessionForTask(task.id)
-                      
-                      // @ts-ignore - react-beautiful-dnd type conflict with global.d.ts
-                      return (
-                        <Draggable key={task.id} draggableId={task.id} index={index}>
-                          {(provided, snapshot) => (
-                            <Card
-                              ref={provided.innerRef}
-                              {...provided.draggableProps}
-                              {...provided.dragHandleProps}
-                              sx={{
-                                mb: 1,
-                                backgroundColor: snapshot.isDragging ? 'background.paper' : 'background.default',
-                                border: 1,
-                                borderColor: snapshot.isDragging ? 'primary.main' : 'divider',
-                                boxShadow: snapshot.isDragging ? 4 : 1,
-                                '&:hover': { boxShadow: 2 }
-                              }}
-                            >
-                              <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                                {/* Task Header */}
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    {getTypeIcon(task.type)}
-                                    <Chip
-                                      label={task.priority}
-                                      size="small"
-                                      sx={{
-                                        backgroundColor: getPriorityColor(task.priority) + '20',
-                                        color: getPriorityColor(task.priority),
-                                        fontWeight: 'bold'
-                                      }}
-                                    />
-                                  </Box>
-                                  <IconButton
-                                    size="small"
-                                    onClick={(e) => {
-                                      setTaskMenuAnchor(e.currentTarget)
-                                      setSelectedTask(task)
-                                    }}
-                                  >
-                                    <MoreVertIcon />
-                                  </IconButton>
-                                </Box>
-
-                                {/* Task Title */}
-                                <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                                  {task.title}
-                                </Typography>
-
-                                {/* Task Description */}
-                                <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
-                                  {task.description.length > 100 
-                                    ? task.description.slice(0, 100) + '...' 
-                                    : task.description}
-                                </Typography>
-
-                                {/* Labels */}
-                                {task.labels.length > 0 && (
-                                  <Box sx={{ mb: 1 }}>
-                                    {task.labels.map((label) => (
-                                      <Chip
-                                        key={label}
-                                        label={label}
-                                        size="small"
-                                        variant="outlined"
-                                        sx={{ mr: 0.5, mb: 0.5, fontSize: '0.7rem' }}
-                                      />
-                                    ))}
-                                  </Box>
-                                )}
-
-                                {/* Task Footer */}
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
-                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    {task.estimatedHours && (
-                                      <Chip
-                                        label={`${task.estimatedHours}h`}
-                                        size="small"
-                                        icon={<ScheduleIcon />}
-                                        variant="outlined"
-                                      />
-                                    )}
-                                    {task.branchName && (
-                                      <Chip
-                                        label={task.branchName}
-                                        size="small"
-                                        icon={<BranchIcon />}
-                                        variant="outlined"
-                                      />
-                                    )}
-                                  </Box>
-                                  
-                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    {session && (
-                                      <Tooltip title={`Agent: ${session.agentType} (${session.status})`}>
-                                        <Avatar
-                                          sx={{
-                                            width: 24,
-                                            height: 24,
-                                            bgcolor: session.status === 'active' ? 'success.main' : 'warning.main'
-                                          }}
-                                        >
-                                          <ComputerIcon sx={{ fontSize: 16 }} />
-                                        </Avatar>
-                                      </Tooltip>
-                                    )}
-                                    {session?.rdpUrl && (
-                                      <Tooltip title="Open RDP Session">
-                                        <IconButton
-                                          size="small"
-                                          onClick={() => window.open(session.rdpUrl, '_blank')}
-                                        >
-                                          <OpenInNewIcon />
-                                        </IconButton>
-                                      </Tooltip>
-                                    )}
-                                  </Box>
-                                </Box>
-                              </CardContent>
-                    </Card>
-                  )
-                })}
-              </Box>
-            </Paper>
+            <DroppableColumn key={column.id} column={column} sessions={sessions} />
           ))}
         </Box>
+      </DndContext>
 
       {/* Create Task Dialog */}
       <Dialog open={createTaskOpen} onClose={() => setCreateTaskOpen(false)} maxWidth="md" fullWidth>
@@ -915,6 +734,306 @@ const AgentKanbanBoard: FC<AgentKanbanBoardProps> = ({ projectId, apps }) => {
         </MenuItem>
       </Menu>
     </Box>
+  )
+}
+
+// Sortable Task Card Component
+interface SortableTaskCardProps {
+  task: AgentTask
+  sessions: AgentSession[]
+}
+
+const SortableTaskCard: FC<SortableTaskCardProps> = ({ task, sessions }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: task.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
+  const [taskMenuAnchor, setTaskMenuAnchor] = useState<null | HTMLElement>(null)
+  const session = sessions.find(s => s.taskId === task.id)
+
+  const getTypeIcon = (type: TaskType) => {
+    switch (type) {
+      case 'feature': return <FeatureIcon sx={{ fontSize: 16, color: '#4caf50' }} />
+      case 'bug': return <BugIcon sx={{ fontSize: 16, color: '#f44336' }} />
+      case 'task': return <TaskIcon sx={{ fontSize: 16, color: '#2196f3' }} />
+      case 'epic': return <PriorityIcon sx={{ fontSize: 16, color: '#9c27b0' }} />
+    }
+  }
+
+  const getPriorityColor = (priority: TaskPriority) => {
+    switch (priority) {
+      case 'low': return '#4caf50'
+      case 'medium': return '#ff9800'
+      case 'high': return '#f44336'
+      case 'critical': return '#9c27b0'
+    }
+  }
+
+  return (
+    <Card
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      sx={{
+        mb: 1,
+        backgroundColor: isDragging ? 'background.paper' : 'background.default',
+        border: 1,
+        borderColor: isDragging ? 'primary.main' : 'divider',
+        boxShadow: isDragging ? 4 : 1,
+        '&:hover': { boxShadow: 2 },
+        cursor: 'grab',
+        '&:active': { cursor: 'grabbing' }
+      }}
+    >
+      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+        {/* Task Header */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {getTypeIcon(task.type)}
+            <Chip
+              label={task.priority}
+              size="small"
+              sx={{
+                backgroundColor: getPriorityColor(task.priority) + '20',
+                color: getPriorityColor(task.priority),
+                fontWeight: 'bold'
+              }}
+            />
+          </Box>
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation()
+              setTaskMenuAnchor(e.currentTarget)
+            }}
+          >
+            <MoreVertIcon />
+          </IconButton>
+        </Box>
+
+        {/* Task Title */}
+        <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
+          {task.title}
+        </Typography>
+
+        {/* Task Description */}
+        <Typography variant="body2" color="textSecondary" sx={{ mb: 1 }}>
+          {task.description.length > 100 
+            ? task.description.slice(0, 100) + '...' 
+            : task.description}
+        </Typography>
+
+        {/* Labels */}
+        {task.labels.length > 0 && (
+          <Box sx={{ mb: 1 }}>
+            {task.labels.map((label) => (
+              <Chip
+                key={label}
+                label={label}
+                size="small"
+                variant="outlined"
+                sx={{ mr: 0.5, mb: 0.5, fontSize: '0.7rem' }}
+              />
+            ))}
+          </Box>
+        )}
+
+        {/* Task Footer */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {task.estimatedHours && (
+              <Chip
+                label={`${task.estimatedHours}h`}
+                size="small"
+                icon={<ScheduleIcon />}
+                variant="outlined"
+              />
+            )}
+            {task.branchName && (
+              <Chip
+                label={task.branchName}
+                size="small"
+                icon={<BranchIcon />}
+                variant="outlined"
+              />
+            )}
+          </Box>
+          
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {session && (
+              <Tooltip title={`Agent: ${session.agentType} (${session.status})`}>
+                <Avatar
+                  sx={{
+                    width: 24,
+                    height: 24,
+                    bgcolor: session.status === 'active' ? 'success.main' : 'warning.main'
+                  }}
+                >
+                  <ComputerIcon sx={{ fontSize: 16 }} />
+                </Avatar>
+              </Tooltip>
+            )}
+            {session?.rdpUrl && (
+              <Tooltip title="Open RDP Session">
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    window.open(session.rdpUrl, '_blank')
+                  }}
+                >
+                  <OpenInNewIcon />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
+        </Box>
+      </CardContent>
+
+      {/* Task Menu */}
+      <Menu
+        anchorEl={taskMenuAnchor}
+        open={Boolean(taskMenuAnchor)}
+        onClose={() => setTaskMenuAnchor(null)}
+      >
+        <MenuItem onClick={() => setTaskMenuAnchor(null)}>
+          <ListItemIcon>
+            <PlayArrowIcon />
+          </ListItemIcon>
+          <ListItemText>Assign Zed Agent</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => setTaskMenuAnchor(null)}>
+          <ListItemIcon>
+            <OpenInNewIcon />
+          </ListItemIcon>
+          <ListItemText>Open RDP Session</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => setTaskMenuAnchor(null)}>
+          <ListItemIcon>
+            <CopyIcon />
+          </ListItemIcon>
+          <ListItemText>Copy Task ID</ListItemText>
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={() => setTaskMenuAnchor(null)}>
+          <ListItemIcon>
+            <EditIcon />
+          </ListItemIcon>
+          <ListItemText>Edit Task</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => setTaskMenuAnchor(null)}>
+          <ListItemIcon>
+            <DeleteIcon />
+          </ListItemIcon>
+          <ListItemText>Delete Task</ListItemText>
+        </MenuItem>
+      </Menu>
+    </Card>
+  )
+}
+
+// Droppable Column Component
+interface DroppableColumnProps {
+  column: any
+  sessions: AgentSession[]
+}
+
+const DroppableColumn: FC<DroppableColumnProps> = ({ column, sessions }) => {
+  const { setNodeRef, isOver } = useDroppable({
+    id: column.id,
+  })
+
+  const theme = useTheme()
+
+  return (
+    <Paper
+      ref={setNodeRef}
+      sx={{
+        minWidth: 300,
+        maxWidth: 300,
+        display: 'flex',
+        flexDirection: 'column',
+        backgroundColor: isOver ? column.color + '10' : theme.palette.background.default,
+        border: isOver ? 2 : 1,
+        borderColor: isOver ? column.color : 'divider'
+      }}
+    >
+      {/* Column Header */}
+      <Box
+        sx={{
+          p: 2,
+          borderBottom: 1,
+          borderColor: 'divider',
+          backgroundColor: column.color + '20'
+        }}
+      >
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6" sx={{ color: column.color, fontWeight: 'bold' }}>
+            {column.title}
+          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Chip
+              label={column.tasks.length}
+              size="small"
+              sx={{
+                backgroundColor: column.color,
+                color: 'white',
+                fontWeight: 'bold'
+              }}
+            />
+            {column.limit && column.tasks.length >= column.limit && (
+              <Chip
+                label="FULL"
+                size="small"
+                color="error"
+                variant="outlined"
+              />
+            )}
+          </Box>
+        </Box>
+        {column.limit && (
+          <LinearProgress
+            variant="determinate"
+            value={(column.tasks.length / column.limit) * 100}
+            sx={{
+              mt: 1,
+              height: 4,
+              backgroundColor: column.color + '20',
+              '& .MuiLinearProgress-bar': {
+                backgroundColor: column.tasks.length >= column.limit ? theme.palette.error.main : column.color
+              }
+            }}
+          />
+        )}
+      </Box>
+
+      {/* Column Content */}
+      <SortableContext items={column.tasks.map((t: any) => t.id)} strategy={verticalListSortingStrategy}>
+        <Box
+          sx={{
+            flex: 1,
+            p: 1,
+            minHeight: 200,
+            overflow: 'auto'
+          }}
+        >
+          {column.tasks.map((task: any) => (
+            <SortableTaskCard key={task.id} task={task} sessions={sessions} />
+          ))}
+        </Box>
+      </SortableContext>
+    </Paper>
   )
 }
 

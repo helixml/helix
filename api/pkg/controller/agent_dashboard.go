@@ -27,10 +27,10 @@ func (c *Controller) GetAgentDashboardData(ctx context.Context) (*types.AgentDas
 		PageSize:   100,
 		ActiveOnly: true,
 	}
-	sessionsResponse, err := c.Options.Store.ListAgentSessions(ctx, sessionsQuery)
+	sessionsResponse, err := c.Options.Store.ListAgentSessionStatus(ctx, sessionsQuery)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to get active agent sessions")
-		sessionsResponse = &types.AgentSessionsListResponse{Sessions: []*types.AgentSession{}}
+		sessionsResponse = &types.AgentSessionsResponse{Sessions: []*types.AgentSessionStatus{}}
 	}
 
 	// Get pending work items
@@ -54,10 +54,16 @@ func (c *Controller) GetAgentDashboardData(ctx context.Context) (*types.AgentDas
 	}
 
 	// Get sessions needing help
-	sessionsNeedingHelp, err := c.Options.Store.GetSessionsNeedingHelp(ctx)
+	sessionsNeedingHelpQuery := &store.ListAgentSessionsQuery{
+		Page:       0,
+		PageSize:   50,
+		Status:     "waiting_for_help",
+		ActiveOnly: false,
+	}
+	sessionsNeedingHelpResponse, err := c.Options.Store.ListAgentSessionStatus(ctx, sessionsNeedingHelpQuery)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to get sessions needing help")
-		sessionsNeedingHelp = []*types.AgentSession{}
+		sessionsNeedingHelpResponse = &types.AgentSessionsResponse{Sessions: []*types.AgentSessionStatus{}}
 	}
 
 	// Get recent completions
@@ -79,7 +85,7 @@ func (c *Controller) GetAgentDashboardData(ctx context.Context) (*types.AgentDas
 		ActiveSessions:      sessionsResponse.Sessions,
 		PendingWork:         workResponse.WorkItems,
 		HelpRequests:        activeHelpRequests,
-		SessionsNeedingHelp: sessionsNeedingHelp,
+		SessionsNeedingHelp: sessionsNeedingHelpResponse.Sessions,
 		RecentCompletions:   recentCompletions,
 		PendingReviews:      pendingReviews,
 	}, nil

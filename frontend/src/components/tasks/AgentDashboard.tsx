@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useMemo } from 'react'
+import React, { FC, useState, useEffect, useMemo, useRef } from 'react'
 import {
   Box,
   Typography,
@@ -61,94 +61,19 @@ import { useTheme } from '@mui/material/styles'
 import useApi from '../../hooks/useApi'
 import useAccount from '../../hooks/useAccount'
 import { IApp } from '../../types'
+import { TypesAgentFleetSummary, TypesAgentSessionStatus, TypesAgentWorkItem, TypesHelpRequest, TypesJobCompletion, TypesAgentWorkQueueStats } from '../../api/api'
 
-// Types for agent dashboard data
-interface AgentSession {
-  id: string
+// Using generated API types instead of local interfaces
+
+// External agent connection type (not yet in generated API)
+interface ExternalAgentConnection {
   session_id: string
-  agent_type: string
+  connected_at: string
+  last_ping: string
   status: string
-  current_task: string
-  current_work_item: string
-  user_id: string
-  app_id: string
-  health_status: string
-  created_at: string
-  last_activity: string
-  rdp_port?: number
-  workspace_dir?: string
 }
 
-interface WorkItem {
-  id: string
-  name: string
-  description: string
-  source: string
-  source_url?: string
-  priority: number
-  status: string
-  agent_type: string
-  assigned_session_id?: string
-  created_at: string
-  started_at?: string
-  completed_at?: string
-  
-  // Spec-driven workflow fields
-  original_prompt?: string
-  requirements_spec?: string
-  technical_design?: string
-  implementation_plan?: string
-  spec_agent?: string
-  implementation_agent?: string
-  spec_session_id?: string
-  implementation_session_id?: string
-  spec_approved_by?: string
-  spec_approved_at?: string
-  spec_revision_count?: number
-  branch_name?: string
-}
 
-interface HelpRequest {
-  id: string
-  session_id: string
-  help_type: string
-  context: string
-  specific_need: string
-  urgency: string
-  status: string
-  created_at: string
-}
-
-interface JobCompletion {
-  id: string
-  session_id: string
-  completion_status: string
-  summary: string
-  review_needed: boolean
-  confidence: string
-  created_at: string
-}
-
-interface AgentDashboardData {
-  active_sessions: AgentSession[]
-  sessions_needing_help: AgentSession[]
-  pending_work: WorkItem[]
-  running_work: WorkItem[]
-  recent_completions: JobCompletion[]
-  pending_reviews: JobCompletion[]
-  active_help_requests: HelpRequest[]
-  work_queue_stats: {
-    total_pending: number
-    total_running: number
-    total_completed: number
-    total_failed: number
-    active_sessions: number
-    by_agent_type: Record<string, number>
-    by_source: Record<string, number>
-    average_wait_time_minutes: number
-  }
-  last_updated: string
-}
 
 interface AgentDashboardProps {
   apps: IApp[]
@@ -159,28 +84,47 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
   const api = useApi()
   const account = useAccount()
   
-  const [dashboardData, setDashboardData] = useState<AgentDashboardData | null>(null)
+  const [dashboardData, setDashboardData] = useState<TypesAgentFleetSummary | null>(null)
+  const [externalAgentConnections, setExternalAgentConnections] = useState<ExternalAgentConnection[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [createWorkItemOpen, setCreateWorkItemOpen] = useState(false)
-  const [helpRequestOpen, setHelpRequestOpen] = useState<HelpRequest | null>(null)
-  const [selectedSession, setSelectedSession] = useState<AgentSession | null>(null)
+  const [helpRequestOpen, setHelpRequestOpen] = useState<TypesHelpRequest | null>(null)
+  const [selectedSession, setSelectedSession] = useState<TypesAgentSessionStatus | null>(null)
   const [newTaskPrompt, setNewTaskPrompt] = useState('')
   const [newTaskPriority, setNewTaskPriority] = useState('medium')
   const [newTaskType, setNewTaskType] = useState('feature')
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [createTaskLoading, setCreateTaskLoading] = useState(false)
-  const [specReviewOpen, setSpecReviewOpen] = useState<WorkItem | null>(null)
+  const [specReviewOpen, setSpecReviewOpen] = useState<TypesAgentWorkItem | null>(null)
   const [approvalComments, setApprovalComments] = useState('')
   const [approvalLoading, setApprovalLoading] = useState(false)
   
+  // Use ref to store API to prevent dependency issues
+  const apiRef = useRef(api)
+  apiRef.current = api
+
   // Auto-refresh every 10 seconds
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true)
-        const response = await api.get('/api/v1/dashboard/agent')
-        setDashboardData(response.data)
+        
+        // Fetch fleet data
+        const fleetResponse = await apiRef.current.getApiClient().v1AgentsFleetList()
+        setDashboardData(fleetResponse.data)
+        
+        // Fetch external agent connections
+        try {
+          const connectionsResponse = await apiRef.current.get('/api/v1/external-agents/connections')
+          if (connectionsResponse) {
+            setExternalAgentConnections(connectionsResponse)
+          }
+        } catch (extErr: any) {
+          console.warn('Failed to load external agent connections:', extErr.message)
+          setExternalAgentConnections([])
+        }
+        
         setError(null)
       } catch (err: any) {
         setError(err.message || 'Failed to load dashboard data')
@@ -192,7 +136,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
     fetchData()
     const interval = setInterval(fetchData, 10000) // Refresh every 10 seconds
     return () => clearInterval(interval)
-  }, [api])
+  }, [])
 
   // Status color mapping
   const getStatusColor = (status: string) => {
@@ -315,7 +259,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
     }
   }
 
-  const openRDPSession = (session: AgentSession) => {
+  const openRDPSession = (session: TypesAgentSessionStatus) => {
     if (session.rdp_port) {
       const rdpUrl = `rdp://localhost:${session.rdp_port}`
       window.open(rdpUrl, '_blank')
@@ -324,12 +268,23 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
 
   const resolveHelpRequest = async (requestId: string, resolution: string) => {
     try {
-      await api.post(`/api/v1/agents/help-requests/${requestId}/resolve`, {
+      await apiRef.current.getApiClient().v1AgentsHelpRequestsResolveCreate(requestId, {
         resolution
       })
       // Refresh data
-      const response = await api.get('/api/v1/dashboard/agent')
+      const response = await apiRef.current.getApiClient().v1AgentsFleetList()
       setDashboardData(response.data)
+      
+      // Also refresh external agent connections
+      try {
+        const connectionsResponse = await apiRef.current.get('/api/v1/external-agents/connections')
+        if (connectionsResponse) {
+          setExternalAgentConnections(connectionsResponse)
+        }
+      } catch (extErr) {
+        console.warn('Failed to refresh external agent connections')
+      }
+      
       setHelpRequestOpen(null)
     } catch (err: any) {
       setError(err.message || 'Failed to resolve help request')
@@ -344,13 +299,13 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
 
     setCreateTaskLoading(true)
     try {
-      await api.post('/api/v1/spec-tasks/from-prompt', {
+      await apiRef.current.getApiClient().v1SpecTasksFromPromptCreate({
         project_id: selectedProjectId,
         prompt: newTaskPrompt,
         type: newTaskType,
         priority: newTaskPriority
       })
-      
+
       // Reset form
       setNewTaskPrompt('')
       setNewTaskPriority('medium')
@@ -359,8 +314,19 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
       setCreateWorkItemOpen(false)
       
       // Refresh data
-      const response = await api.get('/api/v1/dashboard/agent')
+      const response = await apiRef.current.getApiClient().v1AgentsFleetList()
       setDashboardData(response.data)
+      
+      // Also refresh external agent connections
+      try {
+        const connectionsResponse = await api.get('/api/v1/external-agents/connections')
+        if (connectionsResponse) {
+          setExternalAgentConnections(connectionsResponse)
+        }
+      } catch (extErr) {
+        console.warn('Failed to refresh external agent connections')
+      }
+      
       setError(null)
     } catch (err: any) {
       setError(err.message || 'Failed to create task')
@@ -370,27 +336,68 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
   }
 
   const approveSpecs = async (approved: boolean) => {
-    if (!specReviewOpen) return
+    if (!specReviewOpen || !specReviewOpen.id) return
 
     setApprovalLoading(true)
     try {
-      await api.post(`/api/v1/tasks/${specReviewOpen.id}/approve-specs`, {
+      await api.getApiClient().v1SpecTasksApproveSpecsCreate(specReviewOpen.id, {
         approved,
         comments: approvalComments
       })
-      
+
       // Reset form
       setApprovalComments('')
       setSpecReviewOpen(null)
       
       // Refresh data
-      const response = await api.get('/api/v1/dashboard/agent')
+      const response = await apiRef.current.getApiClient().v1AgentsFleetList()
       setDashboardData(response.data)
+      
+      // Also refresh external agent connections
+      try {
+        const connectionsResponse = await api.get('/api/v1/external-agents/connections')
+        if (connectionsResponse) {
+          setExternalAgentConnections(connectionsResponse)
+        }
+      } catch (extErr) {
+        console.warn('Failed to refresh external agent connections')
+      }
+      
       setError(null)
     } catch (err: any) {
       setError(err.message || 'Failed to process spec approval')
     } finally {
       setApprovalLoading(false)
+    }
+  }
+
+  const getConnectionStatus = (connection: ExternalAgentConnection) => {
+    const now = new Date()
+    const lastPing = new Date(connection.last_ping)
+    const timeDiff = now.getTime() - lastPing.getTime()
+    const secondsSinceLastPing = timeDiff / 1000
+
+    // Consider offline if no ping for more than 2 minutes
+    if (secondsSinceLastPing > 120) {
+      return 'offline'
+    }
+    // Consider stale if no ping for more than 1 minute
+    if (secondsSinceLastPing > 60) {
+      return 'stale'
+    }
+    return 'online'
+  }
+
+  const getConnectionStatusColor = (status: string) => {
+    switch (status) {
+      case 'online':
+        return 'success'
+      case 'stale':
+        return 'warning'
+      case 'offline':
+        return 'error'
+      default:
+        return 'info'
     }
   }
 
@@ -429,68 +436,82 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
       </Box>
 
       {/* Summary Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="textSecondary" gutterBottom>
-                Active Sessions
-              </Typography>
-              <Typography variant="h4">
-                {dashboardData.work_queue_stats.active_sessions}
-              </Typography>
-              <Typography variant="body2" color="warning.main">
-                {dashboardData.sessions_needing_help.length} need help
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="textSecondary" gutterBottom>
-                Pending Work
-              </Typography>
-              <Typography variant="h4">
-                {dashboardData.work_queue_stats.total_pending}
-              </Typography>
-              <Typography variant="body2" color="info.main">
-                Avg wait: {Math.round(dashboardData.work_queue_stats.average_wait_time_minutes)}min
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="textSecondary" gutterBottom>
-                Running Work
-              </Typography>
-              <Typography variant="h4">
-                {dashboardData.work_queue_stats.total_running}
-              </Typography>
-              <Typography variant="body2" color="warning.main">
-                In progress
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="textSecondary" gutterBottom>
-                Completed Today
-              </Typography>
-              <Typography variant="h4">
-                {dashboardData.work_queue_stats.total_completed}
-              </Typography>
-              <Typography variant="body2" color="success.main">
-                {dashboardData.pending_reviews.length} pending review
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+      <Box sx={{ 
+        display: 'flex', 
+        flexWrap: 'wrap', 
+        gap: 3, 
+        mb: 4,
+        '& > *': { 
+          flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 12px)', md: '1 1 calc(20% - 19.2px)' },
+          minWidth: { md: '180px' }
+        }
+      }}>
+        <Card>
+          <CardContent>
+            <Typography color="textSecondary" gutterBottom>
+              Active Sessions
+            </Typography>
+            <Typography variant="h4">
+              {dashboardData.work_queue_stats?.active_sessions || 0}
+            </Typography>
+            <Typography variant="body2" color="warning.main">
+              {dashboardData.sessions_needing_help?.length || 0} need help
+            </Typography>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent>
+            <Typography color="textSecondary" gutterBottom>
+              Pending Work
+            </Typography>
+            <Typography variant="h4">
+              {dashboardData.work_queue_stats?.total_pending || 0}
+            </Typography>
+            <Typography variant="body2" color="info.main">
+              Avg wait: {Math.round(dashboardData.work_queue_stats?.average_wait_time_minutes || 0)}min
+            </Typography>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent>
+            <Typography color="textSecondary" gutterBottom>
+              Running Work
+            </Typography>
+            <Typography variant="h4">
+              {dashboardData.work_queue_stats?.total_running || 0}
+            </Typography>
+            <Typography variant="body2" color="warning.main">
+              In progress
+            </Typography>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent>
+            <Typography color="textSecondary" gutterBottom>
+              Completed Today
+            </Typography>
+            <Typography variant="h4">
+              {dashboardData.work_queue_stats?.total_completed || 0}
+            </Typography>
+            <Typography variant="body2" color="success.main">
+              {dashboardData.pending_reviews?.length || 0} pending review
+            </Typography>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent>
+            <Typography color="textSecondary" gutterBottom>
+              External Agents
+            </Typography>
+            <Typography variant="h4">
+              {externalAgentConnections.length}
+            </Typography>
+            <Typography variant="body2" color="primary.main">
+              {externalAgentConnections.filter(conn => getConnectionStatus(conn) === 'online').length} online
+            </Typography>
+          </CardContent>
+        </Card>
+      </Box>
 
       <Grid container spacing={3}>
         {/* Active Sessions */}
@@ -500,7 +521,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
               title="Active Agent Sessions"
               action={
                 <Chip 
-                  label={`${dashboardData.active_sessions.length} active`}
+                  label={`${dashboardData.active_sessions?.length || 0} active`}
                   color="primary"
                 />
               }
@@ -518,9 +539,9 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {dashboardData.active_sessions.map((session) => (
+                    {dashboardData.active_sessions?.map((session) => (
                       <TableRow 
-                        key={session.id}
+                        key={session.id || Math.random()}
                         sx={{ 
                           backgroundColor: session.status === 'waiting_for_help' 
                             ? theme.palette.error.light + '20' 
@@ -529,33 +550,33 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                       >
                         <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                            <Avatar sx={{ width: 24, height: 24, mr: 1, bgcolor: getStatusColor(session.status) }}>
-                              {getStatusIcon(session.status)}
+                            <Avatar sx={{ width: 24, height: 24, mr: 1, bgcolor: getStatusColor(session.status || '') }}>
+                              {getStatusIcon(session.status || '')}
                             </Avatar>
                             <Box>
                               <Typography variant="body2" fontWeight="bold">
-                                {session.session_id.slice(0, 8)}...
+                                {(session.session_id || 'unknown').slice(0, 8)}...
                               </Typography>
                               <Typography variant="caption" color="textSecondary">
-                                {formatTimeAgo(new Date(session.last_activity))}
+                                {session.last_activity ? formatTimeAgo(new Date(session.last_activity)) : 'Unknown'}
                               </Typography>
                             </Box>
                           </Box>
                         </TableCell>
                         <TableCell>
                           <Chip 
-                            label={session.agent_type}
+                            label={session.agent_type || 'unknown'}
                             size="small"
                             variant="outlined"
                           />
                         </TableCell>
                         <TableCell>
                           <Chip
-                            label={session.status.replace('_', ' ')}
+                            label={(session.status || 'unknown').replace('_', ' ')}
                             size="small"
                             sx={{
-                              backgroundColor: getStatusColor(session.status) + '20',
-                              color: getStatusColor(session.status),
+                              backgroundColor: getStatusColor(session.status || '') + '20',
+                              color: getStatusColor(session.status || ''),
                               fontWeight: 'bold'
                             }}
                           />
@@ -573,19 +594,20 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                             {session.rdp_port && (
                               <Tooltip title="Open RDP Session">
                                 <IconButton 
-                                  size="small"
+                                  size="small" 
                                   onClick={() => openRDPSession(session)}
+                                  disabled={!session.rdp_port}
                                 >
-                                  <OpenInNewIcon />
+                                  <ComputerIcon />
                                 </IconButton>
                               </Tooltip>
                             )}
-                            <Tooltip title="View Details">
+                            <Tooltip title="View Session">
                               <IconButton 
                                 size="small"
                                 onClick={() => setSelectedSession(session)}
                               >
-                                <TimelineIcon />
+                                <OpenInNewIcon />
                               </IconButton>
                             </Tooltip>
                           </Box>
@@ -595,7 +617,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                   </TableBody>
                 </Table>
               </TableContainer>
-              {dashboardData.active_sessions.length === 0 && (
+              {(!dashboardData.active_sessions || dashboardData.active_sessions.length === 0) && (
                 <Typography textAlign="center" color="textSecondary" sx={{ py: 4 }}>
                   No active agent sessions
                 </Typography>
@@ -604,25 +626,89 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
           </Card>
         </Grid>
 
-        {/* Help Requests & Alerts */}
+        {/* External Agents & Help Requests */}
         <Grid item xs={12} lg={4}>
           <Grid container spacing={2}>
+            {/* External Agent Connections */}
+            <Grid item xs={12}>
+              <Card>
+                <CardHeader 
+                  title="External Agent Runners"
+                  action={
+                    <Badge badgeContent={externalAgentConnections.length} color="primary">
+                      <ComputerIcon />
+                    </Badge>
+                  }
+                />
+                <CardContent sx={{ maxHeight: 200, overflow: 'auto' }}>
+                  {externalAgentConnections.length > 0 ? (
+                    <List dense>
+                      {externalAgentConnections.map((connection) => (
+                        <ListItem
+                          key={connection.session_id}
+                          sx={{
+                            border: 1,
+                            borderColor: `${getConnectionStatusColor(getConnectionStatus(connection))}.main`,
+                            borderRadius: 1,
+                            mb: 1,
+                            backgroundColor: `${getConnectionStatusColor(getConnectionStatus(connection))}.light` + '10'
+                          }}
+                        >
+                          <ListItemIcon>
+                            <ComputerIcon color={getConnectionStatusColor(getConnectionStatus(connection))} />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary={`External Agent ${connection.session_id.slice(0, 8)}...`}
+                            secondary={
+                              <Box>
+                                <Typography variant="caption" display="block">
+                                  Status: <Chip 
+                                    label={getConnectionStatus(connection)} 
+                                    size="small" 
+                                    color={getConnectionStatusColor(getConnectionStatus(connection))}
+                                  />
+                                </Typography>
+                                <Typography variant="caption" display="block">
+                                  Connected: {connection.connected_at ? formatTimeAgo(new Date(connection.connected_at)) : 'Unknown'}
+                                </Typography>
+                                <Typography variant="caption" display="block">
+                                  Last ping: {connection.last_ping ? formatTimeAgo(new Date(connection.last_ping)) : 'Unknown'}
+                                </Typography>
+                              </Box>
+                            }
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  ) : (
+                    <Box sx={{ textAlign: 'center', py: 2 }}>
+                      <Typography color="textSecondary" variant="body2">
+                        No external agent runners connected
+                      </Typography>
+                      <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>
+                        External agents (like Zed instances) will appear here when connected
+                      </Typography>
+                    </Box>
+                  )}
+                </CardContent>
+              </Card>
+            </Grid>
             {/* Help Requests */}
             <Grid item xs={12}>
               <Card>
                 <CardHeader 
                   title="Help Requests"
                   action={
-                    <Badge badgeContent={dashboardData.active_help_requests.length} color="error">
+                    <Badge badgeContent={dashboardData.active_help_requests?.length || 0} color="error">
                       <HelpIcon />
                     </Badge>
                   }
                 />
                 <CardContent sx={{ maxHeight: 300, overflow: 'auto' }}>
                   <List dense>
-                    {dashboardData.active_help_requests.map((request) => (
+                    {dashboardData.active_help_requests?.map((request) => (
                       <ListItem
-                        key={request.id}
+                        key={request.id || Math.random()}
                         button
                         onClick={() => setHelpRequestOpen(request)}
                         sx={{
@@ -637,14 +723,14 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                           <HelpIcon color="error" />
                         </ListItemIcon>
                         <ListItemText
-                          primary={request.help_type.replace('_', ' ')}
+                          primary={(request.help_type || 'unknown').replace('_', ' ')}
                           secondary={
                             <>
                               <Typography variant="caption" display="block">
-                                {request.context.slice(0, 50)}...
+                                {(request.context || 'No context').slice(0, 50)}...
                               </Typography>
                               <Chip 
-                                label={request.urgency}
+                                label={request.urgency || 'medium'}
                                 size="small"
                                 color={request.urgency === 'critical' ? 'error' : request.urgency === 'high' ? 'warning' : 'info'}
                               />
@@ -654,7 +740,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                       </ListItem>
                     ))}
                   </List>
-                  {dashboardData.active_help_requests.length === 0 && (
+                  {(!dashboardData.active_help_requests || dashboardData.active_help_requests.length === 0) && (
                     <Typography textAlign="center" color="textSecondary" sx={{ py: 2 }}>
                       No help requests
                     </Typography>
@@ -669,28 +755,28 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                 <CardHeader 
                   title="Recent Completions"
                   action={
-                    <Badge badgeContent={dashboardData.pending_reviews.length} color="success">
+                    <Badge badgeContent={dashboardData.pending_reviews?.length || 0} color="success">
                       <CheckCircleIcon />
                     </Badge>
                   }
                 />
                 <CardContent sx={{ maxHeight: 300, overflow: 'auto' }}>
                   <List dense>
-                    {dashboardData.recent_completions.slice(0, 5).map((completion) => (
-                      <ListItem key={completion.id}>
+                    {dashboardData.recent_completions?.slice(0, 5).map((completion) => (
+                      <ListItem key={completion.id || Math.random()}>
                         <ListItemIcon>
                           <CheckCircleIcon color="success" />
                         </ListItemIcon>
                         <ListItemText
-                          primary={completion.summary.slice(0, 40) + '...'}
+                          primary={(completion.summary || 'No summary').slice(0, 40) + '...'}
                           secondary={
                             <Box>
                               <Typography variant="caption" display="block">
-                                {formatTimeAgo(new Date(completion.created_at))}
+                                {completion.created_at ? formatTimeAgo(new Date(completion.created_at)) : 'Unknown time'}
                               </Typography>
                               <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }}>
                                 <Chip 
-                                  label={completion.confidence}
+                                  label={completion.confidence || 'unknown'}
                                   size="small"
                                   color={completion.confidence === 'high' ? 'success' : completion.confidence === 'medium' ? 'warning' : 'error'}
                                 />
@@ -704,7 +790,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                       </ListItem>
                     ))}
                   </List>
-                  {dashboardData.recent_completions.length === 0 && (
+                  {(!dashboardData.recent_completions || dashboardData.recent_completions.length === 0) && (
                     <Typography textAlign="center" color="textSecondary" sx={{ py: 2 }}>
                       No recent completions
                     </Typography>
@@ -734,39 +820,39 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {dashboardData.pending_work.map((item) => (
+                    {dashboardData.pending_work?.map((item) => (
                       <TableRow 
-                        key={item.id}
+                        key={item.id || Math.random()}
                         sx={{
-                          backgroundColor: getStatusColor(item.status) + '10',
-                          borderLeft: `4px solid ${getStatusColor(item.status)}`,
+                          backgroundColor: getStatusColor(item.status || '') + '10',
+                          borderLeft: `4px solid ${getStatusColor(item.status || '')}`,
                         }}
                       >
                         <TableCell>
                           <Chip
-                            label={item.priority}
+                            label={item.priority || 5}
                             size="small"
                             sx={{
-                              backgroundColor: getPriorityColor(item.priority) + '20',
-                              color: getPriorityColor(item.priority)
+                              backgroundColor: getPriorityColor(item.priority || 5) + '20',
+                              color: getPriorityColor(item.priority || 5)
                             }}
                           />
                         </TableCell>
                         <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                            {getStatusIcon(item.status)}
+                            {getStatusIcon(item.status || '')}
                             <Typography variant="body2" fontWeight="bold">
-                              {item.name}
+                              {item.name || 'Untitled'}
                             </Typography>
                           </Box>
                           
                           {/* Phase indicator */}
                           <Box sx={{ mb: 1 }}>
                             <Chip 
-                              label={getPhaseLabel(item.status)}
+                              label={getPhaseLabel(item.status || '')}
                               size="small"
                               sx={{
-                                backgroundColor: getStatusColor(item.status),
+                                backgroundColor: getStatusColor(item.status || ''),
                                 color: 'white',
                                 fontWeight: 'bold'
                               }}
@@ -775,14 +861,14 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
 
                           {/* Original prompt */}
                           <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mb: 1 }}>
-                            <strong>Original:</strong> {(item.original_prompt || item.description).slice(0, 80)}...
+                            <strong>Original:</strong> {(item.description || 'No description').slice(0, 80)}...
                           </Typography>
 
-                          {/* Show specs when available */}
+                          {/* Show specs when available - using status to determine */}
                           {(item.status === 'spec_review' || item.status === 'spec_revision' || 
                             item.status === 'spec_approved' || item.status === 'implementation_queued' ||
                             item.status === 'implementation' || item.status === 'implementation_review' ||
-                            item.status === 'done') && item.requirements_spec && (
+                            item.status === 'done') && (
                             <Box sx={{ mt: 1, p: 1, backgroundColor: theme.palette.grey.A100, borderRadius: 1 }}>
                               <Typography variant="caption" fontWeight="bold" color="textSecondary">
                                 Generated Specs Available
@@ -795,60 +881,38 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
 
                           {/* Show implementation info when in coding phase */}
                           {(item.status === 'implementation' || item.status === 'implementation_review' || 
-                            item.status === 'done') && item.implementation_agent && (
+                            item.status === 'done') && (
                             <Box sx={{ mt: 1, p: 1, backgroundColor: theme.palette.success.light, borderRadius: 1 }}>
                               <Typography variant="caption" fontWeight="bold" color="success.dark">
                                 Implementation in Progress
                               </Typography>
                               <Typography variant="caption" sx={{ display: 'block' }}>
-                                Agent: {item.implementation_agent}
-                                {item.branch_name && ` • Branch: ${item.branch_name}`}
+                                Status: {item.status}
                               </Typography>
                             </Box>
                           )}
-
-                          {/* Show approval info */}
-                          {item.spec_approved_by && (
-                            <Typography variant="caption" color="success.main" sx={{ display: 'block', mt: 1 }}>
-                              ✓ Specs approved by {item.spec_approved_by}
-                              {item.spec_approved_at && ` ${formatTimeAgo(new Date(item.spec_approved_at))}`}
-                            </Typography>
-                          )}
                         </TableCell>
                         <TableCell>
-                          <Chip label={item.source} size="small" variant="outlined" />
+                          <Chip label={item.source || 'unknown'} size="small" variant="outlined" />
                         </TableCell>
                         <TableCell>
                           <Typography variant="caption">
-                            {item.agent_type}
-                            {item.spec_agent && item.implementation_agent && (
-                              <Box sx={{ mt: 0.5 }}>
-                                <Typography variant="caption" color="textSecondary">
-                                  Spec: {item.spec_agent}
-                                </Typography>
-                                <Typography variant="caption" color="textSecondary" sx={{ display: 'block' }}>
-                                  Code: {item.implementation_agent}
-                                </Typography>
-                              </Box>
-                            )}
+                            {item.agent_type || 'unknown'}
+                            {/* Agent info if available */}
                           </Typography>
                         </TableCell>
                         <TableCell>
                           <Typography variant="caption">
-                            {formatTimeAgo(new Date(item.created_at))}
+                            {item.created_at ? formatTimeAgo(new Date(item.created_at)) : 'Unknown'}
                           </Typography>
-                          {item.spec_revision_count && item.spec_revision_count > 0 && (
-                            <Typography variant="caption" color="warning.main" sx={{ display: 'block' }}>
-                              {item.spec_revision_count} revision{item.spec_revision_count > 1 ? 's' : ''}
-                            </Typography>
-                          )}
+                          {/* Revision count if available */}
                         </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </TableContainer>
-              {dashboardData.pending_work.length === 0 && (
+              {(!dashboardData.pending_work || dashboardData.pending_work.length === 0) && (
                 <Typography textAlign="center" color="textSecondary" sx={{ py: 4 }}>
                   No pending work items
                 </Typography>
@@ -872,33 +936,33 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {dashboardData.running_work.map((item) => {
+                    {dashboardData.running_work?.map((item) => {
                       const startTime = item.started_at ? new Date(item.started_at) : null
                       const duration = startTime ? formatTimeAgo(startTime) : 'Unknown'
                       
                       return (
                         <TableRow 
-                          key={item.id}
+                          key={item.id || Math.random()}
                           sx={{
-                            backgroundColor: getStatusColor(item.status) + '10',
-                            borderLeft: `4px solid ${getStatusColor(item.status)}`,
+                            backgroundColor: getStatusColor(item.status || '') + '10',
+                            borderLeft: `4px solid ${getStatusColor(item.status || '')}`,
                           }}
                         >
                           <TableCell>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                              {getStatusIcon(item.status)}
+                              {getStatusIcon(item.status || '')}
                               <Typography variant="body2" fontWeight="bold">
-                                {item.name}
+                                {item.name || 'Untitled'}
                               </Typography>
                             </Box>
                             
                             {/* Phase indicator */}
                             <Box sx={{ mb: 1 }}>
                               <Chip 
-                                label={getPhaseLabel(item.status)}
+                                label={getPhaseLabel(item.status || '')}
                                 size="small"
                                 sx={{
-                                  backgroundColor: getStatusColor(item.status),
+                                  backgroundColor: getStatusColor(item.status || ''),
                                   color: 'white',
                                   fontWeight: 'bold'
                                 }}
@@ -906,52 +970,29 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                             </Box>
 
                             <Typography variant="caption" color="textSecondary">
-                              {(item.original_prompt || item.description).slice(0, 60)}...
+                              {(item.description || 'No description').slice(0, 60)}...
                             </Typography>
 
-                            {/* Show current agent working */}
-                            {item.status === 'spec_generation' && item.spec_agent && (
+                            {/* Show current phase status */}
+                            {item.status === 'spec_generation' && (
                               <Box sx={{ mt: 1, p: 1, backgroundColor: theme.palette.warning.light, borderRadius: 1 }}>
                                 <Typography variant="caption" fontWeight="bold" color="warning.dark">
-                                  🤖 {item.spec_agent} generating specifications
+                                  🤖 Generating specifications
                                 </Typography>
                               </Box>
                             )}
 
-                            {item.status === 'implementation' && item.implementation_agent && (
+                            {item.status === 'implementation' && (
                               <Box sx={{ mt: 1, p: 1, backgroundColor: theme.palette.success.light, borderRadius: 1 }}>
                                 <Typography variant="caption" fontWeight="bold" color="success.dark">
-                                  💻 {item.implementation_agent} coding
+                                  💻 Coding in progress
                                 </Typography>
-                                {item.branch_name && (
-                                  <Typography variant="caption" sx={{ display: 'block' }}>
-                                    Branch: {item.branch_name}
-                                  </Typography>
-                                )}
                               </Box>
                             )}
                           </TableCell>
                           <TableCell>
-                            {/* Show appropriate session ID based on current phase */}
-                            {item.status === 'spec_generation' && item.spec_session_id ? (
-                              <Box>
-                                <Typography variant="caption" fontWeight="bold">
-                                  Spec Session
-                                </Typography>
-                                <Typography variant="caption" sx={{ display: 'block' }}>
-                                  {item.spec_session_id.slice(0, 8)}...
-                                </Typography>
-                              </Box>
-                            ) : item.status === 'implementation' && item.implementation_session_id ? (
-                              <Box>
-                                <Typography variant="caption" fontWeight="bold">
-                                  Code Session
-                                </Typography>
-                                <Typography variant="caption" sx={{ display: 'block' }}>
-                                  {item.implementation_session_id.slice(0, 8)}...
-                                </Typography>
-                              </Box>
-                            ) : item.assigned_session_id ? (
+                            {/* Show session ID if available */}
+                            {item.assigned_session_id ? (
                               <Typography variant="caption">
                                 {item.assigned_session_id.slice(0, 8)}...
                               </Typography>
@@ -965,23 +1006,13 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                             <Typography variant="caption">
                               {startTime ? formatDateTime(startTime) : 'Unknown'}
                             </Typography>
-                            {/* Show spec approval time if relevant */}
-                            {item.spec_approved_at && item.status !== 'spec_generation' && (
-                              <Typography variant="caption" color="success.main" sx={{ display: 'block' }}>
-                                ✓ {formatTimeAgo(new Date(item.spec_approved_at))}
-                              </Typography>
-                            )}
+                            {/* Show additional status info if needed */}
                           </TableCell>
                           <TableCell>
                             <Typography variant="caption">
                               {duration}
                             </Typography>
-                            {/* Show revision count if any */}
-                            {item.spec_revision_count && item.spec_revision_count > 0 && (
-                              <Typography variant="caption" color="warning.main" sx={{ display: 'block' }}>
-                                {item.spec_revision_count} revision{item.spec_revision_count > 1 ? 's' : ''}
-                              </Typography>
-                            )}
+                            {/* Show revision count if available */}
                           </TableCell>
                         </TableRow>
                       )
@@ -989,7 +1020,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
                   </TableBody>
                 </Table>
               </TableContainer>
-              {dashboardData.running_work.length === 0 && (
+              {(!dashboardData.running_work || dashboardData.running_work.length === 0) && (
                 <Typography textAlign="center" color="textSecondary" sx={{ py: 4 }}>
                   No running work items
                 </Typography>
@@ -1005,7 +1036,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
           <DialogTitle>
             Resolve Help Request
             <Chip 
-              label={helpRequestOpen.urgency}
+              label={helpRequestOpen.urgency || 'medium'}
               size="small"
               color={helpRequestOpen.urgency === 'critical' ? 'error' : helpRequestOpen.urgency === 'high' ? 'warning' : 'info'}
               sx={{ ml: 2 }}
@@ -1014,10 +1045,10 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
           <DialogContent>
             <Box sx={{ mb: 2 }}>
               <Typography variant="subtitle2" gutterBottom>Context:</Typography>
-              <Typography variant="body2" sx={{ mb: 2 }}>{helpRequestOpen.context}</Typography>
+              <Typography variant="body2" sx={{ mb: 2 }}>{helpRequestOpen.context || 'No context provided'}</Typography>
               
               <Typography variant="subtitle2" gutterBottom>Specific Need:</Typography>
-              <Typography variant="body2" sx={{ mb: 2 }}>{helpRequestOpen.specific_need}</Typography>
+              <Typography variant="body2" sx={{ mb: 2 }}>{helpRequestOpen.specific_need || 'No specific need provided'}</Typography>
             </Box>
             
             <TextField
@@ -1041,7 +1072,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
               variant="contained" 
               onClick={() => {
                 const resolution = (helpRequestOpen as any).resolution
-                if (resolution) {
+                if (resolution && helpRequestOpen.id) {
                   resolveHelpRequest(helpRequestOpen.id, resolution)
                 }
               }}
@@ -1157,7 +1188,7 @@ const AgentDashboard: FC<AgentDashboardProps> = ({ apps }) => {
       {/* Last updated indicator */}
       <Box sx={{ mt: 3, textAlign: 'center' }}>
         <Typography variant="caption" color="textSecondary">
-          Last updated: {formatTimeAgo(new Date(dashboardData.last_updated))}
+          Last updated: {dashboardData.last_updated ? formatTimeAgo(new Date(dashboardData.last_updated)) : 'Unknown'}
         </Typography>
       </Box>
     </Box>

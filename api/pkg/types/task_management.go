@@ -120,14 +120,74 @@ const (
 type AgentType string
 
 const (
-	AgentTypeSimple     AgentType = "simple"      // Basic Helix agent
-	AgentTypeHelixAgent AgentType = "helix_agent" // Standard Helix agent with skills
-	AgentTypeZedAgent   AgentType = "zed_agent"   // Zed-integrated agent
+	AgentTypeHelixBasic  AgentType = "helix_basic"  // Basic Helix agent
+	AgentTypeHelixAgent  AgentType = "helix_agent"  // Standard Helix agent with skills
+	AgentTypeZedExternal AgentType = "zed_external" // Zed-integrated agent
 	// Future agent types:
 	// AgentTypeZedClaudeCode AgentType = "zed_claude_code" // Zed with Claude for coding
 	// AgentTypeZedGeminiCLI  AgentType = "zed_gemini_cli"  // Zed with Gemini for CLI
 	// AgentTypeZedQwenCode   AgentType = "zed_qwen_code"   // Zed with Qwen for coding
 )
+
+// Helper functions for agent type checking with backward compatibility
+
+// MigrateAgentMode converts the old boolean agent_mode to the new AgentType enum
+// This provides backward compatibility for existing configs
+func (a *AssistantConfig) MigrateAgentMode() {
+	// Only migrate if AgentType is not already set
+	if a.AgentType == "" {
+		if a.AgentMode {
+			a.AgentType = AgentTypeHelixAgent
+		} else {
+			a.AgentType = AgentTypeHelixBasic
+		}
+	}
+}
+
+// IsAgentMode checks if an assistant is in any agent mode (backward compatible)
+func (a *AssistantConfig) IsAgentMode() bool {
+	// Ensure migration has happened
+	a.MigrateAgentMode()
+	return a.AgentType != AgentTypeHelixBasic
+}
+
+// GetAgentType returns the agent type, with fallback to boolean AgentMode
+func (a *AssistantConfig) GetAgentType() AgentType {
+	// Ensure migration has happened
+	a.MigrateAgentMode()
+	return a.AgentType
+}
+
+// IsAgentType checks if the assistant is of a specific agent type
+func (a *AssistantConfig) IsAgentType(agentType AgentType) bool {
+	return a.GetAgentType() == agentType
+}
+
+// GetDefaultAgentType returns the default agent type for an app
+func (a *AppHelixConfig) GetDefaultAgentType() AgentType {
+	if a.DefaultAgentType != "" {
+		return a.DefaultAgentType
+	}
+	// If no default set, check if any assistant is in agent mode
+	for _, assistant := range a.Assistants {
+		if assistant.IsAgentMode() {
+			return assistant.GetAgentType()
+		}
+	}
+	return AgentTypeHelixBasic
+}
+
+// MigrateAgentTypes migrates all assistants in an app config from boolean to enum
+func (a *AppHelixConfig) MigrateAgentTypes() {
+	for i := range a.Assistants {
+		a.Assistants[i].MigrateAgentMode()
+	}
+
+	// Set default agent type if not already set
+	if a.DefaultAgentType == "" {
+		a.DefaultAgentType = a.GetDefaultAgentType()
+	}
+}
 
 type WorkStatus string
 

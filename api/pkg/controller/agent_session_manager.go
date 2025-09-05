@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	external_agent "github.com/helixml/helix/api/pkg/external-agent"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/trigger/agent_work_queue"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -151,6 +153,29 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 			"IMPLEMENTATION_TASK_INDEX=" + fmt.Sprintf("%d", workSessionContext.ImplementationTaskIndex),
 		}
 
+		// Add git repository information for cloning
+		if specTaskContext.ProjectID != "" {
+			// Generate git repository URL - assume git repository service creates repo with SpecTask ID
+			gitRepoID := fmt.Sprintf("spec-task-%s", specTaskContext.ID)
+			helixAPIServer := os.Getenv("HELIX_API_SERVER")
+			if helixAPIServer == "" {
+				helixAPIServer = "http://api:8080" // Default internal Docker/K8s address
+			}
+
+			gitRepoURL := fmt.Sprintf("%s/git/%s", helixAPIServer, gitRepoID)
+
+			zedAgent.Env = append(zedAgent.Env,
+				"GIT_REPO_URL="+gitRepoURL,
+				"GIT_REPO_ID="+gitRepoID,
+				"HELIX_API_SERVER="+helixAPIServer,
+			)
+
+			// Add API key for git authentication if available
+			if apiKey := c.getAPIKeyForUser(session.Owner); apiKey != "" {
+				zedAgent.Env = append(zedAgent.Env, "HELIX_API_KEY="+apiKey)
+			}
+		}
+
 		// Add workspace config if available
 		if len(specTaskContext.WorkspaceConfig) > 0 {
 			var workspaceEnv map[string]interface{}
@@ -193,7 +218,25 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 				zedAgent.WorkDir = externalConfig.WorkspaceDir
 			}
 			if len(externalConfig.EnvVars) > 0 {
-				zedAgent.Env = externalConfig.EnvVars
+				zedAgent.Env = append(zedAgent.Env, externalConfig.EnvVars...)
+			}
+
+			// Add git repository information for single sessions
+			if externalConfig.ProjectPath != "" {
+				// For external agent config, ProjectPath might contain repository information
+				helixAPIServer := os.Getenv("HELIX_API_SERVER")
+				if helixAPIServer == "" {
+					helixAPIServer = "http://api:8080" // Default internal Docker/K8s address
+				}
+
+				zedAgent.Env = append(zedAgent.Env,
+					"HELIX_API_SERVER="+helixAPIServer,
+				)
+
+				// Add API key for git authentication if available
+				if apiKey := c.getAPIKeyForUser(session.Owner); apiKey != "" {
+					zedAgent.Env = append(zedAgent.Env, "HELIX_API_KEY="+apiKey)
+				}
 			}
 		}
 
@@ -253,6 +296,17 @@ func (c *Controller) launchZedAgent(ctx context.Context, sessionID string) error
 		Msg("Zed agent dispatched to runner pool successfully")
 
 	return nil
+}
+
+// getAPIKeyForUser gets an API key for a user (simplified implementation)
+func (c *Controller) getAPIKeyForUser(userID string) string {
+	// TODO: Implement proper API key retrieval from store
+	// For now, return empty string - the git HTTP server will handle authentication
+	// In production, this would:
+	// 1. Query the api_keys table for active keys belonging to the user
+	// 2. Return the first active key
+	// 3. Or create a temporary git-scoped key
+	return ""
 }
 
 // updateZedThreadStatus updates the status of a Zed thread for a work session
@@ -565,6 +619,19 @@ func (c *Controller) GetAgentDashboardSummary(ctx context.Context) (*types.Agent
 		WorkQueueStats:      workQueueStats,
 		LastUpdated:         time.Now(),
 	}, nil
+}
+
+// CreateSession adapter method to match HelixController interface used by AgentWorkQueueTrigger
+func (c *Controller) CreateSession(ctx context.Context, req *agent_work_queue.CreateSessionRequest) (*types.Session, error) {
+	// Convert CreateSessionRequest to AgentWorkItem for the existing method
+	workItem := &types.AgentWorkItem{
+		ID:             req.WorkItemID,
+		UserID:         req.UserID,
+		AppID:          req.AppID,
+		OrganizationID: req.OrganizationID,
+	}
+
+	return c.CreateAgentSession(ctx, workItem)
 }
 
 // Query types for store operations

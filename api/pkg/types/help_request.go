@@ -82,12 +82,12 @@ type AgentSessionsListResponse struct {
 // AgentDashboardData extends DashboardData to include agent information
 type AgentDashboardData struct {
 	*DashboardData
-	ActiveSessions      []*AgentSession  `json:"active_sessions"`
-	PendingWork         []*AgentWorkItem `json:"pending_work"`
-	HelpRequests        []*HelpRequest   `json:"help_requests"`
-	SessionsNeedingHelp []*AgentSession  `json:"sessions_needing_help"`
-	RecentCompletions   []*JobCompletion `json:"recent_completions"`
-	PendingReviews      []*JobCompletion `json:"pending_reviews"`
+	ActiveSessions      []*AgentSessionStatus `json:"active_sessions"`
+	PendingWork         []*AgentWorkItem      `json:"pending_work"`
+	HelpRequests        []*HelpRequest        `json:"help_requests"`
+	SessionsNeedingHelp []*AgentSessionStatus `json:"sessions_needing_help"`
+	RecentCompletions   []*JobCompletion      `json:"recent_completions"`
+	PendingReviews      []*JobCompletion      `json:"pending_reviews"`
 }
 
 // JobCompletion represents a completed job/task from an AI agent

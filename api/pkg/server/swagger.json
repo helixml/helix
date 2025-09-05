@@ -19,6 +19,28 @@
     },
     "host": "app.helix.ml",
     "paths": {
+        "/api/v1/agents/fleet": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get agent fleet data including active sessions, work queue, and help requests without dashboard data",
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get agent fleet data",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.AgentFleetSummary"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/agents/help-requests": {
             "get": {
                 "security": [
@@ -1513,190 +1535,6 @@
                     },
                     "400": {
                         "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/git/repositories/initialize-samples": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create default sample repositories for demos and testing",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git-repositories"
-                ],
-                "summary": "Initialize sample repositories",
-                "parameters": [
-                    {
-                        "description": "Initialize request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.InitializeSampleRepositoriesRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.InitializeSampleRepositoriesResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/git/repositories/sample": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create a sample/demo git repository from available templates",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git-repositories"
-                ],
-                "summary": "Create sample repository",
-                "parameters": [
-                    {
-                        "description": "Sample repository creation request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.CreateSampleRepositoryRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/services.GitRepository"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/git/repositories/sample-types": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get list of available sample repository types and templates",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git-repositories"
-                ],
-                "summary": "Get sample repository types",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/server.SampleTypesResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/git/repositories/spec-task": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create a git repository specifically for a SpecTask",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git-repositories"
-                ],
-                "summary": "Create SpecTask repository",
-                "parameters": [
-                    {
-                        "description": "SpecTask repository creation request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/server.CreateSpecTaskRepositoryRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/services.GitRepository"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/types.APIError"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
                         }
@@ -3810,6 +3648,114 @@
                 }
             }
         },
+        "/api/v1/samples/initialize": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create multiple sample repositories for development/testing",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "samples"
+                ],
+                "summary": "Initialize sample repositories",
+                "parameters": [
+                    {
+                        "description": "Initialize samples request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.InitializeSampleRepositoriesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/server.InitializeSampleRepositoriesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/samples/repositories": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a sample/demo git repository from available templates",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "samples"
+                ],
+                "summary": "Create sample repository",
+                "parameters": [
+                    {
+                        "description": "Sample repository creation request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.CreateSampleRepositoryRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/services.GitRepository"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/scheduler/heartbeats": {
             "get": {
                 "security": [
@@ -4579,6 +4525,68 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/types.SpecTask"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update SpecTask status, priority, or other fields",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "spec-driven-tasks"
+                ],
+                "summary": "Update SpecTask",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "SpecTask ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTaskUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.SpecTask"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
                         }
                     },
                     "404": {
@@ -5568,6 +5576,88 @@
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/specs/repositories": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a git repository specifically for a SpecTask",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "specs"
+                ],
+                "summary": "Create SpecTask repository",
+                "parameters": [
+                    {
+                        "description": "SpecTask repository creation request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.CreateSpecTaskRepositoryRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/services.GitRepository"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/types.APIError"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/specs/sample-types": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get list of available sample repository types and templates",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "specs"
+                ],
+                "summary": "Get sample repository types",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.SampleTypesResponse"
                         }
                     }
                 }
@@ -7015,6 +7105,24 @@
                     "type": "string"
                 }
             }
+        },
+        "github_com_helixml_helix_api_pkg_types.AgentType": {
+            "type": "string",
+            "enum": [
+                "helix_basic",
+                "helix_agent",
+                "zed_external"
+            ],
+            "x-enum-comments": {
+                "AgentTypeHelixAgent": "Standard Helix agent with skills",
+                "AgentTypeHelixBasic": "Basic Helix agent",
+                "AgentTypeZedExternal": "Zed-integrated agent"
+            },
+            "x-enum-varnames": [
+                "AgentTypeHelixBasic",
+                "AgentTypeHelixAgent",
+                "AgentTypeZedExternal"
+            ]
         },
         "github_com_helixml_helix_api_pkg_types.Config": {
             "type": "object",
@@ -9500,6 +9608,59 @@
                 }
             }
         },
+        "types.AgentFleetSummary": {
+            "type": "object",
+            "properties": {
+                "active_help_requests": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.HelpRequest"
+                    }
+                },
+                "active_sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AgentSessionStatus"
+                    }
+                },
+                "last_updated": {
+                    "type": "string"
+                },
+                "pending_reviews": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.JobCompletion"
+                    }
+                },
+                "pending_work": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AgentWorkItem"
+                    }
+                },
+                "recent_completions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.JobCompletion"
+                    }
+                },
+                "running_work": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AgentWorkItem"
+                    }
+                },
+                "sessions_needing_help": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AgentSessionStatus"
+                    }
+                },
+                "work_queue_stats": {
+                    "$ref": "#/definitions/types.AgentWorkQueueStats"
+                }
+            }
+        },
         "types.AgentSessionStatus": {
             "type": "object",
             "properties": {
@@ -10150,8 +10311,22 @@
                 "avatar_content_type": {
                     "type": "string"
                 },
+                "default_agent_type": {
+                    "description": "Agent configuration",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.AgentType"
+                        }
+                    ]
+                },
                 "description": {
                     "type": "string"
+                },
+                "external_agent_config": {
+                    "$ref": "#/definitions/types.ExternalAgentConfig"
+                },
+                "external_agent_enabled": {
+                    "type": "boolean"
                 },
                 "external_url": {
                     "type": "string"
@@ -10278,8 +10453,16 @@
             "type": "object",
             "properties": {
                 "agent_mode": {
-                    "description": "AgentMode triggers the use of the agent loop",
+                    "description": "AgentMode triggers the use of the agent loop (deprecated - use AgentType instead)",
                     "type": "boolean"
+                },
+                "agent_type": {
+                    "description": "AgentType specifies the type of agent to use",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.AgentType"
+                        }
+                    ]
                 },
                 "apis": {
                     "type": "array",
@@ -14544,6 +14727,23 @@
                 },
                 "spec_task": {
                     "$ref": "#/definitions/types.SpecTask"
+                }
+            }
+        },
+        "types.SpecTaskUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
                 }
             }
         },

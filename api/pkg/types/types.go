@@ -1464,9 +1464,11 @@ type AssistantConfig struct {
 	// when a new session is about to be launched. Use this to showcase the capabilities of the assistant.
 	ConversationStarters []string `json:"conversation_starters,omitempty" yaml:"conversation_starters,omitempty"`
 
-	// AgentMode triggers the use of the agent loop
-	AgentMode     bool `json:"agent_mode" yaml:"agent_mode"`
-	MaxIterations int  `json:"max_iterations" yaml:"max_iterations"`
+	// AgentMode triggers the use of the agent loop (deprecated - use AgentType instead)
+	AgentMode bool `json:"agent_mode" yaml:"agent_mode"`
+	// AgentType specifies the type of agent to use
+	AgentType     AgentType `json:"agent_type,omitempty" yaml:"agent_type,omitempty"`
+	MaxIterations int       `json:"max_iterations" yaml:"max_iterations"`
 
 	ReasoningModelProvider string `json:"reasoning_model_provider" yaml:"reasoning_model_provider"`
 	ReasoningModel         string `json:"reasoning_model" yaml:"reasoning_model"`
@@ -1586,7 +1588,14 @@ type AppHelixConfig struct {
 	ExternalURL       string            `json:"external_url,omitempty" yaml:"external_url,omitempty"`
 	Assistants        []AssistantConfig `json:"assistants,omitempty" yaml:"assistants,omitempty"`
 	Triggers          []Trigger         `json:"triggers,omitempty" yaml:"triggers,omitempty"`
+
+	// Agent configuration
+	DefaultAgentType     AgentType            `json:"default_agent_type,omitempty" yaml:"default_agent_type,omitempty"`
+	ExternalAgentEnabled bool                 `json:"external_agent_enabled,omitempty" yaml:"external_agent_enabled,omitempty"`
+	ExternalAgentConfig  *ExternalAgentConfig `json:"external_agent_config,omitempty" yaml:"external_agent_config,omitempty"`
 }
+
+// Helper functions for agent type checking with backward compatibility
 
 type AppHelixConfigMetadata struct {
 	Name string `json:"name" yaml:"name"`
