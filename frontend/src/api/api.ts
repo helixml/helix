@@ -859,6 +859,10 @@ export interface TypesAssistantMCP {
   description?: string;
   headers?: Record<string, string>;
   name?: string;
+  /** The name of the OAuth provider to use for authentication */
+  oauth_provider?: string;
+  /** Required OAuth scopes for this API */
+  oauth_scopes?: string[];
   url?: string;
 }
 
@@ -1566,6 +1570,7 @@ export enum TypesOAuthProviderType {
   OAuthProviderTypeGitHub = "github",
   OAuthProviderTypeSlack = "slack",
   OAuthProviderTypeLinkedIn = "linkedin",
+  OAuthProviderTypeHubSpot = "hubspot",
   OAuthProviderTypeCustom = "custom",
 }
 
@@ -2380,6 +2385,9 @@ export interface TypesToolMCPClientConfig {
   enabled?: boolean;
   headers?: Record<string, string>;
   name?: string;
+  oauth_provider?: string;
+  /** Required OAuth scopes for this API */
+  oauth_scopes?: string[];
   tools?: McpTool[];
   url?: string;
 }
