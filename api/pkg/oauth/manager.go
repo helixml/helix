@@ -101,8 +101,11 @@ func (m *Manager) LoadProviders(ctx context.Context) error {
 
 // InitProvider initializes an OAuth provider
 func (m *Manager) InitProvider(ctx context.Context, config *types.OAuthProvider) error {
-	log.Debug().Str("provider_id", config.ID).Str("provider_name", config.Name).
-		Str("provider_type", string(config.Type)).Bool("provider_enabled", config.Enabled).
+	log.Debug().
+		Str("provider_id", config.ID).
+		Str("provider_name", config.Name).
+		Str("provider_type",
+			string(config.Type)).Bool("provider_enabled", config.Enabled).
 		Msg("Initializing OAuth provider")
 
 	m.mutex.Lock()
