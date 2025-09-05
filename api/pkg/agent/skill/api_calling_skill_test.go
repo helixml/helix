@@ -51,7 +51,7 @@ func TestNewDirectAPICallingSkills(t *testing.T) {
 	}
 
 	// Test the new direct skills creation
-	skills := NewDirectAPICallingSkills(nil, tool)
+	skills := NewDirectAPICallingSkills(nil, nil, tool)
 
 	// Verify we get one skill per API action
 	require.Len(t, skills, 2, "Should create one skill per API action")
@@ -111,7 +111,7 @@ func TestNewAPICallingSkill_WithPlanning(t *testing.T) {
 	}
 
 	// Test the old function
-	skill := NewAPICallingSkillWithReasoning(nil, tool)
+	skill := NewAPICallingSkillWithReasoning(nil, nil, tool)
 
 	// Verify it creates a single skill with multiple tools (old behavior)
 	assert.Equal(t, "Test_API", skill.Name)
