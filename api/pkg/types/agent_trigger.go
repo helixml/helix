@@ -213,6 +213,19 @@ type AgentDashboardSummary struct {
 	LastUpdated         time.Time             `json:"last_updated"`
 }
 
+// AgentFleetSummary contains only agent fleet data without embedded dashboard data
+type AgentFleetSummary struct {
+	ActiveSessions      []*AgentSessionStatus `json:"active_sessions"`
+	SessionsNeedingHelp []*AgentSessionStatus `json:"sessions_needing_help"`
+	PendingWork         []*AgentWorkItem      `json:"pending_work"`
+	RunningWork         []*AgentWorkItem      `json:"running_work"`
+	RecentCompletions   []*JobCompletion      `json:"recent_completions"`
+	PendingReviews      []*JobCompletion      `json:"pending_reviews"`
+	ActiveHelpRequests  []*HelpRequest        `json:"active_help_requests"`
+	WorkQueueStats      *AgentWorkQueueStats  `json:"work_queue_stats"`
+	LastUpdated         time.Time             `json:"last_updated"`
+}
+
 // Response types for API endpoints
 type AgentWorkItemsResponse struct {
 	Items    []*AgentWorkItem `json:"items"`

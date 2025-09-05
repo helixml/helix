@@ -16,6 +16,12 @@ export interface ControllerMemoryEstimationResponse {
   model_id?: string;
 }
 
+export enum GithubComHelixmlHelixApiPkgTypesAgentType {
+  AgentTypeHelixBasic = "helix_basic",
+  AgentTypeHelixAgent = "helix_agent",
+  AgentTypeZedExternal = "zed_external",
+}
+
 export interface GithubComHelixmlHelixApiPkgTypesConfig {
   rules?: TypesRule[];
 }
@@ -1022,6 +1028,18 @@ export interface TypesAgentDashboardSummary {
   work_queue_stats?: TypesAgentWorkQueueStats;
 }
 
+export interface TypesAgentFleetSummary {
+  active_help_requests?: TypesHelpRequest[];
+  active_sessions?: TypesAgentSessionStatus[];
+  last_updated?: string;
+  pending_reviews?: TypesJobCompletion[];
+  pending_work?: TypesAgentWorkItem[];
+  recent_completions?: TypesJobCompletion[];
+  running_work?: TypesAgentWorkItem[];
+  sessions_needing_help?: TypesAgentSessionStatus[];
+  work_queue_stats?: TypesAgentWorkQueueStats;
+}
+
 export interface TypesAgentSessionStatus {
   agent_type?: string;
   app_id?: string;
@@ -1248,7 +1266,11 @@ export interface TypesAppHelixConfig {
   assistants?: TypesAssistantConfig[];
   avatar?: string;
   avatar_content_type?: string;
+  /** Agent configuration */
+  default_agent_type?: GithubComHelixmlHelixApiPkgTypesAgentType;
   description?: string;
+  external_agent_config?: TypesExternalAgentConfig;
+  external_agent_enabled?: boolean;
   external_url?: string;
   image?: string;
   name?: string;
@@ -1302,8 +1324,10 @@ export interface TypesAssistantCalculator {
 }
 
 export interface TypesAssistantConfig {
-  /** AgentMode triggers the use of the agent loop */
+  /** AgentMode triggers the use of the agent loop (deprecated - use AgentType instead) */
   agent_mode?: boolean;
+  /** AgentType specifies the type of agent to use */
+  agent_type?: GithubComHelixmlHelixApiPkgTypesAgentType;
   apis?: TypesAssistantAPI[];
   avatar?: string;
   azure_devops?: TypesAssistantAzureDevOps;
@@ -3054,6 +3078,13 @@ export interface TypesSpecTaskProgressResponse {
   spec_task?: TypesSpecTask;
 }
 
+export interface TypesSpecTaskUpdateRequest {
+  description?: string;
+  name?: string;
+  priority?: string;
+  status?: string;
+}
+
 export interface TypesSpecTaskWorkSession {
   /** Configuration */
   agent_config?: number[];
@@ -3721,6 +3752,23 @@ export class HttpClient<SecurityDataType = unknown> {
  */
 export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
   api = {
+    /**
+     * @description Get agent fleet data including active sessions, work queue, and help requests without dashboard data
+     *
+     * @tags agents
+     * @name V1AgentsFleetList
+     * @summary Get agent fleet data
+     * @request GET:/api/v1/agents/fleet
+     * @secure
+     */
+    v1AgentsFleetList: (params: RequestParams = {}) =>
+      this.request<TypesAgentFleetSummary, any>({
+        path: `/api/v1/agents/fleet`,
+        method: "GET",
+        secure: true,
+        ...params,
+      }),
+
     /**
      * @description List help requests from agents needing human assistance
      *
@@ -4661,87 +4709,6 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "GET",
         query: query,
         secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create default sample repositories for demos and testing
-     *
-     * @tags git-repositories
-     * @name V1GitRepositoriesInitializeSamplesCreate
-     * @summary Initialize sample repositories
-     * @request POST:/api/v1/git/repositories/initialize-samples
-     * @secure
-     */
-    v1GitRepositoriesInitializeSamplesCreate: (
-      request: ServerInitializeSampleRepositoriesRequest,
-      params: RequestParams = {},
-    ) =>
-      this.request<ServerInitializeSampleRepositoriesResponse, TypesAPIError>({
-        path: `/api/v1/git/repositories/initialize-samples`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a sample/demo git repository from available templates
-     *
-     * @tags git-repositories
-     * @name V1GitRepositoriesSampleCreate
-     * @summary Create sample repository
-     * @request POST:/api/v1/git/repositories/sample
-     * @secure
-     */
-    v1GitRepositoriesSampleCreate: (request: ServerCreateSampleRepositoryRequest, params: RequestParams = {}) =>
-      this.request<ServicesGitRepository, TypesAPIError>({
-        path: `/api/v1/git/repositories/sample`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Get list of available sample repository types and templates
-     *
-     * @tags git-repositories
-     * @name V1GitRepositoriesSampleTypesList
-     * @summary Get sample repository types
-     * @request GET:/api/v1/git/repositories/sample-types
-     * @secure
-     */
-    v1GitRepositoriesSampleTypesList: (params: RequestParams = {}) =>
-      this.request<ServerSampleTypesResponse, any>({
-        path: `/api/v1/git/repositories/sample-types`,
-        method: "GET",
-        secure: true,
-        format: "json",
-        ...params,
-      }),
-
-    /**
-     * @description Create a git repository specifically for a SpecTask
-     *
-     * @tags git-repositories
-     * @name V1GitRepositoriesSpecTaskCreate
-     * @summary Create SpecTask repository
-     * @request POST:/api/v1/git/repositories/spec-task
-     * @secure
-     */
-    v1GitRepositoriesSpecTaskCreate: (request: ServerCreateSpecTaskRepositoryRequest, params: RequestParams = {}) =>
-      this.request<ServicesGitRepository, TypesAPIError>({
-        path: `/api/v1/git/repositories/spec-task`,
-        method: "POST",
-        body: request,
-        secure: true,
-        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -5881,6 +5848,46 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Create multiple sample repositories for development/testing
+     *
+     * @tags samples
+     * @name V1SamplesInitializeCreate
+     * @summary Initialize sample repositories
+     * @request POST:/api/v1/samples/initialize
+     * @secure
+     */
+    v1SamplesInitializeCreate: (request: ServerInitializeSampleRepositoriesRequest, params: RequestParams = {}) =>
+      this.request<ServerInitializeSampleRepositoriesResponse, TypesAPIError>({
+        path: `/api/v1/samples/initialize`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a sample/demo git repository from available templates
+     *
+     * @tags samples
+     * @name V1SamplesRepositoriesCreate
+     * @summary Create sample repository
+     * @request POST:/api/v1/samples/repositories
+     * @secure
+     */
+    v1SamplesRepositoriesCreate: (request: ServerCreateSampleRepositoryRequest, params: RequestParams = {}) =>
+      this.request<ServicesGitRepository, TypesAPIError>({
+        path: `/api/v1/samples/repositories`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Get the health status of all scheduler goroutines
      *
      * @tags dashboard
@@ -6310,6 +6317,26 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * @description Update SpecTask status, priority, or other fields
+     *
+     * @tags spec-driven-tasks
+     * @name V1SpecTasksUpdate
+     * @summary Update SpecTask
+     * @request PUT:/api/v1/spec-tasks/{taskId}
+     * @secure
+     */
+    v1SpecTasksUpdate: (taskId: string, request: TypesSpecTaskUpdateRequest, params: RequestParams = {}) =>
+      this.request<TypesSpecTask, TypesAPIError>({
+        path: `/api/v1/spec-tasks/${taskId}`,
+        method: "PUT",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
      * @description Human approval/rejection of specs generated by AI agent
      *
      * @tags spec-driven-tasks
@@ -6707,6 +6734,44 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
         method: "POST",
         body: request,
         type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Create a git repository specifically for a SpecTask
+     *
+     * @tags specs
+     * @name V1SpecsRepositoriesCreate
+     * @summary Create SpecTask repository
+     * @request POST:/api/v1/specs/repositories
+     * @secure
+     */
+    v1SpecsRepositoriesCreate: (request: ServerCreateSpecTaskRepositoryRequest, params: RequestParams = {}) =>
+      this.request<ServicesGitRepository, TypesAPIError>({
+        path: `/api/v1/specs/repositories`,
+        method: "POST",
+        body: request,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Get list of available sample repository types and templates
+     *
+     * @tags specs
+     * @name V1SpecsSampleTypesList
+     * @summary Get sample repository types
+     * @request GET:/api/v1/specs/sample-types
+     * @secure
+     */
+    v1SpecsSampleTypesList: (params: RequestParams = {}) =>
+      this.request<ServerSampleTypesResponse, any>({
+        path: `/api/v1/specs/sample-types`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),

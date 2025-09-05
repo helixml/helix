@@ -125,15 +125,15 @@ func (apiServer *HelixAPIServer) listGitRepositories(w http.ResponseWriter, r *h
 // createSpecTaskRepository creates a repository for a SpecTask
 // @Summary Create SpecTask repository
 // @Description Create a git repository specifically for a SpecTask
-// @Tags git-repositories
+// @Tags specs
 // @Accept json
 // @Produce json
 // @Param request body CreateSpecTaskRepositoryRequest true "SpecTask repository creation request"
 // @Success 201 {object} services.GitRepository
 // @Failure 400 {object} types.APIError
-// @Failure 404 {object} types.APIError
+// @Failure 401 {object} types.APIError
 // @Failure 500 {object} types.APIError
-// @Router /api/v1/git/repositories/spec-task [post]
+// @Router /api/v1/specs/repositories [post]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) createSpecTaskRepository(w http.ResponseWriter, r *http.Request) {
 	var request CreateSpecTaskRepositoryRequest
@@ -174,14 +174,14 @@ func (apiServer *HelixAPIServer) createSpecTaskRepository(w http.ResponseWriter,
 // createSampleRepository creates a sample/demo repository
 // @Summary Create sample repository
 // @Description Create a sample/demo git repository from available templates
-// @Tags git-repositories
+// @Tags samples
 // @Accept json
 // @Produce json
 // @Param request body CreateSampleRepositoryRequest true "Sample repository creation request"
 // @Success 201 {object} services.GitRepository
 // @Failure 400 {object} types.APIError
 // @Failure 500 {object} types.APIError
-// @Router /api/v1/git/repositories/sample [post]
+// @Router /api/v1/samples/repositories [post]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) createSampleRepository(w http.ResponseWriter, r *http.Request) {
 	var request CreateSampleRepositoryRequest
@@ -264,17 +264,18 @@ func (apiServer *HelixAPIServer) getGitRepositoryCloneCommand(w http.ResponseWri
 	json.NewEncoder(w).Encode(response)
 }
 
-// initializeSampleRepositories creates default sample repositories
+// initializeSampleRepositories creates multiple sample repositories
 // @Summary Initialize sample repositories
-// @Description Create default sample repositories for demos and testing
-// @Tags git-repositories
+// @Description Create multiple sample repositories for development/testing
+// @Tags samples
 // @Accept json
 // @Produce json
-// @Param request body InitializeSampleRepositoriesRequest true "Initialize request"
-// @Success 200 {object} InitializeSampleRepositoriesResponse
+// @Param request body InitializeSampleRepositoriesRequest true "Initialize samples request"
+// @Success 201 {object} InitializeSampleRepositoriesResponse
 // @Failure 400 {object} types.APIError
+// @Failure 401 {object} types.APIError
 // @Failure 500 {object} types.APIError
-// @Router /api/v1/git/repositories/initialize-samples [post]
+// @Router /api/v1/samples/initialize [post]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) initializeSampleRepositories(w http.ResponseWriter, r *http.Request) {
 	var request InitializeSampleRepositoriesRequest
@@ -363,10 +364,10 @@ func (apiServer *HelixAPIServer) initializeSampleRepositories(w http.ResponseWri
 // getSampleTypes returns available sample repository types
 // @Summary Get sample repository types
 // @Description Get list of available sample repository types and templates
-// @Tags git-repositories
+// @Tags specs
 // @Produce json
 // @Success 200 {object} SampleTypesResponse
-// @Router /api/v1/git/repositories/sample-types [get]
+// @Router /api/v1/specs/sample-types [get]
 // @Security BearerAuth
 func (apiServer *HelixAPIServer) getSampleTypes(w http.ResponseWriter, r *http.Request) {
 	sampleTypes := []SampleType{

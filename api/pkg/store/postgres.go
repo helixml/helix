@@ -148,6 +148,11 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.SpecTask{},
 		&types.SpecTaskWorkSession{},
 		&types.SpecTaskZedThread{},
+		&types.AgentWorkItem{},
+		&types.AgentSession{},
+		&types.AgentSessionStatus{},
+		&types.HelpRequest{},
+		&types.JobCompletion{},
 		&types.SpecTaskImplementationTask{},
 	)
 	if err != nil {

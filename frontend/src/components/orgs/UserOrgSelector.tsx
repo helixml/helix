@@ -24,6 +24,8 @@ import {
   LogIn,
   FileText,
   HelpCircle,
+  Kanban,
+  Activity,
 } from 'lucide-react'
 import SettingsIcon from '@mui/icons-material/Settings'
 
@@ -367,6 +369,20 @@ const UserOrgSelector: FC<UserOrgSelectorProps> = ({ sidebarVisible = false }) =
         isActive: isActive('apps'),
         onClick: () => orgNavigateTo('apps'),
         label: "Agents",
+      },
+      {
+        icon: <Kanban size={NAV_BUTTON_SIZE} />,
+        tooltip: "View spec tasks kanban board",
+        isActive: isActive('spec-tasks'),
+        onClick: () => orgNavigateTo('spec-tasks'),
+        label: "Specs",
+      },
+      {
+        icon: <Activity size={NAV_BUTTON_SIZE} />,
+        tooltip: "View agent fleet dashboard",
+        isActive: isActive('fleet'),
+        onClick: () => orgNavigateTo('fleet'),
+        label: "Fleet",
       },
       {
         icon: <Clock size={NAV_BUTTON_SIZE} />,

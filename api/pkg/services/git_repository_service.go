@@ -91,6 +91,11 @@ func NewGitRepositoryService(
 ) *GitRepositoryService {
 	gitRepoBase := filepath.Join(filestoreBase, "git-repositories")
 
+	// Ensure the git-repositories directory exists
+	if err := os.MkdirAll(gitRepoBase, 0755); err != nil {
+		log.Error().Err(err).Str("path", gitRepoBase).Msg("Failed to create git-repositories directory")
+	}
+
 	return &GitRepositoryService{
 		store:           store,
 		filestoreBase:   filestoreBase,

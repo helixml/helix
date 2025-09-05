@@ -133,7 +133,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			}
 
 			// If agent mode is enabled, used small generation model for session name generation
-			if assistant.AgentMode {
+			if assistant.IsAgentMode() {
 				generateSessionNameProvider = assistant.SmallGenerationModelProvider
 				generateSessionNameModel = assistant.SmallGenerationModel
 			}
