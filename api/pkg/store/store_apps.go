@@ -286,10 +286,12 @@ func ParseAppTools(app *types.App) (*types.App, error) {
 				ToolType:    types.ToolTypeMCP,
 				Config: types.ToolConfig{
 					MCP: &types.ToolMCPClientConfig{
-						Name:        mcp.Name,
-						Description: mcp.Description,
-						URL:         mcp.URL,
-						Headers:     mcp.Headers,
+						Name:          mcp.Name,
+						Description:   mcp.Description,
+						URL:           mcp.URL,
+						Headers:       mcp.Headers,
+						OAuthProvider: mcp.OAuthProvider,
+						OAuthScopes:   mcp.OAuthScopes,
 					},
 				},
 			})
