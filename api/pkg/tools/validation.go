@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/agent/skill/mcp"
+	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -67,7 +69,7 @@ func (c *ChainStrategy) validateOperationIDs(_ context.Context, _ *types.Tool, s
 	return nil
 }
 
-func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Planner, strict bool) error {
+func ValidateTool(userID string, assistant *types.AssistantConfig, tool *types.Tool, oauthManager *oauth.Manager, planner Planner, strict bool) error {
 	switch tool.ToolType {
 	case types.ToolTypeGPTScript:
 
@@ -165,7 +167,7 @@ func ValidateTool(assistant *types.AssistantConfig, tool *types.Tool, planner Pl
 		}
 
 		// Attempt to initialize the MCP client
-		resp, err := mcp.InitializeMCPClientSkill(context.Background(), mcpConfig)
+		resp, err := mcp.InitializeMCPClientSkill(context.Background(), agent.Meta{UserID: userID}, oauthManager, mcpConfig)
 		if err != nil {
 			log.Warn().Err(err).Msg("failed to initialize MCP client, might not work during runtime")
 		} else {

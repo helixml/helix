@@ -127,7 +127,7 @@ func TestValidateOperationIDs(t *testing.T) {
 		},
 	}
 
-	err := ValidateTool(&types.AssistantConfig{}, tool, c, false)
+	err := ValidateTool("test-user-id", &types.AssistantConfig{}, tool, nil, c, false)
 	require.NoError(t, err)
 
 	// Check api actions
