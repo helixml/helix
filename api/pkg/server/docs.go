@@ -6026,6 +6026,17 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "oauth_provider": {
+                    "description": "The name of the OAuth provider to use for authentication",
+                    "type": "string"
+                },
+                "oauth_scopes": {
+                    "description": "Required OAuth scopes for this API",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "url": {
                     "type": "string"
                 }
@@ -7742,6 +7753,7 @@ const docTemplate = `{
                 "github",
                 "slack",
                 "linkedin",
+                "hubspot",
                 "custom"
             ],
             "x-enum-varnames": [
@@ -7752,6 +7764,7 @@ const docTemplate = `{
                 "OAuthProviderTypeGitHub",
                 "OAuthProviderTypeSlack",
                 "OAuthProviderTypeLinkedIn",
+                "OAuthProviderTypeHubSpot",
                 "OAuthProviderTypeCustom"
             ]
         },
@@ -9749,6 +9762,16 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "oauth_provider": {
+                    "type": "string"
+                },
+                "oauth_scopes": {
+                    "description": "Required OAuth scopes for this API",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "tools": {
                     "type": "array",

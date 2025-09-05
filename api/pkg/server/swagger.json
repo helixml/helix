@@ -6022,6 +6022,17 @@
                 "name": {
                     "type": "string"
                 },
+                "oauth_provider": {
+                    "description": "The name of the OAuth provider to use for authentication",
+                    "type": "string"
+                },
+                "oauth_scopes": {
+                    "description": "Required OAuth scopes for this API",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "url": {
                     "type": "string"
                 }
@@ -7738,6 +7749,7 @@
                 "github",
                 "slack",
                 "linkedin",
+                "hubspot",
                 "custom"
             ],
             "x-enum-varnames": [
@@ -7748,6 +7760,7 @@
                 "OAuthProviderTypeGitHub",
                 "OAuthProviderTypeSlack",
                 "OAuthProviderTypeLinkedIn",
+                "OAuthProviderTypeHubSpot",
                 "OAuthProviderTypeCustom"
             ]
         },
@@ -9745,6 +9758,16 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "oauth_provider": {
+                    "type": "string"
+                },
+                "oauth_scopes": {
+                    "description": "Required OAuth scopes for this API",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "tools": {
                     "type": "array",
