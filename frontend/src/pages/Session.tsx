@@ -8,6 +8,7 @@ import Box from '@mui/material/Box'
 import SendIcon from '@mui/icons-material/Send'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
+import Computer from '@mui/icons-material/Computer'
 
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
@@ -48,6 +49,7 @@ import useLightTheme from '../hooks/useLightTheme'
 import { generateFixtureSession } from '../utils/fixtures'
 import AdvancedModelPicker from '../components/create/AdvancedModelPicker'
 import { useListSessionSteps } from '../services/sessionService'
+import EmbeddedRDPViewer from '../components/session/EmbeddedRDPViewer'
 
 // Add new interfaces for virtualization
 interface IInteractionBlock {
@@ -208,6 +210,15 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   })
 
   const isOwner = account.user?.id == session?.data?.owner
+
+  // Check if this is an external agent session
+  useEffect(() => {
+    if (session?.data?.config?.agent_type === 'zed_external' || testRDPMode) {
+      setIsExternalAgent(true)
+    } else {
+      setIsExternalAgent(false)
+    }
+  }, [session?.data?.config?.agent_type, testRDPMode])
   
 
   // If params sessionID is not set, try to get it from URL query param sessionId=
@@ -248,6 +259,9 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
   const [feedbackValue, setFeedbackValue] = useState('')
   const [appID, setAppID] = useState<string | null>(null)
   const [assistantID, setAssistantID] = useState<string | null>(null)
+  const [showRDPViewer, setShowRDPViewer] = useState(false)
+  const [isExternalAgent, setIsExternalAgent] = useState(false)
+  const [testRDPMode, setTestRDPMode] = useState(false)
 
   const [visibleBlocks, setVisibleBlocks] = useState<IInteractionBlock[]>([])
   const [blockHeights, setBlockHeights] = useState<Record<string, number>>({})
@@ -1258,6 +1272,53 @@ const Session: FC<SessionProps> = ({ previewMode = false }) => {
                 session={session.data}
                 onReload={safeReloadSession}
                 onOpenMobileMenu={() => account.setMobileMenuOpen(true)}
+              />
+            </Box>
+          )}
+
+          {/* Test RDP Mode Toggle */}
+          {!isExternalAgent && (
+            <Box sx={{ px: 2, pb: 1 }}>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => setTestRDPMode(!testRDPMode)}
+                sx={{ mr: 1 }}
+              >
+                {testRDPMode ? 'Disable' : 'Enable'} Test RDP Mode
+              </Button>
+              <Typography variant="caption" color="text.secondary">
+                Test mode for RDP viewer development
+              </Typography>
+            </Box>
+          )}
+
+          {/* RDP Viewer Toggle for External Agents */}
+          {isExternalAgent && (
+            <Box sx={{ px: 2, pb: 1 }}>
+              <Button
+                variant={showRDPViewer ? "contained" : "outlined"}
+                size="small"
+                startIcon={<Computer />}
+                onClick={() => setShowRDPViewer(!showRDPViewer)}
+                sx={{ mr: 1 }}
+              >
+                {showRDPViewer ? 'Hide' : 'Show'} Zed Editor
+              </Button>
+              <Typography variant="caption" color="text.secondary">
+                {testRDPMode ? 'Test mode - RDP viewer available' : 'External agent session - RDP viewer available'}
+              </Typography>
+            </Box>
+          )}
+
+          {/* Embedded RDP Viewer */}
+          {isExternalAgent && showRDPViewer && (
+            <Box sx={{ px: 2, pb: 2 }}>
+              <EmbeddedRDPViewer
+                sessionId={sessionID}
+                height={400}
+                onClose={() => setShowRDPViewer(false)}
+                autoConnect={true}
               />
             </Box>
           )}

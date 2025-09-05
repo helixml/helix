@@ -24,6 +24,7 @@ import Tasks from './pages/Tasks'
 import SpecTasksPage from './pages/SpecTasksPage'
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
+import Fleet from './pages/Fleet'
 import OAuthConnectionsPage from './pages/OAuthConnectionsPage'
 
 // extend the base router5 route to add metadata and self rendering
@@ -74,6 +75,17 @@ const getOrgRoutes = (namePrefix = '', routePrefix = ''): IApplicationRoute[] =>
     },
     render: () => (
       <Apps />
+    ),
+  }, {
+    name: namePrefix + 'fleet',
+    path: routePrefix + '/fleet',
+    meta: {
+      drawer: false,
+      orgRouteAware: true,
+      title: 'Fleet',
+    },
+    render: () => (
+      <Fleet />
     ),
   }, 
   {

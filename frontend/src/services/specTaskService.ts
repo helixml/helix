@@ -149,11 +149,7 @@ export function useUpdateSpecTaskStatus() {
   
   return useMutation({
     mutationFn: async ({ taskId, status }: { taskId: string; status: string }) => {
-      // Use approval endpoint for status updates since no general update endpoint exists
-      const response = await api.getApiClient().v1SpecTasksApproveSpecsCreate(taskId, { 
-        approved: status === 'spec_approved',
-        feedback: `Status updated to: ${status}` 
-      });
+      const response = await api.getApiClient().v1SpecTasksUpdate(taskId, { status });
       return response.data;
     },
     onSuccess: (_, { taskId }) => {
@@ -171,7 +167,7 @@ export function useApproveSpecTask() {
     mutationFn: async (taskId: string) => {
       const response = await api.getApiClient().v1SpecTasksApproveSpecsCreate(taskId, { 
         approved: true,
-        feedback: 'Approved via UI'
+        comments: 'Approved via UI'
       });
       return response.data;
     },
