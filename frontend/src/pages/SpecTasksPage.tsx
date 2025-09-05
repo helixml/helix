@@ -20,6 +20,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  ListSubheader,
   CircularProgress,
 } from '@mui/material';
 import {
@@ -40,19 +41,18 @@ import useAccount from '../hooks/useAccount';
 import useApi from '../hooks/useApi';
 import useSnackbar from '../hooks/useSnackbar';
 import useRouter from '../hooks/useRouter';
-import gitRepositoryService, { 
-  useSampleTypes,
-  useCreateSampleRepository,
+import { useSampleTypes, useCreateSampleRepository } from '../hooks/useSampleTypes';
+import { useSpecTasks, useSpecTask } from '../hooks/useSpecTasks';
+import { TypesSpecTask, ServicesCreateTaskRequest } from '../api/api';
+import {
   SampleType,
   getSampleTypeIcon,
   getSampleTypeCategory,
   isBusinessTask,
   getBusinessTaskDescription,
-} from '../services/gitRepositoryService';
-import specTaskService, {
-  SpecTask,
-  useSpecTask,
-} from '../services/specTaskService';
+  groupSampleTypesByCategory,
+  getCategoryDisplayName
+} from '../utils/sampleTypeUtils';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -97,9 +97,26 @@ const SpecTasksPage: FC = () => {
   const [taskPriority, setTaskPriority] = useState('medium');
 
   // Data hooks
-  const { data: sampleTypes, isLoading: sampleTypesLoading } = useSampleTypes();
-  const createSampleRepo = useCreateSampleRepository();
+  const { data: sampleTypes, loading: sampleTypesLoading, loadSampleTypes } = useSampleTypes();
+  const { create: createSampleRepo, loading: createSampleRepoLoading } = useCreateSampleRepository();
+  const { data: tasks, loading: tasksLoading, listTasks } = useSpecTasks();
   const { data: selectedTask } = useSpecTask(selectedTaskId || '');
+
+  // Load tasks on mount (sample types auto-load via hook)
+  useEffect(() => {
+    const loadTasks = async () => {
+      try {
+        const result = await api.getApiClient().v1SpecTasksList();
+        // The hook will handle updating the data automatically
+      } catch (error) {
+        console.error('Error loading spec tasks:', error);
+      }
+    };
+
+    if (account.user?.id) {
+      loadTasks();
+    }
+  }, []);
 
   // Check authentication
   const checkLoginStatus = (): boolean => {
@@ -121,31 +138,39 @@ const SpecTasksPage: FC = () => {
       }
 
       // First create the sample repository
-      const repository = await createSampleRepo.mutateAsync({
+      const repository = await createSampleRepo({
         name: `${newTaskName} - ${selectedSampleType}`,
         description: newTaskDescription,
         owner_id: account.user?.id || '',
         sample_type: selectedSampleType,
       });
 
+      if (!repository) {
+        snackbar.error('Failed to create repository. Please try again.');
+        return;
+      }
+
       // Then create the SpecTask
-      const response = await api.post('/api/v1/spec-tasks/from-prompt', {
-        name: newTaskName,
-        description: newTaskDescription,
+      const createTaskRequest: ServicesCreateTaskRequest = {
+        prompt: `${newTaskDescription}\n\nRequirements:\n${newTaskRequirements}`,
         type: taskType,
         priority: taskPriority,
         project_id: account.organizationTools.organization?.id || 'default',
-        requirements: newTaskRequirements,
-        git_repository_id: repository.id,
-        git_repository_url: repository.clone_url,
-      });
+      };
+
+      console.log('🔥 CREATING TASK WITH REQUEST:', createTaskRequest);
+      console.log('🔥 USER ID:', account.user?.id);
+
+      const response = await api.getApiClient().v1SpecTasksFromPromptCreate(createTaskRequest);
 
       if (response.data) {
+        console.log('🔥 TASK CREATED SUCCESSFULLY:', response.data);
         snackbar.success('SpecTask created successfully!');
         setCreateDialogOpen(false);
         resetCreateForm();
-        
-        // Refresh the kanban board
+
+        // Refresh the task list and kanban board
+        listTasks();
         setRefreshing(true);
         setTimeout(() => setRefreshing(false), 1000);
       }
@@ -176,16 +201,16 @@ const SpecTasksPage: FC = () => {
   };
 
   const getSampleTypesByCategory = () => {
-    if (!sampleTypes?.sample_types) return { development: [], business: [], content: [], other: [] };
+    if (!sampleTypes || sampleTypes.length === 0) return { empty: [], development: [], business: [], content: [] };
 
     const categorized = {
+      empty: [] as SampleType[],
       development: [] as SampleType[],
       business: [] as SampleType[],
       content: [] as SampleType[],
-      other: [] as SampleType[],
     };
 
-    sampleTypes.sample_types.forEach((type: SampleType) => {
+    sampleTypes.forEach((type: SampleType) => {
       const category = getSampleTypeCategory(type.id || '');
       categorized[category].push(type);
     });
@@ -232,31 +257,31 @@ const SpecTasksPage: FC = () => {
         {/* Introduction */}
         <Box sx={{ mb: 2 }}>
           <Typography variant="h4" sx={{ fontWeight: 600, mb: 1 }}>
-            SpecTask Management
+            Spec Work for Agents
           </Typography>
           <Typography variant="body1" color="text.secondary">
-            Manage multi-session development and business tasks with git-based coordination
+            Add tasks for your agents to do, verify their informed plans, then supervise them executing them. Jump in when they need help or guidance
           </Typography>
         </Box>
 
         {/* Tabs for different views */}
         <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
           <Tabs value={currentTab} onChange={handleTabChange} aria-label="spec-tasks-tabs">
-            <Tab 
-              icon={<KanbanIcon />} 
-              label="Kanban Board" 
+            <Tab
+              icon={<KanbanIcon />}
+              label="Kanban Board"
               id="spec-tasks-tab-0"
               aria-controls="spec-tasks-tabpanel-0"
             />
-            <Tab 
-              icon={<TableIcon />} 
-              label="Table View" 
+            <Tab
+              icon={<TableIcon />}
+              label="Table View"
               id="spec-tasks-tab-1"
               aria-controls="spec-tasks-tabpanel-1"
             />
-            <Tab 
-              icon={<DashboardIcon />} 
-              label="Session Dashboard" 
+            <Tab
+              icon={<DashboardIcon />}
+              label="Session Dashboard"
               id="spec-tasks-tab-2"
               aria-controls="spec-tasks-tabpanel-2"
               disabled={!selectedTaskId}
@@ -268,7 +293,6 @@ const SpecTasksPage: FC = () => {
         <Box sx={{ flex: 1, overflow: 'hidden' }}>
           <TabPanel value={currentTab} index={0}>
             <SpecTaskKanbanBoard
-              projectId={account.organizationTools.organization?.id}
               userId={account.user?.id}
               onTaskClick={handleTaskClick}
             />
@@ -276,12 +300,12 @@ const SpecTasksPage: FC = () => {
 
           <TabPanel value={currentTab} index={1}>
             <SpecTaskTable
-              tasks={[]}
-              loading={false}
+              tasks={tasks || []}
+              loading={tasksLoading}
               onTaskSelect={handleTaskClick}
               onRefresh={() => {
                 setRefreshing(true);
-                setTimeout(() => setRefreshing(false), 2000);
+                listTasks().finally(() => setRefreshing(false));
               }}
             />
           </TabPanel>
@@ -372,7 +396,7 @@ const SpecTasksPage: FC = () => {
                     <MenuItem value="content">Content</MenuItem>
                   </Select>
                 </FormControl>
-                
+
                 <FormControl sx={{ minWidth: 120 }}>
                   <InputLabel>Priority</InputLabel>
                   <Select
@@ -400,113 +424,31 @@ const SpecTasksPage: FC = () => {
                 </Box>
               ) : (
                 <FormControl fullWidth required>
-                  <InputLabel>Choose a template or start empty</InputLabel>
+                  <InputLabel>Project Template</InputLabel>
                   <Select
                     value={selectedSampleType}
-                    onChange={(e) => setSelectedSampleType(e.target.value)}
-                    label="Choose a template or start empty"
+                    onChange={(e) => {
+                      console.log('🔥 Template selected:', e.target.value);
+                      setSelectedSampleType(e.target.value);
+                    }}
+                    label="Project Template"
                   >
-                    {/* Development Templates */}
-                    {categorizedSampleTypes.development.length > 0 && (
-                      <>
-                        <Typography variant="overline" sx={{ px: 2, py: 1, color: 'primary.main', fontWeight: 600 }}>
-                          Development Templates
-                        </Typography>
-                        {categorizedSampleTypes.development.map((type: SampleType) => (
-                          <MenuItem key={type.id} value={type.id}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-                              <Typography sx={{ fontSize: '1.2em' }}>
-                                {getSampleTypeIcon(type.id || '')}
-                              </Typography>
-                              <Box sx={{ flex: 1 }}>
-                                <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                  {type.name}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {type.description}
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </MenuItem>
-                        ))}
-                      </>
-                    )}
-
-                    {/* Business Templates */}
-                    {categorizedSampleTypes.business.length > 0 && (
-                      <>
-                        <Typography variant="overline" sx={{ px: 2, py: 1, color: 'secondary.main', fontWeight: 600 }}>
-                          Business Templates
-                        </Typography>
-                        {categorizedSampleTypes.business.map((type: SampleType) => (
-                          <MenuItem key={type.id} value={type.id}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-                              <Typography sx={{ fontSize: '1.2em' }}>
-                                {getSampleTypeIcon(type.id || '')}
-                              </Typography>
-                              <Box sx={{ flex: 1 }}>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                    {type.name}
-                                  </Typography>
-                                  <Chip 
-                                    label="Business" 
-                                    size="small" 
-                                    color="secondary" 
-                                    sx={{ height: 16 }}
-                                  />
-                                </Box>
-                                <Typography variant="caption" color="text.secondary">
-                                  {getBusinessTaskDescription(type.id || '')}
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </MenuItem>
-                        ))}
-                      </>
-                    )}
-
-                    {/* Content Templates */}
-                    {categorizedSampleTypes.content.length > 0 && (
-                      <>
-                        <Typography variant="overline" sx={{ px: 2, py: 1, color: 'success.main', fontWeight: 600 }}>
-                          Content Templates
-                        </Typography>
-                        {categorizedSampleTypes.content.map((type: SampleType) => (
-                          <MenuItem key={type.id} value={type.id}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-                              <Typography sx={{ fontSize: '1.2em' }}>
-                                {getSampleTypeIcon(type.id || '')}
-                              </Typography>
-                              <Box sx={{ flex: 1 }}>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                    {type.name}
-                                  </Typography>
-                                  <Chip 
-                                    label="Content" 
-                                    size="small" 
-                                    color="success" 
-                                    sx={{ height: 16 }}
-                                  />
-                                </Box>
-                                <Typography variant="caption" color="text.secondary">
-                                  {type.description}
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </MenuItem>
-                        ))}
-                      </>
-                    )}
+                    <MenuItem value="">
+                      <em>- Select - </em>
+                    </MenuItem>
+                    {sampleTypes.map((type: SampleType) => (
+                      <MenuItem key={type.id} value={type.id}>
+                        {getSampleTypeIcon(type.id || '')} {type.name}
+                      </MenuItem>
+                    ))}
                   </Select>
                 </FormControl>
               )}
-              
+
               {selectedSampleType && (
                 <Alert severity="info" sx={{ mt: 2 }}>
                   <Typography variant="body2">
-                    <strong>Selected Template:</strong> {sampleTypes?.sample_types?.find(t => t.id === selectedSampleType)?.name}
+                    <strong>Selected Template:</strong> {sampleTypes?.find((t: any) => t.id === selectedSampleType)?.name}
                   </Typography>
                   <Typography variant="caption">
                     A git repository will be created with this template for context-aware planning by Zed agents.
@@ -520,13 +462,13 @@ const SpecTasksPage: FC = () => {
           <Button onClick={() => setCreateDialogOpen(false)}>
             Cancel
           </Button>
-          <Button 
+          <Button
             onClick={handleCreateTask}
             variant="contained"
-            disabled={!newTaskName.trim() || !newTaskDescription.trim() || !selectedSampleType || createSampleRepo.isPending}
-            startIcon={createSampleRepo.isPending ? <CircularProgress size={16} /> : <AddIcon />}
+            disabled={!newTaskName.trim() || !newTaskDescription.trim() || !selectedSampleType || createSampleRepoLoading}
+            startIcon={createSampleRepoLoading ? <CircularProgress size={16} /> : <AddIcon />}
           >
-            {createSampleRepo.isPending ? 'Creating...' : 'Create SpecTask'}
+            {createSampleRepoLoading ? 'Creating...' : 'Create SpecTask'}
           </Button>
         </DialogActions>
       </Dialog>

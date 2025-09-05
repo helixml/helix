@@ -104,6 +104,14 @@ type SpecTaskFilters struct {
 	Offset    int    `json:"offset,omitempty"`
 }
 
+// SpecTaskUpdateRequest represents a request to update a SpecTask
+type SpecTaskUpdateRequest struct {
+	Status      string `json:"status,omitempty"`
+	Priority    string `json:"priority,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 // Two-phase workflow status constants
 const (
 	// Phase 1: Specification Generation (Helix Agent)

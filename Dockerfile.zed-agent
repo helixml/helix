@@ -54,6 +54,7 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt_zed_agent apt-get update -qq
     libxcb-xfixes0 \
     libxcb-shm0 \
     libxkbcommon0 \
+    libxkbcommon-x11-0 \
     libasound2t64 \
     libssl3 \
     # Additional GUI libraries
@@ -152,38 +153,48 @@ autostart=true
 autorestart=true
 user=root
 priority=100
+stdout_logfile=/var/log/dbus.log
+stderr_logfile=/var/log/dbus.err.log
 
 [program:xvfb]
-command=/usr/bin/Xvfb :%(ENV_DISPLAY_NUM)s -screen 0 %(ENV_DISPLAY_WIDTH)sx%(ENV_DISPLAY_HEIGHT)sx24 -ac -extension GLX +extension RANDR +extension RENDER
+command=/usr/bin/Xvfb :1 -screen 0 1920x1080x24 -ac -extension GLX +extension RANDR +extension RENDER
 autostart=true
 autorestart=true
 user=root
-environment=DISPLAY=":%(ENV_DISPLAY_NUM)s"
+environment=DISPLAY=":1"
 priority=200
+stdout_logfile=/var/log/xvfb.log
+stderr_logfile=/var/log/xvfb.err.log
 
 [program:window-manager]
 command=/usr/bin/openbox --config-file /etc/xdg/openbox/rc.xml
 autostart=true
 autorestart=true
 user=zed
-environment=HOME="/home/zed",USER="zed",DISPLAY=":%(ENV_DISPLAY_NUM)s"
+environment=HOME="/home/zed",USER="zed",DISPLAY=":1"
 priority=300
+stdout_logfile=/var/log/openbox.log
+stderr_logfile=/var/log/openbox.err.log
 
 [program:vnc-server]
-command=/usr/bin/x11vnc -display :%(ENV_DISPLAY_NUM)s -nopw -listen localhost -xkb -ncache 10 -ncache_cr -forever -shared
+command=/usr/bin/x11vnc -display :1 -nopw -listen localhost -xkb -ncache 10 -ncache_cr -forever -shared
 autostart=true
 autorestart=true
 user=root
-environment=DISPLAY=":%(ENV_DISPLAY_NUM)s"
+environment=DISPLAY=":1"
 priority=400
+stdout_logfile=/var/log/vnc.log
+stderr_logfile=/var/log/vnc.err.log
 
 [program:xrdp]
-command=/usr/sbin/xrdp -nodaemon -port %(ENV_RDP_PORT)s
+command=/usr/sbin/xrdp -nodaemon
 autostart=true
 autorestart=true
 user=root
-environment=DISPLAY=":%(ENV_DISPLAY_NUM)s"
+environment=DISPLAY=":1"
 priority=450
+stdout_logfile=/var/log/xrdp.log
+stderr_logfile=/var/log/xrdp.err.log
 
 [program:xrdp-sesman]
 command=/usr/sbin/xrdp-sesman --nodaemon
@@ -191,13 +202,15 @@ autostart=true
 autorestart=true
 user=root
 priority=460
+stdout_logfile=/var/log/xrdp-sesman.log
+stderr_logfile=/var/log/xrdp-sesman.err.log
 
-[program:helix-zed-agent-runner]
-command=/helix zed-agent-runner
+[program:helix-external-agent-runner]
+command=/helix external-agent-runner
 autostart=true
 autorestart=true
-stderr_logfile=/var/log/helix-zed-agent-runner.err.log
-stdout_logfile=/var/log/helix-zed-agent-runner.out.log
+stderr_logfile=/var/log/helix-external-agent-runner.err.log
+stdout_logfile=/var/log/helix-external-agent-runner.out.log
 user=root
 environment=HOME="/root",USER="root"
 priority=500
@@ -208,14 +221,9 @@ COPY <<EOF /setup-rdp-user.sh
 #!/bin/bash
 set -e
 
-# Set up RDP user with dynamic password
+# Set up RDP user with password
 RDP_USER="\${RDP_USER:-zed}"
-RDP_PASSWORD="\${RDP_PASSWORD:-}"
-
-if [ -z "\$RDP_PASSWORD" ]; then
-    echo "ERROR: RDP_PASSWORD environment variable must be set"
-    exit 1
-fi
+RDP_PASSWORD="\${RDP_PASSWORD:-zed123}"
 
 # Create or update user password
 echo "\$RDP_USER:\$RDP_PASSWORD" | chpasswd
@@ -224,10 +232,10 @@ echo "\$RDP_USER:\$RDP_PASSWORD" | chpasswd
 usermod -a -G video,audio,tty \$RDP_USER 2>/dev/null || true
 
 # Create XRDP session configuration for the user
-mkdir -p /home/\$RDP_USER/.xsession
+mkdir -p /home/\$RDP_USER
 cat > /home/\$RDP_USER/.xsession << 'XSESSION_EOF'
 #!/bin/bash
-export DISPLAY=:$DISPLAY_NUM
+export DISPLAY=:1
 export HOME=/home/zed
 export USER=zed
 exec openbox-session
@@ -236,28 +244,19 @@ XSESSION_EOF
 chmod +x /home/\$RDP_USER/.xsession
 chown \$RDP_USER:\$RDP_USER /home/\$RDP_USER/.xsession
 
-# Create XRDP configuration with dynamic port
+# Create basic XRDP configuration
 mkdir -p /etc/xrdp
-cat > /etc/xrdp/xrdp.ini << XRDP_EOF
+cat > /etc/xrdp/xrdp.ini << 'XRDP_EOF'
 [Globals]
-port=\${RDP_PORT:-3389}
+port=3389
 use_vsock=false
 tcp_nodelay=true
 tcp_keepalive=true
 security_layer=rdp
-certificate=
-key_file=
-ssl_protocols=TLSv1.2, TLSv1.3
 autorun=
 allow_channels=true
-allow_multimon=true
-bitmap_cache=true
-bitmap_compression=true
-bulk_compression=true
-hidelogwindow=true
 max_bpp=32
 new_cursors=true
-use_fastpath=both
 
 [Xvfb]
 name=Xvfb Session
@@ -268,6 +267,31 @@ ip=127.0.0.1
 port=-1
 code=20
 XRDP_EOF
+
+# Create basic sesman configuration
+cat > /etc/xrdp/sesman.ini << 'SESMAN_EOF'
+[Globals]
+ListenAddress=127.0.0.1
+ListenPort=3350
+EnableUserWindowManager=true
+UserWindowManager=openbox-session
+DefaultWindowManager=openbox-session
+
+[Sessions]
+X11DisplayOffset=10
+MaxSessions=50
+
+[Security]
+AllowRootLogin=true
+MaxLoginRetry=4
+
+[Xvnc]
+param1=-bs
+param2=-ac
+param3=-localhost
+param4=-dpi
+param5=96
+SESMAN_EOF
 
 echo "RDP user setup completed for \$RDP_USER"
 EOF
@@ -281,13 +305,7 @@ set -e
 
 echo "Starting Helix Zed Agent Runner with External WebSocket Thread Sync..."
 
-# Setup RDP authentication with dynamic password
-if [ -n "\$RDP_PASSWORD" ]; then
-    echo "Setting up RDP authentication..."
-    /setup-rdp-user.sh
-else
-    echo "WARNING: No RDP_PASSWORD provided, RDP access will not be available"
-fi
+
 
 # Ensure workspace directory exists and has correct permissions
 mkdir -p \${WORKSPACE_DIR:-/tmp/zed-workspaces}
@@ -300,9 +318,10 @@ if [ ! -f "/usr/local/bin/zed" ]; then
     exit 1
 fi
 
-# Test Zed binary
+# Test Zed binary as zed user
 echo "Testing Zed binary..."
-if ! /usr/local/bin/zed --version; then
+export ZED_ALLOW_ROOT=true
+if ! su -c "/usr/local/bin/zed --help > /dev/null" zed; then
     echo "ERROR: Zed binary failed to execute"
     exit 1
 fi
@@ -322,9 +341,24 @@ export DISPLAY_HEIGHT=\${DISPLAY_HEIGHT:-1080}
 export DISPLAY_NUM=\${DISPLAY_NUM:-1}
 export DISPLAY=:\${DISPLAY_NUM}
 
-# Start dbus
+# Ensure required directories exist
 mkdir -p /var/run/dbus
-dbus-daemon --system --fork || echo "dbus already running"
+mkdir -p /var/log
+mkdir -p /tmp/.X11-unix
+chmod 1777 /tmp/.X11-unix
+
+# Generate machine ID if it doesn't exist
+dbus-uuidgen --ensure=/etc/machine-id || echo "dbus-uuidgen failed, continuing..."
+
+# Setup RDP with environment variables
+if [ -n "\$RDP_PASSWORD" ]; then
+    echo "Setting up RDP authentication..."
+    /setup-rdp-user.sh
+else
+    echo "WARNING: No RDP_PASSWORD provided, using default"
+    export RDP_PASSWORD=zed123
+    /setup-rdp-user.sh
+fi
 
 echo "Starting supervisor with display :$DISPLAY_NUM (\${DISPLAY_WIDTH}x\${DISPLAY_HEIGHT})"
 
@@ -355,10 +389,10 @@ ENV DISPLAY=:1 \
 # Expose ports for external sync and remote access
 EXPOSE 3030 5900-5920 3389-3409 5901-5921
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD pgrep -f "helix zed-agent-runner" > /dev/null && \
-        curl -f http://localhost:3030/health > /dev/null 2>&1 || exit 1
+# Health check - temporarily disabled while debugging WebSocket connections
+# HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+#     CMD pgrep -f "helix external-agent-runner" > /dev/null && \
+#         curl -f http://localhost:3030/health > /dev/null 2>&1 || exit 1
 
 # Create test script for debugging
 COPY <<EOF /test-integration.sh
@@ -371,13 +405,13 @@ echo "2. Testing external sync API:"
 timeout 5 bash -c 'while ! curl -s http://localhost:3030/health; do sleep 1; done' || echo "API not ready yet"
 
 echo "3. Checking processes:"
-pgrep -af "helix\|zed\|supervisor"
+pgrep -af "helix\|external-agent\|supervisor"
 
 echo "4. Checking ports:"
 netstat -tlnp | grep -E ":3030|:5901"
 
 echo "5. Testing Zed with external sync (quick test):"
-RUST_LOG=external_websocket_sync=debug timeout 10 /usr/local/bin/zed --version || echo "Integration test completed"
+RUST_LOG=external_websocket_sync=debug timeout 10 /usr/local/bin/zed --help > /dev/null || echo "Integration test completed"
 EOF
 
 RUN chmod +x /test-integration.sh

@@ -320,6 +320,69 @@ func parseIntQuery(value string, defaultValue int) int {
 	return result
 }
 
+// updateSpecTask handles PUT /api/v1/spec-tasks/{taskId}
+// @Summary Update SpecTask
+// @Description Update SpecTask status, priority, or other fields
+// @Tags spec-driven-tasks
+// @Accept json
+// @Produce json
+// @Param taskId path string true "SpecTask ID"
+// @Param request body types.SpecTaskUpdateRequest true "Update request"
+// @Success 200 {object} types.SpecTask
+// @Failure 400 {object} types.APIError
+// @Failure 404 {object} types.APIError
+// @Failure 500 {object} types.APIError
+// @Router /api/v1/spec-tasks/{taskId} [put]
+// @Security BearerAuth
+func (s *HelixAPIServer) updateSpecTask(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	taskID := vars["taskId"]
+	if taskID == "" {
+		http.Error(w, "task ID is required", http.StatusBadRequest)
+		return
+	}
+
+	var updateReq types.SpecTaskUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&updateReq); err != nil {
+		log.Error().Err(err).Msg("Failed to decode SpecTask update request")
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Get existing task
+	task, err := s.Store.GetSpecTask(r.Context(), taskID)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to get SpecTask for update")
+		http.Error(w, "SpecTask not found", http.StatusNotFound)
+		return
+	}
+
+	// Update fields if provided
+	if updateReq.Status != "" {
+		task.Status = updateReq.Status
+	}
+	if updateReq.Priority != "" {
+		task.Priority = updateReq.Priority
+	}
+	if updateReq.Name != "" {
+		task.Name = updateReq.Name
+	}
+	if updateReq.Description != "" {
+		task.Description = updateReq.Description
+	}
+
+	// Update in store
+	err = s.Store.UpdateSpecTask(r.Context(), task)
+	if err != nil {
+		log.Error().Err(err).Str("task_id", taskID).Msg("Failed to update SpecTask")
+		http.Error(w, fmt.Sprintf("failed to update SpecTask: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(task)
+}
+
 func getSpecificationStatus(taskStatus string) string {
 	switch taskStatus {
 	case types.TaskStatusBacklog:

@@ -109,11 +109,12 @@ services:
         volumes:
             - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
             - ./scripts/postgres:/docker-entrypoint-initdb.d
+            - ./scripts/guacamole-initdb.sql:/docker-entrypoint-initdb.d/guacamole-initdb.sql
         environment:
             - POSTGRES_DB=postgres
             - POSTGRES_USER=postgres
             - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
-            - POSTGRES_DATABASES=keycloak
+            - POSTGRES_DATABASES=keycloak,guacamole_db
     # Example/test MCP server
     postgres-mcp:
         image: crystaldba/postgres-mcp:latest
@@ -223,21 +224,7 @@ services:
             - ./integration-test/data/smoke:/integration-test/data/smoke
         # ports:
         #   - 7317:7317
-    gptscript_runner:
-        build:
-            context: .
-            dockerfile: Dockerfile.gptscript
-        restart: always
-        environment:
-            - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-            - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-            - API_HOST=http://api:8080
-            - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
-            - GPTSCRIPT_PROVIDER_API_API_KEY=${RUNNER_TOKEN:-}
-            - CONCURRENCY=20 # number of tasks to run concurrently
-            - MAX_TASKS=0 # max number of tasks to run before exiting. Set to 0 to run forever
-        depends_on:
-            - api
+
 
     # Zed Agent Task Runner Pool (replaces gptscript runner entirely)
     # Scale with: docker-compose up --scale zed-runner=5
@@ -250,7 +237,7 @@ services:
         environment:
             # Control plane connection
             - API_HOST=http://api:8080
-            - API_TOKEN=${ZED_AGENT_RUNNER_TOKEN:-your-zed-agent-runner-token}
+            - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
             
             # Zed runner configuration - one session per container, then exit
             - CONCURRENCY=1
@@ -369,18 +356,6 @@ services:
             - "host.docker.internal:host-gateway"
 
     # Apache Guacamole for web-based RDP access
-    guacamole-db:
-        image: postgres:15
-        restart: always
-        environment:
-            - POSTGRES_DB=guacamole_db
-            - POSTGRES_USER=guacamole_user
-            - POSTGRES_PASSWORD=guacamole_pass
-        volumes:
-            - helix-guacamole-db:/var/lib/postgresql/data
-            # Initialize Guacamole database schema
-            - ./scripts/guacamole-initdb.sql:/docker-entrypoint-initdb.d/initdb.sql
-
     guacamole:
         image: guacamole/guacd:1.5.4
         restart: always
@@ -388,27 +363,27 @@ services:
         #   - 4822:4822
 
     guacamole-client:
-        image: guacamole/guacamole:1.5.4
+        image: guacamole/guacamole:1.5.5
         restart: always
         ports:
             - ${GUACAMOLE_PORT:-8090}:8080
         environment:
             - GUACD_HOSTNAME=guacamole
             - GUACD_PORT=4822
-            - POSTGRES_HOSTNAME=guacamole-db
+            - POSTGRES_HOSTNAME=postgres
             - POSTGRES_PORT=5432
             - POSTGRES_DATABASE=guacamole_db
-            - POSTGRES_USER=guacamole_user
-            - POSTGRES_PASSWORD=guacamole_pass
+            - POSTGRES_USER=postgres
+            - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+            - JAVA_OPTS=-Djava.awt.headless=true -Dcom.sun.management.jmxremote=false -XX:+UseContainerSupport -XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap
         depends_on:
-            - guacamole-db
+            - postgres
             - guacamole
 
 
 
 
 volumes:
-    helix-guacamole-db:
     helix-keycloak-db:
     helix-postgres-db:
     helix-pgvector-db:

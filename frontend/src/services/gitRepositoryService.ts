@@ -63,7 +63,7 @@ export function useSampleTypes() {
   return useQuery({
     queryKey: QUERY_KEYS.sampleTypes,
     queryFn: async () => {
-      const response = await api.getApiClient().v1GitRepositoriesSampleTypesList();
+      const response = await api.getApiClient().v1SpecsSampleTypesList();
       return response.data;
     },
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
@@ -127,7 +127,7 @@ export function useCreateSampleRepository() {
   
   return useMutation({
     mutationFn: async (request: any) => { // ServerCreateSampleRepositoryRequest
-      const response = await api.getApiClient().v1GitRepositoriesSampleCreate(request);
+      const response = await api.getApiClient().v1SamplesRepositoriesCreate(request);
       return response.data;
     },
     onSuccess: (_, variables) => {
@@ -145,7 +145,7 @@ export function useCreateSpecTaskRepository() {
   
   return useMutation({
     mutationFn: async (request: any) => { // ServerCreateSpecTaskRepositoryRequest
-      const response = await api.getApiClient().v1GitRepositoriesSpecTaskCreate(request);
+      const response = await api.getApiClient().v1SpecsRepositoriesCreate(request);
       return response.data;
     },
     onSuccess: (_, variables) => {
@@ -163,7 +163,7 @@ export function useInitializeSampleRepositories() {
   
   return useMutation({
     mutationFn: async (request: any) => { // ServerInitializeSampleRepositoriesRequest
-      const response = await api.getApiClient().v1GitRepositoriesInitializeSamplesCreate(request);
+      const response = await api.getApiClient().v1SamplesInitializeCreate(request);
       return response.data;
     },
     onSuccess: (_, variables) => {

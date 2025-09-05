@@ -10,6 +10,20 @@ definitions:
       model_id:
         type: string
     type: object
+  github_com_helixml_helix_api_pkg_types.AgentType:
+    enum:
+    - helix_basic
+    - helix_agent
+    - zed_external
+    type: string
+    x-enum-comments:
+      AgentTypeHelixAgent: Standard Helix agent with skills
+      AgentTypeHelixBasic: Basic Helix agent
+      AgentTypeZedExternal: Zed-integrated agent
+    x-enum-varnames:
+    - AgentTypeHelixBasic
+    - AgentTypeHelixAgent
+    - AgentTypeZedExternal
   github_com_helixml_helix_api_pkg_types.Config:
     properties:
       rules:
@@ -1746,6 +1760,41 @@ definitions:
       work_queue_stats:
         $ref: '#/definitions/types.AgentWorkQueueStats'
     type: object
+  types.AgentFleetSummary:
+    properties:
+      active_help_requests:
+        items:
+          $ref: '#/definitions/types.HelpRequest'
+        type: array
+      active_sessions:
+        items:
+          $ref: '#/definitions/types.AgentSessionStatus'
+        type: array
+      last_updated:
+        type: string
+      pending_reviews:
+        items:
+          $ref: '#/definitions/types.JobCompletion'
+        type: array
+      pending_work:
+        items:
+          $ref: '#/definitions/types.AgentWorkItem'
+        type: array
+      recent_completions:
+        items:
+          $ref: '#/definitions/types.JobCompletion'
+        type: array
+      running_work:
+        items:
+          $ref: '#/definitions/types.AgentWorkItem'
+        type: array
+      sessions_needing_help:
+        items:
+          $ref: '#/definitions/types.AgentSessionStatus'
+        type: array
+      work_queue_stats:
+        $ref: '#/definitions/types.AgentWorkQueueStats'
+    type: object
   types.AgentSessionStatus:
     properties:
       agent_type:
@@ -2182,8 +2231,16 @@ definitions:
         type: string
       avatar_content_type:
         type: string
+      default_agent_type:
+        allOf:
+        - $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.AgentType'
+        description: Agent configuration
       description:
         type: string
+      external_agent_config:
+        $ref: '#/definitions/types.ExternalAgentConfig'
+      external_agent_enabled:
+        type: boolean
       external_url:
         type: string
       image:
@@ -2274,8 +2331,13 @@ definitions:
   types.AssistantConfig:
     properties:
       agent_mode:
-        description: AgentMode triggers the use of the agent loop
+        description: AgentMode triggers the use of the agent loop (deprecated - use
+          AgentType instead)
         type: boolean
+      agent_type:
+        allOf:
+        - $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.AgentType'
+        description: AgentType specifies the type of agent to use
       apis:
         items:
           $ref: '#/definitions/types.AssistantAPI'
@@ -5285,6 +5347,17 @@ definitions:
       spec_task:
         $ref: '#/definitions/types.SpecTask'
     type: object
+  types.SpecTaskUpdateRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      priority:
+        type: string
+      status:
+        type: string
+    type: object
   types.SpecTaskWorkSession:
     properties:
       agent_config:
@@ -6200,6 +6273,20 @@ info:
     altText: Helix logo
     url: https://avatars.githubusercontent.com/u/149581110?s=200&v=4
 paths:
+  /api/v1/agents/fleet:
+    get:
+      description: Get agent fleet data including active sessions, work queue, and
+        help requests without dashboard data
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.AgentFleetSummary'
+      security:
+      - BearerAuth: []
+      summary: Get agent fleet data
+      tags:
+      - agents
   /api/v1/agents/help-requests:
     get:
       description: List help requests from agents needing human assistance
@@ -7213,121 +7300,6 @@ paths:
       security:
       - BearerAuth: []
       summary: Get clone command
-      tags:
-      - git-repositories
-  /api/v1/git/repositories/initialize-samples:
-    post:
-      consumes:
-      - application/json
-      description: Create default sample repositories for demos and testing
-      parameters:
-      - description: Initialize request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/server.InitializeSampleRepositoriesRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.InitializeSampleRepositoriesResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - BearerAuth: []
-      summary: Initialize sample repositories
-      tags:
-      - git-repositories
-  /api/v1/git/repositories/sample:
-    post:
-      consumes:
-      - application/json
-      description: Create a sample/demo git repository from available templates
-      parameters:
-      - description: Sample repository creation request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/server.CreateSampleRepositoryRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/services.GitRepository'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - BearerAuth: []
-      summary: Create sample repository
-      tags:
-      - git-repositories
-  /api/v1/git/repositories/sample-types:
-    get:
-      description: Get list of available sample repository types and templates
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/server.SampleTypesResponse'
-      security:
-      - BearerAuth: []
-      summary: Get sample repository types
-      tags:
-      - git-repositories
-  /api/v1/git/repositories/spec-task:
-    post:
-      consumes:
-      - application/json
-      description: Create a git repository specifically for a SpecTask
-      parameters:
-      - description: SpecTask repository creation request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/server.CreateSpecTaskRepositoryRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/services.GitRepository'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/types.APIError'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/types.APIError'
-      security:
-      - BearerAuth: []
-      summary: Create SpecTask repository
       tags:
       - git-repositories
   /api/v1/helix-models:
@@ -8579,6 +8551,74 @@ paths:
       summary: Fork a simple sample project
       tags:
       - sample-projects
+  /api/v1/samples/initialize:
+    post:
+      consumes:
+      - application/json
+      description: Create multiple sample repositories for development/testing
+      parameters:
+      - description: Initialize samples request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.InitializeSampleRepositoriesRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/server.InitializeSampleRepositoriesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Initialize sample repositories
+      tags:
+      - samples
+  /api/v1/samples/repositories:
+    post:
+      consumes:
+      - application/json
+      description: Create a sample/demo git repository from available templates
+      parameters:
+      - description: Sample repository creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.CreateSampleRepositoryRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/services.GitRepository'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create sample repository
+      tags:
+      - samples
   /api/v1/scheduler/heartbeats:
     get:
       description: Get the health status of all scheduler goroutines
@@ -9040,6 +9080,46 @@ paths:
           schema:
             $ref: '#/definitions/types.APIError'
       summary: Get spec-driven task details
+      tags:
+      - spec-driven-tasks
+    put:
+      consumes:
+      - application/json
+      description: Update SpecTask status, priority, or other fields
+      parameters:
+      - description: SpecTask ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SpecTaskUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.SpecTask'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Update SpecTask
       tags:
       - spec-driven-tasks
   /api/v1/spec-tasks/{taskId}/approve-specs:
@@ -9712,6 +9792,57 @@ paths:
       summary: Create spec-driven task from simple prompt
       tags:
       - spec-driven-tasks
+  /api/v1/specs/repositories:
+    post:
+      consumes:
+      - application/json
+      description: Create a git repository specifically for a SpecTask
+      parameters:
+      - description: SpecTask repository creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/server.CreateSpecTaskRepositoryRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/services.GitRepository'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/types.APIError'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/types.APIError'
+      security:
+      - BearerAuth: []
+      summary: Create SpecTask repository
+      tags:
+      - specs
+  /api/v1/specs/sample-types:
+    get:
+      description: Get list of available sample repository types and templates
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.SampleTypesResponse'
+      security:
+      - BearerAuth: []
+      summary: Get sample repository types
+      tags:
+      - specs
   /api/v1/subscription/manage:
     post:
       description: Manage a subscription

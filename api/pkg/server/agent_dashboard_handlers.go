@@ -40,17 +40,23 @@ func (s *HelixAPIServer) getAgentDashboard(_ http.ResponseWriter, r *http.Reques
 		PageSize:   100,
 		ActiveOnly: true,
 	}
-	sessionsResponse, err := s.Store.ListAgentSessions(ctx, sessionsQuery)
+	sessionsResponse, err := s.Store.ListAgentSessionStatus(ctx, sessionsQuery)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get active sessions")
 		return nil, system.NewHTTPError500("failed to get active sessions")
 	}
 
 	// Get sessions needing help
-	sessionsNeedingHelp, err := s.Store.GetSessionsNeedingHelp(ctx)
+	sessionsNeedingHelpQuery := &store.ListAgentSessionsQuery{
+		Page:       0,
+		PageSize:   50,
+		Status:     "waiting_for_help",
+		ActiveOnly: false,
+	}
+	sessionsNeedingHelpResponse, err := s.Store.ListAgentSessionStatus(ctx, sessionsNeedingHelpQuery)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to get sessions needing help")
-		sessionsNeedingHelp = []*types.AgentSession{}
+		sessionsNeedingHelpResponse = &types.AgentSessionsResponse{Sessions: []*types.AgentSessionStatus{}}
 	}
 
 	// Get pending work
@@ -112,48 +118,127 @@ func (s *HelixAPIServer) getAgentDashboard(_ http.ResponseWriter, r *http.Reques
 	}
 
 	// Convert AgentSession to AgentSessionStatus for summary
-	activeSessions := make([]*types.AgentSessionStatus, len(sessionsResponse.Sessions))
-	for i, session := range sessionsResponse.Sessions {
-		activeSessions[i] = &types.AgentSessionStatus{
-			ID:           session.ID,
-			SessionID:    session.SessionID,
-			AgentType:    session.AgentType,
-			Status:       session.Status,
-			CurrentTask:  session.CurrentTask,
-			UserID:       session.UserID,
-			AppID:        session.AppID,
-			ProcessID:    session.ProcessID,
-			ContainerID:  session.ContainerID,
-			HealthStatus: session.HealthStatus,
-			CreatedAt:    session.CreatedAt,
-			UpdatedAt:    session.UpdatedAt,
-			LastActivity: session.LastActivity,
-			CompletedAt:  session.CompletedAt,
-		}
-	}
-
-	sessionsNeedingHelpStatus := make([]*types.AgentSessionStatus, len(sessionsNeedingHelp))
-	for i, session := range sessionsNeedingHelp {
-		sessionsNeedingHelpStatus[i] = &types.AgentSessionStatus{
-			ID:           session.ID,
-			SessionID:    session.SessionID,
-			AgentType:    session.AgentType,
-			Status:       session.Status,
-			CurrentTask:  session.CurrentTask,
-			UserID:       session.UserID,
-			AppID:        session.AppID,
-			ProcessID:    session.ProcessID,
-			ContainerID:  session.ContainerID,
-			HealthStatus: session.HealthStatus,
-			CreatedAt:    session.CreatedAt,
-			UpdatedAt:    session.UpdatedAt,
-			LastActivity: session.LastActivity,
-			CompletedAt:  session.CompletedAt,
-		}
-	}
+	// Use AgentSessionStatus directly since we're now querying the correct table
+	activeSessions := sessionsResponse.Sessions
+	sessionsNeedingHelpStatus := sessionsNeedingHelpResponse.Sessions
 
 	return &types.AgentDashboardSummary{
 		DashboardData:       baseDashboard,
+		ActiveSessions:      activeSessions,
+		SessionsNeedingHelp: sessionsNeedingHelpStatus,
+		PendingWork:         pendingWorkResponse.WorkItems,
+		RunningWork:         runningWorkResponse.WorkItems,
+		RecentCompletions:   recentCompletions,
+		PendingReviews:      pendingReviews,
+		ActiveHelpRequests:  activeHelpRequests,
+		WorkQueueStats:      workQueueStats,
+		LastUpdated:         time.Now(),
+	}, nil
+}
+
+// getAgentFleet godoc
+// @Summary Get agent fleet data
+// @Description Get agent fleet data including active sessions, work queue, and help requests without dashboard data
+// @Tags    agents
+// @Success 200 {object} types.AgentFleetSummary
+// @Router /api/v1/agents/fleet [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getAgentFleet(_ http.ResponseWriter, r *http.Request) (*types.AgentFleetSummary, *system.HTTPError) {
+	ctx := r.Context()
+	user := getRequestUser(r)
+	if user == nil {
+		return nil, system.NewHTTPError401("unauthorized")
+	}
+
+	// Get active sessions
+	sessionsQuery := &store.ListAgentSessionsQuery{
+		Page:       0,
+		PageSize:   100,
+		ActiveOnly: true,
+	}
+	sessionsResponse, err := s.Store.ListAgentSessionStatus(ctx, sessionsQuery)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to get active sessions")
+		return nil, system.NewHTTPError500("failed to get active sessions")
+	}
+
+	// Get sessions needing help
+	sessionsNeedingHelpQuery := &store.ListAgentSessionsQuery{
+		Page:       0,
+		PageSize:   50,
+		Status:     "waiting_for_help",
+		ActiveOnly: false,
+	}
+	sessionsNeedingHelpResponse, err := s.Store.ListAgentSessionStatus(ctx, sessionsNeedingHelpQuery)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to get sessions needing help")
+		sessionsNeedingHelpResponse = &types.AgentSessionsResponse{Sessions: []*types.AgentSessionStatus{}}
+	}
+
+	// Get pending work
+	pendingWorkQuery := &store.ListAgentWorkItemsQuery{
+		Page:     0,
+		PageSize: 50,
+		Status:   "pending",
+		OrderBy:  "priority ASC, created_at ASC",
+	}
+	pendingWorkResponse, err := s.Store.ListAgentWorkItems(ctx, pendingWorkQuery)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to get pending work")
+		pendingWorkResponse = &types.AgentWorkItemsListResponse{WorkItems: []*types.AgentWorkItem{}}
+	}
+
+	// Get running work
+	runningWorkQuery := &store.ListAgentWorkItemsQuery{
+		Page:     0,
+		PageSize: 50,
+		Status:   "in_progress",
+		OrderBy:  "started_at DESC",
+	}
+	runningWorkResponse, err := s.Store.ListAgentWorkItems(ctx, runningWorkQuery)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to get running work")
+		runningWorkResponse = &types.AgentWorkItemsListResponse{WorkItems: []*types.AgentWorkItem{}}
+	}
+
+	// Get recent completions
+	recentCompletions, err := s.Store.GetRecentCompletions(ctx, 20)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to get recent completions")
+		recentCompletions = []*types.JobCompletion{}
+	}
+
+	// Get pending reviews
+	pendingReviews, err := s.Store.GetPendingReviews(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to get pending reviews")
+		pendingReviews = []*types.JobCompletion{}
+	}
+
+	// Get active help requests
+	activeHelpRequests, err := s.Store.ListActiveHelpRequests(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to get active help requests")
+		activeHelpRequests = []*types.HelpRequest{}
+	}
+
+	// Get work queue stats
+	workQueueStats, err := s.Store.GetAgentWorkQueueStats(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to get work queue stats")
+		workQueueStats = &types.AgentWorkQueueStats{
+			ByAgentType: make(map[string]int),
+			BySource:    make(map[string]int),
+			ByPriority:  make(map[string]int),
+		}
+	}
+
+	// Use AgentSessionStatus directly since we're now querying the correct table
+	activeSessions := sessionsResponse.Sessions
+
+	sessionsNeedingHelpStatus := sessionsNeedingHelpResponse.Sessions
+
+	return &types.AgentFleetSummary{
 		ActiveSessions:      activeSessions,
 		SessionsNeedingHelp: sessionsNeedingHelpStatus,
 		PendingWork:         pendingWorkResponse.WorkItems,
