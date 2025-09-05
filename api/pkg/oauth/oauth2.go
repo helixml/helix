@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -263,6 +264,9 @@ func (p *OAuth2Provider) getUserInfo(ctx context.Context, token *oauth2.Token) (
 		return nil, errors.New("user info URL not specified")
 	}
 
+	// If URL contains the token, replace it
+	userInfoURL = strings.Replace(userInfoURL, "{token}", token.AccessToken, 1)
+
 	resp, err := client.Get(userInfoURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user info: %w", err)
@@ -277,6 +281,12 @@ func (p *OAuth2Provider) getUserInfo(ctx context.Context, token *oauth2.Token) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to read user info response: %w", err)
 	}
+
+	if strings.Contains(userInfoURL, "https://api.hubapi.com") {
+		return p.parseHubSpotUserInfo(body)
+	}
+
+	// Standard providers
 
 	// Try to parse as JSON
 	var data map[string]interface{}
