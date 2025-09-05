@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/agent"
+	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/helixml/helix/api/pkg/util/jsonschema"
 
@@ -14,11 +15,11 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
-func NewDirectMCPClientSkills(tool *types.Tool) []agent.Skill {
+func NewDirectMCPClientSkills(oauthManager *oauth.Manager, tool *types.Tool) []agent.Skill {
 	var skills []agent.Skill
 
 	for _, mcpTool := range tool.Config.MCP.Tools {
-		tool, err := newMCPTool(tool.Config.MCP, mcpTool)
+		tool, err := newMCPTool(oauthManager, tool.Config.MCP, mcpTool)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to create MCP tool")
 			continue
@@ -36,16 +37,18 @@ func NewDirectMCPClientSkills(tool *types.Tool) []agent.Skill {
 	return skills
 }
 
-func newMCPTool(cfg *types.ToolMCPClientConfig, mcpTool mcp.Tool) (*MCPClientTool, error) {
+func newMCPTool(oauthManager *oauth.Manager, cfg *types.ToolMCPClientConfig, mcpTool mcp.Tool) (*MCPClientTool, error) {
 	return &MCPClientTool{
-		cfg:     cfg,
-		mcpTool: mcpTool,
+		oauthManager: oauthManager,
+		cfg:          cfg,
+		mcpTool:      mcpTool,
 	}, nil
 }
 
 type MCPClientTool struct { //nolint:revive
-	cfg     *types.ToolMCPClientConfig
-	mcpTool mcp.Tool // Parsed configuration from the MCP server
+	oauthManager *oauth.Manager
+	cfg          *types.ToolMCPClientConfig
+	mcpTool      mcp.Tool // Parsed configuration from the MCP server
 }
 
 func (t *MCPClientTool) Name() string {
@@ -56,8 +59,8 @@ func (t *MCPClientTool) Description() string {
 	return t.mcpTool.Description
 }
 
-func (t *MCPClientTool) Execute(ctx context.Context, _ agent.Meta, args map[string]any) (string, error) {
-	client, err := newMcpClient(ctx, &types.AssistantMCP{
+func (t *MCPClientTool) Execute(ctx context.Context, meta agent.Meta, args map[string]any) (string, error) {
+	client, err := newMcpClient(ctx, meta, t.oauthManager, &types.AssistantMCP{
 		URL:     t.cfg.URL,
 		Headers: t.cfg.Headers,
 	})
