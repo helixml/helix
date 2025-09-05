@@ -5,26 +5,44 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/helixml/helix/api/pkg/agent"
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/oauth"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-func newMcpClient(ctx context.Context, cfg *types.AssistantMCP) (*client.Client, error) {
+func newMcpClient(ctx context.Context, meta agent.Meta, oauthManager *oauth.Manager, cfg *types.AssistantMCP) (*client.Client, error) {
 	var t transport.Interface
+
+	if cfg.Headers == nil {
+		cfg.Headers = make(map[string]string)
+	}
+
+	if cfg.OAuthProvider != "" && cfg.Headers["Authorization"] == "" {
+		// Get the token
+		token, err := oauthManager.GetTokenForApp(ctx, meta.UserID, cfg.OAuthProvider)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get token for app: %w", err)
+		}
+		// Set bearer token
+		cfg.Headers["Authorization"] = fmt.Sprintf("Bearer %s", token)
+	}
 
 	switch {
 	case strings.HasSuffix(cfg.URL, "sse"):
 		sse, err := transport.NewSSE(
 			cfg.URL,
+			transport.WithHeaders(cfg.Headers),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create SSE transport: %w", err)
 		}
 		t = sse
 	default:
+		fmt.Println("XXX SETTING HEADERS", cfg.Headers)
 		httpTransport, err := transport.NewStreamableHTTP(
 			cfg.URL,
 			transport.WithHTTPHeaders(cfg.Headers),
@@ -66,8 +84,8 @@ func newMcpClient(ctx context.Context, cfg *types.AssistantMCP) (*client.Client,
 	return mcpClient, nil
 }
 
-func InitializeMCPClientSkill(ctx context.Context, cfg *types.AssistantMCP) (*types.ToolMCPClientConfig, error) {
-	mcpClient, err := newMcpClient(ctx, cfg)
+func InitializeMCPClientSkill(ctx context.Context, meta agent.Meta, oauthManager *oauth.Manager, cfg *types.AssistantMCP) (*types.ToolMCPClientConfig, error) {
+	mcpClient, err := newMcpClient(ctx, meta, oauthManager, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MCP client: %w", err)
 	}
