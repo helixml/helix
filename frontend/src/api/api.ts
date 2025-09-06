@@ -3039,6 +3039,29 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
+     * No description
+     *
+     * @name V1AppsDuplicateCreate
+     * @request POST:/api/v1/apps/{id}/duplicate
+     * @secure
+     */
+    v1AppsDuplicateCreate: (
+      id: string,
+      query?: {
+        /** Optional new name for the app */
+        name?: string;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<void, any>({
+        path: `/api/v1/apps/${id}/duplicate`,
+        method: "POST",
+        query: query,
+        secure: true,
+        ...params,
+      }),
+
+    /**
      * @description List interactions with pagination and optional session filtering for a specific app
      *
      * @tags interactions
