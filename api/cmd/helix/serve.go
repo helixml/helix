@@ -439,8 +439,12 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	// Create the OAuth manager
 	oauthManager := oauth.NewManager(postgresStore)
-	if err := oauthManager.LoadProviders(ctx); err != nil {
+	err = oauthManager.LoadProviders(ctx)
+	if err != nil {
 		log.Error().Err(err).Msg("failed to load oauth providers")
+	} else {
+		// Start the OAuth manager
+		oauthManager.Start(ctx)
 	}
 
 	// Update controller options with the OAuth manager
