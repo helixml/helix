@@ -1960,3 +1960,45 @@ func (s *HelixAPIServer) extractZipFile(ctx context.Context, file *zip.File, bas
 
 	return nil
 }
+
+// duplicateApp godoc
+// @Summary Duplicate app
+// @Description duplicate app.
+// @Tags    apps
+
+// @Success 200
+// @Param id path string true "App ID"
+// @Param name query string false "Optional new name for the app"
+// @Router /api/v1/apps/{id}/duplicate [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) duplicateApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
+	user := getRequestUser(r)
+	id := getID(r)
+
+	app, err := s.Store.GetApp(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	err = s.authorizeUserToApp(r.Context(), user, app, types.ActionGet)
+	if err != nil {
+		return nil, system.NewHTTPError403(err.Error())
+	}
+
+	app.ID = system.GenerateAppID()
+	app.Owner = user.ID
+	app.OwnerType = user.Type
+	app.Updated = time.Now()
+
+	app.Config.Helix.Name = r.URL.Query().Get("name")
+
+	app, err = s.Store.CreateApp(r.Context(), app)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return app, nil
+}
