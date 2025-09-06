@@ -19,25 +19,30 @@ import (
 func newMcpClient(ctx context.Context, meta agent.Meta, oauthManager *oauth.Manager, cfg *types.AssistantMCP) (*client.Client, error) {
 	var t transport.Interface
 
-	if cfg.Headers == nil {
-		cfg.Headers = make(map[string]string)
+	// Copy the headers without changing the original map
+	headers := make(map[string]string)
+
+	if cfg.Headers != nil {
+		for k, v := range cfg.Headers {
+			headers[k] = v
+		}
 	}
 
-	if cfg.OAuthProvider != "" && cfg.Headers["Authorization"] == "" {
+	if cfg.OAuthProvider != "" && headers["Authorization"] == "" {
 		// Get the token
 		token, err := oauthManager.GetTokenForApp(ctx, meta.UserID, cfg.OAuthProvider)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get token for app: %w", err)
 		}
 		// Set bearer token
-		cfg.Headers["Authorization"] = fmt.Sprintf("Bearer %s", token)
+		headers["Authorization"] = fmt.Sprintf("Bearer %s", token)
 	}
 
 	switch {
 	case strings.HasSuffix(cfg.URL, "sse"):
 		sse, err := transport.NewSSE(
 			cfg.URL,
-			transport.WithHeaders(cfg.Headers),
+			transport.WithHeaders(headers),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create SSE transport: %w", err)
@@ -46,7 +51,7 @@ func newMcpClient(ctx context.Context, meta agent.Meta, oauthManager *oauth.Mana
 	default:
 		httpTransport, err := transport.NewStreamableHTTP(
 			cfg.URL,
-			transport.WithHTTPHeaders(cfg.Headers),
+			transport.WithHTTPHeaders(headers),
 			transport.WithHTTPTimeout(60*time.Second),
 			// Passing default client so that we don't need to close it
 			transport.WithHTTPBasicClient(http.DefaultClient),

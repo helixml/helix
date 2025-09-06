@@ -61,8 +61,10 @@ func (t *MCPClientTool) Description() string {
 
 func (t *MCPClientTool) Execute(ctx context.Context, meta agent.Meta, args map[string]any) (string, error) {
 	client, err := newMcpClient(ctx, meta, t.oauthManager, &types.AssistantMCP{
-		URL:     t.cfg.URL,
-		Headers: t.cfg.Headers,
+		URL:           t.cfg.URL,
+		Headers:       t.cfg.Headers,
+		OAuthProvider: t.cfg.OAuthProvider,
+		OAuthScopes:   t.cfg.OAuthScopes,
 	})
 	if err != nil {
 		return "", err
