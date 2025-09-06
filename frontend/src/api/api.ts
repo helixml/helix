@@ -863,6 +863,7 @@ export interface TypesAssistantMCP {
   oauth_provider?: string;
   /** Required OAuth scopes for this API */
   oauth_scopes?: string[];
+  tools?: McpTool[];
   url?: string;
 }
 
